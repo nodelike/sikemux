@@ -1,5 +1,6 @@
 use std::env;
 use std::fs;
+#[cfg(unix)]
 use std::io;
 use std::path::{Path, PathBuf};
 
@@ -315,11 +316,10 @@ fn install_for(executable: &Path) -> AppResult<()> {
     Ok(())
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 mod tests {
     use super::*;
 
-    #[cfg(unix)]
     #[test]
     fn classifies_only_matching_symlinks_as_installed() {
         use std::os::unix::fs::symlink;
@@ -345,7 +345,6 @@ mod tests {
         );
     }
 
-    #[cfg(unix)]
     #[test]
     fn install_is_idempotent_and_refuses_collisions() {
         let temporary = tempfile::tempdir().unwrap();
