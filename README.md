@@ -81,6 +81,19 @@ Open your [Bruno](https://www.usebruno.com/) collections as first-class sessions
 
 Connect to SSH hosts (`⌥⇧S`) or open scratch command shells (`⌥S`) as their own multiplexed sessions.
 
+### ⌨️ Command-line editor integration
+
+Packaged builds include a native `sikemux` CLI that hands files and project directories to the running app. It supports editor-style line and column locations plus `--wait`, so tools such as Git can pause until the opened tab is closed. Install the launchers from **Settings → CLI**; Sikemux refuses to replace unrelated files and never edits your shell startup files.
+
+```bash
+sikemux .
+sikemux src/App.tsx:42:5
+sikemux open --wait README.md
+EDITOR=sikemux-editor git commit
+```
+
+Sikemux-owned terminals identify themselves with `TERM_PROGRAM=Sikemux`, `SIKEMUX=1`, the app version, and typed session/project/pane or agent context. When neither `EDITOR` nor `VISUAL` is already configured, both point to the bundled wait-enabled editor CLI; existing user choices are preserved.
+
 ### 🎨 Themes & chrome
 
 - **9 built-in themes** — Aura, Ayu Dark, Tokyo Night, Catppuccin Mocha, Dracula, Gruvbox Dark, Nord, One Dark, Solarized Dark.

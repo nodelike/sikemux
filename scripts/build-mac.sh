@@ -26,6 +26,7 @@ for ((i = 0; i < ${#args[@]}; i++)); do
 done
 
 BUILD_ARGS=("$@")
+BUILD_ARGS+=(--config "$ROOT/src-tauri/tauri.sidecar.conf.json")
 # Normal developer builds do not have the updater private key, so avoid asking
 # Tauri to create an updater archive it cannot sign.
 if [[ -z "${TAURI_SIGNING_PRIVATE_KEY:-}" ]]; then
@@ -38,6 +39,11 @@ if [[ "${REQUIRE_SIGNED_APP:-0}" != "1" && -z "${APPLE_SIGNING_IDENTITY:-}" ]]; 
 fi
 
 "$ROOT/scripts/icons.sh"
+if [[ -n "$TARGET" ]]; then
+  node "$ROOT/scripts/build-cli-sidecar.mjs" --target "$TARGET"
+else
+  node "$ROOT/scripts/build-cli-sidecar.mjs"
+fi
 printf '→ pnpm tauri build'
 if ((${#BUILD_ARGS[@]})); then
   printf ' %q' "${BUILD_ARGS[@]}"
@@ -79,6 +85,10 @@ EXECUTABLE="$APP_PATH/Contents/MacOS/$EXECUTABLE_NAME"
 [[ -x "$EXECUTABLE" ]] || fail "bundle executable is missing or not executable"
 ARCHS="$(/usr/bin/lipo -archs "$EXECUTABLE")"
 [[ -n "$ARCHS" ]] || fail "could not determine executable architecture"
+CLI_EXECUTABLE="$APP_PATH/Contents/MacOS/sikemux-editor"
+[[ -x "$CLI_EXECUTABLE" ]] || fail "bundled CLI sidecar is missing or not executable"
+CLI_ARCHS="$(/usr/bin/lipo -archs "$CLI_EXECUTABLE")"
+[[ "$CLI_ARCHS" == "$ARCHS" ]] || fail "CLI sidecar architecture ($CLI_ARCHS) differs from app ($ARCHS)"
 
 # Packaged apps must never depend on libraries from the build machine's
 # Homebrew/MacPorts installation. Such binaries pass codesign verification but
@@ -87,6 +97,11 @@ DYNAMIC_LIBS="$(/usr/bin/otool -L "$EXECUTABLE")"
 if grep -Eq '^[[:space:]]+(/opt/homebrew|/usr/local|/opt/local)/' <<<"$DYNAMIC_LIBS"; then
   echo "$DYNAMIC_LIBS" >&2
   fail "bundle executable links to a package-manager library"
+fi
+CLI_DYNAMIC_LIBS="$(/usr/bin/otool -L "$CLI_EXECUTABLE")"
+if grep -Eq '^[[:space:]]+(/opt/homebrew|/usr/local|/opt/local)/' <<<"$CLI_DYNAMIC_LIBS"; then
+  echo "$CLI_DYNAMIC_LIBS" >&2
+  fail "CLI sidecar links to a package-manager library"
 fi
 
 # Every normal build is ad-hoc signed when no Apple identity is configured.
@@ -112,3 +127,4 @@ echo "✓ Verified macOS bundle"
 echo "  app: $APP_PATH"
 echo "  version: $APP_VERSION"
 echo "  architectures: $ARCHS"
+echo "  cli: $CLI_EXECUTABLE ($CLI_ARCHS)"

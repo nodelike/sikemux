@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { KeyboardEvent as ReactKeyboardEvent, ReactNode } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import {
     eventToKeybinding,
     findKeybindingConflict,
@@ -23,7 +24,7 @@ import type { CommandContext, CustomCommand, CustomCommandPlacement } from "../c
 import { requestAgentNotificationPermission } from "./AgentNotifications";
 import type { AgentType } from "../state/types";
 
-type Page = "general" | "appearance" | "keybindings" | "commands" | "agents" | "notifications" | "cloud" | "about";
+type Page = "general" | "appearance" | "keybindings" | "commands" | "agents" | "notifications" | "cli" | "cloud" | "about";
 
 const PAGES: { id: Page; name: string; detail: string }[] = [
     { id: "general", name: "General", detail: "Projects and discovery" },
@@ -32,6 +33,7 @@ const PAGES: { id: Page; name: string; detail: string }[] = [
     { id: "commands", name: "Command deck", detail: "Your contextual actions" },
     { id: "agents", name: "Agents", detail: "Restore and status behavior" },
     { id: "notifications", name: "Notifications", detail: "Attention without noise" },
+    { id: "cli", name: "CLI", detail: "Shell and editor integration" },
     { id: "cloud", name: "Cloud", detail: "Sign-in workspace" },
     { id: "about", name: "About", detail: "Updates and diagnostics" },
 ];
@@ -129,6 +131,8 @@ export function SettingsPanel() {
                         {page === "agents" && <AgentsPage />}
 
                         {page === "notifications" && <NotificationsPage />}
+
+                        {page === "cli" && <CliPage />}
 
                         {page === "cloud" && <CloudPage cloudBrowser={cloudBrowser} cloudBrowserShortcut={cloudBrowserShortcut} />}
 
@@ -426,6 +430,97 @@ function NotificationsPage() {
                         />
                     );
                 })}
+            </SettingsSection>
+        </SettingsPage>
+    );
+}
+
+type CliInstallState = "unavailable" | "notInstalled" | "installed" | "outdated" | "conflict";
+
+interface CliInstallStatus {
+    state: CliInstallState;
+    installDir: string;
+    cliPath: string;
+    editorPath: string;
+    executable: string | null;
+    pathConfigured: boolean;
+    message: string;
+}
+
+function CliPage() {
+    const [status, setStatus] = useState<CliInstallStatus | null>(null);
+    const [busy, setBusy] = useState(false);
+    const refresh = useCallback(() => invoke<CliInstallStatus>("cli_install_status").then(setStatus).catch(reportError("CLI status")), []);
+
+    useEffect(() => {
+        refresh();
+    }, [refresh]);
+
+    const install = async () => {
+        setBusy(true);
+        try {
+            const next = await invoke<CliInstallStatus>("cli_install");
+            setStatus(next);
+            notify("success", next.pathConfigured ? "Sikemux CLI is ready" : "Sikemux CLI installed; add its directory to PATH");
+        } catch (error) {
+            reportError("CLI install")(error);
+            await invoke<CliInstallStatus>("cli_install_status")
+                .then(setStatus)
+                .catch(() => undefined);
+        } finally {
+            setBusy(false);
+        }
+    };
+
+    const stateLabel = status?.state.replace(/[A-Z]/g, (letter) => ` ${letter.toLowerCase()}`) ?? "checking";
+    const installDisabled = !status || busy || status.state === "installed" || status.state === "unavailable" || status.state === "conflict";
+    const buttonLabel = busy
+        ? "Installing…"
+        : status?.state === "outdated"
+          ? "Update CLI"
+          : status?.state === "installed"
+            ? "Installed"
+            : "Install CLI";
+
+    return (
+        <SettingsPage name="command line" deck="Open files and projects in the running Sikemux app, with editor-style wait semantics.">
+            <SettingsSection title="Shell integration" meta={stateLabel} sub={status?.message ?? "Checking the packaged command-line integration…"}>
+                <div className="cli-integration">
+                    <div className="cli-integration-paths">
+                        <span>
+                            <b>Commands</b>
+                            <code>sikemux</code>
+                            <code>sikemux-editor</code>
+                        </span>
+                        <span>
+                            <b>Install directory</b>
+                            <code>{status?.installDir || "—"}</code>
+                        </span>
+                    </div>
+                    <div className="cli-integration-actions">
+                        <button className="settings-btn" type="button" disabled={busy} onClick={refresh}>
+                            <IconRefresh size={11} /> Refresh
+                        </button>
+                        <button className="settings-btn primary" type="button" disabled={installDisabled} onClick={() => void install()}>
+                            {status?.state === "installed" && <IconCheck size={11} />}
+                            {buttonLabel}
+                        </button>
+                    </div>
+                </div>
+                {status?.state === "conflict" && (
+                    <p className="settings-field-help cli-integration-warning">
+                        Sikemux will not overwrite <em>{status.cliPath}</em> or <em>{status.editorPath}</em>. Move the existing file yourself, then
+                        refresh.
+                    </p>
+                )}
+                {status?.state === "installed" && !status.pathConfigured && (
+                    <p className="settings-field-help">
+                        Add <em>{status.installDir}</em> to your shell’s PATH. Sikemux never edits shell startup files automatically.
+                    </p>
+                )}
+            </SettingsSection>
+            <SettingsSection title="Usage" sub="Existing files open in an editor tab. Project directories focus or create their workspace.">
+                <pre className="cli-usage">{`sikemux .\nsikemux src/App.tsx:42:5\nsikemux open --wait README.md\nEDITOR=sikemux-editor git commit`}</pre>
             </SettingsSection>
         </SettingsPage>
     );

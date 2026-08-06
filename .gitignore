@@ -7,5 +7,6 @@ coverage
 *.local
 data/
 src-tauri/icons/build/
+src-tauri/binaries/sikemux-editor-*
 .env
 .design/
