@@ -648,15 +648,22 @@ mod tests {
 
     #[test]
     fn validates_absolute_bounded_requests() {
+        let directory = tempfile::tempdir().unwrap();
+        let project_root = directory.path().to_string_lossy().into_owned();
+        let file = directory
+            .path()
+            .join("file.rs")
+            .to_string_lossy()
+            .into_owned();
         let request = CliOpenRequest {
             id: "request".into(),
-            cwd: "/repo".into(),
+            cwd: project_root.clone(),
             wait: true,
             targets: vec![crate::cli_protocol::CliOpenTarget {
                 id: "target".into(),
                 kind: CliTargetKind::File,
-                path: "/repo/file.rs".into(),
-                project_root: "/repo".into(),
+                path: file,
+                project_root,
                 line: Some(0),
                 column: Some(0),
             }],
