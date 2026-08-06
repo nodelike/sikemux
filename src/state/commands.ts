@@ -1339,6 +1339,13 @@ function usableAgentSessionTitle(row: AgentSession, current: string): string {
     return title;
 }
 
+export function agentSessionMetadataPending(agent: Agent): boolean {
+    if (!agent.resumeId) return true;
+    const title = agent.title.trim();
+    if (!title || title.toLowerCase() === agent.type) return true;
+    return title.length <= FALLBACK_AGENT_TITLE_MAX && agent.resumeId.startsWith(title);
+}
+
 export function toggleAgentSkipPermissions(id: string): void {
     mutate((d) => {
         const a = d.agents[id];

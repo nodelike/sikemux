@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { inQuietHours, shouldNotifyAgent } from "./policy";
+import { inQuietHours, shouldNotifyAgent, shouldSendNativeAgentNotification } from "./policy";
 import type { NotificationPreferences } from "../state/types";
 
 const prefs: NotificationPreferences = {
@@ -20,10 +20,15 @@ describe("agent notification policy", () => {
         expect(inQuietHours(prefs, new Date(2025, 0, 1, 7, 59))).toBe(true);
         expect(inQuietHours(prefs, new Date(2025, 0, 1, 12, 0))).toBe(false);
     });
-    it("only alerts for attention states while unfocused", () => {
+    it("keeps in-app attention alerts visible while the app is focused", () => {
         const midday = new Date(2025, 0, 1, 12, 0);
-        expect(shouldNotifyAgent("blocked", prefs, "claude", false, midday)).toBe(true);
-        expect(shouldNotifyAgent("done", prefs, "claude", true, midday)).toBe(false);
-        expect(shouldNotifyAgent("working", prefs, "claude", false, midday)).toBe(false);
+        expect(shouldNotifyAgent("blocked", prefs, "claude", midday)).toBe(true);
+        expect(shouldNotifyAgent("done", prefs, "claude", midday)).toBe(true);
+        expect(shouldNotifyAgent("working", prefs, "claude", midday)).toBe(false);
+    });
+    it("applies focus suppression only to native banners", () => {
+        const midday = new Date(2025, 0, 1, 12, 0);
+        expect(shouldSendNativeAgentNotification("done", prefs, "claude", true, midday)).toBe(false);
+        expect(shouldSendNativeAgentNotification("done", prefs, "claude", false, midday)).toBe(true);
     });
 });

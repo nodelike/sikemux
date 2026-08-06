@@ -190,7 +190,7 @@ export const useStore = create<StoreState>(() => {
         restoreAgentTabs: true,
         autoResumeAgents: false,
         notificationPreferences: {
-            enabled: false,
+            enabled: true,
             onlyWhenUnfocused: true,
             sounds: true,
             soundStyle: "soft",

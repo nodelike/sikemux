@@ -314,28 +314,47 @@ function NotificationsPage() {
     const patch = cmd.patchNotificationPreferences;
     return (
         <SettingsPage name="notifications" deck="Agent attention, delayed just enough to avoid noisy state flicker.">
-            <SettingsSection title="Delivery" sub="Blocked and unseen-done signals are delayed and cancelled if the agent starts working again.">
+            <SettingsSection title="Delivery" sub="Blocked and completed signals are delayed and cancelled if the agent starts working again.">
                 <ToggleSetting
                     label="Agent notifications"
-                    detail="Allow in-app and native notifications after permission is granted."
+                    detail="Show in-app alerts. Native banners are added when macOS permission is granted."
                     checked={prefs.enabled}
                     onChange={(enabled) => {
                         if (!enabled) patch({ enabled: false });
-                        else
+                        else {
+                            patch({ enabled: true });
                             void requestAgentNotificationPermission()
                                 .then((granted) => {
-                                    patch({ enabled: granted });
-                                    if (!granted) notify("info", "Native notification permission was not granted");
+                                    if (!granted) notify("info", "In-app alerts are on; native notification permission was not granted");
                                 })
                                 .catch(reportError("notifications"));
+                        }
                     }}
                 />
                 <ToggleSetting
-                    label="Only when Sikemux is unfocused"
-                    detail="Suppress alerts while you are already looking at the app."
+                    label="Native banners only when unfocused"
+                    detail="In-app completion alerts remain visible while you are using Sikemux."
                     checked={prefs.onlyWhenUnfocused}
                     onChange={(onlyWhenUnfocused) => patch({ onlyWhenUnfocused })}
                 />
+                <div className="settings-actions">
+                    <button
+                        className="settings-btn"
+                        type="button"
+                        onClick={() =>
+                            void requestAgentNotificationPermission()
+                                .then((granted) =>
+                                    notify(
+                                        granted ? "success" : "info",
+                                        granted ? "Native agent banners enabled" : "macOS did not grant native banners; in-app alerts remain enabled",
+                                    ),
+                                )
+                                .catch(reportError("notifications"))
+                        }>
+                        Enable native banners…
+                    </button>
+                    <small>In-app alerts do not require macOS permission.</small>
+                </div>
                 <ToggleSetting
                     label="Signal sounds"
                     detail="Short synthesized tones; no external audio files or network fetches."

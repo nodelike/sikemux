@@ -337,6 +337,25 @@ fn mtime_of(path: &Path) -> u64 {
         .unwrap_or(0)
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct TitleCacheStamp {
+    modified_ns: u128,
+    len: u64,
+}
+
+fn title_cache_stamp(path: &Path) -> TitleCacheStamp {
+    let metadata = fs::metadata(path).ok();
+    TitleCacheStamp {
+        modified_ns: metadata
+            .as_ref()
+            .and_then(|value| value.modified().ok())
+            .and_then(|value| value.duration_since(UNIX_EPOCH).ok())
+            .map(|value| value.as_nanos())
+            .unwrap_or(0),
+        len: metadata.map(|value| value.len()).unwrap_or(0),
+    }
+}
+
 fn condense(text: &str) -> Option<String> {
     let c = text.split_whitespace().collect::<Vec<_>>().join(" ");
     if c.is_empty() || c.starts_with('<') {
@@ -358,11 +377,13 @@ fn text_from_content(content: &Value) -> Option<String> {
     })
 }
 
-/// Cached title per transcript: `path -> (mtime, title)`.
-type TitleCache = HashMap<PathBuf, (u64, Option<String>)>;
+/// Cached title per transcript: `path -> (high-resolution stamp, title)`.
+type TitleCache = HashMap<PathBuf, (TitleCacheStamp, Option<String>)>;
 
-/// Per-file title cache keyed by mtime. Titles are derived from transcript
-/// content that only ever grows, so an unchanged mtime means an unchanged title.
+/// Per-file title cache keyed by a high-resolution file stamp. Titles are derived from transcript
+/// content that only ever grows, so an unchanged nanosecond timestamp and file
+/// length means an unchanged title. Length prevents same-tick appends from
+/// preserving a cached title-less result on coarse filesystems.
 /// This turns the palette's cold scan of every session into a one-time cost:
 /// reopening it re-reads only the sessions that have actually changed.
 fn title_cache() -> &'static Mutex<TitleCache> {
@@ -370,23 +391,23 @@ fn title_cache() -> &'static Mutex<TitleCache> {
     CACHE.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
-/// Return the cached title for `path` when its mtime matches, otherwise run
+/// Return the cached title for `path` when its stamp matches, otherwise run
 /// `compute`, store the result (including `None`, so title-less files are not
 /// re-scanned), and return it.
-fn cached_title<F>(path: &Path, mtime: u64, compute: F) -> Option<String>
+fn cached_title<F>(path: &Path, stamp: TitleCacheStamp, compute: F) -> Option<String>
 where
     F: FnOnce() -> Option<String>,
 {
     if let Ok(cache) = title_cache().lock() {
-        if let Some((cached_mtime, title)) = cache.get(path) {
-            if *cached_mtime == mtime {
+        if let Some((cached_stamp, title)) = cache.get(path) {
+            if *cached_stamp == stamp {
                 return title.clone();
             }
         }
     }
     let title = compute();
     if let Ok(mut cache) = title_cache().lock() {
-        cache.insert(path.to_path_buf(), (mtime, title.clone()));
+        cache.insert(path.to_path_buf(), (stamp, title.clone()));
     }
     title
 }
@@ -430,7 +451,7 @@ fn claude_sessions(cwd: &str) -> Vec<AgentSession> {
         .filter_map(|path| {
             let id = path.file_stem().and_then(|s| s.to_str())?;
             let mtime = mtime_of(path);
-            let title = cached_title(path, mtime, || claude_title(path))
+            let title = cached_title(path, title_cache_stamp(path), || claude_title(path))
                 .unwrap_or_else(|| id.chars().take(8).collect());
             Some(AgentSession {
                 id: id.to_string(),
@@ -552,7 +573,7 @@ fn codex_sessions(cwd: &str) -> Vec<AgentSession> {
             }
             let id = payload.get("id").and_then(|i| i.as_str())?;
             let mtime = mtime_of(path);
-            let title = cached_title(path, mtime, || codex_title(path))
+            let title = cached_title(path, title_cache_stamp(path), || codex_title(path))
                 .unwrap_or_else(|| id.chars().take(8).collect());
             Some(AgentSession {
                 id: id.to_string(),
@@ -624,7 +645,7 @@ fn pi_sessions(cwd: &str) -> Vec<AgentSession> {
             }
             let id = path.to_string_lossy().to_string();
             let mtime = mtime_of(path);
-            let title = cached_title(path, mtime, || pi_title(path))
+            let title = cached_title(path, title_cache_stamp(path), || pi_title(path))
                 .or_else(|| v.get("id").and_then(|i| i.as_str()).and_then(condense))
                 .unwrap_or_else(|| {
                     path.file_stem()
@@ -828,7 +849,8 @@ fn opencode_query(conn: &Connection, sql: &str, cwd: &str) -> Option<Vec<AgentSe
 
 #[cfg(test)]
 mod executable_tests {
-    use super::allowed_agent_path_for_home;
+    use super::{allowed_agent_path_for_home, cached_title, codex_title, title_cache_stamp};
+    use std::io::Write;
     use std::path::Path;
 
     #[test]
@@ -846,5 +868,60 @@ mod executable_tests {
             Path::new("/usr/local/bin/opencode"),
             home,
         ));
+    }
+
+    #[test]
+    fn codex_title_reads_the_current_user_message_shape() {
+        let mut transcript = tempfile::NamedTempFile::new().unwrap();
+        writeln!(
+            transcript,
+            r#"{{"type":"session_meta","payload":{{"id":"session-1","cwd":"/repo"}}}}"#
+        )
+        .unwrap();
+        writeln!(
+            transcript,
+            r#"{{"type":"event_msg","payload":{{"type":"user_message","message":"Explain this codebase"}}}}"#
+        )
+        .unwrap();
+        transcript.flush().unwrap();
+
+        assert_eq!(
+            codex_title(transcript.path()).as_deref(),
+            Some("Explain this codebase")
+        );
+    }
+
+    #[test]
+    fn title_cache_rechecks_a_transcript_after_a_same_tick_append() {
+        let mut transcript = tempfile::NamedTempFile::new().unwrap();
+        writeln!(
+            transcript,
+            r#"{{"type":"session_meta","payload":{{"id":"session-1","cwd":"/repo"}}}}"#
+        )
+        .unwrap();
+        transcript.flush().unwrap();
+        let first_stamp = title_cache_stamp(transcript.path());
+        assert_eq!(
+            cached_title(transcript.path(), first_stamp, || codex_title(
+                transcript.path()
+            )),
+            None
+        );
+
+        writeln!(
+            transcript,
+            r#"{{"type":"event_msg","payload":{{"type":"user_message","message":"Hello"}}}}"#
+        )
+        .unwrap();
+        transcript.flush().unwrap();
+        let second_stamp = title_cache_stamp(transcript.path());
+        assert_ne!(first_stamp.len, second_stamp.len);
+        assert_eq!(
+            cached_title(transcript.path(), second_stamp, || codex_title(
+                transcript.path()
+            ))
+            .as_deref(),
+            Some("Hello")
+        );
     }
 }

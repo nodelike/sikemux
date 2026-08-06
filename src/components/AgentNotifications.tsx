@@ -3,10 +3,19 @@ import { isPermissionGranted, onAction, requestPermission, type Options } from "
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { getState, useStore } from "../state/store";
 import { notify } from "../state/toast";
-import { shouldNotifyAgent } from "../notifications/policy";
+import { shouldNotifyAgent, shouldSendNativeAgentNotification } from "../notifications/policy";
 import * as cmd from "../state/commands";
+import type { AgentRuntimeState } from "../state/types";
 
 const timers = new Map<string, number>();
+
+export type AgentNotificationState = "blocked" | "done";
+
+export function notificationStateForTransition(current: AgentRuntimeState, previous: AgentRuntimeState | undefined): AgentNotificationState | null {
+    if (current.backendState === "blocked" && previous?.backendState !== "blocked") return "blocked";
+    if (current.backendState === "idle" && (previous?.backendState === "working" || previous?.backendState === "blocked")) return "done";
+    return null;
+}
 
 export async function requestAgentNotificationPermission(): Promise<boolean> {
     if (await isPermissionGranted()) return true;
@@ -67,7 +76,8 @@ export function AgentNotifications() {
                     window.clearTimeout(oldTimer);
                     timers.delete(agentId);
                 }
-                if (current.state !== "blocked" && current.state !== "done") continue;
+                const notificationState = notificationStateForTransition(current, previous.agentActivity[agentId]);
+                if (!notificationState) continue;
                 const agent = state.agents[agentId];
                 const sessionId = state.sessionOrder.find((id) => state.agentsBySession[id]?.includes(agentId));
                 if (!agent || !sessionId) continue;
@@ -75,21 +85,23 @@ export function AgentNotifications() {
                     timers.delete(agentId);
                     const latest = getState();
                     const runtime = latest.agentActivity[agentId];
-                    if (!runtime || runtime.state !== current.state) return;
+                    if (!runtime || runtime.sequence !== current.sequence) return;
+                    if (!shouldNotifyAgent(notificationState, latest.notificationPreferences, agent.type)) return;
+                    const stateLabel = notificationState === "blocked" ? "needs your input" : "is done";
+                    if (latest.notificationPreferences.sounds) playSignal(notificationState, latest.notificationPreferences.soundStyle);
+                    notify(notificationState === "blocked" ? "error" : "success", `${agent.title} ${stateLabel}`, {
+                        action: { label: "Focus", run: () => focusAgent(sessionId, agentId) },
+                    });
                     const focused = await getCurrentWindow()
                         .isFocused()
                         .catch(() => document.hasFocus());
-                    if (!shouldNotifyAgent(runtime.state, latest.notificationPreferences, agent.type, focused)) return;
-                    const stateLabel = runtime.state === "blocked" ? "needs your input" : "is done";
-                    if (latest.notificationPreferences.sounds)
-                        playSignal(runtime.state === "blocked" ? "blocked" : "done", latest.notificationPreferences.soundStyle);
-                    notify(runtime.state === "blocked" ? "error" : "success", `${agent.title} ${stateLabel}`, {
-                        action: { label: "Focus", run: () => focusAgent(sessionId, agentId) },
-                    });
-                    if (await isPermissionGranted().catch(() => false)) {
+                    if (
+                        shouldSendNativeAgentNotification(notificationState, latest.notificationPreferences, agent.type, focused) &&
+                        (await isPermissionGranted().catch(() => false))
+                    ) {
                         sendAgentSystemNotification(
                             {
-                                title: runtime.state === "blocked" ? "Agent needs input" : "Agent finished",
+                                title: notificationState === "blocked" ? "Agent needs input" : "Agent finished",
                                 body: `${agent.title} · ${latest.sessions[sessionId]?.name ?? "project"}`,
                                 group: "sikemux-agents",
                                 autoCancel: true,

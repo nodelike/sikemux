@@ -152,6 +152,20 @@ describe("frontend persistence", () => {
         expect(getState().sessions[sid]).toMatchObject({ view: "agent", activeAgentId: agent.id });
     });
 
+    it("migrates the silent v5 notification default once and preserves v6 opt-outs", async () => {
+        invoke.mockResolvedValue(undefined);
+        expect(await flushPersist()).toBe(true);
+        const saved = JSON.parse(invoke.mock.calls[0][1].data as string);
+        saved.version = 5;
+        saved.prefs.notificationPreferences.enabled = false;
+        applyHydrate(JSON.stringify(saved));
+        expect(getState().notificationPreferences.enabled).toBe(true);
+
+        saved.version = 6;
+        applyHydrate(JSON.stringify(saved));
+        expect(getState().notificationPreferences.enabled).toBe(false);
+    });
+
     it("serializes writes, coalesces queued snapshots, and marks only successful writes saved", async () => {
         const first = deferred<void>();
         invoke.mockImplementationOnce(() => first.promise).mockResolvedValue(undefined);
@@ -251,7 +265,7 @@ describe("frontend persistence", () => {
         const migrated = invoke.mock.calls[0][1].data as string;
         expect(migrated).not.toContain("legacy-secret");
         expect(migrated).not.toContain("agentBookmarks");
-        expect(JSON.parse(migrated).version).toBe(5);
+        expect(JSON.parse(migrated).version).toBe(6);
     });
 
     it("upgrades saved SSH terminals to the reconnecting startup command", () => {

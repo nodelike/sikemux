@@ -14,18 +14,21 @@ export function inQuietHours(preferences: NotificationPreferences, date = new Da
     return start < end ? now >= start && now < end : now >= start || now < end;
 }
 
-export function shouldNotifyAgent(
+export function shouldNotifyAgent(state: string, preferences: NotificationPreferences, agentType: string, date = new Date()): boolean {
+    return (
+        preferences.enabled &&
+        (state === "blocked" || state === "done") &&
+        !preferences.mutedAgentTypes.includes(agentType as never) &&
+        !inQuietHours(preferences, date)
+    );
+}
+
+export function shouldSendNativeAgentNotification(
     state: string,
     preferences: NotificationPreferences,
     agentType: string,
     appFocused: boolean,
     date = new Date(),
 ): boolean {
-    return (
-        preferences.enabled &&
-        (state === "blocked" || state === "done") &&
-        !preferences.mutedAgentTypes.includes(agentType as never) &&
-        !(preferences.onlyWhenUnfocused && appFocused) &&
-        !inQuietHours(preferences, date)
-    );
+    return shouldNotifyAgent(state, preferences, agentType, date) && !(preferences.onlyWhenUnfocused && appFocused);
 }

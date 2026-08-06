@@ -69,6 +69,9 @@ describe("SettingsPanel keybindings", () => {
         render(<SettingsPanel />);
         await user.click(screen.getByRole("button", { name: "NotificationsAttention without noise" }));
 
+        expect(screen.getByRole("checkbox", { name: /Agent notifications/ })).toBeChecked();
+        expect(screen.getByRole("button", { name: "Enable native banners…" })).toBeInTheDocument();
+
         const claude = screen.getByRole("checkbox", { name: /Mute Claude/ });
         const codex = screen.getByRole("checkbox", { name: /Mute Codex/ });
         await user.click(claude);

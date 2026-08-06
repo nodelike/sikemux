@@ -34,7 +34,7 @@ function deriveRole(w: Window): WindowRole {
     return "named";
 }
 
-const VERSION = 5;
+const VERSION = 6;
 const MIN_SUPPORTED_VERSION = 3;
 const RETRY_MS = 1500;
 let lastSaved = "";
@@ -155,7 +155,11 @@ function isThemeId(value: string, customThemes: unknown): boolean {
     return Array.isArray(customThemes) && customThemes.some((theme) => isTheme(theme) && theme.id === value);
 }
 
-function normaliseNotificationPreferences(value: unknown, fallback: StoreState["notificationPreferences"]): StoreState["notificationPreferences"] {
+function normaliseNotificationPreferences(
+    value: unknown,
+    fallback: StoreState["notificationPreferences"],
+    enableByDefault = false,
+): StoreState["notificationPreferences"] {
     if (!isRecord(value)) return fallback;
     const time = (candidate: unknown, current: string) =>
         typeof candidate === "string" && /^(?:[01]\d|2[0-3]):[0-5]\d$/.test(candidate) ? candidate : current;
@@ -163,7 +167,10 @@ function normaliseNotificationPreferences(value: unknown, fallback: StoreState["
         ? value.mutedAgentTypes.filter((v): v is AgentType => AGENT_TYPES.has(v as AgentType))
         : fallback.mutedAgentTypes;
     return {
-        enabled: typeof value.enabled === "boolean" ? value.enabled : fallback.enabled,
+        // v5 briefly shipped agent alerts disabled by default, making the
+        // feature completely silent until users found the setting. Migrate
+        // that development schema once; v6+ preserves an explicit opt-out.
+        enabled: enableByDefault ? true : typeof value.enabled === "boolean" ? value.enabled : fallback.enabled,
         onlyWhenUnfocused: typeof value.onlyWhenUnfocused === "boolean" ? value.onlyWhenUnfocused : fallback.onlyWhenUnfocused,
         sounds: typeof value.sounds === "boolean" ? value.sounds : fallback.sounds,
         soundStyle: value.soundStyle === "soft" || value.soundStyle === "bright" ? value.soundStyle : fallback.soundStyle,
@@ -582,7 +589,11 @@ export function applyHydrate(raw: string): void {
         },
         restoreAgentTabs,
         autoResumeAgents,
-        notificationPreferences: normaliseNotificationPreferences(prefs.notificationPreferences, cur.notificationPreferences),
+        notificationPreferences: normaliseNotificationPreferences(
+            prefs.notificationPreferences,
+            cur.notificationPreferences,
+            decoded.version < VERSION,
+        ),
         railDensity: prefs.railDensity === "compact" || prefs.railDensity === "comfortable" ? prefs.railDensity : cur.railDensity,
         onboardingComplete:
             typeof prefs.onboardingComplete === "boolean" ? prefs.onboardingComplete : decoded.version < VERSION ? true : cur.onboardingComplete,
@@ -604,7 +615,7 @@ export function applyHydrate(raw: string): void {
     ensureSearchWindow();
     registerCustomThemes(getState().customThemes);
     // Preserve the actual disk payload as the saved marker. The subscription
-    // rewrites migrations and sanitized legacy credentials in canonical v4 form.
+    // rewrites migrations and sanitized legacy credentials in canonical v6 form.
     lastSaved = raw;
     lastSlices = takeSlices(getState());
 }
