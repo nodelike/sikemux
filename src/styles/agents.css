@@ -71,8 +71,8 @@
 }
 
 .agent-activity {
-    width: 15px;
-    height: 15px;
+    width: 16px;
+    height: 16px;
     flex: 0 0 auto;
     display: inline-grid;
     place-items: center;
@@ -80,7 +80,19 @@
 }
 .agent-state-icon {
     display: block;
-    transform-origin: 50% 50%;
+}
+.agent-state-loader {
+    display: block;
+    width: 12px;
+    height: 12px;
+    box-sizing: border-box;
+    border: 2px solid color-mix(in srgb, currentColor 24%, transparent);
+    border-top-color: currentColor;
+    border-right-color: currentColor;
+    border-radius: 50%;
+    transform-origin: 6px 6px;
+    animation: agent-activity-spin 0.72s linear infinite;
+    will-change: transform;
 }
 .agent-activity.state-done {
     color: var(--acc);
@@ -96,9 +108,6 @@
 }
 .agent-activity.state-idle {
     color: var(--ink-dim);
-}
-.agent-activity.state-working .agent-state-icon {
-    animation: agent-activity-spin 0.82s linear infinite;
 }
 .agent-dormant-label {
     color: var(--ink-faint);
@@ -498,7 +507,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-    .agent-activity.state-working .agent-state-icon,
+    .agent-state-loader,
     .proj-pip.is-working::after,
     .yolo-toggle.on::before,
     .yolo-toggle.on .yolo-label,

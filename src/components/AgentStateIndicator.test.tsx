@@ -4,8 +4,14 @@ import type { AgentPresentationState } from "../state/types";
 import { AgentStateIndicator } from "./AgentStateIndicator";
 
 describe("AgentStateIndicator", () => {
+    it("renders working as a dedicated circular CSS loader", () => {
+        const { container } = render(<AgentStateIndicator state="working" />);
+        expect(screen.getByRole("img", { name: "Working" })).toBeInTheDocument();
+        expect(container.querySelector(".agent-state-loader")).toBeInTheDocument();
+        expect(container.querySelector("svg")).not.toBeInTheDocument();
+    });
+
     it.each([
-        ["working", "Working"],
         ["blocked", "Needs input"],
         ["done", "Done — unseen"],
         ["idle", "Idle"],
