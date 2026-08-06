@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
@@ -23,6 +23,7 @@ import { CommandPalette } from "./components/CommandPalette";
 import { DiagnosticsOverlay, Onboarding, WhatsNewOverlay } from "./components/ExperienceOverlays";
 import { TerminalPane } from "./terminal/TerminalPane";
 import { AgentNotifications } from "./components/AgentNotifications";
+import { CliOpenBridge } from "./components/CliOpenBridge";
 import { git } from "./api/git";
 import { runKeybindingAction, useKeymap } from "./keymap";
 import { filesApi } from "./api/files";
@@ -102,6 +103,7 @@ function resolveTreeDropTarget(at: HTMLElement | null): TreeDropTarget | null {
 
 export default function App() {
     useKeymap();
+    const [bootReady, setBootReady] = useState(false);
     const zen = useStore((s) => s.zenMode);
     const leftOpen = useStore((s) => s.leftRailOpen) && !zen;
     const rightOpen = useStore((s) => s.rightRailOpen) && !zen;
@@ -215,7 +217,10 @@ export default function App() {
             })
             .catch(swallow("boot_init"))
             .finally(() => {
-                if (!disposed) unsub = subscribePersist();
+                if (!disposed) {
+                    unsub = subscribePersist();
+                    setBootReady(true);
+                }
             });
         return () => {
             disposed = true;
@@ -371,6 +376,7 @@ export default function App() {
 
     return (
         <div className="shell">
+            {bootReady && <CliOpenBridge />}
             <AgentSessionSync />
             <AgentNotifications />
             <TopBar />
@@ -419,7 +425,14 @@ export default function App() {
                             <span>{commandPopup.title}</span>
                             <button onClick={cmd.closeCommandPopup}>close</button>
                         </header>
-                        <TerminalPane key={commandPopup.id} cwd={commandPopup.cwd || undefined} startup={commandPopup.startup} active visible />
+                        <TerminalPane
+                            key={commandPopup.id}
+                            cwd={commandPopup.cwd || undefined}
+                            startup={commandPopup.startup}
+                            context={commandPopup.context}
+                            active
+                            visible
+                        />
                     </section>
                 </div>
             )}

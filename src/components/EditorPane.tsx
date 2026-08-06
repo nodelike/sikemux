@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { EditorState, Prec, type Text } from "@codemirror/state";
 import { EditorView, keymap, type ViewUpdate } from "@codemirror/view";
 import { copyLineDown, copyLineUp, indentWithTab } from "@codemirror/commands";
@@ -17,12 +18,13 @@ import { subscribe } from "../state/bus";
 import * as cmd from "../state/commands";
 import { invalidate } from "../state/resources";
 import { useStore } from "../state/store";
-import { errMessage, notify, reportError } from "../state/toast";
+import { errMessage, notify, reportError, swallow } from "../state/toast";
 import { refreshViewTheme, registerView } from "../themes/bus";
 import { useLspBridge } from "../hooks/useLspBridge";
 import { useNavHistory, type NavEntry } from "../hooks/useNavHistory";
 import { useGitBaseline } from "../hooks/useGitBaseline";
 import { useGitBlame } from "../hooks/useGitBlame";
+import type { CliPendingEditorOpen } from "../state/types";
 import { FileTree, type CtxItem } from "./FileTree";
 import { IconClose, IconFile } from "./Icons";
 import { FileIcon } from "./FileIcon";
@@ -32,6 +34,7 @@ import { basename, isPathWithin, relativePath as pathRelative } from "../lib/pat
 import { FILE_MANAGER_NAME, PRIMARY_SHORTCUT } from "../lib/platform";
 
 const DEFAULT_VIEW = { openTabs: [], activePath: null, treeWidth: 210 };
+const EMPTY_CLI_OPENS: CliPendingEditorOpen[] = [];
 
 function readSelection(view: EditorView): string | null {
     const sel = view.state.selection.main;
@@ -200,6 +203,7 @@ export function EditorPane({
     const hydratedRef = useRef(false);
     const saveRef = useRef<() => boolean>(() => false);
     const openRequestRef = useRef(0);
+    const processingCliOpenRef = useRef<string | null>(null);
 
     const [dirty, setDirty] = useState<ReadonlySet<string>>(() => new Set());
     const dirtyRef = useRef(dirty);
@@ -226,6 +230,7 @@ export function EditorPane({
     };
 
     const view = useStore((s) => s.editorViews[paneId] ?? DEFAULT_VIEW);
+    const pendingCliOpens = useStore((s) => s.pendingEditorOpens[paneId] ?? EMPTY_CLI_OPENS);
     const tabs = view.openTabs;
     const activePath = view.activePath;
     const treeWidth = view.treeWidth;
@@ -453,30 +458,88 @@ export function EditorPane({
         const request = ++openRequestRef.current;
         const liveTabs = useStore.getState().editorViews[paneId]?.openTabs ?? [];
         if (liveTabs.includes(path)) {
-            switchTo(path);
-            return;
+            if (isImagePath(path) || states.current.has(path)) {
+                switchTo(path);
+                return;
+            }
         }
         if (isImagePath(path)) {
+            const blob = await fsapi.readFileBase64(path);
+            imagesRef.current.set(path, blob);
             cmd.openEditorTab(paneId, path);
             switchTo(path);
             return;
         }
-        try {
-            const content = await fsapi.readFile(path);
-            const latest = request === openRequestRef.current;
-            // Two rapid opens of the same path can resolve out of order. Do not
-            // replace the state created by the newer request with the stale read.
-            if (!latest && states.current.has(path)) {
-                cmd.openEditorTab(paneId, path, false);
-                return;
-            }
-            const st = makeState(path, content);
-            states.current.set(path, st);
-            savedRef.current.set(path, content);
-            cmd.openEditorTab(paneId, path, latest);
-            if (latest) switchTo(path, st);
-        } catch {}
+        const content = await fsapi.readFile(path);
+        const latest = request === openRequestRef.current;
+        // Two rapid opens of the same path can resolve out of order. Do not
+        // replace the state created by the newer request with the stale read.
+        if (!latest && states.current.has(path)) {
+            cmd.openEditorTab(paneId, path, false);
+            return;
+        }
+        const st = makeState(path, content);
+        states.current.set(path, st);
+        savedRef.current.set(path, content);
+        cmd.openEditorTab(paneId, path, latest);
+        if (latest) switchTo(path, st);
     };
+
+    useEffect(() => {
+        const target = pendingCliOpens[0];
+        if (!target) return;
+        const key = `${target.requestId}\0${target.id}`;
+        if (processingCliOpenRef.current) return;
+        processingCliOpenRef.current = key;
+
+        void (async () => {
+            let error: string | null = null;
+            try {
+                await openPath(target.path);
+                if (currentRef.current !== target.path) switchTo(target.path);
+                if (target.line != null && viewRef.current && !isImagePath(target.path)) {
+                    if (currentRef.current === target.path) {
+                        scrollToLine(viewRef.current, target.line, target.column ?? 0);
+                    }
+                }
+            } catch (cause) {
+                error = errMessage(cause);
+            }
+
+            const stillQueued = (useStore.getState().pendingEditorOpens[paneId] ?? []).some(
+                (item) => item.requestId === target.requestId && item.id === target.id,
+            );
+            if (!stillQueued && !error) {
+                error = "The editor pane closed before Sikemux finished opening the file";
+            }
+
+            const result = {
+                requestId: target.requestId,
+                targetId: target.id,
+                paneId: error ? null : paneId,
+                path: target.path,
+                error,
+            };
+            let delay = 50;
+            for (let attempt = 0; attempt < 8; attempt += 1) {
+                try {
+                    await invoke("cli_open_result", { result });
+                    break;
+                } catch (cause) {
+                    if (attempt === 7) swallow("CLI open acknowledgement")(cause);
+                    else {
+                        await new Promise((resolve) => setTimeout(resolve, delay));
+                        delay = Math.min(delay * 2, 2_000);
+                    }
+                }
+            }
+            cmd.consumeCliEditorOpen(paneId, target.requestId, target.id);
+            processingCliOpenRef.current = null;
+        })();
+        // openPath intentionally uses the latest editor refs. Queue changes are
+        // the only trigger; the ref prevents overlapping reads during rerenders.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [paneId, pendingCliOpens]);
 
     // The active tab was changed from outside this pane (⌥./⌥, cycling, or any
     // programmatic setEditorView): swap the live document to match. Tab clicks call
@@ -677,7 +740,7 @@ export function EditorPane({
                 if (e.line != null && viewRef.current && !isImagePath(e.path)) {
                     scrollToLine(viewRef.current, e.line, e.character ?? 0);
                 }
-            })();
+            })().catch(reportError("open file"));
         });
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [cwd, active]);
@@ -781,7 +844,7 @@ export function EditorPane({
                 <FileTree
                     cwd={cwd}
                     activePath={activePath}
-                    onOpenFile={(entry) => void openPath(entry.path)}
+                    onOpenFile={(entry) => void openPath(entry.path).catch(reportError("open file"))}
                     width={treeWidth}
                     onResize={setTreeWidth}
                     active={visible}

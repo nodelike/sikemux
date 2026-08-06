@@ -69,6 +69,18 @@ export interface AgentRuntimeState {
     matchedRule?: string;
 }
 
+/** Identity Sikemux attaches to every shell it owns. Runtime-only. */
+export interface PtyContext {
+    sessionId: string;
+    sessionName: string;
+    sessionKind: SessionKind;
+    project?: string;
+    windowId?: string;
+    paneId?: string;
+    agentId?: string;
+    agentType?: AgentType;
+}
+
 export interface NotificationPreferences {
     enabled: boolean;
     onlyWhenUnfocused: boolean;

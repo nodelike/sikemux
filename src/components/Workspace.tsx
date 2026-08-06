@@ -1,6 +1,6 @@
 import { lazy, memo, Suspense, useMemo, useRef } from "react";
 import type { PointerEvent as ReactPointerEvent, ReactNode, RefObject } from "react";
-import type { Agent, Divider, PaneNode, Rect, Session, Window as WindowT } from "../state/types";
+import type { Agent, Divider, PaneNode, PtyContext, Rect, Session, Window as WindowT } from "../state/types";
 import { collectPanes, computeLayout, findSplit, MIN_FRAC } from "../state/layout";
 import * as cmd from "../state/commands";
 import { AgentStateIndicator } from "./AgentStateIndicator";
@@ -18,6 +18,14 @@ const TERM_TABS_H = 32;
 const FULL: Rect = { x: 0, y: 0, w: 1, h: 1 };
 const pct = (n: number) => `${n * 100}%`;
 const paneCwd = (pane: PaneNode, session: Session) => pane.cwd || session.cwd;
+const terminalContext = (session: Session, win: WindowT, pane: PaneNode): PtyContext => ({
+    sessionId: session.id,
+    sessionName: session.name,
+    sessionKind: session.kind,
+    ...(session.kind === "project" && session.cwd ? { project: session.cwd } : {}),
+    windowId: win.id,
+    paneId: pane.id,
+});
 
 // Agents only exist in project sessions; every other group is always in
 // "windows" view, so stale agent state can never strand a non-project session.
@@ -76,12 +84,13 @@ const PANE_RENDERER: Record<PaneNode["kind"], (props: PaneRendererProps) => Reac
             <SearchPane sessionId={session.id} cwd={paneCwd(pane, session)} active={active} visible={visible} />
         </Suspense>
     ),
-    terminal: ({ pane, session, active, visible }) => (
+    terminal: ({ pane, session, win, active, visible }) => (
         <TerminalPane
             cwd={paneCwd(pane, session) || undefined}
             startup={pane.startup}
             active={active}
             visible={visible}
+            context={terminalContext(session, win, pane)}
             onTitleChange={(title) => cmd.setTerminalTitle(pane.id, title)}
         />
     ),
@@ -321,8 +330,14 @@ const AgentLayer = memo(function AgentLayer({
                             active={visible}
                             visible={visible}
                             spawnWhen={visible || (autoResumeAgents && !!agent.resumeId)}
-                            activityKey={agent.id}
-                            agentKind={agent.type}
+                            context={{
+                                sessionId: session.id,
+                                sessionName: session.name,
+                                sessionKind: session.kind,
+                                ...(session.kind === "project" && session.cwd ? { project: session.cwd } : {}),
+                                agentId: agent.id,
+                                agentType: agent.type,
+                            }}
                         />
                     )}
                     {cmd.agentSupportsSkipPermissions(agent.type) && <YoloToggle agent={agent} />}

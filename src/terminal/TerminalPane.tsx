@@ -7,6 +7,7 @@ import { useXterm } from "./useXterm";
 import type { TerminalSearchOptions } from "./interactions";
 import { TerminalFindBar } from "./TerminalFindBar";
 import { TerminalContextMenu } from "./TerminalContextMenu";
+import type { PtyContext } from "../state/types";
 
 const SWITCH_KEEPALIVE_MS = 30_000;
 const MAX_HIDDEN_RENDERERS = 4;
@@ -26,8 +27,7 @@ export function TerminalPane({
     active,
     visible = active,
     spawnWhen = visible,
-    activityKey,
-    agentKind,
+    context,
     onTitleChange,
 }: {
     cwd?: string;
@@ -35,8 +35,7 @@ export function TerminalPane({
     active: boolean;
     visible?: boolean;
     spawnWhen?: boolean;
-    activityKey?: string;
-    agentKind?: import("../state/types").AgentType;
+    context?: PtyContext;
     onTitleChange?: (title: string) => void;
 }) {
     const [shouldMount, setShouldMount] = useState(visible);
@@ -47,7 +46,7 @@ export function TerminalPane({
     const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
     const hostRef = useRef<HTMLDivElement>(null);
     const rendererTokenRef = useRef(Symbol("terminal-renderer"));
-    const ptyReady = usePty({ cwd, startup, hostRef, spawnWhen, activityKey, agentKind });
+    const ptyReady = usePty({ cwd, startup, hostRef, spawnWhen, context });
 
     useEffect(() => {
         const token = rendererTokenRef.current;

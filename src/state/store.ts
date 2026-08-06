@@ -12,6 +12,7 @@ import type {
     AwsService,
     EcsLevel,
     EditorPaneView,
+    CliPendingEditorOpen,
     GitPaneView,
     BrunoView,
     GlobalSearchView,
@@ -90,6 +91,8 @@ export interface ViewState {
     sessionSwitcher: SessionSwitcherView | null;
 
     editorViews: Record<string, EditorPaneView>;
+    /** Runtime-only file opens claimed from the CLI broker, keyed by editor pane. */
+    pendingEditorOpens: Record<string, CliPendingEditorOpen[]>;
     dirtyEditorPaths: Record<string, string[]>;
     gitViews: Record<string, GitPaneView>;
     ecsViews: Record<string, EcsLevel>;
@@ -110,7 +113,7 @@ export interface ViewState {
     onboardingOpen: boolean;
     diagnosticsOpen: boolean;
     whatsNewOpen: boolean;
-    commandPopup: { id: string; title: string; startup: string; cwd: string } | null;
+    commandPopup: { id: string; title: string; startup: string; cwd: string; context: import("./types").PtyContext } | null;
     terminalTitles: Record<string, string>;
     lastSessionId: string | null;
 
@@ -221,6 +224,7 @@ export const useStore = create<StoreState>(() => {
         zoomedPaneId: null,
         sessionSwitcher: null,
         editorViews: {},
+        pendingEditorOpens: {},
         dirtyEditorPaths: {},
         gitViews: {},
         ecsViews: {},

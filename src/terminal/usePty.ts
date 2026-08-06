@@ -2,6 +2,7 @@ import { useEffect, useRef, type RefObject } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { registerPtyDrop } from "../state/dropRegistry";
 import { IS_WINDOWS } from "../lib/platform";
+import type { PtyContext } from "../state/types";
 
 function shellPathArgument(path: string): string {
     return IS_WINDOWS ? `'${path.replaceAll("'", "''")}'` : path.replace(/([\s'"\\])/g, "\\$1");
@@ -12,10 +13,9 @@ export function usePty(opts: {
     startup?: string;
     hostRef: RefObject<HTMLDivElement | null>;
     spawnWhen?: boolean;
-    activityKey?: string;
-    agentKind?: import("../state/types").AgentType;
+    context?: PtyContext;
 }): RefObject<Promise<number> | null> {
-    const { cwd, startup, hostRef, spawnWhen = true, activityKey, agentKind } = opts;
+    const { cwd, startup, hostRef, spawnWhen = true, context } = opts;
     const readyRef = useRef<Promise<number> | null>(null);
     const pidRef = useRef<number | null>(null);
     const spawnedRef = useRef(false);
@@ -63,7 +63,7 @@ export function usePty(opts: {
             rows: 24,
             cwd: cwd ?? null,
             startup: startup ?? null,
-            agent: activityKey && agentKind ? { id: activityKey, kind: agentKind } : null,
+            context: context ?? null,
         }).then(
             (id) => {
                 if (disposedRef.current) {

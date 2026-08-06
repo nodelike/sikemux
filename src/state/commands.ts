@@ -8,7 +8,7 @@ import { sshApi } from "../api/ssh";
 import { emptyRequest } from "../bruno/types";
 import { parseRequest } from "../bruno/parse";
 import { serializeRequest } from "../bruno/serialize";
-import { basename, dirname, joinPath } from "../lib/paths";
+import { basename, dirname, isPathWithin, joinPath } from "../lib/paths";
 import { IS_WINDOWS } from "../lib/platform";
 import { cloneTheme, DEFAULT_THEME_ID, THEMES_BY_ID, type Theme } from "../themes";
 import { sshStartup } from "../terminal/sshStartup";
@@ -43,6 +43,9 @@ import type {
     BrunoReqTab,
     BrunoResTab,
     BrunoView,
+    CliOpenRequest,
+    CliOpenResult,
+    CliOpenTarget,
     DeployRef,
     EcsLevel,
     FocusDir,
@@ -199,6 +202,115 @@ export function createProjectSession(cwd: string): void {
         }
         const windows = projectWindows(cwd);
         attachSession(d as unknown as StoreState, makeSession("project", basename(cwd), cwd, windows[0].id), windows);
+    });
+}
+
+function cliProjectOwner(target: CliOpenTarget): Session | undefined {
+    const st = getState();
+    return st.sessionOrder
+        .map((id) => st.sessions[id])
+        .filter((session): session is Session => !!session && session.kind === "project" && isPathWithin(target.path, session.cwd))
+        .sort((a, b) => b.cwd.length - a.cwd.length)[0];
+}
+
+function cliProjectRootOwner(projectRoot: string): Session | undefined {
+    const st = getState();
+    return st.sessionOrder
+        .map((id) => st.sessions[id])
+        .find((session): session is Session => !!session && session.kind === "project" && session.cwd === projectRoot);
+}
+
+/**
+ * Focus the owning project for every CLI target and queue file targets for its
+ * editor. Directory targets are complete as soon as their project is focused;
+ * file targets are acknowledged by EditorPane only after the read succeeds.
+ */
+export function routeCliOpenRequest(request: CliOpenRequest): CliOpenResult[] {
+    const immediate: CliOpenResult[] = [];
+
+    for (const target of request.targets) {
+        let owner = cliProjectOwner(target) ?? cliProjectRootOwner(target.projectRoot);
+        if (!owner) {
+            createProjectSession(target.projectRoot);
+            owner = cliProjectOwner(target) ?? cliProjectRootOwner(target.projectRoot);
+        }
+
+        if (!owner) {
+            immediate.push({
+                requestId: request.id,
+                targetId: target.id,
+                paneId: null,
+                path: target.path,
+                error: `couldn't create a project session for ${target.projectRoot}`,
+            });
+            continue;
+        }
+
+        const ownerId = owner.id;
+        if (target.kind === "directory") {
+            mutate((d) => {
+                const session = d.sessions[ownerId];
+                if (!session) return;
+                d.activeSessionId = ownerId;
+                session.view = "windows";
+                d.zoomedPaneId = null;
+                d.pickerOpen = false;
+                d.settingsOpen = false;
+            });
+            immediate.push({
+                requestId: request.id,
+                targetId: target.id,
+                paneId: null,
+                path: target.path,
+                error: null,
+            });
+            continue;
+        }
+
+        const st = getState();
+        const fileWindowId = (st.windowsBySession[ownerId] ?? []).find((id) => st.windows[id]?.role === "files");
+        const fileWindow = fileWindowId ? st.windows[fileWindowId] : undefined;
+        const editorPane = fileWindow ? collectPanes(fileWindow.root).find((pane) => pane.kind === "editor") : undefined;
+        if (!fileWindow || !editorPane) {
+            immediate.push({
+                requestId: request.id,
+                targetId: target.id,
+                paneId: null,
+                path: target.path,
+                error: `project ${owner.cwd} has no files editor`,
+            });
+            continue;
+        }
+
+        mutate((d) => {
+            const session = d.sessions[ownerId];
+            const win = d.windows[fileWindow.id];
+            if (!session || !win) return;
+            d.activeSessionId = ownerId;
+            session.activeWindowId = win.id;
+            session.view = "windows";
+            win.activePaneId = editorPane.id;
+            d.zoomedPaneId = null;
+            d.pickerOpen = false;
+            d.settingsOpen = false;
+            const queued = d.pendingEditorOpens[editorPane.id] ?? [];
+            if (!queued.some((item) => item.requestId === request.id && item.id === target.id)) {
+                queued.push({ ...target, requestId: request.id });
+            }
+            d.pendingEditorOpens[editorPane.id] = queued;
+        });
+    }
+
+    return immediate;
+}
+
+export function consumeCliEditorOpen(paneId: string, requestId: string, targetId: string): void {
+    mutate((d) => {
+        const queued = d.pendingEditorOpens[paneId];
+        if (!queued) return;
+        const next = queued.filter((item) => item.requestId !== requestId || item.id !== targetId);
+        if (next.length === 0) delete d.pendingEditorOpens[paneId];
+        else d.pendingEditorOpens[paneId] = next;
     });
 }
 
@@ -606,6 +718,7 @@ export function closeSession(id: string): void {
                 for (const p of collectPanes(w.root as unknown as Window["root"])) {
                     if (d.gitModal?.ownerPaneId === p.id) d.gitModal = null;
                     delete d.editorViews[p.id];
+                    delete d.pendingEditorOpens[p.id];
                     delete d.dirtyEditorPaths[p.id];
                     delete d.gitViews[p.id];
                     delete d.ecsViews[p.id];
@@ -732,29 +845,11 @@ export function splitActivePane(dir: SplitDir): void {
     });
 }
 
-function contextualStartup(command: string, session: Session): string {
-    const vars: Record<string, string> = {
-        SIKEMUX_SESSION_ID: session.id,
-        SIKEMUX_SESSION_NAME: session.name,
-        SIKEMUX_SESSION_KIND: session.kind,
-        SIKEMUX_PROJECT: session.kind === "project" ? session.cwd : "",
-    };
-    if (IS_WINDOWS) {
-        const assigns = Object.entries(vars)
-            .map(([key, value]) => `$env:${key}=${shellQuote(value)}`)
-            .join("; ");
-        return `${assigns}; ${command}`;
-    }
-    return `${Object.entries(vars)
-        .map(([key, value]) => `${key}=${shellQuote(value)}`)
-        .join(" ")} ${command}`;
-}
-
 export function runCustomCommand(custom: import("../commands/registry").CustomCommand): void {
     const st = getState();
     const session = st.sessions[st.activeSessionId];
     if (!session) return;
-    const startup = contextualStartup(custom.command, session);
+    const startup = custom.command;
     if (custom.placement === "background") {
         void invoke<{ code: number; output: string }>("run_background_command", {
             command: custom.command,
@@ -771,7 +866,20 @@ export function runCustomCommand(custom: import("../commands/registry").CustomCo
         return;
     }
     if (custom.placement === "popup") {
-        setState({ commandPopup: { id: newId("popup"), title: custom.title, startup, cwd: session.cwd } });
+        setState({
+            commandPopup: {
+                id: newId("popup"),
+                title: custom.title,
+                startup,
+                cwd: session.cwd,
+                context: {
+                    sessionId: session.id,
+                    sessionName: session.name,
+                    sessionKind: session.kind,
+                    ...(session.kind === "project" && session.cwd ? { project: session.cwd } : {}),
+                },
+            },
+        });
         return;
     }
     mutate((d) => {
@@ -902,6 +1010,7 @@ function closeActivePane(): void {
         if (root === null && w.fixed) return;
         d.zoomedPaneId = null;
         delete d.editorViews[closingPaneId];
+        delete d.pendingEditorOpens[closingPaneId];
         delete d.dirtyEditorPaths[closingPaneId];
         delete d.gitViews[closingPaneId];
         delete d.ecsViews[closingPaneId];
@@ -936,6 +1045,7 @@ function pruneWindowViews(d: StoreState, win: Window): void {
     for (const p of collectPanes(win.root)) {
         if (d.gitModal?.ownerPaneId === p.id) d.gitModal = null;
         delete d.editorViews[p.id];
+        delete d.pendingEditorOpens[p.id];
         delete d.dirtyEditorPaths[p.id];
         delete d.gitViews[p.id];
         delete d.ecsViews[p.id];

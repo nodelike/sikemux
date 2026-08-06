@@ -25,6 +25,10 @@ describe("custom command popup lifecycle", () => {
 
         expect(first).toMatchObject({ title: "Logs", cwd: "" });
         expect(second).toMatchObject({ title: "Logs", cwd: "" });
+        expect(second).toMatchObject({
+            startup: "tail -f app.log",
+            context: { sessionId: expect.any(String), sessionName: expect.any(String), sessionKind: "command" },
+        });
         expect(second?.id).not.toBe(first?.id);
     });
 });

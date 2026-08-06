@@ -69,7 +69,15 @@ describe("Alt+Tab session switching", () => {
 describe("command popup modality", () => {
     it("blocks workspace shortcuts and closes on Escape", () => {
         render(<KeymapHarness />);
-        setState({ commandPopup: { id: "popup-1", title: "Logs", startup: "tail -f app.log", cwd: "/tmp" } });
+        setState({
+            commandPopup: {
+                id: "popup-1",
+                title: "Logs",
+                startup: "tail -f app.log",
+                cwd: "/tmp",
+                context: { sessionId: "one", sessionName: "one", sessionKind: "command" },
+            },
+        });
 
         window.dispatchEvent(new KeyboardEvent("keydown", { key: "z", code: "KeyZ", altKey: true, bubbles: true, cancelable: true }));
         expect(getState().zoomedPaneId).toBe("zoomed");

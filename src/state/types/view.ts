@@ -4,6 +4,42 @@ export interface EditorPaneView {
     treeWidth: number;
 }
 
+/** A path handed to the running app by the `sikemux` command-line client. */
+export interface CliOpenTarget {
+    id: string;
+    kind: "file" | "directory";
+    path: string;
+    projectRoot: string;
+    /** Zero-based editor position. */
+    line?: number;
+    /** Zero-based editor position. */
+    column?: number;
+}
+
+export interface CliOpenRequest {
+    id: string;
+    cwd: string;
+    wait: boolean;
+    targets: CliOpenTarget[];
+}
+
+export interface CliFrontendRequest {
+    request: CliOpenRequest;
+}
+
+/** Runtime-only work claimed by an editor pane from the CLI bridge. */
+export interface CliPendingEditorOpen extends CliOpenTarget {
+    requestId: string;
+}
+
+export interface CliOpenResult {
+    requestId: string;
+    targetId: string;
+    paneId: string | null;
+    path: string;
+    error: string | null;
+}
+
 export type GitPanel = "status" | "files" | "branches" | "remotes" | "commits" | "stashes";
 
 export interface GitPaneView {

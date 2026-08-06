@@ -8,7 +8,7 @@ import { Workspace } from "./Workspace";
 vi.mock("../terminal/TerminalPane", () => ({
     TerminalPane: (props: ComponentProps<typeof TerminalPane>) => (
         <div
-            data-testid={`terminal-${props.activityKey ?? "window"}`}
+            data-testid={`terminal-${props.context?.agentId ?? "window"}`}
             data-visible={String(props.visible)}
             data-spawn-when={String(props.spawnWhen)}
         />
