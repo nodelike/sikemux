@@ -8,13 +8,15 @@ VERSION="${1:-}"
 NOTES="${2:-}"
 PUBLISH="${RELEASE_PUBLISH:-0}"
 NOTARIZED="${RELEASE_NOTARIZED:-0}"
+CHANNEL="${RELEASE_CHANNEL:-stable}"
 for arg in "${@:3}"; do
   [[ "$arg" == "--publish" ]] && PUBLISH=1
-  [[ "$arg" != "--publish" ]] && { echo "Unknown option: $arg" >&2; exit 2; }
+  [[ "$arg" == "--preview" ]] && CHANNEL=preview
+  [[ "$arg" != "--publish" && "$arg" != "--preview" ]] && { echo "Unknown option: $arg" >&2; exit 2; }
 done
 
 if [[ -z "$VERSION" ]]; then
-  echo "Usage: $0 <version> <notes> [--publish]" >&2
+  echo "Usage: $0 <version> <notes> [--preview] [--publish]" >&2
   exit 2
 fi
 if ! VERSION="$VERSION" node - <<'NODE'
@@ -27,6 +29,19 @@ then
 fi
 if [[ "$NOTARIZED" != "0" && "$NOTARIZED" != "1" ]]; then
   echo "RELEASE_NOTARIZED must be 0 or 1" >&2
+  exit 2
+fi
+if [[ "$CHANNEL" != "stable" && "$CHANNEL" != "preview" ]]; then
+  echo "RELEASE_CHANNEL must be stable or preview" >&2
+  exit 2
+fi
+VERSION_WITHOUT_BUILD="${VERSION%%+*}"
+if [[ "$CHANNEL" == "preview" && "$VERSION_WITHOUT_BUILD" != *-* ]]; then
+  echo "Preview releases require a prerelease semver such as 0.2.0-beta.1" >&2
+  exit 2
+fi
+if [[ "$CHANNEL" == "stable" && "$VERSION_WITHOUT_BUILD" == *-* ]]; then
+  echo "Stable releases cannot use a prerelease semver; pass --preview instead" >&2
   exit 2
 fi
 
@@ -127,8 +142,10 @@ fi
 if [[ "$PUBLISH" == "1" ]]; then
   command -v gh >/dev/null || fail "gh is required with --publish"
   gh auth status >/dev/null 2>&1 || fail "gh is not authenticated"
-  gh api "repos/nodelike/sikemux/git/ref/tags/v$VERSION" >/dev/null 2>&1 && fail "remote tag v$VERSION already exists"
-  gh release view "v$VERSION" >/dev/null 2>&1 && fail "GitHub release v$VERSION already exists"
+  if [[ "$CHANNEL" == "stable" ]]; then
+    gh api "repos/nodelike/sikemux/git/ref/tags/v$VERSION" >/dev/null 2>&1 && fail "remote tag v$VERSION already exists"
+    gh release view "v$VERSION" >/dev/null 2>&1 && fail "GitHub release v$VERSION already exists"
+  fi
 fi
 
 if [[ "${RELEASE_PREFLIGHT_ONLY:-0}" == "1" ]]; then
@@ -259,7 +276,9 @@ for arch in $ARCHS; do
 done
 
 PUB_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-TAR_URL="https://github.com/nodelike/sikemux/releases/download/v$VERSION/${APP_NAME}.app.tar.gz"
+RELEASE_TAG="v$VERSION"
+[[ "$CHANNEL" == "preview" ]] && RELEASE_TAG=preview
+TAR_URL="https://github.com/nodelike/sikemux/releases/download/$RELEASE_TAG/${APP_NAME}.app.tar.gz"
 PLATFORM_LIST="${PLATFORMS[*]}" VERSION="$VERSION" NOTES="$NOTES" PUB_DATE="$PUB_DATE" SIG="$SIG" TAR_URL="$TAR_URL" python3 - <<'PY'
 import json, os, pathlib
 entry = {
@@ -276,19 +295,32 @@ pathlib.Path("latest.json").write_text(json.dumps(manifest, indent=2) + "\n")
 PY
 python3 -m json.tool latest.json >/dev/null
 
-GH_CMD=(gh release create "v$VERSION" --title "v$VERSION" --notes "$NOTES" "$DMG" "$TAR" "$SIG" latest.json)
-if [[ "$PUBLISH" == "1" ]]; then
-  echo "→ Publishing v$VERSION"
-  "${GH_CMD[@]}"
-  echo "✓ Released v$VERSION"
+STABLE_GH_CMD=(gh release create "v$VERSION" --title "v$VERSION" --notes "$NOTES" "$DMG" "$TAR" "$SIG" latest.json)
+if [[ "$PUBLISH" == "1" && "$CHANNEL" == "stable" ]]; then
+  echo "→ Publishing stable v$VERSION"
+  "${STABLE_GH_CMD[@]}"
+  echo "✓ Released stable v$VERSION"
+elif [[ "$PUBLISH" == "1" ]]; then
+  echo "→ Publishing preview v$VERSION"
+  if gh release view preview >/dev/null 2>&1; then
+    gh release upload preview "$DMG" "$TAR" "$SIG" latest.json --clobber
+    gh release edit preview --title "v$VERSION preview" --notes "$NOTES" --prerelease
+  else
+    gh release create preview --target "$(git rev-parse HEAD)" --title "v$VERSION preview" --notes "$NOTES" --prerelease "$DMG" "$TAR" "$SIG" latest.json
+  fi
+  echo "✓ Released preview v$VERSION"
 else
-  echo "✓ Verified release v$VERSION ($ARCHS)"
+  echo "✓ Verified $CHANNEL release v$VERSION ($ARCHS)"
   echo "  $DMG"
   echo "  $TAR"
   echo "  $SIG"
   echo "  $ROOT/latest.json"
   echo "To publish:"
-  printf '  '; printf '%q ' "${GH_CMD[@]}"; echo
+  if [[ "$CHANNEL" == "stable" ]]; then
+    printf '  '; printf '%q ' "${STABLE_GH_CMD[@]}"; echo
+  else
+    echo "  rerun with --preview --publish (updates the moving preview release)"
+  fi
 fi
 
 SUCCESS=1

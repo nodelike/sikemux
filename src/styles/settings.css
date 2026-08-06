@@ -1505,6 +1505,23 @@
     margin-top: 12px;
     color: var(--ink-faint);
 }
+.system-theme-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+    margin-top: 12px;
+}
+.system-theme-grid label {
+    display: grid;
+    gap: 6px;
+    color: var(--ink-faint);
+    font-size: 10px;
+}
+@media (max-width: 760px) {
+    .system-theme-grid {
+        grid-template-columns: 1fr;
+    }
+}
 .agent-rail[data-density="compact"] .agent-row {
     height: 27px;
 }

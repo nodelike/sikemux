@@ -20,13 +20,15 @@ describe("CommandPalette", () => {
         const user = userEvent.setup();
         const executeBuiltin = vi.fn();
         const onClose = vi.fn();
-        render(<CommandPalette keybindingOverrides={{}} executeBuiltin={executeBuiltin} context="project" onClose={onClose} />);
+        const onExecute = vi.fn();
+        render(<CommandPalette keybindingOverrides={{}} executeBuiltin={executeBuiltin} context="project" onClose={onClose} onExecute={onExecute} />);
 
         const input = screen.getByRole("textbox", { name: "Search commands" });
         await user.type(input, "open settings");
         fireEvent.keyDown(input, { key: "Enter" });
 
         expect(onClose).toHaveBeenCalledOnce();
+        expect(onExecute).toHaveBeenCalledWith("builtin:settings.toggle");
         expect(executeBuiltin).toHaveBeenCalledWith("settings.toggle");
     });
 

@@ -36,6 +36,7 @@
 use std::collections::HashMap;
 #[cfg(unix)]
 use std::fs::File;
+use std::hash::{Hash, Hasher};
 use std::io::{Read, Write};
 #[cfg(unix)]
 use std::os::fd::{AsRawFd, FromRawFd};
@@ -53,8 +54,8 @@ use tauri::{AppHandle, Emitter, Manager, State};
 use tokio::io::unix::AsyncFd;
 
 use crate::agent_detection::{
-    AgentDetectionState, AgentKind, DetectionConfidence, DetectionExplain, DetectionInput,
-    ManifestRegistry, ManifestReloadReport,
+    AgentDetection, AgentDetectionState, AgentKind, DetectionConfidence, DetectionExplain,
+    DetectionInput, ManifestRegistry, ManifestReloadReport,
 };
 use crate::error::{AppError, AppResult};
 
@@ -92,7 +93,7 @@ struct Pty {
     child: Mutex<Box<dyn Child + Send + Sync>>,
     /// Tracks the current screen grid + scrollback. Always up to date,
     /// even when no one's subscribed — that's the whole point.
-    parser: Mutex<vt100::Parser>,
+    parser: Mutex<SemanticParser>,
     /// Live xterm subscribers. Empty = PTY runs invisibly.
     subscribers: Mutex<HashMap<u32, Channel<Vec<u8>>>>,
     /// Millis-since-process-start of the last chunk processed. The idle
@@ -110,7 +111,13 @@ struct Pty {
     activity_armed: AtomicBool,
     activity_state: AtomicU8,
     activity_sequence: AtomicU64,
+    last_published_fingerprint: AtomicU64,
     idle_confirmations: AtomicU8,
+    /// Advances whenever submitted input or parsed output changes the
+    /// semantic evidence. Combined with screen/title contents below to make
+    /// settled detection edge-triggered instead of a perpetual 4 Hz rescan.
+    activity_revision: AtomicU64,
+    last_detection_fingerprint: AtomicU64,
 }
 
 /// All live PTYs, keyed by an id handed back to the frontend.
@@ -264,6 +271,15 @@ pub fn agent_detection_reload(
         .write()
         .map_err(|_| AppError::Other("agent detection registry lock poisoned".into()))? =
         replacement;
+    // The terminal evidence may be unchanged while the matching rules have
+    // changed. Invalidate every settled scan so the new registry takes effect
+    // on the next sweeper tick without requiring fresh PTY output.
+    for entry in manager.ptys.iter() {
+        entry
+            .value()
+            .last_detection_fingerprint
+            .store(0, Ordering::Release);
+    }
     Ok(report)
 }
 
@@ -281,16 +297,31 @@ pub fn agent_detection_explain(
     let kind = pty
         .agent_kind
         .ok_or(AppError::BadArg("terminal has no known agent type"))?;
-    let recent = pty
+    let (recent, title) = pty
         .parser
         .lock()
-        .map_err(|_| AppError::Other("agent terminal parser lock poisoned".into()))?
-        .screen()
-        .contents();
+        .map(|parser| {
+            (
+                parser.screen().contents(),
+                parser.callbacks().window_title.clone(),
+            )
+        })
+        .map_err(|_| AppError::Other("agent terminal parser lock poisoned".into()))?;
     manager
         .detection_registry
         .read()
-        .map(|registry| registry.explain(kind, DetectionInput::screen(&recent)))
+        .map(|registry| {
+            let input = if title.is_empty() {
+                DetectionInput::screen(&recent)
+            } else {
+                DetectionInput {
+                    recent_screen: &recent,
+                    osc_title: &title,
+                    osc_progress: "",
+                }
+            };
+            registry.explain(kind, input)
+        })
         .map_err(|_| AppError::Other("agent detection registry lock poisoned".into()))
 }
 
@@ -314,6 +345,82 @@ const ACTIVITY_BLOCKED: u8 = 3;
 const OUTPUT_COALESCE: Duration = Duration::from_millis(2);
 #[cfg(unix)]
 const OUTPUT_BATCH_BYTES: usize = 64 * 1024;
+
+#[derive(Default)]
+struct SemanticCallbacks {
+    window_title: String,
+}
+
+impl vt100::Callbacks for SemanticCallbacks {
+    fn set_window_title(&mut self, _: &mut vt100::Screen, title: &[u8]) {
+        // Titles are untrusted child-process output. Keep only printable text
+        // and impose a small scalar limit before retaining it for detection.
+        self.window_title = String::from_utf8_lossy(title)
+            .chars()
+            .filter(|ch| !ch.is_control())
+            .take(512)
+            .collect();
+    }
+}
+
+type SemanticParser = vt100::Parser<SemanticCallbacks>;
+
+fn semantic_parser(rows: u16, cols: u16, scrollback: usize) -> SemanticParser {
+    SemanticParser::new_with_callbacks(rows, cols, scrollback, SemanticCallbacks::default())
+}
+
+fn semantic_fingerprint(revision: u64, screen: &str, title: &str) -> u64 {
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    revision.hash(&mut hasher);
+    screen.hash(&mut hasher);
+    title.hash(&mut hasher);
+    // Zero is the initial "never evaluated" sentinel.
+    hasher.finish().max(1)
+}
+
+fn event_fingerprint(
+    state: u8,
+    label: &str,
+    source: &str,
+    confidence: &str,
+    reason: &str,
+    matched_rule: Option<&str>,
+) -> u64 {
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    state.hash(&mut hasher);
+    label.hash(&mut hasher);
+    source.hash(&mut hasher);
+    confidence.hash(&mut hasher);
+    reason.hash(&mut hasher);
+    matched_rule.hash(&mut hasher);
+    hasher.finish().max(1)
+}
+
+fn detection_reason(detection: &AgentDetection) -> String {
+    if let Some(fallback) = detection.fallback_reason.as_deref() {
+        return format!("agent detection fallback: {fallback}");
+    }
+    let Some(rule) = detection.matched_rule.as_deref() else {
+        return format!(
+            "agent screen evaluated with manifest {}",
+            detection.manifest_version
+        );
+    };
+    let evidence = &detection.evidence;
+    let visible = if evidence.visible_blocker {
+        "visible blocker"
+    } else if evidence.visible_working {
+        "visible working status"
+    } else if evidence.visible_idle {
+        "visible idle prompt"
+    } else {
+        "screen evidence"
+    };
+    match evidence.region.as_deref() {
+        Some(region) => format!("manifest rule {rule} matched {visible} in {region}"),
+        None => format!("manifest rule {rule} matched {visible}"),
+    }
+}
 
 #[derive(Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -340,9 +447,23 @@ fn publish_agent_state(
     let Some(agent_id) = pty.activity_key.as_deref() else {
         return;
     };
-    if pty.activity_state.swap(next, Ordering::AcqRel) == next {
+    let reason = reason.into();
+    let fingerprint = event_fingerprint(
+        next,
+        label,
+        source,
+        confidence,
+        &reason,
+        matched_rule.as_deref(),
+    );
+    if pty
+        .last_published_fingerprint
+        .swap(fingerprint, Ordering::AcqRel)
+        == fingerprint
+    {
         return;
     }
+    pty.activity_state.store(next, Ordering::Release);
     let sequence = pty.activity_sequence.fetch_add(1, Ordering::AcqRel) + 1;
     let _ = pty.app.emit(
         "agent_state_changed",
@@ -352,7 +473,7 @@ fn publish_agent_state(
             sequence,
             source,
             confidence,
-            reason: reason.into(),
+            reason,
             matched_rule,
         },
     );
@@ -365,6 +486,7 @@ fn arm_agent_activity(pty: &Pty) {
     pty.activity_armed.store(true, Ordering::Release);
     pty.last_activity_ms.store(now_ms(), Ordering::Relaxed);
     pty.idle_confirmations.store(0, Ordering::Release);
+    pty.activity_revision.fetch_add(1, Ordering::AcqRel);
     publish_agent_state(
         pty,
         ACTIVITY_WORKING,
@@ -571,15 +693,39 @@ fn ensure_sweeper(app: AppHandle) {
                 let Some(agent) = pty.agent_kind else {
                     continue;
                 };
-                let recent = match pty.parser.lock() {
-                    Ok(parser) => parser.screen().contents(),
+                let (recent, title) = match pty.parser.lock() {
+                    Ok(parser) => (
+                        parser.screen().contents(),
+                        parser.callbacks().window_title.clone(),
+                    ),
                     Err(_) => continue,
                 };
+                let fingerprint = semantic_fingerprint(
+                    pty.activity_revision.load(Ordering::Acquire),
+                    &recent,
+                    &title,
+                );
+                if pty.last_detection_fingerprint.load(Ordering::Acquire) == fingerprint {
+                    continue;
+                }
                 let detection = match mgr.detection_registry.read() {
-                    Ok(registry) => registry.detect(agent, DetectionInput::screen(&recent)),
+                    Ok(registry) => {
+                        let input = if title.is_empty() {
+                            DetectionInput::screen(&recent)
+                        } else {
+                            DetectionInput {
+                                recent_screen: &recent,
+                                osc_title: &title,
+                                osc_progress: "",
+                            }
+                        };
+                        registry.detect(agent, input)
+                    }
                     Err(_) => continue,
                 };
                 if detection.skip_state_update {
+                    pty.last_detection_fingerprint
+                        .store(fingerprint, Ordering::Release);
                     continue;
                 }
                 let (next, label) = match detection.state {
@@ -605,12 +751,7 @@ fn ensure_sweeper(app: AppHandle) {
                     DetectionConfidence::Authoritative | DetectionConfidence::Strong => "high",
                     DetectionConfidence::Fallback => "low",
                 };
-                let reason = detection
-                    .matched_rule
-                    .as_deref()
-                    .map(|rule| format!("screen manifest matched {rule}"))
-                    .or(detection.fallback_reason.clone())
-                    .unwrap_or_else(|| "agent screen evaluated".into());
+                let reason = detection_reason(&detection);
                 publish_agent_state(
                     pty,
                     next,
@@ -620,6 +761,8 @@ fn ensure_sweeper(app: AppHandle) {
                     reason,
                     detection.matched_rule,
                 );
+                pty.last_detection_fingerprint
+                    .store(fingerprint, Ordering::Release);
             }
         }
     });
@@ -706,6 +849,7 @@ fn broadcast_output(pty: &Pty, bytes: &[u8]) {
             reseed_parser(&mut parser, PARSER_SCROLLBACK);
         }
         parser.process(bytes);
+        pty.activity_revision.fetch_add(1, Ordering::AcqRel);
         match pty.subscribers.lock() {
             Ok(subs) => subs.iter().map(|(id, ch)| (*id, ch.clone())).collect(),
             Err(_) => Vec::new(),
@@ -735,22 +879,43 @@ fn broadcast_output(pty: &Pty, bytes: &[u8]) {
     }
 }
 
-fn notify_process_exited(pty: &Pty) {
+fn notify_process_exited(pty: &Pty, status: Option<&portable_pty::ExitStatus>) {
     if let Ok(subscribers) = pty.subscribers.lock() {
         for channel in subscribers.values() {
             let _ = channel.send(Vec::new());
         }
     }
     if pty.activity_armed.load(Ordering::Acquire) {
-        publish_agent_state(
-            pty,
-            ACTIVITY_UNKNOWN,
-            "unknown",
-            "process",
-            "high",
-            "agent process exited",
-            None,
-        );
+        if status.is_some_and(portable_pty::ExitStatus::success) {
+            publish_agent_state(
+                pty,
+                ACTIVITY_IDLE,
+                "idle",
+                "process",
+                "high",
+                "agent process completed successfully",
+                None,
+            );
+        } else {
+            let reason = status.map_or_else(
+                || "agent process exit status unavailable".to_string(),
+                |status| {
+                    status.signal().map_or_else(
+                        || format!("agent process exited with code {}", status.exit_code()),
+                        |signal| format!("agent process exited from signal {signal}"),
+                    )
+                },
+            );
+            publish_agent_state(
+                pty,
+                ACTIVITY_UNKNOWN,
+                "unknown",
+                "process",
+                "high",
+                reason,
+                None,
+            );
+        }
     }
 }
 
@@ -874,7 +1039,7 @@ pub async fn pty_spawn(
         #[cfg(windows)]
         writer: Mutex::new(writer),
         child: Mutex::new(child.into_inner()),
-        parser: Mutex::new(vt100::Parser::new(rows, cols, PARSER_SCROLLBACK)),
+        parser: Mutex::new(semantic_parser(rows, cols, PARSER_SCROLLBACK)),
         subscribers: Mutex::new(HashMap::new()),
         last_activity_ms: AtomicU64::new(now_ms()),
         trimmed: AtomicBool::new(false),
@@ -883,7 +1048,10 @@ pub async fn pty_spawn(
         activity_armed: AtomicBool::new(false),
         activity_state: AtomicU8::new(ACTIVITY_UNKNOWN),
         activity_sequence: AtomicU64::new(0),
+        last_published_fingerprint: AtomicU64::new(0),
         idle_confirmations: AtomicU8::new(0),
+        activity_revision: AtomicU64::new(0),
+        last_detection_fingerprint: AtomicU64::new(0),
     });
 
     // Publish before starting the reader. A short-lived command can reach EOF
@@ -984,9 +1152,6 @@ pub async fn pty_spawn(
                 break;
             }
         }
-        // Notify on EOF — empty payload is the frontend's "process exited"
-        // signal. Same convention as before.
-        notify_process_exited(&pty_reader);
         // If the shell exits by itself, there is no frontend unmount to call
         // `pty_kill`. Remove the manager entry here so the retained master
         // fd is released instead of accumulating toward the process fd limit,
@@ -997,9 +1162,15 @@ pub async fn pty_spawn(
         }
         let reap_pty = pty_reader.clone();
         tauri::async_runtime::spawn_blocking(move || {
-            if let Ok(mut child) = reap_pty.child.lock() {
-                let _ = child.wait();
-            }
+            let status = reap_pty
+                .child
+                .lock()
+                .ok()
+                .and_then(|mut child| child.wait().ok());
+            // Empty payload remains the frontend's "process exited" signal.
+            // Waiting first lets the semantic event distinguish a successful
+            // completion from a crash/signal instead of always saying unknown.
+            notify_process_exited(&reap_pty, status.as_ref());
         });
     });
 
@@ -1019,13 +1190,15 @@ pub async fn pty_spawn(
                     Err(_) => break,
                 }
             }
-            notify_process_exited(&pty_reader);
             if let Some(mgr) = app_reader.try_state::<PtyManager>() {
                 mgr.ptys.remove(&id);
             }
-            if let Ok(mut child) = pty_reader.child.lock() {
-                let _ = child.wait();
-            }
+            let status = pty_reader
+                .child
+                .lock()
+                .ok()
+                .and_then(|mut child| child.wait().ok());
+            notify_process_exited(&pty_reader, status.as_ref());
         });
     }
 
@@ -1123,15 +1296,16 @@ fn attach_snapshot(screen: &vt100::Screen) -> Vec<u8> {
     snapshot
 }
 
-fn reseed_parser(parser: &mut vt100::Parser, scrollback: usize) {
+fn reseed_parser(parser: &mut SemanticParser, scrollback: usize) {
     let (rows, cols) = parser.screen().size();
     let snapshot = attach_snapshot(parser.screen());
-    let mut fresh = vt100::Parser::new(rows, cols, scrollback);
+    let callbacks = std::mem::take(parser.callbacks_mut());
+    let mut fresh = SemanticParser::new_with_callbacks(rows, cols, scrollback, callbacks);
     fresh.process(&snapshot);
     *parser = fresh;
 }
 
-fn compact_parser_for_idle(parser: &mut vt100::Parser) -> bool {
+fn compact_parser_for_idle(parser: &mut SemanticParser) -> bool {
     if parser.screen().alternate_screen() {
         return false;
     }
@@ -1285,8 +1459,9 @@ mod tests {
     #[cfg(unix)]
     use super::startup_bootstrap;
     use super::{
-        attach_snapshot, compact_parser_for_idle, reseed_parser, submits_line, AttachResult,
-        IDLE_SCROLLBACK, PARSER_SCROLLBACK, RESET_MODES,
+        attach_snapshot, compact_parser_for_idle, event_fingerprint, reseed_parser,
+        semantic_fingerprint, semantic_parser, submits_line, AttachResult, IDLE_SCROLLBACK,
+        PARSER_SCROLLBACK, RESET_MODES,
     };
 
     #[test]
@@ -1295,6 +1470,57 @@ mod tests {
         assert!(submits_line("first\nsecond"));
         assert!(!submits_line("still typing"));
         assert!(!submits_line("\x1b[A"));
+    }
+
+    #[test]
+    fn semantic_fingerprint_changes_with_evidence_or_revision() {
+        let base = semantic_fingerprint(1, "prompt", "Codex");
+        assert_eq!(base, semantic_fingerprint(1, "prompt", "Codex"));
+        assert_ne!(base, semantic_fingerprint(2, "prompt", "Codex"));
+        assert_ne!(base, semantic_fingerprint(1, "working", "Codex"));
+        assert_ne!(base, semantic_fingerprint(1, "prompt", "Action required"));
+    }
+
+    #[test]
+    fn event_fingerprint_preserves_same_state_evidence_upgrades() {
+        let activity =
+            event_fingerprint(1, "working", "activity", "high", "command submitted", None);
+        let screen = event_fingerprint(
+            1,
+            "working",
+            "screen",
+            "high",
+            "manifest rule spinner matched visible working status",
+            Some("spinner"),
+        );
+        let changed_reason = event_fingerprint(
+            1,
+            "working",
+            "screen",
+            "high",
+            "manifest rule tool matched visible working status",
+            Some("tool"),
+        );
+        assert_ne!(activity, screen);
+        assert_ne!(screen, changed_reason);
+        assert_eq!(
+            screen,
+            event_fingerprint(
+                1,
+                "working",
+                "screen",
+                "high",
+                "manifest rule spinner matched visible working status",
+                Some("spinner")
+            )
+        );
+    }
+
+    #[test]
+    fn semantic_parser_captures_and_sanitizes_osc_title() {
+        let mut parser = semantic_parser(24, 80, PARSER_SCROLLBACK);
+        parser.process(b"\x1b]2;Action\n required\x07");
+        assert_eq!(parser.callbacks().window_title, "Action required");
     }
 
     #[test]
@@ -1433,7 +1659,7 @@ mod tests {
 
     #[test]
     fn idle_compaction_retains_tail_and_modes() {
-        let mut parser = vt100::Parser::new(5, 20, PARSER_SCROLLBACK);
+        let mut parser = semantic_parser(5, 20, PARSER_SCROLLBACK);
         for i in 0..2_100 {
             parser.process(format!("line {i:04}\r\n").as_bytes());
         }
@@ -1458,7 +1684,7 @@ mod tests {
 
     #[test]
     fn idle_compaction_skips_alternate_screen() {
-        let mut parser = vt100::Parser::new(5, 20, PARSER_SCROLLBACK);
+        let mut parser = semantic_parser(5, 20, PARSER_SCROLLBACK);
         parser.process(b"normal history\r\n\x1b[?1049halt screen");
         let before = attach_snapshot(parser.screen());
 
@@ -1469,7 +1695,7 @@ mod tests {
 
     #[test]
     fn reseed_restores_full_future_scrollback_capacity() {
-        let mut parser = vt100::Parser::new(5, 20, IDLE_SCROLLBACK);
+        let mut parser = semantic_parser(5, 20, IDLE_SCROLLBACK);
         for i in 0..1_000 {
             parser.process(format!("old {i:04}\r\n").as_bytes());
         }

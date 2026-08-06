@@ -16,6 +16,15 @@ use std::process::Command;
 
 use crate::error::{AppError, AppResult};
 use std::collections::HashMap;
+use std::process::Stdio;
+use std::time::Duration;
+use tokio::io::{AsyncRead, AsyncReadExt};
+
+const BACKGROUND_TIMEOUT: Duration = Duration::from_secs(120);
+const BACKGROUND_KILL_GRACE: Duration = Duration::from_millis(250);
+const BACKGROUND_STREAM_LIMIT: usize = 8_000;
+const BACKGROUND_OUTPUT_LIMIT: usize = BACKGROUND_STREAM_LIMIT * 2;
+const TRUNCATED_SUFFIX: &str = "\n… output truncated";
 
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -45,6 +54,13 @@ pub async fn run_background_command(
         child.args(["-lc", &command]);
         child
     };
+    // A dropped tokio child does not otherwise guarantee termination. This
+    // is the final safety net if the task itself is cancelled (window close,
+    // app shutdown, runtime teardown) before the explicit timeout path runs.
+    process.kill_on_drop(true);
+    process.stdout(Stdio::piped()).stderr(Stdio::piped());
+    #[cfg(unix)]
+    process.process_group(0);
     if let Some(cwd) = cwd.filter(|value| !value.is_empty()) {
         process.current_dir(cwd);
     }
@@ -53,20 +69,133 @@ pub async fn run_background_command(
             process.env(key, value);
         }
     }
-    let output = tokio::time::timeout(std::time::Duration::from_secs(120), process.output())
-        .await
-        .map_err(|_| AppError::Other("background command timed out after 120 seconds".into()))?
-        .map_err(AppError::Io)?;
-    let mut text = String::from_utf8_lossy(&output.stdout).into_owned();
-    text.push_str(&String::from_utf8_lossy(&output.stderr));
-    if text.len() > 16_000 {
-        text.truncate(16_000);
-        text.push_str("\n… output truncated");
+    let mut child = process.spawn().map_err(AppError::Io)?;
+    let pid = child.id();
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| AppError::Other("background command stdout unavailable".into()))?;
+    let stderr = child
+        .stderr
+        .take()
+        .ok_or_else(|| AppError::Other("background command stderr unavailable".into()))?;
+
+    // Drain both pipes concurrently so a noisy stderr cannot deadlock a
+    // command whose stdout is also full. Each collector retains a fixed
+    // prefix and discards the remainder while continuing to drain.
+    let completion = async {
+        tokio::try_join!(
+            child.wait(),
+            read_bounded(stdout, BACKGROUND_STREAM_LIMIT),
+            read_bounded(stderr, BACKGROUND_STREAM_LIMIT),
+        )
+    };
+    let (status, stdout, stderr) = match tokio::time::timeout(BACKGROUND_TIMEOUT, completion).await
+    {
+        Ok(result) => result.map_err(AppError::Io)?,
+        Err(_) => {
+            terminate_background_process(&mut child, pid).await;
+            return Err(AppError::Other(
+                "background command timed out after 120 seconds".into(),
+            ));
+        }
+    };
+    let truncated = stdout.truncated || stderr.truncated;
+    let mut bytes = stdout.bytes;
+    bytes.extend(stderr.bytes);
+    let mut text = String::from_utf8_lossy(&bytes).into_owned();
+    if truncated || text.len() > BACKGROUND_OUTPUT_LIMIT {
+        truncate_utf8(
+            &mut text,
+            BACKGROUND_OUTPUT_LIMIT.saturating_sub(TRUNCATED_SUFFIX.len()),
+        );
+        text.push_str(TRUNCATED_SUFFIX);
     }
     Ok(BackgroundCommandResult {
-        code: output.status.code().unwrap_or(-1),
+        code: status.code().unwrap_or(-1),
         output: text,
     })
+}
+
+struct BoundedRead {
+    bytes: Vec<u8>,
+    truncated: bool,
+}
+
+async fn read_bounded<R>(mut reader: R, limit: usize) -> std::io::Result<BoundedRead>
+where
+    R: AsyncRead + Unpin,
+{
+    let mut retained = Vec::with_capacity(limit);
+    let mut buf = [0u8; 8 * 1024];
+    let mut truncated = false;
+    loop {
+        let read = reader.read(&mut buf).await?;
+        if read == 0 {
+            break;
+        }
+        let remaining = limit.saturating_sub(retained.len());
+        let keep = remaining.min(read);
+        retained.extend_from_slice(&buf[..keep]);
+        truncated |= keep < read;
+    }
+    Ok(BoundedRead {
+        bytes: retained,
+        truncated,
+    })
+}
+
+fn truncate_utf8(text: &mut String, max_bytes: usize) {
+    if text.len() <= max_bytes {
+        return;
+    }
+    let mut end = max_bytes;
+    while !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    text.truncate(end);
+}
+
+async fn terminate_background_process(child: &mut tokio::process::Child, pid: Option<u32>) {
+    #[cfg(unix)]
+    {
+        if let Some(pid) = pid {
+            unsafe {
+                libc::kill(-(pid as i32), libc::SIGTERM);
+            }
+        }
+        // The direct shell may already have exited while a descendant still
+        // owns a pipe. Do not use child.wait() as a tree-liveness proxy:
+        // always give the process group its grace window, then force-kill any
+        // holdout and reap the direct child.
+        tokio::time::sleep(BACKGROUND_KILL_GRACE).await;
+        if let Some(pid) = pid {
+            unsafe {
+                libc::kill(-(pid as i32), libc::SIGKILL);
+            }
+        }
+        let _ = child.kill().await;
+        let _ = child.wait().await;
+    }
+
+    #[cfg(windows)]
+    {
+        if let Some(pid) = pid {
+            let _ = tokio::process::Command::new("taskkill")
+                .args(["/PID", &pid.to_string(), "/T"])
+                .status()
+                .await;
+        }
+        tokio::time::sleep(BACKGROUND_KILL_GRACE).await;
+        if let Some(pid) = pid {
+            let _ = tokio::process::Command::new("taskkill")
+                .args(["/PID", &pid.to_string(), "/T", "/F"])
+                .status()
+                .await;
+        }
+        let _ = child.kill().await;
+        let _ = child.wait().await;
+    }
 }
 
 fn validate_external_url(raw: &str) -> AppResult<()> {
@@ -237,4 +366,30 @@ fn key_code_for(key: &str) -> Option<u8> {
         "z" => 6,
         _ => return None,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{read_bounded, truncate_utf8};
+    use tokio::io::AsyncWriteExt;
+
+    #[test]
+    fn utf8_truncation_stops_on_a_character_boundary() {
+        let mut text = "abc🦀def".to_string();
+        truncate_utf8(&mut text, 5);
+        assert_eq!(text, "abc");
+        assert!(text.is_char_boundary(text.len()));
+    }
+
+    #[tokio::test]
+    async fn bounded_reader_drains_but_retains_only_the_limit() {
+        let (mut writer, reader) = tokio::io::duplex(64);
+        let producer = tokio::spawn(async move {
+            writer.write_all(&vec![b'x'; 4_096]).await.unwrap();
+        });
+        let output = read_bounded(reader, 128).await.unwrap();
+        producer.await.unwrap();
+        assert_eq!(output.bytes.len(), 128);
+        assert!(output.truncated);
+    }
 }

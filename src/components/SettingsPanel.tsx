@@ -21,6 +21,7 @@ import { cloneTheme, newCustomThemeId, THEME_GROUPS, THEMES, THEMES_BY_ID, type 
 import { IconCheck, IconClose, IconFolder, IconPencil, IconPlus, IconRefresh, IconSave, IconTrash } from "./Icons";
 import type { CommandContext, CustomCommand, CustomCommandPlacement } from "../commands/registry";
 import { requestAgentNotificationPermission } from "./AgentNotifications";
+import type { AgentType } from "../state/types";
 
 type Page = "general" | "appearance" | "keybindings" | "commands" | "agents" | "notifications" | "cloud" | "about";
 
@@ -255,11 +256,13 @@ function ToggleSetting({
     label,
     detail,
     checked,
+    disabled = false,
     onChange,
 }: {
     label: string;
     detail: string;
     checked: boolean;
+    disabled?: boolean;
     onChange: (value: boolean) => void;
 }) {
     return (
@@ -268,7 +271,7 @@ function ToggleSetting({
                 <b>{label}</b>
                 <small>{detail}</small>
             </span>
-            <input type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} />
+            <input type="checkbox" checked={checked} disabled={disabled} onChange={(event) => onChange(event.target.checked)} />
         </label>
     );
 }
@@ -292,6 +295,7 @@ function AgentsPage() {
                     label="Auto-resume restored agents"
                     detail="Explicit opt-in: launch every restored agent after Sikemux starts."
                     checked={auto}
+                    disabled={!restore}
                     onChange={cmd.setAutoResumeAgents}
                 />
             </SettingsSection>
@@ -338,6 +342,18 @@ function NotificationsPage() {
                     checked={prefs.sounds}
                     onChange={(sounds) => patch({ sounds })}
                 />
+                <label className="settings-field-label" htmlFor="notification-sound-style">
+                    signal tone
+                </label>
+                <select
+                    id="notification-sound-style"
+                    className="settings-input"
+                    value={prefs.soundStyle}
+                    disabled={!prefs.sounds}
+                    onChange={(event) => patch({ soundStyle: event.target.value as "soft" | "bright" })}>
+                    <option value="soft">soft · calm sine</option>
+                    <option value="bright">bright · sharper triangle</option>
+                </select>
                 <label className="settings-field-label">delivery delay · {prefs.delayMs} ms</label>
                 <input type="range" min="0" max="5000" step="50" value={prefs.delayMs} onChange={(e) => patch({ delayMs: Number(e.target.value) })} />
             </SettingsSection>
@@ -363,6 +379,34 @@ function NotificationsPage() {
                         onChange={(e) => patch({ quietHoursEnd: e.target.value })}
                     />
                 </div>
+            </SettingsSection>
+            <SettingsSection title="Agent types" sub="Mute individual agent integrations while keeping notifications enabled for the others.">
+                {(
+                    [
+                        ["claude", "Claude"],
+                        ["codex", "Codex"],
+                        ["hermes", "Hermes"],
+                        ["pi", "Pi"],
+                        ["opencode", "OpenCode"],
+                    ] as const satisfies readonly (readonly [AgentType, string])[]
+                ).map(([type, label]) => {
+                    const muted = prefs.mutedAgentTypes.includes(type);
+                    return (
+                        <ToggleSetting
+                            key={type}
+                            label={`Mute ${label}`}
+                            detail={`Suppress blocked and completed notifications from ${label} agents.`}
+                            checked={muted}
+                            onChange={(nextMuted) =>
+                                patch({
+                                    mutedAgentTypes: nextMuted
+                                        ? [...prefs.mutedAgentTypes, type]
+                                        : prefs.mutedAgentTypes.filter((candidate) => candidate !== type),
+                                })
+                            }
+                        />
+                    );
+                })}
             </SettingsSection>
         </SettingsPage>
     );
@@ -799,6 +843,8 @@ interface ThemeEdit {
 function AppearancePage({ themeId, windowOpacity, windowBlur }: AppearancePageProps) {
     const customThemes = useStore((s) => s.customThemes);
     const themeMode = useStore((s) => s.themeMode);
+    const systemLightThemeId = useStore((s) => s.systemLightThemeId);
+    const systemDarkThemeId = useStore((s) => s.systemDarkThemeId);
     const [edit, setEdit] = useState<ThemeEdit | null>(null);
     const editorRef = useRef<HTMLDivElement>(null);
 
@@ -909,6 +955,40 @@ function AppearancePage({ themeId, windowOpacity, windowBlur }: AppearancePagePr
                     checked={themeMode === "system"}
                     onChange={(enabled) => cmd.setThemeMode(enabled ? "system" : "manual")}
                 />
+                <div className="system-theme-grid">
+                    <label>
+                        <span>Light appearance</span>
+                        <select
+                            className="settings-input"
+                            value={systemLightThemeId}
+                            onChange={(event) => cmd.setSystemLightThemeId(event.target.value)}>
+                            {[...THEMES, ...customThemes]
+                                .filter((theme) => !theme.dark || theme.id === systemLightThemeId)
+                                .map((theme) => (
+                                    <option key={theme.id} value={theme.id}>
+                                        {theme.name}
+                                        {customThemes.some((candidate) => candidate.id === theme.id) ? " · custom" : ""}
+                                    </option>
+                                ))}
+                        </select>
+                    </label>
+                    <label>
+                        <span>Dark appearance</span>
+                        <select
+                            className="settings-input"
+                            value={systemDarkThemeId}
+                            onChange={(event) => cmd.setSystemDarkThemeId(event.target.value)}>
+                            {[...THEMES, ...customThemes]
+                                .filter((theme) => theme.dark || theme.id === systemDarkThemeId)
+                                .map((theme) => (
+                                    <option key={theme.id} value={theme.id}>
+                                        {theme.name}
+                                        {customThemes.some((candidate) => candidate.id === theme.id) ? " · custom" : ""}
+                                    </option>
+                                ))}
+                        </select>
+                    </label>
+                </div>
             </SettingsSection>
             <SettingsSection
                 title="Theme"

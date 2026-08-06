@@ -6,6 +6,7 @@ import {
     type CommandEntry,
     type CustomCommand,
     type CustomCommandExecutor,
+    type StandaloneCommand,
 } from "../commands/registry";
 import { useMouseActive } from "../hooks/useMouseActive";
 import { rankBy } from "../lib/fuzzy";
@@ -21,7 +22,9 @@ export interface CommandPaletteProps {
     executeCustom?: CustomCommandExecutor;
     context?: CommandContext | null;
     onClose: () => void;
+    onExecute?: (key: string) => void;
     recentCommandKeys?: readonly string[];
+    standaloneCommands?: readonly StandaloneCommand[];
 }
 
 function entryMeta(entry: CommandEntry): string {
@@ -36,7 +39,9 @@ export function CommandPalette({
     executeCustom,
     context = null,
     onClose,
+    onExecute,
     recentCommandKeys = [],
+    standaloneCommands = [],
 }: CommandPaletteProps) {
     const [query, setQuery] = useState("");
     const [selected, setSelected] = useState(0);
@@ -45,10 +50,10 @@ export function CommandPalette({
     const mouseActive = useMouseActive();
 
     const registry = useMemo(() => {
-        const rows = buildCommandRegistry({ keybindingOverrides, executeBuiltin, customCommands, executeCustom, context });
+        const rows = buildCommandRegistry({ keybindingOverrides, executeBuiltin, customCommands, executeCustom, context, standaloneCommands });
         const recent = new Map(recentCommandKeys.map((key, index) => [key, index]));
         return rows.sort((a, b) => (recent.get(a.key) ?? Number.MAX_SAFE_INTEGER) - (recent.get(b.key) ?? Number.MAX_SAFE_INTEGER));
-    }, [context, customCommands, executeBuiltin, executeCustom, keybindingOverrides, recentCommandKeys]);
+    }, [context, customCommands, executeBuiltin, executeCustom, keybindingOverrides, recentCommandKeys, standaloneCommands]);
     const entries = useMemo(() => rankBy(query, registry, (entry) => entry.searchText).slice(0, MAX_RESULTS), [query, registry]);
 
     useEffect(() => {
@@ -71,6 +76,7 @@ export function CommandPalette({
     const activate = (entry: CommandEntry | undefined) => {
         if (!entry) return;
         onClose();
+        onExecute?.(entry.key);
         entry.execute();
     };
 

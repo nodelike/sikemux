@@ -1,6 +1,6 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { keybindingLabel, resolvedKeybinding } from "../keybindings";
 import { getState, setState } from "../state/store";
 import { SettingsPanel } from "./SettingsPanel";
@@ -11,6 +11,8 @@ beforeEach(() => {
     setState(initial, true);
     setState({ keybindingOverrides: {}, settingsOpen: true });
 });
+
+afterEach(cleanup);
 
 describe("SettingsPanel keybindings", () => {
     it("records, blocks conflicts, clears, and resets shortcuts", async () => {
@@ -44,5 +46,50 @@ describe("SettingsPanel keybindings", () => {
 
         await user.click(screen.getByRole("button", { name: "reset all" }));
         expect(getState().keybindingOverrides).toEqual({});
+    });
+
+    it("turning off tab restoration also clears and disables auto-resume", async () => {
+        const user = userEvent.setup();
+        setState({ restoreAgentTabs: true, autoResumeAgents: true });
+        render(<SettingsPanel />);
+        await user.click(screen.getByRole("button", { name: "AgentsRestore and status behavior" }));
+
+        const restore = screen.getByRole("checkbox", { name: /Restore agent tabs/ });
+        const autoResume = screen.getByRole("checkbox", { name: /Auto-resume restored agents/ });
+        expect(autoResume).toBeChecked();
+
+        await user.click(restore);
+        expect(getState()).toMatchObject({ restoreAgentTabs: false, autoResumeAgents: false });
+        expect(autoResume).not.toBeChecked();
+        expect(autoResume).toBeDisabled();
+    });
+
+    it("mutes and unmutes notifications by agent type", async () => {
+        const user = userEvent.setup();
+        render(<SettingsPanel />);
+        await user.click(screen.getByRole("button", { name: "NotificationsAttention without noise" }));
+
+        const claude = screen.getByRole("checkbox", { name: /Mute Claude/ });
+        const codex = screen.getByRole("checkbox", { name: /Mute Codex/ });
+        await user.click(claude);
+        await user.click(codex);
+        expect(getState().notificationPreferences.mutedAgentTypes).toEqual(["claude", "codex"]);
+
+        await user.click(claude);
+        expect(getState().notificationPreferences.mutedAgentTypes).toEqual(["codex"]);
+
+        await user.selectOptions(screen.getByRole("combobox", { name: "signal tone" }), "bright");
+        expect(getState().notificationPreferences.soundStyle).toBe("bright");
+    });
+
+    it("configures separate themes for system light and dark appearances", async () => {
+        const user = userEvent.setup();
+        render(<SettingsPanel />);
+        await user.click(screen.getByRole("button", { name: "AppearanceTheme and window" }));
+
+        await user.selectOptions(screen.getByRole("combobox", { name: "Light appearance" }), "aura-day");
+        await user.selectOptions(screen.getByRole("combobox", { name: "Dark appearance" }), "dracula");
+
+        expect(getState()).toMatchObject({ systemLightThemeId: "aura-day", systemDarkThemeId: "dracula" });
     });
 });

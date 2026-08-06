@@ -54,4 +54,21 @@ describe("command registry", () => {
         expect(customCommandAvailable({ ...custom, contexts: [] }, null)).toBe(true);
         expect(customCommandAvailable(custom, null)).toBe(false);
     });
+
+    it("includes first-party actions that do not have keybindings", () => {
+        const execute = vi.fn();
+        const entries = buildCommandRegistry({
+            keybindingOverrides: {},
+            executeBuiltin: vi.fn(),
+            standaloneCommands: [
+                { id: "support.diagnostics", title: "Runtime diagnostics", detail: "Inspect runtime health", category: "Support", execute },
+            ],
+        });
+
+        const diagnostics = entries.find((entry) => entry.id === "support.diagnostics");
+        expect(diagnostics).toMatchObject({ kind: "standalone", shortcut: "", category: "Support" });
+        expect(diagnostics?.searchText).toContain("Runtime diagnostics");
+        diagnostics?.execute();
+        expect(execute).toHaveBeenCalledOnce();
+    });
 });

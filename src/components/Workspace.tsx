@@ -290,6 +290,7 @@ const AgentLayer = memo(function AgentLayer({
     visible: boolean;
     tabsShown: boolean;
 }) {
+    const autoResumeAgents = useStore((s) => s.autoResumeAgents);
     return (
         <div className={`window-layer${visible ? " visible" : ""}`}>
             <div
@@ -319,6 +320,7 @@ const AgentLayer = memo(function AgentLayer({
                             startup={agent.startup}
                             active={visible}
                             visible={visible}
+                            spawnWhen={visible || (autoResumeAgents && !!agent.resumeId)}
                             activityKey={agent.id}
                             agentKind={agent.type}
                         />

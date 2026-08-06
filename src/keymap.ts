@@ -19,6 +19,7 @@ function hasOpenModal(st: StoreState): boolean {
         st.brunoReqPaletteOpen ||
         st.brunoEnvPaletteOpen ||
         st.commandPaletteOpen ||
+        st.commandPopup !== null ||
         st.onboardingOpen ||
         st.diagnosticsOpen ||
         st.whatsNewOpen ||
@@ -243,6 +244,12 @@ export function useKeymap(): void {
                 ) {
                     consume(event);
                 }
+                return;
+            }
+
+            if (st.commandPopup && event.key === "Escape") {
+                cmd.closeCommandPopup();
+                consume(event);
                 return;
             }
 

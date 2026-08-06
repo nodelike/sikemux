@@ -28,6 +28,15 @@ export interface CustomCommand {
 export type BuiltinCommandExecutor = (id: KeybindingActionId) => void;
 export type CustomCommandExecutor = (command: CustomCommand) => void;
 
+/** A first-party action that is intentionally available without a keybinding. */
+export interface StandaloneCommand {
+    id: string;
+    title: string;
+    detail: string;
+    category: string;
+    execute: () => void;
+}
+
 export interface BuiltinCommandEntry {
     kind: "builtin";
     key: string;
@@ -54,7 +63,19 @@ export interface CustomCommandEntry {
     execute: () => void;
 }
 
-export type CommandEntry = BuiltinCommandEntry | CustomCommandEntry;
+export interface StandaloneCommandEntry {
+    kind: "standalone";
+    key: string;
+    id: string;
+    title: string;
+    detail: string;
+    category: string;
+    shortcut: "";
+    searchText: string;
+    execute: () => void;
+}
+
+export type CommandEntry = BuiltinCommandEntry | StandaloneCommandEntry | CustomCommandEntry;
 
 export interface BuildCommandRegistryOptions {
     keybindingOverrides: KeybindingOverrides;
@@ -62,6 +83,7 @@ export interface BuildCommandRegistryOptions {
     customCommands?: readonly CustomCommand[];
     executeCustom?: CustomCommandExecutor;
     context?: CommandContext | null;
+    standaloneCommands?: readonly StandaloneCommand[];
 }
 
 export function customCommandAvailable(command: CustomCommand, context?: CommandContext | null): boolean {
@@ -92,9 +114,21 @@ export function buildCommandRegistry({
     customCommands = [],
     executeCustom,
     context = null,
+    standaloneCommands = [],
 }: BuildCommandRegistryOptions): CommandEntry[] {
     const builtins = buildBuiltinCommandEntries(keybindingOverrides, executeBuiltin);
-    if (!executeCustom) return builtins;
+    const standalone: StandaloneCommandEntry[] = standaloneCommands.map((command) => ({
+        kind: "standalone",
+        key: `standalone:${command.id}`,
+        id: command.id,
+        title: command.title,
+        detail: command.detail,
+        category: command.category,
+        shortcut: "",
+        searchText: `${command.title} ${command.detail} ${command.category} ${command.id}`,
+        execute: command.execute,
+    }));
+    if (!executeCustom) return [...builtins, ...standalone];
 
     const custom: CustomCommandEntry[] = customCommands
         .filter((command) => customCommandAvailable(command, context))
@@ -112,5 +146,5 @@ export function buildCommandRegistry({
             execute: () => executeCustom(command),
         }));
 
-    return [...builtins, ...custom];
+    return [...builtins, ...standalone, ...custom];
 }

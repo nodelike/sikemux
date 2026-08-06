@@ -16,6 +16,19 @@ bash -n scripts/build-mac.sh scripts/release.sh scripts/icons.sh scripts/check-r
 node --check scripts/verify-updater-signature.mjs
 /usr/bin/plutil -lint src-tauri/Info.plist >/dev/null
 
+if RELEASE_CHANNEL=nightly scripts/release.sh 0.2.0-beta.1 fixture >/dev/null 2>&1; then
+  echo "release tooling accepted an unsupported channel" >&2
+  exit 1
+fi
+if scripts/release.sh 0.2.0 fixture --preview >/dev/null 2>&1; then
+  echo "release tooling accepted a stable semver for the preview channel" >&2
+  exit 1
+fi
+if scripts/release.sh 0.2.0-beta.1 fixture >/dev/null 2>&1; then
+  echo "release tooling accepted a prerelease semver for the stable channel" >&2
+  exit 1
+fi
+
 node - <<'NODE'
 const fs = require("node:fs");
 const pkg = JSON.parse(fs.readFileSync("package.json", "utf8"));
@@ -45,6 +58,19 @@ if (publicLines.length !== 2 || !publicLines[0].startsWith("untrusted comment:")
 const packet = Buffer.from(publicLines[1], "base64");
 if (packet.length !== 42 || packet.subarray(0, 2).toString("ascii") !== "Ed") fail("invalid updater Ed25519 public key");
 NODE
+
+grep -Fq 'RELEASE_TAG=preview' scripts/release.sh || {
+  echo "preview updater release tag is not configured" >&2
+  exit 1
+}
+grep -Fq 'gh release upload preview' scripts/release.sh || {
+  echo "preview updater publishing path is missing" >&2
+  exit 1
+}
+grep -Fq 'releases/download/preview/latest.json' src-tauri/src/updates.rs || {
+  echo "preview updater endpoint is missing" >&2
+  exit 1
+}
 
 CARGO_METADATA="$(cargo metadata --manifest-path src-tauri/Cargo.toml --offline --locked --no-deps --format-version 1)"
 PACKAGE_VERSION="$(node -p "require('./package.json').version")"

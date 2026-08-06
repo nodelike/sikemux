@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { isPermissionGranted, onAction, requestPermission, sendNotification } from "@tauri-apps/plugin-notification";
+import { isPermissionGranted, onAction, requestPermission, type Options } from "@tauri-apps/plugin-notification";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { getState, useStore } from "../state/store";
 import { notify } from "../state/toast";
@@ -22,14 +22,26 @@ async function focusAgent(sessionId: string, agentId: string): Promise<void> {
     await window.setFocus();
 }
 
-function playSignal(state: "blocked" | "done"): void {
+export function sendAgentSystemNotification(options: Options, sessionId: string, agentId: string): void {
+    // The plugin's desktop `sendNotification` is a thin wrapper around the Web
+    // Notification constructor. Construct it here so its click callback can
+    // return to the exact agent. Keep `extra` on the options for the plugin's
+    // mobile action listener below.
+    const notification = new window.Notification(options.title, options as NotificationOptions);
+    notification.onclick = () => {
+        notification.close();
+        void focusAgent(sessionId, agentId);
+    };
+}
+
+function playSignal(state: "blocked" | "done", style: "soft" | "bright"): void {
     try {
         const audio = new AudioContext();
         const oscillator = audio.createOscillator();
         const gain = audio.createGain();
-        oscillator.type = state === "blocked" ? "square" : "sine";
-        oscillator.frequency.value = state === "blocked" ? 330 : 660;
-        gain.gain.setValueAtTime(0.045, audio.currentTime);
+        oscillator.type = style === "bright" ? "triangle" : "sine";
+        oscillator.frequency.value = (state === "blocked" ? 330 : 660) * (style === "bright" ? 1.25 : 1);
+        gain.gain.setValueAtTime(style === "bright" ? 0.065 : 0.035, audio.currentTime);
         gain.gain.exponentialRampToValueAtTime(0.001, audio.currentTime + 0.16);
         oscillator.connect(gain).connect(audio.destination);
         oscillator.start();
@@ -69,18 +81,23 @@ export function AgentNotifications() {
                         .catch(() => document.hasFocus());
                     if (!shouldNotifyAgent(runtime.state, latest.notificationPreferences, agent.type, focused)) return;
                     const stateLabel = runtime.state === "blocked" ? "needs your input" : "is done";
-                    if (latest.notificationPreferences.sounds) playSignal(runtime.state === "blocked" ? "blocked" : "done");
+                    if (latest.notificationPreferences.sounds)
+                        playSignal(runtime.state === "blocked" ? "blocked" : "done", latest.notificationPreferences.soundStyle);
                     notify(runtime.state === "blocked" ? "error" : "success", `${agent.title} ${stateLabel}`, {
                         action: { label: "Focus", run: () => focusAgent(sessionId, agentId) },
                     });
                     if (await isPermissionGranted().catch(() => false)) {
-                        sendNotification({
-                            title: runtime.state === "blocked" ? "Agent needs input" : "Agent finished",
-                            body: `${agent.title} · ${latest.sessions[sessionId]?.name ?? "project"}`,
-                            group: "sikemux-agents",
-                            autoCancel: true,
-                            extra: { sessionId, agentId },
-                        });
+                        sendAgentSystemNotification(
+                            {
+                                title: runtime.state === "blocked" ? "Agent needs input" : "Agent finished",
+                                body: `${agent.title} · ${latest.sessions[sessionId]?.name ?? "project"}`,
+                                group: "sikemux-agents",
+                                autoCancel: true,
+                                extra: { sessionId, agentId },
+                            },
+                            sessionId,
+                            agentId,
+                        );
                     }
                 }, state.notificationPreferences.delayMs);
                 timers.set(agentId, timer);

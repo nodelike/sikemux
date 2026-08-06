@@ -73,6 +73,7 @@ export interface NotificationPreferences {
     enabled: boolean;
     onlyWhenUnfocused: boolean;
     sounds: boolean;
+    soundStyle: "soft" | "bright";
     delayMs: number;
     quietHoursEnabled: boolean;
     quietHoursStart: string;

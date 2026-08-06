@@ -149,6 +149,15 @@ Run `make check` for the full local quality gate: Prettier, ESLint, TypeScript, 
 
 The updater and Apple Gatekeeper are separate trust systems. `scripts/release.sh` defaults to a **community release**: the updater archive is signed with the Tauri updater key and the app/DMG receive a structurally valid ad-hoc code signature. This supports in-app updates for the existing community installation flow, but fresh downloads are not Apple-notarized and macOS may require removing quarantine again. Keep the updater private key secure; clients reject archives that do not match the public key embedded in the app.
 
+Stable releases use a versioned GitHub release and update the normal `latest.json` feed. Preview builds require a prerelease semver and update the moving `preview` release consumed by the opt-in Preview channel:
+
+```bash
+./scripts/release.sh 0.2.0 "Release notes" --publish
+./scripts/release.sh 0.3.0-beta.1 "Preview notes" --preview --publish
+```
+
+Omit `--publish` to perform the complete signed build and verification without changing GitHub.
+
 After joining the Apple Developer Program, set `RELEASE_NOTARIZED=1` plus the Developer ID and notarization environment variables. The same script then requires Gatekeeper assessment and stapled notarization tickets before publishing.
 
 ## Contributing

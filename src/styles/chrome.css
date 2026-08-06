@@ -483,6 +483,23 @@
 .proj-tree.active {
     padding-bottom: 4px;
 }
+.proj-metadata {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    min-width: 0;
+    padding: 1px 12px 4px 34px;
+    color: var(--ink-faint);
+    font-size: 9.5px;
+    font-variant-numeric: tabular-nums;
+}
+.proj-metadata-branch {
+    min-width: 0;
+    overflow: hidden;
+    color: var(--ink-dim);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
 .proj-children {
     display: flex;
     flex-direction: column;

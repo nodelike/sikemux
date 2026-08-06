@@ -110,7 +110,7 @@ export interface ViewState {
     onboardingOpen: boolean;
     diagnosticsOpen: boolean;
     whatsNewOpen: boolean;
-    commandPopup: { title: string; startup: string; cwd: string } | null;
+    commandPopup: { id: string; title: string; startup: string; cwd: string } | null;
     terminalTitles: Record<string, string>;
     lastSessionId: string | null;
 
@@ -193,6 +193,7 @@ export const useStore = create<StoreState>(() => {
             enabled: false,
             onlyWhenUnfocused: true,
             sounds: true,
+            soundStyle: "soft",
             delayMs: 650,
             quietHoursEnabled: false,
             quietHoursStart: "22:00",

@@ -6,6 +6,7 @@ const prefs: NotificationPreferences = {
     enabled: true,
     onlyWhenUnfocused: true,
     sounds: true,
+    soundStyle: "soft",
     delayMs: 650,
     quietHoursEnabled: true,
     quietHoursStart: "22:00",

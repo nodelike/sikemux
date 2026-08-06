@@ -8,6 +8,7 @@ import { ensureSearchWindow, normalisePinnedProjects, normaliseProjectRoots } fr
 import { agentStartup } from "./commands";
 import { getState, setState, useStore, type StoreState } from "./store";
 import { errMessage, notify } from "./toast";
+import { validatePersistedLayout } from "./persistValidation";
 import type {
     Agent,
     AgentType,
@@ -143,7 +144,6 @@ function mergeBrunoWorkspaces(saved: string[] | undefined, sessions: Session[]):
 
 const SESSION_KINDS = new Set<Session["kind"]>(["project", "command", "ssh", "aws", "rundeck", "bruno"]);
 const WINDOW_ROLES = new Set<WindowRole>(["term", "files", "git", "search", "aws", "rundeck", "bruno", "ssh-config", "named"]);
-const PANE_KINDS = new Set(["terminal", "editor", "git", "aws", "search", "rundeck", "bruno"]);
 const AWS_SERVICES = new Set<StoreState["awsService"]>(["ecs", "ec2", "lambda", "sqs", "billing", "s3"]);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -166,6 +166,7 @@ function normaliseNotificationPreferences(value: unknown, fallback: StoreState["
         enabled: typeof value.enabled === "boolean" ? value.enabled : fallback.enabled,
         onlyWhenUnfocused: typeof value.onlyWhenUnfocused === "boolean" ? value.onlyWhenUnfocused : fallback.onlyWhenUnfocused,
         sounds: typeof value.sounds === "boolean" ? value.sounds : fallback.sounds,
+        soundStyle: value.soundStyle === "soft" || value.soundStyle === "bright" ? value.soundStyle : fallback.soundStyle,
         delayMs:
             typeof value.delayMs === "number" && Number.isFinite(value.delayMs) ? Math.min(10_000, Math.max(0, value.delayMs)) : fallback.delayMs,
         quietHoursEnabled: typeof value.quietHoursEnabled === "boolean" ? value.quietHoursEnabled : fallback.quietHoursEnabled,
@@ -208,20 +209,7 @@ function isStringRecord(value: unknown): value is Record<string, string> {
 }
 
 function isLayout(value: unknown): value is Window["root"] {
-    if (!isRecord(value) || typeof value.id !== "string") return false;
-    if (value.type === "pane") {
-        return typeof value.cwd === "string" && PANE_KINDS.has(value.kind as never) && typeof value.title === "string";
-    }
-    return (
-        value.type === "split" &&
-        (value.dir === "row" || value.dir === "column") &&
-        Array.isArray(value.children) &&
-        value.children.length > 0 &&
-        value.children.every(isLayout) &&
-        Array.isArray(value.sizes) &&
-        value.sizes.length === value.children.length &&
-        value.sizes.every((n) => typeof n === "number" && Number.isFinite(n) && n >= 0)
-    );
+    return validatePersistedLayout(value).ok;
 }
 
 function isWindow(value: unknown): value is Window {

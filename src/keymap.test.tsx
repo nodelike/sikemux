@@ -65,3 +65,17 @@ describe("Alt+Tab session switching", () => {
         expect(getState().sessionSwitcher).toBeNull();
     });
 });
+
+describe("command popup modality", () => {
+    it("blocks workspace shortcuts and closes on Escape", () => {
+        render(<KeymapHarness />);
+        setState({ commandPopup: { id: "popup-1", title: "Logs", startup: "tail -f app.log", cwd: "/tmp" } });
+
+        window.dispatchEvent(new KeyboardEvent("keydown", { key: "z", code: "KeyZ", altKey: true, bubbles: true, cancelable: true }));
+        expect(getState().zoomedPaneId).toBe("zoomed");
+        expect(getState().commandPopup).not.toBeNull();
+
+        window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", code: "Escape", bubbles: true, cancelable: true }));
+        expect(getState().commandPopup).toBeNull();
+    });
+});

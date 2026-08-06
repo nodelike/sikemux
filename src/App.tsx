@@ -35,6 +35,8 @@ import { invalidate } from "./state/resources";
 import { getState, useStore } from "./state/store";
 import { applyTheme, applyWindowOpacity, registerCustomThemes } from "./themes/bus";
 import { dirname } from "./lib/paths";
+import type { StandaloneCommand } from "./commands/registry";
+import { agentDetectionApi } from "./api/agentDetection";
 
 interface BootInfo {
     home: string;
@@ -117,6 +119,10 @@ export default function App() {
     const customCommands = useStore((s) => s.customCommands);
     const recentCommandKeys = useStore((s) => s.recentCommandKeys);
     const activeKind = useStore((s) => s.sessions[s.activeSessionId]?.kind ?? null);
+    const activeTerminalWindowId = useStore((s) => {
+        const id = s.sessions[s.activeSessionId]?.activeWindowId;
+        return id && s.windows[id]?.role === "term" ? id : null;
+    });
     const awsAuthModal = useStore((s) => s.awsAuthModal);
     const sessionSwitcherOpen = useStore((s) => s.sessionSwitcher !== null);
     const projectRepoKey = useStore((s) =>
@@ -128,6 +134,67 @@ export default function App() {
             .filter(Boolean)
             .join("\0"),
     );
+    const runStandalone =
+        (id: string, execute: () => void): (() => void) =>
+        () => {
+            cmd.noteRecentCommand(`standalone:${id}`);
+            execute();
+        };
+    const standaloneCommands: StandaloneCommand[] = [
+        {
+            id: "support.diagnostics",
+            title: "Open runtime diagnostics",
+            detail: "Inspect redacted runtime and agent-detection health",
+            category: "Support",
+            execute: runStandalone("support.diagnostics", cmd.openDiagnostics),
+        },
+        {
+            id: "support.whats-new",
+            title: "Open What’s New",
+            detail: "Review the latest Sikemux release notes",
+            category: "Support",
+            execute: runStandalone("support.whats-new", cmd.openWhatsNew),
+        },
+        {
+            id: "support.onboarding",
+            title: "Replay onboarding",
+            detail: "Open the first-run Sikemux walkthrough",
+            category: "Support",
+            execute: runStandalone("support.onboarding", cmd.openOnboarding),
+        },
+        {
+            id: "session.export",
+            title: "Copy active session bundle",
+            detail: "Export a safe session copy to the clipboard",
+            category: "Session",
+            execute: runStandalone("session.export", () => void cmd.exportActiveSession().catch(reportError("session export"))),
+        },
+        {
+            id: "session.import",
+            title: "Import session from clipboard",
+            detail: "Validate and import a safe dormant session copy",
+            category: "Session",
+            execute: runStandalone("session.import", () => void cmd.importSessionFromClipboard().catch(reportError("session import"))),
+        },
+        ...(activeTerminalWindowId
+            ? [
+                  {
+                      id: "window.duplicate",
+                      title: "Duplicate active terminal",
+                      detail: "Clone the active window into a new terminal tab",
+                      category: "Window",
+                      execute: runStandalone("window.duplicate", () => cmd.duplicateWindow(activeTerminalWindowId)),
+                  } satisfies StandaloneCommand,
+              ]
+            : []),
+        {
+            id: "agents.reload-manifests",
+            title: "Reload agent manifests",
+            detail: "Reload agent-state detection rules from disk",
+            category: "Agents",
+            execute: runStandalone("agents.reload-manifests", () => void agentDetectionApi.reload().catch(reportError("agent manifest reload"))),
+        },
+    ];
 
     useEffect(() => {
         let disposed = false;
@@ -328,26 +395,31 @@ export default function App() {
                     keybindingOverrides={keybindingOverrides}
                     customCommands={customCommands}
                     recentCommandKeys={recentCommandKeys}
+                    standaloneCommands={standaloneCommands}
                     context={activeKind}
                     onClose={cmd.closeCommandPalette}
+                    onExecute={cmd.noteRecentCommand}
                     executeBuiltin={(id) => {
-                        cmd.noteRecentCommand(`builtin:${id}`);
                         runKeybindingAction(id, new KeyboardEvent("keydown"), getState());
                     }}
                     executeCustom={(command) => {
-                        cmd.noteRecentCommand(`custom:${command.id}`);
                         cmd.runCustomCommand(command);
                     }}
                 />
             )}
             {commandPopup && (
-                <div className="experience-backdrop command-popup-backdrop" role="presentation">
-                    <section className="command-popup" role="dialog" aria-modal="true" aria-label={commandPopup.title}>
+                <div className="experience-backdrop command-popup-backdrop" role="presentation" onMouseDown={cmd.closeCommandPopup}>
+                    <section
+                        className="command-popup"
+                        role="dialog"
+                        aria-modal="true"
+                        aria-label={commandPopup.title}
+                        onMouseDown={(event) => event.stopPropagation()}>
                         <header>
                             <span>{commandPopup.title}</span>
                             <button onClick={cmd.closeCommandPopup}>close</button>
                         </header>
-                        <TerminalPane cwd={commandPopup.cwd || undefined} startup={commandPopup.startup} active visible />
+                        <TerminalPane key={commandPopup.id} cwd={commandPopup.cwd || undefined} startup={commandPopup.startup} active visible />
                     </section>
                 </div>
             )}

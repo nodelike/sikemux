@@ -10,7 +10,7 @@ import { parseRequest } from "../bruno/parse";
 import { serializeRequest } from "../bruno/serialize";
 import { basename, dirname, joinPath } from "../lib/paths";
 import { IS_WINDOWS } from "../lib/platform";
-import { cloneTheme, DEFAULT_THEME_ID, type Theme } from "../themes";
+import { cloneTheme, DEFAULT_THEME_ID, THEMES_BY_ID, type Theme } from "../themes";
 import { sshStartup } from "../terminal/sshStartup";
 import { applyTheme, applyWindowOpacity, previewTheme, registerCustomThemes } from "../themes/bus";
 import { emit } from "./bus";
@@ -21,6 +21,7 @@ import { envFolderOf, inferEnv } from "./rundeckShape";
 import { getState, mutate, setState, type StoreState } from "./store";
 import { notify, reportError, swallow } from "./toast";
 import { SKIP_PERMISSION_FLAG, agentSupportsSkipPermissions } from "./commands/agentLogic";
+import { parseSessionBundle } from "./sessionBundle";
 import { DEFAULT_BRUNO_VIEW, DEFAULT_GIT_VIEW, DEFAULT_GLOBAL_SEARCH_VIEW } from "./types";
 import {
     collectPanes,
@@ -770,7 +771,7 @@ export function runCustomCommand(custom: import("../commands/registry").CustomCo
         return;
     }
     if (custom.placement === "popup") {
-        setState({ commandPopup: { title: custom.title, startup, cwd: session.cwd } });
+        setState({ commandPopup: { id: newId("popup"), title: custom.title, startup, cwd: session.cwd } });
         return;
     }
     mutate((d) => {
@@ -841,35 +842,29 @@ export async function exportActiveSession(): Promise<void> {
 
 export async function importSessionFromClipboard(): Promise<void> {
     const raw = await navigator.clipboard.readText();
-    const value: unknown = JSON.parse(raw);
-    if (!value || typeof value !== "object" || (value as { format?: unknown }).format !== "sikemux-session")
-        throw new Error("clipboard is not a Sikemux session bundle");
-    const bundle = value as { session?: Partial<Session>; windows?: Window[]; agents?: Array<{ type: AgentType; title: string; resumeId: string }> };
-    const source = bundle.session;
-    if (!source || typeof source.name !== "string" || typeof source.cwd !== "string" || !source.kind) throw new Error("session bundle is incomplete");
-    const allowedKinds: SessionKind[] = ["project", "command", "ssh", "aws", "rundeck", "bruno"];
-    if (!allowedKinds.includes(source.kind)) throw new Error("session kind is unsupported");
-    const sourceName = source.name;
-    const sourceCwd = source.cwd;
-    const sourceKind = source.kind as SessionKind;
+    // Parse and validate the complete untrusted payload before entering Immer.
+    // Any error therefore leaves the store byte-for-byte unchanged.
+    const bundle = parseSessionBundle(raw);
+    const sourceName = bundle.session.name;
+    const sourceCwd = bundle.session.cwd;
+    const sourceKind = bundle.session.kind;
     mutate((d) => {
         const sessionId = newId("sess");
         const importedWindows: Window[] = [];
-        for (const sourceWindow of Array.isArray(bundle.windows) ? bundle.windows : []) {
-            if (!sourceWindow || typeof sourceWindow !== "object" || !sourceWindow.root) continue;
+        for (const sourceWindow of bundle.windows) {
             const root = stripImportedStartup(cloneLayout(sourceWindow.root));
-            const pane = collectPanes(root)[0];
-            if (!pane) continue;
+            const panes = collectPanes(root);
+            const sourcePanes = collectPanes(sourceWindow.root);
+            const sourceActiveIndex = sourcePanes.findIndex((pane) => pane.id === sourceWindow.activePaneId);
             importedWindows.push({
                 ...sourceWindow,
                 id: newId("win"),
                 name: sourceWindow.name || "imported",
                 root,
-                activePaneId: pane.id,
+                activePaneId: panes[Math.max(0, sourceActiveIndex)].id,
                 fixed: false,
             });
         }
-        if (importedWindows.length === 0) importedWindows.push(makeWindow(sourceCwd, "1"));
         const session: Session = {
             id: sessionId,
             name: `${sourceName} imported`,
@@ -883,13 +878,12 @@ export async function importSessionFromClipboard(): Promise<void> {
         };
         if (sourceKind === "bruno") session.bruno = { collectionPath: sourceCwd, selectedEnvs: {}, secretVars: {}, drafts: {} };
         attachSession(d as unknown as StoreState, session, importedWindows);
-        for (const row of Array.isArray(bundle.agents) ? bundle.agents : []) {
-            if (!AGENT_RESUME_CMD[row.type] || typeof row.resumeId !== "string" || !row.resumeId) continue;
+        for (const row of bundle.agents) {
             const id = newId("agent");
             d.agents[id] = {
                 id,
                 type: row.type,
-                title: typeof row.title === "string" ? row.title : row.type,
+                title: row.title,
                 resumeId: row.resumeId,
                 startup: agentStartup(row.type, row.resumeId),
                 launchState: "dormant",
@@ -1679,6 +1673,22 @@ export function setThemeMode(mode: "manual" | "system"): void {
     if (mode === "system") applySystemTheme(window.matchMedia("(prefers-color-scheme: dark)").matches);
 }
 
+function setSystemThemeId(mode: "light" | "dark", id: string): void {
+    const state = getState();
+    const exists = !!THEMES_BY_ID[id] || state.customThemes.some((theme) => theme.id === id);
+    if (!exists) return;
+    setState(mode === "light" ? { systemLightThemeId: id } : { systemDarkThemeId: id });
+    if (state.themeMode !== "system") return;
+    const hostIsDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+    if (hostIsDark === (mode === "dark")) {
+        applyTheme(id);
+        setState({ themeId: id });
+    }
+}
+
+export const setSystemLightThemeId = (id: string): void => setSystemThemeId("light", id);
+export const setSystemDarkThemeId = (id: string): void => setSystemThemeId("dark", id);
+
 /** Live-apply a draft theme to the whole UI without persisting it — drives the theme editor preview. */
 export function previewThemeDraft(theme: Theme): void {
     previewTheme(theme);
@@ -1726,7 +1736,7 @@ export function setWindowBlur(v: number): void {
 
 export const setCloudBrowser = (v: string): void => setState({ cloudBrowser: v.trim() });
 export const setCloudBrowserShortcut = (v: string): void => setState({ cloudBrowserShortcut: v.trim() });
-export const setRestoreAgentTabs = (value: boolean): void => setState({ restoreAgentTabs: value });
+export const setRestoreAgentTabs = (value: boolean): void => setState({ restoreAgentTabs: value, ...(!value ? { autoResumeAgents: false } : {}) });
 export const setAutoResumeAgents = (value: boolean): void =>
     setState({ autoResumeAgents: value, restoreAgentTabs: value ? true : getState().restoreAgentTabs });
 export const setRailDensity = (value: import("./types").RailDensity): void => setState({ railDensity: value });
