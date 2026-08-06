@@ -40,7 +40,7 @@ use std::io::{Read, Write};
 #[cfg(unix)]
 use std::os::fd::{AsRawFd, FromRawFd};
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicU8, Ordering};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock, RwLock};
 use std::time::{Duration, Instant};
 
 use dashmap::DashMap;
@@ -52,6 +52,10 @@ use tauri::{AppHandle, Emitter, Manager, State};
 #[cfg(unix)]
 use tokio::io::unix::AsyncFd;
 
+use crate::agent_detection::{
+    AgentDetectionState, AgentKind, DetectionConfidence, DetectionExplain, DetectionInput,
+    ManifestRegistry, ManifestReloadReport,
+};
 use crate::error::{AppError, AppResult};
 
 fn pty_err<E: std::fmt::Display>(e: E) -> AppError {
@@ -102,14 +106,28 @@ struct Pty {
     /// Present only for agent PTYs. Activity is inferred natively so it
     /// remains observable after the heavyweight xterm renderer detaches.
     activity_key: Option<String>,
+    agent_kind: Option<AgentKind>,
     activity_armed: AtomicBool,
     activity_state: AtomicU8,
+    activity_sequence: AtomicU64,
+    idle_confirmations: AtomicU8,
 }
 
 /// All live PTYs, keyed by an id handed back to the frontend.
-#[derive(Default)]
 pub struct PtyManager {
     ptys: DashMap<u32, Arc<Pty>>,
+    detection_registry: RwLock<ManifestRegistry>,
+}
+
+impl Default for PtyManager {
+    fn default() -> Self {
+        Self {
+            ptys: DashMap::new(),
+            detection_registry: RwLock::new(
+                ManifestRegistry::bundled().expect("bundled agent manifests must be valid"),
+            ),
+        }
+    }
 }
 
 impl PtyManager {
@@ -187,23 +205,93 @@ pub struct PtyDiagnostics {
     pub output_broadcasts: u64,
     pub output_bytes: u64,
     pub working_agents: usize,
+    pub blocked_agents: usize,
+    pub idle_agents: usize,
+    pub unknown_agents: usize,
 }
 
 impl PtyManager {
     pub fn diagnostics(&self) -> PtyDiagnostics {
+        let count_state = |state| {
+            self.ptys
+                .iter()
+                .filter(|entry| {
+                    entry.value().agent_kind.is_some()
+                        && entry.value().activity_state.load(Ordering::Relaxed) == state
+                })
+                .count()
+        };
         PtyDiagnostics {
             output_reads: OUTPUT_READS.load(Ordering::Relaxed),
             output_broadcasts: OUTPUT_BROADCASTS.load(Ordering::Relaxed),
             output_bytes: OUTPUT_BYTES.load(Ordering::Relaxed),
-            working_agents: self
-                .ptys
-                .iter()
-                .filter(|entry| {
-                    entry.value().activity_state.load(Ordering::Relaxed) == ACTIVITY_WORKING
-                })
-                .count(),
+            working_agents: count_state(ACTIVITY_WORKING),
+            blocked_agents: count_state(ACTIVITY_BLOCKED),
+            idle_agents: count_state(ACTIVITY_IDLE),
+            unknown_agents: count_state(ACTIVITY_UNKNOWN),
         }
     }
+}
+
+#[tauri::command]
+pub fn agent_detection_manifests(
+    manager: State<'_, PtyManager>,
+) -> AppResult<ManifestReloadReport> {
+    manager
+        .detection_registry
+        .read()
+        .map(|registry| registry.report())
+        .map_err(|_| AppError::Other("agent detection registry lock poisoned".into()))
+}
+
+#[tauri::command]
+pub fn agent_detection_reload(
+    app: AppHandle,
+    manager: State<'_, PtyManager>,
+) -> AppResult<ManifestReloadReport> {
+    let directory = app
+        .path()
+        .app_config_dir()
+        .map_err(|error| AppError::Other(format!("agent detection config path: {error}")))?
+        .join("agent-detection");
+    let mut replacement = ManifestRegistry::with_override_dir(directory)
+        .map_err(|error| AppError::Other(format!("agent detection manifests: {error}")))?;
+    let report = replacement
+        .reload()
+        .map_err(|error| AppError::Other(format!("agent detection manifests: {error}")))?;
+    *manager
+        .detection_registry
+        .write()
+        .map_err(|_| AppError::Other("agent detection registry lock poisoned".into()))? =
+        replacement;
+    Ok(report)
+}
+
+#[tauri::command]
+pub fn agent_detection_explain(
+    manager: State<'_, PtyManager>,
+    agent_id: String,
+) -> AppResult<DetectionExplain> {
+    let pty = manager
+        .ptys
+        .iter()
+        .find(|entry| entry.value().activity_key.as_deref() == Some(agent_id.as_str()))
+        .map(|entry| entry.value().clone())
+        .ok_or(AppError::BadArg("agent has no live terminal"))?;
+    let kind = pty
+        .agent_kind
+        .ok_or(AppError::BadArg("terminal has no known agent type"))?;
+    let recent = pty
+        .parser
+        .lock()
+        .map_err(|_| AppError::Other("agent terminal parser lock poisoned".into()))?
+        .screen()
+        .contents();
+    manager
+        .detection_registry
+        .read()
+        .map(|registry| registry.explain(kind, DetectionInput::screen(&recent)))
+        .map_err(|_| AppError::Other("agent detection registry lock poisoned".into()))
 }
 
 // Scrollback held in the headless vt100 parser. Must match (or exceed)
@@ -218,9 +306,10 @@ const IDLE_TRIM: Duration = Duration::from_secs(10 * 60);
 const SWEEP_INTERVAL: Duration = Duration::from_secs(60);
 const ACTIVITY_POLL_INTERVAL: Duration = Duration::from_millis(250);
 const ACTIVITY_SETTLE: Duration = Duration::from_secs(2);
-const ACTIVITY_IDLE: u8 = 0;
-const ACTIVITY_WORKING: u8 = 1;
-const ACTIVITY_COMPLETE: u8 = 2;
+const ACTIVITY_UNKNOWN: u8 = 0;
+const ACTIVITY_IDLE: u8 = 1;
+const ACTIVITY_WORKING: u8 = 2;
+const ACTIVITY_BLOCKED: u8 = 3;
 #[cfg(unix)]
 const OUTPUT_COALESCE: Duration = Duration::from_millis(2);
 #[cfg(unix)]
@@ -228,23 +317,43 @@ const OUTPUT_BATCH_BYTES: usize = 64 * 1024;
 
 #[derive(Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
-struct PtyActivityEvent<'a> {
+struct AgentStateEvent<'a> {
     agent_id: &'a str,
     state: &'static str,
+    sequence: u64,
+    source: &'static str,
+    confidence: &'static str,
+    reason: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    matched_rule: Option<String>,
 }
 
-fn set_activity_state(pty: &Pty, next: u8, label: &'static str) {
+fn publish_agent_state(
+    pty: &Pty,
+    next: u8,
+    label: &'static str,
+    source: &'static str,
+    confidence: &'static str,
+    reason: impl Into<String>,
+    matched_rule: Option<String>,
+) {
     let Some(agent_id) = pty.activity_key.as_deref() else {
         return;
     };
     if pty.activity_state.swap(next, Ordering::AcqRel) == next {
         return;
     }
+    let sequence = pty.activity_sequence.fetch_add(1, Ordering::AcqRel) + 1;
     let _ = pty.app.emit(
-        "pty_activity",
-        PtyActivityEvent {
+        "agent_state_changed",
+        AgentStateEvent {
             agent_id,
             state: label,
+            sequence,
+            source,
+            confidence,
+            reason: reason.into(),
+            matched_rule,
         },
     );
 }
@@ -255,7 +364,16 @@ fn arm_agent_activity(pty: &Pty) {
     }
     pty.activity_armed.store(true, Ordering::Release);
     pty.last_activity_ms.store(now_ms(), Ordering::Relaxed);
-    set_activity_state(pty, ACTIVITY_WORKING, "working");
+    pty.idle_confirmations.store(0, Ordering::Release);
+    publish_agent_state(
+        pty,
+        ACTIVITY_WORKING,
+        "working",
+        "activity",
+        "high",
+        "command submitted",
+        None,
+    );
 }
 
 fn submits_line(data: &str) -> bool {
@@ -263,8 +381,18 @@ fn submits_line(data: &str) -> bool {
 }
 
 fn note_agent_output(pty: &Pty) {
-    if pty.activity_armed.load(Ordering::Acquire) {
-        set_activity_state(pty, ACTIVITY_WORKING, "working");
+    if pty.agent_kind.is_some() {
+        pty.activity_armed.store(true, Ordering::Release);
+        pty.idle_confirmations.store(0, Ordering::Release);
+        publish_agent_state(
+            pty,
+            ACTIVITY_WORKING,
+            "working",
+            "activity",
+            "medium",
+            "agent produced output",
+            None,
+        );
     }
 }
 
@@ -435,13 +563,63 @@ fn ensure_sweeper(app: AppHandle) {
             for entry in mgr.ptys.iter() {
                 let pty = entry.value();
                 if !pty.activity_armed.load(Ordering::Acquire)
-                    || pty.activity_state.load(Ordering::Acquire) != ACTIVITY_WORKING
                     || now.saturating_sub(pty.last_activity_ms.load(Ordering::Relaxed))
                         < ACTIVITY_SETTLE.as_millis() as u64
                 {
                     continue;
                 }
-                set_activity_state(pty, ACTIVITY_COMPLETE, "complete");
+                let Some(agent) = pty.agent_kind else {
+                    continue;
+                };
+                let recent = match pty.parser.lock() {
+                    Ok(parser) => parser.screen().contents(),
+                    Err(_) => continue,
+                };
+                let detection = match mgr.detection_registry.read() {
+                    Ok(registry) => registry.detect(agent, DetectionInput::screen(&recent)),
+                    Err(_) => continue,
+                };
+                if detection.skip_state_update {
+                    continue;
+                }
+                let (next, label) = match detection.state {
+                    AgentDetectionState::Unknown => (ACTIVITY_UNKNOWN, "unknown"),
+                    AgentDetectionState::Idle => (ACTIVITY_IDLE, "idle"),
+                    AgentDetectionState::Working => (ACTIVITY_WORKING, "working"),
+                    AgentDetectionState::Blocked => (ACTIVITY_BLOCKED, "blocked"),
+                };
+                if next == ACTIVITY_IDLE {
+                    let confirmations = pty.idle_confirmations.fetch_add(1, Ordering::AcqRel) + 1;
+                    if confirmations < 2 {
+                        continue;
+                    }
+                } else {
+                    pty.idle_confirmations.store(0, Ordering::Release);
+                }
+                let source = if detection.fallback_reason.is_some() {
+                    "fallback"
+                } else {
+                    "screen"
+                };
+                let confidence = match detection.confidence {
+                    DetectionConfidence::Authoritative | DetectionConfidence::Strong => "high",
+                    DetectionConfidence::Fallback => "low",
+                };
+                let reason = detection
+                    .matched_rule
+                    .as_deref()
+                    .map(|rule| format!("screen manifest matched {rule}"))
+                    .or(detection.fallback_reason.clone())
+                    .unwrap_or_else(|| "agent screen evaluated".into());
+                publish_agent_state(
+                    pty,
+                    next,
+                    label,
+                    source,
+                    confidence,
+                    reason,
+                    detection.matched_rule,
+                );
             }
         }
     });
@@ -564,8 +742,23 @@ fn notify_process_exited(pty: &Pty) {
         }
     }
     if pty.activity_armed.load(Ordering::Acquire) {
-        set_activity_state(pty, ACTIVITY_COMPLETE, "complete");
+        publish_agent_state(
+            pty,
+            ACTIVITY_UNKNOWN,
+            "unknown",
+            "process",
+            "high",
+            "agent process exited",
+            None,
+        );
     }
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentPtyContext {
+    id: String,
+    kind: String,
 }
 
 #[tauri::command]
@@ -576,7 +769,7 @@ pub async fn pty_spawn(
     rows: u16,
     cwd: Option<String>,
     startup: Option<String>,
-    activity_key: Option<String>,
+    agent: Option<AgentPtyContext>,
 ) -> AppResult<u32> {
     ensure_sweeper(app.clone());
     // Has to be `async fn` so the body runs inside Tauri's tokio
@@ -664,6 +857,12 @@ pub async fn pty_spawn(
     let writer = pair.master.take_writer().map_err(pty_err)?;
     let id = NEXT_PTY_ID.fetch_add(1, Ordering::Relaxed);
 
+    let parsed_agent_kind = agent
+        .as_ref()
+        .and_then(|context| AgentKind::from_label(&context.kind));
+    let activity_key = agent
+        .map(|context| context.id)
+        .filter(|key| !key.is_empty());
     let pty = Arc::new(Pty {
         app: app.clone(),
         #[cfg(unix)]
@@ -679,9 +878,12 @@ pub async fn pty_spawn(
         subscribers: Mutex::new(HashMap::new()),
         last_activity_ms: AtomicU64::new(now_ms()),
         trimmed: AtomicBool::new(false),
-        activity_key: activity_key.filter(|key| !key.is_empty()),
+        activity_key,
+        agent_kind: parsed_agent_kind,
         activity_armed: AtomicBool::new(false),
-        activity_state: AtomicU8::new(ACTIVITY_IDLE),
+        activity_state: AtomicU8::new(ACTIVITY_UNKNOWN),
+        activity_sequence: AtomicU64::new(0),
+        idle_confirmations: AtomicU8::new(0),
     });
 
     // Publish before starting the reader. A short-lived command can reach EOF

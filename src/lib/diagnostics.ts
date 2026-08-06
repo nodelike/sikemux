@@ -64,10 +64,12 @@ function storeSnapshot() {
         sessions: Object.keys(s.sessions).length,
         windows: Object.keys(s.windows).length,
         agents: Object.keys(s.agents).length,
-        agentActivity: {
-            working: Object.values(s.agentActivity).filter((activity) => activity.state === "working").length,
-            unread: Object.values(s.agentActivity).filter((activity) => activity.unread).length,
-        },
+        agentActivity: Object.fromEntries(
+            ["unknown", "working", "blocked", "done", "idle"].map((state) => [
+                state,
+                Object.values(s.agentActivity).filter((activity) => activity.state === state).length,
+            ]),
+        ),
         editorViews: Object.keys(s.editorViews).length,
         gitViews: Object.keys(s.gitViews).length,
         rundeckViews: Object.keys(s.rundeckViews).length,
@@ -76,22 +78,30 @@ function storeSnapshot() {
     };
 }
 
+export function browserDiagnostics(): Record<string, unknown> {
+    return {
+        at: new Date().toISOString(),
+        memory: memorySnapshot(),
+        dom: domSnapshot(),
+        store: storeSnapshot(),
+        resources: resourceStats(),
+        bus: busStats(),
+        longTaskCount: longTasks.length,
+        lastLongTasks: longTasks.slice(-10),
+        runtimeErrors: runtimeErrors.slice(),
+    };
+}
+
+export function nativeDiagnostics(): Promise<unknown> {
+    return invoke("runtime_diagnostics");
+}
+
 export function installDiagnostics(): void {
     if (window.sikemuxDiagnostics) return;
 
     window.sikemuxDiagnostics = {
-        snapshot: () => ({
-            at: new Date().toISOString(),
-            memory: memorySnapshot(),
-            dom: domSnapshot(),
-            store: storeSnapshot(),
-            resources: resourceStats(),
-            bus: busStats(),
-            longTaskCount: longTasks.length,
-            lastLongTasks: longTasks.slice(-10),
-            runtimeErrors: runtimeErrors.slice(),
-        }),
-        native: () => invoke("runtime_diagnostics"),
+        snapshot: browserDiagnostics,
+        native: nativeDiagnostics,
         longTasks: () => longTasks.slice(),
         clearLongTasks: () => {
             longTasks.length = 0;

@@ -1,0 +1,105 @@
+{
+  "schemaVersion": 1,
+  "id": "codex",
+  "version": "2026.08.06.1",
+  "rules": [
+    {
+      "id": "osc_action_required",
+      "state": "blocked",
+      "priority": 1200,
+      "region": "oscTitle",
+      "visibleBlocker": true,
+      "gate": {
+        "contains": ["action required"]
+      }
+    },
+    {
+      "id": "osc_spinner",
+      "state": "working",
+      "priority": 1150,
+      "region": "oscTitle",
+      "visibleWorking": true,
+      "gate": {
+        "regex": ["(?:^|\\s)[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏](?:\\s|$)"]
+      }
+    },
+    {
+      "id": "transcript_viewer",
+      "state": "unknown",
+      "priority": 1000,
+      "region": "afterLastPromptMarker",
+      "skipStateUpdate": true,
+      "gate": {
+        "contains": ["pgup/pgdn", "q to quit"],
+        "any": [
+          { "contains": ["home/end to jump"] },
+          { "contains": ["to scroll"] }
+        ]
+      }
+    },
+    {
+      "id": "command_approval",
+      "state": "blocked",
+      "priority": 950,
+      "region": "wholeRecent",
+      "visibleBlocker": true,
+      "gate": {
+        "any": [
+          { "contains": ["allow command?"] },
+          { "contains": ["press enter to confirm"] },
+          { "contains": ["enter to submit answer"] },
+          { "contains": ["enter to submit all"] }
+        ]
+      }
+    },
+    {
+      "id": "explicit_yes_no",
+      "state": "blocked",
+      "priority": 850,
+      "region": "bottomNonEmptyLines(10)",
+      "visibleBlocker": true,
+      "gate": {
+        "any": [
+          { "contains": ["[y/n]"] },
+          { "contains": ["yes (y)", "no (n)"] },
+          {
+            "any": [
+              { "contains": ["do you want to"] },
+              { "contains": ["would you like to"] }
+            ],
+            "all": [
+              { "any": [{ "contains": ["yes"] }, { "contains": ["no"] }] }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "working_status",
+      "state": "working",
+      "priority": 700,
+      "region": "bottomNonEmptyLines(3)",
+      "visibleWorking": true,
+      "gate": {
+        "lineRegex": ["^[•◦]\\s+Working\\s+\\([^)]*esc to interrupt\\)(?:\\s+·.*)?$"] ,
+        "not": [
+          { "contains": ["conversation interrupted"] }
+        ]
+      }
+    },
+    {
+      "id": "input_prompt",
+      "state": "idle",
+      "priority": 400,
+      "region": "bottomNonEmptyLines(3)",
+      "visibleIdle": true,
+      "gate": {
+        "lineRegex": ["^\\s*[›>]\\s*$"],
+        "not": [
+          { "contains": ["allow command?"] },
+          { "contains": ["esc to interrupt"] }
+        ]
+      }
+    }
+  ]
+}

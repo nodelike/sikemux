@@ -15,6 +15,59 @@
 use std::process::Command;
 
 use crate::error::{AppError, AppResult};
+use std::collections::HashMap;
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BackgroundCommandResult {
+    code: i32,
+    output: String,
+}
+
+#[tauri::command]
+pub async fn run_background_command(
+    command: String,
+    cwd: Option<String>,
+    env: HashMap<String, String>,
+) -> AppResult<BackgroundCommandResult> {
+    if command.trim().is_empty() || command.len() > 8_000 {
+        return Err(AppError::BadArg(
+            "background command must be 1..8000 characters",
+        ));
+    }
+    let mut process = if cfg!(windows) {
+        let mut child = tokio::process::Command::new("powershell.exe");
+        child.args(["-NoLogo", "-NonInteractive", "-Command", &command]);
+        child
+    } else {
+        let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".into());
+        let mut child = tokio::process::Command::new(shell);
+        child.args(["-lc", &command]);
+        child
+    };
+    if let Some(cwd) = cwd.filter(|value| !value.is_empty()) {
+        process.current_dir(cwd);
+    }
+    for (key, value) in env {
+        if key.starts_with("SIKEMUX_") && key.bytes().all(|b| b.is_ascii_uppercase() || b == b'_') {
+            process.env(key, value);
+        }
+    }
+    let output = tokio::time::timeout(std::time::Duration::from_secs(120), process.output())
+        .await
+        .map_err(|_| AppError::Other("background command timed out after 120 seconds".into()))?
+        .map_err(AppError::Io)?;
+    let mut text = String::from_utf8_lossy(&output.stdout).into_owned();
+    text.push_str(&String::from_utf8_lossy(&output.stderr));
+    if text.len() > 16_000 {
+        text.truncate(16_000);
+        text.push_str("\n… output truncated");
+    }
+    Ok(BackgroundCommandResult {
+        code: output.status.code().unwrap_or(-1),
+        output: text,
+    })
+}
 
 fn validate_external_url(raw: &str) -> AppResult<()> {
     let url = url::Url::parse(raw).map_err(|_| AppError::BadArg("invalid external URL"))?;

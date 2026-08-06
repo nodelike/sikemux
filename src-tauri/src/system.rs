@@ -95,6 +95,27 @@ pub fn find_executable(name: &str) -> Option<PathBuf> {
     find_executable_matching(name, |_| true)
 }
 
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct IntegrationHealth {
+    shell: String,
+    git: bool,
+    aws: bool,
+    rnd: bool,
+}
+
+#[tauri::command]
+pub fn integration_health() -> IntegrationHealth {
+    IntegrationHealth {
+        shell: std::env::var("SHELL")
+            .or_else(|_| std::env::var("COMSPEC"))
+            .unwrap_or_default(),
+        git: find_executable("git").is_some(),
+        aws: find_executable("aws").is_some(),
+        rnd: find_executable("rnd").is_some(),
+    }
+}
+
 pub fn find_executable_matching(name: &str, predicate: impl Fn(&Path) -> bool) -> Option<PathBuf> {
     let paths = std::env::var_os("PATH")?;
     #[cfg(windows)]
@@ -257,6 +278,9 @@ pub struct RuntimeDiagnostics {
     pty_output_broadcasts: u64,
     pty_output_bytes: u64,
     agent_ptys_working: usize,
+    agent_ptys_blocked: usize,
+    agent_ptys_idle: usize,
+    agent_ptys_unknown: usize,
     lsp_servers: usize,
     lsp_open_documents: usize,
     lsp_idle_servers: usize,
@@ -315,6 +339,9 @@ pub fn runtime_diagnostics(
         pty_output_broadcasts: pty_diagnostics.output_broadcasts,
         pty_output_bytes: pty_diagnostics.output_bytes,
         agent_ptys_working: pty_diagnostics.working_agents,
+        agent_ptys_blocked: pty_diagnostics.blocked_agents,
+        agent_ptys_idle: pty_diagnostics.idle_agents,
+        agent_ptys_unknown: pty_diagnostics.unknown_agents,
         lsp_servers: crate::lsp::server_count(),
         lsp_open_documents,
         lsp_idle_servers,

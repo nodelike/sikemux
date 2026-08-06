@@ -1,27 +1,28 @@
-import { check, type Update } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
-import { getVersion } from "@tauri-apps/api/app";
-import { setState } from "../state/store";
+import { invoke } from "@tauri-apps/api/core";
+import { getState, setState } from "../state/store";
 import { swallow } from "../state/toast";
 
-let pendingHandle: Update | null = null;
+interface UpdateInfo {
+    version: string;
+    currentVersion: string;
+    notes: string | null;
+    date: string | null;
+}
 
 export async function checkForUpdate(): Promise<void> {
     try {
-        const update = await check();
+        const update = await invoke<UpdateInfo | null>("update_check", { channel: getState().updateChannel });
         if (!update) {
-            pendingHandle = null;
             setState({ pendingUpdate: null });
             return;
         }
-        pendingHandle = update;
-        const currentVersion = await getVersion().catch(() => "");
         setState({
             pendingUpdate: {
                 version: update.version,
-                currentVersion,
-                notes: update.body ?? null,
-                date: update.date ?? null,
+                currentVersion: update.currentVersion,
+                notes: update.notes,
+                date: update.date,
                 state: "available",
                 error: null,
             },
@@ -32,31 +33,19 @@ export async function checkForUpdate(): Promise<void> {
 }
 
 export async function installPendingUpdate(): Promise<void> {
-    let update = pendingHandle;
-    if (!update) {
-        try {
-            update = await check();
-        } catch (e) {
-            setState((st) => ({
-                pendingUpdate: st.pendingUpdate ? { ...st.pendingUpdate, state: "error", error: String(e) } : null,
-            }));
-            return;
-        }
-        if (!update) {
-            setState({ pendingUpdate: null });
-            return;
-        }
-        pendingHandle = update;
-    }
+    if (!getState().pendingUpdate) await checkForUpdate();
+    if (!getState().pendingUpdate) return;
 
     setState((st) => ({
         pendingUpdate: st.pendingUpdate ? { ...st.pendingUpdate, state: "installing", error: null } : null,
+        lastReleaseNotes: st.pendingUpdate
+            ? { version: st.pendingUpdate.version, notes: st.pendingUpdate.notes, date: st.pendingUpdate.date }
+            : st.lastReleaseNotes,
     }));
 
     try {
-        await update.downloadAndInstall();
+        await invoke("update_install", { channel: getState().updateChannel });
         setState({ pendingUpdate: null });
-        pendingHandle = null;
         await relaunch();
     } catch (e) {
         setState((st) => ({

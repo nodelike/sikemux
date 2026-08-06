@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { keybindingLabelForAction, type KeybindingActionId } from "../keybindings";
 import type { Session, SessionKind, Window, WindowRole } from "../state/types";
 import * as cmd from "../state/commands";
+import { AGENT_STATE_META, rollupAgentStates } from "../state/agentStatus";
 import { useStore } from "../state/store";
 import {
     AgentIcon,
@@ -67,8 +68,7 @@ export function SideRail() {
         const sessionWindows = winIds.map((id) => windowsById[id]).filter(Boolean) as Window[];
         const agentIds = agentsBySession[s.id] ?? [];
         const agents = agentIds.map((id) => agentsById[id]).filter(Boolean);
-        const agentsWorking = agents.some((agent) => activityById[agent.id]?.state === "working");
-        const agentsUnread = agents.some((agent) => activityById[agent.id]?.unread);
+        const rollup = rollupAgentStates(agents.map((agent) => activityById[agent.id]));
         const tabCount = sessionWindows.filter((w) => w.role === "term").length;
 
         if (!active) {
@@ -85,16 +85,20 @@ export function SideRail() {
                             {visible.map((a) => (
                                 <span
                                     key={a.id}
-                                    className={`proj-pip proj-pip-${a.type}${activityById[a.id]?.state === "working" ? " is-working" : ""}${activityById[a.id]?.unread ? " has-unread" : ""}`}>
+                                    className={`proj-pip proj-pip-${a.type}${activityById[a.id] ? ` state-${activityById[a.id].state}` : ""}`}>
                                     <AgentIcon type={a.type} size={20} />
                                 </span>
                             ))}
                             {overflow > 0 && <span className="proj-child-icons-more">+{overflow}</span>}
                         </span>
                     )}
-                    {agentsWorking && <span className="agent-activity working" title="Agent is working" aria-label="Agent is working" />}
-                    {!agentsWorking && agentsUnread && (
-                        <span className="agent-activity unread" title="New agent response" aria-label="New agent response" />
+                    {rollup && (
+                        <span
+                            className={`agent-activity state-${rollup}`}
+                            title={AGENT_STATE_META[rollup].label}
+                            aria-label={AGENT_STATE_META[rollup].label}>
+                            {AGENT_STATE_META[rollup].symbol}
+                        </span>
                     )}
                     <span
                         className="sess-close"
@@ -141,9 +145,7 @@ export function SideRail() {
                   ))
                 : [];
         const agentIcons: React.ReactNode[] = agents.map((a) => (
-            <span
-                key={a.id}
-                className={`proj-pip proj-pip-${a.type}${activityById[a.id]?.state === "working" ? " is-working" : ""}${activityById[a.id]?.unread ? " has-unread" : ""}`}>
+            <span key={a.id} className={`proj-pip proj-pip-${a.type}${activityById[a.id] ? ` state-${activityById[a.id].state}` : ""}`}>
                 <AgentIcon type={a.type} size={20} />
             </span>
         ));
@@ -216,11 +218,13 @@ export function SideRail() {
                                         {overflow > 0 && <span className="proj-child-icons-more">+{overflow}</span>}
                                     </span>
                                 )}
-                                {c.role === "agents" && agentsWorking && (
-                                    <span className="agent-activity working" title="Agent is working" aria-label="Agent is working" />
-                                )}
-                                {c.role === "agents" && !agentsWorking && agentsUnread && (
-                                    <span className="agent-activity unread" title="New agent response" aria-label="New agent response" />
+                                {c.role === "agents" && rollup && (
+                                    <span
+                                        className={`agent-activity state-${rollup}`}
+                                        title={AGENT_STATE_META[rollup].label}
+                                        aria-label={AGENT_STATE_META[rollup].label}>
+                                        {AGENT_STATE_META[rollup].symbol}
+                                    </span>
                                 )}
                                 {c.kbd && <span className="proj-child-kbd">{c.kbd}</span>}
                             </button>

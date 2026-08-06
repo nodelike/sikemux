@@ -71,27 +71,98 @@
 }
 
 .agent-activity {
-    width: 7px;
-    height: 7px;
+    width: 14px;
+    height: 14px;
     flex: 0 0 auto;
-    border-radius: 999px;
+    display: inline-grid;
+    place-items: center;
+    border-left: 2px solid currentColor;
+    font:
+        700 10px/1 "JetBrainsMono NF",
+        monospace;
+    color: var(--ink-faint);
 }
-.agent-activity.unread {
-    background: var(--acc);
-    box-shadow: 0 0 0 2px color-mix(in srgb, var(--acc) 18%, transparent);
+.agent-activity.state-done {
+    color: var(--acc);
 }
-.agent-activity.working {
-    width: 9px;
-    height: 9px;
-    border: 1.5px solid color-mix(in srgb, var(--live) 28%, transparent);
-    border-top-color: var(--live);
-    background: transparent;
-    animation: agent-activity-spin 0.72s linear infinite;
+.agent-activity.state-blocked {
+    color: var(--warn);
+}
+.agent-activity.state-working {
+    color: var(--live);
+}
+.agent-activity.state-unknown {
+    color: var(--ink-faint);
+}
+.agent-activity.state-idle {
+    color: var(--ink-dim);
+}
+.agent-activity.state-working {
+    animation: agent-activity-spin 0.9s steps(8) infinite;
+}
+.agent-dormant-label {
+    color: var(--ink-faint);
+    font-size: 9px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
 }
 @keyframes agent-activity-spin {
     to {
         transform: rotate(360deg);
     }
+}
+
+.agent-dormant {
+    width: min(520px, calc(100% - 48px));
+    margin: auto;
+    align-self: center;
+    display: grid;
+    grid-template-columns: 4px 1fr;
+    gap: 8px 16px;
+    color: var(--ink-dim);
+    font-size: 12px;
+    line-height: 1.55;
+}
+.agent-dormant > :not(.agent-dormant-notch) {
+    grid-column: 2;
+}
+.agent-dormant-notch {
+    grid-row: 1 / span 5;
+    background: var(--acc);
+}
+.agent-dormant-notch.claude {
+    background: var(--brand-claude);
+}
+.agent-dormant-notch.codex {
+    background: var(--brand-codex);
+}
+.agent-dormant-notch.hermes {
+    background: var(--brand-hermes);
+}
+.agent-dormant-notch.pi {
+    background: var(--brand-pi);
+}
+.agent-dormant-notch.opencode {
+    background: var(--brand-opencode);
+}
+.agent-dormant-kicker {
+    color: var(--live);
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+}
+.agent-dormant strong {
+    color: var(--ink);
+    font-size: 18px;
+    font-weight: 600;
+}
+.agent-dormant button {
+    justify-self: start;
+    margin-top: 8px;
+    padding: 7px 14px;
+    border: 1px solid var(--acc);
+    color: var(--ink);
+    background: var(--acc-soft);
 }
 
 .proj-pip.is-working::after,

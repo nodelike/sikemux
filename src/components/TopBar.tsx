@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState, type MouseEvent as ReactMouseEvent } from "react";
 import { getVersion } from "@tauri-apps/api/app";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { installPendingUpdate } from "../api/updater";
 import { useBattery } from "../hooks/useBattery";
 import { useClock } from "../hooks/useClock";
 import { git } from "../api/git";
@@ -256,7 +255,7 @@ export function UpdateChip() {
     const state = pending.state;
     const onClick = () => {
         if (state === "installing") return;
-        void installPendingUpdate();
+        cmd.openWhatsNew();
     };
 
     return (

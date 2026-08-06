@@ -1,12 +1,26 @@
 import { invoke } from "@tauri-apps/api/core";
 import { sshStartup } from "../terminal/sshStartup";
-import { isTheme } from "../themes";
+import { isBuiltinTheme, isTheme } from "../themes";
 import { normaliseKeybindingOverrides } from "../keybindings";
+import type { CommandContext, CustomCommand, CustomCommandPlacement } from "../commands/registry";
 import { registerCustomThemes } from "../themes/bus";
 import { ensureSearchWindow, normalisePinnedProjects, normaliseProjectRoots } from "./commands";
+import { agentStartup } from "./commands";
 import { getState, setState, useStore, type StoreState } from "./store";
 import { errMessage, notify } from "./toast";
-import type { Agent, EditorPaneView, PersistedPrefs, PersistedSession, PersistedSnapshot, RecentEntry, Session, Window, WindowRole } from "./types";
+import type {
+    Agent,
+    AgentType,
+    EditorPaneView,
+    PersistedAgent,
+    PersistedPrefs,
+    PersistedSession,
+    PersistedSnapshot,
+    RecentEntry,
+    Session,
+    Window,
+    WindowRole,
+} from "./types";
 
 function deriveRole(w: Window): WindowRole {
     if (WINDOW_ROLES.has(w.role)) return w.role;
@@ -19,7 +33,7 @@ function deriveRole(w: Window): WindowRole {
     return "named";
 }
 
-const VERSION = 4;
+const VERSION = 5;
 const MIN_SUPPORTED_VERSION = 3;
 const RETRY_MS = 1500;
 let lastSaved = "";
@@ -44,6 +58,9 @@ const PERSISTED_KEYS = [
     "projectRoots",
     "brunoWorkspaces",
     "themeId",
+    "themeMode",
+    "systemLightThemeId",
+    "systemDarkThemeId",
     "customThemes",
     "windowOpacity",
     "windowBlur",
@@ -56,6 +73,16 @@ const PERSISTED_KEYS = [
     "rightRailOpen",
     "zenMode",
     "rundeck",
+    "restoreAgentTabs",
+    "autoResumeAgents",
+    "notificationPreferences",
+    "railDensity",
+    "onboardingComplete",
+    "lastSeenVersion",
+    "customCommands",
+    "updateChannel",
+    "lastReleaseNotes",
+    "recentCommandKeys",
 ] as const satisfies readonly (keyof StoreState)[];
 type PersistedKey = (typeof PERSISTED_KEYS)[number];
 type SliceShot = { [K in PersistedKey]: StoreState[K] };
@@ -78,6 +105,9 @@ function packPrefs(s: StoreState): PersistedPrefs {
         pinnedProjects: s.pinnedProjects,
         brunoWorkspaces: s.brunoWorkspaces,
         themeId: s.themeId,
+        themeMode: s.themeMode,
+        systemLightThemeId: s.systemLightThemeId,
+        systemDarkThemeId: s.systemDarkThemeId,
         customThemes: s.customThemes,
         windowOpacity: s.windowOpacity,
         windowBlur: s.windowBlur,
@@ -90,6 +120,16 @@ function packPrefs(s: StoreState): PersistedPrefs {
         rightRailOpen: s.rightRailOpen,
         zenMode: s.zenMode,
         rundeck: s.rundeck,
+        restoreAgentTabs: s.restoreAgentTabs,
+        autoResumeAgents: s.autoResumeAgents,
+        notificationPreferences: s.notificationPreferences,
+        railDensity: s.railDensity,
+        onboardingComplete: s.onboardingComplete,
+        lastSeenVersion: s.lastSeenVersion,
+        customCommands: s.customCommands,
+        updateChannel: s.updateChannel,
+        lastReleaseNotes: s.lastReleaseNotes,
+        recentCommandKeys: s.recentCommandKeys,
     };
 }
 
@@ -108,6 +148,59 @@ const AWS_SERVICES = new Set<StoreState["awsService"]>(["ecs", "ec2", "lambda", 
 
 function isRecord(value: unknown): value is Record<string, unknown> {
     return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+function isThemeId(value: string, customThemes: unknown): boolean {
+    if (isBuiltinTheme(value)) return true;
+    return Array.isArray(customThemes) && customThemes.some((theme) => isTheme(theme) && theme.id === value);
+}
+
+function normaliseNotificationPreferences(value: unknown, fallback: StoreState["notificationPreferences"]): StoreState["notificationPreferences"] {
+    if (!isRecord(value)) return fallback;
+    const time = (candidate: unknown, current: string) =>
+        typeof candidate === "string" && /^(?:[01]\d|2[0-3]):[0-5]\d$/.test(candidate) ? candidate : current;
+    const mutedAgentTypes = Array.isArray(value.mutedAgentTypes)
+        ? value.mutedAgentTypes.filter((v): v is AgentType => AGENT_TYPES.has(v as AgentType))
+        : fallback.mutedAgentTypes;
+    return {
+        enabled: typeof value.enabled === "boolean" ? value.enabled : fallback.enabled,
+        onlyWhenUnfocused: typeof value.onlyWhenUnfocused === "boolean" ? value.onlyWhenUnfocused : fallback.onlyWhenUnfocused,
+        sounds: typeof value.sounds === "boolean" ? value.sounds : fallback.sounds,
+        delayMs:
+            typeof value.delayMs === "number" && Number.isFinite(value.delayMs) ? Math.min(10_000, Math.max(0, value.delayMs)) : fallback.delayMs,
+        quietHoursEnabled: typeof value.quietHoursEnabled === "boolean" ? value.quietHoursEnabled : fallback.quietHoursEnabled,
+        quietHoursStart: time(value.quietHoursStart, fallback.quietHoursStart),
+        quietHoursEnd: time(value.quietHoursEnd, fallback.quietHoursEnd),
+        mutedAgentTypes,
+    };
+}
+
+const COMMAND_CONTEXTS = new Set<CommandContext>(["project", "command", "ssh", "aws", "rundeck", "bruno"]);
+const COMMAND_PLACEMENTS = new Set<CustomCommandPlacement>(["background", "terminal", "split", "popup", "replace"]);
+
+function normaliseCustomCommands(value: unknown): CustomCommand[] {
+    if (!Array.isArray(value)) return [];
+    const seen = new Set<string>();
+    const commands: CustomCommand[] = [];
+    for (const row of value) {
+        if (!isRecord(row) || typeof row.id !== "string" || !row.id || seen.has(row.id)) continue;
+        if (typeof row.title !== "string" || !row.title.trim() || typeof row.command !== "string" || !row.command.trim()) continue;
+        if (!COMMAND_PLACEMENTS.has(row.placement as CustomCommandPlacement)) continue;
+        const contexts = Array.isArray(row.contexts)
+            ? row.contexts.filter((v): v is CommandContext => COMMAND_CONTEXTS.has(v as CommandContext))
+            : [];
+        seen.add(row.id);
+        commands.push({
+            id: row.id.slice(0, 100),
+            title: row.title.trim().slice(0, 120),
+            detail: typeof row.detail === "string" ? row.detail.trim().slice(0, 240) : "",
+            command: row.command.slice(0, 8_000),
+            contexts,
+            placement: row.placement as CustomCommandPlacement,
+        });
+        if (commands.length >= 100) break;
+    }
+    return commands;
 }
 
 function isStringRecord(value: unknown): value is Record<string, string> {
@@ -224,6 +317,16 @@ function isRecent(value: unknown): value is RecentEntry {
     return isRecord(value) && SESSION_KINDS.has(value.kind as Session["kind"]) && typeof value.name === "string" && typeof value.cwd === "string";
 }
 
+const AGENT_TYPES = new Set<AgentType>(["claude", "codex", "hermes", "pi", "opencode"]);
+
+function toPersistedAgent(value: unknown): PersistedAgent | null {
+    if (!isRecord(value) || typeof value.id !== "string" || !value.id || !AGENT_TYPES.has(value.type as AgentType)) return null;
+    if (typeof value.title !== "string" || !value.title.trim() || typeof value.resumeId !== "string" || !value.resumeId.trim()) return null;
+    const agent: PersistedAgent = { id: value.id, type: value.type as AgentType, title: value.title.slice(0, 200), resumeId: value.resumeId };
+    if (typeof value.skipPermissions === "boolean") agent.skipPermissions = value.skipPermissions;
+    return agent;
+}
+
 function persistedSession(sess: Session, activeAgentId: string | null, view: Session["view"]): PersistedSession {
     const { bruno, ...base } = sess;
     if (sess.kind !== "bruno" || !bruno) return { ...base, activeAgentId, view };
@@ -241,16 +344,24 @@ function snapshot(): string {
         .map((id) => s.sessions[id])
         .filter(Boolean)
         .map((sess) => {
-            // Agent processes are runtime-only. Persisting their startup/resume
-            // commands made a restored tab silently launch an old agent merely
-            // because the user navigated to it after restart.
-            return persistedSession(sess, null, "windows");
+            const safeAgentIds = (s.agentsBySession[sess.id] ?? []).filter((id) => !!s.agents[id]?.resumeId);
+            const activeAgentId = sess.activeAgentId && safeAgentIds.includes(sess.activeAgentId) ? sess.activeAgentId : null;
+            return persistedSession(sess, activeAgentId, sess.view === "agent" && activeAgentId ? "agent" : "windows");
         });
     const windowsBySession: Record<string, Window[]> = {};
-    const agentsBySession: Record<string, Agent[]> = {};
+    const agentsBySession: Record<string, PersistedAgent[]> = {};
     for (const sess of sessions) {
         windowsBySession[sess.id] = (s.windowsBySession[sess.id] ?? []).map((id) => s.windows[id]).filter(Boolean);
-        agentsBySession[sess.id] = [];
+        agentsBySession[sess.id] = (s.agentsBySession[sess.id] ?? [])
+            .map((id) => s.agents[id])
+            .filter((agent): agent is Agent => !!agent?.resumeId)
+            .map(({ id, type, title, resumeId, skipPermissions }) => ({
+                id,
+                type,
+                title,
+                resumeId,
+                ...(typeof skipPermissions === "boolean" ? { skipPermissions } : {}),
+            }));
     }
     const snap: PersistedSnapshot = {
         version: VERSION,
@@ -377,9 +488,32 @@ export function applyHydrate(raw: string): void {
         }
         agentsBySession[sid] = [];
     }
-    // Live agents intentionally do not survive an app restart. Recent agent
-    // sessions remain discoverable in the rail and require an explicit click
-    // to resume; hydration itself never executes a saved resume command.
+    const prefs = isRecord(decoded.prefs) ? decoded.prefs : {};
+    const restoreAgentTabs = typeof prefs.restoreAgentTabs === "boolean" ? prefs.restoreAgentTabs : true;
+    const autoResumeAgents = typeof prefs.autoResumeAgents === "boolean" ? prefs.autoResumeAgents : false;
+    const rawAgents = isRecord(decoded.agentsBySession) ? decoded.agentsBySession : {};
+    const claimedResumeIds = new Set<string>();
+    if (restoreAgentTabs) {
+        for (const sid of Object.keys(sessions)) {
+            if (sessions[sid].kind !== "project") continue;
+            const rows = Array.isArray(rawAgents[sid]) ? rawAgents[sid] : [];
+            for (const row of rows) {
+                const saved = toPersistedAgent(row);
+                if (!saved || agents[saved.id]) continue;
+                const claim = `${saved.type}\0${saved.resumeId}`;
+                if (claimedResumeIds.has(claim)) continue;
+                claimedResumeIds.add(claim);
+                agents[saved.id] = {
+                    ...saved,
+                    startup: agentStartup(saved.type, saved.resumeId, saved.skipPermissions ?? false),
+                    launchState: autoResumeAgents ? "live" : "dormant",
+                };
+                agentsBySession[sid].push(saved.id);
+            }
+        }
+    }
+    // Restored agent tabs are inert by default. Startup is rebuilt from the
+    // trusted agent type/resume id pair above and never read from disk.
     for (const sid of Object.keys(sessions)) {
         const session = sessions[sid];
         const agentIds = agentsBySession[sid];
@@ -411,7 +545,6 @@ export function applyHydrate(raw: string): void {
     for (const sid of Object.keys(sessions)) if (!sessionOrder.includes(sid)) sessionOrder.push(sid);
     const requestedActive = typeof decoded.activeSessionId === "string" ? decoded.activeSessionId : "";
     const activeSessionId = sessions[requestedActive] ? requestedActive : sessionOrder[0];
-    const prefs = isRecord(decoded.prefs) ? decoded.prefs : {};
     const cur = getState();
     const rundeck = isRecord(prefs.rundeck) ? prefs.rundeck : {};
     const prodEnvs = Array.isArray(rundeck.prodEnvs) ? rundeck.prodEnvs.filter((v): v is string => typeof v === "string") : cur.rundeck.prodEnvs;
@@ -434,6 +567,15 @@ export function applyHydrate(raw: string): void {
             Object.values(sessions),
         ),
         themeId: typeof prefs.themeId === "string" ? prefs.themeId : cur.themeId,
+        themeMode: prefs.themeMode === "system" || prefs.themeMode === "manual" ? prefs.themeMode : cur.themeMode,
+        systemLightThemeId:
+            typeof prefs.systemLightThemeId === "string" && isThemeId(prefs.systemLightThemeId, prefs.customThemes)
+                ? prefs.systemLightThemeId
+                : cur.systemLightThemeId,
+        systemDarkThemeId:
+            typeof prefs.systemDarkThemeId === "string" && isThemeId(prefs.systemDarkThemeId, prefs.customThemes)
+                ? prefs.systemDarkThemeId
+                : cur.systemDarkThemeId,
         customThemes: Array.isArray(prefs.customThemes) ? prefs.customThemes.filter(isTheme) : cur.customThemes,
         windowOpacity: typeof prefs.windowOpacity === "number" && Number.isFinite(prefs.windowOpacity) ? prefs.windowOpacity : cur.windowOpacity,
         windowBlur: typeof prefs.windowBlur === "number" && Number.isFinite(prefs.windowBlur) ? prefs.windowBlur : cur.windowBlur,
@@ -450,6 +592,26 @@ export function applyHydrate(raw: string): void {
             activeEnvFolder: rundeck.activeEnvFolder === null || typeof rundeck.activeEnvFolder === "string" ? rundeck.activeEnvFolder : null,
             prodEnvs,
         },
+        restoreAgentTabs,
+        autoResumeAgents,
+        notificationPreferences: normaliseNotificationPreferences(prefs.notificationPreferences, cur.notificationPreferences),
+        railDensity: prefs.railDensity === "compact" || prefs.railDensity === "comfortable" ? prefs.railDensity : cur.railDensity,
+        onboardingComplete:
+            typeof prefs.onboardingComplete === "boolean" ? prefs.onboardingComplete : decoded.version < VERSION ? true : cur.onboardingComplete,
+        lastSeenVersion: typeof prefs.lastSeenVersion === "string" ? prefs.lastSeenVersion : cur.lastSeenVersion,
+        customCommands: normaliseCustomCommands(prefs.customCommands),
+        updateChannel: prefs.updateChannel === "preview" || prefs.updateChannel === "stable" ? prefs.updateChannel : cur.updateChannel,
+        lastReleaseNotes:
+            isRecord(prefs.lastReleaseNotes) && typeof prefs.lastReleaseNotes.version === "string"
+                ? {
+                      version: prefs.lastReleaseNotes.version,
+                      notes: typeof prefs.lastReleaseNotes.notes === "string" ? prefs.lastReleaseNotes.notes : null,
+                      date: typeof prefs.lastReleaseNotes.date === "string" ? prefs.lastReleaseNotes.date : null,
+                  }
+                : null,
+        recentCommandKeys: Array.isArray(prefs.recentCommandKeys)
+            ? prefs.recentCommandKeys.filter((value): value is string => typeof value === "string").slice(0, 20)
+            : [],
     });
     ensureSearchWindow();
     registerCustomThemes(getState().customThemes);

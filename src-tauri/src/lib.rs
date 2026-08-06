@@ -1,3 +1,4 @@
+mod agent_detection;
 mod agents;
 mod aws;
 mod bruno;
@@ -17,6 +18,7 @@ mod ssh;
 mod state;
 mod system;
 mod transparency;
+mod updates;
 
 use aws::LogsTailManager;
 use pty::PtyManager;
@@ -43,6 +45,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_notification::init())
         .manage(LogsTailManager::default())
         .manage(RundeckWatchManager::default())
         .manage(RundeckLogsManager::default())
@@ -100,11 +103,17 @@ pub fn run() {
             pty::pty_resize,
             pty::pty_reset_modes,
             pty::pty_kill,
+            pty::agent_detection_explain,
+            pty::agent_detection_manifests,
+            pty::agent_detection_reload,
             system::home_dir,
             system::recent_dirs,
             system::boot_init,
             system::battery_status,
             system::runtime_diagnostics,
+            system::integration_health,
+            updates::update_check,
+            updates::update_install,
             state::state_load,
             state::state_save,
             agents::available_agents,
@@ -225,6 +234,7 @@ pub fn run() {
             rundeck::plan::rnd_plan,
             external::open_url,
             external::macos_focus_app,
+            external::run_background_command,
             transparency::set_window_blur,
             bruno::bru_send,
         ])

@@ -18,12 +18,16 @@ function hasOpenModal(st: StoreState): boolean {
         st.rundeckJobPaletteOpen ||
         st.brunoReqPaletteOpen ||
         st.brunoEnvPaletteOpen ||
+        st.commandPaletteOpen ||
+        st.onboardingOpen ||
+        st.diagnosticsOpen ||
+        st.whatsNewOpen ||
         st.settingsOpen ||
         st.awsAuthModal !== null
     );
 }
 
-const MODAL_ACTIONS = new Set<KeybindingActionId>(["palette.files", "search.global", "settings.toggle"]);
+const MODAL_ACTIONS = new Set<KeybindingActionId>(["palette.commands", "palette.files", "search.global", "settings.toggle"]);
 
 function releaseModifierForEvent(event: KeyboardEvent): KeyModifier | null {
     if (event.altKey) return "Alt";
@@ -40,10 +44,13 @@ function modifierHeld(event: KeyboardEvent, modifier: KeyModifier): boolean {
     return event.shiftKey;
 }
 
-function runKeybindingAction(action: KeybindingActionId, event: KeyboardEvent, st: StoreState): boolean {
+export function runKeybindingAction(action: KeybindingActionId, event: KeyboardEvent, st: StoreState): boolean {
     const active = st.sessions[st.activeSessionId];
 
     switch (action) {
+        case "palette.commands":
+            cmd.toggleCommandPalette();
+            return true;
         case "palette.files":
             if (active?.kind === "rundeck") {
                 if (st.rundeckJobPaletteOpen) cmd.closeRundeckJobPalette();
@@ -167,6 +174,9 @@ function runKeybindingAction(action: KeybindingActionId, event: KeyboardEvent, s
                 if (releaseModifier) cmd.beginSessionSwitch(1, releaseModifier);
                 else cmd.cycleSession(1);
             }
+            return true;
+        case "session.lastUsed":
+            cmd.selectLastSession();
             return true;
         case "session.previous":
             {

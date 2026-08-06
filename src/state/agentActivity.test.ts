@@ -25,7 +25,7 @@ describe("agent activity", () => {
         expect(getState().agentActivity[id]).toMatchObject({ state: "working", unread: false });
 
         noteAgentActivity(id, "complete");
-        expect(getState().agentActivity[id]).toMatchObject({ state: "complete", unread: true });
+        expect(getState().agentActivity[id]).toMatchObject({ state: "done", backendState: "idle", unread: true });
     });
 
     it("clears unread on selection and keeps visible completions read", () => {
@@ -36,7 +36,7 @@ describe("agent activity", () => {
 
         noteAgentActivity(id, "working");
         noteAgentActivity(id, "complete");
-        expect(getState().agentActivity[id]).toMatchObject({ state: "complete", unread: false });
+        expect(getState().agentActivity[id]).toMatchObject({ state: "idle", unread: false });
 
         clearAgentUnread(id);
         expect(getState().agentActivity[id].unread).toBe(false);

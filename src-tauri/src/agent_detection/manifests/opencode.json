@@ -1,0 +1,70 @@
+{
+  "schemaVersion": 1,
+  "id": "opencode",
+  "version": "2026.08.06.1",
+  "rules": [
+    {
+      "id": "permission_dialog",
+      "state": "blocked",
+      "priority": 950,
+      "region": "bottomNonEmptyLines(14)",
+      "visibleBlocker": true,
+      "gate": {
+        "any": [
+          { "contains": ["permission required"] },
+          { "contains": ["esc dismiss"] }
+        ],
+        "all": [
+          {
+            "any": [
+              { "contains": ["enter confirm"] },
+              { "contains": ["enter submit"] },
+              { "contains": ["enter toggle"] }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "interrupt_hint",
+      "state": "working",
+      "priority": 750,
+      "region": "bottomNonEmptyLines(8)",
+      "visibleWorking": true,
+      "gate": {
+        "any": [
+          { "contains": ["esc to interrupt"] },
+          { "contains": ["esc again to interrupt"] },
+          { "contains": ["ctrl+c to interrupt"] }
+        ]
+      }
+    },
+    {
+      "id": "progress_bar",
+      "state": "working",
+      "priority": 650,
+      "region": "bottomNonEmptyLines(5)",
+      "visibleWorking": true,
+      "gate": {
+        "regex": ["(?:■|⬝){4,}"]
+      }
+    },
+    {
+      "id": "input_prompt",
+      "state": "idle",
+      "priority": 400,
+      "region": "bottomNonEmptyLines(4)",
+      "visibleIdle": true,
+      "gate": {
+        "any": [
+          { "contains": ["ask anything"] },
+          { "lineRegex": ["^\\s*[>❯]\\s*$"] }
+        ],
+        "not": [
+          { "contains": ["permission required"] },
+          { "contains": ["esc to interrupt"] }
+        ]
+      }
+    }
+  ]
+}

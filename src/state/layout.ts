@@ -73,6 +73,16 @@ export function splitPane(root: LayoutNode, paneId: string, dir: SplitDir, newPa
     return rec(root);
 }
 
+export function replacePane(root: LayoutNode, paneId: string, newPane: PaneNode): LayoutNode {
+    if (root.type === "pane") return root.id === paneId ? newPane : root;
+    return { ...root, children: root.children.map((child) => replacePane(child, paneId, newPane)) };
+}
+
+export function cloneLayout(root: LayoutNode): LayoutNode {
+    if (root.type === "pane") return { ...root, id: newId("pane") };
+    return { ...root, id: newId("split"), children: root.children.map(cloneLayout), sizes: root.sizes.slice() };
+}
+
 export function removePane(root: LayoutNode, paneId: string): LayoutNode | null {
     if (root.type === "pane") return root.id === paneId ? null : root;
     function rec(node: SplitNode): LayoutNode {

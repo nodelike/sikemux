@@ -1,0 +1,58 @@
+{
+  "schemaVersion": 1,
+  "id": "pi",
+  "version": "2026.08.06.1",
+  "rules": [
+    {
+      "id": "approval_prompt",
+      "state": "blocked",
+      "priority": 900,
+      "region": "bottomNonEmptyLines(12)",
+      "visibleBlocker": true,
+      "gate": {
+        "any": [
+          { "contains": ["approve", "deny"] },
+          { "contains": ["allow", "reject"] },
+          { "contains": ["permission required"] }
+        ],
+        "all": [
+          {
+            "any": [
+              { "contains": ["enter"] },
+              { "contains": ["[y/n]"] },
+              { "contains": ["to select"] }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "working_literal",
+      "state": "working",
+      "priority": 700,
+      "region": "bottomNonEmptyLines(5)",
+      "visibleWorking": true,
+      "gate": {
+        "any": [
+          { "contains": ["working..."] },
+          { "contains": ["esc to interrupt"] },
+          { "contains": ["ctrl+c to interrupt"] }
+        ]
+      }
+    },
+    {
+      "id": "input_prompt",
+      "state": "idle",
+      "priority": 400,
+      "region": "bottomNonEmptyLines(3)",
+      "visibleIdle": true,
+      "gate": {
+        "lineRegex": ["^\\s*[>❯]\\s*$"],
+        "not": [
+          { "contains": ["working..."] },
+          { "contains": ["permission required"] }
+        ]
+      }
+    }
+  ]
+}

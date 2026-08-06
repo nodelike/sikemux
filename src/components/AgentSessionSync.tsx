@@ -18,9 +18,14 @@ interface AgentSessionsChanged {
     cwd: string;
 }
 
-interface PtyActivityChanged {
+interface AgentStateChanged {
     agentId: string;
-    state: "working" | "complete";
+    state: "unknown" | "working" | "blocked" | "idle";
+    sequence: number;
+    source: "screen" | "activity" | "process" | "fallback";
+    confidence: "high" | "medium" | "low";
+    reason: string;
+    matchedRule?: string;
 }
 
 function groupKey(type: AgentType, cwd: string): string {
@@ -68,8 +73,8 @@ export function AgentSessionSync() {
     });
 
     useEffect(() => {
-        const unlisten = listen<PtyActivityChanged>("pty_activity", (event) => {
-            cmd.noteAgentActivity(event.payload.agentId, event.payload.state);
+        const unlisten = listen<AgentStateChanged>("agent_state_changed", (event) => {
+            cmd.noteAgentActivity(event.payload.agentId, event.payload);
         });
         return () => void unlisten.then((off) => off());
     }, []);

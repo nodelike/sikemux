@@ -1,0 +1,192 @@
+.experience-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 170;
+    display: grid;
+    place-items: center;
+    padding: 24px;
+    background: color-mix(in srgb, var(--void) 76%, transparent);
+    backdrop-filter: blur(8px);
+}
+.experience-frame {
+    position: relative;
+    width: min(720px, 100%);
+    max-height: min(760px, calc(100vh - 48px));
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    background: var(--pane);
+    border: 1px solid var(--line);
+    box-shadow: 0 28px 90px #0009;
+}
+.experience-notch {
+    position: absolute;
+    inset: 0 auto 0 0;
+    width: 4px;
+    background: linear-gradient(var(--acc) 0 32%, var(--live) 32% 66%, var(--warn) 66%);
+}
+.experience-frame header {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    padding: 22px 26px 16px 30px;
+    border-bottom: 1px solid var(--line);
+}
+.experience-frame h1 {
+    margin: 3px 0 0;
+    color: var(--ink);
+    font-size: 22px;
+    font-weight: 560;
+    letter-spacing: -0.03em;
+}
+.experience-kicker {
+    color: var(--acc);
+    font:
+        600 9px/1.4 "JetBrainsMono NF",
+        monospace;
+    letter-spacing: 0.13em;
+    text-transform: uppercase;
+}
+.experience-frame header button {
+    grid-column: 2;
+    grid-row: 1 / span 2;
+    align-self: start;
+    color: var(--ink-faint);
+    font:
+        10px "JetBrainsMono NF",
+        monospace;
+}
+.experience-deck {
+    margin: 0;
+    padding: 18px 30px;
+    color: var(--ink-dim);
+    border-bottom: 1px solid var(--line);
+    font-size: 12px;
+    line-height: 1.6;
+}
+.experience-list {
+    overflow: auto;
+}
+.experience-list > div {
+    display: grid;
+    grid-template-columns: 32px 150px 1fr;
+    gap: 12px;
+    padding: 14px 30px;
+    border-bottom: 1px solid color-mix(in srgb, var(--line) 65%, transparent);
+    align-items: baseline;
+}
+.experience-list b {
+    color: var(--live);
+    font:
+        600 9px "JetBrainsMono NF",
+        monospace;
+}
+.experience-list span {
+    color: var(--ink);
+    font-size: 12px;
+}
+.experience-list small {
+    color: var(--ink-dim);
+    font-size: 11px;
+    line-height: 1.5;
+}
+.experience-frame footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    padding: 14px 26px;
+    border-top: 1px solid var(--line);
+}
+.experience-frame footer button {
+    padding: 7px 12px;
+    border: 1px solid var(--line);
+    color: var(--ink-dim);
+    background: var(--rail-2);
+}
+.experience-frame footer button.primary {
+    border-color: var(--acc);
+    color: var(--ink);
+    background: var(--acc-soft);
+}
+.diagnostics-json {
+    min-height: 280px;
+    margin: 0;
+    padding: 20px 30px;
+    overflow: auto;
+    color: var(--live);
+    background: var(--void);
+    font:
+        10.5px/1.55 "JetBrainsMono NF",
+        monospace;
+    white-space: pre-wrap;
+}
+.release-notes {
+    min-height: 180px;
+    padding: 22px 30px;
+    overflow: auto;
+    white-space: pre-wrap;
+    color: var(--ink);
+    font-size: 12px;
+    line-height: 1.7;
+}
+.experience-error {
+    color: var(--danger);
+    padding: 20px 30px;
+}
+.diagnostics-signals {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 1px;
+    padding: 14px 30px;
+    background: var(--line);
+}
+.diagnostics-signals > .experience-kicker {
+    grid-column: 1 / -1;
+    padding: 3px 0 8px;
+    background: var(--pane);
+}
+.diagnostics-signals > span,
+.diagnostics-signals > button {
+    display: grid;
+    gap: 3px;
+    padding: 8px;
+    background: var(--pane);
+    color: var(--ink-dim);
+    font-size: 9px;
+    text-align: left;
+}
+.diagnostics-signals b {
+    color: var(--ink);
+    font-weight: 600;
+}
+.diagnostics-signals small {
+    color: var(--acc);
+}
+.diagnostics-explain {
+    max-height: 220px;
+    border-bottom: 1px solid var(--line);
+    color: var(--warn);
+}
+.command-popup {
+    width: min(880px, calc(100vw - 48px));
+    height: min(620px, calc(100vh - 48px));
+    display: grid;
+    grid-template-rows: 34px 1fr;
+    border: 1px solid var(--line);
+    background: var(--void);
+    box-shadow: 0 28px 90px #000a;
+}
+.command-popup > header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 10px 0 14px;
+    border-bottom: 1px solid var(--line);
+    color: var(--ink);
+    font:
+        11px "JetBrainsMono NF",
+        monospace;
+}
+.command-popup > header button {
+    color: var(--ink-faint);
+    font-size: 10px;
+}

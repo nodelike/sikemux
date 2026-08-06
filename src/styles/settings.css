@@ -134,6 +134,9 @@
 .settings-rail-list {
     display: flex;
     flex-direction: column;
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
     gap: 4px;
 }
 .settings-rail-item {
@@ -1425,4 +1428,83 @@
         opacity: 1;
         transform: scale(1.05);
     }
+}
+.custom-command-list {
+    display: grid;
+    border: 1px solid var(--line);
+}
+.custom-command-list > button {
+    display: flex;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 9px 11px;
+    color: var(--ink);
+    border-bottom: 1px solid var(--line);
+    text-align: left;
+}
+.custom-command-list > button:last-child {
+    border-bottom: 0;
+}
+.custom-command-list small {
+    color: var(--ink-faint);
+}
+.command-editor-grid {
+    display: grid;
+    gap: 9px;
+}
+.command-editor-source {
+    min-height: 86px;
+    padding-top: 9px;
+    resize: vertical;
+    font-family: "JetBrainsMono NF", monospace;
+}
+.command-contexts {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 14px;
+    color: var(--ink-dim);
+    font-size: 10px;
+}
+.command-contexts label {
+    display: flex;
+    gap: 5px;
+    align-items: center;
+}
+.command-editor-actions,
+.about-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+}
+.experience-setting-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 20px;
+    padding: 11px 0;
+    border-bottom: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
+}
+.experience-setting-row > span {
+    display: grid;
+    gap: 4px;
+}
+.experience-setting-row b {
+    color: var(--ink);
+    font-size: 11px;
+    font-weight: 520;
+}
+.experience-setting-row small {
+    color: var(--ink-faint);
+    font-size: 10px;
+    line-height: 1.45;
+}
+.quiet-hours {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 12px;
+    color: var(--ink-faint);
+}
+.agent-rail[data-density="compact"] .agent-row {
+    height: 27px;
 }

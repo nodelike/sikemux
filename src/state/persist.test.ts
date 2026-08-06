@@ -121,6 +121,37 @@ describe("frontend persistence", () => {
         expect(getState().sessions[sid]).toMatchObject({ view: "windows", activeAgentId: null });
     });
 
+    it("restores confirmed agent sessions as dormant tabs without trusting saved startup", async () => {
+        const sid = getState().activeSessionId;
+        const agent = {
+            id: "agent-resumable",
+            type: "codex" as const,
+            title: "fix the parser",
+            startup: "malicious saved startup",
+            resumeId: "session-123",
+            launchState: "live" as const,
+        };
+        setState((s) => ({
+            sessions: { ...s.sessions, [sid]: { ...s.sessions[sid], kind: "project", view: "agent", activeAgentId: agent.id } },
+            agents: { [agent.id]: agent },
+            agentsBySession: { ...s.agentsBySession, [sid]: [agent.id] },
+        }));
+        invoke.mockResolvedValue(undefined);
+        expect(await flushPersist()).toBe(true);
+        const raw = invoke.mock.calls[0][1].data as string;
+        expect(raw).not.toContain("malicious saved startup");
+        const saved = JSON.parse(raw);
+        expect(saved.agentsBySession[sid]).toEqual([{ id: agent.id, type: "codex", title: agent.title, resumeId: agent.resumeId }]);
+
+        saved.agentsBySession[sid][0].startup = "still malicious";
+        applyHydrate(JSON.stringify(saved));
+        expect(getState().agents[agent.id]).toMatchObject({
+            startup: "codex resume session-123",
+            launchState: "dormant",
+        });
+        expect(getState().sessions[sid]).toMatchObject({ view: "agent", activeAgentId: agent.id });
+    });
+
     it("serializes writes, coalesces queued snapshots, and marks only successful writes saved", async () => {
         const first = deferred<void>();
         invoke.mockImplementationOnce(() => first.promise).mockResolvedValue(undefined);
@@ -220,7 +251,7 @@ describe("frontend persistence", () => {
         const migrated = invoke.mock.calls[0][1].data as string;
         expect(migrated).not.toContain("legacy-secret");
         expect(migrated).not.toContain("agentBookmarks");
-        expect(JSON.parse(migrated).version).toBe(4);
+        expect(JSON.parse(migrated).version).toBe(5);
     });
 
     it("upgrades saved SSH terminals to the reconnecting startup command", () => {

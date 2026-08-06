@@ -6,6 +6,7 @@ import { agentCatalogR, agentSessionsR } from "../state/resources.defs";
 import { useStore } from "../state/store";
 import { type Agent, type AgentType } from "../state/types";
 import { AgentIcon, IconClose, IconPlus, IconSearch } from "./Icons";
+import { AGENT_STATE_META } from "../state/agentStatus";
 
 const RECENTS_PAGE = 12;
 
@@ -24,6 +25,7 @@ const sessionKey = (type: AgentType, id: string) => `${type}:${id}`;
 export function AgentRail() {
     const session = useStore((s) => s.sessions[s.activeSessionId]);
     const activityById = useStore((s) => s.agentActivity);
+    const density = useStore((s) => s.railDensity);
     const agentsBySession = useStore((s) => s.agentsBySession);
     const agentsById = useStore((s) => s.agents);
     const catalog = useResource(agentCatalogR);
@@ -97,7 +99,7 @@ export function AgentRail() {
 
     if (!isProject) {
         return (
-            <aside className="agent-rail">
+            <aside className="agent-rail" data-density={density}>
                 <AgentHeader agents={availableAgents} type={selectedType} setType={setType} />
                 <div className="agent-empty">agents are project-scoped</div>
             </aside>
@@ -107,7 +109,7 @@ export function AgentRail() {
     const noContent = opens.length === 0 && recentDisplay.length === 0;
 
     return (
-        <aside className="agent-rail">
+        <aside className="agent-rail" data-density={density}>
             <AgentHeader agents={availableAgents} type={selectedType} setType={setType} />
             <div className="rail-scroll" ref={scrollRef} onScroll={onRailScroll}>
                 {noContent && (
@@ -142,12 +144,8 @@ export function AgentRail() {
                                         </span>
                                     </span>
                                     <span className="agent-title">{a.title}</span>
-                                    {activityById[a.id]?.state === "working" && (
-                                        <span className="agent-activity working" title="Agent is working" aria-label="Agent is working" />
-                                    )}
-                                    {activityById[a.id]?.state !== "working" && activityById[a.id]?.unread && (
-                                        <span className="agent-activity unread" title="New agent response" aria-label="New agent response" />
-                                    )}
+                                    {activityById[a.id] && <AgentStateMark state={activityById[a.id].state} />}
+                                    {a.launchState === "dormant" && <span className="agent-dormant-label">paused</span>}
                                 </button>
                             );
                         })}
@@ -170,6 +168,15 @@ export function AgentRail() {
                 )}
             </div>
         </aside>
+    );
+}
+
+function AgentStateMark({ state }: { state: import("../state/types").AgentPresentationState }) {
+    const meta = AGENT_STATE_META[state];
+    return (
+        <span className={`agent-activity state-${state}`} title={meta.label} aria-label={meta.label}>
+            {meta.symbol}
+        </span>
     );
 }
 

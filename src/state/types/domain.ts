@@ -50,7 +50,37 @@ export interface Agent {
      * once attached.
      */
     baselineSessionIds?: string[];
+    /** Restored tabs stay dormant until the user explicitly resumes them. */
+    launchState?: "live" | "dormant";
 }
+
+export type AgentBackendState = "unknown" | "working" | "blocked" | "idle";
+export type AgentPresentationState = AgentBackendState | "done";
+
+export interface AgentRuntimeState {
+    state: AgentPresentationState;
+    backendState: AgentBackendState;
+    unread: boolean;
+    updatedAt: number;
+    sequence: number;
+    source: "screen" | "activity" | "process" | "fallback";
+    confidence: "high" | "medium" | "low";
+    reason: string;
+    matchedRule?: string;
+}
+
+export interface NotificationPreferences {
+    enabled: boolean;
+    onlyWhenUnfocused: boolean;
+    sounds: boolean;
+    delayMs: number;
+    quietHoursEnabled: boolean;
+    quietHoursStart: string;
+    quietHoursEnd: string;
+    mutedAgentTypes: AgentType[];
+}
+
+export type RailDensity = "comfortable" | "compact";
 
 /** A resolved Rundeck deploy location for a service: a project plus an env subfolder. */
 export interface DeployRef {

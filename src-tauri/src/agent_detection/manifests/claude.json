@@ -1,0 +1,114 @@
+{
+  "schemaVersion": 1,
+  "id": "claude",
+  "version": "2026.08.06.1",
+  "rules": [
+    {
+      "id": "transcript_viewer",
+      "state": "unknown",
+      "priority": 1000,
+      "region": "bottomNonEmptyLines(5)",
+      "skipStateUpdate": true,
+      "gate": {
+        "contains": ["detailed transcript"],
+        "any": [
+          { "contains": ["to toggle"] },
+          { "contains": ["scroll"] },
+          { "contains": ["show all"] }
+        ]
+      }
+    },
+    {
+      "id": "confirmation_form",
+      "state": "blocked",
+      "priority": 950,
+      "region": "afterLastHorizontalRule",
+      "visibleBlocker": true,
+      "gate": {
+        "contains": ["esc to cancel"],
+        "any": [
+          { "contains": ["enter to confirm"] },
+          { "contains": ["enter to select"] },
+          { "contains": ["arrow keys to navigate"] }
+        ]
+      }
+    },
+    {
+      "id": "permission_question",
+      "state": "blocked",
+      "priority": 900,
+      "region": "wholeRecent",
+      "visibleBlocker": true,
+      "gate": {
+        "any": [
+          {
+            "contains": ["do you want to proceed?"],
+            "any": [
+              { "lineRegex": ["(?i)^\\s*(?:❯\\s*)?(?:1\\.\\s*)?yes\\b"] },
+              { "contains": ["esc to cancel"] }
+            ]
+          },
+          {
+            "contains": ["allow this connection?"],
+            "any": [
+              { "contains": ["yes"] },
+              { "contains": ["deny"] }
+            ]
+          },
+          { "contains": ["waiting for permission"] }
+        ]
+      }
+    },
+    {
+      "id": "visible_working",
+      "state": "working",
+      "priority": 700,
+      "region": "bottomNonEmptyLines(5)",
+      "visibleWorking": true,
+      "gate": {
+        "any": [
+          { "contains": ["esc to interrupt"] },
+          { "contains": ["ctrl+c to interrupt"] },
+          { "regex": ["(?i)^[^\\n]*(thinking|working|processing)[^\\n]*$"] }
+        ],
+        "not": [
+          { "contains": ["esc to cancel"] }
+        ]
+      }
+    },
+    {
+      "id": "live_prompt",
+      "state": "idle",
+      "priority": 500,
+      "region": "promptBoxBody",
+      "visibleIdle": true,
+      "gate": {
+        "lineRegex": ["^\\s*❯(?:\\s.*)?$"] ,
+        "not": [
+          { "contains": ["esc to cancel"] },
+          { "contains": ["enter to select"] }
+        ]
+      }
+    },
+    {
+      "id": "osc_working",
+      "state": "working",
+      "priority": 1100,
+      "region": "oscTitle",
+      "visibleWorking": true,
+      "gate": {
+        "regex": ["^[\\u2800-\\u28ff]\\s"]
+      }
+    },
+    {
+      "id": "osc_idle",
+      "state": "idle",
+      "priority": 600,
+      "region": "oscTitle",
+      "visibleIdle": true,
+      "gate": {
+        "regex": ["^[✳*]\\s"]
+      }
+    }
+  ]
+}

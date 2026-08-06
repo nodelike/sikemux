@@ -1,0 +1,105 @@
+{
+  "schemaVersion": 1,
+  "id": "hermes",
+  "version": "2026.08.06.1",
+  "rules": [
+    {
+      "id": "osc_blocked",
+      "state": "blocked",
+      "priority": 1200,
+      "region": "oscTitle",
+      "visibleBlocker": true,
+      "gate": {
+        "regex": ["^⚠(?:\\ufe0e|\\ufe0f)?(?:\\s|$)"]
+      }
+    },
+    {
+      "id": "osc_working",
+      "state": "working",
+      "priority": 1150,
+      "region": "oscTitle",
+      "visibleWorking": true,
+      "gate": {
+        "regex": ["^⏳(?:\\ufe0e|\\ufe0f)?(?:\\s|$)"]
+      }
+    },
+    {
+      "id": "dangerous_command",
+      "state": "blocked",
+      "priority": 950,
+      "region": "bottomNonEmptyLines(14)",
+      "visibleBlocker": true,
+      "gate": {
+        "any": [
+          { "contains": ["allow once", "deny"] },
+          { "contains": ["dangerous command"] },
+          { "contains": ["approval required"] }
+        ],
+        "all": [
+          {
+            "any": [
+              { "contains": ["enter to confirm"] },
+              { "contains": ["enter confirm"] },
+              { "contains": ["to select"] }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "clarification",
+      "state": "blocked",
+      "priority": 900,
+      "region": "bottomNonEmptyLines(14)",
+      "visibleBlocker": true,
+      "gate": {
+        "any": [
+          { "contains": ["hermes needs your"] },
+          { "contains": ["type your answer"] },
+          { "contains": ["sudo password"] }
+        ],
+        "all": [
+          {
+            "any": [
+              { "contains": ["press enter"] },
+              { "contains": ["enter send"] },
+              { "contains": ["enter confirm"] },
+              { "contains": ["sudo password"] }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "working_hint",
+      "state": "working",
+      "priority": 700,
+      "region": "bottomNonEmptyLines(6)",
+      "visibleWorking": true,
+      "gate": {
+        "any": [
+          { "contains": ["ctrl+c to interrupt"] },
+          { "contains": ["ctrl+c cancel"] },
+          { "contains": ["msg=interrupt"] }
+        ]
+      }
+    },
+    {
+      "id": "ready_prompt",
+      "state": "idle",
+      "priority": 450,
+      "region": "bottomNonEmptyLines(4)",
+      "visibleIdle": true,
+      "gate": {
+        "any": [
+          { "lineRegex": ["^\\s*[>›]\\s*$"] },
+          { "contains": ["✓ ready"] }
+        ],
+        "not": [
+          { "contains": ["enter to confirm"] },
+          { "contains": ["ctrl+c to interrupt"] }
+        ]
+      }
+    }
+  ]
+}

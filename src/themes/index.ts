@@ -664,9 +664,72 @@ const THEME_DATA = [
     ],
 ] as const;
 
-export const THEMES: Theme[] = THEME_DATA.map(([id, name, chrome, editor, highlight, terminal]) =>
-    theme(id, name, chrome, editor, highlight, terminal),
-);
+const AURA_DAY: Theme = {
+    ...theme(
+        "aura-day",
+        "Aura Day",
+        [
+            "#f7f4fb",
+            "#efebf5",
+            "#ffffff",
+            "#211d2b",
+            "#625b70",
+            "#91899e",
+            "#7450c7",
+            "rgba(116,80,199,.28)",
+            "rgba(116,80,199,.09)",
+            "#dcd5e6",
+            "rgba(116,80,199,.05)",
+            "#c33149",
+        ],
+        ["#2d2737", "transparent", "#7450c7", "#d9cff0", "rgba(116,80,199,.06)", "#877e91", "#7450c7", "#ded7e6", "#bcb0cc"],
+        [
+            "#7048bd",
+            "#087f63",
+            "#81788d",
+            "#9a5b00",
+            "#a72b72",
+            "#875200",
+            "#2d2737",
+            "#176d99",
+            "#a72b72",
+            "#625b70",
+            "#087f63",
+            "#c33149",
+            "#625b70",
+            "#7048bd",
+        ],
+        [
+            "#f7f4fb",
+            "#2d2737",
+            "#7450c7",
+            "#ffffff",
+            "rgba(116,80,199,.16)",
+            "#211d2b",
+            "#c33149",
+            "#087f63",
+            "#9a5b00",
+            "#176d99",
+            "#a72b72",
+            "#087c88",
+            "#625b70",
+            "#81788d",
+            "#e24b63",
+            "#0a9b76",
+            "#bd7200",
+            "#3486b5",
+            "#c84b91",
+            "#00a0a7",
+            "#ffffff",
+        ],
+    ),
+    dark: false,
+};
+
+export const THEMES: Theme[] = [
+    ...THEME_DATA.map(([id, name, chrome, editor, highlight, terminal]) => theme(id, name, chrome, editor, highlight, terminal)),
+    AURA_DAY,
+];
 
 export const THEMES_BY_ID: Record<string, Theme> = Object.fromEntries(THEMES.map((t) => [t.id, t]));
 

@@ -19,8 +19,12 @@ import { BrunoRequestPalette } from "./components/bruno/BrunoRequestPalette";
 import { BrunoEnvPalette } from "./components/bruno/BrunoEnvPalette";
 import { Workspace } from "./components/Workspace";
 import { Toaster } from "./components/Toaster";
+import { CommandPalette } from "./components/CommandPalette";
+import { DiagnosticsOverlay, Onboarding, WhatsNewOverlay } from "./components/ExperienceOverlays";
+import { TerminalPane } from "./terminal/TerminalPane";
+import { AgentNotifications } from "./components/AgentNotifications";
 import { git } from "./api/git";
-import { useKeymap } from "./keymap";
+import { runKeybindingAction, useKeymap } from "./keymap";
 import { filesApi } from "./api/files";
 import { emit, subscribe } from "./state/bus";
 import * as cmd from "./state/commands";
@@ -107,6 +111,12 @@ export default function App() {
     const brunoReqPaletteOpen = useStore((s) => s.brunoReqPaletteOpen);
     const brunoEnvPaletteOpen = useStore((s) => s.brunoEnvPaletteOpen);
     const settingsOpen = useStore((s) => s.settingsOpen);
+    const commandPaletteOpen = useStore((s) => s.commandPaletteOpen);
+    const commandPopup = useStore((s) => s.commandPopup);
+    const keybindingOverrides = useStore((s) => s.keybindingOverrides);
+    const customCommands = useStore((s) => s.customCommands);
+    const recentCommandKeys = useStore((s) => s.recentCommandKeys);
+    const activeKind = useStore((s) => s.sessions[s.activeSessionId]?.kind ?? null);
     const awsAuthModal = useStore((s) => s.awsAuthModal);
     const sessionSwitcherOpen = useStore((s) => s.sessionSwitcher !== null);
     const projectRepoKey = useStore((s) =>
@@ -131,7 +141,10 @@ export default function App() {
                 registerCustomThemes(st.customThemes);
                 applyTheme(st.themeId);
                 applyWindowOpacity(st.windowOpacity);
+                if (st.themeMode === "system") cmd.applySystemTheme(window.matchMedia("(prefers-color-scheme: dark)").matches);
                 cmd.setWindowBlur(st.windowBlur);
+                if (!st.onboardingComplete) cmd.openOnboarding();
+                if (st.lastReleaseNotes && st.lastSeenVersion !== st.lastReleaseNotes.version) cmd.openWhatsNew();
             })
             .catch(swallow("boot_init"))
             .finally(() => {
@@ -141,6 +154,23 @@ export default function App() {
             disposed = true;
             unsub();
         };
+    }, []);
+
+    useEffect(
+        () =>
+            useStore.subscribe((state, previous) => {
+                if (state.activeSessionId !== previous.activeSessionId && previous.sessions[previous.activeSessionId]) {
+                    cmd.setLastSessionId(previous.activeSessionId);
+                }
+            }),
+        [],
+    );
+
+    useEffect(() => {
+        const media = window.matchMedia("(prefers-color-scheme: dark)");
+        const apply = () => cmd.applySystemTheme(media.matches);
+        media.addEventListener("change", apply);
+        return () => media.removeEventListener("change", apply);
     }, []);
 
     useEffect(() => {
@@ -275,6 +305,7 @@ export default function App() {
     return (
         <div className="shell">
             <AgentSessionSync />
+            <AgentNotifications />
             <TopBar />
             <div className="body">
                 {leftOpen && <SideRail />}
@@ -292,6 +323,37 @@ export default function App() {
             {brunoEnvPaletteOpen && <BrunoEnvPalette />}
             {awsAuthModal && <AwsAuthModal />}
             {sessionSwitcherOpen && <SessionSwitcher />}
+            {commandPaletteOpen && (
+                <CommandPalette
+                    keybindingOverrides={keybindingOverrides}
+                    customCommands={customCommands}
+                    recentCommandKeys={recentCommandKeys}
+                    context={activeKind}
+                    onClose={cmd.closeCommandPalette}
+                    executeBuiltin={(id) => {
+                        cmd.noteRecentCommand(`builtin:${id}`);
+                        runKeybindingAction(id, new KeyboardEvent("keydown"), getState());
+                    }}
+                    executeCustom={(command) => {
+                        cmd.noteRecentCommand(`custom:${command.id}`);
+                        cmd.runCustomCommand(command);
+                    }}
+                />
+            )}
+            {commandPopup && (
+                <div className="experience-backdrop command-popup-backdrop" role="presentation">
+                    <section className="command-popup" role="dialog" aria-modal="true" aria-label={commandPopup.title}>
+                        <header>
+                            <span>{commandPopup.title}</span>
+                            <button onClick={cmd.closeCommandPopup}>close</button>
+                        </header>
+                        <TerminalPane cwd={commandPopup.cwd || undefined} startup={commandPopup.startup} active visible />
+                    </section>
+                </div>
+            )}
+            <Onboarding />
+            <DiagnosticsOverlay />
+            <WhatsNewOverlay />
             <Toaster />
         </div>
     );

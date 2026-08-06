@@ -12,6 +12,13 @@ export interface KeybindingAction {
 
 const keybindingActions = [
     {
+        id: "palette.commands",
+        label: "Open command deck",
+        detail: "Search every action, shortcut, and custom command",
+        category: "Workspace",
+        defaultBinding: `${IS_MACOS ? "Meta" : "Ctrl"}+Shift+KeyP`,
+    },
+    {
         id: "palette.files",
         label: "Open file or request palette",
         detail: "Files in projects, requests in Bruno",
@@ -199,6 +206,13 @@ const keybindingActions = [
         detail: "Move to the next terminal tab",
         category: "Navigation",
         defaultBinding: "Alt+Period",
+    },
+    {
+        id: "session.lastUsed",
+        label: "Switch to last-used session",
+        detail: "Toggle back to the session you used immediately before this one",
+        category: "Navigation",
+        defaultBinding: "Alt+KeyQ",
     },
     {
         id: "session.next",
