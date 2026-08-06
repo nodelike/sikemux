@@ -40,6 +40,7 @@ use std::hash::{Hash, Hasher};
 use std::io::{Read, Write};
 #[cfg(unix)]
 use std::os::fd::{AsRawFd, FromRawFd};
+use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicU8, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, RwLock};
 use std::time::{Duration, Instant};
@@ -919,11 +920,109 @@ fn notify_process_exited(pty: &Pty, status: Option<&portable_pty::ExitStatus>) {
     }
 }
 
-#[derive(serde::Deserialize)]
+#[derive(Clone, Debug, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct AgentPtyContext {
-    id: String,
-    kind: String,
+pub struct PtyContext {
+    session_id: String,
+    session_name: String,
+    session_kind: String,
+    project: Option<String>,
+    window_id: Option<String>,
+    pane_id: Option<String>,
+    agent_id: Option<String>,
+    agent_type: Option<String>,
+}
+
+const OPTIONAL_PTY_ENV: &[&str] = &[
+    "SIKEMUX_SHELL",
+    "SIKEMUX_SESSION_ID",
+    "SIKEMUX_SESSION_NAME",
+    "SIKEMUX_SESSION_KIND",
+    "SIKEMUX_PROJECT",
+    "SIKEMUX_WINDOW_ID",
+    "SIKEMUX_PANE_ID",
+    "SIKEMUX_AGENT_ID",
+    "SIKEMUX_AGENT_TYPE",
+    "SIKEMUX_BIN_PATH",
+    "SIKEMUX_CLI_ENDPOINT",
+    "CODEX_THREAD_ID",
+];
+
+fn non_empty(value: &Option<String>) -> Option<&str> {
+    value.as_deref().filter(|value| !value.is_empty())
+}
+
+fn editor_command(path: &Path) -> String {
+    let raw = path.to_string_lossy();
+    let shell_safe = raw.bytes().all(|byte| {
+        byte.is_ascii_alphanumeric() || matches!(byte, b'/' | b'\\' | b':' | b'.' | b'_' | b'-')
+    });
+    if shell_safe {
+        return raw.into_owned();
+    }
+    #[cfg(windows)]
+    {
+        format!("\"{}\"", raw.replace('"', "\\\""))
+    }
+    #[cfg(not(windows))]
+    {
+        format!("'{}'", raw.replace('\'', "'\\''"))
+    }
+}
+
+/// Apply a clean, typed Sikemux identity to a PTY command. Optional fields are
+/// removed before being rebuilt so a terminal can never inherit the identity
+/// of the app's parent terminal (or a Codex thread that launched the app).
+fn configure_pty_environment(
+    cmd: &mut CommandBuilder,
+    context: Option<&PtyContext>,
+    version: &str,
+    cli_executable: Option<&Path>,
+    cli_endpoint: Option<&Path>,
+) {
+    for key in OPTIONAL_PTY_ENV {
+        cmd.env_remove(key);
+    }
+
+    cmd.env("TERM", "xterm-256color");
+    cmd.env("COLORTERM", "truecolor");
+    cmd.env("TERM_PROGRAM", "Sikemux");
+    cmd.env("TERM_PROGRAM_VERSION", version);
+    cmd.env("SIKEMUX", "1");
+    cmd.env("SIKEMUX_VERSION", version);
+
+    if let Some(context) = context {
+        cmd.env("SIKEMUX_SESSION_ID", &context.session_id);
+        cmd.env("SIKEMUX_SESSION_NAME", &context.session_name);
+        cmd.env("SIKEMUX_SESSION_KIND", &context.session_kind);
+        if let Some(project) = non_empty(&context.project) {
+            cmd.env("SIKEMUX_PROJECT", project);
+        }
+        if let Some(window_id) = non_empty(&context.window_id) {
+            cmd.env("SIKEMUX_WINDOW_ID", window_id);
+        }
+        if let Some(pane_id) = non_empty(&context.pane_id) {
+            cmd.env("SIKEMUX_PANE_ID", pane_id);
+        }
+        if let Some(agent_id) = non_empty(&context.agent_id) {
+            cmd.env("SIKEMUX_AGENT_ID", agent_id);
+        }
+        if let Some(agent_type) = non_empty(&context.agent_type) {
+            cmd.env("SIKEMUX_AGENT_TYPE", agent_type);
+        }
+    }
+
+    if let Some(path) = cli_executable {
+        cmd.env("SIKEMUX_BIN_PATH", path);
+        if cmd.get_env("EDITOR").is_none() && cmd.get_env("VISUAL").is_none() {
+            let editor = editor_command(path);
+            cmd.env("EDITOR", &editor);
+            cmd.env("VISUAL", &editor);
+        }
+    }
+    if let Some(path) = cli_endpoint {
+        cmd.env("SIKEMUX_CLI_ENDPOINT", path);
+    }
 }
 
 #[tauri::command]
@@ -934,7 +1033,7 @@ pub async fn pty_spawn(
     rows: u16,
     cwd: Option<String>,
     startup: Option<String>,
-    agent: Option<AgentPtyContext>,
+    context: Option<PtyContext>,
 ) -> AppResult<u32> {
     ensure_sweeper(app.clone());
     // Has to be `async fn` so the body runs inside Tauri's tokio
@@ -949,7 +1048,15 @@ pub async fn pty_spawn(
     #[cfg(windows)]
     let shell = std::env::var("SIKEMUX_SHELL").unwrap_or_else(|_| "powershell.exe".into());
     let mut cmd = CommandBuilder::new(&shell);
-    cmd.env("TERM", "xterm-256color");
+    let cli_executable = crate::cli_server::cli_executable_path();
+    let cli_endpoint = crate::cli_server::cli_endpoint_path();
+    configure_pty_environment(
+        &mut cmd,
+        context.as_ref(),
+        &app.package_info().version.to_string(),
+        cli_executable.as_deref(),
+        cli_endpoint.as_deref(),
+    );
     #[cfg(windows)]
     cmd.args(["-NoLogo"]);
     let cwd = cwd.unwrap_or_else(|| crate::system::user_home().to_string_lossy().into_owned());
@@ -1022,11 +1129,12 @@ pub async fn pty_spawn(
     let writer = pair.master.take_writer().map_err(pty_err)?;
     let id = NEXT_PTY_ID.fetch_add(1, Ordering::Relaxed);
 
-    let parsed_agent_kind = agent
+    let parsed_agent_kind = context
         .as_ref()
-        .and_then(|context| AgentKind::from_label(&context.kind));
-    let activity_key = agent
-        .map(|context| context.id)
+        .and_then(|context| context.agent_type.as_deref())
+        .and_then(AgentKind::from_label);
+    let activity_key = context
+        .and_then(|context| context.agent_id)
         .filter(|key| !key.is_empty());
     let pty = Arc::new(Pty {
         app: app.clone(),
@@ -1459,10 +1567,160 @@ mod tests {
     #[cfg(unix)]
     use super::startup_bootstrap;
     use super::{
-        attach_snapshot, compact_parser_for_idle, event_fingerprint, reseed_parser,
-        semantic_fingerprint, semantic_parser, submits_line, AttachResult, IDLE_SCROLLBACK,
-        PARSER_SCROLLBACK, RESET_MODES,
+        attach_snapshot, compact_parser_for_idle, configure_pty_environment, event_fingerprint,
+        reseed_parser, semantic_fingerprint, semantic_parser, submits_line, AttachResult,
+        PtyContext, IDLE_SCROLLBACK, PARSER_SCROLLBACK, RESET_MODES,
     };
+    use portable_pty::CommandBuilder;
+    use std::path::Path;
+
+    fn env(command: &CommandBuilder, key: &str) -> Option<String> {
+        command
+            .get_env(key)
+            .map(|value| value.to_string_lossy().into_owned())
+    }
+
+    #[test]
+    fn pty_environment_has_terminal_and_typed_sikemux_identity() {
+        let mut command = CommandBuilder::new("shell");
+        command.env("SIKEMUX_AGENT_ID", "stale-agent");
+        command.env("CODEX_THREAD_ID", "parent-thread");
+        command.env_remove("EDITOR");
+        command.env_remove("VISUAL");
+        let context = PtyContext {
+            session_id: "session-1".into(),
+            session_name: "repo".into(),
+            session_kind: "project".into(),
+            project: Some("/repo".into()),
+            window_id: Some("window-1".into()),
+            pane_id: Some("pane-1".into()),
+            agent_id: None,
+            agent_type: None,
+        };
+
+        configure_pty_environment(
+            &mut command,
+            Some(&context),
+            "1.2.3",
+            Some(Path::new("/app/sikemux-editor")),
+            Some(Path::new("/runtime/cli.json")),
+        );
+
+        assert_eq!(env(&command, "TERM"), Some("xterm-256color".into()));
+        assert_eq!(env(&command, "COLORTERM"), Some("truecolor".into()));
+        assert_eq!(env(&command, "TERM_PROGRAM"), Some("Sikemux".into()));
+        assert_eq!(env(&command, "TERM_PROGRAM_VERSION"), Some("1.2.3".into()));
+        assert_eq!(env(&command, "SIKEMUX"), Some("1".into()));
+        assert_eq!(env(&command, "SIKEMUX_VERSION"), Some("1.2.3".into()));
+        assert_eq!(
+            env(&command, "SIKEMUX_SESSION_ID"),
+            Some("session-1".into())
+        );
+        assert_eq!(env(&command, "SIKEMUX_SESSION_NAME"), Some("repo".into()));
+        assert_eq!(
+            env(&command, "SIKEMUX_SESSION_KIND"),
+            Some("project".into())
+        );
+        assert_eq!(env(&command, "SIKEMUX_PROJECT"), Some("/repo".into()));
+        assert_eq!(env(&command, "SIKEMUX_WINDOW_ID"), Some("window-1".into()));
+        assert_eq!(env(&command, "SIKEMUX_PANE_ID"), Some("pane-1".into()));
+        assert_eq!(env(&command, "SIKEMUX_AGENT_ID"), None);
+        assert_eq!(env(&command, "CODEX_THREAD_ID"), None);
+        assert_eq!(
+            env(&command, "SIKEMUX_BIN_PATH"),
+            Some("/app/sikemux-editor".into())
+        );
+        assert_eq!(
+            env(&command, "SIKEMUX_CLI_ENDPOINT"),
+            Some("/runtime/cli.json".into())
+        );
+        assert_eq!(env(&command, "EDITOR"), Some("/app/sikemux-editor".into()));
+        assert_eq!(env(&command, "VISUAL"), Some("/app/sikemux-editor".into()));
+    }
+
+    #[test]
+    fn pty_environment_preserves_user_editor_choice_if_either_var_exists() {
+        let mut editor_only = CommandBuilder::new("shell");
+        editor_only.env("EDITOR", "nvim");
+        editor_only.env_remove("VISUAL");
+        configure_pty_environment(
+            &mut editor_only,
+            None,
+            "1.2.3",
+            Some(Path::new("/app/sikemux-editor")),
+            None,
+        );
+        assert_eq!(env(&editor_only, "EDITOR"), Some("nvim".into()));
+        assert_eq!(env(&editor_only, "VISUAL"), None);
+
+        let mut visual_only = CommandBuilder::new("shell");
+        visual_only.env_remove("EDITOR");
+        visual_only.env("VISUAL", "code --wait");
+        configure_pty_environment(
+            &mut visual_only,
+            None,
+            "1.2.3",
+            Some(Path::new("/app/sikemux-editor")),
+            None,
+        );
+        assert_eq!(env(&visual_only, "EDITOR"), None);
+        assert_eq!(env(&visual_only, "VISUAL"), Some("code --wait".into()));
+    }
+
+    #[test]
+    fn pty_environment_quotes_editor_command_paths_with_spaces() {
+        let mut command = CommandBuilder::new("shell");
+        command.env_remove("EDITOR");
+        command.env_remove("VISUAL");
+        configure_pty_environment(
+            &mut command,
+            None,
+            "1.2.3",
+            Some(Path::new(
+                "/Applications/Sikemux Preview.app/Contents/MacOS/sikemux-editor",
+            )),
+            None,
+        );
+
+        assert_eq!(
+            env(&command, "SIKEMUX_BIN_PATH"),
+            Some("/Applications/Sikemux Preview.app/Contents/MacOS/sikemux-editor".into())
+        );
+        #[cfg(not(windows))]
+        assert_eq!(
+            env(&command, "EDITOR"),
+            Some("'/Applications/Sikemux Preview.app/Contents/MacOS/sikemux-editor'".into())
+        );
+        #[cfg(windows)]
+        assert_eq!(
+            env(&command, "EDITOR"),
+            Some("\"/Applications/Sikemux Preview.app/Contents/MacOS/sikemux-editor\"".into())
+        );
+    }
+
+    #[test]
+    fn pty_environment_rebuilds_agent_identity_without_fake_pane_identity() {
+        let mut command = CommandBuilder::new("shell");
+        command.env("SIKEMUX_WINDOW_ID", "parent-window");
+        command.env("SIKEMUX_PANE_ID", "parent-pane");
+        let context = PtyContext {
+            session_id: "session-1".into(),
+            session_name: "repo".into(),
+            session_kind: "project".into(),
+            project: Some("/repo".into()),
+            window_id: None,
+            pane_id: None,
+            agent_id: Some("agent-1".into()),
+            agent_type: Some("codex".into()),
+        };
+
+        configure_pty_environment(&mut command, Some(&context), "1.2.3", None, None);
+
+        assert_eq!(env(&command, "SIKEMUX_AGENT_ID"), Some("agent-1".into()));
+        assert_eq!(env(&command, "SIKEMUX_AGENT_TYPE"), Some("codex".into()));
+        assert_eq!(env(&command, "SIKEMUX_WINDOW_ID"), None);
+        assert_eq!(env(&command, "SIKEMUX_PANE_ID"), None);
+    }
 
     #[test]
     fn only_submitted_input_arms_agent_activity() {

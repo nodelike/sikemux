@@ -4,6 +4,7 @@ version = "0.1.31"
 description = "A GUI terminal multiplexer"
 authors = ["nodelike"]
 edition = "2021"
+default-run = "sikemux"
 
 [lib]
 name = "sikemux_lib"
@@ -18,6 +19,7 @@ tauri-plugin-dialog = "2"
 tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
 tauri-plugin-notification = "2.3.3"
+tauri-plugin-single-instance = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 base64 = "0.22"
@@ -39,6 +41,7 @@ url = "2"
 tempfile = "3"
 linked-hash-map = "0.5"
 thiserror = "1"
+uuid = { version = "1", features = ["v4"] }
 futures = "0.3"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "process", "time", "sync", "io-util"] }
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "gzip", "stream", "cookies", "multipart"] }

@@ -2,6 +2,10 @@ mod agent_detection;
 mod agents;
 mod aws;
 mod bruno;
+pub mod cli_client;
+mod cli_install;
+mod cli_protocol;
+mod cli_server;
 mod diff;
 mod error;
 mod external;
@@ -23,6 +27,7 @@ mod updates;
 use aws::LogsTailManager;
 use pty::PtyManager;
 use rundeck::{RundeckLogsManager, RundeckWatchManager};
+use tauri::Manager;
 
 pub fn run() {
     system::normalize_user_environment();
@@ -42,6 +47,16 @@ pub fn run() {
     system::fix_path_from_login_shell();
 
     tauri::Builder::default()
+        // Must be the first plugin: subsequent GUI launches focus the primary
+        // process instead of creating a second workspace/CLI broker.
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            use tauri::Manager;
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.show();
+                let _ = window.unminimize();
+                let _ = window.set_focus();
+            }
+        }))
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
@@ -75,6 +90,14 @@ pub fn run() {
             }
         })
         .setup(|_app| {
+            let cli_broker = match cli_server::CliBroker::start(_app.handle().clone()) {
+                Ok(cli_broker) => Some(cli_broker),
+                Err(error) => {
+                    eprintln!("Sikemux CLI integration is unavailable: {error}");
+                    None
+                }
+            };
+            _app.manage(cli_server::CliBrokerState(cli_broker));
             // See-through window — same recipe as nackle (NSWindow opaque=NO,
             // CGS background blur via private API). No NSVisualEffectView
             // because its frosted look is heavier than the gaussian CGS blur
@@ -237,6 +260,13 @@ pub fn run() {
             external::run_background_command,
             transparency::set_window_blur,
             bruno::bru_send,
+            cli_server::cli_frontend_ready,
+            cli_server::cli_claim_open_requests,
+            cli_server::cli_open_result,
+            cli_server::cli_editor_tabs_closed,
+            cli_server::cli_runtime_info,
+            cli_install::cli_install_status,
+            cli_install::cli_install,
         ])
         .build(tauri::generate_context!())
         .expect("error while building sikemux")
@@ -252,6 +282,11 @@ pub fn run() {
             // and restart — and runs before the process is actually replaced.
             if let tauri::RunEvent::Exit = event {
                 use tauri::Manager;
+                if let Some(state) = app_handle.try_state::<cli_server::CliBrokerState>() {
+                    if let Some(broker) = &state.0 {
+                        broker.shutdown();
+                    }
+                }
                 if let Some(mgr) = app_handle.try_state::<PtyManager>() {
                     mgr.drain();
                 }
