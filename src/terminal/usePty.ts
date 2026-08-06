@@ -13,8 +13,9 @@ export function usePty(opts: {
     hostRef: RefObject<HTMLDivElement | null>;
     spawnWhen?: boolean;
     activityKey?: string;
+    agentKind?: import("../state/types").AgentType;
 }): RefObject<Promise<number> | null> {
-    const { cwd, startup, hostRef, spawnWhen = true, activityKey } = opts;
+    const { cwd, startup, hostRef, spawnWhen = true, activityKey, agentKind } = opts;
     const readyRef = useRef<Promise<number> | null>(null);
     const pidRef = useRef<number | null>(null);
     const spawnedRef = useRef(false);
@@ -62,7 +63,7 @@ export function usePty(opts: {
             rows: 24,
             cwd: cwd ?? null,
             startup: startup ?? null,
-            activityKey: activityKey ?? null,
+            agent: activityKey && agentKind ? { id: activityKey, kind: agentKind } : null,
         }).then(
             (id) => {
                 if (disposedRef.current) {

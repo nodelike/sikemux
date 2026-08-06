@@ -1,7 +1,12 @@
 import { useEffect, useRef, useState } from "react";
+import type { ISearchResultChangeEvent } from "@xterm/addon-search";
 import "@xterm/xterm/css/xterm.css";
+import "./terminal.css";
 import { usePty } from "./usePty";
 import { useXterm } from "./useXterm";
+import type { TerminalSearchOptions } from "./interactions";
+import { TerminalFindBar } from "./TerminalFindBar";
+import { TerminalContextMenu } from "./TerminalContextMenu";
 
 const SWITCH_KEEPALIVE_MS = 30_000;
 const MAX_HIDDEN_RENDERERS = 4;
@@ -22,6 +27,8 @@ export function TerminalPane({
     visible = active,
     spawnWhen = visible,
     activityKey,
+    agentKind,
+    onTitleChange,
 }: {
     cwd?: string;
     startup?: string;
@@ -29,11 +36,18 @@ export function TerminalPane({
     visible?: boolean;
     spawnWhen?: boolean;
     activityKey?: string;
+    agentKind?: import("../state/types").AgentType;
+    onTitleChange?: (title: string) => void;
 }) {
     const [shouldMount, setShouldMount] = useState(visible);
+    const [findOpen, setFindOpen] = useState(false);
+    const [findQuery, setFindQuery] = useState("");
+    const [findOptions, setFindOptions] = useState<TerminalSearchOptions>({ caseSensitive: false, regex: false, wholeWord: false });
+    const [findResult, setFindResult] = useState<ISearchResultChangeEvent>({ resultIndex: -1, resultCount: 0 });
+    const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
     const hostRef = useRef<HTMLDivElement>(null);
     const rendererTokenRef = useRef(Symbol("terminal-renderer"));
-    const ptyReady = usePty({ cwd, startup, hostRef, spawnWhen, activityKey });
+    const ptyReady = usePty({ cwd, startup, hostRef, spawnWhen, activityKey, agentKind });
 
     useEffect(() => {
         const token = rendererTokenRef.current;
@@ -57,7 +71,60 @@ export function TerminalPane({
         };
     }, [visible, shouldMount]);
 
-    useXterm({ hostRef, ptyReady, shouldMount, active, visible });
+    const controller = useXterm({
+        hostRef,
+        ptyReady,
+        shouldMount,
+        active,
+        visible,
+        onFindRequest: (seed) => {
+            if (seed) setFindQuery(seed);
+            setMenu(null);
+            setFindOpen(true);
+        },
+        onSearchResults: setFindResult,
+        onTitleChange,
+    });
 
-    return <div ref={hostRef} className="terminal-host" />;
+    useEffect(() => {
+        if (visible) return;
+        setFindOpen(false);
+        setMenu(null);
+        controller.clearSearch();
+    }, [visible, controller]);
+
+    const closeFind = () => {
+        setFindOpen(false);
+        controller.clearSearch();
+        window.requestAnimationFrame(() => controller.focus());
+    };
+
+    const openFind = (seed: string) => {
+        if (seed) setFindQuery(seed);
+        setMenu(null);
+        setFindOpen(true);
+    };
+
+    return (
+        <div
+            className="terminal-shell"
+            onContextMenu={(event) => {
+                event.preventDefault();
+                setMenu({ x: event.clientX, y: event.clientY });
+            }}>
+            <div ref={hostRef} className="terminal-host" />
+            {findOpen && (
+                <TerminalFindBar
+                    controller={controller}
+                    query={findQuery}
+                    onQueryChange={setFindQuery}
+                    options={findOptions}
+                    onOptionsChange={setFindOptions}
+                    result={findResult}
+                    onClose={closeFind}
+                />
+            )}
+            {menu && <TerminalContextMenu x={menu.x} y={menu.y} controller={controller} onFind={openFind} onClose={() => setMenu(null)} />}
+        </div>
+    );
 }

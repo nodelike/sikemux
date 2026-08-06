@@ -1,7 +1,9 @@
 import { useEffect, useRef, type RefObject } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
+import { SearchAddon, type ISearchOptions, type ISearchResultChangeEvent } from "@xterm/addon-search";
 import { SerializeAddon } from "@xterm/addon-serialize";
+import { WebLinksAddon } from "@xterm/addon-web-links";
 import type { WebglAddon } from "@xterm/addon-webgl";
 import { Channel, invoke } from "@tauri-apps/api/core";
 import { currentTheme, registerTerminal } from "../themes/bus";
@@ -17,6 +19,7 @@ import {
 import { alternateScreenWheelFallbackSequence } from "./wheelNavigation";
 import { needsTerminalRedraw } from "./redraw";
 import { terminalWebglRequested, type TerminalRenderer } from "./renderer";
+import { isTerminalFindShortcut, safeWebUrl, sanitizeTerminalTitle, terminalBufferText, type TerminalSearchOptions } from "./interactions";
 
 const FONT = '"JetBrainsMono NF", "JetBrainsMono Nerd Font", monospace';
 const FONT_WEIGHT = 500;
@@ -41,15 +44,103 @@ interface AttachResult {
     alternateScreen: boolean;
 }
 
+export interface TerminalController {
+    find(query: string, direction: "next" | "previous", options: TerminalSearchOptions, incremental?: boolean): boolean;
+    clearSearch(): void;
+    getSelection(): string;
+    copySelection(): Promise<boolean>;
+    pasteClipboard(): Promise<boolean>;
+    selectAll(): void;
+    copyScrollback(): Promise<boolean>;
+    clear(): void;
+    focus(): void;
+}
+
+interface TerminalTarget {
+    term: Terminal;
+    search: SearchAddon;
+}
+
+const SEARCH_DECORATIONS: NonNullable<ISearchOptions["decorations"]> = {
+    matchBackground: "#433866",
+    matchOverviewRuler: "#7660a8",
+    activeMatchBackground: "#a277ff",
+    activeMatchColorOverviewRuler: "#a277ff",
+};
+
 export function useXterm(opts: {
     hostRef: RefObject<HTMLDivElement | null>;
     ptyReady: RefObject<Promise<number> | null>;
     shouldMount: boolean;
     active: boolean;
     visible: boolean;
-}): void {
+    onFindRequest?: (seed: string) => void;
+    onSearchResults?: (result: ISearchResultChangeEvent) => void;
+    onTitleChange?: (title: string) => void;
+}): TerminalController {
     const { hostRef, ptyReady, shouldMount, active, visible } = opts;
+    const onFindRequestRef = useRef(opts.onFindRequest);
+    onFindRequestRef.current = opts.onFindRequest;
+    const onSearchResultsRef = useRef(opts.onSearchResults);
+    onSearchResultsRef.current = opts.onSearchResults;
+    const onTitleChangeRef = useRef(opts.onTitleChange);
+    onTitleChangeRef.current = opts.onTitleChange;
     const termRef = useRef<Terminal | null>(null);
+    const targetRef = useRef<TerminalTarget | null>(null);
+    const controllerRef = useRef<TerminalController | null>(null);
+    if (!controllerRef.current) {
+        controllerRef.current = {
+            find: (query, direction, options, incremental = false) => {
+                const target = targetRef.current;
+                if (!target || !query) {
+                    target?.search.clearDecorations();
+                    onSearchResultsRef.current?.({ resultIndex: -1, resultCount: 0 });
+                    return false;
+                }
+                const searchOptions: ISearchOptions = { ...options, incremental, decorations: SEARCH_DECORATIONS };
+                try {
+                    return direction === "next" ? target.search.findNext(query, searchOptions) : target.search.findPrevious(query, searchOptions);
+                } catch {
+                    onSearchResultsRef.current?.({ resultIndex: -1, resultCount: 0 });
+                    return false;
+                }
+            },
+            clearSearch: () => {
+                targetRef.current?.search.clearDecorations();
+                onSearchResultsRef.current?.({ resultIndex: -1, resultCount: 0 });
+            },
+            getSelection: () => targetRef.current?.term.getSelection() ?? "",
+            copySelection: async () => {
+                const selection = targetRef.current?.term.getSelection() ?? "";
+                if (!selection) return false;
+                await navigator.clipboard.writeText(selection);
+                return true;
+            },
+            pasteClipboard: async () => {
+                const target = targetRef.current;
+                if (!target) return false;
+                const text = await navigator.clipboard.readText();
+                if (!text) return false;
+                target.term.paste(text);
+                return true;
+            },
+            selectAll: () => targetRef.current?.term.selectAll(),
+            copyScrollback: async () => {
+                const target = targetRef.current;
+                if (!target) return false;
+                const text = terminalBufferText(target.term.buffer.active);
+                if (!text) return false;
+                await navigator.clipboard.writeText(text);
+                return true;
+            },
+            clear: () => {
+                targetRef.current?.search.clearDecorations();
+                targetRef.current?.term.clear();
+                onSearchResultsRef.current?.({ resultIndex: -1, resultCount: 0 });
+            },
+            focus: () => targetRef.current?.term.focus(),
+        };
+    }
     const bootingRef = useRef(false);
     const activeRef = useRef(active);
     activeRef.current = active;
@@ -96,10 +187,28 @@ export function useXterm(opts: {
             });
             const unregisterTheme = registerTerminal(term);
             const fit = new FitAddon();
+            const search = new SearchAddon();
             const serializer = new SerializeAddon();
+            const webLinks = new WebLinksAddon((event, uri) => {
+                event.preventDefault();
+                const url = safeWebUrl(uri);
+                if (!url) return;
+                void invoke("open_url", { url, app: null, shortcut: null }).catch((error) => console.warn("open terminal link failed", error));
+            });
             term.loadAddon(fit);
+            term.loadAddon(search);
             term.loadAddon(serializer);
+            term.loadAddon(webLinks);
             term.open(host);
+            targetRef.current = { term, search };
+            const searchResultsSub = search.onDidChangeResults((result) => onSearchResultsRef.current?.(result));
+            let lastTitle: string | null = null;
+            const titleSub = term.onTitleChange((raw) => {
+                const title = sanitizeTerminalTitle(raw);
+                if (!title || title === lastTitle) return;
+                lastTitle = title;
+                onTitleChangeRef.current?.(title);
+            });
             let renderer: TerminalRenderer = "dom";
             let webgl: WebglAddon | null = null;
             let contextLossSub: { dispose(): void } | null = null;
@@ -195,6 +304,8 @@ export function useXterm(opts: {
                 finalized = true;
                 contextLossSub?.dispose();
                 contextLossSub = null;
+                searchResultsSub.dispose();
+                titleSub.dispose();
                 try {
                     serializedNormalRef.current = serializeNormalBuffer(serializer, pid, SCROLLBACK);
                 } catch (error) {
@@ -269,6 +380,7 @@ export function useXterm(opts: {
             if (disposed) {
                 void invoke("pty_unsubscribe", { id: pid, subId });
                 unregisterTheme();
+                if (targetRef.current?.term === term) targetRef.current = null;
                 term.dispose();
                 bootingRef.current = false;
                 return;
@@ -301,6 +413,12 @@ export function useXterm(opts: {
 
             term.attachCustomKeyEventHandler((e) => {
                 if (e.type !== "keydown") return true;
+                if (isTerminalFindShortcut(e, IS_MACOS)) {
+                    onFindRequestRef.current?.(term.getSelection());
+                    e.preventDefault();
+                    e.stopPropagation();
+                    return false;
+                }
                 if (e.code === "KeyR" && e.metaKey && e.altKey && !e.ctrlKey && !e.shiftKey) {
                     void invoke("pty_reset_modes", { id: pid });
                     e.preventDefault();
@@ -376,6 +494,7 @@ export function useXterm(opts: {
                 channel.onmessage = () => {};
                 void invoke("pty_unsubscribe", { id: pid, subId });
                 termRef.current = null;
+                if (targetRef.current?.term === term) targetRef.current = null;
                 if (outputBusy) return;
                 if (outputPending.length > 0) flushOutput();
                 else finalizeCleanup();
@@ -424,4 +543,6 @@ export function useXterm(opts: {
             bootRef.current();
         }
     }, [active, shouldMount]);
+
+    return controllerRef.current!;
 }
