@@ -3,7 +3,7 @@ import type { PointerEvent as ReactPointerEvent, ReactNode, RefObject } from "re
 import type { Agent, Divider, PaneNode, Rect, Session, Window as WindowT } from "../state/types";
 import { collectPanes, computeLayout, findSplit, MIN_FRAC } from "../state/layout";
 import * as cmd from "../state/commands";
-import { AGENT_STATE_META } from "../state/agentStatus";
+import { AgentStateIndicator } from "./AgentStateIndicator";
 import { getState, useStore } from "../state/store";
 import { TerminalPane } from "../terminal/TerminalPane";
 import { GitPane } from "./GitPane";
@@ -334,12 +334,7 @@ const AgentLayer = memo(function AgentLayer({
 
 function AgentActivityMark({ state, unread }: { state?: import("../state/types").AgentPresentationState; unread: boolean }) {
     if (!state || (state === "idle" && !unread)) return null;
-    const meta = AGENT_STATE_META[state];
-    return (
-        <span className={`agent-activity state-${state}${unread ? " unread" : ""}`} title={meta.label} aria-label={meta.label}>
-            {meta.symbol}
-        </span>
-    );
+    return <AgentStateIndicator state={state} unread={unread} />;
 }
 
 const WindowLayer = memo(function WindowLayer({

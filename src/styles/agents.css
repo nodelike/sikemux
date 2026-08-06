@@ -71,16 +71,16 @@
 }
 
 .agent-activity {
-    width: 14px;
-    height: 14px;
+    width: 15px;
+    height: 15px;
     flex: 0 0 auto;
     display: inline-grid;
     place-items: center;
-    border-left: 2px solid currentColor;
-    font:
-        700 10px/1 "JetBrainsMono NF",
-        monospace;
     color: var(--ink-faint);
+}
+.agent-state-icon {
+    display: block;
+    transform-origin: 50% 50%;
 }
 .agent-activity.state-done {
     color: var(--acc);
@@ -97,8 +97,8 @@
 .agent-activity.state-idle {
     color: var(--ink-dim);
 }
-.agent-activity.state-working {
-    animation: agent-activity-spin 0.9s steps(8) infinite;
+.agent-activity.state-working .agent-state-icon {
+    animation: agent-activity-spin 0.82s linear infinite;
 }
 .agent-dormant-label {
     color: var(--ink-faint);
@@ -498,7 +498,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-    .agent-activity.working,
+    .agent-activity.state-working .agent-state-icon,
     .proj-pip.is-working::after,
     .yolo-toggle.on::before,
     .yolo-toggle.on .yolo-label,

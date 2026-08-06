@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import { keybindingLabelForAction, type KeybindingActionId } from "../keybindings";
 import type { Session, SessionKind, Window, WindowRole } from "../state/types";
 import * as cmd from "../state/commands";
-import { AGENT_STATE_META, rollupAgentStates } from "../state/agentStatus";
+import { rollupAgentStates } from "../state/agentStatus";
 import { useStore } from "../state/store";
 import { useResourceEnabled } from "../state/resources";
 import { gitStatusR } from "../state/resources.defs";
@@ -22,6 +22,7 @@ import {
 } from "./Icons";
 import { Kbd } from "./Kbd";
 import { UpdateChip, VersionChip } from "./TopBar";
+import { AgentStateIndicator } from "./AgentStateIndicator";
 
 function kindIcon(kind: SessionKind): ReactNode {
     if (kind === "project") return <IconFolder size={13} />;
@@ -97,14 +98,7 @@ export function SideRail() {
                             {overflow > 0 && <span className="proj-child-icons-more">+{overflow}</span>}
                         </span>
                     )}
-                    {rollup && (
-                        <span
-                            className={`agent-activity state-${rollup}`}
-                            title={AGENT_STATE_META[rollup].label}
-                            aria-label={AGENT_STATE_META[rollup].label}>
-                            {AGENT_STATE_META[rollup].symbol}
-                        </span>
-                    )}
+                    {rollup && <AgentStateIndicator state={rollup} />}
                     <span
                         className="sess-close"
                         title="Close session"
@@ -231,14 +225,7 @@ export function SideRail() {
                                         {overflow > 0 && <span className="proj-child-icons-more">+{overflow}</span>}
                                     </span>
                                 )}
-                                {c.role === "agents" && rollup && (
-                                    <span
-                                        className={`agent-activity state-${rollup}`}
-                                        title={AGENT_STATE_META[rollup].label}
-                                        aria-label={AGENT_STATE_META[rollup].label}>
-                                        {AGENT_STATE_META[rollup].symbol}
-                                    </span>
-                                )}
+                                {c.role === "agents" && rollup && <AgentStateIndicator state={rollup} />}
                                 {c.kbd && <span className="proj-child-kbd">{c.kbd}</span>}
                             </button>
                         );

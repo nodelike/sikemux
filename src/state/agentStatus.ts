@@ -50,10 +50,10 @@ export function rollupAgentStates(values: Array<AgentRuntimeState | undefined>):
     return best;
 }
 
-export const AGENT_STATE_META: Record<AgentPresentationState, { symbol: string; label: string }> = {
-    working: { symbol: "↻", label: "Working" },
-    blocked: { symbol: "!", label: "Needs input" },
-    done: { symbol: "✓", label: "Done — unseen" },
-    idle: { symbol: "○", label: "Idle" },
-    unknown: { symbol: "?", label: "Unknown" },
+export const AGENT_STATE_META: Record<AgentPresentationState, { label: string }> = {
+    working: { label: "Working" },
+    blocked: { label: "Needs input" },
+    done: { label: "Done — unseen" },
+    idle: { label: "Idle" },
+    unknown: { label: "Unknown" },
 };

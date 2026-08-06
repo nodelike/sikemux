@@ -6,7 +6,7 @@ import { agentCatalogR, agentSessionsR } from "../state/resources.defs";
 import { useStore } from "../state/store";
 import { type Agent, type AgentType } from "../state/types";
 import { AgentIcon, IconClose, IconPlus, IconSearch } from "./Icons";
-import { AGENT_STATE_META } from "../state/agentStatus";
+import { AgentStateIndicator } from "./AgentStateIndicator";
 
 const RECENTS_PAGE = 12;
 
@@ -172,12 +172,7 @@ export function AgentRail() {
 }
 
 function AgentStateMark({ state }: { state: import("../state/types").AgentPresentationState }) {
-    const meta = AGENT_STATE_META[state];
-    return (
-        <span className={`agent-activity state-${state}`} title={meta.label} aria-label={meta.label}>
-            {meta.symbol}
-        </span>
-    );
+    return <AgentStateIndicator state={state} />;
 }
 
 function AgentHeader({ agents, type, setType }: { agents: AgentInfo[]; type: AgentType | null; setType: (t: AgentType) => void }) {
