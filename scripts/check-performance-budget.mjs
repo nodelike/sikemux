@@ -42,14 +42,14 @@ const budgets = [
   {
     label: "Diffs lazy chunk",
     pattern: /^diffs-.*\.js$/,
-    raw: 2_400_000,
-    gzip: 590_000,
+    raw: 2_320_000,
+    gzip: 570_000,
   },
   {
     label: "all JavaScript except Diffs",
     pattern: /^(?!diffs-).*\.js$/,
-    raw: 2_750_000,
-    gzip: 860_000,
+    raw: 2_800_000,
+    gzip: 870_000,
   },
   {
     // v0.3.4 adds Markdown preview and edge-peek rails. These ceilings keep

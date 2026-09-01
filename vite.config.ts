@@ -51,15 +51,12 @@ export default defineConfig({
             return "diffs";
           }
           if (!id.includes("node_modules")) return undefined;
+          const packagePath = id.slice(id.lastIndexOf("/node_modules/") + 14);
           if (
             id.includes("@pierre") ||
             id.includes("@shikijs") ||
             id.includes("/shiki@") ||
             id.includes("/diff@") ||
-            id.includes("hast-util") ||
-            id.includes("mdast-util") ||
-            id.includes("micromark-util") ||
-            id.includes("unist-util") ||
             id.includes("oniguruma")
           ) {
             return "diffs";
@@ -77,9 +74,9 @@ export default defineConfig({
           if (id.includes("@xterm/addon-webgl")) return "xterm-webgl";
           if (id.includes("@xterm")) return "xterm";
           if (
-            id.includes("react") ||
-            id.includes("react-dom") ||
-            id.includes("scheduler")
+            packagePath.startsWith("react/") ||
+            packagePath.startsWith("react-dom/") ||
+            packagePath.startsWith("scheduler/")
           ) {
             return "react";
           }
