@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import type { KeyboardEvent as ReactKeyboardEvent, ReactNode } from "react";
 import { invokeCommand as invoke } from "../api/invoke";
 import {
@@ -20,7 +20,17 @@ import { notify, reportError } from "../state/toast";
 import * as cmd from "../state/commands";
 import { useStore } from "../state/store";
 import { cloneTheme, newCustomThemeId, THEME_GROUPS, THEMES, THEMES_BY_ID, type Theme, type ThemeGroupKey } from "../themes";
-import { IconCheck, IconClose, IconFolder, IconPencil, IconPlus, IconRefresh, IconSave, IconTrash } from "./Icons";
+import { IconCheck, IconClose, IconFolder, IconPencil, IconPlus, IconRefresh, IconSave, IconSearch, IconTrash } from "./Icons";
+import {
+    firstMatchingPage,
+    searchSettings,
+    settingsPage,
+    settingsSection,
+    SETTINGS_GROUPS,
+    type SettingsMatches,
+    type SettingsPageId,
+    type SettingsSectionId,
+} from "./settingsCatalog";
 import { Dropdown, type DropdownOption } from "./Dropdown";
 import { Checkbox, Slider, Switch } from "./Controls";
 import { EmptyState } from "./Panel";
@@ -29,18 +39,14 @@ import type { CommandContext, CustomCommand, CustomCommandPlacement } from "../c
 import type { AgentProvider, ProjectRoot, ProviderProfile } from "../state/types";
 import { AGENT_PERMISSION_COPY, AGENT_PERMISSION_MODES } from "../agentLaunch";
 
-type Page = "general" | "appearance" | "keybindings" | "commands" | "agents" | "cli" | "cloud" | "about";
+interface SettingsSearch {
+    query: string;
+    matches: SettingsMatches;
+}
 
-const PAGES: { id: Page; name: string; detail: string }[] = [
-    { id: "general", name: "General", detail: "Projects and discovery" },
-    { id: "appearance", name: "Appearance", detail: "Theme and window" },
-    { id: "keybindings", name: "Keybindings", detail: "Commands and navigation" },
-    { id: "commands", name: "Command deck", detail: "Your contextual actions" },
-    { id: "agents", name: "Agents", detail: "Profiles and launch safety" },
-    { id: "cli", name: "CLI", detail: "Shell and editor integration" },
-    { id: "cloud", name: "Cloud", detail: "Sign-in workspace" },
-    { id: "about", name: "About", detail: "Updates and diagnostics" },
-];
+const SearchContext = createContext<SettingsSearch>({ query: "", matches: searchSettings("", IS_MACOS) });
+
+const useSettingsSearch = () => useContext(SearchContext);
 
 export function SettingsPanel() {
     const projectRoots = useStore((s) => s.projectRoots);
@@ -54,36 +60,126 @@ export function SettingsPanel() {
     const settingsBinding = resolvedKeybinding(keybindingOverrides, "settings.toggle");
     const closeSettingsHint = settingsBinding ? `Esc / ${keybindingLabel(settingsBinding)}` : "Esc";
 
-    const [page, setPage] = useState<Page>("general");
+    const [page, setPage] = useState<SettingsPageId>("general");
+    const [query, setQuery] = useState("");
+    const railRef = useRef<HTMLElement>(null);
+    const searchRef = useRef<HTMLInputElement>(null);
+
+    const matches = useMemo(() => searchSettings(query, IS_MACOS), [query]);
+    const searching = query.trim().length > 0;
+    const groups = useMemo(
+        () =>
+            SETTINGS_GROUPS.map((group) => ({
+                label: group.label,
+                pages: group.pages.filter((candidate) => !searching || (matches.counts[candidate.id] ?? 0) > 0),
+            })).filter((group) => group.pages.length > 0),
+        [matches, searching],
+    );
+    const search = useMemo<SettingsSearch>(() => ({ query, matches }), [query, matches]);
+
+    useEffect(() => {
+        searchRef.current?.focus();
+    }, []);
+
+    useEffect(() => {
+        if (!searching || (matches.counts[page] ?? 0) > 0) return;
+        const next = firstMatchingPage(matches);
+        if (next) setPage(next);
+    }, [matches, page, searching]);
 
     useEffect(() => {
         const onKey = (e: KeyboardEvent) => {
-            if (e.key === "Escape") {
-                e.preventDefault();
-                cmd.closeSettings();
+            if (e.key !== "Escape") return;
+            e.preventDefault();
+            if (query) {
+                setQuery("");
+                searchRef.current?.focus();
+                return;
             }
+            cmd.closeSettings();
         };
         window.addEventListener("keydown", onKey);
         return () => window.removeEventListener("keydown", onKey);
-    }, []);
+    }, [query]);
 
     const pretty = (p: string) => prettyPath(p, home);
+
+    const focusPage = (next: SettingsPageId) => {
+        setPage(next);
+        railRef.current?.querySelector<HTMLButtonElement>(`[data-settings-page="${next}"]`)?.focus();
+    };
+
+    const stepPage = (delta: number) => {
+        const order = groups.flatMap((group) => group.pages);
+        const index = order.findIndex((candidate) => candidate.id === page);
+        const next = order[Math.max(0, Math.min(order.length - 1, index + delta))];
+        if (next && next.id !== page) focusPage(next.id);
+    };
+
+    const onSearchKey = (e: ReactKeyboardEvent<HTMLInputElement>) => {
+        if (e.key !== "ArrowDown" && e.key !== "Enter") return;
+        const first = groups[0]?.pages[0];
+        if (!first) return;
+        e.preventDefault();
+        focusPage(first.id);
+    };
 
     return (
         <div className="settings-pane" role="dialog" aria-modal="true" aria-label="Settings">
             <div className="settings-frame">
                 <aside className="settings-rail">
-                    <nav className="settings-rail-list">
-                        {PAGES.map((p) => (
-                            <button
-                                key={p.id}
-                                className={`settings-rail-item${page === p.id ? " active" : ""}`}
-                                onClick={() => setPage(p.id)}
-                                type="button">
-                                <span className="settings-rail-name">{p.name}</span>
-                                <span className="settings-rail-detail">{p.detail}</span>
+                    <div className="settings-search">
+                        <IconSearch size={12} />
+                        <input
+                            ref={searchRef}
+                            className="settings-search-input"
+                            type="search"
+                            value={query}
+                            placeholder="Search settings"
+                            aria-label="Search settings"
+                            spellCheck={false}
+                            onChange={(e) => setQuery(e.target.value)}
+                            onKeyDown={onSearchKey}
+                        />
+                        {searching && (
+                            <button className="settings-search-clear" type="button" aria-label="Clear search" onClick={() => setQuery("")}>
+                                <IconClose size={10} />
                             </button>
+                        )}
+                    </div>
+
+                    <nav
+                        className="settings-rail-list"
+                        aria-label="Settings sections"
+                        ref={railRef}
+                        onKeyDown={(e) => {
+                            if (e.key === "ArrowDown") {
+                                e.preventDefault();
+                                stepPage(1);
+                            } else if (e.key === "ArrowUp") {
+                                e.preventDefault();
+                                stepPage(-1);
+                            }
+                        }}>
+                        {groups.map((group) => (
+                            <div className="settings-rail-group" key={group.label}>
+                                <span className="settings-rail-group-label">{group.label}</span>
+                                {group.pages.map((candidate) => (
+                                    <button
+                                        key={candidate.id}
+                                        className={`settings-rail-item${page === candidate.id ? " active" : ""}`}
+                                        data-settings-page={candidate.id}
+                                        aria-current={page === candidate.id ? "page" : undefined}
+                                        onClick={() => setPage(candidate.id)}
+                                        type="button">
+                                        <span className="settings-rail-name">{candidate.name}</span>
+                                        <span className="settings-rail-detail">{candidate.detail}</span>
+                                        {searching && <span className="settings-rail-count">{matches.counts[candidate.id]}</span>}
+                                    </button>
+                                ))}
+                            </div>
                         ))}
+                        {groups.length === 0 && <p className="settings-rail-empty">No settings match “{query.trim()}”.</p>}
                     </nav>
 
                     <div className="settings-rail-foot">
@@ -94,8 +190,8 @@ export function SettingsPanel() {
                 <div className="settings-main">
                     <header className="settings-topbar">
                         <div>
-                            <span className="settings-topbar-kicker">Preferences</span>
-                            <span className="settings-topbar-title">Settings</span>
+                            <span className="settings-topbar-kicker">Settings</span>
+                            <h1 className="settings-topbar-title">{settingsPage(page).name}</h1>
                         </div>
                         <button
                             className="settings-topbar-close"
@@ -108,21 +204,37 @@ export function SettingsPanel() {
                     </header>
 
                     <div className="settings-scroll">
-                        {page === "general" && <GeneralPage projectRoots={projectRoots} home={home} pretty={pretty} />}
+                        <SearchContext.Provider value={search}>
+                            {groups.length === 0 ? (
+                                <div className="settings-page">
+                                    <EmptyState
+                                        icon={<IconSearch size={14} />}
+                                        title="Nothing matches that"
+                                        message="Try a shorter word — shortcuts, theme, provider, update."
+                                    />
+                                </div>
+                            ) : (
+                                <>
+                                    {page === "general" && <GeneralPage projectRoots={projectRoots} home={home} pretty={pretty} />}
 
-                        {page === "appearance" && <AppearancePage themeId={themeId} windowOpacity={windowOpacity} windowBlur={windowBlur} />}
+                                    {page === "appearance" && (
+                                        <AppearancePage themeId={themeId} windowOpacity={windowOpacity} windowBlur={windowBlur} />
+                                    )}
 
-                        {page === "keybindings" && <KeybindingsPage overrides={keybindingOverrides} />}
+                                    {page === "keybindings" && <KeybindingsPage overrides={keybindingOverrides} />}
 
-                        {page === "commands" && <CommandsPage />}
+                                    {page === "commands" && <CommandsPage />}
 
-                        {page === "agents" && <AgentsPage />}
+                                    {page === "agents" && <AgentsPage />}
 
-                        {page === "cli" && <CliPage />}
+                                    {page === "cli" && <CliPage />}
 
-                        {page === "cloud" && <CloudPage cloudBrowser={cloudBrowser} cloudBrowserShortcut={cloudBrowserShortcut} />}
+                                    {page === "cloud" && <CloudPage cloudBrowser={cloudBrowser} cloudBrowserShortcut={cloudBrowserShortcut} />}
 
-                        {page === "about" && <AboutPage />}
+                                    {page === "about" && <AboutPage />}
+                                </>
+                            )}
+                        </SearchContext.Provider>
                     </div>
                 </div>
             </div>
@@ -140,17 +252,15 @@ function blankCommand(): CustomCommand {
 function CommandsPage() {
     const commands = useStore((s) => s.customCommands);
     const [draft, setDraft] = useState<CustomCommand>(() => blankCommand());
+    const isSaved = commands.some((item) => item.id === draft.id);
     const save = () => {
         if (!draft.title.trim() || !draft.command.trim()) return;
         cmd.upsertCustomCommand({ ...draft, title: draft.title.trim(), detail: draft.detail.trim() });
         setDraft(blankCommand());
     };
     return (
-        <SettingsPage name="command deck" deck="Trusted shell actions that appear beside every built-in Sikemux command.">
-            <SettingsSection
-                title="Custom actions"
-                meta={`${commands.length} saved`}
-                sub="Commands run with the active session as cwd and receive SIKEMUX_SESSION_* and SIKEMUX_PROJECT environment variables. They are unsandboxed—only add commands you trust.">
+        <SettingsPage page="commands">
+            <SettingsSection id="commands.list" meta={`${commands.length} saved`}>
                 <div className="custom-command-list">
                     {commands.map((item) => (
                         <button key={item.id} type="button" onClick={() => setDraft(item)}>
@@ -167,9 +277,7 @@ function CommandsPage() {
                     )}
                 </div>
             </SettingsSection>
-            <SettingsSection
-                title={commands.some((item) => item.id === draft.id) ? "Edit action" : "New action"}
-                sub="Choose where output should live: a terminal tab, split, temporary popup, background toast, or replacement pane.">
+            <SettingsSection id="commands.editor" meta={isSaved ? "editing" : "new"}>
                 <div className="command-editor-grid">
                     <input
                         className="settings-input"
@@ -216,7 +324,7 @@ function CommandsPage() {
                         <button className="settings-btn" type="button" onClick={() => setDraft(blankCommand())}>
                             new
                         </button>
-                        {commands.some((item) => item.id === draft.id) && (
+                        {isSaved && (
                             <button
                                 className="settings-btn danger"
                                 type="button"
@@ -280,11 +388,8 @@ function AgentsPage() {
     const newProfile = () =>
         setDraft({ id: `profile-${Date.now().toString(36)}`, name: "", provider: "claude", accent: "#d97757", environmentKeys: [] });
     return (
-        <SettingsPage name="agents" deck="Provider identity, visible safety boundaries, and isolated launch lanes.">
-            <SettingsSection
-                title="Default safety boundary"
-                meta={AGENT_PERMISSION_COPY[defaultPermissionMode].label}
-                sub="Every new launch shows this choice before the provider process starts. Providers without matching CLI controls visibly fall back to their own settings.">
+        <SettingsPage page="agents">
+            <SettingsSection id="agents.safety" meta={AGENT_PERMISSION_COPY[defaultPermissionMode].label}>
                 <div className="agent-mode-settings" role="radiogroup" aria-label="Default agent safety boundary">
                     {AGENT_PERMISSION_MODES.map((mode) => {
                         const copy = AGENT_PERMISSION_COPY[mode];
@@ -303,10 +408,7 @@ function AgentsPage() {
                     })}
                 </div>
             </SettingsSection>
-            <SettingsSection
-                title="Provider profiles"
-                meta={`${profiles.length} configured`}
-                sub="Profiles choose the local provider executable used at launch. Credential values are never saved by Sikemux.">
+            <SettingsSection id="agents.profiles" meta={`${profiles.length} configured`}>
                 <div className="provider-profile-layout">
                     <div className="provider-profile-list">
                         {profiles.map((profile) => (
@@ -417,9 +519,7 @@ function AgentsPage() {
                     })}
                 </div>
             </SettingsSection>
-            <SettingsSection
-                title="Restart behavior"
-                sub="Only confirmed native agent session IDs are saved. Raw startup commands and terminal evidence never touch disk.">
+            <SettingsSection id="agents.restart">
                 <ToggleSetting
                     label="Restore agent tabs"
                     detail="Bring resumable tabs back asleep. They start only when you select them."
@@ -432,7 +532,7 @@ function AgentsPage() {
                     </button>
                 </div>
             </SettingsSection>
-            <SettingsSection title="Rail density" sub="Compact mode fits more sessions while keeping state symbols visible.">
+            <SettingsSection id="agents.density" meta={density}>
                 <Dropdown
                     className="settings-dd"
                     label="rail density"
@@ -496,8 +596,9 @@ function CliPage() {
             : "Install CLI";
 
     return (
-        <SettingsPage name="command line" deck="Open files and projects in the running Sikemux app, with editor-style wait semantics.">
-            <SettingsSection title="Shell integration" meta={stateLabel} sub={status?.message ?? "Checking the packaged command-line integration…"}>
+        <SettingsPage page="cli">
+            <SettingsSection id="cli.integration" meta={stateLabel}>
+                <p className="settings-field-help">{status?.message ?? "Checking the packaged command-line integration…"}</p>
                 <div className="cli-integration">
                     <div className="cli-integration-paths">
                         <span>
@@ -532,7 +633,7 @@ function CliPage() {
                     </p>
                 )}
             </SettingsSection>
-            <SettingsSection title="Usage" sub="Existing files open in an editor tab. Project directories focus or create their workspace.">
+            <SettingsSection id="cli.usage">
                 <pre className="cli-usage">{`sikemux .\nsikemux src/App.tsx:42:5\nsikemux open --wait README.md\nEDITOR=sikemux-editor git commit`}</pre>
             </SettingsSection>
         </SettingsPage>
@@ -544,11 +645,8 @@ function AboutPage() {
     const lastUpdateCheck = useStore((s) => s.lastUpdateCheck);
     const pendingUpdate = useStore((s) => s.pendingUpdate);
     return (
-        <SettingsPage name="about" deck="Release details, first-run guidance, and redacted runtime health.">
-            <SettingsSection
-                title="Update channel"
-                meta={updateChannel}
-                sub="Stable follows the latest signed release. Preview follows the signed moving preview release.">
+        <SettingsPage page="about">
+            <SettingsSection id="about.channel" meta={updateChannel}>
                 <Dropdown
                     className="settings-dd"
                     label="update channel"
@@ -566,7 +664,7 @@ function AboutPage() {
                 </div>
                 {lastUpdateCheck && <p className="settings-field-help">{updateCheckLabel(lastUpdateCheck)}</p>}
             </SettingsSection>
-            <SettingsSection title="Support deck" sub="These views are also searchable from the command deck.">
+            <SettingsSection id="about.support">
                 <div className="about-actions">
                     <button
                         className="settings-btn"
@@ -594,9 +692,7 @@ function AboutPage() {
                     </button>
                 </div>
             </SettingsSection>
-            <SettingsSection
-                title="Session transfer"
-                sub="Clipboard bundles exclude Bruno secrets, drafts, terminal history, environment values, and all startup commands. Imported agents are dormant.">
+            <SettingsSection id="about.transfer">
                 <div className="about-actions">
                     <button className="settings-btn" onClick={() => void cmd.exportActiveSession().catch(reportError("session export"))}>
                         Copy active session
@@ -620,11 +716,6 @@ function GeneralPage({ projectRoots, home, pretty }: GeneralPageProps) {
     const [draftPath, setDraftPath] = useState("");
     const [draftDepth, setDraftDepth] = useState(1);
     const [draftSelfIndex, setDraftSelfIndex] = useState(false);
-    const inputRef = useRef<HTMLInputElement>(null);
-
-    useEffect(() => {
-        inputRef.current?.focus();
-    }, []);
 
     const resolveDirectory = async (raw: string) => {
         const expanded = await settingsApi.expandPath(raw);
@@ -661,14 +752,10 @@ function GeneralPage({ projectRoots, home, pretty }: GeneralPageProps) {
     };
 
     return (
-        <SettingsPage name="general" deck="Where Sikemux looks for the projects in your session picker.">
-            <SettingsSection
-                title="Project folders"
-                meta={`${projectRoots.length} ${projectRoots.length === 1 ? "folder" : "folders"}`}
-                sub="Each folder is scanned for git repos, as deep as its level allows. Tick “index itself” to also offer the folder as a project in its own right — useful for scratch directories that are not repos.">
+        <SettingsPage page="general">
+            <SettingsSection id="general.roots" meta={`${projectRoots.length} ${projectRoots.length === 1 ? "folder" : "folders"}`}>
                 <div className="settings-add">
                     <input
-                        ref={inputRef}
                         className="settings-input"
                         placeholder="~/proj    or    /Users/me/work"
                         value={draftPath}
@@ -793,14 +880,11 @@ function KeybindingsPage({ overrides }: { overrides: KeybindingOverrides }) {
     };
 
     return (
-        <SettingsPage name="keybindings" deck="Make the workspace move the way your hands already do. Changes apply instantly.">
-            <SettingsSection
-                title="Command map"
-                meta={`${KEYBINDING_ACTIONS.length} commands · ${overrideCount} changed`}
-                sub="Select a shortcut, then press a new combination. Conflicts are blocked so every command stays reachable.">
+        <SettingsPage page="keybindings">
+            <SettingsSection id="keybindings.map" meta={`${KEYBINDING_ACTIONS.length} commands · ${overrideCount} changed`}>
                 <div className="keymap-toolbar">
                     <label className="keymap-search">
-                        <span>filter</span>
+                        <span>filter commands</span>
                         <input
                             value={query}
                             onChange={(event) => setQuery(event.target.value)}
@@ -1031,17 +1115,8 @@ function AppearancePage({ themeId, windowOpacity, windowBlur }: AppearancePagePr
     };
 
     return (
-        <SettingsPage
-            name="appearance"
-            deck={
-                IS_MACOS
-                    ? "Theme, window opacity and background blur. Changes apply instantly."
-                    : "Theme and editor appearance. Changes apply instantly."
-            }>
-            <SettingsSection
-                title="Host appearance"
-                meta={themeMode}
-                sub="Follow the operating system with Aura Day and your chosen dark cockpit, or keep one theme fixed.">
+        <SettingsPage page="appearance">
+            <SettingsSection id="appearance.host" meta={themeMode}>
                 <ToggleSetting
                     label="Follow system light/dark"
                     detail="Switches immediately when the host appearance changes."
@@ -1071,10 +1146,7 @@ function AppearancePage({ themeId, windowOpacity, windowBlur }: AppearancePagePr
                     </label>
                 </div>
             </SettingsSection>
-            <SettingsSection
-                title="Theme"
-                meta={`${THEMES.length} built-in · ${customThemes.length} custom`}
-                sub="Applies instantly to chrome, editor and terminal — no reload. Hover a swatch to customize or delete.">
+            <SettingsSection id="appearance.theme" meta={`${THEMES.length} built-in · ${customThemes.length} custom`}>
                 <div className="settings-theme-grid">{THEMES.map((th) => renderCard(th, false))}</div>
 
                 {customThemes.length > 0 && (
@@ -1115,7 +1187,7 @@ function AppearancePage({ themeId, windowOpacity, windowBlur }: AppearancePagePr
             )}
 
             {IS_MACOS && (
-                <SettingsSection title="Window feel" sub="Tune the amount of glass without leaving this page.">
+                <SettingsSection id="appearance.window">
                     <div className="settings-control-stack">
                         <div className="settings-control">
                             <div className="settings-control-copy">
@@ -1321,8 +1393,8 @@ interface CloudPageProps {
 
 function CloudPage({ cloudBrowser, cloudBrowserShortcut }: CloudPageProps) {
     return (
-        <SettingsPage name="cloud" deck="Where AWS / GCP single sign-on URLs open, and which workspace to bounce to.">
-            <SettingsSection title="Sign-in browser" meta="aws · gcp · sso" sub="Where the SSO URL lands. Pick the app you actually log in with.">
+        <SettingsPage page="cloud">
+            <SettingsSection id="cloud.browser" meta="aws · gcp · sso">
                 <label className="settings-field-label">browser app</label>
                 <input
                     className="settings-input wide"
@@ -1334,10 +1406,7 @@ function CloudPage({ cloudBrowser, cloudBrowserShortcut }: CloudPageProps) {
                 <div className="settings-field-help">must match a running app's name · trailing .app is fine</div>
             </SettingsSection>
 
-            <SettingsSection
-                title="Workspace switch"
-                meta="optional"
-                sub="Fired right after the link opens — point it at the desktop where the browser lives.">
+            <SettingsSection id="cloud.workspace" meta="optional">
                 <label className="settings-field-label">workspace shortcut</label>
                 <input
                     className="settings-input wide"
@@ -1354,26 +1423,31 @@ function CloudPage({ cloudBrowser, cloudBrowserShortcut }: CloudPageProps) {
     );
 }
 
-function SettingsPage({ name, deck, children }: { name: string; deck: ReactNode; children: ReactNode }) {
+function SettingsPage({ page, children }: { page: SettingsPageId; children: ReactNode }) {
+    const { query } = useSettingsSearch();
     return (
         <div className="settings-page">
-            <header className="settings-page-head">
-                <h1 className="settings-page-hd">{name}</h1>
-                <p className="settings-page-deck">{deck}</p>
-            </header>
+            {!query && (
+                <header className="settings-page-head">
+                    <p className="settings-page-deck">{settingsPage(page).deck}</p>
+                </header>
+            )}
             {children}
         </div>
     );
 }
 
-function SettingsSection({ title, meta, sub, children }: { title: ReactNode; meta?: ReactNode; sub?: ReactNode; children: ReactNode }) {
+function SettingsSection({ id, meta, children }: { id: SettingsSectionId; meta?: ReactNode; children: ReactNode }) {
+    const { matches } = useSettingsSearch();
+    const { title, sub } = settingsSection(id);
+    if (!matches.sections.has(id)) return null;
     return (
         <section className="settings-section">
             <div className="settings-section-head">
                 <h2 className="settings-section-title">{title}</h2>
                 {meta && <span className="settings-section-meta">{meta}</span>}
             </div>
-            {sub && <p className="settings-section-sub">{sub}</p>}
+            <p className="settings-section-sub">{sub}</p>
             {children}
         </section>
     );

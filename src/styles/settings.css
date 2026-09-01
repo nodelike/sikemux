@@ -89,6 +89,47 @@
     min-height: 0;
     padding: 18px 12px 12px;
 }
+.settings-search {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    height: 28px;
+    margin-bottom: 14px;
+    padding: 0 8px;
+    border: 1px solid var(--line);
+    background: var(--s-bg);
+    color: var(--ink-muted);
+}
+.settings-search:focus-within {
+    border-color: var(--acc-line);
+    color: var(--ink-dim);
+}
+.settings-search-input {
+    flex: 1 1 auto;
+    min-width: 0;
+    border: 0;
+    outline: none;
+    background: transparent;
+    color: var(--ink);
+    font: 400 12px/1 var(--ui);
+}
+.settings-search-input::-webkit-search-cancel-button {
+    appearance: none;
+}
+.settings-search-clear {
+    display: grid;
+    place-items: center;
+    width: 16px;
+    height: 16px;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--ink-muted);
+    cursor: pointer;
+}
+.settings-search-clear:hover {
+    color: var(--ink);
+}
 .settings-rail-list {
     display: flex;
     flex-direction: column;
@@ -105,7 +146,29 @@
 .settings-rail-list::-webkit-scrollbar-thumb {
     background: var(--line);
 }
+.settings-rail-group {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+.settings-rail-group + .settings-rail-group {
+    margin-top: 14px;
+}
+.settings-rail-group-label {
+    padding: 0 11px 3px;
+    color: var(--ink-muted);
+    font: 600 9px/1 var(--mono);
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+}
+.settings-rail-empty {
+    margin: 4px 11px 0;
+    color: var(--ink-muted);
+    font-size: 11px;
+    line-height: 1.5;
+}
 .settings-rail-item {
+    position: relative;
     background: transparent;
     border: 1px solid transparent;
     text-align: left;
@@ -145,6 +208,18 @@
 }
 .settings-rail-item.active .settings-rail-detail {
     color: var(--ink-dim);
+}
+
+.settings-rail-count {
+    position: absolute;
+    top: 9px;
+    right: 9px;
+    min-width: 15px;
+    padding: 0 4px;
+    text-align: center;
+    color: var(--acc);
+    background: color-mix(in srgb, var(--acc-dim) 70%, transparent);
+    font: 600 9px/15px var(--mono);
 }
 
 .settings-rail-foot {
@@ -242,22 +317,14 @@
     }
 }
 .settings-page-head {
-    padding: 30px 32px 22px;
+    padding: 22px 32px 6px;
     border-bottom: 0;
-}
-.settings-page-hd {
-    font-size: 23px;
-    font-weight: 650;
-    letter-spacing: -0.05em;
-    text-transform: capitalize;
-    color: var(--ink);
-    margin: 0;
 }
 .settings-page-deck {
     color: var(--ink-dim);
     font-size: 12px;
     line-height: 1.6;
-    margin: 8px 0 0;
+    margin: 0;
     max-width: 520px;
 }
 
@@ -301,16 +368,6 @@
 }
 
 /* ── inputs / controls ──────────────────────────────── */
-.settings-row-input {
-    display: grid;
-    grid-template-columns: 1fr auto auto auto;
-    gap: 6px;
-    margin-bottom: 10px;
-    align-items: stretch;
-}
-.settings-row-input.compact {
-    grid-template-columns: 1fr auto auto;
-}
 .settings-input {
     background: var(--s-bg-dim);
     border: 1px solid var(--line);
@@ -445,11 +502,6 @@
 }
 .settings-list-row:hover {
     background: var(--hl);
-}
-.settings-list-idx {
-    color: var(--ink-muted);
-    font-size: 10px;
-    font-variant-numeric: tabular-nums;
 }
 .settings-list-path {
     color: var(--ink);
@@ -1147,14 +1199,20 @@
     .settings-rail-foot {
         display: none;
     }
-    .settings-rail-list {
+    .settings-rail-group {
         display: grid;
         grid-template-columns: repeat(3, minmax(0, 1fr));
-        margin-top: 12px;
+    }
+    .settings-rail-group-label {
+        grid-column: 1 / -1;
     }
     .settings-rail-item {
         min-width: 0;
         padding: 8px;
+    }
+    .settings-rail-count {
+        top: 6px;
+        right: 6px;
     }
     .settings-rail-detail {
         display: none;
@@ -1164,7 +1222,7 @@
         padding: 0 18px;
     }
     .settings-page-head {
-        padding: 24px 22px 18px;
+        padding: 18px 18px 4px;
     }
     .settings-section,
     .theme-editor {
@@ -1426,13 +1484,6 @@
     color: var(--ink-faint);
     font-size: 10px;
     line-height: 1.45;
-}
-.quiet-hours {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    margin-top: 12px;
-    color: var(--ink-faint);
 }
 .system-theme-grid {
     display: grid;

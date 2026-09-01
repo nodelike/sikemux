@@ -2,8 +2,10 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { keybindingLabel, resolvedKeybinding } from "../keybindings";
+import { IS_MACOS } from "../lib/platform";
 import { getState, setState } from "../state/store";
 import { SettingsPanel } from "./SettingsPanel";
+import { searchSettings, settingsSection, SETTINGS_PAGES } from "./settingsCatalog";
 
 const initial = getState();
 
@@ -93,5 +95,108 @@ describe("SettingsPanel keybindings", () => {
         await user.click(screen.getByRole("option", { name: /Dracula/i }));
 
         expect(getState()).toMatchObject({ systemLightThemeId: "aura-day", systemDarkThemeId: "dracula" });
+    });
+});
+
+describe("SettingsPanel navigation", () => {
+    const visible = searchSettings("", IS_MACOS);
+
+    it("renders every catalogued section on its own page", async () => {
+        const user = userEvent.setup();
+        render(<SettingsPanel />);
+
+        for (const page of SETTINGS_PAGES) {
+            await user.click(screen.getByRole("button", { name: `${page.name}${page.detail}` }));
+            expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent(page.name);
+            for (const id of visible.sections) {
+                const section = settingsSection(id);
+                if (section.page !== page.id) continue;
+                expect(screen.getByRole("heading", { level: 2, name: section.title })).toBeInTheDocument();
+            }
+        }
+    });
+
+    it("narrows the rail and the page to sections matching the search", async () => {
+        const user = userEvent.setup();
+        render(<SettingsPanel />);
+
+        await user.type(screen.getByRole("searchbox", { name: "Search settings" }), "hotkeys");
+
+        expect(screen.getByRole("heading", { level: 2, name: "Command map" })).toBeInTheDocument();
+        expect(screen.queryByRole("heading", { level: 2, name: "Project folders" })).not.toBeInTheDocument();
+        expect(screen.getByRole("button", { name: /^KeybindingsCommands and navigation1$/ })).toBeInTheDocument();
+        expect(screen.queryByRole("button", { name: /Projects and discovery/ })).not.toBeInTheDocument();
+    });
+
+    it("jumps from the search box into the first matching page", async () => {
+        const user = userEvent.setup();
+        render(<SettingsPanel />);
+
+        const box = screen.getByRole("searchbox", { name: "Search settings" });
+        await user.type(box, "provider{Enter}");
+
+        expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Agents");
+        expect(screen.getByRole("button", { name: /^AgentsProfiles and launch safety2$/ })).toHaveFocus();
+    });
+
+    it("reports a search that matches nothing without losing the box", async () => {
+        const user = userEvent.setup();
+        render(<SettingsPanel />);
+
+        const box = screen.getByRole("searchbox", { name: "Search settings" });
+        await user.type(box, "zzzz");
+
+        expect(screen.getByText("Nothing matches that")).toBeInTheDocument();
+        expect(box).toBeInTheDocument();
+
+        await user.click(screen.getByRole("button", { name: "Clear search" }));
+        expect(box).toHaveValue("");
+        for (const page of SETTINGS_PAGES) {
+            expect(screen.getByRole("button", { name: `${page.name}${page.detail}` })).toBeInTheDocument();
+        }
+    });
+
+    it("flips the action editor between new and editing", async () => {
+        const user = userEvent.setup();
+        setState({
+            customCommands: [{ id: "command-demo", title: "Deploy", detail: "ship it", command: "make deploy", contexts: [], placement: "terminal" }],
+        });
+        render(<SettingsPanel />);
+        await user.click(screen.getByRole("button", { name: "Command deckYour contextual actions" }));
+
+        const head = () => screen.getByRole("heading", { level: 2, name: "Action editor" }).parentElement;
+        expect(head()).toHaveTextContent("new");
+        expect(screen.queryByRole("button", { name: /delete/ })).not.toBeInTheDocument();
+
+        await user.click(screen.getByRole("button", { name: /Deploy/ }));
+
+        expect(head()).toHaveTextContent("editing");
+        expect(screen.getByRole("button", { name: /delete/ })).toBeInTheDocument();
+    });
+
+    it("clears the search on Escape before closing settings", async () => {
+        const user = userEvent.setup();
+        render(<SettingsPanel />);
+
+        await user.type(screen.getByRole("searchbox", { name: "Search settings" }), "theme");
+        fireEvent.keyDown(window, { key: "Escape" });
+
+        expect(screen.getByRole("searchbox", { name: "Search settings" })).toHaveValue("");
+        expect(getState().settingsOpen).toBe(true);
+
+        fireEvent.keyDown(window, { key: "Escape" });
+        expect(getState().settingsOpen).toBe(false);
+    });
+
+    it("walks pages with the arrow keys", async () => {
+        const user = userEvent.setup();
+        render(<SettingsPanel />);
+
+        await user.click(screen.getByRole("button", { name: "GeneralProjects and discovery" }));
+        fireEvent.keyDown(screen.getByRole("navigation", { name: "Settings sections" }), { key: "ArrowDown" });
+        expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Agents");
+
+        fireEvent.keyDown(screen.getByRole("navigation", { name: "Settings sections" }), { key: "ArrowUp" });
+        expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("General");
     });
 });

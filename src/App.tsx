@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { lazy, Suspense, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { invokeCommand as invoke } from "./api/invoke";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -13,7 +13,6 @@ import { AgentPalettePortal as AgentPalette } from "./components/AgentPalettePor
 import { FilePalette } from "./components/FilePalette";
 import { SeshPicker } from "./components/SeshPicker";
 import { SessionSwitcher } from "./components/SessionSwitcher";
-import { SettingsPanel } from "./components/SettingsPanel";
 import { AwsAuthModal } from "./components/aws/AwsAuthModal";
 import { RundeckJobPalette } from "./components/rundeck/RundeckJobPalette";
 import { BrunoRequestPalette } from "./components/bruno/BrunoRequestPalette";
@@ -65,6 +64,8 @@ import {
 } from "./actions/bridge";
 import { projectControllerBridge } from "./projects/controllerBridge";
 import { getIpcTransport, type IpcUnsubscribe } from "./api/transport";
+
+const SettingsPanel = lazy(() => import("./components/SettingsPanel").then((module) => ({ default: module.SettingsPanel })));
 
 interface BootInfo {
     home: string;
@@ -786,7 +787,11 @@ export default function App() {
                 )}
                 <main className={`stage${settingsOpen ? " stage--settings" : ""}`}>
                     <Workspace />
-                    {settingsOpen && <SettingsPanel />}
+                    {settingsOpen && (
+                        <Suspense fallback={null}>
+                            <SettingsPanel />
+                        </Suspense>
+                    )}
                 </main>
                 {rightOpen && activeSessionIsProject && <AgentRail />}
                 {!rightRailOpen && !zen && activeSessionIsProject && (
