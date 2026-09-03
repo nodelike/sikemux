@@ -1,4 +1,4 @@
-.PHONY: dev build run icons format format-check lint test test-coverage tsc rust-fmt rust-clippy rust-test release-check check ci clean
+.PHONY: dev build run icons format format-check lint test test-coverage tsc rust-fmt rust-clippy rust-test release-check check ci clean clean-dev
 
 icons:
 	./scripts/icons.sh
@@ -54,3 +54,6 @@ ci: check
 clean:
 	cd src-tauri && cargo clean
 	rm -rf coverage dist node_modules/.vite
+
+clean-dev:
+	cargo clean --manifest-path src-tauri/Cargo.toml --profile dev

@@ -19,6 +19,8 @@ use crate::error::{AppError, AppResult};
 
 const VIEWPORT_WIDTH: u32 = 1280;
 const VIEWPORT_HEIGHT: u32 = 800;
+const BROWSER_DRAIN_GRACE: Duration = Duration::from_millis(250);
+const BROWSER_PID_FILE_ENV: &str = "SIKEMUX_BROWSER_PID_FILE";
 
 #[derive(Default)]
 pub struct BrowserManager {
@@ -58,6 +60,105 @@ struct CdpClient {
     pending: Arc<Mutex<HashMap<u64, oneshot::Sender<Value>>>>,
     sequence: AtomicU64,
     closed: Arc<AtomicBool>,
+}
+
+fn browser_pid_file() -> Option<PathBuf> {
+    std::env::var_os(BROWSER_PID_FILE_ENV).map(PathBuf::from)
+}
+
+fn record_browser_pid(pid: u32) -> AppResult<()> {
+    let Some(path) = browser_pid_file() else {
+        return Ok(());
+    };
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let temporary = path.with_extension(format!("{pid}.tmp"));
+    std::fs::write(&temporary, format!("{pid}\n"))?;
+    std::fs::rename(temporary, path)?;
+    Ok(())
+}
+
+fn clear_browser_pid(pid: u32) {
+    let Some(path) = browser_pid_file() else {
+        return;
+    };
+    let recorded = std::fs::read_to_string(&path)
+        .ok()
+        .and_then(|value| value.trim().parse::<u32>().ok());
+    if recorded == Some(pid) {
+        let _ = std::fs::remove_file(path);
+    }
+}
+
+#[cfg(unix)]
+fn configure_browser_process_group(command: &mut Command) {
+    use std::os::unix::process::CommandExt;
+    command.process_group(0);
+}
+
+#[cfg(not(unix))]
+fn configure_browser_process_group(_command: &mut Command) {}
+
+#[cfg(unix)]
+fn terminate_browser_process_tree(pid: u32, force: bool) {
+    let signal = if force { libc::SIGKILL } else { libc::SIGTERM };
+    unsafe {
+        libc::kill(-(pid as i32), signal);
+    }
+}
+
+#[cfg(windows)]
+fn terminate_browser_process_tree(pid: u32, force: bool) {
+    let mut command = Command::new("taskkill");
+    let pid = pid.to_string();
+    command.args(["/PID", &pid, "/T"]);
+    if force {
+        command.arg("/F");
+    }
+    let _ = command.status();
+}
+
+fn kill_and_reap_browser_child(child: &mut Child) {
+    let pid = child.id();
+    terminate_browser_process_tree(pid, true);
+    let _ = child.kill();
+    let _ = child.wait();
+    clear_browser_pid(pid);
+}
+
+fn terminate_and_reap_browser_child(child: &mut Child) {
+    let pid = child.id();
+    terminate_browser_process_tree(pid, false);
+    std::thread::sleep(BROWSER_DRAIN_GRACE);
+    terminate_browser_process_tree(pid, true);
+    let _ = child.kill();
+    let _ = child.wait();
+    clear_browser_pid(pid);
+}
+
+struct SpawnedBrowserChild(Option<Child>);
+
+impl SpawnedBrowserChild {
+    fn new(child: Child) -> Self {
+        Self(Some(child))
+    }
+
+    fn id(&self) -> u32 {
+        self.0.as_ref().expect("browser child must exist").id()
+    }
+
+    fn into_inner(mut self) -> Child {
+        self.0.take().expect("browser child must exist")
+    }
+}
+
+impl Drop for SpawnedBrowserChild {
+    fn drop(&mut self) {
+        if let Some(mut child) = self.0.take() {
+            kill_and_reap_browser_child(&mut child);
+        }
+    }
 }
 
 impl CdpClient {
@@ -230,8 +331,7 @@ impl BrowserManager {
         }
         if let Ok(mut child) = self.child.lock() {
             if let Some(mut child) = child.take() {
-                let _ = child.kill();
-                let _ = child.wait();
+                terminate_and_reap_browser_child(&mut child);
             }
         }
         if let Ok(mut runtime) = self.runtime.try_lock() {
@@ -310,8 +410,7 @@ impl BrowserManager {
 
         let stopped_previous = if let Ok(mut current) = self.child.lock() {
             if let Some(mut child) = current.take() {
-                let _ = child.kill();
-                let _ = child.wait();
+                kill_and_reap_browser_child(&mut child);
                 true
             } else {
                 false
@@ -323,7 +422,8 @@ impl BrowserManager {
             tokio::time::sleep(Duration::from_millis(150)).await;
         }
         let executable = browser_executable(app)?;
-        let mut child = Command::new(&executable)
+        let mut command = Command::new(&executable);
+        command
             .args([
                 "--headless=new",
                 "--remote-debugging-address=127.0.0.1",
@@ -340,31 +440,23 @@ impl BrowserManager {
             ])
             .stdin(Stdio::null())
             .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn()
-            .map_err(|error| {
-                AppError::Other(format!("could not start bundled browser: {error}"))
-            })?;
+            .stderr(Stdio::null());
+        configure_browser_process_group(&mut command);
+        let child = command.spawn().map_err(|error| {
+            AppError::Other(format!("could not start bundled browser: {error}"))
+        })?;
+        let child = SpawnedBrowserChild::new(child);
+        record_browser_pid(child.id())?;
 
         let (http_url, websocket_url) = match wait_for_debug_endpoint(&active_port).await {
             Ok(endpoint) => endpoint,
-            Err(error) => {
-                let _ = child.kill();
-                let _ = child.wait();
-                return Err(error);
-            }
+            Err(error) => return Err(error),
         };
         let cdp = match CdpClient::connect(&websocket_url).await {
             Ok(cdp) => cdp,
-            Err(error) => {
-                let _ = child.kill();
-                let _ = child.wait();
-                return Err(error);
-            }
+            Err(error) => return Err(error),
         };
         if self.generation.load(Ordering::Acquire) != generation {
-            let _ = child.kill();
-            let _ = child.wait();
             return Err(AppError::Other("browser startup was canceled".into()));
         }
         std::fs::write(
@@ -373,10 +465,12 @@ impl BrowserManager {
                 &json!({ "cdpUrl": http_url, "webSocketDebuggerUrl": websocket_url }),
             )?,
         )?;
-        *self
+        let mut child_slot = self
             .child
             .lock()
-            .map_err(|_| AppError::Other("browser process lock poisoned".into()))? = Some(child);
+            .map_err(|_| AppError::Other("browser process lock poisoned".into()))?;
+        *child_slot = Some(child.into_inner());
+        drop(child_slot);
         runtime.cdp = Some(cdp);
         runtime.cdp_http_url = Some(http_url);
         runtime.state_dir = Some(state_dir);
@@ -684,6 +778,12 @@ impl BrowserManager {
                 close_errors.join("; ")
             )))
         }
+    }
+}
+
+impl Drop for BrowserManager {
+    fn drop(&mut self) {
+        self.drain();
     }
 }
 
@@ -1729,14 +1829,41 @@ pub async fn browser_key(
 
 #[cfg(test)]
 mod tests {
-    #[cfg(unix)]
-    use super::mirror_agent_home;
     use super::{
         broker_request_authorized, clear_agent_registry, codex_browser_args, initialize_registry,
         normalize_url, opencode_browser_config, owned_target_ids, pointer_params,
         read_active_target, register_target, validate_agent_id, validate_target_id,
         validate_url_input, write_active_target, BrowserMcpLaunch, BrowserPointerInput,
     };
+    #[cfg(unix)]
+    use super::{
+        configure_browser_process_group, mirror_agent_home, terminate_and_reap_browser_child,
+    };
+    #[cfg(unix)]
+    use std::process::{Command, Stdio};
+
+    #[cfg(unix)]
+    #[test]
+    fn browser_cleanup_terminates_its_process_group() {
+        let mut command = Command::new("/bin/sh");
+        command
+            .args(["-c", "trap '' TERM; while :; do sleep 1; done"])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
+        configure_browser_process_group(&mut command);
+        let mut child = command.spawn().unwrap();
+        let pid = child.id();
+
+        terminate_and_reap_browser_child(&mut child);
+
+        assert!(child.try_wait().unwrap().is_some());
+        assert_eq!(unsafe { libc::kill(-(pid as i32), 0) }, -1);
+        assert_eq!(
+            std::io::Error::last_os_error().raw_os_error(),
+            Some(libc::ESRCH)
+        );
+    }
 
     #[test]
     fn normalizes_addresses_and_searches() {
