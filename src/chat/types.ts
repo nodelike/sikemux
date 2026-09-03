@@ -60,7 +60,7 @@ export interface ChatMessage {
 }
 
 export interface ChatState {
-    connection: "connecting" | "initializing" | "ready" | "stopped" | "error";
+    connection: "connecting" | "installing" | "starting" | "initializing" | "ready" | "stopped" | "error";
     messages: ChatMessage[];
     commands: AcpAvailableCommand[];
     permissions: AcpPermissionRequest[];

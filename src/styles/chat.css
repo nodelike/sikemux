@@ -347,10 +347,27 @@
     display: grid;
     min-height: 260px;
     place-items: center;
+    align-content: center;
+    gap: 10px;
     padding: 24px;
     color: var(--ink-faint);
     font-size: 12px;
     text-align: center;
+}
+
+.chat-connection-state button {
+    height: 28px;
+    padding: 0 11px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-control);
+    background: var(--rail-2);
+    color: var(--ink-dim);
+    font-size: 10.5px;
+}
+
+.chat-connection-state button:hover {
+    border-color: var(--acc-line);
+    color: var(--ink);
 }
 
 .chat-error,

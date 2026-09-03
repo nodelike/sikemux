@@ -8,6 +8,7 @@ import { AgentChatPane } from "./AgentChatPane";
 const mocks = vi.hoisted(() => ({
     eventListener: null as ((event: AcpEvent) => void) | null,
     prompt: vi.fn(async () => {}),
+    start: vi.fn(async () => ({ sessionId: "session-1", capabilities: {}, setup: {} })),
 }));
 
 vi.mock("../api/acp", () => ({
@@ -18,7 +19,7 @@ vi.mock("../api/acp", () => ({
                 mocks.eventListener = null;
             };
         }),
-        start: vi.fn(async () => ({ sessionId: "session-1", capabilities: {}, setup: {} })),
+        start: mocks.start,
         stop: vi.fn(async () => {}),
         prompt: mocks.prompt,
         cancel: vi.fn(async () => {}),
@@ -43,12 +44,26 @@ function emit(kind: AcpEvent["kind"], payload: Record<string, unknown>): void {
 
 beforeEach(() => {
     mocks.prompt.mockClear();
+    mocks.start.mockClear();
     mocks.eventListener = null;
 });
 
 afterEach(cleanup);
 
 describe("AgentChatPane", () => {
+    it("shows adapter progress and retries failed startup", async () => {
+        render(<AgentChatPane agent={agent} cwd="/repo" active profile={undefined} onBusyChange={() => {}} />);
+        await waitFor(() => expect(mocks.eventListener).not.toBeNull());
+
+        emit("status", { state: "installing" });
+        expect(screen.getAllByText("Installing structured-session adapter…")[0]).toBeInTheDocument();
+        emit("error", { message: "adapter failed" });
+        const callsBeforeRetry = mocks.start.mock.calls.length;
+        fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+
+        await waitFor(() => expect(mocks.start.mock.calls.length).toBeGreaterThan(callsBeforeRetry));
+    });
+
     it("shows ACP slash commands and inserts the selected command", async () => {
         render(<AgentChatPane agent={agent} cwd="/repo" active profile={undefined} onBusyChange={() => {}} />);
         await waitFor(() => expect(mocks.eventListener).not.toBeNull());

@@ -6,14 +6,16 @@ use agent_client_protocol::schema::v1::{
 };
 use agent_client_protocol::schema::ProtocolVersion;
 use agent_client_protocol::{AcpAgent, AcpAgentConfig, Agent, ConnectionTo, Responder};
+use dashmap::mapref::entry::Entry;
 use serde::Serialize;
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 use tokio::sync::{mpsc, oneshot};
 use url::Url;
 use uuid::Uuid;
@@ -23,8 +25,17 @@ const CODEX_ADAPTER: &str = "@agentclientprotocol/codex-acp@1.8.0";
 const MAX_AGENT_ID: usize = 200;
 const MAX_PROMPT_BYTES: usize = 2 * 1024 * 1024;
 const MAX_ATTACHMENTS: usize = 32;
-const START_TIMEOUT: Duration = Duration::from_secs(45);
+const START_TIMEOUT: Duration = Duration::from_secs(150);
+const INSTALL_TIMEOUT: Duration = Duration::from_secs(120);
+const INSTALL_OUTPUT_LIMIT: usize = 1024 * 1024;
 type ReadySender = Arc<Mutex<Option<oneshot::Sender<Result<AcpStartResponse, String>>>>>;
+
+#[derive(Clone, Copy)]
+struct AdapterSpec {
+    package: &'static str,
+    package_dir: &'static str,
+    executable: &'static str,
+}
 
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -56,19 +67,25 @@ struct PendingPermission {
 
 #[derive(Clone)]
 struct AcpConnectionHandle {
+    generation: Uuid,
     commands: mpsc::UnboundedSender<AcpCommand>,
+    abort: tokio::task::AbortHandle,
+    install_cancellation: crate::bounded_process::ProcessCancellation,
 }
 
 #[derive(Clone, Default)]
 pub struct AcpManager {
     connections: Arc<dashmap::DashMap<String, AcpConnectionHandle>>,
     permissions: Arc<Mutex<HashMap<String, PendingPermission>>>,
+    adapter_install: Arc<tokio::sync::Mutex<()>>,
 }
 
 impl AcpManager {
     pub fn drain(&self) {
         for item in self.connections.iter() {
             let _ = item.commands.send(AcpCommand::Stop);
+            item.install_cancellation.cancel();
+            item.abort.abort();
         }
         self.connections.clear();
         self.cancel_permissions(None);
@@ -119,17 +136,109 @@ fn emit(app: &AppHandle, agent_id: &str, kind: &'static str, payload: Value) {
     );
 }
 
+fn adapter_spec(provider: &str) -> Result<AdapterSpec, String> {
+    match provider {
+        "claude" => Ok(AdapterSpec {
+            package: CLAUDE_ADAPTER,
+            package_dir: "claude-0.73.0",
+            executable: "@agentclientprotocol/claude-agent-acp/dist/index.js",
+        }),
+        "codex" => Ok(AdapterSpec {
+            package: CODEX_ADAPTER,
+            package_dir: "codex-1.8.0",
+            executable: "@agentclientprotocol/codex-acp/dist/index.js",
+        }),
+        _ => Err(format!("{provider} does not have a Sikemux ACP adapter")),
+    }
+}
+
+fn installed_adapter(root: &Path, spec: AdapterSpec) -> PathBuf {
+    root.join("node_modules").join(spec.executable)
+}
+
+fn install_failure(stderr: &[u8]) -> String {
+    let output = String::from_utf8_lossy(stderr);
+    let detail = output
+        .lines()
+        .rev()
+        .find(|line| !line.trim().is_empty())
+        .map(str::trim)
+        .unwrap_or("npm exited without an error message");
+    format!(
+        "ACP adapter install failed: {}",
+        detail.chars().take(512).collect::<String>()
+    )
+}
+
+async fn ensure_adapter(
+    app: &AppHandle,
+    manager: &AcpManager,
+    agent_id: &str,
+    provider: &str,
+    cancellation: crate::bounded_process::ProcessCancellation,
+) -> Result<PathBuf, String> {
+    let spec = adapter_spec(provider)?;
+    let root = app
+        .path()
+        .app_cache_dir()
+        .map_err(|error| format!("ACP adapter cache is unavailable: {error}"))?
+        .join("acp-adapters")
+        .join(spec.package_dir);
+    let executable = installed_adapter(&root, spec);
+    if executable.is_file() {
+        return Ok(executable);
+    }
+
+    emit(app, agent_id, "status", json!({ "state": "installing" }));
+    let _install = manager.adapter_install.lock().await;
+    if executable.is_file() {
+        return Ok(executable);
+    }
+
+    let install_root = root.clone();
+    let output = tokio::task::spawn_blocking(move || {
+        std::fs::create_dir_all(&install_root).map_err(|error| error.to_string())?;
+        let mut command = Command::new("npm");
+        command.stdin(Stdio::null());
+        command.args([
+            "install",
+            "--no-save",
+            "--ignore-scripts",
+            "--no-audit",
+            "--no-fund",
+            "--package-lock=false",
+            "--loglevel=error",
+            "--prefix",
+        ]);
+        command.arg(&install_root).arg(spec.package);
+        crate::bounded_process::run(
+            &mut command,
+            None,
+            INSTALL_TIMEOUT,
+            INSTALL_OUTPUT_LIMIT,
+            Some(&cancellation),
+        )
+        .map_err(|error| error.to_string())
+    })
+    .await
+    .map_err(|error| format!("ACP adapter installer stopped: {error}"))??;
+
+    if !output.status.success() {
+        return Err(install_failure(&output.stderr));
+    }
+    if !executable.is_file() {
+        return Err("ACP adapter installed without its executable".into());
+    }
+    Ok(executable)
+}
+
 fn adapter_config(
     provider: &str,
+    executable: &Path,
     config_path: Option<&str>,
     environment_keys: &[String],
 ) -> Result<AcpAgentConfig, String> {
-    let package = match provider {
-        "claude" => CLAUDE_ADAPTER,
-        "codex" => CODEX_ADAPTER,
-        _ => return Err(format!("{provider} does not have a Sikemux ACP adapter")),
-    };
-    let mut config = AcpAgentConfig::new("npx").args(["-y", package]);
+    let mut config = AcpAgentConfig::new("node").arg(executable.to_string_lossy());
     if let Some(path) = config_path {
         bounded_text("config path", path, 4_096)?;
         let path = expand_config_path(path);
@@ -232,10 +341,19 @@ async fn run_connection(
     permission_mode: String,
     config_path: Option<String>,
     environment_keys: Vec<String>,
+    install_cancellation: crate::bounded_process::ProcessCancellation,
     mut commands: mpsc::UnboundedReceiver<AcpCommand>,
     ready: ReadySender,
 ) -> Result<(), String> {
-    let config = adapter_config(&provider, config_path.as_deref(), &environment_keys)?;
+    let executable =
+        ensure_adapter(&app, &manager, &agent_id, &provider, install_cancellation).await?;
+    emit(&app, &agent_id, "status", json!({ "state": "starting" }));
+    let config = adapter_config(
+        &provider,
+        &executable,
+        config_path.as_deref(),
+        &environment_keys,
+    )?;
     let agent = AcpAgent::new(config);
     let event_app = app.clone();
     let event_agent_id = agent_id.clone();
@@ -462,26 +580,24 @@ pub async fn acp_start(
     if !cwd.is_absolute() {
         return Err("ACP working directory must be absolute".into());
     }
-    if manager.connections.contains_key(&agent_id) {
-        return Err("ACP session is already running".into());
-    }
-
     let (commands_tx, commands_rx) = mpsc::unbounded_channel();
     let (ready_tx, ready_rx) = oneshot::channel();
+    let (launch_tx, launch_rx) = oneshot::channel();
     let ready = Arc::new(Mutex::new(Some(ready_tx)));
-    manager.connections.insert(
-        agent_id.clone(),
-        AcpConnectionHandle {
-            commands: commands_tx,
-        },
-    );
+    let generation = Uuid::new_v4();
+    let install_cancellation = crate::bounded_process::ProcessCancellation::new();
 
     let owned_manager = manager.inner().clone();
     let task_manager = owned_manager.clone();
     let task_agent_id = agent_id.clone();
     let task_app = app.clone();
     let task_ready = ready.clone();
-    tauri::async_runtime::spawn(async move {
+    let task_generation = generation;
+    let task_install_cancellation = install_cancellation.clone();
+    let task = tauri::async_runtime::spawn(async move {
+        if launch_rx.await.is_err() {
+            return;
+        }
         let result = run_connection(
             task_app.clone(),
             task_manager.clone(),
@@ -492,6 +608,7 @@ pub async fn acp_start(
             permission_mode,
             config_path,
             environment_keys,
+            task_install_cancellation,
             commands_rx,
             task_ready.clone(),
         )
@@ -516,21 +633,52 @@ pub async fn acp_start(
                 json!({ "state": "stopped" }),
             );
         }
-        task_manager.connections.remove(&task_agent_id);
+        task_manager
+            .connections
+            .remove_if(&task_agent_id, |_, handle| {
+                handle.generation == task_generation
+            });
         task_manager.cancel_permissions(Some(&task_agent_id));
     });
+    let abort = task.inner().abort_handle();
+    match manager.connections.entry(agent_id.clone()) {
+        Entry::Vacant(entry) => {
+            entry.insert(AcpConnectionHandle {
+                generation,
+                commands: commands_tx,
+                abort,
+                install_cancellation,
+            });
+        }
+        Entry::Occupied(_) => {
+            task.abort();
+            return Err("ACP session is already running".into());
+        }
+    }
+    let _ = launch_tx.send(());
 
     match tokio::time::timeout(START_TIMEOUT, ready_rx).await {
         Ok(Ok(result)) => result,
         Ok(Err(_)) => {
-            owned_manager.connections.remove(&agent_id);
+            if let Some((_, connection)) = owned_manager
+                .connections
+                .remove_if(&agent_id, |_, handle| handle.generation == generation)
+            {
+                connection.install_cancellation.cancel();
+                connection.abort.abort();
+            }
             Err("ACP session stopped before initialization completed".into())
         }
         Err(_) => {
-            if let Some((_, connection)) = owned_manager.connections.remove(&agent_id) {
+            if let Some((_, connection)) = owned_manager
+                .connections
+                .remove_if(&agent_id, |_, handle| handle.generation == generation)
+            {
                 let _ = connection.commands.send(AcpCommand::Stop);
+                connection.install_cancellation.cancel();
+                connection.abort.abort();
             }
-            Err("ACP session did not initialize within 45 seconds".into())
+            Err("ACP adapter did not become ready within 150 seconds".into())
         }
     }
 }
@@ -608,10 +756,13 @@ pub fn acp_stop(manager: State<'_, AcpManager>, agent_id: String) -> Result<(), 
         return Ok(());
     };
     manager.cancel_permissions(Some(&agent_id));
-    connection
+    connection.install_cancellation.cancel();
+    let sent = connection
         .commands
         .send(AcpCommand::Stop)
-        .map_err(|_| "ACP session already stopped".into())
+        .map_err(|_| "ACP session already stopped".into());
+    connection.abort.abort();
+    sent
 }
 
 #[cfg(test)]
@@ -620,10 +771,19 @@ mod tests {
 
     #[test]
     fn adapter_commands_are_version_pinned() {
-        let claude = adapter_config("claude", None, &[]).unwrap();
-        let codex = adapter_config("codex", None, &[]).unwrap();
-        assert_eq!(claude.arguments(), &["-y", CLAUDE_ADAPTER]);
-        assert_eq!(codex.arguments(), &["-y", CODEX_ADAPTER]);
+        assert_eq!(adapter_spec("claude").unwrap().package, CLAUDE_ADAPTER);
+        assert_eq!(adapter_spec("codex").unwrap().package, CODEX_ADAPTER);
+    }
+
+    #[test]
+    fn adapter_transport_bypasses_package_manager_stdio() {
+        let executable = Path::new("/tmp/claude-agent-acp/dist/index.js");
+        let config = adapter_config("claude", executable, None, &[]).unwrap();
+        assert_eq!(config.command(), Path::new("node"));
+        assert_eq!(
+            config.arguments(),
+            &[executable.to_string_lossy().to_string()]
+        );
     }
 
     #[test]

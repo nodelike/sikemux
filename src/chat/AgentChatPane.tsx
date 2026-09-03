@@ -56,9 +56,11 @@ function permissionRequest(payload: Record<string, unknown>): AcpPermissionReque
     };
 }
 
-function statusFromEvent(event: AcpEvent): "connecting" | "initializing" | "ready" | "stopped" | "error" {
+function statusFromEvent(event: AcpEvent): "connecting" | "installing" | "starting" | "initializing" | "ready" | "stopped" | "error" {
     const value = event.payload.state;
-    return value === "initializing" || value === "ready" || value === "stopped" || value === "error" ? value : "connecting";
+    return value === "installing" || value === "starting" || value === "initializing" || value === "ready" || value === "stopped" || value === "error"
+        ? value
+        : "connecting";
 }
 
 function mergePaths(current: string[], incoming: readonly string[]): string[] {
@@ -268,6 +270,7 @@ export function AgentChatPane({
     const [composerError, setComposerError] = useState<string | null>(null);
     const [replyingPermission, setReplyingPermission] = useState<string | null>(null);
     const [atBottom, setAtBottom] = useState(true);
+    const [restartKey, setRestartKey] = useState(0);
     const paneRef = useRef<HTMLDivElement>(null);
     const scrollRef = useRef<HTMLDivElement>(null);
     const editorRef = useRef<HTMLTextAreaElement>(null);
@@ -373,7 +376,7 @@ export function AgentChatPane({
             controller.abort();
             void acpApi.stop(agent.id).catch(() => {});
         };
-    }, [active, agent.id, cwd, permissionMode, profile?.configPath, profile?.environmentKeys]);
+    }, [active, agent.id, cwd, permissionMode, profile?.configPath, profile?.environmentKeys, restartKey]);
 
     useEffect(() => {
         if (state.title && state.title !== agent.title) cmd.setAgentTitle(agent.id, state.title);
@@ -445,6 +448,14 @@ export function AgentChatPane({
 
     const permission = permissionCopyForType(agent.type, permissionMode);
     const modelLabel = [agent.model, agent.effort].filter(Boolean).join(" ");
+    const composerPlaceholder =
+        state.connection === "ready"
+            ? "Ask about this project, or type / for commands"
+            : state.connection === "installing"
+              ? "Installing structured-session adapter…"
+              : state.connection === "starting"
+                ? "Starting agent adapter…"
+                : "Connecting to agent session…";
 
     return (
         <div className="agent-chat-pane" ref={paneRef}>
@@ -458,13 +469,26 @@ export function AgentChatPane({
                 }}>
                 {state.messages.length === 0 && (
                     <div className={`chat-connection-state ${state.connection}`} role="status">
-                        {state.connection === "ready"
-                            ? "Start a session with this project."
-                            : state.connection === "error"
-                              ? "Structured session unavailable. Switch to TUI or retry."
-                              : state.connection === "stopped"
-                                ? "Agent session stopped. Switch to TUI or reopen Session."
-                                : "Connecting to agent session…"}
+                        <span>
+                            {state.connection === "ready"
+                                ? "Start a session with this project."
+                                : state.connection === "installing"
+                                  ? "Installing structured-session adapter…"
+                                  : state.connection === "starting"
+                                    ? "Starting agent adapter…"
+                                    : state.connection === "initializing"
+                                      ? "Connecting to agent session…"
+                                      : state.connection === "error"
+                                        ? "Structured session unavailable."
+                                        : state.connection === "stopped"
+                                          ? "Agent session stopped."
+                                          : "Preparing agent session…"}
+                        </span>
+                        {(state.connection === "error" || state.connection === "stopped") && (
+                            <button type="button" onClick={() => setRestartKey((value) => value + 1)}>
+                                Retry
+                            </button>
+                        )}
                     </div>
                 )}
                 <div className="chat-virtual-space" style={{ height: `${virtualizer.getTotalSize()}px` }}>
@@ -541,7 +565,7 @@ export function AgentChatPane({
                         value={draft}
                         disabled={state.connection !== "ready"}
                         aria-label="Message agent"
-                        placeholder={state.connection === "ready" ? "Ask about this project, or type / for commands" : "Connecting to agent session…"}
+                        placeholder={composerPlaceholder}
                         rows={3}
                         onChange={(event) => {
                             setDraft(event.target.value);
