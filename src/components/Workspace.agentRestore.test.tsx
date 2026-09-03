@@ -1,9 +1,20 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ComponentProps } from "react";
 import type { TerminalPane } from "../terminal/TerminalPane";
 import { getState, setState } from "../state/store";
 import { Workspace } from "./Workspace";
+
+vi.mock("../api/acp", () => ({
+    acpApi: {
+        subscribe: vi.fn(async () => () => {}),
+        start: vi.fn(() => new Promise(() => {})),
+        stop: vi.fn(async () => {}),
+        prompt: vi.fn(async () => {}),
+        cancel: vi.fn(async () => {}),
+        permissionReply: vi.fn(async () => {}),
+    },
+}));
 
 vi.mock("../terminal/TerminalPane", () => ({
     TerminalPane: (props: ComponentProps<typeof TerminalPane>) => (
@@ -52,22 +63,21 @@ function arrangeRestoredAgents(resumeId: string | undefined): void {
 }
 
 describe("restored agent lifecycle", () => {
-    it("does not start a hidden resumable agent", () => {
+    it("does not start a hidden agent TUI", () => {
         arrangeRestoredAgents("hidden-session");
         render(<Workspace />);
 
-        expect(screen.getByTestId("terminal-agent-hidden")).toHaveAttribute("data-visible", "false");
-        expect(screen.getByTestId("terminal-agent-hidden")).toHaveAttribute("data-spawn-when", "false");
+        expect(screen.queryByTestId("terminal-agent-hidden")).not.toBeInTheDocument();
     });
 
-    it("leaves a hidden agent with nothing to resume inert until it is shown", () => {
+    it("keeps hidden new agents out of the TUI", () => {
         arrangeRestoredAgents(undefined);
         render(<Workspace />);
 
-        expect(screen.getByTestId("terminal-agent-hidden")).toHaveAttribute("data-spawn-when", "false");
+        expect(screen.queryByTestId("terminal-agent-hidden")).not.toBeInTheDocument();
     });
 
-    it("mounts no terminal process for a sleeping agent and resumes it on demand", () => {
+    it("resumes a sleeping agent into Session and starts TUI only after switching", async () => {
         arrangeRestoredAgents("hidden-session");
         setState((state) => ({
             agents: {
@@ -79,6 +89,8 @@ describe("restored agent lifecycle", () => {
 
         expect(screen.queryByTestId("terminal-agent-visible")).not.toBeInTheDocument();
         fireEvent.click(screen.getByRole("button", { name: "Resume codex" }));
-        expect(screen.getByTestId("terminal-agent-visible")).toHaveAttribute("data-spawn-when", "true");
+        expect(screen.queryByTestId("terminal-agent-visible")).not.toBeInTheDocument();
+        fireEvent.click((await screen.findAllByRole("button", { name: "TUI" }))[0]);
+        await waitFor(() => expect(screen.getByTestId("terminal-agent-visible")).toHaveAttribute("data-spawn-when", "true"));
     });
 });

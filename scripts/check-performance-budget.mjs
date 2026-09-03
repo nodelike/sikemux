@@ -40,6 +40,12 @@ const budgets = [
     gzip: 120_000,
   },
   {
+    label: "ACP chat lazy chunk",
+    pattern: /^AgentSurface-.*\.js$/,
+    raw: 36_000,
+    gzip: 12_000,
+  },
+  {
     label: "Diffs lazy chunk",
     pattern: /^diffs-.*\.js$/,
     raw: 2_320_000,
@@ -48,8 +54,14 @@ const budgets = [
   {
     label: "all JavaScript except Diffs",
     pattern: /^(?!diffs-).*\.js$/,
-    raw: 2_800_000,
-    gzip: 870_000,
+    raw: 2_820_000,
+    gzip: 880_000,
+  },
+  {
+    label: "ACP chat CSS",
+    pattern: /^AgentSurface-.*\.css$/,
+    raw: 24_000,
+    gzip: 6_000,
   },
   {
     // v0.3.4 adds Markdown preview and edge-peek rails. These ceilings keep

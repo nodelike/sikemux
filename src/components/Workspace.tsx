@@ -1,16 +1,17 @@
-import { memo, useEffect, useMemo, useRef } from "react";
+import { lazy, memo, Suspense, useEffect, useMemo, useRef } from "react";
 import type { PointerEvent as ReactPointerEvent, RefObject } from "react";
 import type { Agent, Divider, Rect, Session, Window as WindowT } from "../state/types";
 import { collectPanes, computeLayout, findSplit, MIN_FRAC } from "../state/layout";
 import * as cmd from "../state/commands";
 import { getState, useStore } from "../state/store";
-import { TerminalPane } from "../terminal/TerminalPane";
 import { type CtxItem } from "./FileTree";
 import { ErrorBoundary } from "./ErrorBoundary";
 import { TabBar, type TabDescriptor } from "./TabBar";
-import { AgentIcon, IconCommand, IconGlobe, IconPlus, IconShield, IconShieldBolt } from "./Icons";
+import { AgentIcon, IconCommand, IconGlobe, IconPlus } from "./Icons";
 import { renderWorkbenchItem } from "../workbench/renderers";
 import { AgentBrowserShell } from "./BrowserPane";
+
+const AgentSurface = lazy(() => import("../chat/AgentSurface").then((module) => ({ default: module.AgentSurface })));
 
 const AGENT_TABS_H = 34;
 const TERM_TABS_H = 34;
@@ -91,8 +92,7 @@ export function Workspace() {
                     if (!agent) return null;
                     const visible = isActive && view === "agent" && aid === session.activeAgentId;
                     if (!visible && agent.launchState === "dormant") return null;
-                    const key = `${aid}:${agent.permissionMode ?? (agent.skipPermissions ? "bypass" : "workspace-write")}`;
-                    return <AgentLayer key={key} session={session} agent={agent} tabsShown={sessTabs} visible={visible} />;
+                    return <AgentLayer key={aid} session={session} agent={agent} tabsShown={sessTabs} visible={visible} />;
                 });
                 return [...windowLayers, ...agentLayers];
             })}
@@ -216,31 +216,6 @@ function AgentTabsBar({ session, agents }: { session: Session; agents: Agent[] }
     );
 }
 
-function YoloToggle({ agent }: { agent: Agent }) {
-    const on = agent.permissionMode === "bypass" || agent.skipPermissions === true;
-    return (
-        <button
-            type="button"
-            className={`yolo-toggle${on ? " on" : ""}`}
-            aria-pressed={on}
-            title={
-                on
-                    ? `YOLO mode ON — ${agent.type} runs without approvals. Toggle with ⌥Y.`
-                    : `Safe mode — ${agent.type} uses normal approvals. Go YOLO with ⌥Y.`
-            }
-            onClick={(event) => {
-                event.stopPropagation();
-                cmd.toggleAgentSkipPermissions(agent.id);
-            }}>
-            <span className="yolo-glyph" aria-hidden="true">
-                {on ? <IconShieldBolt size={12} /> : <IconShield size={12} />}
-            </span>
-            <span className="yolo-label">{on ? "yolo" : "safe"}</span>
-            <kbd className="yolo-hint">⌥Y</kbd>
-        </button>
-    );
-}
-
 const AgentLayer = memo(function AgentLayer({
     session,
     agent,
@@ -252,8 +227,9 @@ const AgentLayer = memo(function AgentLayer({
     visible: boolean;
     tabsShown: boolean;
 }) {
+    const profile = useStore((state) => (agent.profileId ? state.providerProfiles.find((candidate) => candidate.id === agent.profileId) : undefined));
     return (
-        <div className={`window-layer${visible ? " visible" : ""}`}>
+        <div className={`window-layer${visible ? " visible" : ""}`} aria-hidden={!visible} inert={!visible}>
             <div
                 className="pane-cell"
                 style={{
@@ -275,24 +251,10 @@ const AgentLayer = memo(function AgentLayer({
                                 </button>
                             </div>
                         ) : (
-                            <TerminalPane
-                                cwd={agent.cwd || session.cwd || undefined}
-                                startup={agent.startup}
-                                directCommand={agent.directCommand}
-                                active={visible}
-                                visible={visible}
-                                spawnWhen={visible}
-                                context={{
-                                    sessionId: session.id,
-                                    sessionName: session.name,
-                                    sessionKind: session.kind,
-                                    ...(session.kind === "project" && (agent.cwd || session.cwd) ? { project: agent.cwd || session.cwd } : {}),
-                                    agentId: agent.id,
-                                    agentType: agent.type,
-                                }}
-                            />
+                            <Suspense fallback={<div className="agent-transport-switching">Opening agent session…</div>}>
+                                <AgentSurface agent={agent} session={session} profile={profile} visible={visible} />
+                            </Suspense>
                         )}
-                        {cmd.agentSupportsSkipPermissions(agent.type) && <YoloToggle agent={agent} />}
                     </AgentBrowserShell>
                 </div>
             </div>

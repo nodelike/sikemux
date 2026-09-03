@@ -1795,6 +1795,44 @@ export function reconcileAgentSessions(type: AgentType, cwd: string, configPath:
     });
 }
 
+export function attachAgentSession(id: string, resumeId: string): void {
+    if (!resumeId.trim() || resumeId.length > 4_096 || /[\0\r\n]/.test(resumeId)) return;
+    mutate((d) => {
+        const agent = d.agents[id];
+        if (!agent || agent.resumeId === resumeId) return;
+        const profile = agent.profileId
+            ? d.providerProfiles.find((candidate) => candidate.id === agent.profileId && candidate.provider === agent.type)
+            : undefined;
+        const launchOptions = profileLaunchOptions(profile, agent.model, agent.effort);
+        const executablePath = profile?.executablePath || agent.executablePath;
+        agent.resumeId = resumeId;
+        agent.startup = agentStartup(
+            agent.type,
+            resumeId,
+            agent.permissionMode ?? (agent.skipPermissions ? "bypass" : "workspace-write"),
+            executablePath,
+            launchOptions,
+        );
+        agent.directCommand = agentDirectCommand(
+            agent.type,
+            resumeId,
+            agent.permissionMode ?? (agent.skipPermissions ? "bypass" : "workspace-write"),
+            executablePath,
+            launchOptions,
+        );
+        delete agent.baselineSessionIds;
+    });
+}
+
+export function setAgentTitle(id: string, title: string): void {
+    const value = title.trim();
+    if (!value || value.length > 200 || /[\0\r\n]/.test(value)) return;
+    mutate((d) => {
+        const agent = d.agents[id];
+        if (agent) agent.title = value;
+    });
+}
+
 export function selectAgent(id: string): void {
     withActiveSession((d, session) => {
         const agent = d.agents[id];

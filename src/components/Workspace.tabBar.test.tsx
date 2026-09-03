@@ -5,6 +5,17 @@ import type { TerminalPane } from "../terminal/TerminalPane";
 import { getState, setState } from "../state/store";
 import { Workspace } from "./Workspace";
 
+vi.mock("../api/acp", () => ({
+    acpApi: {
+        subscribe: vi.fn(async () => () => {}),
+        start: vi.fn(() => new Promise(() => {})),
+        stop: vi.fn(async () => {}),
+        prompt: vi.fn(async () => {}),
+        cancel: vi.fn(async () => {}),
+        permissionReply: vi.fn(async () => {}),
+    },
+}));
+
 vi.mock("../terminal/TerminalPane", () => ({
     TerminalPane: (props: ComponentProps<typeof TerminalPane>) => (
         <div data-testid={`terminal-${props.context?.agentId ?? "window"}`} data-visible={String(props.visible)} />
@@ -68,13 +79,11 @@ describe("workspace tab bars", () => {
         expect(getState().agentPaletteOpen).toBe(true);
     });
 
-    it("restores the one-click PTY toggle and remounts a fresh CLI in YOLO mode", () => {
+    it("updates permission mode from the session composer", async () => {
         projectWithAgent(false);
         render(<Workspace />);
 
-        const originalTerminal = screen.getByTestId("terminal-agent-only");
-        const toggle = screen.getByRole("button", { name: /safe/i });
-        expect(toggle).toHaveAttribute("aria-pressed", "false");
+        const toggle = await screen.findByRole("button", { name: /normal/i });
         expect(toggle).not.toBeDisabled();
         fireEvent.click(toggle);
 
@@ -83,11 +92,11 @@ describe("workspace tab bars", () => {
             skipPermissions: true,
             directCommand: { program: "codex", args: ["--dangerously-bypass-approvals-and-sandbox"] },
         });
-        expect(screen.getByRole("button", { name: /yolo/i })).toHaveAttribute("aria-pressed", "true");
-        expect(screen.getByTestId("terminal-agent-only")).not.toBe(originalTerminal);
+        expect(await screen.findByRole("button", { name: /yolo/i })).toHaveClass("chat-permission-mode", "tone-danger");
+        expect(screen.queryByTestId("terminal-agent-only")).not.toBeInTheDocument();
     });
 
-    it("shows YOLO as the animated live-session state", () => {
+    it("shows YOLO inside the session composer", async () => {
         projectWithAgent();
         setState((state) => ({
             agents: { ...state.agents, "agent-only": { ...state.agents["agent-only"], permissionMode: "bypass", skipPermissions: true } },
@@ -95,8 +104,7 @@ describe("workspace tab bars", () => {
 
         render(<Workspace />);
 
-        expect(screen.getByRole("button", { name: /yolo/i })).toHaveClass("yolo-toggle", "on");
-        expect(screen.getByRole("button", { name: /yolo/i })).toHaveAttribute("aria-pressed", "true");
+        expect(await screen.findByRole("button", { name: /yolo/i })).toHaveClass("chat-permission-mode", "tone-danger");
     });
 
     it("requests the agent picker for the empty agent stage", () => {
