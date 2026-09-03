@@ -1,3 +1,4 @@
+mod acp;
 mod agent_detection;
 mod agents;
 mod aws;
@@ -27,6 +28,7 @@ mod system;
 mod transparency;
 mod updates;
 
+use acp::AcpManager;
 use aws::LogsTailManager;
 use browser::BrowserManager;
 use observability::UiWatchdogState;
@@ -93,6 +95,9 @@ pub fn run() {
                 if let Some(browser) = window.try_state::<BrowserManager>() {
                     browser.drain();
                 }
+                if let Some(acp) = window.try_state::<AcpManager>() {
+                    acp.drain();
+                }
                 lsp::drain_all();
             }
         })
@@ -110,6 +115,9 @@ pub fn run() {
                 }
                 if let Some(browser) = webview.try_state::<BrowserManager>() {
                     browser.drain();
+                }
+                if let Some(acp) = webview.try_state::<AcpManager>() {
+                    acp.drain();
                 }
                 lsp::drain_all();
             }
@@ -143,8 +151,14 @@ pub fn run() {
             Ok(())
         })
         .manage(PtyManager::default())
+        .manage(AcpManager::default())
         .manage(BrowserManager::default())
         .invoke_handler(tauri::generate_handler![
+            acp::acp_start,
+            acp::acp_prompt,
+            acp::acp_cancel,
+            acp::acp_permission_reply,
+            acp::acp_stop,
             pty::pty_spawn,
             pty::task_spawn,
             pty::pty_subscribe,
