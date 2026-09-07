@@ -145,6 +145,8 @@ function sessionUpdate(state: ChatState, update: Record<string, unknown>): ChatS
                     : [],
                 revision: state.revision + 1,
             };
+        case "config_option_update":
+            return { ...state, setup: { ...state.setup, configOptions: update.configOptions }, revision: state.revision + 1 };
         case "usage_update":
             return { ...state, usage: update, revision: state.revision + 1 };
         case "session_info_update":
@@ -156,6 +158,8 @@ function sessionUpdate(state: ChatState, update: Record<string, unknown>): ChatS
 
 export function chatReducer(state: ChatState, action: ChatAction): ChatState {
     switch (action.type) {
+        case "config":
+            return { ...state, setup: { ...state.setup, configOptions: action.options }, revision: state.revision + 1 };
         case "reset":
             return initialChatState;
         case "status":

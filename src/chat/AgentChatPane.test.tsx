@@ -9,6 +9,8 @@ const mocks = vi.hoisted(() => ({
     eventListener: null as ((event: AcpEvent) => void) | null,
     prompt: vi.fn(async () => {}),
     setPermissionMode: vi.fn(async () => {}),
+    setConfig: vi.fn(),
+    setAgentModelPreferences: vi.fn(),
     attachAgentSession: vi.fn(),
     setAgentPermissionMode: vi.fn(),
     noteAcpAgentState: vi.fn(),
@@ -25,6 +27,7 @@ vi.mock("../api/acp", () => ({
         }),
         start: mocks.start,
         setPermissionMode: mocks.setPermissionMode,
+        setConfig: mocks.setConfig,
         stop: vi.fn(async () => {}),
         prompt: mocks.prompt,
         cancel: vi.fn(async () => {}),
@@ -35,6 +38,7 @@ vi.mock("../api/acp", () => ({
 vi.mock("../state/commands", () => ({
     attachAgentSession: mocks.attachAgentSession,
     setAgentPermissionMode: mocks.setAgentPermissionMode,
+    setAgentModelPreferences: mocks.setAgentModelPreferences,
     setAgentTitle: vi.fn(),
     noteAcpAgentState: mocks.noteAcpAgentState,
     toggleAgentSkipPermissions: vi.fn(),
@@ -63,6 +67,34 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("AgentChatPane", () => {
+    it("changes the model live and persists only the confirmed configuration", async () => {
+        const configs = (model: string) => [
+            {
+                id: "model",
+                name: "Model",
+                type: "select",
+                currentValue: model,
+                options: [
+                    { value: "astra", name: "GPT-6 Astra" },
+                    { value: "sol", name: "GPT-5.6 Sol" },
+                ],
+            },
+            { id: "reasoning_effort", name: "Effort", type: "select", currentValue: "high", options: [{ value: "high", name: "High" }] },
+        ];
+        mocks.start.mockResolvedValueOnce({ sessionId: "session-1", capabilities: {}, setup: { configOptions: configs("astra") } });
+        mocks.setConfig.mockResolvedValueOnce({ configOptions: configs("sol") });
+        render(<AgentChatPane agent={agent} cwd="/repo" active onBusyChange={() => {}} />);
+        await waitFor(() => expect(screen.getByRole("button", { name: "Model" })).toBeEnabled());
+        fireEvent.click(screen.getByRole("button", { name: "Model" }));
+        fireEvent.change(screen.getByRole("combobox", { name: "Search model" }), { target: { value: "Sol" } });
+        fireEvent.keyDown(screen.getByRole("combobox", { name: "Search model" }), { key: "Enter" });
+        await waitFor(() => expect(mocks.setConfig).toHaveBeenCalledWith(agent.id, "model", "sol"));
+        await waitFor(() => expect(mocks.setAgentModelPreferences).toHaveBeenCalledWith(agent.id, "sol", "high"));
+        expect(screen.getByRole("button", { name: "Model" })).toHaveTextContent("GPT-5.6 Sol");
+        expect(mocks.start).toHaveBeenCalledTimes(1);
+        expect(acpApi.stop).not.toHaveBeenCalled();
+    });
+
     it("changes YOLO on the live session without restarting or persisting an empty rollout", async () => {
         const props = { agent, cwd: "/repo", active: true, onBusyChange: () => {} };
         const { rerender } = render(<AgentChatPane {...props} />);

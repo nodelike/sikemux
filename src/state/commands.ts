@@ -1612,6 +1612,21 @@ export function agentSessionMetadataPending(agent: Agent): boolean {
     return title.length <= FALLBACK_AGENT_TITLE_MAX && agent.resumeId.startsWith(title);
 }
 
+export function setAgentModelPreferences(id: string, model: string | undefined, effort: AgentEffort | undefined): void {
+    mutate((d) => {
+        const agent = d.agents[id];
+        if (!agent) return;
+        agent.model = model;
+        agent.effort = effort;
+        const profile = d.providerProfiles.find((item) => item.id === agent.profileId && item.provider === agent.type);
+        const options = profileLaunchOptions(profile, model, effort);
+        const executable = profile?.executablePath || agent.executablePath;
+        const mode = agent.permissionMode ?? (agent.skipPermissions ? "bypass" : "workspace-write");
+        agent.startup = agentStartup(agent.type, agent.resumeId, mode, executable, options);
+        agent.directCommand = agentDirectCommand(agent.type, agent.resumeId, mode, executable, options);
+    });
+}
+
 export function setAgentPermissionMode(id: string, requestedMode: AgentPermissionMode): void {
     mutate((d) => {
         const currentAgent = d.agents[id];
@@ -1651,7 +1666,7 @@ export function toggleActiveAgentSkipPermissions(): void {
 
 export interface AddAgentOptions {
     permissionMode?: AgentPermissionMode;
-    profileId?: string;
+    profileId?: string | null;
     model?: string;
     effort?: AgentEffort;
     baselineSessionIds?: string[];
@@ -1681,7 +1696,7 @@ export function addAgent(type: AgentType, resumeId?: string, title?: string, opt
             return;
         }
         const permissionMode = normalizePermissionMode(type, options.permissionMode ?? d.defaultAgentPermissionMode);
-        const requestedProfileId = options.profileId ?? d.selectedProviderProfileIds[type];
+        const requestedProfileId = options.profileId === undefined ? d.selectedProviderProfileIds[type] : options.profileId;
         const profileId = requestedProfileId
             ? d.providerProfiles.find((profile) => profile.id === requestedProfileId && profile.provider === type)?.id
             : undefined;

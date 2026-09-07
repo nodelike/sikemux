@@ -79,6 +79,7 @@ export interface ChatState {
 
 export type ChatAction =
     | { type: "reset" }
+    | { type: "config"; options: unknown }
     | { type: "status"; state: ChatState["connection"] }
     | { type: "ready"; capabilities: Record<string, unknown>; setup: Record<string, unknown> }
     | { type: "local_prompt"; text: string; paths: string[] }

@@ -5,6 +5,7 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { open } from "@tauri-apps/plugin-dialog";
 import { acpApi, type AcpEvent } from "../api/acp";
 import { invokeCommand as invoke } from "../api/invoke";
+import { ComposerPickers, sessionConfigs, type SessionConfig } from "./ComposerPickers";
 import { permissionCopyForType } from "../agentLaunch";
 import { basename } from "../lib/paths";
 import { registerPathDrop } from "../state/dropRegistry";
@@ -277,8 +278,12 @@ export function AgentChatPane({
     const updateFrameRef = useRef<number | null>(null);
     const agentRef = useRef(agent);
     agentRef.current = agent;
+    const agentLockedRef = useRef(!!agent.resumeId);
+    if (state.messages.length > 0 || agent.resumeId) agentLockedRef.current = true;
     const sessionIdRef = useRef<string | null>(null);
     const lifecycleRef = useRef<Promise<unknown>>(Promise.resolve());
+    const [changingConfig, setChangingConfig] = useState(false);
+    const configPending = useRef(false);
     const [changingPermissions, setChangingPermissions] = useState(false);
     const [appliedPermissionMode, setAppliedPermissionMode] = useState<string | null>(null);
     const environmentKeys = JSON.stringify(profile?.environmentKeys ?? []);
@@ -463,6 +468,7 @@ export function AgentChatPane({
         if (
             (!text && attachments.length === 0) ||
             state.running ||
+            configPending.current ||
             state.connection !== "ready" ||
             changingPermissions ||
             permissionMode !== appliedPermissionMode
@@ -510,7 +516,31 @@ export function AgentChatPane({
     };
 
     const permission = permissionCopyForType(agent.type, permissionMode);
-    const modelLabel = [agent.model, agent.effort].filter(Boolean).join(" ");
+    const changeConfig = async (config: SessionConfig, value: string) => {
+        if (configPending.current || state.running || changingPermissions) return;
+        configPending.current = true;
+        setChangingConfig(true);
+        setComposerError(null);
+        const sessionId = sessionIdRef.current;
+        try {
+            const response = await acpApi.setConfig(agent.id, config.id, value);
+            if (sessionIdRef.current !== sessionId) return;
+            dispatch({ type: "config", options: response.configOptions });
+            const options = sessionConfigs({ configOptions: response.configOptions });
+            const model = options.find((option) => option.id === "model")?.currentValue ?? agent.model;
+            const effort =
+                options.find((option) => option.id === (agent.type === "claude" ? "effort" : "reasoning_effort"))?.currentValue ?? agent.effort;
+            const knownEffort = ["off", "none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"].includes(effort ?? "")
+                ? (effort as Agent["effort"])
+                : undefined;
+            cmd.setAgentModelPreferences(agent.id, model, knownEffort);
+        } catch (error) {
+            if (sessionIdRef.current === sessionId) setComposerError(error instanceof Error ? error.message : String(error));
+        } finally {
+            configPending.current = false;
+            setChangingConfig(false);
+        }
+    };
     const composerPlaceholder =
         state.connection === "ready"
             ? "Ask about this project, or type / for commands"
@@ -695,6 +725,7 @@ export function AgentChatPane({
                             className={`chat-permission-mode tone-${permission.tone}`}
                             disabled={
                                 state.connection !== "ready" ||
+                                changingConfig ||
                                 state.running ||
                                 state.permissions.length > 0 ||
                                 changingPermissions ||
@@ -705,8 +736,18 @@ export function AgentChatPane({
                             <IconShieldBolt size={14} />
                             <span>{permission.label}</span>
                         </button>
+                        <ComposerPickers
+                            agent={agent}
+                            profile={profile}
+                            cwd={cwd}
+                            setup={state.setup}
+                            agentLocked={agentLockedRef.current}
+                            disabled={
+                                state.connection !== "ready" || state.running || changingPermissions || changingConfig || state.permissions.length > 0
+                            }
+                            onConfig={(config, value) => void changeConfig(config, value)}
+                        />
                         <span className="chat-composer-spacer" />
-                        {modelLabel && <span className="chat-model-label">{modelLabel}</span>}
                         {state.running ? (
                             <button
                                 type="button"
@@ -726,6 +767,7 @@ export function AgentChatPane({
                                 aria-label="Send message"
                                 disabled={
                                     state.connection !== "ready" ||
+                                    changingConfig ||
                                     changingPermissions ||
                                     permissionMode !== appliedPermissionMode ||
                                     (!draft.trim() && attachments.length === 0)
