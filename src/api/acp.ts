@@ -9,6 +9,9 @@ export interface AcpStartOptions {
     resumeId?: string;
     permissionMode: AgentPermissionMode;
     configPath?: string;
+    executablePath?: string;
+    model?: string;
+    effort?: string;
     environmentKeys?: string[];
 }
 
@@ -33,8 +36,13 @@ export const acpApi = {
             resumeId: options.resumeId ?? null,
             permissionMode: options.permissionMode,
             configPath: options.configPath ?? null,
+            executablePath: options.executablePath ?? null,
+            model: options.model ?? null,
+            effort: options.effort ?? null,
             environmentKeys: options.environmentKeys ?? [],
         }),
+    setPermissionMode: (agentId: string, permissionMode: AgentPermissionMode): Promise<void> =>
+        invoke<void>("acp_set_permission_mode", { agentId, permissionMode }),
     prompt: (agentId: string, text: string, paths: string[]): Promise<void> => invoke<void>("acp_prompt", { agentId, text, paths }),
     cancel: (agentId: string): Promise<void> => invoke<void>("acp_cancel", { agentId }),
     permissionReply: (agentId: string, requestId: string, optionId?: string): Promise<void> =>

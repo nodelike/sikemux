@@ -156,6 +156,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             acp::acp_start,
             acp::acp_prompt,
+            acp::acp_set_permission_mode,
             acp::acp_cancel,
             acp::acp_permission_reply,
             acp::acp_stop,

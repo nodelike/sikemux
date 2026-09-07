@@ -1,8 +1,8 @@
 use agent_client_protocol::schema::v1::{
     CancelNotification, ContentBlock, Implementation, InitializeRequest, LoadSessionRequest,
-    NewSessionRequest, PermissionOptionKind, PromptRequest, RequestPermissionOutcome,
-    RequestPermissionRequest, RequestPermissionResponse, ResourceLink, SelectedPermissionOutcome,
-    SessionNotification,
+    NewSessionRequest, PromptRequest, RequestPermissionOutcome, RequestPermissionRequest,
+    RequestPermissionResponse, ResourceLink, SelectedPermissionOutcome, SessionNotification,
+    SetSessionConfigOptionRequest, SetSessionModeRequest,
 };
 use agent_client_protocol::schema::ProtocolVersion;
 use agent_client_protocol::{AcpAgent, AcpAgentConfig, Agent, ConnectionTo, Responder};
@@ -54,7 +54,14 @@ pub struct AcpStartResponse {
 }
 
 enum AcpCommand {
-    Prompt { text: String, paths: Vec<String> },
+    Prompt {
+        text: String,
+        paths: Vec<String>,
+    },
+    SetPermissionMode {
+        mode: String,
+        reply: oneshot::Sender<Result<(), String>>,
+    },
     Cancel,
     Stop,
 }
@@ -77,7 +84,7 @@ struct AcpConnectionHandle {
 pub struct AcpManager {
     connections: Arc<dashmap::DashMap<String, AcpConnectionHandle>>,
     permissions: Arc<Mutex<HashMap<String, PendingPermission>>>,
-    adapter_install: Arc<tokio::sync::Mutex<()>>,
+    adapter_installs: Arc<dashmap::DashMap<String, Arc<tokio::sync::Mutex<()>>>>,
 }
 
 impl AcpManager {
@@ -190,14 +197,24 @@ async fn ensure_adapter(
     }
 
     emit(app, agent_id, "status", json!({ "state": "installing" }));
-    let _install = manager.adapter_install.lock().await;
+    let install_lock = manager
+        .adapter_installs
+        .entry(provider.to_owned())
+        .or_default()
+        .clone();
+    let _install = install_lock.lock().await;
     if executable.is_file() {
         return Ok(executable);
     }
 
-    let install_root = root.clone();
-    let output = tokio::task::spawn_blocking(move || {
-        std::fs::create_dir_all(&install_root).map_err(|error| error.to_string())?;
+    tokio::task::spawn_blocking(move || {
+        let parent = root.parent().ok_or("ACP adapter cache has no parent")?;
+        std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+        let staging = tempfile::Builder::new()
+            .prefix(".install-")
+            .tempdir_in(parent)
+            .map_err(|error| error.to_string())?;
+        let install_root = staging.path();
         let mut command = Command::new("npm");
         command.stdin(Stdio::null());
         command.args([
@@ -210,25 +227,30 @@ async fn ensure_adapter(
             "--loglevel=error",
             "--prefix",
         ]);
-        command.arg(&install_root).arg(spec.package);
-        crate::bounded_process::run(
+        command.arg(install_root).arg(spec.package);
+        let output = crate::bounded_process::run(
             &mut command,
             None,
             INSTALL_TIMEOUT,
             INSTALL_OUTPUT_LIMIT,
             Some(&cancellation),
         )
-        .map_err(|error| error.to_string())
+        .map_err(|error| error.to_string())?;
+        if !output.status.success() {
+            return Err(install_failure(&output.stderr));
+        }
+        if !installed_adapter(install_root, spec).is_file() {
+            return Err("ACP adapter installed without its executable".into());
+        }
+        if root.exists() {
+            std::fs::remove_dir_all(&root).map_err(|error| error.to_string())?;
+        }
+        std::fs::rename(install_root, &root).map_err(|error| error.to_string())?;
+        Ok::<(), String>(())
     })
     .await
     .map_err(|error| format!("ACP adapter installer stopped: {error}"))??;
 
-    if !output.status.success() {
-        return Err(install_failure(&output.stderr));
-    }
-    if !executable.is_file() {
-        return Err("ACP adapter installed without its executable".into());
-    }
     Ok(executable)
 }
 
@@ -236,6 +258,7 @@ fn adapter_config(
     provider: &str,
     executable: &Path,
     config_path: Option<&str>,
+    executable_path: Option<&str>,
     environment_keys: &[String],
 ) -> Result<AcpAgentConfig, String> {
     let mut config = AcpAgentConfig::new("node").arg(executable.to_string_lossy());
@@ -248,6 +271,15 @@ fn adapter_config(
             "CODEX_HOME"
         };
         config = config.env(key, path.to_string_lossy());
+    }
+    if let Some(path) = executable_path {
+        bounded_text("agent executable", path, 4_096)?;
+        let key = if provider == "claude" {
+            "CLAUDE_CODE_EXECUTABLE"
+        } else {
+            "CODEX_PATH"
+        };
+        config = config.env(key, path);
     }
     let mut seen = HashSet::new();
     for key in environment_keys.iter().take(64) {
@@ -330,6 +362,53 @@ fn prompt_blocks(text: String, paths: Vec<String>) -> Result<Vec<ContentBlock>, 
     Ok(blocks)
 }
 
+fn permission_mode_id(provider: &str, mode: &str, setup: &Value) -> Result<&'static str, String> {
+    let expected = match (provider, mode) {
+        ("codex", "bypass") => "agent-full-access",
+        ("codex", "workspace-write") => "read-only",
+        ("claude", "bypass") => "bypassPermissions",
+        ("claude", "workspace-write") => "acceptEdits",
+        _ => return Err(format!("Unsupported permission mode: {mode}")),
+    };
+    setup
+        .pointer("/modes/availableModes")
+        .and_then(Value::as_array)
+        .and_then(|modes| {
+            modes
+                .iter()
+                .filter_map(|mode| mode.get("id").and_then(Value::as_str))
+                .find(|id| *id == expected)
+        })
+        .map(|_| expected)
+        .ok_or_else(|| format!("The {provider} adapter does not offer permission mode {expected}"))
+}
+
+#[tauri::command]
+pub async fn acp_set_permission_mode(
+    manager: State<'_, AcpManager>,
+    agent_id: String,
+    permission_mode: String,
+) -> Result<(), String> {
+    let (reply, response) = oneshot::channel();
+    {
+        let connection = manager
+            .connections
+            .get(&agent_id)
+            .ok_or("ACP session is not running")?;
+        connection
+            .commands
+            .send(AcpCommand::SetPermissionMode {
+                mode: permission_mode,
+                reply,
+            })
+            .map_err(|_| "ACP session stopped")?;
+    }
+    tokio::time::timeout(Duration::from_secs(15), response)
+        .await
+        .map_err(|_| "Permission update timed out")?
+        .map_err(|_| "ACP session stopped")?
+}
+
 #[allow(clippy::too_many_arguments)]
 async fn run_connection(
     app: AppHandle,
@@ -340,11 +419,16 @@ async fn run_connection(
     resume_id: Option<String>,
     permission_mode: String,
     config_path: Option<String>,
+    executable_path: Option<String>,
+    model: Option<String>,
+    effort: Option<String>,
     environment_keys: Vec<String>,
     install_cancellation: crate::bounded_process::ProcessCancellation,
     mut commands: mpsc::UnboundedReceiver<AcpCommand>,
     ready: ReadySender,
 ) -> Result<(), String> {
+    let agent_executable =
+        crate::agents::resolve_agent_executable(&provider, executable_path.as_deref()).await?;
     let executable =
         ensure_adapter(&app, &manager, &agent_id, &provider, install_cancellation).await?;
     emit(&app, &agent_id, "status", json!({ "state": "starting" }));
@@ -352,6 +436,7 @@ async fn run_connection(
         &provider,
         &executable,
         config_path.as_deref(),
+        Some(&agent_executable.to_string_lossy()),
         &environment_keys,
     )?;
     let agent = AcpAgent::new(config);
@@ -360,7 +445,6 @@ async fn run_connection(
     let permission_app = app.clone();
     let permission_agent_id = agent_id.clone();
     let permission_manager = manager.clone();
-    let bypass = permission_mode == "bypass";
 
     agent_client_protocol::Client
         .builder()
@@ -381,25 +465,6 @@ async fn run_connection(
         )
         .on_receive_request(
             async move |request: RequestPermissionRequest, responder, _connection| {
-                if bypass {
-                    let selected = request.options.iter().find(|option| {
-                        matches!(
-                            option.kind,
-                            PermissionOptionKind::AllowAlways | PermissionOptionKind::AllowOnce
-                        )
-                    });
-                    return match selected {
-                        Some(option) => responder.respond(RequestPermissionResponse::new(
-                            RequestPermissionOutcome::Selected(SelectedPermissionOutcome::new(
-                                option.option_id.clone(),
-                            )),
-                        )),
-                        None => responder.respond(RequestPermissionResponse::new(
-                            RequestPermissionOutcome::Cancelled,
-                        )),
-                    };
-                }
-
                 let request_id = Uuid::new_v4().to_string();
                 let option_ids = request
                     .options
@@ -453,9 +518,11 @@ async fn run_connection(
                     .await?;
                 let capabilities = serde_json::to_value(&initialize.agent_capabilities)?;
 
-                let (session_id, setup) = if let Some(existing) =
-                    resume_id.filter(|_| initialize.agent_capabilities.load_session)
-                {
+                let (session_id, mut setup) = if let Some(existing) = resume_id {
+                    if !initialize.agent_capabilities.load_session {
+                        return Err(agent_client_protocol::Error::invalid_params()
+                            .data("This agent cannot load existing sessions"));
+                    }
                     let response = connection
                         .send_request(LoadSessionRequest::new(existing.clone(), &cwd))
                         .block_task()
@@ -469,6 +536,40 @@ async fn run_connection(
                     let session_id = response.session_id.to_string();
                     (session_id, serde_json::to_value(response)?)
                 };
+
+                let mode_id = permission_mode_id(&provider, &permission_mode, &setup)
+                    .map_err(|error| agent_client_protocol::Error::invalid_params().data(error))?;
+                connection
+                    .send_request(SetSessionModeRequest::new(session_id.clone(), mode_id))
+                    .block_task()
+                    .await?;
+                if let Some(modes) = setup.get_mut("modes").and_then(Value::as_object_mut) {
+                    modes.insert("currentModeId".into(), json!(mode_id));
+                }
+
+                for (config_id, value) in [
+                    ("model", model.as_deref()),
+                    (
+                        if provider == "claude" {
+                            "effort"
+                        } else {
+                            "reasoning_effort"
+                        },
+                        effort.as_deref(),
+                    ),
+                ] {
+                    if let Some(value) = value {
+                        let response = connection
+                            .send_request(SetSessionConfigOptionRequest::new(
+                                session_id.clone(),
+                                config_id,
+                                value,
+                            ))
+                            .block_task()
+                            .await?;
+                        setup["configOptions"] = serde_json::to_value(response.config_options)?;
+                    }
+                }
 
                 let start = AcpStartResponse {
                     session_id: session_id.clone(),
@@ -512,10 +613,12 @@ async fn run_connection(
                             let response_app = app.clone();
                             let response_agent_id = agent_id.clone();
                             let response_running = running.clone();
+                            let response_manager = manager.clone();
                             let sent = connection
                                 .send_request(PromptRequest::new(session_id.clone(), blocks))
                                 .on_receiving_result(async move |result| {
                                     response_running.store(false, Ordering::Release);
+                                    response_manager.cancel_permissions(Some(&response_agent_id));
                                     match result {
                                         Ok(response) => emit(
                                             &response_app,
@@ -543,6 +646,25 @@ async fn run_connection(
                                 );
                             }
                         }
+                        AcpCommand::SetPermissionMode { mode, reply } => {
+                            let result = if running.load(Ordering::Acquire) {
+                                Err("Stop the current turn before changing permissions".into())
+                            } else {
+                                match permission_mode_id(&provider, &mode, &start.setup) {
+                                    Ok(mode_id) => connection
+                                        .send_request(SetSessionModeRequest::new(
+                                            session_id.clone(),
+                                            mode_id,
+                                        ))
+                                        .block_task()
+                                        .await
+                                        .map(|_| ())
+                                        .map_err(|error| error.to_string()),
+                                    Err(error) => Err(error),
+                                }
+                            };
+                            let _ = reply.send(result);
+                        }
                         AcpCommand::Cancel => {
                             connection
                                 .send_notification(CancelNotification::new(session_id.clone()))?;
@@ -568,6 +690,9 @@ pub async fn acp_start(
     resume_id: Option<String>,
     permission_mode: String,
     config_path: Option<String>,
+    executable_path: Option<String>,
+    model: Option<String>,
+    effort: Option<String>,
     environment_keys: Vec<String>,
 ) -> Result<AcpStartResponse, String> {
     bounded_text("agent id", &agent_id, MAX_AGENT_ID)?;
@@ -607,6 +732,9 @@ pub async fn acp_start(
             resume_id,
             permission_mode,
             config_path,
+            executable_path,
+            model,
+            effort,
             environment_keys,
             task_install_cancellation,
             commands_rx,
@@ -614,6 +742,12 @@ pub async fn acp_start(
         )
         .await;
         if let Err(error) = &result {
+            emit(
+                &task_app,
+                &task_agent_id,
+                "status",
+                json!({ "state": "error" }),
+            );
             if let Ok(mut sender) = task_ready.lock() {
                 if let Some(sender) = sender.take() {
                     let _ = sender.send(Err(error.clone()));
@@ -778,12 +912,58 @@ mod tests {
     #[test]
     fn adapter_transport_bypasses_package_manager_stdio() {
         let executable = Path::new("/tmp/claude-agent-acp/dist/index.js");
-        let config = adapter_config("claude", executable, None, &[]).unwrap();
+        let config = adapter_config("claude", executable, None, None, &[]).unwrap();
         assert_eq!(config.command(), Path::new("node"));
         assert_eq!(
             config.arguments(),
             &[executable.to_string_lossy().to_string()]
         );
+    }
+
+    #[test]
+    fn permissions_use_advertised_provider_modes() {
+        for (provider, normal, bypass) in [
+            ("codex", "read-only", "agent-full-access"),
+            ("claude", "acceptEdits", "bypassPermissions"),
+        ] {
+            let setup =
+                json!({ "modes": { "availableModes": [{ "id": normal }, { "id": bypass }] } });
+            assert_eq!(
+                permission_mode_id(provider, "workspace-write", &setup).unwrap(),
+                normal
+            );
+            assert_eq!(
+                permission_mode_id(provider, "bypass", &setup).unwrap(),
+                bypass
+            );
+            assert!(permission_mode_id(provider, "invalid", &setup).is_err());
+            assert!(permission_mode_id(provider, "bypass", &json!({})).is_err());
+        }
+    }
+
+    #[test]
+    fn adapter_uses_selected_executable_and_config() {
+        for (provider, executable_key, config_key) in [
+            ("codex", "CODEX_PATH", "CODEX_HOME"),
+            ("claude", "CLAUDE_CODE_EXECUTABLE", "CLAUDE_CONFIG_DIR"),
+        ] {
+            let config = adapter_config(
+                provider,
+                Path::new("/adapter/index.js"),
+                Some("/profile"),
+                Some("/custom/agent"),
+                &[],
+            )
+            .unwrap();
+            assert_eq!(
+                config.environment().get(executable_key).map(String::as_str),
+                Some("/custom/agent")
+            );
+            assert_eq!(
+                config.environment().get(config_key).map(String::as_str),
+                Some("/profile")
+            );
+        }
     }
 
     #[test]

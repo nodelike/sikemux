@@ -2,6 +2,7 @@
 pub const IPC_COMMANDS: &[&str] = &[
     "acp_start",
     "acp_prompt",
+    "acp_set_permission_mode",
     "acp_cancel",
     "acp_permission_reply",
     "acp_stop",

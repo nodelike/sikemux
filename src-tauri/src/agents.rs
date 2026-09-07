@@ -327,8 +327,51 @@ async fn probe_agent_executable_with_timeout(
         .to_string())
 }
 
+#[derive(Clone)]
+struct AgentProbe {
+    checked_at: std::time::Instant,
+    modified: std::time::SystemTime,
+    size: u64,
+    version: String,
+}
+
 async fn probe_agent_executable(agent: &str, executable: &Path) -> Result<String, String> {
-    probe_agent_executable_with_timeout(agent, executable, AGENT_PROBE_TIMEOUT).await
+    static CACHE: OnceLock<Mutex<HashMap<PathBuf, AgentProbe>>> = OnceLock::new();
+    let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+    let metadata = fs::metadata(executable).ok();
+    let modified = metadata
+        .as_ref()
+        .and_then(|metadata| metadata.modified().ok());
+    let size = metadata.as_ref().map_or(0, |metadata| metadata.len());
+    if let Some(cached) = cache
+        .lock()
+        .ok()
+        .and_then(|cache| cache.get(executable).cloned())
+    {
+        if cached.checked_at.elapsed() < Duration::from_secs(60)
+            && Some(cached.modified) == modified
+            && cached.size == size
+        {
+            return Ok(cached.version);
+        }
+    }
+    let version =
+        probe_agent_executable_with_timeout(agent, executable, AGENT_PROBE_TIMEOUT).await?;
+    if let (Some(modified), Ok(mut cache)) = (modified, cache.lock()) {
+        if cache.len() >= 128 {
+            cache.retain(|_, probe| probe.checked_at.elapsed() < Duration::from_secs(60));
+        }
+        cache.insert(
+            executable.to_path_buf(),
+            AgentProbe {
+                checked_at: std::time::Instant::now(),
+                modified,
+                size,
+                version: version.clone(),
+            },
+        );
+    }
+    Ok(version)
 }
 
 async fn first_healthy_agent_candidate(
@@ -381,12 +424,32 @@ async fn first_healthy_agent_candidate(
     (temporarily_unverified, failures)
 }
 
+pub(crate) async fn resolve_agent_executable(
+    agent: &str,
+    explicit: Option<&str>,
+) -> Result<PathBuf, String> {
+    let def = AGENT_DEFS
+        .iter()
+        .find(|def| def.kind == agent)
+        .ok_or("Unknown agent provider")?;
+    let candidates = explicit
+        .map(explicit_agent_candidates)
+        .unwrap_or_else(|| automatic_agent_candidates(def));
+    let (resolved, failures) = first_healthy_agent_candidate(agent, candidates).await;
+    resolved.ok_or_else(|| {
+        if failures.is_empty() {
+            format!("{} executable was not found", def.label)
+        } else {
+            failures.join("; ")
+        }
+    })
+}
+
 /// Agent CLIs that are installed for the current user. The app's PATH is fixed
 /// from the login shell during boot, so this matches what spawned PTYs can run.
 #[tauri::command]
 pub async fn available_agents(profiles: Vec<AgentProfileRequest>) -> Vec<AgentInfo> {
-    let mut available = Vec::new();
-    for def in AGENT_DEFS {
+    let available = futures::future::join_all(AGENT_DEFS.iter().map(|def| async {
         let profile = profiles
             .iter()
             .find(|profile| profile.kind.as_str() == def.kind);
@@ -395,7 +458,7 @@ pub async fn available_agents(profiles: Vec<AgentProfileRequest>) -> Vec<AgentIn
             .map(explicit_agent_candidates)
             .unwrap_or_else(|| automatic_agent_candidates(def));
         if candidates.is_empty() && profile.is_none() {
-            continue;
+            return None;
         }
 
         let (resolved, failures) = first_healthy_agent_candidate(def.kind, candidates).await;
@@ -411,7 +474,7 @@ pub async fn available_agents(profiles: Vec<AgentProfileRequest>) -> Vec<AgentIn
                 failures.join("; ")
             }
         });
-        available.push(AgentInfo {
+        Some(AgentInfo {
             kind: def.kind,
             label: def.label,
             command: resolved
@@ -426,9 +489,10 @@ pub async fn available_agents(profiles: Vec<AgentProfileRequest>) -> Vec<AgentIn
             config_path: config_path.clone(),
             default_model: configured_default_model(def.kind, config_path.as_deref()),
             default_effort: configured_default_effort(def.kind, config_path.as_deref()),
-        });
-    }
-    available
+        })
+    }))
+    .await;
+    available.into_iter().flatten().collect()
 }
 
 /// Full model identifiers exposed by the selected CLI. Catalog lookup is lazy
@@ -2659,6 +2723,39 @@ mod executable_tests {
         .await;
         assert_eq!(selected.as_deref(), Some(healthy.path()));
         assert_eq!(failures.len(), 1);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn executable_probe_reuses_success_and_invalidates_changed_files() {
+        use std::fs;
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let executable = dir.path().join("agent");
+        let count = dir.path().join("count");
+        fs::write(
+            &executable,
+            format!(
+                "#!/bin/sh\necho x >> '{}'\necho version-one\n",
+                count.display()
+            ),
+        )
+        .unwrap();
+        fs::set_permissions(&executable, fs::Permissions::from_mode(0o755)).unwrap();
+        assert_eq!(
+            probe_agent_executable("codex", &executable).await.unwrap(),
+            "version-one"
+        );
+        assert_eq!(
+            probe_agent_executable("codex", &executable).await.unwrap(),
+            "version-one"
+        );
+        assert_eq!(fs::read_to_string(&count).unwrap(), "x\n");
+        fs::write(&executable, "#!/bin/sh\necho version-two-changed\n").unwrap();
+        assert_eq!(
+            probe_agent_executable("codex", &executable).await.unwrap(),
+            "version-two-changed"
+        );
     }
 
     #[cfg(unix)]
