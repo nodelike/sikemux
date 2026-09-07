@@ -41,12 +41,11 @@ function permissionRequest(payload: Record<string, unknown>): AcpPermissionReque
     const sessionId = typeof payload.sessionId === "string" ? payload.sessionId : null;
     const toolCall = recordOf(payload.toolCall);
     const options = Array.isArray(payload.options) ? payload.options : null;
-    if (!requestId || !sessionId || !toolCall || typeof toolCall.toolCallId !== "string" || typeof toolCall.title !== "string" || !options)
-        return null;
+    if (!requestId || !sessionId || !toolCall || typeof toolCall.toolCallId !== "string" || !options) return null;
     return {
         requestId,
         sessionId,
-        toolCall: { ...toolCall, toolCallId: toolCall.toolCallId, title: toolCall.title },
+        toolCall: { ...toolCall, toolCallId: toolCall.toolCallId, title: typeof toolCall.title === "string" ? toolCall.title : "Agent tool" },
         options: options.flatMap((option) => {
             const row = recordOf(option);
             return row && typeof row.optionId === "string" && typeof row.name === "string" && typeof row.kind === "string"
@@ -278,6 +277,11 @@ export function AgentChatPane({
     const updateFrameRef = useRef<number | null>(null);
     const agentRef = useRef(agent);
     agentRef.current = agent;
+    const sessionIdRef = useRef<string | null>(null);
+    const lifecycleRef = useRef<Promise<unknown>>(Promise.resolve());
+    const [changingPermissions, setChangingPermissions] = useState(false);
+    const [appliedPermissionMode, setAppliedPermissionMode] = useState<string | null>(null);
+    const environmentKeys = JSON.stringify(profile?.environmentKeys ?? []);
     const permissionMode = agent.permissionMode ?? (agent.skipPermissions ? "bypass" : "workspace-write");
 
     const virtualizer = useVirtualizer({
@@ -287,6 +291,21 @@ export function AgentChatPane({
         overscan: 8,
         getItemKey: (index) => state.messages[index]?.id ?? index,
     });
+
+    useEffect(() => {
+        if (!active) return;
+        const backendState =
+            state.connection === "error" || state.connection === "stopped"
+                ? "stopped"
+                : state.permissions.length > 0
+                  ? "blocked"
+                  : state.running
+                    ? "working"
+                    : state.connection === "ready"
+                      ? "idle"
+                      : "unknown";
+        cmd.noteAcpAgentState(agent.id, backendState);
+    }, [active, agent.id, state.connection, state.running, state.permissions.length]);
 
     useEffect(() => onBusyChange(state.running), [onBusyChange, state.running]);
 
@@ -305,6 +324,9 @@ export function AgentChatPane({
         const controller = new AbortController();
         let mounted = true;
         dispatch({ type: "reset" });
+        setAppliedPermissionMode(null);
+        setChangingPermissions(false);
+        sessionIdRef.current = null;
 
         const flushUpdates = () => {
             if (updateFrameRef.current !== null) {
@@ -335,6 +357,9 @@ export function AgentChatPane({
                 if (update) queueUpdate(update);
             } else if (event.kind === "turn_started") dispatch({ type: "turn_started" });
             else if (event.kind === "turn_completed") {
+                if (sessionIdRef.current && agentRef.current.resumeId !== sessionIdRef.current) {
+                    cmd.attachAgentSession(agent.id, sessionIdRef.current);
+                }
                 dispatch({
                     type: "turn_completed",
                     stopReason: typeof event.payload.stopReason === "string" ? event.payload.stopReason : undefined,
@@ -345,22 +370,30 @@ export function AgentChatPane({
             } else if (event.kind === "error") dispatch({ type: "error", message: eventMessage(event) });
         };
 
-        void acpApi
-            .subscribe(handleEvent, controller.signal)
+        const lifecycle = lifecycleRef.current
+            .catch(() => {})
             .then(async () => {
+                if (!mounted) return;
+                await acpApi.subscribe(handleEvent, controller.signal);
+                if (!mounted) return;
                 const current = agentRef.current;
+                const initialMode = current.permissionMode ?? (current.skipPermissions ? "bypass" : "workspace-write");
                 const response = await acpApi.start({
                     agentId: current.id,
                     provider: current.type,
                     cwd,
                     resumeId: current.resumeId,
-                    permissionMode,
+                    permissionMode: initialMode,
                     configPath: profile?.configPath,
-                    environmentKeys: profile?.environmentKeys,
+                    executablePath: profile?.executablePath || current.executablePath,
+                    model: current.model,
+                    effort: current.effort,
+                    environmentKeys: JSON.parse(environmentKeys) as string[],
                 });
                 if (!mounted) return;
+                sessionIdRef.current = response.sessionId;
                 dispatch({ type: "ready", capabilities: response.capabilities, setup: response.setup });
-                if (current.resumeId !== response.sessionId) cmd.attachAgentSession(current.id, response.sessionId);
+                setAppliedPermissionMode(initialMode);
             })
             .catch((error: unknown) => {
                 if (!controller.signal.aborted && mounted) {
@@ -368,15 +401,38 @@ export function AgentChatPane({
                 }
             });
 
+        lifecycleRef.current = lifecycle;
         return () => {
             mounted = false;
+            sessionIdRef.current = null;
             if (updateFrameRef.current !== null) window.cancelAnimationFrame(updateFrameRef.current);
             updateFrameRef.current = null;
             queuedUpdatesRef.current = [];
             controller.abort();
-            void acpApi.stop(agent.id).catch(() => {});
+            lifecycleRef.current = lifecycle.finally(() => acpApi.stop(agent.id).catch(() => {}));
         };
-    }, [active, agent.id, cwd, permissionMode, profile?.configPath, profile?.environmentKeys, restartKey]);
+    }, [active, agent.id, cwd, profile?.configPath, profile?.executablePath, environmentKeys, restartKey]);
+
+    useEffect(() => {
+        if (state.connection !== "ready" || changingPermissions || appliedPermissionMode === null || permissionMode === appliedPermissionMode) return;
+        const sessionId = sessionIdRef.current;
+        setChangingPermissions(true);
+        void acpApi
+            .setPermissionMode(agent.id, permissionMode)
+            .then(() => {
+                if (sessionIdRef.current === sessionId) setAppliedPermissionMode(permissionMode);
+            })
+            .catch((error: unknown) => {
+                if (sessionIdRef.current !== sessionId) return;
+                const currentMode = agentRef.current.permissionMode ?? (agentRef.current.skipPermissions ? "bypass" : "workspace-write");
+                if (currentMode === permissionMode)
+                    cmd.setAgentPermissionMode(agent.id, appliedPermissionMode as NonNullable<Agent["permissionMode"]>);
+                setComposerError(error instanceof Error ? error.message : String(error));
+            })
+            .finally(() => {
+                if (sessionIdRef.current === sessionId) setChangingPermissions(false);
+            });
+    }, [agent.id, state.connection, permissionMode, appliedPermissionMode, changingPermissions]);
 
     useEffect(() => {
         if (state.title && state.title !== agent.title) cmd.setAgentTitle(agent.id, state.title);
@@ -404,7 +460,14 @@ export function AgentChatPane({
 
     const send = async () => {
         const text = draft.trim();
-        if ((!text && attachments.length === 0) || state.running || state.connection !== "ready") return;
+        if (
+            (!text && attachments.length === 0) ||
+            state.running ||
+            state.connection !== "ready" ||
+            changingPermissions ||
+            permissionMode !== appliedPermissionMode
+        )
+            return;
         const commandName = text.match(/^\/([^\s]+)/)?.[1];
         if (commandName && state.commands.length > 0 && !state.commands.some((command) => command.name === commandName)) {
             setComposerError(`/${commandName} is not available in this session`);
@@ -440,7 +503,7 @@ export function AgentChatPane({
             await acpApi.permissionReply(agent.id, requestId, optionId);
             dispatch({ type: "permission_cleared", requestId });
         } catch (error) {
-            dispatch({ type: "error", message: error instanceof Error ? error.message : String(error) });
+            setComposerError(error instanceof Error ? error.message : String(error));
         } finally {
             setReplyingPermission(null);
         }
@@ -451,11 +514,13 @@ export function AgentChatPane({
     const composerPlaceholder =
         state.connection === "ready"
             ? "Ask about this project, or type / for commands"
-            : state.connection === "installing"
-              ? "Installing structured-session adapter…"
-              : state.connection === "starting"
-                ? "Starting agent adapter…"
-                : "Connecting to agent session…";
+            : state.connection === "error" || state.connection === "stopped"
+              ? "Reconnect to continue this conversation"
+              : state.connection === "installing"
+                ? "Installing structured-session adapter…"
+                : state.connection === "starting"
+                  ? "Starting agent adapter…"
+                  : "Connecting to agent session…";
 
     return (
         <div className="agent-chat-pane" ref={paneRef}>
@@ -491,6 +556,20 @@ export function AgentChatPane({
                         )}
                     </div>
                 )}
+                {state.connection === "error" && agent.resumeId && (
+                    <button
+                        type="button"
+                        onClick={() =>
+                            cmd.addAgent(agent.type, undefined, undefined, {
+                                permissionMode: agent.permissionMode,
+                                profileId: agent.profileId,
+                                detectedExecutablePath: profile?.executablePath || agent.executablePath,
+                                cwd,
+                            })
+                        }>
+                        Start new chat
+                    </button>
+                )}
                 <div className="chat-virtual-space" style={{ height: `${virtualizer.getTotalSize()}px` }}>
                     {virtualizer.getVirtualItems().map((item) => {
                         const message = state.messages[item.index];
@@ -525,6 +604,11 @@ export function AgentChatPane({
                         <IconWarning size={14} />
                         <span>{state.error}</span>
                     </div>
+                )}
+                {state.messages.length > 0 && (state.connection === "error" || state.connection === "stopped") && (
+                    <button type="button" onClick={() => setRestartKey((value) => value + 1)}>
+                        Reconnect
+                    </button>
                 )}
             </div>
 
@@ -595,7 +679,7 @@ export function AgentChatPane({
                                     return;
                                 }
                             }
-                            if (event.key === "Enter" && !event.shiftKey) {
+                            if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
                                 event.preventDefault();
                                 void send();
                             }
@@ -609,7 +693,13 @@ export function AgentChatPane({
                         <button
                             type="button"
                             className={`chat-permission-mode tone-${permission.tone}`}
-                            disabled={state.running || state.permissions.length > 0}
+                            disabled={
+                                state.connection !== "ready" ||
+                                state.running ||
+                                state.permissions.length > 0 ||
+                                changingPermissions ||
+                                permissionMode !== appliedPermissionMode
+                            }
                             title={permission.detail}
                             onClick={() => cmd.toggleAgentSkipPermissions(agent.id)}>
                             <IconShieldBolt size={14} />
@@ -625,9 +715,7 @@ export function AgentChatPane({
                                 onClick={() =>
                                     void acpApi
                                         .cancel(agent.id)
-                                        .catch((error: unknown) =>
-                                            dispatch({ type: "error", message: error instanceof Error ? error.message : String(error) }),
-                                        )
+                                        .catch((error: unknown) => setComposerError(error instanceof Error ? error.message : String(error)))
                                 }>
                                 <span />
                             </button>
@@ -636,7 +724,12 @@ export function AgentChatPane({
                                 type="button"
                                 className="chat-send"
                                 aria-label="Send message"
-                                disabled={state.connection !== "ready" || (!draft.trim() && attachments.length === 0)}
+                                disabled={
+                                    state.connection !== "ready" ||
+                                    changingPermissions ||
+                                    permissionMode !== appliedPermissionMode ||
+                                    (!draft.trim() && attachments.length === 0)
+                                }
                                 onClick={() => void send()}>
                                 <IconArrowUp size={18} />
                             </button>

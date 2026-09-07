@@ -1,6 +1,6 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { AcpEvent } from "../api/acp";
+import { acpApi, type AcpEvent } from "../api/acp";
 import { dispatchPathDrop } from "../state/dropRegistry";
 import type { Agent } from "../state/types";
 import { AgentChatPane } from "./AgentChatPane";
@@ -8,6 +8,10 @@ import { AgentChatPane } from "./AgentChatPane";
 const mocks = vi.hoisted(() => ({
     eventListener: null as ((event: AcpEvent) => void) | null,
     prompt: vi.fn(async () => {}),
+    setPermissionMode: vi.fn(async () => {}),
+    attachAgentSession: vi.fn(),
+    setAgentPermissionMode: vi.fn(),
+    noteAcpAgentState: vi.fn(),
     start: vi.fn(async () => ({ sessionId: "session-1", capabilities: {}, setup: {} })),
 }));
 
@@ -20,11 +24,20 @@ vi.mock("../api/acp", () => ({
             };
         }),
         start: mocks.start,
+        setPermissionMode: mocks.setPermissionMode,
         stop: vi.fn(async () => {}),
         prompt: mocks.prompt,
         cancel: vi.fn(async () => {}),
         permissionReply: vi.fn(async () => {}),
     },
+}));
+
+vi.mock("../state/commands", () => ({
+    attachAgentSession: mocks.attachAgentSession,
+    setAgentPermissionMode: mocks.setAgentPermissionMode,
+    setAgentTitle: vi.fn(),
+    noteAcpAgentState: mocks.noteAcpAgentState,
+    toggleAgentSkipPermissions: vi.fn(),
 }));
 
 vi.mock("@tauri-apps/plugin-dialog", () => ({ open: vi.fn(async () => null) }));
@@ -43,14 +56,106 @@ function emit(kind: AcpEvent["kind"], payload: Record<string, unknown>): void {
 }
 
 beforeEach(() => {
-    mocks.prompt.mockClear();
-    mocks.start.mockClear();
+    vi.clearAllMocks();
     mocks.eventListener = null;
 });
 
 afterEach(cleanup);
 
 describe("AgentChatPane", () => {
+    it("changes YOLO on the live session without restarting or persisting an empty rollout", async () => {
+        const props = { agent, cwd: "/repo", active: true, onBusyChange: () => {} };
+        const { rerender } = render(<AgentChatPane {...props} />);
+        await waitFor(() => expect(screen.getByRole("textbox", { name: "Message agent" })).toBeEnabled());
+        expect(mocks.attachAgentSession).not.toHaveBeenCalled();
+
+        rerender(<AgentChatPane {...props} agent={{ ...agent, permissionMode: "bypass" }} />);
+        await waitFor(() => expect(mocks.setPermissionMode).toHaveBeenCalledWith(agent.id, "bypass"));
+        expect(mocks.start).toHaveBeenCalledTimes(1);
+        expect(acpApi.stop).not.toHaveBeenCalled();
+        emit("turn_completed", { stopReason: "end_turn" });
+        expect(mocks.attachAgentSession).toHaveBeenCalledWith(agent.id, "session-1");
+    });
+
+    it("serializes rapid permission changes and applies the latest choice", async () => {
+        let complete!: () => void;
+        mocks.setPermissionMode.mockImplementationOnce(
+            () =>
+                new Promise<void>((resolve) => {
+                    complete = resolve;
+                }),
+        );
+        const props = { agent, cwd: "/repo", active: true, onBusyChange: () => {} };
+        const { rerender } = render(<AgentChatPane {...props} />);
+        await waitFor(() => expect(screen.getByRole("textbox", { name: "Message agent" })).toBeEnabled());
+        rerender(<AgentChatPane {...props} agent={{ ...agent, permissionMode: "bypass" }} />);
+        await waitFor(() => expect(complete).toBeDefined());
+        rerender(<AgentChatPane {...props} />);
+        await act(async () => complete());
+        await waitFor(() => expect(mocks.setPermissionMode).toHaveBeenLastCalledWith(agent.id, "workspace-write"));
+        expect(mocks.setPermissionMode).toHaveBeenCalledTimes(2);
+        expect(mocks.start).toHaveBeenCalledTimes(1);
+    });
+
+    it("passes the configured executable, model and effort to ACP without restarting for equivalent profile arrays", async () => {
+        const profile = {
+            id: "custom",
+            provider: "codex" as const,
+            name: "Custom",
+            accent: "#888888",
+            executablePath: "/custom/codex",
+            environmentKeys: ["CUSTOM_KEY"],
+        };
+        const props = { agent: { ...agent, model: "custom-model", effort: "high" as const }, cwd: "/repo", active: true, onBusyChange: () => {} };
+        const { rerender } = render(<AgentChatPane {...props} profile={profile} />);
+        await waitFor(() =>
+            expect(mocks.start).toHaveBeenCalledWith(
+                expect.objectContaining({ executablePath: "/custom/codex", model: "custom-model", effort: "high" }),
+            ),
+        );
+        rerender(<AgentChatPane {...props} profile={{ ...profile, environmentKeys: ["CUSTOM_KEY"] }} />);
+        await act(async () => {});
+        expect(mocks.start).toHaveBeenCalledTimes(1);
+    });
+
+    it("does not launch after a delayed subscription resolves on an unmounted pane", async () => {
+        let subscribed!: () => void;
+        vi.mocked(acpApi.subscribe).mockImplementationOnce(
+            () =>
+                new Promise((resolve) => {
+                    subscribed = () => resolve(() => {});
+                }),
+        );
+        const { unmount } = render(<AgentChatPane agent={agent} cwd="/repo" active onBusyChange={() => {}} />);
+        await waitFor(() => expect(subscribed).toBeDefined());
+        unmount();
+        await act(async () => subscribed());
+        expect(mocks.start).not.toHaveBeenCalled();
+    });
+
+    it("rolls back a rejected permission update and keeps the conversation connected", async () => {
+        const props = { agent, cwd: "/repo", active: true, onBusyChange: () => {} };
+        const { rerender } = render(<AgentChatPane {...props} />);
+        await waitFor(() => expect(screen.getByRole("textbox", { name: "Message agent" })).toBeEnabled());
+        mocks.setPermissionMode.mockRejectedValueOnce(new Error("Mode unavailable"));
+        rerender(<AgentChatPane {...props} agent={{ ...agent, permissionMode: "bypass" }} />);
+        expect(await screen.findByText("Mode unavailable")).toBeInTheDocument();
+        expect(mocks.setAgentPermissionMode).toHaveBeenCalledWith(agent.id, "workspace-write");
+        expect(mocks.start).toHaveBeenCalledTimes(1);
+    });
+
+    it("blocks a second prompt while the first is waiting for turn_started", async () => {
+        render(<AgentChatPane agent={agent} cwd="/repo" active onBusyChange={() => {}} />);
+        const editor = screen.getByRole("textbox", { name: "Message agent" });
+        await waitFor(() => expect(editor).toBeEnabled());
+        fireEvent.change(editor, { target: { value: "First" } });
+        fireEvent.keyDown(editor, { key: "Enter" });
+        fireEvent.change(editor, { target: { value: "Second" } });
+        fireEvent.keyDown(editor, { key: "Enter" });
+        expect(mocks.prompt).toHaveBeenCalledTimes(1);
+        expect(screen.getByRole("button", { name: "Stop agent" })).toBeInTheDocument();
+    });
+
     it("shows adapter progress and retries failed startup", async () => {
         render(<AgentChatPane agent={agent} cwd="/repo" active profile={undefined} onBusyChange={() => {}} />);
         await waitFor(() => expect(mocks.eventListener).not.toBeNull());
@@ -62,6 +167,19 @@ describe("AgentChatPane", () => {
         fireEvent.click(screen.getByRole("button", { name: "Retry" }));
 
         await waitFor(() => expect(mocks.start.mock.calls.length).toBeGreaterThan(callsBeforeRetry));
+    });
+
+    it("shows permission requests even when the adapter omits the optional tool title", async () => {
+        render(<AgentChatPane agent={agent} cwd="/repo" active onBusyChange={() => {}} />);
+        await waitFor(() => expect(mocks.eventListener).not.toBeNull());
+        emit("permission_request", {
+            requestId: "request-1",
+            sessionId: "session-1",
+            toolCall: { toolCallId: "tool-1" },
+            options: [{ optionId: "allow", name: "Allow once", kind: "allow_once" }],
+        });
+        fireEvent.click(await screen.findByRole("button", { name: "Allow once" }));
+        await waitFor(() => expect(acpApi.permissionReply).toHaveBeenCalledWith(agent.id, "request-1", "allow"));
     });
 
     it("shows ACP slash commands and inserts the selected command", async () => {

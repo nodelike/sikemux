@@ -1756,7 +1756,9 @@ export function reconcileAgentSessions(type: AgentType, cwd: string, configPath:
         const candidates = rows.filter((row) => !claimed.has(row.id)).sort((a, b) => b.mtime - a.mtime);
         if (candidates.length === 0) return;
 
-        const freshAgents = matchingAgents.filter((agent) => !agent.resumeId).sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0));
+        const freshAgents = matchingAgents
+            .filter((agent) => !agent.resumeId && d.agentActivity[agent.id]?.source !== "acp")
+            .sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0));
         for (const agent of freshAgents) {
             // Only adopt a session that didn't exist when this agent launched,
             // otherwise it grabs the session you were just in and renames its
@@ -1907,6 +1909,17 @@ export function sleepIdleAgents(): number {
     const count = sleepAgents(ids).length;
     notify("info", count === 0 ? "No idle resumable agents to sleep" : `Put ${count} idle agent${count === 1 ? "" : "s"} to sleep`);
     return count;
+}
+
+export function noteAcpAgentState(id: string, state: import("./types").AgentBackendState): void {
+    noteAgentActivity(id, {
+        agentId: id,
+        state,
+        sequence: (getState().agentActivity[id]?.sequence ?? 0) + 1,
+        source: "acp",
+        confidence: "high",
+        reason: "ACP session state",
+    });
 }
 
 export function noteAgentActivity(id: string, event: "working" | "complete" | import("./agentStatus").AgentStateEvent): void {

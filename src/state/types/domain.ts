@@ -132,7 +132,7 @@ export interface AgentRuntimeState {
     unread: boolean;
     updatedAt: number;
     sequence: number;
-    source: "screen" | "activity" | "process" | "fallback";
+    source: "screen" | "activity" | "process" | "fallback" | "acp";
     confidence: "high" | "medium" | "low";
     reason: string;
     matchedRule?: string;

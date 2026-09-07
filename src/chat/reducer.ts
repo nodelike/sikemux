@@ -159,7 +159,13 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         case "reset":
             return initialChatState;
         case "status":
-            return { ...state, connection: action.state, error: action.state === "error" ? state.error : null };
+            return {
+                ...state,
+                connection: action.state,
+                running: action.state === "stopped" || action.state === "error" ? false : state.running,
+                permissions: action.state === "stopped" || action.state === "error" ? [] : state.permissions,
+                error: action.state === "error" ? state.error : null,
+            };
         case "ready":
             return { ...state, connection: "ready", capabilities: action.capabilities, setup: action.setup, error: null };
         case "local_prompt": {
@@ -177,6 +183,7 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
                 ],
                 nextId: state.nextId + 1,
                 suppressUserEcho: true,
+                running: true,
                 error: null,
                 revision: state.revision + 1,
             };
@@ -190,6 +197,7 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
                 ...state,
                 running: false,
                 suppressUserEcho: false,
+                permissions: [],
                 stopReason: action.stopReason ?? null,
                 revision: state.revision + 1,
             };
@@ -210,6 +218,7 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
                 ...state,
                 connection: state.connection === "ready" ? "ready" : "error",
                 running: false,
+                permissions: [],
                 error: action.message,
                 revision: state.revision + 1,
             };

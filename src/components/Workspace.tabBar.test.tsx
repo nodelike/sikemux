@@ -1,14 +1,16 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ComponentProps } from "react";
 import type { TerminalPane } from "../terminal/TerminalPane";
 import { getState, setState } from "../state/store";
+import { acpApi } from "../api/acp";
 import { Workspace } from "./Workspace";
 
 vi.mock("../api/acp", () => ({
     acpApi: {
         subscribe: vi.fn(async () => () => {}),
-        start: vi.fn(() => new Promise(() => {})),
+        start: vi.fn(async () => ({ sessionId: "session-only", capabilities: {}, setup: {} })),
+        setPermissionMode: vi.fn(async () => {}),
         stop: vi.fn(async () => {}),
         prompt: vi.fn(async () => {}),
         cancel: vi.fn(async () => {}),
@@ -24,7 +26,10 @@ vi.mock("../terminal/TerminalPane", () => ({
 
 const initial = getState();
 
-beforeEach(() => setState(initial, true));
+beforeEach(() => {
+    vi.clearAllMocks();
+    setState(initial, true);
+});
 afterEach(cleanup);
 
 function projectWithAgent(resumable = true): string {
@@ -84,7 +89,7 @@ describe("workspace tab bars", () => {
         render(<Workspace />);
 
         const toggle = await screen.findByRole("button", { name: /normal/i });
-        expect(toggle).not.toBeDisabled();
+        await waitFor(() => expect(toggle).not.toBeDisabled());
         fireEvent.click(toggle);
 
         expect(getState().agents["agent-only"]).toMatchObject({
@@ -94,6 +99,20 @@ describe("workspace tab bars", () => {
         });
         expect(await screen.findByRole("button", { name: /yolo/i })).toHaveClass("chat-permission-mode", "tone-danger");
         expect(screen.queryByTestId("terminal-agent-only")).not.toBeInTheDocument();
+    });
+
+    it("keeps the ACP session alive while its tab is hidden", async () => {
+        const sessionId = projectWithAgent(false);
+        render(<Workspace />);
+        await waitFor(() => expect(acpApi.start).toHaveBeenCalledTimes(1));
+        await act(async () => {
+            setState((state) => ({ sessions: { ...state.sessions, [sessionId]: { ...state.sessions[sessionId], view: "windows" } } }));
+        });
+        expect(acpApi.stop).not.toHaveBeenCalled();
+        await act(async () => {
+            setState((state) => ({ sessions: { ...state.sessions, [sessionId]: { ...state.sessions[sessionId], view: "agent" } } }));
+        });
+        expect(acpApi.start).toHaveBeenCalledTimes(1);
     });
 
     it("shows YOLO inside the session composer", async () => {
