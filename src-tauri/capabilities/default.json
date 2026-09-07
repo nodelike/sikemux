@@ -16,6 +16,7 @@
     "allow-acp-start",
     "allow-acp-prompt",
     "allow-acp-set-permission-mode",
+    "allow-acp-set-config",
     "allow-acp-cancel",
     "allow-acp-permission-reply",
     "allow-acp-stop",

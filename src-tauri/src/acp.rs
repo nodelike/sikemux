@@ -62,6 +62,11 @@ enum AcpCommand {
         mode: String,
         reply: oneshot::Sender<Result<(), String>>,
     },
+    SetConfig {
+        config_id: String,
+        value: String,
+        reply: oneshot::Sender<Result<Value, String>>,
+    },
     Cancel,
     Stop,
 }
@@ -409,6 +414,33 @@ pub async fn acp_set_permission_mode(
         .map_err(|_| "ACP session stopped")?
 }
 
+#[tauri::command]
+pub async fn acp_set_config(
+    manager: State<'_, AcpManager>,
+    agent_id: String,
+    config_id: String,
+    value: String,
+) -> Result<Value, String> {
+    bounded_text("config id", &config_id, 256)?;
+    bounded_text("config value", &value, 4096)?;
+    let (reply, response) = oneshot::channel();
+    {
+        let connection = manager
+            .connections
+            .get(&agent_id)
+            .ok_or("ACP session is not running")?;
+        connection
+            .commands
+            .send(AcpCommand::SetConfig {
+                config_id,
+                value,
+                reply,
+            })
+            .map_err(|_| "ACP session stopped")?;
+    }
+    response.await.map_err(|_| "ACP session stopped")?
+}
+
 #[allow(clippy::too_many_arguments)]
 async fn run_connection(
     app: AppHandle,
@@ -662,6 +694,30 @@ async fn run_connection(
                                         .map_err(|error| error.to_string()),
                                     Err(error) => Err(error),
                                 }
+                            };
+                            let _ = reply.send(result);
+                        }
+                        AcpCommand::SetConfig {
+                            config_id,
+                            value,
+                            reply,
+                        } => {
+                            let result = if running.load(Ordering::Acquire) {
+                                Err("Stop the current turn before changing the model".into())
+                            } else {
+                                connection
+                                    .send_request(SetSessionConfigOptionRequest::new(
+                                        session_id.clone(),
+                                        config_id,
+                                        value.as_str(),
+                                    ))
+                                    .block_task()
+                                    .await
+                                    .map_err(|error| error.to_string())
+                                    .and_then(|response| {
+                                        serde_json::to_value(response)
+                                            .map_err(|error| error.to_string())
+                                    })
                             };
                             let _ = reply.send(result);
                         }

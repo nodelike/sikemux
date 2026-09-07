@@ -43,6 +43,8 @@ export const acpApi = {
         }),
     setPermissionMode: (agentId: string, permissionMode: AgentPermissionMode): Promise<void> =>
         invoke<void>("acp_set_permission_mode", { agentId, permissionMode }),
+    setConfig: (agentId: string, configId: string, value: string): Promise<Record<string, unknown>> =>
+        invoke("acp_set_config", { agentId, configId, value }),
     prompt: (agentId: string, text: string, paths: string[]): Promise<void> => invoke<void>("acp_prompt", { agentId, text, paths }),
     cancel: (agentId: string): Promise<void> => invoke<void>("acp_cancel", { agentId }),
     permissionReply: (agentId: string, requestId: string, optionId?: string): Promise<void> =>
