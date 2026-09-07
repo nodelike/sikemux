@@ -115,6 +115,25 @@ describe("workspace tab bars", () => {
         expect(acpApi.start).toHaveBeenCalledTimes(1);
     });
 
+    it("changes the harness in place before the first message and preserves the draft", async () => {
+        const sessionId = projectWithAgent(false);
+        render(<Workspace />);
+        const editor = await screen.findByRole("textbox", { name: "Message agent" });
+        await waitFor(() => expect(editor).toBeEnabled());
+        fireEvent.change(editor, { target: { value: "Keep this draft" } });
+        fireEvent.click(screen.getByRole("button", { name: "Agent" }));
+        fireEvent.click(screen.getByRole("option", { name: /^Claude\s*Default configuration$/ }));
+        await waitFor(() => expect(acpApi.start).toHaveBeenCalledTimes(2));
+        expect(acpApi.start).toHaveBeenLastCalledWith(expect.objectContaining({ agentId: "agent-only", provider: "claude", resumeId: undefined }));
+        expect(acpApi.stop).toHaveBeenCalledWith("agent-only");
+        expect(getState().agentsBySession[sessionId]).toEqual(["agent-only"]);
+        expect(getState().agents["agent-only"]).toMatchObject({ type: "claude", title: "claude" });
+        expect(editor).toHaveValue("Keep this draft");
+        expect(screen.getByRole("button", { name: "Agent" })).toHaveTextContent("Claude");
+        expect(screen.queryByText("only agent")).not.toBeInTheDocument();
+        expect(screen.getAllByText("claude").length).toBeGreaterThan(0);
+    });
+
     it("shows YOLO inside the session composer", async () => {
         projectWithAgent();
         setState((state) => ({

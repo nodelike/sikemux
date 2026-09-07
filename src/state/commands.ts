@@ -1612,6 +1612,30 @@ export function agentSessionMetadataPending(agent: Agent): boolean {
     return title.length <= FALLBACK_AGENT_TITLE_MAX && agent.resumeId.startsWith(title);
 }
 
+export function configureEmptyAgent(id: string, type: "codex" | "claude", profileId?: string): void {
+    mutate((d) => {
+        const agent = d.agents[id];
+        const activity = d.agentActivity[id];
+        if (!agent || activity?.backendState === "working" || activity?.backendState === "blocked") return;
+        const profile = profileId ? d.providerProfiles.find((item) => item.id === profileId && item.provider === type) : undefined;
+        if (profileId && !profile) return;
+        const mode = normalizePermissionMode(type, agent.permissionMode ?? d.defaultAgentPermissionMode);
+        agent.type = type;
+        agent.profileId = profile?.id;
+        agent.title = profile?.name || type;
+        agent.executablePath = profile?.executablePath;
+        agent.permissionMode = mode;
+        agent.skipPermissions = mode === "bypass";
+        delete agent.resumeId;
+        delete agent.model;
+        delete agent.effort;
+        delete agent.baselineSessionIds;
+        const options = profileLaunchOptions(profile);
+        agent.startup = agentStartup(type, undefined, mode, profile?.executablePath, options);
+        agent.directCommand = agentDirectCommand(type, undefined, mode, profile?.executablePath, options);
+    });
+}
+
 export function setAgentModelPreferences(id: string, model: string | undefined, effort: AgentEffort | undefined): void {
     mutate((d) => {
         const agent = d.agents[id];

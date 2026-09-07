@@ -67,6 +67,14 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("AgentChatPane", () => {
+    it("keeps the harness editable for a loaded session without messages", async () => {
+        render(<AgentChatPane agent={{ ...agent, resumeId: "empty-session" }} cwd="/repo" active onBusyChange={() => {}} />);
+        await waitFor(() => expect(screen.getByRole("button", { name: "Agent" })).toBeEnabled());
+        emit("session_update", { update: { sessionUpdate: "user_message_chunk", content: { type: "text", text: "Existing message" } } });
+        emit("ready", { capabilities: {}, setup: {} });
+        await waitFor(() => expect(screen.getByRole("button", { name: "Agent" })).toBeDisabled());
+    });
+
     it("changes the model live and persists only the confirmed configuration", async () => {
         const configs = (model: string) => [
             {

@@ -3,8 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { ComposerPickers, sessionConfigs } from "./ComposerPickers";
 import { getState, setState } from "../state/store";
 
-const mocks = vi.hoisted(() => ({ addAgent: vi.fn() }));
-vi.mock("../state/commands", () => ({ addAgent: mocks.addAgent }));
+const mocks = vi.hoisted(() => ({ onAgent: vi.fn() }));
 const initial = getState();
 afterEach(() => {
     cleanup();
@@ -28,12 +27,12 @@ describe("composer pickers", () => {
         ).toEqual([{ value: "custom/model", label: "My model", description: "Custom provider" }]);
     });
 
-    it("starts a new chat with the selected configured agent", () => {
+    it("selects the harness for the existing empty chat", () => {
         setState({ providerProfiles: [{ id: "work", name: "Work Claude", provider: "claude", accent: "#fff" }] });
         render(
             <ComposerPickers
                 agent={{ id: "a", type: "codex", title: "Codex", startup: "codex" }}
-                cwd="/repo"
+                onAgent={mocks.onAgent}
                 setup={{}}
                 disabled={false}
                 onConfig={() => {}}
@@ -41,14 +40,14 @@ describe("composer pickers", () => {
         );
         fireEvent.click(screen.getByRole("button", { name: "Agent" }));
         fireEvent.click(screen.getByRole("option", { name: /Work Claude/ }));
-        expect(mocks.addAgent).toHaveBeenCalledWith("claude", undefined, undefined, expect.objectContaining({ profileId: "work", cwd: "/repo" }));
+        expect(mocks.onAgent).toHaveBeenCalledWith("claude", "work");
     });
 
     it("locks the agent after messages while keeping model and effort available", () => {
         render(
             <ComposerPickers
                 agent={{ id: "a", type: "codex", title: "Codex", startup: "codex" }}
-                cwd="/repo"
+                onAgent={mocks.onAgent}
                 disabled={false}
                 agentLocked
                 onConfig={() => {}}
@@ -69,7 +68,7 @@ describe("composer pickers", () => {
         render(
             <ComposerPickers
                 agent={{ id: "a", type: "codex", title: "Codex", startup: "codex" }}
-                cwd="/repo"
+                onAgent={mocks.onAgent}
                 disabled={false}
                 onConfig={() => {}}
                 setup={{ configOptions: [{ id: "model", type: "select", currentValue: "model", options: [{ value: "model", name: "My model" }] }] }}

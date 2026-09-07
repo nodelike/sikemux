@@ -2,7 +2,6 @@ import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { AgentIcon, IconCheck, IconChevron } from "../components/Icons";
 import { useStore } from "../state/store";
 import type { Agent, ProviderProfile } from "../state/types";
-import * as cmd from "../state/commands";
 
 interface Choice {
     value: string;
@@ -185,18 +184,18 @@ function Picker({
 export function ComposerPickers({
     agent,
     profile,
-    cwd,
     setup,
     disabled,
     agentLocked = false,
     onConfig,
+    onAgent,
 }: {
     agent: Agent;
     profile?: ProviderProfile;
-    cwd: string;
     setup: Record<string, unknown>;
     disabled: boolean;
     agentLocked?: boolean;
+    onAgent: (type: "codex" | "claude", profileId?: string) => void;
     onConfig: (config: SessionConfig, value: string) => void;
 }) {
     const profiles = useStore((state) => state.providerProfiles);
@@ -217,13 +216,13 @@ export function ComposerPickers({
                 options={agentOptions}
                 disabled={disabled || agentLocked}
                 icon={<AgentIcon type={agent.type} size={15} />}
-                hint={agentLocked ? "The agent is fixed after the first message." : "Choose an agent to start a new chat."}
+                hint={agentLocked ? "The agent is fixed after the first message." : "Choose the harness for this chat."}
                 onSelect={(value) => {
                     if (agentLocked || value === (profile?.id || agent.type)) return;
                     const next = profiles.find((item) => item.id === value);
                     const type = next?.provider ?? value;
                     if (type !== "claude" && type !== "codex") return;
-                    cmd.addAgent(type, undefined, undefined, { profileId: next?.id ?? null, permissionMode: agent.permissionMode, cwd });
+                    onAgent(type, next?.id);
                 }}
             />
             {["model", agent.type === "claude" ? "effort" : "reasoning_effort"].map((id) => {

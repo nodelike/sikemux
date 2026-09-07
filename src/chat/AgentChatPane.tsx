@@ -278,8 +278,8 @@ export function AgentChatPane({
     const updateFrameRef = useRef<number | null>(null);
     const agentRef = useRef(agent);
     agentRef.current = agent;
-    const agentLockedRef = useRef(!!agent.resumeId);
-    if (state.messages.length > 0 || agent.resumeId) agentLockedRef.current = true;
+    const agentLockedRef = useRef(false);
+    if (state.messages.length > 0) agentLockedRef.current = true;
     const sessionIdRef = useRef<string | null>(null);
     const lifecycleRef = useRef<Promise<unknown>>(Promise.resolve());
     const [changingConfig, setChangingConfig] = useState(false);
@@ -416,7 +416,18 @@ export function AgentChatPane({
             controller.abort();
             lifecycleRef.current = lifecycle.finally(() => acpApi.stop(agent.id).catch(() => {}));
         };
-    }, [active, agent.id, cwd, profile?.configPath, profile?.executablePath, environmentKeys, restartKey]);
+    }, [
+        active,
+        agent.id,
+        agent.type,
+        agent.profileId,
+        agent.executablePath,
+        cwd,
+        profile?.configPath,
+        profile?.executablePath,
+        environmentKeys,
+        restartKey,
+    ]);
 
     useEffect(() => {
         if (state.connection !== "ready" || changingPermissions || appliedPermissionMode === null || permissionMode === appliedPermissionMode) return;
@@ -739,12 +750,15 @@ export function AgentChatPane({
                         <ComposerPickers
                             agent={agent}
                             profile={profile}
-                            cwd={cwd}
                             setup={state.setup}
                             agentLocked={agentLockedRef.current}
                             disabled={
                                 state.connection !== "ready" || state.running || changingPermissions || changingConfig || state.permissions.length > 0
                             }
+                            onAgent={(type, profileId) => {
+                                if (agentLockedRef.current || state.running || state.permissions.length > 0) return;
+                                cmd.configureEmptyAgent(agent.id, type, profileId);
+                            }}
                             onConfig={(config, value) => void changeConfig(config, value)}
                         />
                         <span className="chat-composer-spacer" />
