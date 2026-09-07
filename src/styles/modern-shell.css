@@ -461,8 +461,7 @@ select:focus-visible,
 }
 
 .agent-glyph-x {
-    top: 11px;
-    left: 14px;
+    left: var(--space-2);
     width: 20px;
     height: 20px;
     border-radius: var(--radius-control);

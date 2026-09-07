@@ -598,8 +598,9 @@
 .agent-glyph-x {
     position: absolute;
     z-index: 2;
-    top: 7px;
-    left: 9px;
+    top: 50%;
+    left: 10px;
+    transform: translateY(-50%);
     width: 20px;
     height: 20px;
     display: flex;
