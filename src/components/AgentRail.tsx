@@ -344,7 +344,11 @@ function AgentUsagePanel({ provider, usage, label }: { provider: UsageAgentType;
     const providerLabel = label ?? (provider === "claude" ? "Claude" : "Codex");
     const windows = usage.data?.windows ?? [];
     const emptyCopy =
-        usage.status === "loading" ? "reading plan limits…" : usage.status === "error" ? "plan limits unavailable" : "no plan limits reported";
+        usage.status === "loading"
+            ? "reading plan limits…"
+            : usage.status === "error"
+              ? "Could not read plan limits. Refresh to try again."
+              : (usage.data?.unavailableReason ?? "This account did not report plan limits.");
 
     return (
         <section className={`agent-usage ${provider}`} aria-label={`${providerLabel} plan limits`}>

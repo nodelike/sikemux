@@ -41,6 +41,7 @@ export interface AgentUsage {
     provider: AgentType;
     plan: string | null;
     windows: AgentUsageWindow[];
+    unavailableReason?: string | null;
 }
 
 /** A provider-scoped history result. Errors intentionally stay opaque to UI code. */

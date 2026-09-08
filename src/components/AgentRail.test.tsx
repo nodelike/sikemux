@@ -123,6 +123,21 @@ describe("agent rail", () => {
         expect(mocks.usage).toHaveBeenCalledWith("claude", "claude", undefined);
     });
 
+    it("explains unavailable subscription limits without rendering a zero meter", async () => {
+        mocks.usage.mockResolvedValue({
+            provider: "codex",
+            plan: null,
+            windows: [],
+            unavailableReason: "API-key accounts do not provide plan usage.",
+        });
+        invalidate((kind) => kind === "agents.catalog" || kind === "agents.usage");
+
+        render(<AgentRail />);
+
+        expect(await screen.findByText("API-key accounts do not provide plan usage.")).toBeInTheDocument();
+        expect(screen.queryByRole("meter")).not.toBeInTheDocument();
+    });
+
     it("does not request or render plan usage for other detected agents", async () => {
         mocks.available.mockResolvedValue([{ type: "hermes", label: "Hermes", command: "hermes", defaultModel: null, defaultEffort: null }]);
         invalidate((kind) => kind === "agents.catalog" || kind === "agents.usage");

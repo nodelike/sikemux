@@ -73,10 +73,12 @@ pub struct AgentUsageWindow {
 }
 
 #[derive(Serialize, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
 pub struct AgentUsage {
     provider: &'static str,
     plan: Option<String>,
     windows: Vec<AgentUsageWindow>,
+    unavailable_reason: Option<String>,
 }
 
 #[derive(Serialize, Clone)]
@@ -274,7 +276,7 @@ fn explicit_agent_candidates(value: &str) -> Vec<PathBuf> {
 }
 
 async fn probe_agent_executable_with_timeout(
-    agent: &str,
+    _agent: &str,
     executable: &Path,
     timeout: Duration,
 ) -> Result<String, String> {
@@ -306,9 +308,6 @@ async fn probe_agent_executable_with_timeout(
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped());
     apply_login_environment(&mut command);
-    if agent == "claude" {
-        command.env_remove("CLAUDECODE");
-    }
     let output = tokio::time::timeout(timeout, command.output())
         .await
         .map_err(|_| "version check timed out".to_string())?
@@ -628,11 +627,6 @@ async fn run_model_catalog_executable(
         })
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped());
-    if agent == "claude" {
-        command
-            .env_remove("CLAUDECODE")
-            .env("CLAUDE_CODE_ENTRYPOINT", "sikemux");
-    }
     apply_process_config(&mut command, agent, config_path);
     let mut child = command
         .spawn()
@@ -894,6 +888,18 @@ fn parse_claude_usage(text: &str, request_id: &str) -> Option<AgentUsage> {
         response.get("response").cloned()
     })?;
 
+    if !payload
+        .get("rate_limits")
+        .is_some_and(|value| value.is_object())
+        && payload
+            .get("rate_limits_available")
+            .and_then(Value::as_bool)
+            != Some(false)
+    {
+        return None;
+    }
+    let unavailable_reason = (payload.get("rate_limits_available").and_then(Value::as_bool) == Some(false))
+        .then(|| "Plan limits are unavailable for this login. API keys and third-party providers do not report subscription limits; OAuth access also requires profile permission.".to_string());
     let plan = payload
         .get("subscription_type")
         .and_then(Value::as_str)
@@ -943,6 +949,7 @@ fn parse_claude_usage(text: &str, request_id: &str) -> Option<AgentUsage> {
         provider: "claude",
         plan,
         windows,
+        unavailable_reason,
     })
 }
 
@@ -1042,6 +1049,7 @@ fn parse_codex_usage_result(result: &Value) -> AgentUsage {
     AgentUsage {
         provider: "codex",
         plan,
+        unavailable_reason: windows.is_empty().then(|| "This account did not report subscription limits. API-key accounts do not provide plan usage.".to_string()),
         windows,
     }
 }
@@ -2943,6 +2951,20 @@ mod executable_tests {
             usage.windows[0].resets_at,
             Some(AgentUsageResetAt::Iso("2026-08-13T12:00:00Z".to_string()))
         );
+    }
+
+    #[test]
+    fn claude_usage_explains_unavailable_limits_and_rejects_unknown_payloads() {
+        let usage = parse_claude_usage(
+            r#"{"type":"control_response","response":{"subtype":"success","request_id":"usage","response":{"subscription_type":null,"rate_limits_available":false,"rate_limits":null}}}"#,
+            "usage",
+        ).unwrap();
+        assert!(usage.windows.is_empty());
+        assert!(usage.unavailable_reason.unwrap().contains("API keys"));
+        assert!(parse_claude_usage(
+            r#"{"type":"control_response","response":{"subtype":"success","request_id":"usage","response":{}}}"#,
+            "usage",
+        ).is_none());
     }
 
     #[test]
