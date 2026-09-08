@@ -206,10 +206,6 @@ fn capture_login_shell_environment() -> HashMap<String, String> {
             // An rc file that reads stdin sees EOF instead of blocking.
             .stdin(std::process::Stdio::null())
             .stderr(std::process::Stdio::null());
-        // The capture inherits our environment, so any agent-session marker
-        // this app was itself launched under would come straight back and
-        // defeat the scrub in `configure_pty_environment`. Drop them up front:
-        // whatever survives genuinely came from the profile.
         for key in crate::pty::OPTIONAL_PTY_ENV {
             command.env_remove(key);
         }

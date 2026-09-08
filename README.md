@@ -85,7 +85,7 @@ Sikemux detects Claude, Codex, Hermes, Pi, and OpenCode on your `PATH`. It reads
 
 - Open an agent picker with `⌥N` from the Agents view. Sikemux launches the selected CLI directly in a PTY.
 - Choose Normal or YOLO mode. Press `⌥Y` to toggle the mode for a resumable agent.
-- Press `⌘T` to split the active agent pane and open the embedded browser. Browser tabs belong to the session and keep their sign-ins. You can take control at any time. Sikemux injects Browser Use tools into Claude and Codex.
+- Press `⌘T` to split the active agent pane and open the embedded browser. Browser tabs belong to the session and keep their sign-ins. You can take control at any time. Agent commands run through your configured interactive shell and use its environment and login. Browser tools use the agent’s own MCP configuration.
 
 ![Agents view](public/screenshots/project-agents-view.png)
 

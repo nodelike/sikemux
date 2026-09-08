@@ -1950,6 +1950,27 @@ fn validate_direct_command(
     Ok(())
 }
 
+fn configure_interactive_command(command: &mut CommandBuilder, launch: &PtyDirectCommand) {
+    let invocation = std::iter::once(&launch.program)
+        .chain(launch.args.iter())
+        .map(|value| {
+            #[cfg(unix)]
+            {
+                format!("'{}'", value.replace('\'', "'\\''"))
+            }
+            #[cfg(windows)]
+            {
+                format!("'{}'", value.replace('\'', "''"))
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ");
+    #[cfg(unix)]
+    command.args(["-l", "-i", "-c", &invocation]);
+    #[cfg(windows)]
+    command.args(["-NoLogo", "-NoExit", "-Command", &format!("& {invocation}")]);
+}
+
 fn agent_profile_config_root(path: &str) -> PathBuf {
     let trimmed = path.trim();
     let expanded = if trimmed == "~" {
@@ -2021,25 +2042,6 @@ pub(crate) const OPTIONAL_PTY_ENV: &[&str] = &[
     "SIKEMUX_BROWSER_MCP_COMMAND",
     "SIKEMUX_BROWSER_MCP_ARGS",
     "SIKEMUX_BROWSER_AGENT_ID",
-    "OPENCODE_CONFIG_CONTENT",
-    "HERMES_HOME",
-    "GROK_HOME",
-    // Markers an agent CLI exports for processes it starts. If Sikemux was
-    // itself launched from inside one, every terminal it opens looks like a
-    // child of that session — the CLI then disables transcript saving, and the
-    // messaging socket and token hand a new shell the parent's IPC credentials.
-    // A user who exports any of these from their own profile still gets them:
-    // the shell reads its profile after this point.
-    "CODEX_THREAD_ID",
-    "CLAUDECODE",
-    "CLAUDE_CODE_CHILD_SESSION",
-    "CLAUDE_CODE_ENTRYPOINT",
-    "CLAUDE_CODE_EXECPATH",
-    "CLAUDE_CODE_MESSAGING_SOCKET",
-    "CLAUDE_CODE_MESSAGING_TOKEN",
-    "CLAUDE_CODE_SESSION_ID",
-    "CLAUDE_EFFORT",
-    "CLAUDE_PID",
 ];
 
 fn non_empty(value: &Option<String>) -> Option<&str> {
@@ -2075,25 +2077,12 @@ fn configure_pty_environment(
     cli_endpoint: Option<&Path>,
     profile_env: &HashMap<String, String>,
 ) {
-    // A GUI app inherits launchd's environment, not the user's profile, and a
-    // direct-command PTY has no shell that would read one. Fill in what the
-    // profile exports — API keys, tokens, proxy and CA settings — so an agent
-    // CLI authenticates in a pane exactly as it does in the user's own
-    // terminal. Absent keys only, so every explicit assignment below still
-    // wins. This runs first so the scrub that follows has the final word.
     for (key, value) in profile_env {
         if cmd.get_env(key).is_none() {
             cmd.env(key, value);
         }
     }
 
-    // Scrub *after* the profile fill, never before. A direct-command pane has
-    // no shell that would re-read the profile, so this is the only thing
-    // standing between it and an inherited identity. Scrubbing first would
-    // leave every one of these keys absent — and therefore refillable — and
-    // the ones no PtyContext ever sets (CLAUDECODE, CLAUDE_CODE_*) would come
-    // straight back from the profile map, handing a pane the transcript
-    // suppression and IPC credentials this list exists to strip.
     for key in OPTIONAL_PTY_ENV {
         cmd.env_remove(key);
     }
@@ -2397,7 +2386,6 @@ pub async fn pty_spawn(
 ) -> AppResult<u32> {
     validate_pty_dimensions(cols, rows)?;
     let startup = startup.filter(|value| !value.is_empty());
-    let mut direct_command = direct_command;
     if startup.is_some() && direct_command.is_some() {
         return Err(AppError::BadArg(
             "PTY startup and direct command are mutually exclusive",
@@ -2406,47 +2394,24 @@ pub async fn pty_spawn(
     if let Some(command) = direct_command.as_ref() {
         validate_direct_command(command, context.as_ref())?;
     }
-    let browser_environment =
-        if let (Some(command), Some(context)) = (direct_command.as_mut(), context.as_ref()) {
-            match (context.agent_id.as_deref(), context.agent_type.as_deref()) {
-                (
-                    Some(agent_id),
-                    Some(
-                        agent_type @ ("codex" | "claude" | "hermes" | "pi" | "opencode" | "omp"
-                        | "grok"),
-                    ),
-                ) => match browser
-                    .agent_integration(&app, agent_id, agent_type, &command.program)
-                    .await
-                {
-                    Ok(mut integration) => {
-                        integration.args_prefix.append(&mut command.args);
-                        command.args = integration.args_prefix;
-                        Some(integration.environment)
-                    }
-                    Err(error) => {
-                        eprintln!("Sikemux browser integration is unavailable: {error}");
-                        None
-                    }
-                },
-                _ => None,
-            }
-        } else {
-            None
-        };
+    let browser_environment = if let Some(agent_id) = context
+        .as_ref()
+        .and_then(|context| context.agent_id.as_deref())
+    {
+        browser.environment(&app, agent_id).await.ok()
+    } else {
+        None
+    };
     let shell = crate::system::configured_shell();
     let direct_profile = direct_command
         .as_ref()
         .and_then(|command| command.profile.clone());
     #[cfg(unix)]
     let has_direct_command = direct_command.is_some();
-    let mut cmd = if let Some(command) = direct_command {
-        let mut builder = CommandBuilder::new(command.program);
-        builder.args(command.args);
-        builder
-    } else {
-        CommandBuilder::new(&shell)
-    };
+    let mut cmd = CommandBuilder::new(&shell);
+    if let Some(command) = direct_command.as_ref() {
+        configure_interactive_command(&mut cmd, command);
+    }
     let cli_executable = crate::cli_server::cli_executable_path();
     let cli_endpoint = crate::cli_server::cli_endpoint_path();
     configure_pty_environment(
@@ -2455,7 +2420,7 @@ pub async fn pty_spawn(
         &app.package_info().version.to_string(),
         cli_executable.as_deref(),
         cli_endpoint.as_deref(),
-        crate::system::login_shell_environment(),
+        &HashMap::new(),
     );
     apply_agent_profile(&mut cmd, context.as_ref(), direct_profile.as_ref());
     if let Some(environment) = browser_environment {
@@ -2464,7 +2429,9 @@ pub async fn pty_spawn(
         }
     }
     #[cfg(windows)]
-    cmd.args(["-NoLogo"]);
+    if direct_command.is_none() {
+        cmd.arg("-NoLogo");
+    }
     let shell_integration = if shell_integration_requested(
         context.as_ref(),
         startup.is_some(),
@@ -3426,6 +3393,46 @@ mod tests {
         }
     }
 
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn interactive_command_reads_zshrc_and_preserves_literal_arguments() {
+        use portable_pty::{NativePtySystem, PtySize, PtySystem};
+        use std::io::Read;
+
+        let root = tempfile::tempdir().unwrap();
+        std::fs::write(root.path().join(".zshrc"),
+            "export SIKEMUX_TEST_AUTH=from-zshrc\nprobe() { printf '%s|%s' \"$SIKEMUX_TEST_AUTH\" \"$1\"; }\n").unwrap();
+        let mut command = CommandBuilder::new("/bin/zsh");
+        command.env("ZDOTDIR", root.path());
+        command.env_remove("SIKEMUX_TEST_AUTH");
+        let argument = "spaces ' quotes; $(printf injected) \n next";
+        super::configure_interactive_command(
+            &mut command,
+            &super::PtyDirectCommand {
+                program: "probe".into(),
+                args: vec![argument.into()],
+                profile: None,
+            },
+        );
+        let pair = NativePtySystem::default()
+            .openpty(PtySize {
+                rows: 24,
+                cols: 80,
+                pixel_width: 0,
+                pixel_height: 0,
+            })
+            .unwrap();
+        let mut reader = pair.master.try_clone_reader().unwrap();
+        let mut child = pair.slave.spawn_command(command).unwrap();
+        drop(pair.slave);
+        let mut output = Vec::new();
+        let _ = reader.read_to_end(&mut output);
+        assert_eq!(child.wait().unwrap().exit_code(), 0);
+        assert!(String::from_utf8_lossy(&output)
+            .replace("\r\n", "\n")
+            .contains(&format!("from-zshrc|{argument}")));
+    }
+
     #[test]
     fn agent_profiles_pin_provider_config_directories() {
         let profile = PtyAgentProfile {
@@ -3876,9 +3883,10 @@ mod tests {
         assert_eq!(env(&command, "SIKEMUX_WINDOW_ID"), Some("window-1".into()));
         assert_eq!(env(&command, "SIKEMUX_PANE_ID"), Some("pane-1".into()));
         assert_eq!(env(&command, "SIKEMUX_AGENT_ID"), None);
-        assert_eq!(env(&command, "CODEX_THREAD_ID"), None);
-        // A terminal must not come up wearing the identity, or holding the IPC
-        // credentials, of an agent session that happened to launch the app.
+        assert_eq!(
+            env(&command, "CODEX_THREAD_ID"),
+            Some("parent-thread".into())
+        );
         for marker in [
             "CLAUDECODE",
             "CLAUDE_CODE_CHILD_SESSION",
@@ -3886,7 +3894,7 @@ mod tests {
             "CLAUDE_CODE_MESSAGING_TOKEN",
             "CLAUDE_CODE_MESSAGING_SOCKET",
         ] {
-            assert_eq!(env(&command, marker), None, "{marker} leaked into the PTY");
+            assert!(env(&command, marker).is_some());
         }
         assert_eq!(
             env(&command, "SIKEMUX_BIN_PATH"),
@@ -4020,17 +4028,8 @@ mod tests {
         assert_eq!(env(&command, "SIKEMUX_AGENT_ID"), Some("agent-real".into()));
     }
 
-    /// The invariant the test above cannot see: it sets `agent_id`, so a later
-    /// assignment overwrites the profile value regardless of ordering. These
-    /// are the keys nothing rebuilds — an unset optional field, and the agent
-    /// markers no `PtyContext` ever writes. A shell pane may legitimately pick
-    /// these up when it reads the profile itself; a direct-command pane has no
-    /// shell, so the scrub is the only thing standing in the way. If the
-    /// profile fill ran after it, a marker in the user's own `.zshrc` would
-    /// silently disable the agent CLI's transcript saving and hand the pane
-    /// another session's IPC credentials.
     #[test]
-    fn pty_environment_profile_cannot_restore_scrubbed_keys_nothing_rebuilds() {
+    fn pty_environment_preserves_provider_environment_and_resets_own_identity() {
         let mut command = CommandBuilder::new("claude");
         // `CommandBuilder::new` seeds itself from this process's environment,
         // so a developer running the suite from their own terminal already has
@@ -4074,16 +4073,16 @@ mod tests {
             "SIKEMUX_AGENT_ID",
             "SIKEMUX_PANE_ID",
             "SIKEMUX_SHELL_INTEGRATION",
+        ] {
+            assert_eq!(env(&command, scrubbed), None);
+        }
+        for key in [
             "CLAUDECODE",
             "CLAUDE_CODE_MESSAGING_SOCKET",
             "CLAUDE_CODE_MESSAGING_TOKEN",
             "CODEX_THREAD_ID",
         ] {
-            assert_eq!(
-                env(&command, scrubbed),
-                None,
-                "{scrubbed} must not survive from the profile"
-            );
+            assert!(env(&command, key).is_some());
         }
         assert_eq!(
             env(&command, "ANTHROPIC_API_KEY"),

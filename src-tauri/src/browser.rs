@@ -41,11 +41,6 @@ pub struct BrowserMcpLaunch {
     pub args: Vec<String>,
 }
 
-pub struct BrowserAgentIntegration {
-    pub args_prefix: Vec<String>,
-    pub environment: Vec<(String, String)>,
-}
-
 #[derive(Default)]
 struct BrowserRuntime {
     cdp: Option<Arc<CdpClient>>,
@@ -488,7 +483,13 @@ impl BrowserManager {
         let state_dir = browser_state_dir(app)?;
         initialize_registry(&state_dir)?;
         let (broker_url, broker_token) = self.ensure_broker(app).await?;
+        let launch = self.mcp_launch(app)?;
         Ok(vec![
+            ("SIKEMUX_BROWSER_MCP_COMMAND".into(), launch.command),
+            (
+                "SIKEMUX_BROWSER_MCP_ARGS".into(),
+                serde_json::to_string(&launch.args)?,
+            ),
             (
                 "SIKEMUX_BROWSER_STATE_DIR".into(),
                 state_dir.to_string_lossy().into_owned(),
@@ -497,62 +498,6 @@ impl BrowserManager {
             ("SIKEMUX_BROWSER_BROKER_TOKEN".into(), broker_token),
             ("SIKEMUX_BROWSER_AGENT_ID".into(), agent_id.to_owned()),
         ])
-    }
-
-    pub async fn agent_integration(
-        &self,
-        app: &AppHandle,
-        agent_id: &str,
-        agent_type: &str,
-        agent_program: &str,
-    ) -> AppResult<BrowserAgentIntegration> {
-        let mut environment = self.environment(app, agent_id).await?;
-        let launch = self.mcp_launch(app)?;
-        let args_prefix = match agent_type {
-            "codex" => codex_browser_args(&launch)?,
-            "claude" => claude_browser_args(app, &launch)?,
-            "hermes" => {
-                let overlay =
-                    prepare_hermes_browser_home(app, agent_id, agent_program, &launch).await?;
-                environment.push(("HERMES_HOME".into(), overlay.to_string_lossy().into_owned()));
-                Vec::new()
-            }
-            "pi" | "omp" => {
-                environment.push(("SIKEMUX_BROWSER_MCP_COMMAND".into(), launch.command.clone()));
-                environment.push((
-                    "SIKEMUX_BROWSER_MCP_ARGS".into(),
-                    serde_json::to_string(&launch.args)?,
-                ));
-                vec![
-                    "--extension".into(),
-                    pi_browser_extension(app)?.to_string_lossy().into_owned(),
-                ]
-            }
-            "grok" => {
-                let overlay =
-                    prepare_grok_browser_home(app, agent_id, agent_program, &launch).await?;
-                environment.push(("GROK_HOME".into(), overlay.to_string_lossy().into_owned()));
-                Vec::new()
-            }
-            "opencode" => {
-                let profile_environment = crate::system::login_shell_environment();
-                let process_environment = std::env::var("OPENCODE_CONFIG_CONTENT").ok();
-                let existing = profile_environment
-                    .get("OPENCODE_CONFIG_CONTENT")
-                    .map(String::as_str)
-                    .or(process_environment.as_deref());
-                environment.push((
-                    "OPENCODE_CONFIG_CONTENT".into(),
-                    opencode_browser_config(existing, &launch)?,
-                ));
-                Vec::new()
-            }
-            _ => return Err(AppError::BadArg("unsupported browser agent type")),
-        };
-        Ok(BrowserAgentIntegration {
-            args_prefix,
-            environment,
-        })
     }
 
     pub fn mcp_launch(&self, app: &AppHandle) -> AppResult<BrowserMcpLaunch> {
@@ -785,254 +730,6 @@ impl Drop for BrowserManager {
     fn drop(&mut self) {
         self.drain();
     }
-}
-
-fn codex_browser_args(launch: &BrowserMcpLaunch) -> AppResult<Vec<String>> {
-    let command = serde_json::to_string(&launch.command)?;
-    let args = serde_json::to_string(&launch.args)?;
-    Ok(vec![
-        "-c".into(),
-        format!("mcp_servers.sikemux_browser.command={command}"),
-        "-c".into(),
-        format!("mcp_servers.sikemux_browser.args={args}"),
-    ])
-}
-
-fn claude_browser_args(app: &AppHandle, launch: &BrowserMcpLaunch) -> AppResult<Vec<String>> {
-    let directory = browser_state_dir(app)?;
-    std::fs::create_dir_all(&directory)?;
-    let path = directory.join("claude-mcp.json");
-    let config = json!({
-        "mcpServers": {
-            "sikemux-browser": {
-                "type": "stdio",
-                "command": launch.command,
-                "args": launch.args,
-            }
-        }
-    });
-    let temporary = directory.join(format!(".claude-mcp-{}.json", uuid::Uuid::new_v4()));
-    std::fs::write(&temporary, serde_json::to_vec_pretty(&config)?)?;
-    std::fs::rename(temporary, &path)?;
-    Ok(vec![
-        "--mcp-config".into(),
-        path.to_string_lossy().into_owned(),
-    ])
-}
-
-fn opencode_browser_config(existing: Option<&str>, launch: &BrowserMcpLaunch) -> AppResult<String> {
-    let mut config = match existing.map(str::trim).filter(|value| !value.is_empty()) {
-        Some(existing) => serde_json::from_str::<Value>(existing)
-            .map_err(|_| AppError::BadArg("invalid OPENCODE_CONFIG_CONTENT"))?,
-        None => json!({}),
-    };
-    let root = config
-        .as_object_mut()
-        .ok_or(AppError::BadArg("invalid OPENCODE_CONFIG_CONTENT"))?;
-    let mcp = root.entry("mcp").or_insert_with(|| json!({}));
-    let mcp = mcp
-        .as_object_mut()
-        .ok_or(AppError::BadArg("invalid OpenCode MCP config"))?;
-    let mut command = vec![launch.command.clone()];
-    command.extend(launch.args.iter().cloned());
-    mcp.insert(
-        "sikemux_browser".into(),
-        json!({
-            "type": "local",
-            "command": command,
-            "enabled": true,
-        }),
-    );
-    serde_json::to_string(&config).map_err(AppError::from)
-}
-
-fn pi_browser_extension(app: &AppHandle) -> AppResult<PathBuf> {
-    if let Ok(resource_dir) = app.path().resource_dir() {
-        let path = resource_dir.join("sikemux_pi_browser.ts");
-        if path.is_file() {
-            return Ok(path);
-        }
-    }
-    #[cfg(debug_assertions)]
-    {
-        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("resources")
-            .join("sikemux_pi_browser.ts");
-        if path.is_file() {
-            return Ok(path);
-        }
-    }
-    Err(AppError::Other(
-        "bundled Pi browser extension is missing".into(),
-    ))
-}
-
-fn hermes_home() -> PathBuf {
-    crate::system::login_shell_environment()
-        .get("HERMES_HOME")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| crate::system::user_home().join(".hermes"))
-}
-
-fn link_hermes_entry(source: &Path, destination: &Path) -> std::io::Result<()> {
-    if std::fs::symlink_metadata(destination).is_ok() {
-        return Ok(());
-    }
-    #[cfg(unix)]
-    {
-        std::os::unix::fs::symlink(source, destination)
-    }
-    #[cfg(windows)]
-    {
-        if source.is_dir() {
-            std::os::windows::fs::symlink_dir(source, destination)
-        } else {
-            std::os::windows::fs::symlink_file(source, destination)
-                .or_else(|_| std::fs::hard_link(source, destination))
-                .or_else(|_| std::fs::copy(source, destination).map(|_| ()))
-        }
-    }
-}
-
-fn mirror_agent_home(source: &Path, destination: &Path, private_config: &str) -> AppResult<()> {
-    std::fs::create_dir_all(destination)?;
-    let entries = match std::fs::read_dir(source) {
-        Ok(entries) => entries,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
-        Err(error) => return Err(error.into()),
-    };
-    for entry in entries.flatten() {
-        if entry.file_name() == private_config {
-            continue;
-        }
-        link_hermes_entry(&entry.path(), &destination.join(entry.file_name()))?;
-    }
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(destination, std::fs::Permissions::from_mode(0o700))?;
-    }
-    Ok(())
-}
-
-async fn prepare_hermes_browser_home(
-    app: &AppHandle,
-    agent_id: &str,
-    agent_program: &str,
-    launch: &BrowserMcpLaunch,
-) -> AppResult<PathBuf> {
-    let source = hermes_home();
-    let destination = browser_state_dir(app)?.join("hermes").join(agent_id);
-    mirror_agent_home(&source, &destination, "config.yaml")?;
-    let source_config = source.join("config.yaml");
-    let destination_config = destination.join("config.yaml");
-    if source_config.is_file() {
-        std::fs::copy(source_config, &destination_config)?;
-    } else {
-        std::fs::write(&destination_config, "{}\n")?;
-    }
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&destination_config, std::fs::Permissions::from_mode(0o600))?;
-    }
-
-    let server = json!({
-        "command": launch.command,
-        "args": launch.args,
-        "enabled": true,
-    })
-    .to_string();
-    let output = tokio::time::timeout(
-        Duration::from_secs(5),
-        tokio::process::Command::new(agent_program)
-            .args([
-                "config",
-                "set",
-                "mcp_servers.sikemux_browser",
-                &server,
-                "--force",
-            ])
-            .env("HERMES_HOME", &destination)
-            .kill_on_drop(true)
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::piped())
-            .output(),
-    )
-    .await
-    .map_err(|_| AppError::Other("Hermes browser config timed out".into()))?
-    .map_err(|error| AppError::Other(format!("Hermes browser config failed: {error}")))?;
-    if !output.status.success() {
-        let detail = String::from_utf8_lossy(&output.stderr)
-            .chars()
-            .take(512)
-            .collect::<String>();
-        return Err(AppError::Other(format!(
-            "Hermes browser config failed: {}",
-            detail.trim()
-        )));
-    }
-    Ok(destination)
-}
-
-fn grok_home() -> PathBuf {
-    crate::system::login_shell_environment()
-        .get("GROK_HOME")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| crate::system::user_home().join(".grok"))
-}
-
-async fn prepare_grok_browser_home(
-    app: &AppHandle,
-    agent_id: &str,
-    agent_program: &str,
-    launch: &BrowserMcpLaunch,
-) -> AppResult<PathBuf> {
-    let source = grok_home();
-    let destination = browser_state_dir(app)?.join("grok").join(agent_id);
-    mirror_agent_home(&source, &destination, "config.toml")?;
-    let source_config = source.join("config.toml");
-    let destination_config = destination.join("config.toml");
-    if source_config.is_file() {
-        std::fs::copy(source_config, &destination_config)?;
-    } else {
-        std::fs::write(&destination_config, "")?;
-    }
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&destination_config, std::fs::Permissions::from_mode(0o600))?;
-    }
-
-    let mut args = vec!["mcp", "add", "sikemux_browser", "--"];
-    args.push(&launch.command);
-    args.extend(launch.args.iter().map(String::as_str));
-    let output = tokio::time::timeout(
-        Duration::from_secs(5),
-        tokio::process::Command::new(agent_program)
-            .args(args)
-            .env("GROK_HOME", &destination)
-            .kill_on_drop(true)
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::piped())
-            .output(),
-    )
-    .await
-    .map_err(|_| AppError::Other("Grok browser config timed out".into()))?
-    .map_err(|error| AppError::Other(format!("Grok browser config failed: {error}")))?;
-    if !output.status.success() {
-        let detail = String::from_utf8_lossy(&output.stderr)
-            .chars()
-            .take(512)
-            .collect::<String>();
-        return Err(AppError::Other(format!(
-            "Grok browser config failed: {}",
-            detail.trim()
-        )));
-    }
-    Ok(destination)
 }
 
 fn browser_state_dir(app: &AppHandle) -> AppResult<PathBuf> {
@@ -1830,15 +1527,12 @@ pub async fn browser_key(
 #[cfg(test)]
 mod tests {
     use super::{
-        broker_request_authorized, clear_agent_registry, codex_browser_args, initialize_registry,
-        normalize_url, opencode_browser_config, owned_target_ids, pointer_params,
-        read_active_target, register_target, validate_agent_id, validate_target_id,
-        validate_url_input, write_active_target, BrowserMcpLaunch, BrowserPointerInput,
+        broker_request_authorized, clear_agent_registry, initialize_registry, normalize_url,
+        owned_target_ids, pointer_params, read_active_target, register_target, validate_agent_id,
+        validate_target_id, validate_url_input, write_active_target, BrowserPointerInput,
     };
     #[cfg(unix)]
-    use super::{
-        configure_browser_process_group, mirror_agent_home, terminate_and_reap_browser_child,
-    };
+    use super::{configure_browser_process_group, terminate_and_reap_browser_child};
     #[cfg(unix)]
     use std::process::{Command, Stdio};
 
@@ -1957,70 +1651,5 @@ mod tests {
             "GET /cdp HTTP/1.1\r\nAuthorization: Bearer secret\r\n\r\n",
             "secret"
         ));
-    }
-
-    #[test]
-    fn codex_and_opencode_receive_ephemeral_mcp_config() {
-        let launch = BrowserMcpLaunch {
-            command: "/opt/sikemux-browser".into(),
-            args: vec!["--stdio".into()],
-        };
-        let codex = codex_browser_args(&launch).unwrap();
-        assert_eq!(codex[0], "-c");
-        assert!(codex[1].contains("mcp_servers.sikemux_browser.command"));
-        assert!(codex[3].contains("--stdio"));
-
-        let config = opencode_browser_config(
-            Some(r#"{"theme":"existing","mcp":{"other":{"type":"remote","url":"https://example.com"}}}"#),
-            &launch,
-        )
-        .unwrap();
-        let config: serde_json::Value = serde_json::from_str(&config).unwrap();
-        assert_eq!(config["theme"], "existing");
-        assert_eq!(config["mcp"]["other"]["type"], "remote");
-        assert_eq!(
-            config["mcp"]["sikemux_browser"]["command"],
-            serde_json::json!(["/opt/sikemux-browser", "--stdio"])
-        );
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn hermes_overlay_links_user_state_but_owns_its_config() {
-        let source = tempfile::tempdir().unwrap();
-        let destination = tempfile::tempdir().unwrap();
-        let overlay = destination.path().join("hermes");
-        std::fs::write(source.path().join("config.yaml"), "model: test\n").unwrap();
-        std::fs::write(source.path().join("state.db"), "state").unwrap();
-
-        mirror_agent_home(source.path(), &overlay, "config.yaml").unwrap();
-
-        assert!(!overlay.join("config.yaml").exists());
-        assert_eq!(
-            std::fs::read_to_string(overlay.join("state.db")).unwrap(),
-            "state"
-        );
-        assert!(std::fs::symlink_metadata(overlay.join("state.db"))
-            .unwrap()
-            .file_type()
-            .is_symlink());
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn grok_overlay_keeps_its_runtime_config_private() {
-        let source = tempfile::tempdir().unwrap();
-        let destination = tempfile::tempdir().unwrap();
-        let overlay = destination.path().join("grok");
-        std::fs::write(source.path().join("config.toml"), "model = 'grok'\n").unwrap();
-        std::fs::write(source.path().join("auth.json"), "auth").unwrap();
-
-        mirror_agent_home(source.path(), &overlay, "config.toml").unwrap();
-
-        assert!(!overlay.join("config.toml").exists());
-        assert_eq!(
-            std::fs::read_to_string(overlay.join("auth.json")).unwrap(),
-            "auth"
-        );
     }
 }
