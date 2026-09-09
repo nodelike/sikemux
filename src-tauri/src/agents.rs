@@ -275,11 +275,24 @@ fn explicit_agent_candidates(value: &str) -> Vec<PathBuf> {
     crate::system::find_executables_matching(value, |_| true)
 }
 
+/// Arguments that answer "does this CLI run?" without side effects. `--version`
+/// suits most agents, but Hermes bundles a `git fetch` update check into it
+/// (bounded by its own 10s network timeout, cached for six hours), so every
+/// cache miss outran our probe and reported an installed CLI as missing.
+/// `--help` exercises the same interpreter and venv without the network.
+fn agent_probe_args(agent: &str) -> &'static [&'static str] {
+    match agent {
+        "hermes" => &["--help"],
+        _ => &["--version"],
+    }
+}
+
 async fn probe_agent_executable_with_timeout(
-    _agent: &str,
+    agent: &str,
     executable: &Path,
     timeout: Duration,
 ) -> Result<String, String> {
+    let probe_args = agent_probe_args(agent);
     #[cfg(windows)]
     let mut command = if matches!(
         executable.extension().and_then(|value| value.to_str()),
@@ -289,17 +302,17 @@ async fn probe_agent_executable_with_timeout(
         command
             .args(["/D", "/S", "/C"])
             .arg(executable)
-            .arg("--version");
+            .args(probe_args);
         command
     } else {
         let mut command = Command::new(executable);
-        command.arg("--version");
+        command.args(probe_args);
         command
     };
     #[cfg(not(windows))]
     let mut command = {
         let mut command = Command::new(executable);
-        command.arg("--version");
+        command.args(probe_args);
         command
     };
     command
@@ -2786,6 +2799,39 @@ mod executable_tests {
             .await
             .unwrap_err(),
             "version check timed out"
+        );
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn hermes_probe_skips_the_networked_version_check() {
+        use std::fs;
+        use std::os::unix::fs::PermissionsExt;
+
+        // Mirrors the real CLI: `--version` blocks on an update check, while
+        // `--help` answers immediately.
+        let dir = tempfile::tempdir().unwrap();
+        let executable = dir.path().join("hermes");
+        fs::write(
+            &executable,
+            "#!/bin/sh\ncase \"$1\" in\n--help) printf 'usage: hermes\\n';;\n*) sleep 30;;\nesac\n",
+        )
+        .unwrap();
+        fs::set_permissions(&executable, fs::Permissions::from_mode(0o755)).unwrap();
+
+        assert_eq!(
+            probe_agent_executable("hermes", &executable).await.unwrap(),
+            "usage: hermes"
+        );
+        assert!(
+            probe_agent_executable_with_timeout(
+                "claude",
+                &executable,
+                std::time::Duration::from_millis(20)
+            )
+            .await
+            .is_err(),
+            "other agents keep probing --version"
         );
     }
 
