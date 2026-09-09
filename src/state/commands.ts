@@ -2538,7 +2538,7 @@ export function focusGlobalSearch(seed?: string): void {
         const oneLine = seed.split(/\r?\n/).find((l) => l.trim().length > 0) ?? seed.trim();
         setGlobalSearchQuery(session.id, oneLine);
     }
-    ensureRoleWindow("search", "search", "search");
+    setState({ railTab: "search", workspaceRailOpen: true });
     emit({ type: "search-focus", sessionId: session.id });
 }
 

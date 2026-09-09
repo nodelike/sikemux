@@ -15,6 +15,15 @@
     grid-template-columns: minmax(300px, 40%) 1fr;
 }
 
+/* In the rail there is no preview beside the list, so the list is the pane. */
+.search-pane.compact .sp-body {
+    grid-template-columns: minmax(0, 1fr);
+}
+
+.search-pane.compact .sp-left {
+    border-right: 0;
+}
+
 .sp-left {
     display: grid;
     grid-template-rows: auto 1fr;

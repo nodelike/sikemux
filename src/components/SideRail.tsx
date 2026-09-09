@@ -1,24 +1,11 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import { createPortal, flushSync } from "react-dom";
 import { keybindingLabelForAction, type KeybindingActionId } from "../keybindings";
-import type { Session, SessionKind, Window, WindowRole } from "../state/types";
+import type { Session, SessionKind } from "../state/types";
 import * as cmd from "../state/commands";
 import { rollupAgentStates } from "../state/agentStatus";
 import { getState, useStore } from "../state/store";
-import {
-    AgentIcon,
-    IconAgent,
-    IconAws,
-    IconBruno,
-    IconClose,
-    IconCommand,
-    IconFolder,
-    IconPencil,
-    IconPlus,
-    IconRundeck,
-    Logo,
-    WindowIcon,
-} from "./Icons";
+import { AgentIcon, IconAws, IconBruno, IconClose, IconCommand, IconFolder, IconPencil, IconPlus, IconRundeck, Logo } from "./Icons";
 import { Tooltip } from "./Tooltip";
 import { EmptyState, Panel, PanelHeader } from "./Panel";
 import { UpdateChip, VersionChip } from "./TopBar";
@@ -95,8 +82,6 @@ function reducedMotion(): boolean {
 export function SideRail() {
     const sessionsById = useStore((s) => s.sessions);
     const sessionOrder = useStore((s) => s.sessionOrder);
-    const windowsById = useStore((s) => s.windows);
-    const windowsBySession = useStore((s) => s.windowsBySession);
     const agentsBySession = useStore((s) => s.agentsBySession);
     const agentsById = useStore((s) => s.agents);
     const activityById = useStore((s) => s.agentActivity);
@@ -297,15 +282,6 @@ export function SideRail() {
         projectGhostRef.current.replaceChildren(projectDragVisual.row);
     }, [projectDragVisual]);
 
-    const jumpToWindow = (sessionId: string, winId: string) => {
-        if (sessionId !== activeSessionId) cmd.selectSession(sessionId);
-        cmd.selectWindowId(winId);
-    };
-    const jumpToAgents = (sessionId: string) => {
-        if (sessionId !== activeSessionId) cmd.selectSession(sessionId);
-        cmd.focusAgents();
-    };
-
     const SessionCloseButton = ({ session }: { session: Session }) => (
         <Tooltip label={`Close ${session.name}`}>
             <button type="button" className="sess-close" aria-label={`Close ${session.name}`} onClick={() => cmd.closeSession(session.id)}>
@@ -316,12 +292,9 @@ export function SideRail() {
 
     const ProjectBlock = ({ s }: { s: Session }) => {
         const active = s.id === activeSessionId;
-        const winIds = windowsBySession[s.id] ?? [];
-        const sessionWindows = winIds.map((id) => windowsById[id]).filter(Boolean) as Window[];
         const agentIds = agentsBySession[s.id] ?? [];
         const agents = agentIds.map((id) => agentsById[id]).filter(Boolean);
         const rollup = rollupAgentStates(agents.map((agent) => activityById[agent.id]));
-        const tabCount = sessionWindows.filter((w) => w.role === "term").length;
 
         if (!active) {
             const visible = agents.slice(0, MAX_BADGE_ICONS);
@@ -359,72 +332,6 @@ export function SideRail() {
             );
         }
 
-        const winByRole = (role: WindowRole): Window | undefined => sessionWindows.find((w) => w.role === role);
-        const activeRole = sessionWindows.find((w) => w.id === s.activeWindowId)?.role;
-        const inAgentView = s.view === "agent";
-        const inWindowsView = s.view === "windows";
-        const isSubActive = (role: WindowRole | "agents"): boolean => {
-            if (role === "agents") return inAgentView;
-            return inWindowsView && activeRole === role;
-        };
-
-        const onSubClick = (role: WindowRole | "agents") => {
-            if (role === "agents") {
-                jumpToAgents(s.id);
-                return;
-            }
-            const w = winByRole(role);
-            if (w) {
-                jumpToWindow(s.id, w.id);
-                return;
-            }
-            if (s.id !== activeSessionId) cmd.selectSession(s.id);
-            if (role === "term") cmd.newWindow();
-            else if (role === "search") cmd.focusGlobalSearch();
-            else if (role === "files") cmd.openEditorPane();
-            else if (role === "diff") cmd.openDiffPane();
-        };
-
-        const termIcons: React.ReactNode[] =
-            tabCount > 1
-                ? Array.from({ length: tabCount }, (_, i) => (
-                      <span key={i} className="proj-pip proj-pip-term">
-                          <IconCommand size={14} />
-                      </span>
-                  ))
-                : [];
-        const agentIcons: React.ReactNode[] = agents.map((a) => (
-            <span key={a.id} className={`proj-pip proj-pip-${a.type}${activityById[a.id] ? ` state-${activityById[a.id].state}` : ""}`}>
-                <AgentIcon type={a.type} size={20} />
-            </span>
-        ));
-
-        type SubRow = {
-            role: WindowRole | "agents";
-            label: string;
-            kbd?: string;
-            title: string;
-            icons: React.ReactNode[];
-        };
-        const children: SubRow[] = [
-            { role: "files", label: "Files", kbd: kb("window.files"), title: `Files — ${kb("window.files")}`, icons: [] },
-            {
-                role: "term",
-                label: "Term",
-                kbd: kb("window.terminal"),
-                title: `Term${tabCount > 1 ? ` · ${tabCount} tabs` : ""} — ${kb("window.terminal")}`,
-                icons: termIcons,
-            },
-            { role: "diff", label: "Diff", kbd: kb("window.git"), title: `Diff — ${kb("window.git")}`, icons: [] },
-            {
-                role: "agents",
-                label: "Agents",
-                kbd: kb("window.agents"),
-                title: `Agents${agents.length ? ` · ${agents.length}` : ""} — ${kb("window.agents")}`,
-                icons: agentIcons,
-            },
-            { role: "search", label: "Search", kbd: kb("window.search"), title: `Search — ${kb("window.search")}`, icons: [] },
-        ];
         return (
             <div className={`proj-tree active${projectDragClass(s.id)}`} data-project-id={s.id}>
                 <div className="session-row-shell project-row-shell">
@@ -442,37 +349,6 @@ export function SideRail() {
                         </button>
                     </Tooltip>
                     <SessionCloseButton session={s} />
-                </div>
-                <div className="proj-children">
-                    {children.map((c) => {
-                        const subActive = isSubActive(c.role);
-                        const node = c.role === "agents" ? <IconAgent size={13} /> : <WindowIcon role={c.role} size={13} />;
-                        const visibleIcons = c.icons.slice(0, MAX_BADGE_ICONS);
-                        const overflow = c.icons.length - visibleIcons.length;
-                        return (
-                            <Tooltip key={c.role} label={c.title} side="right">
-                                <button
-                                    type="button"
-                                    className={`proj-child${subActive ? " active" : ""}`}
-                                    onClick={(e) => {
-                                        e.stopPropagation();
-                                        onSubClick(c.role);
-                                    }}>
-                                    <span className="proj-child-tick" />
-                                    <span className="proj-child-ic">{node}</span>
-                                    <span className="proj-child-label">{c.label}</span>
-                                    {visibleIcons.length > 0 && (
-                                        <span className="proj-child-icons">
-                                            {visibleIcons}
-                                            {overflow > 0 && <span className="proj-child-icons-more">+{overflow}</span>}
-                                        </span>
-                                    )}
-                                    {c.role === "agents" && rollup && <AgentStateIndicator state={rollup} />}
-                                    {c.kbd && <span className="proj-child-kbd">{c.kbd}</span>}
-                                </button>
-                            </Tooltip>
-                        );
-                    })}
                 </div>
             </div>
         );

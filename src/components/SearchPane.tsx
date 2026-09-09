@@ -35,7 +35,21 @@ const SEARCH_SCOPE_FIELDS = [
     { key: "exclude", label: "not", placeholder: "**/*.test.ts" },
 ] as const;
 
-export function SearchPane({ sessionId, cwd, active, visible }: { sessionId: string; cwd: string; active: boolean; visible: boolean }) {
+/** `compact` drops the preview column so the pane fits the workspace rail; a
+ * result opens in the editor instead of previewing beside its own list. */
+export function SearchPane({
+    sessionId,
+    cwd,
+    active,
+    visible,
+    compact = false,
+}: {
+    sessionId: string;
+    cwd: string;
+    active: boolean;
+    visible: boolean;
+    compact?: boolean;
+}) {
     const entry = useStore((s) => s.globalSearchBySession[sessionId]);
     const view = entry ?? DEFAULT_GLOBAL_SEARCH_VIEW;
 
@@ -212,7 +226,7 @@ export function SearchPane({ sessionId, cwd, active, visible }: { sessionId: str
     }, [summary, files]);
 
     return (
-        <div className="search-pane">
+        <div className={`search-pane${compact ? " compact" : ""}`}>
             <div className="sp-body">
                 <div className="sp-left">
                     <Header
@@ -240,9 +254,11 @@ export function SearchPane({ sessionId, cwd, active, visible }: { sessionId: str
                         error={error}
                     />
                 </div>
-                <PreviewArea repo={cwd} query={view.query} replace={view.replace} results={results} status={status} selected={view.selected} />
+                {!compact && (
+                    <PreviewArea repo={cwd} query={view.query} replace={view.replace} results={results} status={status} selected={view.selected} />
+                )}
             </div>
-            <Footer />
+            {!compact && <Footer />}
         </div>
     );
 }

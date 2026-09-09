@@ -50,7 +50,6 @@ describe("project windows", () => {
     it.each([
         ["editor", () => cmd.openEditorPane(), "files"],
         ["diff", () => cmd.openDiffPane(), "diff"],
-        ["search", () => cmd.focusGlobalSearch(), "search"],
     ])("opens the %s tab on demand as a closable tab, and reuses it", (_label, open, role) => {
         cmd.createProjectSession("/work/demo");
 
@@ -87,6 +86,16 @@ describe("project windows", () => {
 
         expect(projectWindows().filter((win) => win.role === "files")).toHaveLength(1);
         expect(getState().editorViews[editor.activePaneId].openTabs).toEqual(["/work/demo/a.ts"]);
+    });
+
+    it("focuses search in the workspace rail instead of opening a centre tab", () => {
+        cmd.createProjectSession("/work/demo");
+
+        cmd.focusGlobalSearch("needle");
+
+        expect(getState().railTab).toBe("search");
+        expect(getState().workspaceRailOpen).toBe(true);
+        expect(roles()).not.toContain("search");
     });
 
     it("points the diff tab at the file whose changes were clicked", () => {

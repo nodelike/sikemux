@@ -5,7 +5,8 @@ import { useStore } from "../state/store";
 import { AgentRailBody } from "./AgentRail";
 import { FileTree } from "./FileTree";
 import { RailChanges } from "./rail/RailChanges";
-import { IconAgent, IconFolder, IconGit } from "./Icons";
+import { SearchPane } from "./SearchPane";
+import { IconAgent, IconFolder, IconGit, IconSearch } from "./Icons";
 import { useResourceEnabled } from "../state/resources";
 import { gitStatusR } from "../state/resources.defs";
 
@@ -13,6 +14,7 @@ const TABS: { id: RailTab; label: string; icon: ReactNode }[] = [
     { id: "agents", label: "Agents", icon: <IconAgent size={12} /> },
     { id: "files", label: "Files", icon: <IconFolder size={12} /> },
     { id: "changes", label: "Changes", icon: <IconGit size={12} /> },
+    { id: "search", label: "Search", icon: <IconSearch size={12} /> },
 ];
 
 function RailFiles({ cwd }: { cwd: string }) {
@@ -58,6 +60,7 @@ export function WorkspaceRail() {
                 {tab === "agents" && <AgentRailBody />}
                 {tab === "files" && <RailFiles cwd={cwd} />}
                 {tab === "changes" && <RailChanges cwd={cwd} />}
+                {tab === "search" && <SearchPane sessionId={session.id} cwd={cwd} active compact visible />}
             </div>
         </aside>
     );

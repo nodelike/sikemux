@@ -157,7 +157,7 @@ function mergeBrunoWorkspaces(saved: string[] | undefined, sessions: Session[]):
 
 const SESSION_KINDS = new Set<Session["kind"]>(["project", "command", "ssh", "aws", "rundeck", "bruno"]);
 const WINDOW_ROLES = new Set<WindowRole>(["term", "files", "git", "diff", "search", "aws", "rundeck", "bruno", "ssh-config", "named"]);
-const RAIL_TABS = new Set<RailTab>(["agents", "files", "changes"]);
+const RAIL_TABS = new Set<RailTab>(["agents", "files", "changes", "search"]);
 const AWS_SERVICES = new Set<StoreState["awsService"]>(["ecs", "ec2", "lambda", "sqs", "billing", "s3"]);
 
 function isRecord(value: unknown): value is Record<string, unknown> {

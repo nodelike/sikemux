@@ -625,94 +625,7 @@
         animation: none;
     }
 }
-.proj-children {
-    display: flex;
-    flex-direction: column;
-    padding: 4px 6px 2px 0;
-    margin-left: 20px;
-    border-left: 1px solid color-mix(in srgb, var(--acc) 20%, transparent);
-}
 
-.proj-child-tick {
-    height: 1px;
-    width: 6px;
-    background-color: color-mix(in srgb, var(--acc) 20%, transparent);
-}
-
-.proj-child {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    width: 100%;
-    padding: 2px 8px 2px 0px;
-    background: transparent;
-    border: none;
-    cursor: pointer;
-    color: var(--ink-faint);
-    text-align: left;
-    transition:
-        color 0.12s,
-        background 0.12s;
-}
-.proj-child:hover {
-    color: var(--ink);
-}
-.proj-child.active {
-    color: var(--acc);
-}
-.proj-child.active .proj-child-ic {
-    color: var(--live);
-}
-
-.proj-child-ic {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 16px;
-    flex-shrink: 0;
-}
-.proj-child-label {
-    flex: 1 1 auto;
-    font-size: 12px;
-    letter-spacing: 0.01em;
-}
-.proj-child-icons {
-    display: inline-flex;
-    align-items: center;
-    flex-shrink: 0;
-    padding-left: 4px;
-}
-.proj-child-icons-more {
-    font-family: var(--mono);
-    font-size: 10px;
-    font-weight: 700;
-    color: var(--ink-faint);
-    line-height: 1;
-    margin-left: 5px;
-}
-.proj-child-kbd {
-    flex-shrink: 0;
-    margin-left: auto;
-    font-family: var(--kbd);
-    font-size: 11px;
-    font-weight: 500;
-    line-height: 1;
-    color: var(--ink-faint);
-    opacity: 0.5;
-    transition:
-        opacity 0.12s,
-        color 0.12s,
-        border-color 0.12s;
-}
-.proj-child:hover .proj-child-kbd {
-    opacity: 1;
-    color: var(--ink);
-}
-.proj-child.active .proj-child-kbd {
-    opacity: 1;
-    color: var(--acc);
-    border-color: color-mix(in srgb, var(--acc) 40%, transparent);
-}
 .proj-pip {
     display: inline-flex;
     align-items: center;
@@ -722,15 +635,7 @@
     flex-shrink: 0;
     position: relative;
 }
-.proj-child-icons .proj-pip {
-    border-radius: 999px;
-    background: var(--rail);
-    box-shadow: 0 0 0 1.5px var(--rail);
-    margin-left: -7px;
-}
-.proj-child-icons .proj-pip:first-child {
-    margin-left: 0;
-}
+
 .proj-pip-term {
     color: var(--live);
 }
