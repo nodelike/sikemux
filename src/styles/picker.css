@@ -436,3 +436,79 @@
         opacity: 0.25;
     }
 }
+
+/* New-tab chooser: ⌘T then a digit. Narrower than the search pickers because
+ * it lists a fixed handful of destinations rather than filtered results. */
+.new-tab-palette {
+    width: 420px;
+    border-radius: var(--radius-panel);
+}
+
+.new-tab-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--space-2);
+    padding: 12px 14px 10px;
+    border-bottom: 1px solid var(--line);
+    color: var(--ink);
+    font-family: var(--ui);
+    font-size: 12.5px;
+}
+
+.new-tab-hint {
+    color: var(--ink-dim);
+    font-size: 10.5px;
+}
+
+.new-tab-item {
+    height: 34px;
+    gap: 9px;
+}
+
+.new-tab-key {
+    display: grid;
+    flex: none;
+    width: 19px;
+    height: 19px;
+    place-items: center;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-control);
+    background: color-mix(in srgb, var(--void) 46%, transparent);
+    color: var(--ink-dim);
+    font-family: var(--mono);
+    font-size: 10.5px;
+}
+
+.new-tab-item.sel .new-tab-key {
+    border-color: var(--acc-line);
+    color: var(--acc);
+}
+
+.new-tab-icon {
+    display: grid;
+    flex: none;
+    place-items: center;
+    color: var(--ink-dim);
+}
+
+.new-tab-item.sel .new-tab-icon {
+    color: var(--ink);
+}
+
+.new-tab-label {
+    flex: none;
+    color: var(--ink);
+    font-size: 12.5px;
+}
+
+.new-tab-detail {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    color: var(--ink-dim);
+    font-size: 11px;
+    text-align: right;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}

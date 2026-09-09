@@ -201,6 +201,10 @@ export function runKeybindingAction(action: KeybindingActionId, event: KeyboardE
             if (active?.kind !== "project" || active.view !== "agent") return false;
             cmd.toggleActiveAgentSkipPermissions();
             return true;
+        case "palette.newTab":
+            if (st.newTabPaletteOpen) cmd.closeNewTabPalette();
+            else cmd.openNewTabPalette();
+            return true;
         case "browser.tabNew":
             return cmd.newBrowserTab();
         case "browser.tabClose":

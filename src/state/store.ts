@@ -111,6 +111,7 @@ export interface ViewState {
     pickerMode: PickerMode;
     agentPaletteOpen: boolean;
     filePaletteOpen: boolean;
+    newTabPaletteOpen: boolean;
     rundeckJobPaletteOpen: boolean;
     brunoReqPaletteOpen: boolean;
     brunoEnvPaletteOpen: boolean;
@@ -232,6 +233,7 @@ export const useStore = create<StoreState>(() => {
         pickerMode: "all",
         agentPaletteOpen: false,
         filePaletteOpen: false,
+        newTabPaletteOpen: false,
         rundeckJobPaletteOpen: false,
         brunoReqPaletteOpen: false,
         brunoEnvPaletteOpen: false,

@@ -11,6 +11,7 @@ import { AgentSessionSync } from "./components/AgentSessionSync";
 import { AgentLifecycleManager } from "./components/AgentLifecycleManager";
 import { AgentPalettePortal as AgentPalette } from "./components/AgentPalettePortal";
 import { FilePalette } from "./components/FilePalette";
+import { NewTabPalette } from "./components/NewTabPalette";
 import { SeshPicker } from "./components/SeshPicker";
 import { SessionSwitcher } from "./components/SessionSwitcher";
 import { SettingsPanel } from "./components/SettingsPanel";
@@ -209,6 +210,7 @@ export default function App() {
     const pickerOpen = useStore((s) => s.pickerOpen);
     const agentPaletteOpen = useStore((s) => s.agentPaletteOpen);
     const filePaletteOpen = useStore((s) => s.filePaletteOpen);
+    const newTabPaletteOpen = useStore((s) => s.newTabPaletteOpen);
     const rundeckJobPaletteOpen = useStore((s) => s.rundeckJobPaletteOpen);
     const brunoReqPaletteOpen = useStore((s) => s.brunoReqPaletteOpen);
     const brunoEnvPaletteOpen = useStore((s) => s.brunoEnvPaletteOpen);
@@ -798,6 +800,7 @@ export default function App() {
             {pickerOpen && <SeshPicker />}
             {agentPaletteOpen && <AgentPalette />}
             {filePaletteOpen && <FilePalette />}
+            {newTabPaletteOpen && <NewTabPalette />}
             {rundeckJobPaletteOpen && <RundeckJobPalette />}
             {brunoReqPaletteOpen && <BrunoRequestPalette />}
             {brunoEnvPaletteOpen && <BrunoEnvPalette />}

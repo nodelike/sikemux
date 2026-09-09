@@ -89,7 +89,7 @@ describe("agent picker shortcut", () => {
 });
 
 describe("embedded browser shortcuts", () => {
-    it("opens a browser tab for the active agent with Command+T", async () => {
+    it("opens the new-tab chooser with Command+T rather than a browser tab", () => {
         const open = vi.spyOn(browserApi, "newTab").mockResolvedValue("browser-tab");
         setState((state) => ({
             sessions: { ...state.sessions, one: { ...state.sessions.one, view: "agent", activeAgentId: "agent-one" } },
@@ -99,6 +99,29 @@ describe("embedded browser shortcuts", () => {
         window.dispatchEvent(
             new KeyboardEvent("keydown", {
                 code: "KeyT",
+                metaKey: IS_MACOS,
+                ctrlKey: !IS_MACOS,
+                bubbles: true,
+                cancelable: true,
+            }),
+        );
+
+        expect(getState().newTabPaletteOpen).toBe(true);
+        expect(open).not.toHaveBeenCalled();
+        open.mockRestore();
+    });
+
+    it("opens a browser tab for the active agent with Command+Shift+T", async () => {
+        const open = vi.spyOn(browserApi, "newTab").mockResolvedValue("browser-tab");
+        setState((state) => ({
+            sessions: { ...state.sessions, one: { ...state.sessions.one, view: "agent", activeAgentId: "agent-one" } },
+        }));
+        render(<KeymapHarness />);
+
+        window.dispatchEvent(
+            new KeyboardEvent("keydown", {
+                code: "KeyT",
+                shiftKey: true,
                 metaKey: IS_MACOS,
                 ctrlKey: !IS_MACOS,
                 bubbles: true,

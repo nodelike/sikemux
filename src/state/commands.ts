@@ -2104,6 +2104,10 @@ export const closeDiagnostics = (): void => setState({ diagnosticsOpen: false })
 export const openWhatsNew = (): void => setState({ whatsNewOpen: true, onboardingOpen: false, diagnosticsOpen: false });
 export const closeWhatsNew = (): void =>
     setState((s) => ({ whatsNewOpen: false, lastSeenVersion: s.lastReleaseNotes?.version ?? s.lastSeenVersion }));
+export const openNewTabPalette = (): void =>
+    setState({ newTabPaletteOpen: true, filePaletteOpen: false, agentPaletteOpen: false, pickerOpen: false });
+export const closeNewTabPalette = (): void => setState({ newTabPaletteOpen: false });
+
 export const openFilePalette = (): void => setState({ filePaletteOpen: true, rundeckJobPaletteOpen: false });
 export const closeFilePalette = (): void => setState({ filePaletteOpen: false });
 export const openRundeckJobPalette = (): void =>

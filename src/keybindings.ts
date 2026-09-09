@@ -278,11 +278,18 @@ const keybindingActions = [
         defaultBinding: "Alt+KeyY",
     },
     {
+        id: "palette.newTab",
+        label: "New tab",
+        detail: "Choose what to open: terminal, agent, browser, editor, diff or search",
+        category: "Navigation",
+        defaultBinding: `${IS_MACOS ? "Meta" : "Ctrl"}+KeyT`,
+    },
+    {
         id: "browser.tabNew",
         label: "New browser tab",
         detail: "Open the embedded browser for the active agent",
         category: "Browser",
-        defaultBinding: `${IS_MACOS ? "Meta" : "Ctrl"}+KeyT`,
+        defaultBinding: `${IS_MACOS ? "Meta" : "Ctrl"}+Shift+KeyT`,
     },
     {
         id: "browser.tabClose",
