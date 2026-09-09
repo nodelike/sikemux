@@ -42,9 +42,10 @@ vi.mock("../themes/bus", () => ({
     },
 }));
 
-import { DiffEditor } from "./DiffEditor";
+import { DiffEditor, invalidateDiffContentCache } from "./DiffEditor";
 
 beforeEach(() => {
+    invalidateDiffContentCache();
     mocks.fileAt.mockReset().mockResolvedValue("const value = 1;\n");
     mocks.readTextFileLimited.mockReset().mockResolvedValue("const value = 2;\n");
     mocks.writeFile.mockReset().mockResolvedValue(undefined);
@@ -73,6 +74,7 @@ describe("DiffEditor", () => {
             maxLineDiffLength: 512,
             tokenizeMaxLength: 4000,
         });
+        expect(mocks.diffProps?.disableWorkerPool).toBe(true);
         expect(mocks.diffProps?.style["--diffs-bg"]).toContain("var(--window-opacity, 1)");
         expect(mocks.diffProps?.style["--diffs-addition-color-override"]).toBe("var(--live)");
         expect(mocks.diffProps?.style["--diffs-deletion-color-override"]).toBe("var(--danger)");
@@ -135,6 +137,25 @@ describe("DiffEditor", () => {
         expect(queryByTestId("pierre-diff")).not.toBeInTheDocument();
 
         resolveReads.forEach((resolve) => resolve("const value = 1;\n"));
-        await waitFor(() => expect(mocks.diffProps?.options.lineDiffType).toBe("none"));
+        await waitFor(() => {
+            expect(mocks.diffProps?.options.lineDiffType).toBe("none");
+            expect(mocks.diffProps?.disableWorkerPool).toBe(false);
+        });
+    });
+
+    it("reuses completed reads across virtualized remounts and invalidates them by repository", async () => {
+        const first = render(<DiffEditor repo="/repo" path="src/revisit.ts" baseRev="HEAD" headRev=":index" editable={false} />);
+        await waitFor(() => expect(first.getByTestId("pierre-diff")).toBeInTheDocument());
+        first.unmount();
+
+        const second = render(<DiffEditor repo="/repo" path="src/revisit.ts" baseRev="HEAD" headRev=":index" editable={false} />);
+        await waitFor(() => expect(second.getByTestId("pierre-diff")).toBeInTheDocument());
+        expect(mocks.fileAt).toHaveBeenCalledTimes(2);
+        second.unmount();
+
+        invalidateDiffContentCache("/repo");
+        const third = render(<DiffEditor repo="/repo" path="src/revisit.ts" baseRev="HEAD" headRev=":index" editable={false} />);
+        await waitFor(() => expect(third.getByTestId("pierre-diff")).toBeInTheDocument());
+        expect(mocks.fileAt).toHaveBeenCalledTimes(4);
     });
 });

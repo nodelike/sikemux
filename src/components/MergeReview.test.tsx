@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { GitFile } from "../api/git";
 
@@ -13,6 +13,7 @@ import { MergeReview } from "./MergeReview";
 afterEach(() => {
     cleanup();
     vi.unstubAllGlobals();
+    vi.restoreAllMocks();
 });
 
 const files: GitFile[] = [
@@ -58,72 +59,27 @@ describe("MergeReview", () => {
         expect(onOpenFile).toHaveBeenCalledWith("/repo/staged.ts");
     });
 
-    it("mounts only the selected and near-viewport diff bodies", () => {
-        const observed: Element[] = [];
-        let callback: IntersectionObserverCallback | undefined;
-        let options: IntersectionObserverInit | undefined;
-        class MockIntersectionObserver {
-            constructor(next: IntersectionObserverCallback, nextOptions?: IntersectionObserverInit) {
-                callback = next;
-                options = nextOptions;
-            }
-            observe(element: Element) {
-                observed.push(element);
-            }
-            unobserve(element: Element) {
-                const index = observed.indexOf(element);
-                if (index >= 0) observed.splice(index, 1);
-            }
-            disconnect() {
-                observed.length = 0;
-            }
-        }
-        vi.stubGlobal("IntersectionObserver", MockIntersectionObserver);
+    it("bounds mounted files and diffs in a 1,000-file review", () => {
+        vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockReturnValue(800);
+        vi.spyOn(HTMLElement.prototype, "offsetWidth", "get").mockReturnValue(1_000);
+        const manyFiles = Array.from<unknown, GitFile>({ length: 1_000 }, (_, index) => ({
+            path: `src/file-${index}.ts`,
+            index: " ",
+            worktree: "M",
+        }));
 
-        render(<MergeReview repo="/repo" files={files} focusPath="working.ts" onOpenFile={() => {}} onSaved={() => {}} />);
+        const { container } = render(<MergeReview repo="/repo" files={manyFiles} onOpenFile={() => {}} onSaved={() => {}} />);
 
-        expect(screen.getByTestId("diff:working.ts:HEAD:working")).toHaveAttribute("data-editable", "true");
-        expect(screen.queryByTestId("diff:staged.ts:HEAD::index")).not.toBeInTheDocument();
-        expect(screen.queryByTestId("diff:both.ts:HEAD::index")).not.toBeInTheDocument();
-        expect(observed).toHaveLength(2);
-        expect(options?.rootMargin).toBe("260px 0px");
+        expect(screen.getByText("1000 files · 1000 expanded")).toBeInTheDocument();
+        expect(container.querySelector(".merge-review-virtual")).toBeInTheDocument();
+        expect(container.querySelectorAll(".merge-review-item").length).toBeLessThan(12);
+        expect(container.querySelectorAll('[data-testid^="diff:"]').length).toBeLessThan(12);
+        expect(screen.getByRole("button", { name: "src/file-0.ts" })).toBeInTheDocument();
+        expect(screen.queryByRole("button", { name: "src/file-999.ts" })).not.toBeInTheDocument();
 
-        const target = observed[0];
-        act(() => callback?.([{ target, isIntersecting: true } as IntersectionObserverEntry], {} as IntersectionObserver));
-
-        expect(screen.getByTestId("diff:staged.ts:HEAD::index")).toHaveAttribute("data-editable", "false");
-        expect(screen.queryByTestId("diff:both.ts:HEAD::index")).not.toBeInTheDocument();
-
-        act(() => callback?.([{ target, isIntersecting: false } as IntersectionObserverEntry], {} as IntersectionObserver));
-        expect(screen.queryByTestId("diff:staged.ts:HEAD::index")).not.toBeInTheDocument();
-        expect(screen.getByLabelText("Diff for staged.ts loads when scrolled near")).toBeInTheDocument();
-    });
-
-    it("mounts a selected staged diff and a directly expanded diff without waiting for the observer", () => {
-        const observed: Element[] = [];
-        class MockIntersectionObserver {
-            constructor(_callback: IntersectionObserverCallback, _options?: IntersectionObserverInit) {}
-            observe(element: Element) {
-                observed.push(element);
-            }
-            unobserve(element: Element) {
-                const index = observed.indexOf(element);
-                if (index >= 0) observed.splice(index, 1);
-            }
-            disconnect() {}
-        }
-        vi.stubGlobal("IntersectionObserver", MockIntersectionObserver);
-
-        render(<MergeReview repo="/repo" files={files} focusPath="staged.ts" onOpenFile={() => {}} onSaved={() => {}} />);
-
-        expect(screen.getByTestId("diff:staged.ts:HEAD::index")).toHaveAttribute("data-editable", "false");
-        expect(screen.queryByTestId("diff:both.ts:HEAD::index")).not.toBeInTheDocument();
-
-        fireEvent.click(screen.getByRole("button", { name: "Collapse both.ts" }));
-        fireEvent.click(screen.getByRole("button", { name: "Expand both.ts" }));
-
-        expect(screen.getByTestId("diff:both.ts:HEAD::index")).toBeInTheDocument();
-        expect(screen.getByTestId("diff:both.ts::index:working")).toBeInTheDocument();
-        expect(observed).toHaveLength(1);
+        fireEvent.click(screen.getByRole("button", { name: "collapse all" }));
+        expect(screen.getByText("1000 files · 0 expanded")).toBeInTheDocument();
+        expect(container.querySelectorAll('[data-testid^="diff:"]')).toHaveLength(0);
+        expect(container.querySelectorAll(".merge-review-item").length).toBeLessThan(40);
     });
 });

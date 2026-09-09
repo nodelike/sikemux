@@ -85,6 +85,9 @@ export default defineConfig({
       },
     },
   },
+  worker: {
+    format: "es",
+  },
   server: {
     port: 1420,
     strictPort: true,

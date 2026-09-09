@@ -1,4 +1,5 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import { DiffEditor } from "./DiffEditor";
 import { FileIcon } from "./FileIcon";
 import { IconChevron } from "./Icons";
@@ -7,37 +8,10 @@ import { hasUnstaged, isStaged, type GitFile } from "../api/git";
 import { basename, joinPath } from "../lib/paths";
 import { gitStatusDecoration, type GitStatusDecoration } from "./git/gitFileStatus";
 
-const deferredCallbacks = new Map<Element, (visible: boolean) => void>();
-let deferredObserver: IntersectionObserver | null = null;
-
-function canObserveViewport(): boolean {
-    return typeof window !== "undefined" && "IntersectionObserver" in window;
-}
-
-function observeViewportRange(element: Element, onVisibilityChange: (visible: boolean) => void): () => void {
-    deferredObserver ??= new IntersectionObserver(
-        (entries) => {
-            for (const entry of entries) {
-                const callback = deferredCallbacks.get(entry.target);
-                callback?.(entry.isIntersecting);
-            }
-        },
-        { rootMargin: "260px 0px" },
-    );
-    deferredCallbacks.set(element, onVisibilityChange);
-    deferredObserver.observe(element);
-    return () => {
-        deferredObserver?.unobserve(element);
-        deferredCallbacks.delete(element);
-        releaseObserverIfIdle();
-    };
-}
-
-function releaseObserverIfIdle(): void {
-    if (deferredCallbacks.size > 0) return;
-    deferredObserver?.disconnect();
-    deferredObserver = null;
-}
+const VIRTUAL_REVIEW_THRESHOLD = 8;
+const REVIEW_ROW_ESTIMATE = 250;
+const REVIEW_DOUBLE_ROW_ESTIMATE = 470;
+const REVIEW_HEADER_HEIGHT = 31;
 
 export function MergeReview({
     repo,
@@ -54,10 +28,23 @@ export function MergeReview({
 }) {
     const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
     const itemRefs = useRef(new Map<string, HTMLDivElement>());
-    const directExpansion = useRef<string | null>(null);
-    const pathsKey = files.map((file) => file.path).join("\0");
-    const paths = useMemo(() => (pathsKey ? pathsKey.split("\0") : []), [pathsKey]);
+    const listRef = useRef<HTMLDivElement>(null);
+    const paths = useMemo(() => files.map((file) => file.path), [files]);
     const pathSet = useMemo(() => new Set(paths), [paths]);
+    const pathIndex = useMemo(() => new Map(paths.map((path, index) => [path, index])), [paths]);
+    const virtual = files.length > VIRTUAL_REVIEW_THRESHOLD;
+    const virtualizer = useVirtualizer({
+        count: virtual ? files.length : 0,
+        getScrollElement: () => listRef.current,
+        estimateSize: (index) => {
+            const file = files[index];
+            if (!file || collapsed.has(file.path)) return REVIEW_HEADER_HEIGHT;
+            return isStaged(file) && hasUnstaged(file) ? REVIEW_DOUBLE_ROW_ESTIMATE : REVIEW_ROW_ESTIMATE;
+        },
+        getItemKey: (index) => files[index]?.path ?? index,
+        overscan: 2,
+        initialRect: { width: 1000, height: 800 },
+    });
 
     useEffect(() => {
         setCollapsed((current) => {
@@ -67,6 +54,10 @@ export function MergeReview({
     }, [pathSet]);
 
     useEffect(() => {
+        if (virtual) virtualizer.measure();
+    }, [collapsed, files, virtual, virtualizer]);
+
+    useEffect(() => {
         if (!focusPath || !pathSet.has(focusPath)) return;
         setCollapsed((current) => {
             if (!current.has(focusPath)) return current;
@@ -74,15 +65,14 @@ export function MergeReview({
             next.delete(focusPath);
             return next;
         });
-        window.requestAnimationFrame(() => itemRefs.current.get(focusPath)?.scrollIntoView?.({ block: "start" }));
-    }, [focusPath, pathSet]);
-
-    useLayoutEffect(() => {
-        directExpansion.current = null;
-    });
+        const index = pathIndex.get(focusPath) ?? -1;
+        window.requestAnimationFrame(() => {
+            if (virtual && index >= 0) virtualizer.scrollToIndex(index, { align: "start" });
+            else itemRefs.current.get(focusPath)?.scrollIntoView?.({ block: "start" });
+        });
+    }, [focusPath, pathIndex, pathSet, virtual, virtualizer]);
 
     const toggle = (path: string) => {
-        directExpansion.current = collapsed.has(path) ? path : null;
         setCollapsed((current) => {
             const next = new Set(current);
             next.has(path) ? next.delete(path) : next.add(path);
@@ -101,78 +91,82 @@ export function MergeReview({
                 <button
                     type="button"
                     className="merge-review-action"
-                    onClick={() => {
-                        directExpansion.current = null;
-                        setCollapsed(new Set());
-                    }}
+                    onClick={() => setCollapsed(new Set())}
                     disabled={expandedCount === files.length}>
                     expand all
                 </button>
-                <button
-                    type="button"
-                    className="merge-review-action"
-                    onClick={() => {
-                        directExpansion.current = null;
-                        setCollapsed(new Set(paths));
-                    }}
-                    disabled={expandedCount === 0}>
+                <button type="button" className="merge-review-action" onClick={() => setCollapsed(new Set(paths))} disabled={expandedCount === 0}>
                     collapse all
                 </button>
             </div>
-            <div className="merge-review-list">
-                {files.map((file) => {
-                    const path = file.path;
-                    const open = !collapsed.has(path);
-                    const focused = path === focusPath;
-                    const unstaged = hasUnstaged(file);
-                    const indexStatus = gitStatusDecoration(file.index);
-                    const worktreeStatus = gitStatusDecoration(file.worktree);
-                    return (
-                        <div
-                            className={`acc-item merge-review-item${focused ? " focused" : ""}`}
-                            key={path}
-                            ref={(node) => {
-                                if (node) itemRefs.current.set(path, node);
-                                else itemRefs.current.delete(path);
-                            }}>
-                            <div className="acc-header merge-file-header">
-                                <Tooltip label={open ? "Collapse" : "Expand"}>
-                                    <button
-                                        type="button"
-                                        className="acc-toggle"
-                                        onClick={() => toggle(path)}
-                                        aria-label={`${open ? "Collapse" : "Expand"} ${path}`}>
-                                        <span className={`acc-chev${open ? " open" : ""}`}>
-                                            <IconChevron size={11} />
-                                        </span>
-                                    </button>
-                                </Tooltip>
-                                <Tooltip label="Open in editor">
-                                    <button type="button" className="acc-name" onClick={() => onOpenFile(joinPath(repo, path))}>
-                                        <FileIcon name={basename(path)} size={15} />
-                                        <span>{path}</span>
-                                    </button>
-                                </Tooltip>
-                                <span className="merge-file-status">
-                                    <GitStatusSymbol status={indexStatus} source="Index" />
-                                    <GitStatusSymbol status={worktreeStatus} source="Working tree" />
-                                </span>
-                            </div>
-                            {open && (
-                                <DeferredMergeFileDiff
-                                    repo={repo}
-                                    file={file}
-                                    editable={focused && unstaged}
-                                    priority={focused || directExpansion.current === path}
-                                    onSaved={onSaved}
-                                />
-                            )}
-                        </div>
-                    );
-                })}
+            <div className="merge-review-list" ref={listRef}>
+                {virtual ? (
+                    <div className="merge-review-virtual" style={{ height: virtualizer.getTotalSize() }}>
+                        {virtualizer.getVirtualItems().map((row) => {
+                            const file = files[row.index];
+                            if (!file) return null;
+                            const style: CSSProperties = { transform: `translateY(${row.start}px)` };
+                            return (
+                                <div
+                                    key={row.key}
+                                    ref={virtualizer.measureElement}
+                                    data-index={row.index}
+                                    className="merge-review-virtual-item"
+                                    style={style}>
+                                    {renderFile(file)}
+                                </div>
+                            );
+                        })}
+                    </div>
+                ) : (
+                    files.map((file) => renderFile(file))
+                )}
             </div>
         </div>
     );
+
+    function renderFile(file: GitFile) {
+        const path = file.path;
+        const open = !collapsed.has(path);
+        const focused = path === focusPath;
+        const unstaged = hasUnstaged(file);
+        const indexStatus = gitStatusDecoration(file.index);
+        const worktreeStatus = gitStatusDecoration(file.worktree);
+        return (
+            <div
+                className={`acc-item merge-review-item${focused ? " focused" : ""}`}
+                key={path}
+                ref={(node) => {
+                    if (node) itemRefs.current.set(path, node);
+                    else itemRefs.current.delete(path);
+                }}>
+                <div className="acc-header merge-file-header">
+                    <Tooltip label={open ? "Collapse" : "Expand"}>
+                        <button
+                            type="button"
+                            className="acc-toggle"
+                            onClick={() => toggle(path)}
+                            aria-label={`${open ? "Collapse" : "Expand"} ${path}`}>
+                            <span className={`acc-chev${open ? " open" : ""}`}>
+                                <IconChevron size={11} />
+                            </span>
+                        </button>
+                    </Tooltip>
+                    <Tooltip label="Open in editor">
+                        <button type="button" className="acc-name" onClick={() => onOpenFile(joinPath(repo, path))}>
+                            <FileIcon name={basename(path)} size={15} />
+                            <span>{path}</span>
+                        </button>
+                    </Tooltip>
+                    <span className="merge-file-status">
+                        <GitStatusSymbol status={indexStatus} source="Index" />
+                        <GitStatusSymbol status={worktreeStatus} source="Working tree" />
+                    </span>
+                </div>
+                {open && <MergeFileDiff repo={repo} file={file} editable={focused && unstaged} onSaved={onSaved} />}
+            </div>
+        );
+    }
 }
 
 function GitStatusSymbol({ status, source }: { status: GitStatusDecoration | null; source: string }) {
@@ -184,60 +178,6 @@ function GitStatusSymbol({ status, source }: { status: GitStatusDecoration | nul
             aria-label={`${source} status: ${status.letter}`}>
             {status.letter}
         </span>
-    );
-}
-
-function DeferredMergeFileDiff({
-    repo,
-    file,
-    editable,
-    priority,
-    onSaved,
-}: {
-    repo: string;
-    file: GitFile;
-    editable: boolean;
-    priority: boolean;
-    onSaved: () => void;
-}) {
-    const hostRef = useRef<HTMLDivElement>(null);
-    const [mounted, setMounted] = useState(() => priority || !canObserveViewport());
-    const [placeholderHeight, setPlaceholderHeight] = useState(220);
-
-    useEffect(() => {
-        if (priority) {
-            setMounted(true);
-            return;
-        }
-        if (!canObserveViewport()) {
-            setMounted(true);
-            return;
-        }
-        const host = hostRef.current;
-        if (!host) return;
-        return observeViewportRange(host, (visible) => {
-            if (visible) {
-                setMounted(true);
-                return;
-            }
-            const measuredHeight = host.getBoundingClientRect().height;
-            if (measuredHeight > 0) setPlaceholderHeight(Math.ceil(measuredHeight));
-            setMounted(false);
-        });
-    }, [priority]);
-
-    return (
-        <div ref={hostRef} className="merge-review-deferred">
-            {mounted ? (
-                <MergeFileDiff repo={repo} file={file} editable={editable} onSaved={onSaved} />
-            ) : (
-                <div
-                    className="merge-review-placeholder"
-                    style={{ height: placeholderHeight }}
-                    aria-label={`Diff for ${file.path} loads when scrolled near`}
-                />
-            )}
-        </div>
     );
 }
 

@@ -9,6 +9,7 @@ import { currentTheme, subscribeTheme } from "../themes/bus";
 import { diffsThemeName } from "../themes/diffs";
 import { errMessage, swallow } from "../state/toast";
 import { joinPath } from "../lib/paths";
+import { subscribe } from "../state/bus";
 
 const DIFF_SURFACE_STYLE = {
     "--diffs-bg": "color-mix(in srgb, var(--bg) calc(var(--window-opacity, 1) * 100%), transparent)",
@@ -40,27 +41,86 @@ const DIFF_UNSAFE_CSS = `
 ::selection { background: var(--acc-soft); }
 `;
 
-const DIFF_TOKENIZE_MAX_LINES = 4000;
-const DIFF_WORD_MAX_LENGTH = 512;
+export const DIFF_TOKENIZE_MAX_LINES = 4000;
+export const DIFF_WORD_MAX_LENGTH = 512;
 
 function createEditor(options: EditorOptions<undefined>) {
     return new Editor(options);
 }
 
-const revisionReads = new Map<string, Promise<string>>();
+interface CachedDiffRead {
+    promise: Promise<string>;
+    settled: boolean;
+    chars: number;
+}
+
+const revisionReads = new Map<string, CachedDiffRead>();
+const DIFF_READ_CACHE_MAX_ENTRIES = 192;
+const DIFF_READ_CACHE_MAX_CHARS = 32 * 1024 * 1024;
+let revisionReadChars = 0;
+
+function pruneRevisionReads(): void {
+    if (revisionReads.size <= DIFF_READ_CACHE_MAX_ENTRIES && revisionReadChars <= DIFF_READ_CACHE_MAX_CHARS) return;
+    for (const [key, entry] of revisionReads) {
+        if (!entry.settled) continue;
+        revisionReads.delete(key);
+        revisionReadChars -= entry.chars;
+        if (revisionReads.size <= DIFF_READ_CACHE_MAX_ENTRIES && revisionReadChars <= DIFF_READ_CACHE_MAX_CHARS) return;
+    }
+}
+
+function cachedRead(key: string, load: () => Promise<string>): Promise<string> {
+    const existing = revisionReads.get(key);
+    if (existing) {
+        revisionReads.delete(key);
+        revisionReads.set(key, existing);
+        return existing.promise;
+    }
+
+    const entry: CachedDiffRead = { promise: Promise.resolve(""), settled: false, chars: 0 };
+    const pending = load().then(
+        (value) => {
+            if (revisionReads.get(key) === entry) {
+                entry.settled = true;
+                entry.chars = value.length;
+                revisionReadChars += value.length;
+                pruneRevisionReads();
+            }
+            return value;
+        },
+        (error: unknown) => {
+            if (revisionReads.get(key) === entry) revisionReads.delete(key);
+            throw error;
+        },
+    );
+    entry.promise = pending;
+    revisionReads.set(key, entry);
+    pruneRevisionReads();
+    return pending;
+}
 
 function readRevision(repo: string, rev: string, path: string): Promise<string> {
     const key = `${repo}\0${rev}\0${path}`;
-    const existing = revisionReads.get(key);
-    if (existing) return existing;
-    const pending = git.fileAt(repo, rev, path);
-    revisionReads.set(key, pending);
-    const clear = () => {
-        if (revisionReads.get(key) === pending) revisionReads.delete(key);
-    };
-    void pending.then(clear, clear);
-    return pending;
+    return cachedRead(key, () => git.fileAt(repo, rev, path));
 }
+
+export function invalidateDiffContentCache(repo?: string): void {
+    if (!repo) {
+        revisionReads.clear();
+        revisionReadChars = 0;
+        return;
+    }
+    const prefix = `${repo}\0`;
+    for (const [key, entry] of revisionReads) {
+        if (!key.startsWith(prefix)) continue;
+        revisionReads.delete(key);
+        if (entry.settled) revisionReadChars -= entry.chars;
+    }
+}
+
+subscribe("fs-changed", (event) => {
+    invalidateDiffContentCache(event.repo || undefined);
+});
 
 export function DiffEditor({
     repo,
@@ -98,7 +158,7 @@ export function DiffEditor({
         setContent(null);
         setError(null);
 
-        void Promise.all([readRevision(repo, baseRev, path), headRev ? readRevision(repo, headRev, path) : readWorkingFile(absPath)])
+        void Promise.all([readRevision(repo, baseRev, path), headRev ? readRevision(repo, headRev, path) : readWorkingFile(repo, path, absPath)])
             .then(([base, head]) => {
                 if (cancelled) return;
                 const guard = inlineDiffGuard(path, base, head);
@@ -184,6 +244,7 @@ export function DiffEditor({
                         newFile={files.newFile}
                         options={options}
                         edit={editable}
+                        disableWorkerPool={editable}
                         editorOptions={editable ? editorOptions : undefined}
                         style={{ ...DIFF_SURFACE_STYLE, colorScheme: diffTheme.dark ? "dark" : "light" }}
                     />
@@ -250,13 +311,15 @@ function diffLanguage(path: string): NonNullable<FileContents["lang"]> {
     return "text";
 }
 
-async function readWorkingFile(path: string): Promise<string> {
-    try {
-        return await fsapi.readTextFileLimited(path);
-    } catch (err) {
-        if (isMissingFileError(err)) return "";
-        throw err;
-    }
+async function readWorkingFile(repo: string, path: string, absPath: string): Promise<string> {
+    return cachedRead(`${repo}\0:worktree\0${path}`, async () => {
+        try {
+            return await fsapi.readTextFileLimited(absPath);
+        } catch (err) {
+            if (isMissingFileError(err)) return "";
+            throw err;
+        }
+    });
 }
 
 function isMissingFileError(err: unknown): boolean {
