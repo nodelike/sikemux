@@ -140,34 +140,36 @@
 }
 
 .chat-message {
-    display: grid;
-    grid-template-columns: 54px minmax(0, 720px);
-    gap: var(--space-3);
-    width: min(100%, 830px);
+    display: flex;
+    width: min(100%, 800px);
     margin: 0 auto;
-    padding: 12px 20px 17px;
+    padding: 5px 22px;
 }
 
+/* The virtualizer absolutely positions each row, so sibling selectors never
+ * match — the gap before a user turn lives on the user row's own padding. */
 .chat-message.user {
-    margin-block: 5px 11px;
+    justify-content: flex-end;
+    padding-top: 17px;
+    padding-bottom: 10px;
 }
 
 .chat-message.user .chat-message-content {
-    padding: 11px 13px;
-    border: 1px solid color-mix(in srgb, var(--line) 72%, transparent);
+    flex: 0 1 auto;
+    max-width: min(100%, 470px);
+    padding: 8px 12px;
+    border: 1px solid color-mix(in srgb, var(--line) 80%, transparent);
     border-radius: var(--radius-panel);
-    background: color-mix(in srgb, var(--rail-2) 62%, transparent);
+    background: color-mix(in srgb, var(--rail-2) 72%, transparent);
+    font-size: 13px;
 }
 
-.chat-message-label {
-    padding-top: 2px;
-    color: var(--ink-faint);
-    font-size: 10.5px;
-    font-weight: 600;
-    text-align: right;
+.chat-message.user .chat-message-attachments {
+    justify-content: flex-end;
 }
 
 .chat-message-content {
+    flex: 1 1 auto;
     min-width: 0;
     color: var(--ink);
     font-size: 13.5px;
@@ -257,24 +259,36 @@
     margin-bottom: 8px;
 }
 
-.chat-tool {
-    margin: 6px 0;
+.chat-tools {
+    overflow: hidden;
+    margin: 7px 0;
     border: 1px solid var(--line-soft);
     border-radius: var(--radius-control);
-    background: color-mix(in srgb, var(--rail-2) 44%, transparent);
+    background: color-mix(in srgb, var(--rail-2) 38%, transparent);
 }
 
-.chat-tool summary {
-    display: grid;
-    grid-template-columns: 18px minmax(0, 1fr) auto;
+.chat-tools > * + * {
+    border-top: 1px solid color-mix(in srgb, var(--line-soft) 66%, transparent);
+}
+
+.chat-tool summary,
+.chat-tool.bare {
+    display: flex;
     align-items: center;
-    gap: var(--space-2);
-    min-height: 35px;
-    padding: 0 10px;
-    cursor: pointer;
+    gap: 7px;
+    min-height: 24px;
+    padding: 3px 9px;
     color: var(--ink-dim);
     font-size: 11px;
     list-style: none;
+}
+
+.chat-tool summary {
+    cursor: pointer;
+}
+
+.chat-tool summary:hover {
+    background: color-mix(in srgb, var(--rail-2) 60%, transparent);
 }
 
 .chat-tool summary::-webkit-details-marker {
@@ -283,22 +297,54 @@
 
 .chat-tool-mark {
     display: grid;
+    flex: none;
     place-items: center;
-    color: var(--live);
+    color: color-mix(in srgb, var(--live) 58%, var(--ink-faint));
 }
 
 .chat-tool.status-failed .chat-tool-mark {
     color: var(--danger);
 }
 
+.chat-tool.status-pending .chat-tool-mark,
+.chat-tool.status-in_progress .chat-tool-mark {
+    color: var(--warn);
+}
+
+.chat-tool-scope {
+    flex: none;
+    max-width: 130px;
+    overflow: hidden;
+    padding: 1px 5px;
+    border-radius: var(--radius-chip);
+    background: color-mix(in srgb, var(--void) 82%, transparent);
+    color: color-mix(in srgb, var(--ink-faint) 82%, var(--ink-dim));
+    font-family: var(--mono);
+    font-size: 9.5px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.chat-tool-name {
+    min-width: 0;
+    overflow: hidden;
+    font-family: var(--mono);
+    font-size: 10.5px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
 .chat-tool-status {
+    flex: none;
+    margin-left: auto;
     color: var(--ink-faint);
     font-size: 9.5px;
+    letter-spacing: 0.02em;
 }
 
 .chat-tool pre {
     max-height: 260px;
-    margin: 0 8px 8px;
+    margin: 0 9px 8px;
 }
 
 .chat-resource,
@@ -724,12 +770,11 @@
     }
 
     .chat-message {
-        grid-template-columns: 1fr;
         padding-inline: 12px;
     }
 
-    .chat-message-label {
-        text-align: left;
+    .chat-message.user .chat-message-content {
+        max-width: 86%;
     }
 
     .chat-model-label {

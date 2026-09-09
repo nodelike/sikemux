@@ -89,12 +89,14 @@ function upsertTool(state: ChatState, update: AcpToolCall, merge: boolean): Chat
         return { ...state, messages, suppressUserEcho: false, revision: state.revision + 1 };
     }
 
-    const messageId = `tool-message-${state.nextId}`;
-    messages.push({
-        id: messageId,
-        role: "assistant",
-        parts: [{ id: `${messageId}-tool`, kind: "tool", tool: update }],
-    });
+    const part: ChatPart = { id: `tool-${update.toolCallId}`, kind: "tool", tool: update };
+    const last = messages.at(-1);
+    if (last?.role === "assistant" && !last.id.startsWith("local-")) {
+        messages[messages.length - 1] = { ...last, parts: [...last.parts, part] };
+        return { ...state, messages, suppressUserEcho: false, revision: state.revision + 1 };
+    }
+
+    messages.push({ id: `tool-message-${state.nextId}`, role: "assistant", parts: [part] });
     return {
         ...state,
         messages,

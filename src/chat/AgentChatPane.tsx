@@ -73,21 +73,33 @@ function mergePaths(current: string[], incoming: readonly string[]): string[] {
     return merged;
 }
 
+// Splits `mcp__server__tool` so the server name can be de-emphasized.
+function toolLabel(title: string): { scope?: string; name: string } {
+    const segments = title.split("__");
+    return segments[0] === "mcp" && segments.length > 2 ? { scope: segments[1], name: segments.slice(2).join("__") } : { name: title };
+}
+
 function ToolPart({ tool }: { tool: AcpToolCall }) {
     const status = tool.status ?? "pending";
     const complete = status === "completed";
     const failed = status === "failed";
     const detail = tool.rawOutput ?? tool.rawInput ?? tool.content;
+    const { scope, name } = toolLabel(tool.title);
+    const head = (
+        <>
+            <span className="chat-tool-mark">
+                {complete ? <IconCheck size={11} /> : failed ? <IconWarning size={11} /> : <IconCommand size={11} />}
+            </span>
+            {scope && <span className="chat-tool-scope">{scope}</span>}
+            <span className="chat-tool-name">{name}</span>
+            {!complete && <span className="chat-tool-status">{status.replace(/_/g, " ")}</span>}
+        </>
+    );
+    if (detail === undefined) return <div className={`chat-tool status-${status} bare`}>{head}</div>;
     return (
         <details className={`chat-tool status-${status}`}>
-            <summary>
-                <span className="chat-tool-mark">
-                    {complete ? <IconCheck size={13} /> : failed ? <IconWarning size={13} /> : <IconCommand size={13} />}
-                </span>
-                <span>{tool.title}</span>
-                <span className="chat-tool-status">{status}</span>
-            </summary>
-            {detail !== undefined && <pre>{formatDetail(detail)}</pre>}
+            <summary>{head}</summary>
+            <pre>{formatDetail(detail)}</pre>
         </details>
     );
 }
@@ -162,10 +174,22 @@ function MessagePart({ part }: { part: ChatPart }) {
     return <ContentPart part={part} />;
 }
 
+type PartGroup = { id: string; tools: Extract<ChatPart, { kind: "tool" }>[] } | { id: string; part: ChatPart };
+
+function groupParts(parts: ChatPart[]): PartGroup[] {
+    const groups: PartGroup[] = [];
+    for (const part of parts) {
+        const last = groups.at(-1);
+        if (part.kind !== "tool") groups.push({ id: part.id, part });
+        else if (last && "tools" in last) last.tools.push(part);
+        else groups.push({ id: part.id, tools: [part] });
+    }
+    return groups;
+}
+
 const ChatMessageRow = memo(function ChatMessageRow({ message }: { message: ChatMessage }) {
     return (
         <article className={`chat-message ${message.role}`}>
-            <div className="chat-message-label">{message.role === "user" ? "You" : "Agent"}</div>
             <div className="chat-message-content">
                 {message.attachments && message.attachments.length > 0 && (
                     <div className="chat-message-attachments">
@@ -177,9 +201,17 @@ const ChatMessageRow = memo(function ChatMessageRow({ message }: { message: Chat
                         ))}
                     </div>
                 )}
-                {message.parts.map((part) => (
-                    <MessagePart key={part.id} part={part} />
-                ))}
+                {groupParts(message.parts).map((group) =>
+                    "tools" in group ? (
+                        <div className="chat-tools" key={group.id}>
+                            {group.tools.map((part) => (
+                                <ToolPart key={part.id} tool={part.tool} />
+                            ))}
+                        </div>
+                    ) : (
+                        <MessagePart key={group.id} part={group.part} />
+                    ),
+                )}
             </div>
         </article>
     );
@@ -292,7 +324,7 @@ export function AgentChatPane({
     const virtualizer = useVirtualizer({
         count: state.messages.length,
         getScrollElement: () => scrollRef.current,
-        estimateSize: () => 132,
+        estimateSize: () => 76,
         overscan: 8,
         getItemKey: (index) => state.messages[index]?.id ?? index,
     });
