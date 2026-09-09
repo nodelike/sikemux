@@ -1641,11 +1641,8 @@ fn agent_watch_dirs(
         AgentKind::Codex => {
             if let Some(codex) = agent_config_root("codex", config_path) {
                 let sessions = codex.join("sessions");
-                if sessions.is_dir() {
-                    push_watch_target(&mut out, sessions, RecursiveMode::Recursive);
-                } else {
-                    push_watch_target(&mut out, codex, RecursiveMode::NonRecursive);
-                }
+                push_watch_target(&mut out, codex, RecursiveMode::NonRecursive);
+                push_watch_target(&mut out, sessions, RecursiveMode::Recursive);
             }
         }
         AgentKind::Hermes => {
@@ -2669,13 +2666,14 @@ fn opencode_query(conn: &Connection, sql: &str, cwd: &str) -> Option<Vec<AgentSe
 #[cfg(test)]
 mod executable_tests {
     use super::{
-        agent_config_root, allowed_agent_path, cached_title, claude_sessions, codex_indexed_titles,
-        codex_sessions, codex_title, grok_session, json_effort, omp_sessions_from_dirs, omp_title,
-        parse_claude_models, parse_claude_usage, parse_codex_models, parse_codex_usage_result,
-        parse_grok_models, parse_hermes_models, parse_line_models, parse_omp_models,
-        parse_pi_models, percent_decode, qualify_model, title_cache_stamp, toml_effort, toml_model,
-        toml_section_string, yaml_agent_reasoning_effort, yaml_model_section,
-        yaml_top_level_scalar, AgentModelInfo, AgentUsageResetAt, CLAUDE_MODEL_CATALOG_ARGS,
+        agent_config_root, agent_watch_dirs, allowed_agent_path, cached_title, claude_sessions,
+        codex_indexed_titles, codex_sessions, codex_title, grok_session, json_effort,
+        omp_sessions_from_dirs, omp_title, parse_claude_models, parse_claude_usage,
+        parse_codex_models, parse_codex_usage_result, parse_grok_models, parse_hermes_models,
+        parse_line_models, parse_omp_models, parse_pi_models, percent_decode, qualify_model,
+        title_cache_stamp, toml_effort, toml_model, toml_section_string,
+        yaml_agent_reasoning_effort, yaml_model_section, yaml_top_level_scalar, AgentKind,
+        AgentModelInfo, AgentUsageResetAt, CLAUDE_MODEL_CATALOG_ARGS,
     };
     #[cfg(unix)]
     use super::{
@@ -3245,6 +3243,18 @@ mod executable_tests {
         let sessions = codex_sessions("/repo", root.path().to_str());
         assert_eq!(sessions.len(), 1);
         assert_eq!(sessions[0].title, "Add draggable project sorting");
+    }
+
+    #[test]
+    fn codex_title_watch_covers_transcripts_and_the_session_index() {
+        let root = tempfile::tempdir().unwrap();
+        let sessions = root.path().join("sessions");
+        std::fs::create_dir(&sessions).unwrap();
+
+        let targets = agent_watch_dirs(AgentKind::Codex, "/repo", root.path().to_str());
+
+        assert!(targets.iter().any(|target| target.dir == root.path()));
+        assert!(targets.iter().any(|target| target.dir == sessions));
     }
 
     #[test]

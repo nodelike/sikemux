@@ -360,11 +360,12 @@ export function AgentChatPane({
             } else if (event.kind === "session_update") {
                 const update = recordOf(event.payload.update);
                 if (update) queueUpdate(update);
-            } else if (event.kind === "turn_started") dispatch({ type: "turn_started" });
-            else if (event.kind === "turn_completed") {
+            } else if (event.kind === "turn_started") {
                 if (sessionIdRef.current && agentRef.current.resumeId !== sessionIdRef.current) {
                     cmd.attachAgentSession(agent.id, sessionIdRef.current);
                 }
+                dispatch({ type: "turn_started" });
+            } else if (event.kind === "turn_completed") {
                 dispatch({
                     type: "turn_completed",
                     stopReason: typeof event.payload.stopReason === "string" ? event.payload.stopReason : undefined,

@@ -103,18 +103,25 @@ describe("AgentChatPane", () => {
         expect(acpApi.stop).not.toHaveBeenCalled();
     });
 
-    it("changes YOLO on the live session without restarting or persisting an empty rollout", async () => {
+    it("attaches a new session when its first turn starts so metadata can update while it runs", async () => {
+        render(<AgentChatPane agent={agent} cwd="/repo" active onBusyChange={() => {}} />);
+        await waitFor(() => expect(screen.getByRole("textbox", { name: "Message agent" })).toBeEnabled());
+        expect(mocks.attachAgentSession).not.toHaveBeenCalled();
+
+        emit("turn_started", {});
+
+        expect(mocks.attachAgentSession).toHaveBeenCalledWith(agent.id, "session-1");
+    });
+
+    it("changes YOLO on the live session without restarting", async () => {
         const props = { agent, cwd: "/repo", active: true, onBusyChange: () => {} };
         const { rerender } = render(<AgentChatPane {...props} />);
         await waitFor(() => expect(screen.getByRole("textbox", { name: "Message agent" })).toBeEnabled());
-        expect(mocks.attachAgentSession).not.toHaveBeenCalled();
 
         rerender(<AgentChatPane {...props} agent={{ ...agent, permissionMode: "bypass" }} />);
         await waitFor(() => expect(mocks.setPermissionMode).toHaveBeenCalledWith(agent.id, "bypass"));
         expect(mocks.start).toHaveBeenCalledTimes(1);
         expect(acpApi.stop).not.toHaveBeenCalled();
-        emit("turn_completed", { stopReason: "end_turn" });
-        expect(mocks.attachAgentSession).toHaveBeenCalledWith(agent.id, "session-1");
     });
 
     it("serializes rapid permission changes and applies the latest choice", async () => {
