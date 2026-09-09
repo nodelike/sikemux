@@ -26,6 +26,7 @@ pub struct ProjectEntry {
 }
 
 #[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ProjectRoot {
     path: String,
     #[serde(default = "default_depth")]
@@ -212,4 +213,25 @@ fn scan_project_roots_sync(roots: Vec<ProjectRoot>) -> AppResult<Vec<ProjectEntr
 
     out.sort_by_key(|profile| profile.name.to_lowercase());
     Ok(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{scan_project_roots_sync, ProjectRoot};
+
+    #[test]
+    fn frontend_self_index_field_includes_a_non_git_root() {
+        let root = tempfile::tempdir().unwrap();
+        let configured: ProjectRoot = serde_json::from_value(serde_json::json!({
+            "path": root.path(),
+            "depth": 1,
+            "selfIndex": true
+        }))
+        .unwrap();
+
+        let projects = scan_project_roots_sync(vec![configured]).unwrap();
+
+        assert_eq!(projects.len(), 1);
+        assert_eq!(projects[0].path, root.path().to_string_lossy());
+    }
 }

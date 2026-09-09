@@ -14,6 +14,7 @@ Sikemux 0.3.4 adds OMP and Grok as first-class coding agents, gives Markdown fil
 - Reload clean editor buffers when their files change on disk while preserving unsaved buffers for conflict handling.
 - The sessions rail and agent rail now sit together on the left, keeping project context beside agent activity while the center pane gets the remaining space.
 - New Claude and Codex tabs now pick up their provider session title while the first turn is still running.
+- Project folders marked "index itself" now appear in the session and project pickers, and open pickers refresh when project indexing settings change.
 - Hover at either window edge to reveal a hidden sessions or agent rail. A revealed rail remains open while it contains keyboard focus, then closes when focus leaves.
 
 ## Git, updates, and Windows
