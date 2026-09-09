@@ -6,7 +6,7 @@ import { checkForUpdate } from "./api/updater";
 import { TopBar } from "./components/TopBar";
 import { SideRail } from "./components/SideRail";
 import { AgentRail } from "./components/AgentRail";
-import { SidebarPeek } from "./components/SidebarPeek";
+import { RailPeek } from "./components/RailPeek";
 import { AgentSessionSync } from "./components/AgentSessionSync";
 import { AgentLifecycleManager } from "./components/AgentLifecycleManager";
 import { AgentPalettePortal as AgentPalette } from "./components/AgentPalettePortal";
@@ -201,10 +201,10 @@ export default function App() {
     const [bootReady, setBootReady] = useState(false);
     const [bootIssue, setBootIssue] = useState<string | null>(null);
     const zen = useStore((s) => s.zenMode);
-    const leftRailOpen = useStore((s) => s.leftRailOpen);
-    const rightRailOpen = useStore((s) => s.rightRailOpen);
-    const leftOpen = leftRailOpen && !zen;
-    const rightOpen = rightRailOpen && !zen;
+    const sideRailOpen = useStore((s) => s.sideRailOpen);
+    const agentRailOpen = useStore((s) => s.agentRailOpen);
+    const sideRailVisible = sideRailOpen && !zen;
+    const agentRailVisible = agentRailOpen && !zen;
     const activeSessionIsProject = useStore((s) => s.sessions[s.activeSessionId]?.kind === "project");
     const pickerOpen = useStore((s) => s.pickerOpen);
     const agentPaletteOpen = useStore((s) => s.agentPaletteOpen);
@@ -778,21 +778,21 @@ export default function App() {
             <AgentLifecycleManager />
             <TopBar />
             <div className="body">
-                {leftOpen && <SideRail />}
-                {!leftRailOpen && !zen && (
-                    <SidebarPeek side="left">
+                {sideRailVisible && <SideRail />}
+                {!sideRailOpen && !zen && (
+                    <RailPeek edge="start">
                         <SideRail />
-                    </SidebarPeek>
+                    </RailPeek>
                 )}
+                {agentRailVisible && activeSessionIsProject && <AgentRail />}
                 <main className={`stage${settingsOpen ? " stage--settings" : ""}`}>
                     <Workspace />
                     {settingsOpen && <SettingsPanel />}
                 </main>
-                {rightOpen && activeSessionIsProject && <AgentRail />}
-                {!rightRailOpen && !zen && activeSessionIsProject && (
-                    <SidebarPeek side="right">
+                {!agentRailOpen && !zen && activeSessionIsProject && (
+                    <RailPeek edge="end">
                         <AgentRail />
-                    </SidebarPeek>
+                    </RailPeek>
                 )}
             </div>
             {pickerOpen && <SeshPicker />}

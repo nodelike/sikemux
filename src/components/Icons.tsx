@@ -163,12 +163,6 @@ export const IconPanelLeft = makeSvgIcon(
         <path d="M5.8 2.6v10.8" />
     </>,
 );
-export const IconPanelRight = makeSvgIcon(
-    <>
-        <rect x="1.8" y="2.6" width="12.4" height="10.8" rx="0" />
-        <path d="M10.2 2.6v10.8" />
-    </>,
-);
 export const IconZoom = makeSvgIcon(<path d="M2.6 6.2V2.6h3.6M13.4 9.8v3.6H9.8M9.8 2.6h3.6v3.6M6.2 13.4H2.6V9.8" />);
 export const IconFile = makeSvgIcon(
     <>

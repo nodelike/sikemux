@@ -12,6 +12,7 @@ import { awsIdentityR, gitStatusR, rndMatrixR, rndProjectsR } from "../state/res
 import { envFolderOf } from "../state/rundeckShape";
 import { useStore } from "../state/store";
 import {
+    IconAgent,
     IconAws,
     IconBattery,
     IconChevron,
@@ -20,7 +21,6 @@ import {
     IconFolder,
     IconGit,
     IconPanelLeft,
-    IconPanelRight,
     IconRundeck,
     IconZoom,
     WindowIcon,
@@ -335,8 +335,8 @@ export function TopBar() {
     const win = useStore((s) => (session ? s.windows[session.activeWindowId] : undefined));
     const agent = useStore((s) => (session?.activeAgentId ? s.agents[session.activeAgentId] : undefined));
     const zoomed = useStore((s) => s.zoomedPaneId != null);
-    const leftOpen = useStore((s) => s.leftRailOpen);
-    const rightOpen = useStore((s) => s.rightRailOpen);
+    const sideRailOpen = useStore((s) => s.sideRailOpen);
+    const agentRailOpen = useStore((s) => s.agentRailOpen);
     const zen = useStore((s) => s.zenMode);
     const [envOpen, setEnvOpen] = useState(false);
 
@@ -465,13 +465,13 @@ export function TopBar() {
                         </button>
                     </Tooltip>
                     <Tooltip label="Toggle sessions rail">
-                        <button className={`tb-btn${leftOpen ? " on" : ""}`} onClick={cmd.toggleLeftRail} aria-label="Toggle sessions rail">
+                        <button className={`tb-btn${sideRailOpen ? " on" : ""}`} onClick={cmd.toggleSideRail} aria-label="Toggle sessions rail">
                             <IconPanelLeft size={15} />
                         </button>
                     </Tooltip>
                     <Tooltip label="Toggle agents rail">
-                        <button className={`tb-btn${rightOpen ? " on" : ""}`} onClick={cmd.toggleRightRail} aria-label="Toggle agents rail">
-                            <IconPanelRight size={15} />
+                        <button className={`tb-btn${agentRailOpen ? " on" : ""}`} onClick={cmd.toggleAgentRail} aria-label="Toggle agents rail">
+                            <IconAgent size={15} />
                         </button>
                     </Tooltip>
                     <Tooltip label={`Settings — ${PRIMARY_SHORTCUT},`}>

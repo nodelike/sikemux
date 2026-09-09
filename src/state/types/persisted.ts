@@ -68,8 +68,8 @@ export interface PersistedPrefs {
     keybindingOverrides?: KeybindingOverrides;
     awsProfile: string | null;
     awsService: AwsService;
-    leftRailOpen: boolean;
-    rightRailOpen: boolean;
+    sideRailOpen: boolean;
+    agentRailOpen: boolean;
     zenMode: boolean;
     rundeck?: RundeckSettings;
     restoreAgentTabs?: boolean;

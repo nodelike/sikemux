@@ -65,6 +65,20 @@ export function OnboardingStage({ scene, region, overlay, agentState, commandRow
                         </span>
                     </div>
 
+                    <div className="onb-win-agents">
+                        <span className="onb-win-group">agents</span>
+                        <span className="onb-win-row is-active">
+                            <AgentIcon type="claude" size={9} className="onb-tone-claude" />
+                            refactor
+                            <AgentStateIndicator state={agentState} />
+                        </span>
+                        <span className="onb-win-row">
+                            <AgentIcon type="codex" size={9} className="onb-tone-codex" />
+                            tests
+                            <AgentStateIndicator state="done" />
+                        </span>
+                    </div>
+
                     <div className="onb-win-main">
                         <div className="onb-win-tabs">
                             <span className="is-active">terminal</span>
@@ -95,20 +109,6 @@ export function OnboardingStage({ scene, region, overlay, agentState, commandRow
                                 </div>
                             )}
                         </div>
-                    </div>
-
-                    <div className="onb-win-agents">
-                        <span className="onb-win-group">agents</span>
-                        <span className="onb-win-row is-active">
-                            <AgentIcon type="claude" size={9} className="onb-tone-claude" />
-                            refactor
-                            <AgentStateIndicator state={agentState} />
-                        </span>
-                        <span className="onb-win-row">
-                            <AgentIcon type="codex" size={9} className="onb-tone-codex" />
-                            tests
-                            <AgentStateIndicator state="done" />
-                        </span>
                     </div>
 
                     {overlay && (

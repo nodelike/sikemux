@@ -143,6 +143,21 @@ describe("frontend persistence", () => {
         expect(getState().keybindingOverrides).toEqual({ "project.open": "Meta+Shift+KeyO" });
     });
 
+    it("persists rail visibility by role", async () => {
+        setState({ sideRailOpen: false, agentRailOpen: true });
+        invoke.mockResolvedValue(undefined);
+
+        await expect(flushPersist()).resolves.toBe(true);
+        const saved = JSON.parse(invoke.mock.calls[0][1].data as string);
+        expect(saved.prefs).toMatchObject({ sideRailOpen: false, agentRailOpen: true });
+        expect(saved.prefs).not.toHaveProperty("leftRailOpen");
+        expect(saved.prefs).not.toHaveProperty("rightRailOpen");
+
+        setState({ sideRailOpen: true, agentRailOpen: false });
+        applyHydrate(JSON.stringify(saved));
+        expect(getState()).toMatchObject({ sideRailOpen: false, agentRailOpen: true });
+    });
+
     it("never persists or hydrates live agent commands", async () => {
         const sid = getState().activeSessionId;
         const agent = {

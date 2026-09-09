@@ -2150,8 +2150,8 @@ export async function openSshConfigEditor(): Promise<void> {
         d.settingsOpen = false;
     });
 }
-export const toggleLeftRail = (): void => setState((s) => ({ leftRailOpen: !s.leftRailOpen }));
-export const toggleRightRail = (): void => setState((s) => ({ rightRailOpen: !s.rightRailOpen }));
+export const toggleSideRail = (): void => setState((s) => ({ sideRailOpen: !s.sideRailOpen }));
+export const toggleAgentRail = (): void => setState((s) => ({ agentRailOpen: !s.agentRailOpen }));
 export const toggleZen = (): void => setState((s) => ({ zenMode: !s.zenMode }));
 
 function focusSessionWindowRole(role: WindowRole): void {

@@ -13,8 +13,8 @@ describe("AgentPalettePortal", () => {
         render(
             <>
                 <aside data-testid="project-rail" />
-                <main className="stage" data-testid="stage" />
                 <aside data-testid="agent-rail" />
+                <main className="stage" data-testid="stage" />
                 <AgentPalettePortal />
             </>,
         );

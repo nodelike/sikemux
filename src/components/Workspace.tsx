@@ -60,7 +60,7 @@ export function Workspace() {
             {showAgentEmpty && (
                 <div className="agent-empty-stage">
                     <span>no agents in this project</span>
-                    <span className="agent-empty-hint">start one from the agent rail →</span>
+                    <span className="agent-empty-hint">← start one from the agent rail</span>
                 </div>
             )}
             {sessions.flatMap((session) => {

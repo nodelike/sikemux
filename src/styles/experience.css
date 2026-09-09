@@ -619,7 +619,7 @@
 .onb-win-body {
     position: relative;
     display: grid;
-    grid-template-columns: 80px minmax(0, 1fr) 76px;
+    grid-template-columns: 80px 76px minmax(0, 1fr);
     min-height: 0;
 }
 
@@ -640,8 +640,8 @@
 }
 
 .onb-win-agents {
-    border-left: 1px solid var(--line);
-    animation: slideR 0.44s cubic-bezier(0.2, 0.7, 0.2, 1) 140ms backwards;
+    border-right: 1px solid var(--line);
+    animation: slideL 0.44s cubic-bezier(0.2, 0.7, 0.2, 1) 140ms backwards;
 }
 
 .onb-win-group {
@@ -1025,7 +1025,7 @@
     }
 
     .onb-win-body {
-        grid-template-columns: 68px minmax(0, 1fr) 66px;
+        grid-template-columns: 68px 66px minmax(0, 1fr);
     }
 }
 

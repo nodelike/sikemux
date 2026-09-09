@@ -12,7 +12,8 @@ Sikemux 0.3.4 adds OMP and Grok as first-class coding agents, gives Markdown fil
 
 - Switch Markdown files between source and a styled rendered preview. GitHub Flavored Markdown tables, task lists, strikethrough, and links render in the preview, while raw HTML stays disabled.
 - Reload clean editor buffers when their files change on disk while preserving unsaved buffers for conflict handling.
-- Hover at either window edge to reveal a hidden project or agent rail. A revealed rail remains open while it contains keyboard focus, then closes when focus leaves.
+- The sessions rail and agent rail now sit together on the left, keeping project context beside agent activity while the center pane gets the remaining space.
+- Hover at either window edge to reveal a hidden sessions or agent rail. A revealed rail remains open while it contains keyboard focus, then closes when focus leaves.
 
 ## Git, updates, and Windows
 

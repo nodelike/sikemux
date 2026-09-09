@@ -60,8 +60,8 @@ export interface DomainState {
     keybindingOverrides: KeybindingOverrides;
     awsProfile: string | null;
     awsService: AwsService;
-    leftRailOpen: boolean;
-    rightRailOpen: boolean;
+    sideRailOpen: boolean;
+    agentRailOpen: boolean;
     zenMode: boolean;
     rundeck: RundeckSettings;
     restoreAgentTabs: boolean;
@@ -199,8 +199,8 @@ export const useStore = create<StoreState>(() => {
         keybindingOverrides: {},
         awsProfile: null,
         awsService: "ecs",
-        leftRailOpen: true,
-        rightRailOpen: true,
+        sideRailOpen: true,
+        agentRailOpen: true,
         zenMode: false,
         rundeck: {
             activeProject: "",

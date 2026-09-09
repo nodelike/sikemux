@@ -1,16 +1,16 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 
-type PeekSide = "left" | "right";
+type PeekEdge = "start" | "end";
 type PeekPhase = "closed" | "open" | "closing";
 
-interface SidebarPeekProps {
-    side: PeekSide;
+interface RailPeekProps {
+    edge: PeekEdge;
     children: ReactNode;
 }
 
 const CLOSE_DURATION_MS = 180;
 
-export function SidebarPeek({ side, children }: SidebarPeekProps) {
+export function RailPeek({ edge, children }: RailPeekProps) {
     const [phase, setPhase] = useState<PeekPhase>("closed");
     const rootRef = useRef<HTMLDivElement>(null);
     const closeTimer = useRef<number | null>(null);
@@ -46,18 +46,18 @@ export function SidebarPeek({ side, children }: SidebarPeekProps) {
     return (
         <div
             ref={rootRef}
-            className={`sidebar-peek sidebar-peek--${side}`}
-            data-testid={`sidebar-peek-${side}`}
+            className={`rail-peek rail-peek--${edge}`}
+            data-testid={`rail-peek-${edge}`}
             onPointerEnter={open}
             onPointerLeave={() => close()}
             onFocusCapture={open}
             onBlurCapture={(event) => {
                 if (!event.currentTarget.contains(event.relatedTarget)) close(true);
             }}>
-            <div className="sidebar-peek-sensor" aria-hidden="true" />
+            <div className="rail-peek-sensor" aria-hidden="true" />
             {phase !== "closed" && (
                 <div
-                    className={`sidebar-peek-panel sidebar-peek-panel--${phase}`}
+                    className={`rail-peek-panel rail-peek-panel--${phase}`}
                     aria-hidden={phase === "closing"}
                     onAnimationEnd={() => {
                         if (phase === "closing") {

@@ -4,9 +4,9 @@
     flex: 0 0 auto;
     width: 252px;
     background: color-mix(in srgb, var(--rail) calc(var(--window-opacity, 1) * 100%), transparent);
-    border-left: 1px solid var(--line);
+    border-right: 1px solid var(--line);
     overflow: hidden;
-    animation: slideR 0.42s cubic-bezier(0.2, 0.7, 0.2, 1) backwards;
+    animation: slideL 0.42s cubic-bezier(0.2, 0.7, 0.2, 1) backwards;
 }
 
 .agent-empty {
