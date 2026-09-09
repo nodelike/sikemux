@@ -27,6 +27,7 @@ import { confirmDialog } from "./dialog";
 import { agentSupportsSkipPermissions } from "./commands/agentLogic";
 import { agentDirectCommand, agentStartup } from "./commands/agentLaunchCommand";
 import { parseSessionBundle } from "./sessionBundle";
+import { activeTabRef, selectTabRefs, tabRefKey } from "./selectors";
 import { DEFAULT_BRUNO_VIEW, DEFAULT_GIT_VIEW, DEFAULT_GLOBAL_SEARCH_VIEW } from "./types";
 import {
     collectPanes,
@@ -66,6 +67,7 @@ import type {
     SplitDir,
     Window,
     WindowRole,
+    WorkspaceTabRef,
 } from "./types";
 
 export { agentSupportsSkipPermissions } from "./commands/agentLogic";
@@ -1448,6 +1450,28 @@ export function selectWindowId(id: string): void {
     });
 }
 
+export function selectTab(ref: WorkspaceTabRef): void {
+    if (ref.kind === "agent") selectAgent(ref.id);
+    else selectWindowId(ref.id);
+}
+
+export function closeTab(ref: WorkspaceTabRef): void {
+    if (ref.kind === "agent") closeAgent(ref.id);
+    else closeWindowById(ref.id);
+}
+
+export function cycleTab(delta: number): void {
+    const st = getState();
+    const session = st.sessions[st.activeSessionId];
+    if (!session) return;
+    const refs = selectTabRefs(st, session.id);
+    if (refs.length === 0) return;
+    const current = activeTabRef(session);
+    const index = current ? refs.findIndex((ref) => tabRefKey(ref) === tabRefKey(current)) : -1;
+    const base = index < 0 ? 0 : index;
+    selectTab(refs[(base + delta + refs.length) % refs.length]);
+}
+
 export function selectWindowByIndex(index: number): void {
     const st = getState();
     const session = st.sessions[st.activeSessionId];
@@ -1474,58 +1498,6 @@ export function selectWindowByRole(role: WindowRole): void {
         selectWindowId(id);
     } else if (role === "term" && session.kind === "project") {
         newWindow();
-    }
-}
-
-const PROJECT_SLOT_ORDER: (WindowRole | "agents")[] = ["files", "term", "git", "agents", "search"];
-
-export function selectWindowRelative(delta: number): void {
-    const st = getState();
-    const session = st.sessions[st.activeSessionId];
-    if (!session) return;
-    const winIds = st.windowsBySession[session.id] ?? [];
-    const agentIds = st.agentsBySession[session.id] ?? [];
-
-    if (session.kind !== "project") {
-        if (winIds.length < 2) return;
-        const idx = winIds.indexOf(session.activeWindowId);
-        const next = winIds[(idx + delta + winIds.length) % winIds.length];
-        selectWindowId(next);
-        return;
-    }
-
-    const activeWin = st.windows[session.activeWindowId];
-    const winForRole = (role: WindowRole): string | undefined => {
-        if (activeWin?.role === role) return activeWin.id;
-        return winIds.find((id) => st.windows[id]?.role === role);
-    };
-
-    type Slot = { kind: "win"; role: WindowRole; id: string } | { kind: "agents" };
-    const slots: Slot[] = [];
-    for (const slot of PROJECT_SLOT_ORDER) {
-        if (slot === "agents") {
-            if (agentIds.length > 0) slots.push({ kind: "agents" });
-        } else {
-            const id = winForRole(slot);
-            if (id) slots.push({ kind: "win", role: slot, id });
-        }
-    }
-    if (slots.length < 2) return;
-
-    let idx: number;
-    if (session.view === "agent") {
-        idx = slots.findIndex((s) => s.kind === "agents");
-    } else {
-        const currentRole = activeWin?.role;
-        idx = slots.findIndex((s) => s.kind === "win" && s.role === currentRole);
-    }
-    if (idx < 0) idx = 0;
-
-    const next = slots[(idx + delta + slots.length) % slots.length];
-    if (next.kind === "agents") {
-        focusAgents();
-    } else {
-        selectWindowId(next.id);
     }
 }
 

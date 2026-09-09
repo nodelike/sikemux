@@ -145,21 +145,28 @@ describe("workspace tab bars", () => {
         expect(await screen.findByRole("button", { name: /yolo/i })).toHaveClass("chat-permission-mode", "tone-danger");
     });
 
-    it("requests the agent picker for the empty agent stage", () => {
-        const state = getState();
-        const sessionId = state.activeSessionId;
-        setState({
-            sessions: {
-                ...state.sessions,
-                [sessionId]: { ...state.sessions[sessionId], kind: "project", view: "agent", activeAgentId: null, cwd: "/repo" },
-            },
-            agentsBySession: { ...state.agentsBySession, [sessionId]: [] },
-        });
+    it("puts windows and agents in one tab strip", () => {
+        projectWithAgent();
 
         render(<Workspace />);
 
-        expect(screen.getByText("no agents in this project")).toBeInTheDocument();
-        expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
-        expect(getState().agentPaletteOpen).toBe(true);
+        const tabs = screen.getAllByRole("tab").map((tab) => tab.textContent);
+        expect(tabs).toContain("only agent");
+        expect(tabs.length).toBeGreaterThan(1);
+    });
+
+    it("switches from an agent tab to a window tab through the same strip", () => {
+        projectWithAgent();
+        render(<Workspace />);
+
+        const sessionId = getState().activeSessionId;
+        const windowId = getState().windowsBySession[sessionId][0];
+        const windowTab = screen.getAllByRole("tab").find((tab) => tab.getAttribute("aria-selected") === "false");
+        expect(windowTab).toBeDefined();
+
+        fireEvent.click(windowTab!);
+
+        expect(getState().sessions[sessionId].view).toBe("windows");
+        expect(getState().sessions[sessionId].activeWindowId).toBe(windowId);
     });
 });

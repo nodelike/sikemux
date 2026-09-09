@@ -1,27 +1,24 @@
-import { lazy, memo, Suspense, useEffect, useMemo, useRef } from "react";
+import { lazy, memo, Suspense, useMemo, useRef } from "react";
 import type { PointerEvent as ReactPointerEvent, RefObject } from "react";
-import type { Agent, Divider, Rect, Session, Window as WindowT } from "../state/types";
+import type { Agent, Divider, Rect, Session, Window as WindowT, WindowRole, WorkspaceTabRef } from "../state/types";
 import { collectPanes, computeLayout, findSplit, MIN_FRAC } from "../state/layout";
 import * as cmd from "../state/commands";
 import { getState, useStore } from "../state/store";
+import { activeTabRef, tabRefKey } from "../state/selectors";
 import { type CtxItem } from "./FileTree";
 import { ErrorBoundary } from "./ErrorBoundary";
 import { TabBar, type TabDescriptor } from "./TabBar";
-import { AgentIcon, IconCommand, IconGlobe, IconPlus } from "./Icons";
+import { AgentIcon, IconCommand, IconGlobe, IconPlus, WindowIcon } from "./Icons";
+import { AgentStateIndicator } from "./AgentStateIndicator";
 import { renderWorkbenchItem } from "../workbench/renderers";
 import { AgentBrowserShell } from "./BrowserPane";
 
 const AgentSurface = lazy(() => import("../chat/AgentSurface").then((module) => ({ default: module.AgentSurface })));
 
-const AGENT_TABS_H = 34;
-const TERM_TABS_H = 34;
+const TABS_H = 34;
 
 const FULL: Rect = { x: 0, y: 0, w: 1, h: 1 };
 const pct = (n: number) => `${n * 100}%`;
-// Agents only exist in project sessions; every other group is always in
-// "windows" view, so stale agent state can never strand a non-project session.
-const sessionView = (s: Session): "windows" | "agent" => (s.kind === "project" ? s.view : "windows");
-
 export function Workspace() {
     const sessionsById = useStore((s) => s.sessions);
     const sessionOrder = useStore((s) => s.sessionOrder);
@@ -30,69 +27,33 @@ export function Workspace() {
     const windowsBySession = useStore((s) => s.windowsBySession);
     const agentsBySession = useStore((s) => s.agentsBySession);
     const activeSessionId = useStore((s) => s.activeSessionId);
-    const agentPaletteOpen = useStore((s) => s.agentPaletteOpen);
     const areaRef = useRef<HTMLDivElement>(null);
 
     const sessions = sessionOrder.map((id) => sessionsById[id]);
     const activeSession = sessionsById[activeSessionId];
-    const activeWindow = activeSession ? windowsById[activeSession.activeWindowId] : undefined;
-    const activeAgents = activeSession ? (agentsBySession[activeSession.id] ?? []).map((id) => agentsById[id]) : [];
-
-    const inAgentView = !!activeSession && sessionView(activeSession) === "agent";
-    const showAgentTabs = inAgentView && activeAgents.length > 0;
-    const showAgentEmpty = inAgentView && activeAgents.length === 0;
-
-    useEffect(() => {
-        if (showAgentEmpty && !agentPaletteOpen) cmd.openAgentPalette();
-    }, [agentPaletteOpen, activeSessionId, showAgentEmpty]);
-
-    const activeWindowList = activeSession ? (windowsBySession[activeSession.id] ?? []).map((id) => windowsById[id]) : [];
-    const termTabs =
-        activeSession && sessionView(activeSession) === "windows" && activeWindow?.role === "term"
-            ? activeWindowList.filter((w) => w.role === "term")
-            : [];
-    const showTermTabs = termTabs.length > 0;
+    const tabCount = activeSession ? (windowsBySession[activeSession.id]?.length ?? 0) + (agentsBySession[activeSession.id]?.length ?? 0) : 0;
 
     return (
         <div className="window-area" ref={areaRef}>
-            {showAgentTabs && <AgentTabsBar session={activeSession!} agents={activeAgents} />}
-            {showTermTabs && <TerminalTabsBar session={activeSession!} tabs={termTabs} />}
-            {showAgentEmpty && (
-                <div className="agent-empty-stage">
-                    <span>no agents in this project</span>
-                    <span className="agent-empty-hint">← start one from the agent rail</span>
-                </div>
-            )}
+            {activeSession && tabCount > 0 && <WorkspaceTabsBar session={activeSession} />}
             {sessions.flatMap((session) => {
                 const isActive = session.id === activeSessionId;
-                const view = sessionView(session);
+                const active = activeTabRef(session);
                 const winIds = windowsBySession[session.id] ?? [];
                 const aIds = agentsBySession[session.id] ?? [];
-                const sessTabs = view === "agent" && aIds.length > 0;
-                const sessHasTermTabs = winIds.some((id) => windowsById[id]?.role === "term");
-                const renderedWindowIds = isActive && view === "windows" ? [session.activeWindowId] : [];
-                const windowLayers = renderedWindowIds.map((wid) => {
+                const windowLayers = winIds.map((wid) => {
                     const win = windowsById[wid];
                     if (!win) return null;
-                    const layerTermTab = win.role === "term";
-                    const inset = isActive && view === "windows" && wid === session.activeWindowId && layerTermTab && sessHasTermTabs;
-                    return (
-                        <WindowLayer
-                            key={wid}
-                            session={session}
-                            win={win}
-                            areaRef={areaRef}
-                            topInset={inset ? TERM_TABS_H : 0}
-                            visible={isActive && view === "windows" && wid === session.activeWindowId}
-                        />
-                    );
+                    const visible = isActive && active?.kind === "window" && active.id === wid;
+                    if (!visible && wid !== session.activeWindowId) return null;
+                    return <WindowLayer key={wid} session={session} win={win} areaRef={areaRef} topInset={TABS_H} visible={visible} />;
                 });
                 const agentLayers = aIds.map((aid) => {
                     const agent = agentsById[aid];
                     if (!agent) return null;
-                    const visible = isActive && view === "agent" && aid === session.activeAgentId;
+                    const visible = isActive && active?.kind === "agent" && active.id === aid;
                     if (!visible && agent.launchState === "dormant") return null;
-                    return <AgentLayer key={aid} session={session} agent={agent} tabsShown={sessTabs} visible={visible} />;
+                    return <AgentLayer key={aid} session={session} agent={agent} visible={visible} />;
                 });
                 return [...windowLayers, ...agentLayers];
             })}
@@ -100,144 +61,167 @@ export function Workspace() {
     );
 }
 
-function TerminalTabsBar({ session, tabs }: { session: Session; tabs: WindowT[] }) {
+const ROLE_LABEL: Record<WindowRole, string> = {
+    term: "Terminal",
+    files: "Files",
+    git: "Git",
+    search: "Search",
+    aws: "AWS",
+    rundeck: "Rundeck",
+    bruno: "Bruno",
+    "ssh-config": "SSH config",
+    named: "Window",
+};
+
+function WorkspaceTabsBar({ session }: { session: Session }) {
+    const windowsById = useStore((s) => s.windows);
+    const agentsById = useStore((s) => s.agents);
     const terminalTitles = useStore((s) => s.terminalTitles);
-    const buildMenu = (id: string): CtxItem[] => {
-        const w = tabs.find((t) => t.id === id);
-        if (!w) return [];
-        const others = tabs.filter((t) => t.id !== id && !t.fixed);
-        const all = tabs.filter((t) => !t.fixed);
+    const activity = useStore((s) => s.agentActivity);
+    const windowIds = useStore((s) => s.windowsBySession[session.id]);
+    const agentIds = useStore((s) => s.agentsBySession[session.id]);
+    const refs = useMemo(
+        () => [
+            ...(windowIds ?? []).filter((id) => windowsById[id]).map((id): WorkspaceTabRef => ({ kind: "window", id })),
+            ...(agentIds ?? []).filter((id) => agentsById[id]).map((id): WorkspaceTabRef => ({ kind: "agent", id })),
+        ],
+        [windowIds, agentIds, windowsById, agentsById],
+    );
+    const active = activeTabRef(session);
+    const activeKey = active ? tabRefKey(active) : null;
+
+    const windowMenu = (win: WindowT): CtxItem[] => {
+        const siblings = refs.flatMap((ref) => (ref.kind === "window" ? [windowsById[ref.id]] : [])).filter(Boolean) as WindowT[];
+        const others = siblings.filter((t) => t.id !== win.id && !t.fixed);
         return [
-            { label: "Duplicate", run: () => cmd.duplicateWindow(id) },
-            { label: "Close", hint: "⌥W", disabled: w.fixed, run: () => cmd.closeWindowById(id) },
+            { label: "Duplicate", run: () => cmd.duplicateWindow(win.id) },
+            { label: "Close", hint: "⌥W", disabled: win.fixed, run: () => cmd.closeWindowById(win.id) },
             { label: "Close Others", disabled: others.length === 0, run: () => others.forEach((t) => cmd.closeWindowById(t.id)) },
-            { label: "Close All", disabled: all.length === 0, run: () => all.forEach((t) => cmd.closeWindowById(t.id)) },
         ];
     };
 
-    return (
-        <TabBar
-            variant="agent"
-            style={{ height: TERM_TABS_H }}
-            tabs={tabs.map((w) => ({
-                id: w.id,
-                label: terminalTitles[w.activePaneId] || w.name,
-                title: terminalTitles[w.activePaneId] || w.name,
-                active: w.id === session.activeWindowId,
-                closable: !w.fixed,
-                icon: (
-                    <span className="agent-glyph">
-                        <IconCommand size={13} />
-                    </span>
-                ),
-            }))}
-            onSelect={cmd.selectWindowId}
-            onClose={cmd.closeWindowById}
-            buildMenu={buildMenu}
-            onAdd={() => cmd.newWindow()}
-            addIcon={<IconPlus size={13} />}
-            addTitle="New terminal — ⌥N"
-        />
-    );
-}
-
-function AgentTabsBar({ session, agents }: { session: Session; agents: Agent[] }) {
-    const buildMenu = (id: string): CtxItem[] => {
-        const a = agents.find((x) => x.id === id);
-        if (!a) return [];
-        const others = agents.filter((x) => x.id !== id);
+    const agentMenu = (agent: Agent): CtxItem[] => {
+        const agents = refs.flatMap((ref) => (ref.kind === "agent" ? [agentsById[ref.id]] : [])).filter(Boolean) as Agent[];
+        const others = agents.filter((x) => x.id !== agent.id);
         const items: CtxItem[] = [
-            ...(a.launchState === "dormant"
-                ? [{ label: "Resume", run: () => cmd.selectAgent(id) }]
-                : a.resumeId
-                  ? [{ label: "Sleep", run: () => cmd.sleepAgent(id) }]
+            ...(agent.launchState === "dormant"
+                ? [{ label: "Resume", run: () => cmd.selectAgent(agent.id) }]
+                : agent.resumeId
+                  ? [{ label: "Sleep", run: () => cmd.sleepAgent(agent.id) }]
                   : []),
-            ...(a.resumeId && a.launchState !== "dormant"
-                ? [
-                      {
-                          label: a.keepAlive ? "Allow Auto-Sleep" : "Keep Alive",
-                          run: () => cmd.setAgentKeepAlive(id, !a.keepAlive),
-                      },
-                  ]
+            ...(agent.resumeId && agent.launchState !== "dormant"
+                ? [{ label: agent.keepAlive ? "Allow Auto-Sleep" : "Keep Alive", run: () => cmd.setAgentKeepAlive(agent.id, !agent.keepAlive) }]
                 : []),
-            ...(a.resumeId ? [{ sep: true as const }] : []),
-            { label: "Close", hint: "⌥W", run: () => cmd.closeAgent(id) },
+            ...(agent.resumeId ? [{ sep: true as const }] : []),
+            { label: "Close", hint: "⌥W", run: () => cmd.closeAgent(agent.id) },
             { label: "Close Others", disabled: others.length === 0, run: () => others.forEach((x) => cmd.closeAgent(x.id)) },
-            { label: "Close All", run: () => agents.forEach((x) => cmd.closeAgent(x.id)) },
         ];
-        if (cmd.agentSupportsSkipPermissions(a.type)) {
-            const skip = a.permissionMode === "bypass" || a.skipPermissions === true;
+        if (cmd.agentSupportsSkipPermissions(agent.type)) {
+            const skip = agent.permissionMode === "bypass" || agent.skipPermissions === true;
             items.push(
                 { sep: true },
-                {
-                    label: skip ? "Disable YOLO Mode" : "Enable YOLO Mode",
-                    hint: "⌥Y",
-                    run: () => cmd.toggleAgentSkipPermissions(id),
-                },
+                { label: skip ? "Disable YOLO Mode" : "Enable YOLO Mode", hint: "⌥Y", run: () => cmd.toggleAgentSkipPermissions(agent.id) },
             );
         }
         return items;
     };
 
-    const tabs: TabDescriptor[] = agents.map((a) => ({
-        id: a.id,
-        label: a.title,
-        title: a.title,
-        active: a.id === session.activeAgentId,
-        icon: (
-            <span className={`agent-glyph ${a.type}`}>
-                <AgentIcon type={a.type} size={14} />
-            </span>
-        ),
-    }));
+    const tabs: TabDescriptor[] = refs.flatMap((ref): TabDescriptor[] => {
+        const key = tabRefKey(ref);
+        if (ref.kind === "agent") {
+            const agent = agentsById[ref.id];
+            if (!agent) return [];
+            const state = activity[agent.id];
+            return [
+                {
+                    id: key,
+                    label: agent.title,
+                    title: agent.title,
+                    active: key === activeKey,
+                    icon: (
+                        <span className={`agent-glyph ${agent.type}`}>
+                            <AgentIcon type={agent.type} size={14} />
+                        </span>
+                    ),
+                    accessory: state ? <AgentStateIndicator state={state.state} /> : undefined,
+                },
+            ];
+        }
+        const win = windowsById[ref.id];
+        if (!win) return [];
+        const label = win.role === "term" ? terminalTitles[win.activePaneId] || win.name : ROLE_LABEL[win.role];
+        return [
+            {
+                id: key,
+                label,
+                title: label,
+                active: key === activeKey,
+                closable: !win.fixed,
+                icon: (
+                    <span className="agent-glyph">
+                        <WindowIcon role={win.role} size={13} />
+                    </span>
+                ),
+            },
+        ];
+    });
+
+    const refByKey = new Map(refs.map((ref) => [tabRefKey(ref), ref]));
+
     return (
         <TabBar
             variant="agent"
-            style={{ height: AGENT_TABS_H }}
+            style={{ height: TABS_H }}
             tabs={tabs}
-            onSelect={cmd.selectAgent}
-            onClose={cmd.closeAgent}
-            buildMenu={buildMenu}
+            onSelect={(key) => {
+                const ref = refByKey.get(key);
+                if (ref) cmd.selectTab(ref);
+            }}
+            onClose={(key) => {
+                const ref = refByKey.get(key);
+                if (ref) cmd.closeTab(ref);
+            }}
+            buildMenu={(key) => {
+                const ref = refByKey.get(key);
+                if (!ref) return [];
+                if (ref.kind === "agent") {
+                    const agent = agentsById[ref.id];
+                    return agent ? agentMenu(agent) : [];
+                }
+                const win = windowsById[ref.id];
+                return win ? windowMenu(win) : [];
+            }}
             onAdd={() => cmd.openAgentPalette()}
             addIcon={<IconPlus size={13} />}
             addTitle="New agent — ⌥N"
             trailing={
-                <button
-                    type="button"
-                    className="agent-browser-open"
-                    aria-label="New browser tab — ⌘T"
-                    title="New browser tab — ⌘T"
-                    onClick={cmd.newBrowserTab}>
-                    <IconGlobe size={13} />
-                    <span>browser</span>
-                </button>
+                <>
+                    <button type="button" className="agent-browser-open" aria-label="New terminal — ⌥N" title="New terminal" onClick={() => cmd.newWindow()}>
+                        <IconCommand size={13} />
+                        <span>term</span>
+                    </button>
+                    <button
+                        type="button"
+                        className="agent-browser-open"
+                        aria-label="New browser tab — ⌘T"
+                        title="New browser tab — ⌘T"
+                        onClick={cmd.newBrowserTab}>
+                        <IconGlobe size={13} />
+                        <span>browser</span>
+                    </button>
+                </>
             }
         />
     );
 }
 
-const AgentLayer = memo(function AgentLayer({
-    session,
-    agent,
-    visible,
-    tabsShown,
-}: {
-    session: Session;
-    agent: Agent;
-    visible: boolean;
-    tabsShown: boolean;
-}) {
+const AgentLayer = memo(function AgentLayer({ session, agent, visible }: { session: Session; agent: Agent; visible: boolean }) {
     const profile = useStore((state) => (agent.profileId ? state.providerProfiles.find((candidate) => candidate.id === agent.profileId) : undefined));
     return (
         <div className={`window-layer${visible ? " visible" : ""}`} aria-hidden={!visible} inert={!visible}>
             <div
                 className="pane-cell"
-                style={{
-                    left: 0,
-                    top: tabsShown ? `${AGENT_TABS_H}px` : 0,
-                    width: "100%",
-                    height: tabsShown ? `calc(100% - ${AGENT_TABS_H}px)` : "100%",
-                }}>
+                style={{ left: 0, top: `${TABS_H}px`, width: "100%", height: `calc(100% - ${TABS_H}px)` }}>
                 <div className="pane pane-terminal">
                     <AgentBrowserShell agentId={agent.id} agentType={agent.type} visible={visible}>
                         {agent.launchState === "dormant" ? (

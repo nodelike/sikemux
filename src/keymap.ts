@@ -141,10 +141,10 @@ export function runKeybindingAction(action: KeybindingActionId, event: KeyboardE
             else return false;
             return true;
         case "window.next":
-            cmd.selectWindowRelative(1);
+            cmd.cycleTab(1);
             return true;
         case "window.previous":
-            cmd.selectWindowRelative(-1);
+            cmd.cycleTab(-1);
             return true;
         case "tab.next":
             cmd.cycleTabs(1);

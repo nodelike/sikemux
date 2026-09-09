@@ -190,6 +190,10 @@ export interface Session {
     view: "windows" | "agent";
 }
 
+/** One entry in a session's single tab strip. Windows and agents keep separate
+ * stores because their lifecycles differ, so a tab is named by kind plus id. */
+export type WorkspaceTabRef = { kind: "window"; id: string } | { kind: "agent"; id: string };
+
 export interface RecentEntry {
     kind: SessionKind;
     name: string;
