@@ -146,7 +146,6 @@ function projectWindows(cwd: string): Window[] {
         makeWindow(cwd, "files", { kind: "editor", fixed: true, role: "files" }),
         makeWindow(cwd, "1", { role: "term" }),
         makeWindow(cwd, "diff", { kind: "diff", fixed: true, role: "diff" }),
-        makeWindow(cwd, "search", { kind: "search", fixed: true, role: "search" }),
     ];
 }
 
@@ -190,20 +189,20 @@ export function ensureDiffWindow(): void {
     });
 }
 
-export function ensureSearchWindow(): void {
+export function pruneSearchWindows(): void {
     mutate((d) => {
         for (const sid of d.sessionOrder) {
-            const sess = d.sessions[sid];
-            if (sess.kind !== "project") continue;
             const winIds = d.windowsBySession[sid] ?? [];
-            if (winIds.some((id) => d.windows[id]?.role === "search")) continue;
-            const w = makeWindow(sess.cwd, "search", {
-                kind: "search",
-                fixed: true,
-                role: "search",
-            });
-            d.windows[w.id] = w;
-            d.windowsBySession[sid] = [...winIds, w.id];
+            const searchIds = winIds.filter((id) => d.windows[id]?.role === "search");
+            if (searchIds.length === 0) continue;
+            for (const id of searchIds) {
+                for (const pane of collectPanes(d.windows[id].root)) delete d.editorViews[pane.id];
+                delete d.windows[id];
+            }
+            const kept = winIds.filter((id) => d.windows[id]);
+            d.windowsBySession[sid] = kept;
+            const sess = d.sessions[sid];
+            if (!kept.includes(sess.activeWindowId)) sess.activeWindowId = kept[0] ?? sess.activeWindowId;
         }
     });
 }
@@ -2525,9 +2524,20 @@ export function focusGlobalSearch(seed?: string): void {
         const oneLine = seed.split(/\r?\n/).find((l) => l.trim().length > 0) ?? seed.trim();
         setGlobalSearchQuery(session.id, oneLine);
     }
-    const ids = st.windowsBySession[session.id] ?? [];
-    const target = ids.find((id) => st.windows[id]?.role === "search");
-    if (target) selectWindowId(target);
+    const existing = (st.windowsBySession[session.id] ?? []).find((id) => st.windows[id]?.role === "search");
+    if (existing) {
+        selectWindowId(existing);
+    } else {
+        mutate((d) => {
+            const sess = d.sessions[session.id];
+            const w = makeWindow(sess.cwd, "search", { kind: "search", role: "search" });
+            d.windows[w.id] = w;
+            d.windowsBySession[session.id] = [...(d.windowsBySession[session.id] ?? []), w.id];
+            sess.activeWindowId = w.id;
+            sess.view = "windows";
+            d.zoomedPaneId = null;
+        });
+    }
     emit({ type: "search-focus", sessionId: session.id });
 }
 

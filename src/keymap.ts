@@ -236,7 +236,7 @@ export function runKeybindingAction(action: KeybindingActionId, event: KeyboardE
             cmd.focusAgents();
             return true;
         case "window.search":
-            cmd.selectWindowByName("search");
+            cmd.focusGlobalSearch();
             return true;
     }
 }

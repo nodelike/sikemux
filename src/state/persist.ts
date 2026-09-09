@@ -5,7 +5,7 @@ import { normaliseKeybindingOverrides } from "../keybindings";
 import type { CommandContext, CustomCommand, CustomCommandPlacement } from "../commands/registry";
 import { registerCustomThemes } from "../themes/bus";
 import { normalizePermissionMode } from "../agentLaunch";
-import { ensureDiffWindow, ensureSearchWindow, mergePinnedIntoRoots, normaliseProjectRoots } from "./commands";
+import { ensureDiffWindow, mergePinnedIntoRoots, normaliseProjectRoots, pruneSearchWindows } from "./commands";
 import { agentDirectCommand, agentStartup } from "./commands";
 import { getState, setState, useStore, type StoreState } from "./store";
 import { errMessage, notify } from "./toast";
@@ -765,7 +765,7 @@ export function applyHydrate(raw: string): HydrationResult {
         ),
         defaultAgentPermissionMode: prefs.defaultAgentPermissionMode === "bypass" ? "bypass" : "workspace-write",
     });
-    ensureSearchWindow();
+    pruneSearchWindows();
     ensureDiffWindow();
     registerCustomThemes(getState().customThemes);
     // Preserve the actual disk payload as the saved marker. The subscription

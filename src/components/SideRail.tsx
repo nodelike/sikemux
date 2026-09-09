@@ -376,10 +376,11 @@ export function SideRail() {
             const w = winByRole(role);
             if (w) {
                 jumpToWindow(s.id, w.id);
-            } else if (role === "term") {
-                if (s.id !== activeSessionId) cmd.selectSession(s.id);
-                cmd.newWindow();
+                return;
             }
+            if (s.id !== activeSessionId) cmd.selectSession(s.id);
+            if (role === "term") cmd.newWindow();
+            else if (role === "search") cmd.focusGlobalSearch();
         };
 
         const termIcons: React.ReactNode[] =

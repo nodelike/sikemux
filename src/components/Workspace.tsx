@@ -6,6 +6,7 @@ import * as cmd from "../state/commands";
 import { getState, useStore } from "../state/store";
 import { activeTabRef, tabRefKey } from "../state/selectors";
 import { type CtxItem } from "./FileTree";
+import { basename } from "../lib/paths";
 import { ErrorBoundary } from "./ErrorBoundary";
 import { TabBar, type TabDescriptor } from "./TabBar";
 import { AgentIcon, IconCommand, IconGlobe, IconPlus, WindowIcon } from "./Icons";
@@ -63,9 +64,9 @@ export function Workspace() {
 
 const ROLE_LABEL: Record<WindowRole, string> = {
     term: "Terminal",
-    files: "Files",
+    files: "Editor",
     git: "Git",
-    diff: "Changes",
+    diff: "Diff",
     search: "Search",
     aws: "AWS",
     rundeck: "Rundeck",
@@ -78,6 +79,7 @@ function WorkspaceTabsBar({ session }: { session: Session }) {
     const windowsById = useStore((s) => s.windows);
     const agentsById = useStore((s) => s.agents);
     const terminalTitles = useStore((s) => s.terminalTitles);
+    const editorViews = useStore((s) => s.editorViews);
     const activity = useStore((s) => s.agentActivity);
     const windowIds = useStore((s) => s.windowsBySession[session.id]);
     const agentIds = useStore((s) => s.agentsBySession[session.id]);
@@ -150,7 +152,8 @@ function WorkspaceTabsBar({ session }: { session: Session }) {
         }
         const win = windowsById[ref.id];
         if (!win) return [];
-        const label = win.role === "term" ? terminalTitles[win.activePaneId] || win.name : ROLE_LABEL[win.role];
+        const editorPath = win.role === "files" ? (editorViews[win.activePaneId]?.activePath ?? null) : null;
+        const label = win.role === "term" ? terminalTitles[win.activePaneId] || win.name : editorPath ? basename(editorPath) : ROLE_LABEL[win.role];
         return [
             {
                 id: key,

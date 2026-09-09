@@ -104,3 +104,37 @@ describe("diff window migration", () => {
         expect(getState().windows[session.activeWindowId]).toBeDefined();
     });
 });
+
+describe("search tab", () => {
+    it("does not give a new project a permanent search tab", () => {
+        cmd.createProjectSession("/work/demo");
+
+        expect(projectWindows().map((win) => win.role)).not.toContain("search");
+    });
+
+    it("opens a closable search tab on demand and reuses it", () => {
+        cmd.createProjectSession("/work/demo");
+
+        cmd.focusGlobalSearch("needle");
+
+        const search = projectWindows().filter((win) => win.role === "search");
+        expect(search).toHaveLength(1);
+        expect(search[0].fixed).toBeUndefined();
+        expect(getState().sessions[getState().activeSessionId].activeWindowId).toBe(search[0].id);
+
+        cmd.focusGlobalSearch();
+        expect(projectWindows().filter((win) => win.role === "search")).toHaveLength(1);
+    });
+
+    it("drops a search tab restored from an older snapshot", () => {
+        cmd.createProjectSession("/work/demo");
+        cmd.focusGlobalSearch();
+        const searchId = projectWindows().find((win) => win.role === "search")!.id;
+
+        cmd.pruneSearchWindows();
+
+        expect(getState().windows[searchId]).toBeUndefined();
+        const session = getState().sessions[getState().activeSessionId];
+        expect(getState().windows[session.activeWindowId]).toBeDefined();
+    });
+});
