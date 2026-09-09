@@ -155,6 +155,9 @@ export interface PtyContext {
 
 export type RailDensity = "comfortable" | "compact";
 
+/** Which panel the workspace rail is showing. */
+export type RailTab = "agents" | "files" | "changes";
+
 /** A resolved Rundeck deploy location for a service: a project plus an env subfolder. */
 export interface DeployRef {
     project: string;

@@ -23,7 +23,7 @@ vi.stubGlobal(
 
 import { invalidate } from "../state/resources";
 import { getState, setState } from "../state/store";
-import { AgentRail } from "./AgentRail";
+import { AgentRailBody } from "./AgentRail";
 
 const initial = getState();
 
@@ -72,7 +72,7 @@ afterEach(() => {
 describe("agent rail", () => {
     it("owns recent chats and filters them in place", async () => {
         const user = userEvent.setup();
-        render(<AgentRail />);
+        render(<AgentRailBody />);
 
         expect(await screen.findByRole("button", { name: /Fix terminal focus/ })).toBeInTheDocument();
 
@@ -110,7 +110,7 @@ describe("agent rail", () => {
         invalidate((kind) => kind === "agents.catalog" || kind === "agents.usage");
 
         const user = userEvent.setup();
-        render(<AgentRail />);
+        render(<AgentRailBody />);
 
         expect(await screen.findByRole("region", { name: "Codex plan limits" })).toBeInTheDocument();
         expect(await screen.findByRole("meter", { name: "5h usage" })).toHaveAttribute("aria-valuenow", "37");
@@ -132,7 +132,7 @@ describe("agent rail", () => {
         });
         invalidate((kind) => kind === "agents.catalog" || kind === "agents.usage");
 
-        render(<AgentRail />);
+        render(<AgentRailBody />);
 
         expect(await screen.findByText("API-key accounts do not provide plan usage.")).toBeInTheDocument();
         expect(screen.queryByRole("meter")).not.toBeInTheDocument();
@@ -142,7 +142,7 @@ describe("agent rail", () => {
         mocks.available.mockResolvedValue([{ type: "hermes", label: "Hermes", command: "hermes", defaultModel: null, defaultEffort: null }]);
         invalidate((kind) => kind === "agents.catalog" || kind === "agents.usage");
 
-        render(<AgentRail />);
+        render(<AgentRailBody />);
 
         expect(await screen.findByRole("tab", { name: "Hermes" })).toBeInTheDocument();
         expect(screen.queryByRole("region", { name: /plan limits/i })).not.toBeInTheDocument();

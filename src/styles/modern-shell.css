@@ -146,17 +146,17 @@ select:focus-visible,
 }
 
 .side-rail .panel-group,
-.agent-rail .panel-group {
+.workspace-rail .panel-group {
     margin-top: var(--space-4);
 }
 
 .side-rail .panel-head,
-.agent-rail .panel-head {
+.workspace-rail .panel-head {
     padding: var(--space-0) var(--space-2) var(--space-1h);
 }
 
 .side-rail .panel-label,
-.agent-rail .panel-label {
+.workspace-rail .panel-label {
     font-family: var(--ui);
     font-size: 11px;
     font-weight: 700;
@@ -286,7 +286,7 @@ select:focus-visible,
 
 /* Agent rail: a little wider so titles, provider identity, and timestamps do
  * not compete for the same 250px. */
-.agent-rail {
+.workspace-rail {
     width: 312px;
     background: color-mix(in srgb, var(--rail) calc(var(--window-opacity, 1) * 96%), transparent);
     border-right-color: color-mix(in srgb, var(--line) 84%, white 3%);
@@ -476,11 +476,11 @@ select:focus-visible,
     background: color-mix(in srgb, var(--rail-2) calc(var(--window-opacity, 1) * 36%), transparent);
 }
 
-.agent-rail .rail-scroll::-webkit-scrollbar {
+.workspace-rail .rail-scroll::-webkit-scrollbar {
     width: 9px;
 }
 
-.agent-rail .rail-scroll::-webkit-scrollbar-thumb {
+.workspace-rail .rail-scroll::-webkit-scrollbar-thumb {
     border-radius: 999px;
 }
 
@@ -586,7 +586,7 @@ select:focus-visible,
         width: 224px;
     }
 
-    .agent-rail {
+    .workspace-rail {
         width: 286px;
     }
 
@@ -598,7 +598,7 @@ select:focus-visible,
 @media (prefers-reduced-motion: reduce) {
     .top-bar,
     .side-rail,
-    .agent-rail {
+    .workspace-rail {
         animation: none;
     }
 }
@@ -654,7 +654,7 @@ textarea,
 .shell
     :where(
         .side-rail,
-        .agent-rail,
+        .workspace-rail,
         .stage,
         .agent-usage,
         .agent-empty,
@@ -818,7 +818,7 @@ textarea,
 }
 
 .rail-peek-panel > .side-rail,
-.rail-peek-panel > .agent-rail {
+.rail-peek-panel > .workspace-rail {
     width: 100%;
     height: 100%;
     animation: none;
@@ -866,7 +866,7 @@ textarea,
 }
 
 .side-rail,
-.agent-rail,
+.workspace-rail,
 .stage {
     border: 1px solid color-mix(in srgb, var(--line) 76%, white 4%);
     border-radius: var(--radius-md);
@@ -876,7 +876,7 @@ textarea,
 .side-rail {
     border-right-width: 1px;
 }
-.agent-rail {
+.workspace-rail {
     border-right-width: 1px;
 }
 
@@ -1004,7 +1004,7 @@ textarea,
 }
 
 .side-rail,
-.agent-rail {
+.workspace-rail {
     background: color-mix(in srgb, var(--rail) var(--surface-solidity), transparent);
 }
 
@@ -1074,7 +1074,7 @@ textarea,
  */
 .side-rail .sess-name,
 .side-rail .proj-name,
-.agent-rail .agent-title {
+.workspace-rail .agent-title {
     font-size: 13px;
 }
 
@@ -1084,7 +1084,7 @@ textarea,
 
 .side-rail .proj-child-kbd,
 .side-rail .rail-group-kbd,
-.agent-rail .agent-ago {
+.workspace-rail .agent-ago {
     font-size: 10.5px;
 }
 

@@ -1451,7 +1451,7 @@
         grid-template-columns: 1fr;
     }
 }
-.agent-rail[data-density="compact"] .agent-row {
+.workspace-rail[data-density="compact"] .agent-row {
     height: 27px;
 }
 

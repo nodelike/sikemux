@@ -2123,7 +2123,8 @@ export async function openSshConfigEditor(): Promise<void> {
     });
 }
 export const toggleSideRail = (): void => setState((s) => ({ sideRailOpen: !s.sideRailOpen }));
-export const toggleAgentRail = (): void => setState((s) => ({ agentRailOpen: !s.agentRailOpen }));
+export const setRailTab = (tab: import("./types").RailTab): void => setState({ railTab: tab });
+export const toggleWorkspaceRail = (): void => setState((s) => ({ workspaceRailOpen: !s.workspaceRailOpen }));
 export const toggleZen = (): void => setState((s) => ({ zenMode: !s.zenMode }));
 
 function focusSessionWindowRole(role: WindowRole): void {

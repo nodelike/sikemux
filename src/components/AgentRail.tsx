@@ -31,10 +31,9 @@ function ago(unixSecs: number): string {
 const persistedSessionIdOf = (a: Agent) => a.resumeId ?? a.id;
 const sessionKey = (type: AgentType, id: string) => `${type}:${id}`;
 
-export function AgentRail() {
+export function AgentRailBody() {
     const session = useStore((s) => s.sessions[s.activeSessionId]);
     const activityById = useStore((s) => s.agentActivity);
-    const density = useStore((s) => s.railDensity);
     const agentsBySession = useStore((s) => s.agentsBySession);
     const agentsById = useStore((s) => s.agents);
     const profiles = useStore((s) => s.providerProfiles);
@@ -156,7 +155,7 @@ export function AgentRail() {
 
     if (!isProject) {
         return (
-            <aside className="agent-rail" data-density={density}>
+            <>
                 <AgentHeader
                     agents={availableAgents}
                     type={selectedType}
@@ -174,14 +173,14 @@ export function AgentRail() {
                     />
                 )}
                 <div className="agent-empty">agents are project-scoped</div>
-            </aside>
+            </>
         );
     }
 
     const noContent = opens.length === 0 && recentDisplay.length === 0;
 
     return (
-        <aside className="agent-rail" data-density={density}>
+        <>
             <AgentHeader
                 agents={availableAgents}
                 type={selectedType}
@@ -279,7 +278,7 @@ export function AgentRail() {
                     </Panel>
                 )}
             </div>
-        </aside>
+        </>
     );
 }
 

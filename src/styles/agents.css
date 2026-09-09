@@ -1,4 +1,4 @@
-.agent-rail {
+.workspace-rail {
     display: flex;
     flex-direction: column;
     flex: 0 0 auto;
@@ -533,16 +533,16 @@
         opacity: 0.4;
     }
 }
-.agent-rail[data-density="compact"] .agent-usage {
+.workspace-rail[data-density="compact"] .agent-usage {
     padding-block: 8px 9px;
 }
-.agent-rail[data-density="compact"] .agent-usage-head {
+.workspace-rail[data-density="compact"] .agent-usage-head {
     margin-bottom: 8px;
 }
-.agent-rail[data-density="compact"] .agent-usage-row + .agent-usage-row {
+.workspace-rail[data-density="compact"] .agent-usage-row + .agent-usage-row {
     margin-top: 11px;
 }
-.agent-rail[data-density="compact"] .agent-usage-pct {
+.workspace-rail[data-density="compact"] .agent-usage-pct {
     font-size: 13.5px;
 }
 @media (prefers-reduced-motion: reduce) {
@@ -763,3 +763,360 @@
     }
 }
 
+/* Workspace rail: tab strip, then whichever panel that tab owns. */
+.rail-tabs {
+    display: flex;
+    flex: 0 0 auto;
+    gap: 2px;
+    padding: var(--space-1h) var(--space-1h) 0;
+    border-bottom: 1px solid var(--line-soft);
+}
+
+.rail-tab {
+    display: inline-flex;
+    flex: 1;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+    height: 27px;
+    border-radius: var(--radius-control) var(--radius-control) 0 0;
+    color: var(--ink-faint);
+    font-family: var(--ui);
+    font-size: 11.5px;
+    transition:
+        color 100ms,
+        background 100ms;
+}
+
+.rail-tab:hover:not(.active) {
+    color: var(--ink-dim);
+}
+
+.rail-tab.active {
+    color: var(--ink);
+    background: color-mix(in srgb, var(--rail-2) 72%, transparent);
+    box-shadow: inset 0 -1px 0 var(--acc);
+}
+
+.rail-tab-count {
+    padding: 0 4px;
+    border-radius: var(--radius-chip);
+    background: var(--acc-soft);
+    color: var(--acc);
+    font-family: var(--mono);
+    font-size: 9.5px;
+}
+
+.rail-body {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    min-height: 0;
+    overflow: hidden;
+}
+
+.rail-note {
+    padding: 14px;
+    color: var(--ink-faint);
+    font-size: 11.5px;
+}
+
+/* Files tab: the tree fills the rail instead of owning its own width. */
+.ed-tree.fill {
+    width: 100%;
+    min-width: 0;
+    border-right: 0;
+}
+
+/* Changes tab */
+.rail-changes {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    min-height: 0;
+    overflow-y: auto;
+}
+
+.rail-changes-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-2);
+    padding: var(--space-2) var(--gutter-rail);
+}
+
+.rail-changes-count {
+    color: var(--live);
+    font-family: var(--mono);
+    font-size: 11px;
+}
+
+.rail-branch {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    min-width: 0;
+    overflow: hidden;
+    color: var(--ink-dim);
+    font-size: 11px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.rail-commit {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1h);
+    padding: 0 var(--gutter-rail) var(--space-2);
+}
+
+.rail-commit-input {
+    position: relative;
+}
+
+.rail-commit-input textarea {
+    width: 100%;
+    padding: 7px 30px 7px 9px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-control);
+    background: color-mix(in srgb, var(--void) 46%, transparent);
+    color: var(--ink);
+    font-size: 12px;
+    line-height: 1.5;
+    resize: none;
+}
+
+.rail-commit-input textarea::placeholder {
+    color: var(--ink-faint);
+}
+
+.rail-commit-ai {
+    position: absolute;
+    top: 5px;
+    right: 5px;
+    display: grid;
+    width: 21px;
+    height: 21px;
+    place-items: center;
+    border-radius: var(--radius-control);
+    color: var(--ink-faint);
+}
+
+.rail-commit-ai:hover:not(:disabled) {
+    background: var(--acc-soft);
+    color: var(--acc);
+}
+
+.rail-commit-go {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    height: 29px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-control);
+    background: var(--rail-2);
+    color: var(--ink);
+    font-size: 12px;
+}
+
+.rail-commit-go:hover:not(:disabled) {
+    border-color: var(--acc-line);
+    background: var(--acc-soft);
+}
+
+.rail-commit-go:disabled {
+    cursor: default;
+    color: var(--ink-faint);
+    opacity: 0.6;
+}
+
+.rail-section {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    border-top: 1px solid var(--line-soft);
+}
+
+.rail-section-head {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    height: 28px;
+    padding: 0 var(--gutter-rail);
+    color: var(--ink-faint);
+    font-size: 10px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+}
+
+.rail-section-head:hover {
+    color: var(--ink-dim);
+}
+
+.rail-caret {
+    display: grid;
+    place-items: center;
+    transition: transform 120ms;
+}
+
+.rail-caret.open {
+    transform: rotate(90deg);
+}
+
+.rail-section-label {
+    flex: 1;
+    text-align: left;
+}
+
+.rail-section-count {
+    padding: 0 4px;
+    border-radius: var(--radius-chip);
+    background: var(--acc-soft);
+    color: var(--acc);
+    font-family: var(--mono);
+    font-size: 9.5px;
+}
+
+.rail-section-act {
+    display: grid;
+    width: 18px;
+    height: 18px;
+    place-items: center;
+    border-radius: var(--radius-control);
+    color: var(--ink-faint);
+}
+
+.rail-section-act:hover:not(:disabled) {
+    background: var(--rail-2);
+    color: var(--ink);
+}
+
+.rail-list {
+    display: flex;
+    flex-direction: column;
+    padding-bottom: var(--space-1h);
+}
+
+.rail-file-wrap {
+    display: flex;
+    align-items: center;
+}
+
+.rail-file {
+    display: flex;
+    flex: 1;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    height: 24px;
+    padding: 0 var(--gutter-rail);
+    color: var(--ink-dim);
+    font-size: 12px;
+    text-align: left;
+}
+
+.rail-file:hover {
+    background: color-mix(in srgb, var(--rail-2) 70%, transparent);
+    color: var(--ink);
+}
+
+.rail-file-name {
+    flex: 0 1 auto;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.rail-file-dir {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    color: var(--ink-faint);
+    font-size: 10.5px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.rail-file-mark {
+    flex: none;
+    font-family: var(--mono);
+    font-size: 10px;
+}
+
+.rail-file-wrap.staged .rail-file-mark {
+    color: var(--live);
+}
+
+.rail-file-stage {
+    display: grid;
+    flex: none;
+    width: 20px;
+    height: 24px;
+    place-items: center;
+    color: transparent;
+}
+
+.rail-file-wrap:hover .rail-file-stage {
+    color: var(--ink-faint);
+}
+
+.rail-file-stage:hover:not(:disabled) {
+    color: var(--ink);
+}
+
+.rail-commit-row {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    min-width: 0;
+    height: 24px;
+    padding: 0 var(--gutter-rail);
+    color: var(--ink-dim);
+    font-size: 11.5px;
+}
+
+.rail-commit-row:hover {
+    background: color-mix(in srgb, var(--rail-2) 70%, transparent);
+}
+
+.rail-commit-node {
+    flex: none;
+    width: 7px;
+    height: 7px;
+    border: 1.5px solid var(--acc);
+    border-radius: 50%;
+}
+
+.rail-commit-node.unpushed {
+    background: var(--acc);
+}
+
+.rail-commit-subject {
+    flex: 0 1 auto;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.rail-commit-author {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    color: var(--ink-faint);
+    font-size: 10.5px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.rail-commit-ref {
+    display: inline-flex;
+    flex: none;
+    align-items: center;
+    gap: 3px;
+    padding: 0 4px;
+    border-radius: var(--radius-chip);
+    background: var(--acc-soft);
+    color: var(--acc);
+    font-size: 9.5px;
+}

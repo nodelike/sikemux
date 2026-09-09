@@ -5,7 +5,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { checkForUpdate } from "./api/updater";
 import { TopBar } from "./components/TopBar";
 import { SideRail } from "./components/SideRail";
-import { AgentRail } from "./components/AgentRail";
+import { WorkspaceRail } from "./components/WorkspaceRail";
 import { RailPeek } from "./components/RailPeek";
 import { AgentSessionSync } from "./components/AgentSessionSync";
 import { AgentLifecycleManager } from "./components/AgentLifecycleManager";
@@ -202,9 +202,9 @@ export default function App() {
     const [bootIssue, setBootIssue] = useState<string | null>(null);
     const zen = useStore((s) => s.zenMode);
     const sideRailOpen = useStore((s) => s.sideRailOpen);
-    const agentRailOpen = useStore((s) => s.agentRailOpen);
+    const workspaceRailOpen = useStore((s) => s.workspaceRailOpen);
     const sideRailVisible = sideRailOpen && !zen;
-    const agentRailVisible = agentRailOpen && !zen;
+    const workspaceRailVisible = workspaceRailOpen && !zen;
     const activeSessionIsProject = useStore((s) => s.sessions[s.activeSessionId]?.kind === "project");
     const pickerOpen = useStore((s) => s.pickerOpen);
     const agentPaletteOpen = useStore((s) => s.agentPaletteOpen);
@@ -784,14 +784,14 @@ export default function App() {
                         <SideRail />
                     </RailPeek>
                 )}
-                {agentRailVisible && activeSessionIsProject && <AgentRail />}
+                {workspaceRailVisible && activeSessionIsProject && <WorkspaceRail />}
                 <main className={`stage${settingsOpen ? " stage--settings" : ""}`}>
                     <Workspace />
                     {settingsOpen && <SettingsPanel />}
                 </main>
-                {!agentRailOpen && !zen && activeSessionIsProject && (
+                {!workspaceRailOpen && !zen && activeSessionIsProject && (
                     <RailPeek edge="end">
-                        <AgentRail />
+                        <WorkspaceRail />
                     </RailPeek>
                 )}
             </div>

@@ -9,6 +9,7 @@ import type {
     ProviderProfile,
     ProviderProfileSelection,
     RailDensity,
+    RailTab,
     RecentEntry,
     RundeckSettings,
     Session,
@@ -69,7 +70,8 @@ export interface PersistedPrefs {
     awsProfile: string | null;
     awsService: AwsService;
     sideRailOpen: boolean;
-    agentRailOpen: boolean;
+    workspaceRailOpen: boolean;
+    railTab?: RailTab;
     zenMode: boolean;
     rundeck?: RundeckSettings;
     restoreAgentTabs?: boolean;

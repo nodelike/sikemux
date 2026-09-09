@@ -20,8 +20,9 @@ interface FileTreeProps {
     cwd: string;
     activePath: string | null;
     onOpenFile: (entry: DirEntry) => void;
-    width: number;
-    onResize: (w: number) => void;
+    /** Omit both to let the tree fill its container instead of owning a width. */
+    width?: number;
+    onResize?: (w: number) => void;
     active: boolean;
     revealPath?: string | null;
 }
@@ -54,6 +55,7 @@ function validEntryName(raw: string): string | null {
 }
 
 export function FileTree({ cwd, activePath, onOpenFile, width, onResize, active, revealPath }: FileTreeProps) {
+    const resizable = width !== undefined && onResize !== undefined;
     const [dirs, setDirs] = useState<Record<string, DirEntry[]>>({});
     const [expanded, setExpanded] = useState<Set<string>>(new Set());
     const [selectedDir, setSelectedDir] = useState<string | null>(null);
@@ -601,7 +603,7 @@ export function FileTree({ cwd, activePath, onOpenFile, width, onResize, active,
         const handle = e.currentTarget;
         handle.setPointerCapture(e.pointerId);
         const startX = e.clientX;
-        const startW = width;
+        const startW = width ?? 0;
         let latest = startW;
         let frame: number | null = null;
         const move = (ev: PointerEvent) => {
@@ -609,7 +611,7 @@ export function FileTree({ cwd, activePath, onOpenFile, width, onResize, active,
             if (frame == null) {
                 frame = window.requestAnimationFrame(() => {
                     frame = null;
-                    onResize(latest);
+                    onResize?.(latest);
                 });
             }
         };
@@ -618,7 +620,7 @@ export function FileTree({ cwd, activePath, onOpenFile, width, onResize, active,
                 window.cancelAnimationFrame(frame);
                 frame = null;
             }
-            onResize(latest);
+            onResize?.(latest);
             handle.removeEventListener("pointermove", move);
             handle.removeEventListener("pointerup", up);
         };
@@ -630,7 +632,7 @@ export function FileTree({ cwd, activePath, onOpenFile, width, onResize, active,
         if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
         e.preventDefault();
         const step = e.shiftKey ? 40 : 16;
-        onResize(Math.min(600, Math.max(160, width + (e.key === "ArrowRight" ? step : -step))));
+        onResize?.(Math.min(600, Math.max(160, (width ?? 0) + (e.key === "ArrowRight" ? step : -step))));
     };
 
     const rootScrollRef = useRef<HTMLDivElement>(null);
@@ -649,7 +651,7 @@ export function FileTree({ cwd, activePath, onOpenFile, width, onResize, active,
 
     return (
         <>
-            <div className="ed-tree" style={{ width }}>
+            <div className={`ed-tree${resizable ? "" : " fill"}`} style={resizable ? { width } : undefined}>
                 <div className="ed-tree-head">
                     <span className="ed-tree-name">{basename(cwd) || "files"}</span>
                     <span className="ed-tree-actions">
@@ -686,18 +688,20 @@ export function FileTree({ cwd, activePath, onOpenFile, width, onResize, active,
                     )}
                 </div>
             </div>
-            <div
-                className="ed-tree-resizer"
-                role="separator"
-                tabIndex={0}
-                aria-orientation="vertical"
-                aria-valuemin={160}
-                aria-valuemax={600}
-                aria-valuenow={Math.round(width)}
-                onPointerDown={onResizeDrag}
-                onKeyDown={onResizeKeyDown}
-                title="Drag or use arrow keys to resize"
-            />
+            {resizable && (
+                <div
+                    className="ed-tree-resizer"
+                    role="separator"
+                    tabIndex={0}
+                    aria-orientation="vertical"
+                    aria-valuemin={160}
+                    aria-valuemax={600}
+                    aria-valuenow={Math.round(width)}
+                    onPointerDown={onResizeDrag}
+                    onKeyDown={onResizeKeyDown}
+                    title="Drag or use arrow keys to resize"
+                />
+            )}
             {menu && <TreeContextMenu x={menu.x} y={menu.y} items={buildMenuItems(menu.entry)} onClose={() => setMenu(null)} />}
             {dragGhost &&
                 createPortal(
