@@ -1,5 +1,5 @@
 export type SplitDir = "row" | "column";
-export type PaneKind = "terminal" | "editor" | "git" | "aws" | "search" | "rundeck" | "bruno";
+export type PaneKind = "terminal" | "editor" | "git" | "diff" | "aws" | "search" | "rundeck" | "bruno";
 
 export interface PaneNode {
     type: "pane";
@@ -26,7 +26,7 @@ export type LayoutNode = PaneNode | SplitNode;
 
 export type SessionKind = "project" | "command" | "ssh" | "aws" | "rundeck" | "bruno";
 
-export type WindowRole = "term" | "files" | "git" | "search" | "aws" | "rundeck" | "bruno" | "ssh-config" | "named";
+export type WindowRole = "term" | "files" | "git" | "diff" | "search" | "aws" | "rundeck" | "bruno" | "ssh-config" | "named";
 
 export interface Window {
     id: string;

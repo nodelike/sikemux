@@ -13,6 +13,7 @@ export interface WorkbenchItemRendererProps {
 
 const EditorPane = lazy(() => import("../components/EditorPane").then((module) => ({ default: module.EditorPane })));
 const GitPane = lazy(() => import("../components/GitPane").then((module) => ({ default: module.GitPane })));
+const DiffPane = lazy(() => import("../components/DiffPane").then((module) => ({ default: module.DiffPane })));
 const AwsPane = lazy(() => import("../components/aws/AwsPane").then((module) => ({ default: module.AwsPane })));
 const RundeckPane = lazy(() => import("../components/rundeck/RundeckPane").then((module) => ({ default: module.RundeckPane })));
 const BrunoPane = lazy(() => import("../components/bruno/BrunoPane").then((module) => ({ default: module.BrunoPane })));
@@ -50,6 +51,11 @@ export const BUILTIN_ITEM_RENDERERS: Readonly<Record<PaneKind, (props: Workbench
     git: ({ pane, session, active }) => (
         <Suspense fallback={<ItemFallback />}>
             <GitPane paneId={pane.id} cwd={paneCwd(pane, session)} active={active} />
+        </Suspense>
+    ),
+    diff: ({ pane, session, active }) => (
+        <Suspense fallback={<ItemFallback />}>
+            <DiffPane cwd={paneCwd(pane, session)} active={active} />
         </Suspense>
     ),
     aws: ({ visible }) => (

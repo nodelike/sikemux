@@ -10,24 +10,29 @@
 }
 
 .tree-row.git-m,
-.git-status-symbol.git-m {
-    color: #e2c08d;
+.git-status-symbol.git-m,
+.rail-file.git-m {
+    color: var(--git-modified);
 }
 .tree-row.git-u,
-.git-status-symbol.git-u {
-    color: #73c991;
+.git-status-symbol.git-u,
+.rail-file.git-u {
+    color: var(--git-untracked);
 }
 .tree-row.git-a,
-.git-status-symbol.git-a {
-    color: #81b88b;
+.git-status-symbol.git-a,
+.rail-file.git-a {
+    color: var(--git-added);
 }
 .tree-row.git-d,
-.git-status-symbol.git-d {
-    color: #c74e39;
+.git-status-symbol.git-d,
+.rail-file.git-d {
+    color: var(--git-deleted);
 }
 .tree-row.git-r,
-.git-status-symbol.git-r {
-    color: #6c8cd5;
+.git-status-symbol.git-r,
+.rail-file.git-r {
+    color: var(--git-renamed);
 }
 .git-status-symbol {
     display: inline-flex;

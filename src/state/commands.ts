@@ -145,8 +145,23 @@ function projectWindows(cwd: string): Window[] {
         makeWindow(cwd, "files", { kind: "editor", fixed: true, role: "files" }),
         makeWindow(cwd, "1", { role: "term" }),
         makeWindow(cwd, "git", { kind: "git", fixed: true, role: "git" }),
+        makeWindow(cwd, "diff", { kind: "diff", fixed: true, role: "diff" }),
         makeWindow(cwd, "search", { kind: "search", fixed: true, role: "search" }),
     ];
+}
+
+export function ensureDiffWindow(): void {
+    mutate((d) => {
+        for (const sid of d.sessionOrder) {
+            const sess = d.sessions[sid];
+            if (sess.kind !== "project") continue;
+            const winIds = d.windowsBySession[sid] ?? [];
+            if (winIds.some((id) => d.windows[id]?.role === "diff")) continue;
+            const w = makeWindow(sess.cwd, "diff", { kind: "diff", fixed: true, role: "diff" });
+            d.windows[w.id] = w;
+            d.windowsBySession[sid] = [...winIds, w.id];
+        }
+    });
 }
 
 export function ensureSearchWindow(): void {
@@ -2146,6 +2161,15 @@ export function requestOpenFile(path: string, line?: number, character?: number)
 
 export function openGitPane(): void {
     focusSessionWindowRole("git");
+}
+
+/** Focus the diff tab on one changed file. `path` is repo-relative. */
+export function openDiff(path: string): void {
+    const st = getState();
+    const session = st.sessions[st.activeSessionId];
+    if (!session) return;
+    setState((state) => ({ diffFocus: { ...state.diffFocus, [session.cwd]: path } }));
+    focusSessionWindowRole("diff");
 }
 
 export function setThemeId(id: string): void {

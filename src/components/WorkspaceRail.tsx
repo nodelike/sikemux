@@ -1,16 +1,18 @@
+import type { ReactNode } from "react";
 import type { RailTab } from "../state/types";
 import * as cmd from "../state/commands";
 import { useStore } from "../state/store";
 import { AgentRailBody } from "./AgentRail";
 import { FileTree } from "./FileTree";
 import { RailChanges } from "./rail/RailChanges";
+import { IconAgent, IconFolder, IconGit } from "./Icons";
 import { useResourceEnabled } from "../state/resources";
 import { gitStatusR } from "../state/resources.defs";
 
-const TABS: { id: RailTab; label: string }[] = [
-    { id: "agents", label: "Agents" },
-    { id: "files", label: "Files" },
-    { id: "changes", label: "Changes" },
+const TABS: { id: RailTab; label: string; icon: ReactNode }[] = [
+    { id: "agents", label: "Agents", icon: <IconAgent size={12} /> },
+    { id: "files", label: "Files", icon: <IconFolder size={12} /> },
+    { id: "changes", label: "Changes", icon: <IconGit size={12} /> },
 ];
 
 function RailFiles({ cwd }: { cwd: string }) {
@@ -46,6 +48,7 @@ export function WorkspaceRail() {
                         aria-selected={tab === entry.id}
                         className={`rail-tab${tab === entry.id ? " active" : ""}`}
                         onClick={() => cmd.setRailTab(entry.id)}>
+                        <span className="rail-tab-glyph">{entry.icon}</span>
                         <span>{entry.label}</span>
                         {entry.id === "changes" && changeCount > 0 && <span className="rail-tab-count">{changeCount}</span>}
                     </button>

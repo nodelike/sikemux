@@ -5,7 +5,7 @@ import { normaliseKeybindingOverrides } from "../keybindings";
 import type { CommandContext, CustomCommand, CustomCommandPlacement } from "../commands/registry";
 import { registerCustomThemes } from "../themes/bus";
 import { normalizePermissionMode } from "../agentLaunch";
-import { ensureSearchWindow, mergePinnedIntoRoots, normaliseProjectRoots } from "./commands";
+import { ensureDiffWindow, ensureSearchWindow, mergePinnedIntoRoots, normaliseProjectRoots } from "./commands";
 import { agentDirectCommand, agentStartup } from "./commands";
 import { getState, setState, useStore, type StoreState } from "./store";
 import { errMessage, notify } from "./toast";
@@ -154,7 +154,7 @@ function mergeBrunoWorkspaces(saved: string[] | undefined, sessions: Session[]):
 }
 
 const SESSION_KINDS = new Set<Session["kind"]>(["project", "command", "ssh", "aws", "rundeck", "bruno"]);
-const WINDOW_ROLES = new Set<WindowRole>(["term", "files", "git", "search", "aws", "rundeck", "bruno", "ssh-config", "named"]);
+const WINDOW_ROLES = new Set<WindowRole>(["term", "files", "git", "diff", "search", "aws", "rundeck", "bruno", "ssh-config", "named"]);
 const RAIL_TABS = new Set<RailTab>(["agents", "files", "changes"]);
 const AWS_SERVICES = new Set<StoreState["awsService"]>(["ecs", "ec2", "lambda", "sqs", "billing", "s3"]);
 
@@ -760,6 +760,7 @@ export function applyHydrate(raw: string): HydrationResult {
         defaultAgentPermissionMode: prefs.defaultAgentPermissionMode === "bypass" ? "bypass" : "workspace-write",
     });
     ensureSearchWindow();
+    ensureDiffWindow();
     registerCustomThemes(getState().customThemes);
     // Preserve the actual disk payload as the saved marker. The subscription
     // rewrites migrations and sanitized legacy credentials in canonical v7 form.

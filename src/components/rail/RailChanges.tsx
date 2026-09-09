@@ -1,13 +1,13 @@
 import { useRef, useState } from "react";
 import { git, hasUnstaged, isStaged, type GitFile } from "../../api/git";
-import { basename, dirname, joinPath } from "../../lib/paths";
+import { basename, dirname } from "../../lib/paths";
 import * as cmd from "../../state/commands";
 import { runGitCmd } from "../../state/git";
 import { useResourceEnabled } from "../../state/resources";
 import { gitOverviewR } from "../../state/resources.defs";
 import { FileIcon } from "../FileIcon";
 import { gitFileDecoration } from "../git/gitFileStatus";
-import { IconCheck, IconChevron, IconGit, IconPlus, IconSparkle } from "../Icons";
+import { IconCheck, IconChevron, IconCommit, IconGit, IconPlus, IconRefresh, IconSparkle } from "../Icons";
 import { Tooltip } from "../Tooltip";
 
 function relativeDir(path: string): string {
@@ -74,6 +74,16 @@ export function RailChanges({ cwd }: { cwd: string }) {
                         {branch}
                     </span>
                 )}
+                <Tooltip label="Re-read the repository">
+                    <button
+                        type="button"
+                        className="rail-section-act"
+                        aria-label="Refresh changes"
+                        disabled={busy}
+                        onClick={() => void overview.refresh()}>
+                        <IconRefresh size={11} />
+                    </button>
+                </Tooltip>
             </div>
 
             <div className="rail-commit">
@@ -100,7 +110,7 @@ export function RailChanges({ cwd }: { cwd: string }) {
                     </Tooltip>
                 </div>
                 <button type="button" className="rail-commit-go" disabled={busy || !message.trim() || files.length === 0} onClick={commit}>
-                    <IconCheck size={13} />
+                    <IconCommit size={13} />
                     <span>Commit{staged.length > 0 ? ` ${staged.length}` : " all"}</span>
                 </button>
             </div>
@@ -139,7 +149,7 @@ export function RailChanges({ cwd }: { cwd: string }) {
                                         type="button"
                                         className={`rail-file git-${decoration.cls}`}
                                         title={file.path}
-                                        onClick={() => cmd.requestOpenFile(joinPath(cwd, file.path))}>
+                                        onClick={() => cmd.openDiff(file.path)}>
                                         <FileIcon name={name} size={13} />
                                         <span className="rail-file-name">{name}</span>
                                         {dir && <span className="rail-file-dir">{dir}</span>}

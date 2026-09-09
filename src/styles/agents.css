@@ -767,9 +767,13 @@
 .rail-tabs {
     display: flex;
     flex: 0 0 auto;
+    align-items: center;
     gap: 2px;
-    padding: var(--space-1h) var(--space-1h) 0;
-    border-bottom: 1px solid var(--line-soft);
+    margin: var(--space-2) var(--gutter-rail);
+    padding: 2px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-control);
+    background: color-mix(in srgb, var(--void) 46%, transparent);
 }
 
 .rail-tab {
@@ -778,14 +782,16 @@
     align-items: center;
     justify-content: center;
     gap: 5px;
-    height: 27px;
-    border-radius: var(--radius-control) var(--radius-control) 0 0;
+    height: 25px;
+    border-radius: calc(var(--radius-control) - 1px);
     color: var(--ink-dim);
     font-family: var(--ui);
-    font-size: 11.5px;
+    font-size: 11px;
+    line-height: 1;
     transition:
         color 100ms,
-        background 100ms;
+        background 100ms,
+        box-shadow 100ms;
 }
 
 .rail-tab:hover:not(.active) {
@@ -794,8 +800,27 @@
 
 .rail-tab.active {
     color: var(--ink);
-    background: color-mix(in srgb, var(--rail-2) 72%, transparent);
-    box-shadow: inset 0 -1px 0 var(--acc);
+    background: var(--rail-2);
+    box-shadow: inset 0 0 0 1px var(--line);
+}
+
+.rail-tab-glyph {
+    display: grid;
+    flex: none;
+    place-items: center;
+    width: 12px;
+    height: 12px;
+}
+
+.rail-tab-glyph svg,
+.rail-branch svg,
+.rail-commit-ref svg {
+    display: block;
+}
+
+.rail-branch,
+.rail-commit-ref {
+    line-height: 1;
 }
 
 .rail-tab-count {
@@ -840,9 +865,12 @@
 .rail-changes-head {
     display: flex;
     align-items: center;
-    justify-content: space-between;
     gap: var(--space-2);
-    padding: var(--space-2) var(--gutter-rail);
+    padding: 0 var(--gutter-rail) var(--space-2);
+}
+
+.rail-changes-head .rail-branch {
+    margin-left: auto;
 }
 
 .rail-changes-count {
@@ -933,8 +961,8 @@
 
 .rail-section {
     display: flex;
+    flex: none;
     flex-direction: column;
-    min-height: 0;
     border-top: 1px solid var(--line-soft);
 }
 
@@ -998,6 +1026,10 @@
     padding-bottom: var(--space-1h);
 }
 
+.rail-list.rail-graph {
+    min-height: 0;
+}
+
 .rail-file-wrap {
     display: flex;
     align-items: center;
@@ -1018,13 +1050,11 @@
 
 .rail-file:hover {
     background: color-mix(in srgb, var(--rail-2) 70%, transparent);
-    color: var(--ink);
 }
 
 .rail-file-name {
     flex: 0 1 auto;
     overflow: hidden;
-    color: var(--ink);
     text-overflow: ellipsis;
     white-space: nowrap;
 }
@@ -1041,12 +1071,14 @@
 
 .rail-file-mark {
     flex: none;
+    margin-left: auto;
+    padding-left: 6px;
     font-family: var(--mono);
     font-size: 10px;
 }
 
-.rail-file-wrap.staged .rail-file-mark {
-    color: var(--live);
+.rail-file-wrap.staged .rail-file {
+    font-weight: 560;
 }
 
 .rail-file-stage {

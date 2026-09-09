@@ -319,6 +319,7 @@ export function WindowIcon({ role, size }: { role: WindowRole | "agent"; size?: 
     if (role === "files") return <IconEditor size={size} />;
     if (role === "term") return <IconRun size={size} />;
     if (role === "git") return <IconGit size={size} />;
+    if (role === "diff") return <IconCommit size={size} />;
     if (role === "search") return <IconSearch size={size} />;
     if (role === "agent") return <IconAgent size={size} />;
     if (role === "aws") return <IconAws size={size} />;
