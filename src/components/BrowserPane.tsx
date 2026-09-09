@@ -7,9 +7,6 @@ import { IconChevron, IconClose, IconPlus, IconRefresh } from "./Icons";
 const EMPTY_SNAPSHOT: BrowserSnapshot = {
     tabs: [],
     activeTabId: null,
-    frame: null,
-    viewportWidth: 1280,
-    viewportHeight: 800,
 };
 
 const MIN_SIDE = 320;
@@ -32,18 +29,9 @@ export function AgentBrowserShell({
     const browserOpen = snapshot.tabs.length > 0;
 
     const refresh = useCallback(
-        async (includeFrame: boolean, viewport?: BrowserViewport, signal?: AbortSignal) => {
-            const next = await browserApi.snapshot(agentId, includeFrame, viewport, signal);
-            if (!signal?.aborted) {
-                setSnapshot((previous) =>
-                    includeFrame
-                        ? next
-                        : {
-                              ...next,
-                              frame: next.tabs.length > 0 ? previous.frame : null,
-                          },
-                );
-            }
+        async (signal?: AbortSignal) => {
+            const next = await browserApi.snapshot(agentId, signal);
+            if (!signal?.aborted) setSnapshot(next);
         },
         [agentId],
     );
@@ -55,7 +43,7 @@ export function AgentBrowserShell({
         let stopped = false;
         const poll = async () => {
             try {
-                await refresh(false, undefined, controller.signal);
+                await refresh(controller.signal);
             } catch (error) {
                 if (!controller.signal.aborted) console.warn("browser session poll failed", error);
             }
@@ -113,16 +101,21 @@ function BrowserPane({
     agentType: AgentType;
     visible: boolean;
     snapshot: BrowserSnapshot;
-    refresh: (includeFrame: boolean, viewport?: BrowserViewport, signal?: AbortSignal) => Promise<void>;
+    refresh: (signal?: AbortSignal) => Promise<void>;
 }) {
     const viewportRef = useRef<HTMLDivElement>(null);
     const addressRef = useRef<HTMLInputElement>(null);
+    const imageRef = useRef<HTMLImageElement>(null);
+    const frameSize = useRef<BrowserViewport>({ width: 960, height: 640 });
+    const streamLifecycle = useRef(Promise.resolve());
+    const [frameReady, setFrameReady] = useState(false);
     const [address, setAddress] = useState("");
     const [viewport, setViewport] = useState<BrowserViewport>({ width: 960, height: 640 });
     const lastPointerMove = useRef(0);
     const pointerPressed = useRef(false);
     const lastPointerPoint = useRef({ x: 0, y: 0 });
     const activeTab = useMemo(() => snapshot.tabs.find((tab) => tab.id === snapshot.activeTabId) ?? snapshot.tabs[0], [snapshot]);
+    const targetId = activeTab?.id;
     const blank = activeTab?.url === "about:blank" || activeTab?.url === "chrome://newtab/";
 
     useEffect(() => setAddress(activeTab?.url === "about:blank" ? "" : (activeTab?.url ?? "")), [activeTab?.id, activeTab?.url]);
@@ -131,7 +124,9 @@ function BrowserPane({
         if (!host) return;
         const resize = () => {
             const rect = host.getBoundingClientRect();
-            setViewport({ width: Math.max(320, Math.round(rect.width)), height: Math.max(240, Math.round(rect.height)) });
+            const width = Math.min(3840, Math.max(320, Math.round(rect.width)));
+            const height = Math.min(2160, Math.max(240, Math.round(rect.height)));
+            setViewport((previous) => (previous.width === width && previous.height === height ? previous : { width, height }));
         };
         resize();
         const observer = new ResizeObserver(resize);
@@ -140,25 +135,34 @@ function BrowserPane({
     }, []);
 
     useEffect(() => {
-        if (!visible) return;
-        const controller = new AbortController();
-        let timer = 0;
-        let stopped = false;
-        const draw = async () => {
-            try {
-                await refresh(!blank, viewport, controller.signal);
-            } catch (error) {
-                if (!controller.signal.aborted) console.warn("browser frame failed", error);
-            }
-            if (!stopped) timer = window.setTimeout(draw, 140);
-        };
-        void draw();
+        setFrameReady(false);
+        imageRef.current?.removeAttribute("src");
+        if (!visible || blank || !targetId) return;
+        let disposed = false;
+        let stop: (() => Promise<void>) | undefined;
+        const timer = window.setTimeout(() => {
+            streamLifecycle.current = streamLifecycle.current.then(async () => {
+                if (disposed) return;
+                try {
+                    const stopFrames = await browserApi.startFrames(agentId, targetId, viewport, (frame) => {
+                        if (disposed || !imageRef.current) return;
+                        imageRef.current.src = `data:image/jpeg;base64,${frame.data}`;
+                        frameSize.current = { width: frame.width, height: frame.height };
+                        setFrameReady(true);
+                    });
+                    if (disposed) await stopFrames();
+                    else stop = stopFrames;
+                } catch (error) {
+                    if (!disposed) reportError("stream browser frames")(error);
+                }
+            });
+        }, 80);
         return () => {
-            stopped = true;
-            controller.abort();
+            disposed = true;
             window.clearTimeout(timer);
+            if (stop) void stop().catch(reportError("stop browser frames"));
         };
-    }, [blank, refresh, viewport, visible]);
+    }, [agentId, targetId, blank, viewport, visible]);
 
     useEffect(
         () => () => {
@@ -170,19 +174,19 @@ function BrowserPane({
     );
 
     const run = (operation: Promise<unknown>, label: string) => {
-        void operation.then(() => refresh(false)).catch(reportError(label));
+        void operation.then(() => refresh()).catch(reportError(label));
     };
 
     const point = (event: React.PointerEvent<HTMLDivElement>) => {
         const rect = event.currentTarget.getBoundingClientRect();
         return {
-            x: ((event.clientX - rect.left) / Math.max(rect.width, 1)) * snapshot.viewportWidth,
-            y: ((event.clientY - rect.top) / Math.max(rect.height, 1)) * snapshot.viewportHeight,
+            x: ((event.clientX - rect.left) / Math.max(rect.width, 1)) * frameSize.current.width,
+            y: ((event.clientY - rect.top) / Math.max(rect.height, 1)) * frameSize.current.height,
         };
     };
 
     const pointer = (event: React.PointerEvent<HTMLDivElement>, kind: "move" | "down" | "up") => {
-        if ((blank || !snapshot.frame) && kind !== "up") return;
+        if ((blank || !frameReady) && kind !== "up") return;
         if (kind === "move" && performance.now() - lastPointerMove.current < 24) return;
         if (kind === "move") lastPointerMove.current = performance.now();
         const next = point(event);
@@ -273,7 +277,7 @@ function BrowserPane({
                 onPointerUp={(event) => pointer(event, "up")}
                 onPointerCancel={(event) => pointer(event, "up")}
                 onWheel={(event) => {
-                    if (blank || !snapshot.frame) return;
+                    if (blank || !frameReady) return;
                     const next = point(event as unknown as React.PointerEvent<HTMLDivElement>);
                     void browserApi
                         .pointer(agentId, { kind: "wheel", ...next, button: "none", deltaX: event.deltaX, deltaY: event.deltaY })
@@ -295,13 +299,16 @@ function BrowserPane({
                 }}>
                 {blank ? (
                     <div className="browser-blank" aria-label="Blank browser page" />
-                ) : snapshot.frame ? (
-                    <img src={`data:image/jpeg;base64,${snapshot.frame}`} draggable={false} alt="" />
                 ) : (
-                    <div className="browser-loading">
-                        <span className="browser-loading-mark" />
-                        <span>Opening browser</span>
-                    </div>
+                    <>
+                        <img ref={imageRef} hidden={!frameReady} draggable={false} alt="" />
+                        {!frameReady && (
+                            <div className="browser-loading">
+                                <span className="browser-loading-mark" />
+                                <span>Opening browser</span>
+                            </div>
+                        )}
+                    </>
                 )}
             </div>
         </section>

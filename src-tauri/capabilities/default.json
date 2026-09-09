@@ -33,6 +33,8 @@
     "allow-agent-detection-manifests",
     "allow-agent-detection-reload",
     "allow-browser-snapshot",
+    "allow-browser-start-frames",
+    "allow-browser-stop-frames",
     "allow-browser-new-tab",
     "allow-browser-close-agent",
     "allow-browser-switch-tab",

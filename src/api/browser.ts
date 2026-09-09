@@ -1,3 +1,4 @@
+import { Channel } from "@tauri-apps/api/core";
 import { invokeCommand as invoke } from "./invoke";
 
 export interface BrowserTab {
@@ -10,9 +11,12 @@ export interface BrowserTab {
 export interface BrowserSnapshot {
     tabs: BrowserTab[];
     activeTabId: string | null;
-    frame: string | null;
-    viewportWidth: number;
-    viewportHeight: number;
+}
+
+export interface BrowserFrame {
+    data: string;
+    width: number;
+    height: number;
 }
 
 export interface BrowserViewport {
@@ -38,8 +42,13 @@ export interface BrowserKeyInput {
 }
 
 export const browserApi = {
-    snapshot: (agentId: string, includeFrame: boolean, viewport?: BrowserViewport, signal?: AbortSignal) =>
-        invoke<BrowserSnapshot>("browser_snapshot", { agentId, includeFrame, viewport: viewport ?? null }, signal ? { signal } : undefined),
+    snapshot: (agentId: string, signal?: AbortSignal) => invoke<BrowserSnapshot>("browser_snapshot", { agentId }, signal ? { signal } : undefined),
+    startFrames: async (agentId: string, targetId: string, viewport: BrowserViewport, onFrame: (frame: BrowserFrame) => void) => {
+        const channel = new Channel<BrowserFrame>();
+        channel.onmessage = onFrame;
+        const streamId = await invoke<number>("browser_start_frames", { agentId, targetId, viewport, onFrame: channel });
+        return () => invoke<void>("browser_stop_frames", { agentId, streamId });
+    },
     newTab: (agentId: string, url?: string) => invoke<string>("browser_new_tab", { agentId, url: url ?? null }),
     closeAgent: (agentId: string) => invoke<void>("browser_close_agent", { agentId }),
     switchTab: (agentId: string, targetId: string) => invoke<void>("browser_switch_tab", { agentId, targetId }),

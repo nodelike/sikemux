@@ -12,7 +12,7 @@ use serde_json::{json, Value};
 use tauri::{AppHandle, Manager, State};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
-use tokio::sync::{mpsc, oneshot, Mutex};
+use tokio::sync::{mpsc, oneshot, watch, Mutex};
 use tokio_tungstenite::tungstenite::Message;
 
 use crate::error::{AppError, AppResult};
@@ -28,6 +28,21 @@ pub struct BrowserManager {
     child: std::sync::Mutex<Option<Child>>,
     broker: std::sync::Mutex<Option<BrowserBroker>>,
     generation: AtomicU64,
+    streams: Mutex<HashMap<String, BrowserStream>>,
+    stream_sequence: AtomicU64,
+}
+
+struct BrowserStream {
+    id: u64,
+    stop: oneshot::Sender<()>,
+    task: tokio::task::JoinHandle<()>,
+}
+
+impl BrowserStream {
+    async fn stop(self) {
+        let _ = self.stop.send(());
+        let _ = self.task.await;
+    }
 }
 
 struct BrowserBroker {
@@ -53,7 +68,8 @@ struct BrowserRuntime {
 struct CdpClient {
     sender: mpsc::UnboundedSender<Message>,
     pending: Arc<Mutex<HashMap<u64, oneshot::Sender<Value>>>>,
-    sequence: AtomicU64,
+    sequence: Arc<AtomicU64>,
+    frames: Arc<Mutex<HashMap<String, watch::Sender<Option<BrowserFrame>>>>>,
     closed: Arc<AtomicBool>,
 }
 
@@ -165,6 +181,14 @@ impl CdpClient {
         let (sender, mut outbound) = mpsc::unbounded_channel::<Message>();
         let pending = Arc::new(Mutex::new(HashMap::<u64, oneshot::Sender<Value>>::new()));
         let pending_reader = pending.clone();
+        let frames = Arc::new(Mutex::new(HashMap::<
+            String,
+            watch::Sender<Option<BrowserFrame>>,
+        >::new()));
+        let frames_reader = frames.clone();
+        let sequence = Arc::new(AtomicU64::new(1));
+        let sequence_reader = sequence.clone();
+        let event_sender = sender.clone();
         let closed = Arc::new(AtomicBool::new(false));
         let closed_writer = closed.clone();
         let closed_reader = closed.clone();
@@ -185,6 +209,39 @@ impl CdpClient {
                 let Ok(value) = serde_json::from_str::<Value>(&text) else {
                     continue;
                 };
+                if value.get("method").and_then(Value::as_str) == Some("Page.screencastFrame") {
+                    if let (Some(session), Some(data), Some(frame_id), Some(width), Some(height)) = (
+                        value.get("sessionId").and_then(Value::as_str),
+                        value.pointer("/params/data").and_then(Value::as_str),
+                        value.pointer("/params/sessionId").and_then(Value::as_u64),
+                        value
+                            .pointer("/params/metadata/deviceWidth")
+                            .and_then(Value::as_f64),
+                        value
+                            .pointer("/params/metadata/deviceHeight")
+                            .and_then(Value::as_f64),
+                    ) {
+                        if let Some(frames) = frames_reader.lock().await.get(session) {
+                            frames.send_replace(Some(BrowserFrame {
+                                data: data.to_owned(),
+                                width,
+                                height,
+                            }));
+                        }
+                        let id = sequence_reader.fetch_add(1, Ordering::Relaxed);
+                        let _ = event_sender.send(Message::Text(
+                            json!({
+                                "id": id,
+                                "method": "Page.screencastFrameAck",
+                                "sessionId": session,
+                                "params": { "sessionId": frame_id }
+                            })
+                            .to_string()
+                            .into(),
+                        ));
+                    }
+                    continue;
+                }
                 let Some(id) = value.get("id").and_then(Value::as_u64) else {
                     continue;
                 };
@@ -192,6 +249,7 @@ impl CdpClient {
                     let _ = reply.send(value);
                 }
             }
+            frames_reader.lock().await.clear();
             closed_reader.store(true, Ordering::Release);
             let mut pending = pending_reader.lock().await;
             pending.clear();
@@ -200,7 +258,8 @@ impl CdpClient {
         Ok(Arc::new(Self {
             sender,
             pending,
-            sequence: AtomicU64::new(1),
+            sequence,
+            frames,
             closed,
         }))
     }
@@ -264,14 +323,18 @@ pub struct BrowserTab {
     active: bool,
 }
 
+#[derive(Clone, Serialize)]
+pub struct BrowserFrame {
+    data: String,
+    width: f64,
+    height: f64,
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BrowserSnapshot {
     tabs: Vec<BrowserTab>,
     active_tab_id: Option<String>,
-    frame: Option<String>,
-    viewport_width: u32,
-    viewport_height: u32,
 }
 
 #[derive(Deserialize)]
@@ -319,6 +382,9 @@ impl BrowserManager {
 
     pub fn drain(&self) {
         self.generation.fetch_add(1, Ordering::AcqRel);
+        if let Ok(mut streams) = self.streams.try_lock() {
+            streams.clear();
+        }
         if let Ok(mut broker) = self.broker.lock() {
             if let Some(broker) = broker.take() {
                 let _ = broker.shutdown.send(());
@@ -691,6 +757,9 @@ impl BrowserManager {
 
     async fn close_agent(&self, app: &AppHandle, agent_id: &str) -> AppResult<()> {
         validate_agent_id(agent_id)?;
+        if let Some(stream) = self.streams.lock().await.remove(agent_id) {
+            stream.stop().await;
+        }
         let state_dir = browser_state_dir(app)?;
         if !state_dir.join("tabs.sqlite3").is_file() {
             return Ok(());
@@ -1157,12 +1226,7 @@ fn find_bundled_browser(root: &Path) -> Option<PathBuf> {
                 .unwrap_or_default();
             if matches!(
                 name,
-                "Chromium"
-                    | "chrome"
-                    | "chrome.exe"
-                    | "chrome-headless-shell"
-                    | "headless_shell.exe"
-                    | "Google Chrome for Testing"
+                "Chromium" | "chrome" | "chrome.exe" | "Google Chrome for Testing"
             ) {
                 return Some(path);
             }
@@ -1198,63 +1262,156 @@ pub async fn browser_snapshot(
     app: AppHandle,
     manager: State<'_, BrowserManager>,
     agent_id: String,
-    include_frame: bool,
-    viewport: Option<BrowserViewport>,
 ) -> AppResult<BrowserSnapshot> {
-    if !include_frame && !manager.is_started().await {
+    validate_agent_id(&agent_id)?;
+    if !manager.is_started().await {
         return Ok(BrowserSnapshot {
             tabs: Vec::new(),
             active_tab_id: None,
-            frame: None,
-            viewport_width: VIEWPORT_WIDTH,
-            viewport_height: VIEWPORT_HEIGHT,
         });
     }
     let mut tabs = manager.owned_tabs(&app, &agent_id).await?;
     let active = tabs.iter().find(|tab| tab.active).map(|tab| tab.id.clone());
-    let viewport = viewport.unwrap_or(BrowserViewport {
-        width: VIEWPORT_WIDTH,
-        height: VIEWPORT_HEIGHT,
-    });
-    let frame = if include_frame {
-        if let Some(target_id) = active.as_deref() {
-            let (cdp, session_id) = manager.target_session(&app, target_id).await?;
-            cdp.call(
-                "Emulation.setDeviceMetricsOverride",
-                json!({
-                    "width": viewport.width.clamp(320, 3840),
-                    "height": viewport.height.clamp(240, 2160),
-                    "deviceScaleFactor": 1,
-                    "mobile": false
-                }),
-                Some(&session_id),
-            )
-            .await?;
-            let capture = cdp
-                .call(
-                    "Page.captureScreenshot",
-                    json!({ "format": "jpeg", "quality": 82, "fromSurface": true }),
-                    Some(&session_id),
-                )
-                .await?;
-            capture
-                .get("data")
-                .and_then(Value::as_str)
-                .map(str::to_owned)
-        } else {
-            None
-        }
-    } else {
-        None
-    };
     tabs.sort_by_key(|tab| !tab.active);
     Ok(BrowserSnapshot {
         tabs,
         active_tab_id: active,
-        frame,
-        viewport_width: viewport.width,
-        viewport_height: viewport.height,
     })
+}
+
+#[tauri::command]
+pub async fn browser_start_frames(
+    app: AppHandle,
+    manager: State<'_, BrowserManager>,
+    agent_id: String,
+    target_id: String,
+    viewport: BrowserViewport,
+    on_frame: tauri::ipc::Channel<BrowserFrame>,
+) -> AppResult<u64> {
+    validate_target_id(&target_id)?;
+    let tabs = manager.owned_tabs(&app, &agent_id).await?;
+    if !tabs.iter().any(|tab| tab.id == target_id) {
+        return Err(AppError::BadArg("browser tab does not belong to agent"));
+    }
+    let mut streams = manager.streams.lock().await;
+    if let Some(stream) = streams.remove(&agent_id) {
+        stream.stop().await;
+    }
+    let (cdp, _) = manager.cdp_and_state_dir(&app).await?;
+    let id = manager.stream_sequence.fetch_add(1, Ordering::Relaxed);
+    let stream = start_frame_stream(cdp, &target_id, viewport, on_frame, id).await?;
+    streams.insert(agent_id, stream);
+    Ok(id)
+}
+
+async fn start_frame_stream(
+    cdp: Arc<CdpClient>,
+    target_id: &str,
+    viewport: BrowserViewport,
+    on_frame: tauri::ipc::Channel<BrowserFrame>,
+    id: u64,
+) -> AppResult<BrowserStream> {
+    let attached = cdp
+        .call(
+            "Target.attachToTarget",
+            json!({
+                "targetId": target_id, "flatten": true
+            }),
+            None,
+        )
+        .await?;
+    let session = attached
+        .get("sessionId")
+        .and_then(Value::as_str)
+        .ok_or_else(|| AppError::Other("browser frame attach returned no session".into()))?
+        .to_owned();
+    let (frames, mut receiver) = watch::channel(None);
+    cdp.frames.lock().await.insert(session.clone(), frames);
+    let start = async {
+        cdp.call(
+            "Emulation.setDeviceMetricsOverride",
+            json!({
+                "width": viewport.width.clamp(320, 3840),
+                "height": viewport.height.clamp(240, 2160),
+                "deviceScaleFactor": 1, "mobile": false
+            }),
+            Some(&session),
+        )
+        .await?;
+        cdp.call(
+            "Page.startScreencast",
+            json!({
+                "format": "jpeg", "quality": 82, "everyNthFrame": 1
+            }),
+            Some(&session),
+        )
+        .await?;
+        AppResult::Ok(())
+    }
+    .await;
+    if let Err(error) = start {
+        cdp.frames.lock().await.remove(&session);
+        let _ = cdp
+            .call(
+                "Target.detachFromTarget",
+                json!({ "sessionId": session }),
+                None,
+            )
+            .await;
+        return Err(error);
+    }
+    let (stop, mut stopped) = oneshot::channel();
+    let task = tokio::spawn(async move {
+        let mut cadence = tokio::time::interval(Duration::from_millis(33));
+        cadence.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        loop {
+            tokio::select! {
+                _ = &mut stopped => break,
+                changed = receiver.changed() => {
+                    if changed.is_err() { break; }
+                    tokio::select! {
+                        _ = &mut stopped => break,
+                        _ = cadence.tick() => {}
+                    }
+                    let frame = receiver.borrow_and_update().clone();
+                    if let Some(frame) = frame {
+                        if on_frame.send(frame).is_err() { break; }
+                    }
+                }
+            }
+        }
+        cdp.frames.lock().await.remove(&session);
+        let _ = cdp
+            .call("Page.stopScreencast", json!({}), Some(&session))
+            .await;
+        let _ = cdp
+            .call(
+                "Target.detachFromTarget",
+                json!({ "sessionId": session }),
+                None,
+            )
+            .await;
+    });
+    Ok(BrowserStream { id, stop, task })
+}
+
+#[tauri::command]
+pub async fn browser_stop_frames(
+    manager: State<'_, BrowserManager>,
+    agent_id: String,
+    stream_id: u64,
+) -> AppResult<()> {
+    validate_agent_id(&agent_id)?;
+    let mut streams = manager.streams.lock().await;
+    if streams
+        .get(&agent_id)
+        .is_some_and(|stream| stream.id == stream_id)
+    {
+        if let Some(stream) = streams.remove(&agent_id) {
+            stream.stop().await;
+        }
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -1535,6 +1692,118 @@ mod tests {
     use super::{configure_browser_process_group, terminate_and_reap_browser_child};
     #[cfg(unix)]
     use std::process::{Command, Stdio};
+
+    #[tokio::test]
+    #[ignore = "requires SIKEMUX_BROWSER_EXECUTABLE pointing to full Chromium"]
+    async fn chromium_stream_delivers_live_frames_and_stops() {
+        use super::*;
+        let executable = std::env::var_os("SIKEMUX_BROWSER_EXECUTABLE").unwrap();
+        let profile = tempfile::tempdir().unwrap();
+        let mut command = Command::new(executable);
+        command
+            .args([
+                "--headless=new",
+                "--remote-debugging-port=0",
+                "--no-first-run",
+                &format!("--user-data-dir={}", profile.path().display()),
+                "about:blank",
+            ])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
+        configure_browser_process_group(&mut command);
+        let _child = SpawnedBrowserChild::new(command.spawn().unwrap());
+        let (_, endpoint) = wait_for_debug_endpoint(&profile.path().join("DevToolsActivePort"))
+            .await
+            .unwrap();
+        let cdp = CdpClient::connect(&endpoint).await.unwrap();
+        let target = cdp
+            .call("Target.createTarget", json!({"url": "about:blank"}), None)
+            .await
+            .unwrap();
+        let target = target["targetId"].as_str().unwrap();
+        let attached = cdp
+            .call(
+                "Target.attachToTarget",
+                json!({"targetId": target, "flatten": true}),
+                None,
+            )
+            .await
+            .unwrap();
+        let session = attached["sessionId"].as_str().unwrap();
+        cdp.call("Runtime.evaluate", json!({"expression":
+            "document.body.innerHTML='<button style=\"width:200px;height:100px\" onclick=\"document.title=String(++window.clicks)\">Click</button>'; window.clicks=0; let n=0; function draw(){ document.body.style.background='hsl('+(n++%360)+' 70% 50%)'; requestAnimationFrame(draw); } draw();"
+        }), Some(session)).await.unwrap();
+        let delivered = Arc::new(AtomicU64::new(0));
+        let count = delivered.clone();
+        let channel = tauri::ipc::Channel::new(move |_| {
+            count.fetch_add(1, Ordering::Relaxed);
+            Ok(())
+        });
+        let stream = start_frame_stream(
+            cdp.clone(),
+            target,
+            BrowserViewport {
+                width: 960,
+                height: 640,
+            },
+            channel,
+            1,
+        )
+        .await
+        .unwrap();
+        tokio::time::sleep(Duration::from_secs(2)).await;
+        let frames = delivered.load(Ordering::Relaxed);
+        assert!(frames > 25, "only {frames} frames in two seconds");
+        assert!(frames <= 65, "stream exceeded its delivery limit: {frames}");
+        for kind in ["mousePressed", "mouseReleased"] {
+            cdp.call(
+                "Input.dispatchMouseEvent",
+                json!({"type": kind, "x": 40, "y": 40, "button": "left", "clickCount": 1}),
+                Some(session),
+            )
+            .await
+            .unwrap();
+        }
+        let clicks = cdp
+            .call(
+                "Runtime.evaluate",
+                json!({"expression": "window.clicks"}),
+                Some(session),
+            )
+            .await
+            .unwrap();
+        assert_eq!(clicks["result"]["value"], 1);
+        stream.stop().await;
+        let stopped_count = delivered.load(Ordering::Relaxed);
+        tokio::time::sleep(Duration::from_millis(150)).await;
+        assert_eq!(delivered.load(Ordering::Relaxed), stopped_count);
+        assert!(cdp.frames.lock().await.is_empty());
+        let started = std::time::Instant::now();
+        let mut screenshots = 0;
+        while started.elapsed() < Duration::from_secs(2) {
+            cdp.call(
+                "Emulation.setDeviceMetricsOverride",
+                json!({"width": 960, "height": 640, "deviceScaleFactor": 1, "mobile": false}),
+                Some(session),
+            )
+            .await
+            .unwrap();
+            cdp.call(
+                "Page.captureScreenshot",
+                json!({"format": "jpeg", "quality": 82, "fromSurface": true}),
+                Some(session),
+            )
+            .await
+            .unwrap();
+            screenshots += 1;
+            tokio::time::sleep(Duration::from_millis(140)).await;
+        }
+        println!(
+            "stream: {:.1} fps; previous capture loop: {:.1} fps",
+            frames as f64 / 2.0,
+            screenshots as f64 / started.elapsed().as_secs_f64()
+        );
+    }
 
     #[cfg(unix)]
     #[test]

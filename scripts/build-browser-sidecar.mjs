@@ -76,9 +76,6 @@ function findBrowserRuntime(directory) {
           "Chromium",
           "chrome",
           "chrome.exe",
-          "chrome-headless-shell",
-          "chrome-headless-shell.exe",
-          "headless_shell.exe",
           "Google Chrome for Testing",
         ].includes(entry.name)
       )
@@ -160,7 +157,7 @@ if (!target.includes("windows")) chmodSync(destination, 0o755);
 const runtimeMarker = join(runtimeDir, ".sikemux-browser-runtime");
 const runtimeFingerprint = createHash("sha256")
   .update(readFileSync(join(browserDir, "uv.lock")))
-  .update("chromium-headless-shell")
+  .update("chromium-full")
   .digest("hex");
 const runtimeIsCurrent =
   findBrowserRuntime(runtimeDir) &&
@@ -179,7 +176,8 @@ if (!runtimeIsCurrent) {
       "-m",
       "playwright",
       "install",
-      "chromium-headless-shell",
+      "chromium",
+      "--no-shell",
     ],
     {
       cwd: browserDir,

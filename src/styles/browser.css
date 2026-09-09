@@ -285,6 +285,10 @@
     pointer-events: none;
 }
 
+.browser-viewport > img[hidden] {
+    display: none;
+}
+
 .browser-blank {
     position: absolute;
     inset: 0;

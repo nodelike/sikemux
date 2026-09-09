@@ -20,6 +20,8 @@ pub const IPC_COMMANDS: &[&str] = &[
     "agent_detection_manifests",
     "agent_detection_reload",
     "browser_snapshot",
+    "browser_start_frames",
+    "browser_stop_frames",
     "browser_new_tab",
     "browser_close_agent",
     "browser_switch_tab",

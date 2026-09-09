@@ -174,6 +174,8 @@ pub fn run() {
             pty::agent_detection_manifests,
             pty::agent_detection_reload,
             browser::browser_snapshot,
+            browser::browser_start_frames,
+            browser::browser_stop_frames,
             browser::browser_new_tab,
             browser::browser_close_agent,
             browser::browser_switch_tab,

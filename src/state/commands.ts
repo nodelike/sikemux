@@ -2275,7 +2275,7 @@ export function closeActiveBrowserTab(): boolean {
     const agentId = activeBrowserAgentId();
     if (!agentId) return false;
     void browserApi
-        .snapshot(agentId, false)
+        .snapshot(agentId)
         .then((snapshot) => (snapshot.activeTabId ? browserApi.closeTab(agentId, snapshot.activeTabId) : undefined))
         .catch(reportError("close browser tab"));
     return true;
@@ -2285,7 +2285,7 @@ export function cycleBrowserTab(delta: number): boolean {
     const agentId = activeBrowserAgentId();
     if (!agentId) return false;
     void browserApi
-        .snapshot(agentId, false)
+        .snapshot(agentId)
         .then((snapshot) => {
             if (snapshot.tabs.length < 2) return;
             const current = Math.max(
