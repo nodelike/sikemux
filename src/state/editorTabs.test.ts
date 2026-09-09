@@ -12,6 +12,6 @@ describe("openEditorTab", () => {
         openEditorTab("pane", "/two");
         openEditorTab("pane", "/one");
 
-        expect(getState().editorViews.pane).toEqual({ openTabs: ["/one", "/two"], activePath: "/one", treeWidth: 210 });
+        expect(getState().editorViews.pane).toEqual({ openTabs: ["/one", "/two"], activePath: "/one" });
     });
 });

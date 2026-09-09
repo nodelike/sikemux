@@ -66,7 +66,7 @@ describe("workspace tab bars", () => {
         const { container } = render(<Workspace />);
 
         expect(screen.getByRole("tablist")).toBeInTheDocument();
-        expect(screen.getByRole("button", { name: "New terminal — ⌥N" })).toBeInTheDocument();
+        expect(screen.getByRole("button", { name: "New terminal" })).toBeInTheDocument();
         expect(container.querySelector(".window-layer.visible")).toHaveStyle({ top: "34px" });
     });
 
@@ -76,7 +76,7 @@ describe("workspace tab bars", () => {
         const { container } = render(<Workspace />);
 
         expect(screen.getByRole("tablist")).toBeInTheDocument();
-        const addAgent = screen.getByRole("button", { name: "New agent — ⌥N" });
+        const addAgent = screen.getByRole("button", { name: "New agent" });
         expect(addAgent).toBeInTheDocument();
         expect(container.querySelector(".window-layer.visible .pane-cell")).toHaveStyle({ top: "34px", height: "calc(100% - 34px)" });
 

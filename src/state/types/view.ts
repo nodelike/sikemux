@@ -1,7 +1,6 @@
 export interface EditorPaneView {
     openTabs: string[];
     activePath: string | null;
-    treeWidth: number;
 }
 
 /** A path handed to the running app by the `sikemux` command-line client. */

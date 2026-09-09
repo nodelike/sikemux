@@ -780,7 +780,7 @@
     gap: 5px;
     height: 27px;
     border-radius: var(--radius-control) var(--radius-control) 0 0;
-    color: var(--ink-faint);
+    color: var(--ink-dim);
     font-family: var(--ui);
     font-size: 11.5px;
     transition:
@@ -789,7 +789,7 @@
 }
 
 .rail-tab:hover:not(.active) {
-    color: var(--ink-dim);
+    color: var(--ink);
 }
 
 .rail-tab.active {
@@ -817,7 +817,7 @@
 
 .rail-note {
     padding: 14px;
-    color: var(--ink-faint);
+    color: var(--ink-dim);
     font-size: 11.5px;
 }
 
@@ -887,7 +887,7 @@
 }
 
 .rail-commit-input textarea::placeholder {
-    color: var(--ink-faint);
+    color: var(--ink-dim);
 }
 
 .rail-commit-ai {
@@ -899,7 +899,7 @@
     height: 21px;
     place-items: center;
     border-radius: var(--radius-control);
-    color: var(--ink-faint);
+    color: var(--ink-dim);
 }
 
 .rail-commit-ai:hover:not(:disabled) {
@@ -944,14 +944,14 @@
     gap: 6px;
     height: 28px;
     padding: 0 var(--gutter-rail);
-    color: var(--ink-faint);
+    color: var(--ink-dim);
     font-size: 10px;
     letter-spacing: 0.06em;
     text-transform: uppercase;
 }
 
 .rail-section-head:hover {
-    color: var(--ink-dim);
+    color: var(--ink);
 }
 
 .rail-caret {
@@ -984,7 +984,7 @@
     height: 18px;
     place-items: center;
     border-radius: var(--radius-control);
-    color: var(--ink-faint);
+    color: var(--ink-dim);
 }
 
 .rail-section-act:hover:not(:disabled) {
@@ -1024,6 +1024,7 @@
 .rail-file-name {
     flex: 0 1 auto;
     overflow: hidden;
+    color: var(--ink);
     text-overflow: ellipsis;
     white-space: nowrap;
 }
@@ -1032,7 +1033,7 @@
     flex: 1 1 auto;
     min-width: 0;
     overflow: hidden;
-    color: var(--ink-faint);
+    color: var(--ink-dim);
     font-size: 10.5px;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -1058,7 +1059,7 @@
 }
 
 .rail-file-wrap:hover .rail-file-stage {
-    color: var(--ink-faint);
+    color: var(--ink-dim);
 }
 
 .rail-file-stage:hover:not(:disabled) {
@@ -1095,6 +1096,7 @@
 .rail-commit-subject {
     flex: 0 1 auto;
     overflow: hidden;
+    color: var(--ink);
     text-overflow: ellipsis;
     white-space: nowrap;
 }
@@ -1103,7 +1105,7 @@
     flex: 1 1 auto;
     min-width: 0;
     overflow: hidden;
-    color: var(--ink-faint);
+    color: var(--ink-dim);
     font-size: 10.5px;
     text-overflow: ellipsis;
     white-space: nowrap;

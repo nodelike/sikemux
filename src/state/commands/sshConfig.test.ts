@@ -38,7 +38,6 @@ describe("SSH config window", () => {
         expect(state.editorViews[root.id]).toEqual({
             openTabs: ["/Users/test/.ssh/config"],
             activePath: "/Users/test/.ssh/config",
-            treeWidth: 210,
         });
 
         await cmd.openSshConfigEditor();

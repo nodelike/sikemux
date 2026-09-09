@@ -2110,7 +2110,7 @@ export async function openSshConfigEditor(): Promise<void> {
             d.pickerOpen = false;
         }
 
-        const editorView = d.editorViews[editorPane.id] ?? { openTabs: [], activePath: null, treeWidth: 210 };
+        const editorView = d.editorViews[editorPane.id] ?? { openTabs: [], activePath: null };
         if (!editorView.openTabs.includes(configPath)) editorView.openTabs.push(configPath);
         editorView.activePath = configPath;
         d.editorViews[editorPane.id] = editorView;
@@ -2413,7 +2413,7 @@ export async function runAwsSsoLogin(profile: string, operationId: string): Prom
 
 export function openEditorTab(paneId: string, path: string, activate = true): void {
     mutate((d) => {
-        const cur = d.editorViews[paneId] ?? { openTabs: [], activePath: null, treeWidth: 210 };
+        const cur = d.editorViews[paneId] ?? { openTabs: [], activePath: null };
         if (!cur.openTabs.includes(path)) cur.openTabs.push(path);
         if (activate) cur.activePath = path;
         d.editorViews[paneId] = cur;
@@ -2425,7 +2425,6 @@ export function setEditorView(paneId: string, patch: Partial<StoreState["editorV
         const cur = d.editorViews[paneId] ?? {
             openTabs: [],
             activePath: null,
-            treeWidth: 210,
         };
         d.editorViews[paneId] = { ...cur, ...patch };
     });

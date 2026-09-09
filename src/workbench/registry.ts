@@ -46,14 +46,11 @@ export interface BuiltinWorkbenchItemState {
 /**
  * Persisted editor state is intentionally bounded. Paths use UTF-16 code-unit
  * length (JavaScript's string length), must be non-blank, unique, and free of
- * C0/C1 controls. A selection must name an open tab. Finite legacy tree widths
- * are clamped without rounding to FileTree's live range; non-finite values fail.
+ * C0/C1 controls. A selection must name an open tab.
  */
 export const EDITOR_PERSISTENCE_LIMITS = Object.freeze({
     maxOpenTabs: 128,
     maxPathLength: 4_096,
-    minTreeWidth: 160,
-    maxTreeWidth: 600,
 });
 
 export interface PersistedWorkbenchItemEnvelope<Kind extends PaneKind = PaneKind> {
@@ -169,7 +166,7 @@ function isValidPersistedEditorPath(value: unknown): value is string {
 
 function decodeEditorView(encoded: unknown): PersistedCodecResult<EditorPaneView> {
     if (!isRecord(encoded)) return CODEC_FAILURE;
-    const { openTabs, activePath, treeWidth } = encoded;
+    const { openTabs, activePath } = encoded;
     if (!Array.isArray(openTabs) || openTabs.length > EDITOR_PERSISTENCE_LIMITS.maxOpenTabs) return CODEC_FAILURE;
     const uniquePaths = new Set<string>();
     for (const path of openTabs) {
@@ -177,21 +174,11 @@ function decodeEditorView(encoded: unknown): PersistedCodecResult<EditorPaneView
         uniquePaths.add(path);
     }
     if (activePath !== null && (!isValidPersistedEditorPath(activePath) || !uniquePaths.has(activePath))) return CODEC_FAILURE;
-    if (typeof treeWidth !== "number" || !Number.isFinite(treeWidth)) return CODEC_FAILURE;
-    return {
-        ok: true,
-        value: {
-            openTabs: openTabs.slice(),
-            activePath,
-            // Match pointer and keyboard resizing: accept legacy finite values,
-            // but normalize them into the currently reachable UI range.
-            treeWidth: Math.min(EDITOR_PERSISTENCE_LIMITS.maxTreeWidth, Math.max(EDITOR_PERSISTENCE_LIMITS.minTreeWidth, treeWidth)),
-        },
-    };
+    return { ok: true, value: { openTabs: openTabs.slice(), activePath } };
 }
 
 const EDITOR_CODEC: VersionedPersistedCodec<EditorPaneView> = Object.freeze({
-    version: 1,
+    version: 2,
     encode: (state: EditorPaneView) => {
         const decoded = decodeEditorView(state);
         if (!decoded.ok) throw new TypeError("Invalid editor workbench state");

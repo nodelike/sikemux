@@ -193,10 +193,15 @@ function WorkspaceTabsBar({ session }: { session: Session }) {
             }}
             onAdd={() => cmd.openAgentPalette()}
             addIcon={<IconPlus size={13} />}
-            addTitle="New agent — ⌥N"
+            addTitle="New agent"
             trailing={
                 <>
-                    <button type="button" className="agent-browser-open" aria-label="New terminal — ⌥N" title="New terminal" onClick={() => cmd.newWindow()}>
+                    <button
+                        type="button"
+                        className="agent-browser-open"
+                        aria-label="New terminal"
+                        title="New terminal"
+                        onClick={() => cmd.newWindow()}>
                         <IconCommand size={13} />
                         <span>term</span>
                     </button>
@@ -219,9 +224,7 @@ const AgentLayer = memo(function AgentLayer({ session, agent, visible }: { sessi
     const profile = useStore((state) => (agent.profileId ? state.providerProfiles.find((candidate) => candidate.id === agent.profileId) : undefined));
     return (
         <div className={`window-layer${visible ? " visible" : ""}`} aria-hidden={!visible} inert={!visible}>
-            <div
-                className="pane-cell"
-                style={{ left: 0, top: `${TABS_H}px`, width: "100%", height: `calc(100% - ${TABS_H}px)` }}>
+            <div className="pane-cell" style={{ left: 0, top: `${TABS_H}px`, width: "100%", height: `calc(100% - ${TABS_H}px)` }}>
                 <div className="pane pane-terminal">
                     <AgentBrowserShell agentId={agent.id} agentType={agent.type} visible={visible}>
                         {agent.launchState === "dormant" ? (

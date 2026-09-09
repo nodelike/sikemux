@@ -336,7 +336,7 @@ export function TopBar() {
     const agent = useStore((s) => (session?.activeAgentId ? s.agents[session.activeAgentId] : undefined));
     const zoomed = useStore((s) => s.zoomedPaneId != null);
     const sideRailOpen = useStore((s) => s.sideRailOpen);
-    const agentRailOpen = useStore((s) => s.agentRailOpen);
+    const workspaceRailOpen = useStore((s) => s.workspaceRailOpen);
     const zen = useStore((s) => s.zenMode);
     const [envOpen, setEnvOpen] = useState(false);
 
@@ -470,7 +470,10 @@ export function TopBar() {
                         </button>
                     </Tooltip>
                     <Tooltip label="Toggle agents rail">
-                        <button className={`tb-btn${agentRailOpen ? " on" : ""}`} onClick={cmd.toggleAgentRail} aria-label="Toggle agents rail">
+                        <button
+                            className={`tb-btn${workspaceRailOpen ? " on" : ""}`}
+                            onClick={cmd.toggleWorkspaceRail}
+                            aria-label="Toggle workspace rail">
                             <IconAgent size={15} />
                         </button>
                     </Tooltip>

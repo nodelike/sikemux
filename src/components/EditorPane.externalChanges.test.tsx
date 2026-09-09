@@ -38,12 +38,12 @@ describe("EditorPane external changes", () => {
             return null;
         });
         setState({
-            editorViews: { pane: { openTabs: [path], activePath: path, treeWidth: 210 } },
+            editorViews: { pane: { openTabs: [path], activePath: path } },
         });
     });
 
     it("keeps a clean buffer clean when a refresh read fails, then loads the next disk version", async () => {
-        const { container } = render(<EditorPane paneId="pane" cwd="/repo" active visible showTree={false} />);
+        const { container } = render(<EditorPane paneId="pane" cwd="/repo" active visible showInsights={false} />);
 
         await waitFor(() => expect(container.querySelector(".cm-content")).toHaveTextContent("disk version one"));
         useToasts.setState({ toasts: [] });
@@ -67,7 +67,7 @@ describe("EditorPane external changes", () => {
     });
 
     it("shows a conflict only when unsaved edits and a separate disk change coexist", async () => {
-        const { container } = render(<EditorPane paneId="pane" cwd="/repo" active visible showTree={false} />);
+        const { container } = render(<EditorPane paneId="pane" cwd="/repo" active visible showInsights={false} />);
 
         await waitFor(() => expect(container.querySelector(".cm-content")).toHaveTextContent("disk version one"));
         const editor = EditorView.findFromDOM(container.querySelector(".cm-editor") as HTMLElement);

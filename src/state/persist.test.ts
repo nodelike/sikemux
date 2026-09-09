@@ -369,8 +369,8 @@ describe("frontend persistence", () => {
         setState((state) => ({
             windows: { ...state.windows, [window.id]: { ...window, root: editorPane, activePaneId: editorPane.id } },
             editorViews: {
-                [editorPane.id]: { openTabs: ["/repo/a.ts"], activePath: "/repo/a.ts", treeWidth: 240 },
-                orphan: { openTabs: ["/secret"], activePath: "/secret", treeWidth: 240 },
+                [editorPane.id]: { openTabs: ["/repo/a.ts"], activePath: "/repo/a.ts" },
+                orphan: { openTabs: ["/secret"], activePath: "/secret" },
             },
         }));
         invoke.mockResolvedValue(undefined);
@@ -383,8 +383,8 @@ describe("frontend persistence", () => {
             [editorPane.id]: {
                 itemId: editorPane.id,
                 kind: "editor",
-                version: 1,
-                state: { openTabs: ["/repo/a.ts"], activePath: "/repo/a.ts", treeWidth: 240 },
+                version: 2,
+                state: { openTabs: ["/repo/a.ts"], activePath: "/repo/a.ts" },
             },
         });
         expect(JSON.stringify(saved)).not.toContain("/secret");
@@ -405,7 +405,7 @@ describe("frontend persistence", () => {
         const editorPane = { type: "pane", id: "editor-strict", cwd: "/repo", kind: "editor", title: "editor" } as const;
         setState((state) => ({
             windows: { ...state.windows, [window.id]: { ...window, root: editorPane, activePaneId: editorPane.id } },
-            editorViews: { [editorPane.id]: { openTabs: [], activePath: null, treeWidth: 210 } },
+            editorViews: { [editorPane.id]: { openTabs: [], activePath: null } },
         }));
         invoke.mockResolvedValue(undefined);
         await flushPersist();
@@ -415,7 +415,7 @@ describe("frontend persistence", () => {
             { ...saved.itemStates[editorPane.id], itemId: "another" },
             { ...saved.itemStates[editorPane.id], kind: "terminal", state: null },
             { ...saved.itemStates[editorPane.id], version: 999 },
-            { ...saved.itemStates[editorPane.id], state: { openTabs: ["/a"], activePath: "/missing", treeWidth: 210 } },
+            { ...saved.itemStates[editorPane.id], state: { openTabs: ["/a"], activePath: "/missing" } },
         ]) {
             applyHydrate(JSON.stringify({ ...saved, itemStates: { [editorPane.id]: envelope } }));
             expect(getState().editorViews[editorPane.id]).toBeUndefined();

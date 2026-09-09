@@ -29,7 +29,7 @@ import { useNavHistory, type NavEntry } from "../hooks/useNavHistory";
 import { useGitBaseline } from "../hooks/useGitBaseline";
 import { useGitBlame } from "../hooks/useGitBlame";
 import type { CliPendingEditorOpen } from "../state/types";
-import { FileTree, type CtxItem } from "./FileTree";
+import type { CtxItem } from "./FileTree";
 import { IconClose, IconEditor, IconEye, IconFile } from "./Icons";
 import { FileIcon } from "./FileIcon";
 import { TabBar } from "./TabBar";
@@ -37,8 +37,9 @@ import { EditorFindBar } from "./EditorFindBar";
 import { EditorInsights } from "./EditorInsights";
 import { basename, isPathWithin, relativePath as pathRelative } from "../lib/paths";
 import { FILE_MANAGER_NAME, PRIMARY_SHORTCUT } from "../lib/platform";
+import { keybindingLabelForAction } from "../keybindings";
 
-const DEFAULT_VIEW = { openTabs: [], activePath: null, treeWidth: 210 };
+const DEFAULT_VIEW = { openTabs: [], activePath: null };
 const EMPTY_CLI_OPENS: CliPendingEditorOpen[] = [];
 
 function isMarkdownPath(path: string | null): path is string {
@@ -205,7 +206,7 @@ export function EditorPane({
     cwd,
     active,
     visible,
-    showTree = true,
+    showInsights = true,
     onCloseWindow,
     languageHint,
 }: {
@@ -213,7 +214,7 @@ export function EditorPane({
     cwd: string;
     active: boolean;
     visible: boolean;
-    showTree?: boolean;
+    showInsights?: boolean;
     onCloseWindow?: () => void;
     languageHint?: EditorLanguageHint;
 }) {
@@ -258,13 +259,12 @@ export function EditorPane({
     };
 
     const view = useStore((s) => s.editorViews[paneId] ?? DEFAULT_VIEW);
+    const keybindingOverrides = useStore((s) => s.keybindingOverrides);
+    const filePaletteHint = keybindingLabelForAction(keybindingOverrides, "palette.files");
     const pendingCliOpens = useStore((s) => s.pendingEditorOpens[paneId] ?? EMPTY_CLI_OPENS);
     const tabs = view.openTabs;
     const activePath = view.activePath;
-    const treeWidth = view.treeWidth;
     const previewingMarkdown = markdownPreview?.path === activePath;
-
-    const setTreeWidth = (w: number) => cmd.setEditorView(paneId, { treeWidth: w });
 
     useEffect(() => {
         cmd.setEditorDirtyPaths(paneId, [...dirty]);
@@ -975,16 +975,6 @@ export function EditorPane({
 
     return (
         <div className="editor-pane">
-            {showTree && (
-                <FileTree
-                    cwd={cwd}
-                    activePath={activePath}
-                    onOpenFile={(entry) => void openPath(entry.path).catch(reportError("open file"))}
-                    width={treeWidth}
-                    onResize={setTreeWidth}
-                    active={visible}
-                />
-            )}
             <div className="ed-main">
                 <TabBar
                     variant="editor"
@@ -1047,7 +1037,7 @@ export function EditorPane({
                     {activeImage && <ImageViewer image={activeImage} onReload={reloadImage} />}
                     {previewingMarkdown && <MarkdownPreview source={markdownPreview.content} />}
                 </div>
-                {showTree && cwd && (
+                {showInsights && cwd && (
                     <EditorInsights
                         project={cwd}
                         path={activePath}
@@ -1059,8 +1049,8 @@ export function EditorPane({
                 {tabs.length === 0 && (
                     <div className="ed-empty">
                         <IconFile size={22} />
-                        <p>select a file from the tree</p>
-                        <p className="ed-empty-sub">Cmd-S saves · syntax-highlighted</p>
+                        <p>no file open</p>
+                        <p className="ed-empty-sub">Pick one from the Files tab in the workspace rail, or press {filePaletteHint}</p>
                     </div>
                 )}
             </div>

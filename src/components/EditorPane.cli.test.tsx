@@ -31,7 +31,7 @@ describe("EditorPane CLI queue", () => {
             return null;
         });
         setState({
-            editorViews: { pane: { openTabs: [], activePath: null, treeWidth: 210 } },
+            editorViews: { pane: { openTabs: [], activePath: null } },
             pendingEditorOpens: {
                 pane: [
                     {
@@ -49,7 +49,7 @@ describe("EditorPane CLI queue", () => {
     });
 
     it("loads, activates, and acknowledges a queued file", async () => {
-        render(<EditorPane paneId="pane" cwd="/repo" active visible showTree={false} />);
+        render(<EditorPane paneId="pane" cwd="/repo" active visible showInsights={false} />);
 
         await waitFor(() =>
             expect(invoke).toHaveBeenCalledWith("cli_open_result", {
@@ -70,7 +70,7 @@ describe("EditorPane CLI queue", () => {
     });
 
     it("renders the in-memory Markdown and disables source editing in preview mode", async () => {
-        const { container } = render(<EditorPane paneId="pane" cwd="/repo" active visible showTree={false} />);
+        const { container } = render(<EditorPane paneId="pane" cwd="/repo" active visible showInsights={false} />);
         const editor = within(container);
 
         const previewButton = await editor.findByRole("button", { name: "Preview README.md" });

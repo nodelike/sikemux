@@ -41,7 +41,7 @@ export const BUILTIN_ITEM_RENDERERS: Readonly<Record<PaneKind, (props: Workbench
                 cwd={paneCwd(pane, session)}
                 active={active}
                 visible={visible}
-                showTree={win.role !== "ssh-config"}
+                showInsights={win.role !== "ssh-config"}
                 onCloseWindow={win.role === "ssh-config" ? () => cmd.closeSession(session.id) : undefined}
                 languageHint={win.role === "ssh-config" ? "ssh-config" : undefined}
             />

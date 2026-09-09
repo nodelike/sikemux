@@ -418,7 +418,7 @@ function snapshot(): string {
                 }
                 if (node.kind !== "editor") continue;
                 const ref = createWorkbenchItemRef(node.id, "editor");
-                const state = s.editorViews[node.id] ?? { openTabs: [], activePath: null, treeWidth: 210 };
+                const state = s.editorViews[node.id] ?? { openTabs: [], activePath: null };
                 try {
                     itemStates[node.id] = workbenchItemRegistry.encodePersisted(ref, state);
                 } catch {
@@ -666,7 +666,7 @@ export function applyHydrate(raw: string): HydrationResult {
             const result = workbenchItemRegistry.decodePersisted(ref, {
                 itemId,
                 kind: "editor",
-                version: 1,
+                version: workbenchItemRegistry.get("editor").persisted.version,
                 state: rawEditorViews[itemId],
             });
             if (result.ok) editorViews[itemId] = result.state as EditorPaneView;
