@@ -155,6 +155,9 @@ export interface PtyContext {
 
 export type RailDensity = "comfortable" | "compact";
 
+/** What the diff tab is reviewing: a changed file, or a whole commit. */
+export type DiffTarget = { kind: "worktree"; path: string } | { kind: "commit"; rev: string; subject: string };
+
 /** Which panel the workspace rail is showing. */
 export type RailTab = "agents" | "files" | "changes";
 

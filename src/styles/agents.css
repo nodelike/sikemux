@@ -859,7 +859,20 @@
     flex: 1;
     flex-direction: column;
     min-height: 0;
-    overflow-y: auto;
+    overflow: hidden;
+}
+
+.rail-changes-head,
+.rail-commit {
+    flex: none;
+}
+
+/* Two panels that each own their scrollbar, split by a draggable handle. */
+.rail-split {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    min-height: 0;
 }
 
 .rail-changes-head {
@@ -961,13 +974,32 @@
 
 .rail-section {
     display: flex;
-    flex: none;
+    flex: 1;
     flex-direction: column;
+    min-height: 28px;
     border-top: 1px solid var(--line-soft);
+}
+
+.rail-section:not(:has(.rail-list)) {
+    flex: none;
+}
+
+.rail-split-handle {
+    flex: none;
+    height: 5px;
+    cursor: row-resize;
+    background: var(--line-soft);
+    transition: background 120ms;
+}
+
+.rail-split-handle:hover,
+.rail-split-handle:focus-visible {
+    background: var(--acc-line);
 }
 
 .rail-section-head {
     display: flex;
+    flex: none;
     align-items: center;
     gap: 6px;
     height: 28px;
@@ -1022,11 +1054,20 @@
 
 .rail-list {
     display: flex;
+    flex: 1;
     flex-direction: column;
+    min-height: 0;
     padding-bottom: var(--space-1h);
+    overflow-y: auto;
+    overscroll-behavior: contain;
 }
 
 .rail-list.rail-graph {
+    padding-bottom: 0;
+}
+
+.rail-graph .git-graph {
+    flex: 1;
     min-height: 0;
 }
 

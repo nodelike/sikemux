@@ -26,6 +26,7 @@ import type {
     RundeckSettings,
     RailDensity,
     RailTab,
+    DiffTarget,
     RundeckView,
     Session,
     SessionSwitcherView,
@@ -64,7 +65,8 @@ export interface DomainState {
     sideRailOpen: boolean;
     workspaceRailOpen: boolean;
     railTab: RailTab;
-    diffFocus: Record<string, string | null>;
+    diffTarget: Record<string, DiffTarget | null>;
+    railChangesSplit: number;
     zenMode: boolean;
     rundeck: RundeckSettings;
     restoreAgentTabs: boolean;
@@ -205,7 +207,8 @@ export const useStore = create<StoreState>(() => {
         sideRailOpen: true,
         workspaceRailOpen: true,
         railTab: "agents",
-        diffFocus: {},
+        diffTarget: {},
+        railChangesSplit: 0.5,
         zenMode: false,
         rundeck: {
             activeProject: "",

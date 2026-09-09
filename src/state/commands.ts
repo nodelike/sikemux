@@ -68,6 +68,7 @@ import type {
     Window,
     WindowRole,
     WorkspaceTabRef,
+    DiffTarget,
 } from "./types";
 
 export { agentSupportsSkipPermissions } from "./commands/agentLogic";
@@ -2139,6 +2140,7 @@ export async function openSshConfigEditor(): Promise<void> {
 }
 export const toggleSideRail = (): void => setState((s) => ({ sideRailOpen: !s.sideRailOpen }));
 export const setRailTab = (tab: import("./types").RailTab): void => setState({ railTab: tab });
+export const setRailChangesSplit = (value: number): void => setState({ railChangesSplit: Math.min(0.85, Math.max(0.15, value)) });
 export const toggleWorkspaceRail = (): void => setState((s) => ({ workspaceRailOpen: !s.workspaceRailOpen }));
 export const toggleZen = (): void => setState((s) => ({ zenMode: !s.zenMode }));
 
@@ -2163,14 +2165,19 @@ export function openGitPane(): void {
     focusSessionWindowRole("git");
 }
 
-/** Focus the diff tab on one changed file. `path` is repo-relative. */
-export function openDiff(path: string): void {
+function focusDiff(target: DiffTarget): void {
     const st = getState();
     const session = st.sessions[st.activeSessionId];
     if (!session) return;
-    setState((state) => ({ diffFocus: { ...state.diffFocus, [session.cwd]: path } }));
+    setState((state) => ({ diffTarget: { ...state.diffTarget, [session.cwd]: target } }));
     focusSessionWindowRole("diff");
 }
+
+/** Review one changed file in the diff tab. `path` is repo-relative. */
+export const openDiff = (path: string): void => focusDiff({ kind: "worktree", path });
+
+/** Review a whole commit in the diff tab. */
+export const openCommitDiff = (rev: string, subject: string): void => focusDiff({ kind: "commit", rev, subject });
 
 export function setThemeId(id: string): void {
     applyTheme(id);
