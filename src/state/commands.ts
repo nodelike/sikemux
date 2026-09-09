@@ -142,63 +142,71 @@ function makeSession(kind: SessionKind, name: string, cwd: string, activeWindowI
 }
 
 function projectWindows(cwd: string): Window[] {
-    return [
-        makeWindow(cwd, "files", { kind: "editor", fixed: true, role: "files" }),
-        makeWindow(cwd, "1", { role: "term" }),
-        makeWindow(cwd, "diff", { kind: "diff", fixed: true, role: "diff" }),
-    ];
+    return [makeWindow(cwd, "1", { role: "term" })];
 }
 
-export function ensureDiffWindow(): void {
+/**
+ * Focus the session's window for `role`, creating a closable one if it has
+ * none. `seedEditorPath` pre-opens a file so a freshly created editor hydrates
+ * from the store the same way a restored session does.
+ */
+function ensureRoleWindow(role: WindowRole, kind: PaneKind, name: string, seedEditorPath?: string): void {
+    const st = getState();
+    const session = st.sessions[st.activeSessionId];
+    if (!session || session.kind !== "project") return;
+    const existing = (st.windowsBySession[session.id] ?? []).find((id) => st.windows[id]?.role === role);
+    if (existing) {
+        selectWindowId(existing);
+        return;
+    }
     mutate((d) => {
-        for (const sid of d.sessionOrder) {
-            const sess = d.sessions[sid];
-            if (sess.kind !== "project") continue;
-            const winIds = d.windowsBySession[sid] ?? [];
-            const hasDiff = winIds.some((id) => d.windows[id]?.role === "diff");
-            const gitIds = winIds.filter((id) => d.windows[id]?.role === "git");
-
-            // A git window whose root is a single pane converts in place, which
-            // keeps its id and tab position. A split one is rebuilt instead.
-            for (const [index, id] of gitIds.entries()) {
-                const win = d.windows[id];
-                if (!hasDiff && index === 0 && win.root.type === "pane") {
-                    d.windows[id] = {
-                        ...win,
-                        name: "diff",
-                        role: "diff",
-                        root: { ...win.root, kind: "diff", title: "diff" },
-                        activePaneId: win.root.id,
-                    };
-                    delete d.gitViews[id];
-                    continue;
-                }
-                for (const pane of collectPanes(win.root)) delete d.gitViews[pane.id];
-                delete d.windows[id];
-            }
-
-            const kept = (d.windowsBySession[sid] ?? []).filter((id) => d.windows[id]);
-            if (!kept.some((id) => d.windows[id]?.role === "diff")) {
-                const w = makeWindow(sess.cwd, "diff", { kind: "diff", fixed: true, role: "diff" });
-                d.windows[w.id] = w;
-                kept.push(w.id);
-            }
-            d.windowsBySession[sid] = kept;
-            if (!kept.includes(sess.activeWindowId)) d.sessions[sid].activeWindowId = kept[0] ?? sess.activeWindowId;
-        }
+        const sess = d.sessions[session.id];
+        const w = makeWindow(sess.cwd, name, { kind, role });
+        d.windows[w.id] = w;
+        d.windowsBySession[session.id] = [...(d.windowsBySession[session.id] ?? []), w.id];
+        if (seedEditorPath) d.editorViews[w.activePaneId] = { openTabs: [seedEditorPath], activePath: seedEditorPath };
+        sess.activeWindowId = w.id;
+        sess.view = "windows";
+        d.zoomedPaneId = null;
     });
 }
 
-export function pruneSearchWindows(): void {
+/**
+ * Drops the fixed editor, diff and search tabs that older sessions were built
+ * with. An editor holding open files is kept and merely made closable, so a
+ * restored session does not lose its work.
+ */
+export function pruneOnDemandWindows(): void {
     mutate((d) => {
         for (const sid of d.sessionOrder) {
             const winIds = d.windowsBySession[sid] ?? [];
-            const searchIds = winIds.filter((id) => d.windows[id]?.role === "search");
-            if (searchIds.length === 0) continue;
-            for (const id of searchIds) {
-                for (const pane of collectPanes(d.windows[id].root)) delete d.editorViews[pane.id];
+            let changed = false;
+
+            for (const id of winIds) {
+                const win = d.windows[id];
+                if (!win) continue;
+                const onDemand = win.role === "diff" || win.role === "search" || win.role === "files";
+                if (!onDemand) continue;
+
+                const keepsWork = win.role === "files" && collectPanes(win.root).some((pane) => (d.editorViews[pane.id]?.openTabs.length ?? 0) > 0);
+                if (keepsWork) {
+                    if (win.fixed) {
+                        const { fixed: _fixed, ...rest } = win;
+                        d.windows[id] = rest;
+                        changed = true;
+                    }
+                    continue;
+                }
+
+                for (const pane of collectPanes(win.root)) {
+                    delete d.editorViews[pane.id];
+                    delete d.gitViews[pane.id];
+                }
                 delete d.windows[id];
+                changed = true;
             }
+
+            if (!changed) continue;
             const kept = winIds.filter((id) => d.windows[id]);
             d.windowsBySession[sid] = kept;
             const sess = d.sessions[sid];
@@ -329,6 +337,16 @@ export function routeCliOpenRequest(request: CliOpenRequest): CliOpenResult[] {
                 error: null,
             });
             continue;
+        }
+
+        // The editor is opened on demand, so a project that has never shown one
+        // gets it created here rather than failing the request.
+        if (!(getState().windowsBySession[ownerId] ?? []).some((id) => getState().windows[id]?.role === "files")) {
+            mutate((d) => {
+                const w = makeWindow(owner.cwd, "editor", { kind: "editor", role: "files" });
+                d.windows[w.id] = w;
+                d.windowsBySession[ownerId] = [...(d.windowsBySession[ownerId] ?? []), w.id];
+            });
         }
 
         const st = getState();
@@ -1273,7 +1291,9 @@ function closeActiveTerminalTab(): void {
 
         const winIds = d.windowsBySession[session.id] ?? [];
         const termIds = winIds.filter((id) => d.windows[id]?.role === "term");
-        if (termIds.length <= 1 && winIds.length <= 1) {
+        // A command or ssh session is its terminal, so its last tab is replaced
+        // rather than closed. A project can sit on no terminal at all.
+        if (termIds.length <= 1 && winIds.length <= 1 && session.kind !== "project") {
             replaceWithFreshTerminalTab(d, session, closing);
             return;
         }
@@ -1283,7 +1303,7 @@ function closeActiveTerminalTab(): void {
         const isTerm = (id: string) => d.windows[id]?.role === "term";
         const before = remaining.slice(0, idx).reverse().find(isTerm);
         const after = remaining.slice(idx).find(isTerm);
-        const nextId = before ?? after ?? remaining[Math.min(idx, remaining.length - 1)];
+        const nextId = before ?? after ?? remaining[Math.min(idx, remaining.length - 1)] ?? "";
 
         pruneWindowViews(d, closing);
         delete d.windows[closing.id];
@@ -1445,14 +1465,17 @@ function closeWindowNow(id: string): void {
         .map((pane) => pane.id);
     withActiveSession((d, session) => {
         const winIds = d.windowsBySession[session.id] ?? [];
-        if (!winIds.includes(id) || winIds.length <= 1) return;
+        if (!winIds.includes(id)) return;
+        // A project may sit on zero windows, showing agents or nothing until a
+        // tab is opened. Other session kinds are their window, so keep one.
+        if (winIds.length <= 1 && session.kind !== "project") return;
         const closing = d.windows[id];
         if (!closing || closing.fixed) return;
         const idx = winIds.indexOf(id);
         const remaining = winIds.filter((wid) => wid !== id);
         const sess = d.sessions[session.id];
         if (sess.activeWindowId === id) {
-            let nextId = remaining[Math.min(idx, remaining.length - 1)];
+            let nextId = remaining[Math.min(idx, remaining.length - 1)] ?? "";
             if (closing.role === "term") {
                 const isTerm = (wid: string) => d.windows[wid]?.role === "term";
                 const before = remaining.slice(0, idx).reverse().find(isTerm);
@@ -2168,25 +2191,16 @@ export const setRailChangesSplit = (value: number): void => setState({ railChang
 export const toggleWorkspaceRail = (): void => setState((s) => ({ workspaceRailOpen: !s.workspaceRailOpen }));
 export const toggleZen = (): void => setState((s) => ({ zenMode: !s.zenMode }));
 
-function focusSessionWindowRole(role: WindowRole): void {
-    withActiveSession((d, session) => {
-        const target = (d.windowsBySession[session.id] ?? []).find((id) => d.windows[id]?.role === role);
-        if (!target) return;
-        if (session.activeWindowId === target && session.view === "windows" && d.zoomedPaneId === null) return;
-        d.zoomedPaneId = null;
-        const sess = d.sessions[session.id];
-        sess.activeWindowId = target;
-        sess.view = "windows";
-    });
-}
-
 export function requestOpenFile(path: string, line?: number, character?: number): void {
-    focusSessionWindowRole("files");
+    ensureRoleWindow("files", "editor", "editor", path);
     emit({ type: "open-file", path, line, character });
 }
 
+export const openEditorPane = (): void => ensureRoleWindow("files", "editor", "editor");
+export const openDiffPane = (): void => ensureRoleWindow("diff", "diff", "diff");
+
 export function openGitPane(): void {
-    focusSessionWindowRole("diff");
+    ensureRoleWindow("diff", "diff", "diff");
 }
 
 function focusDiff(target: DiffTarget): void {
@@ -2194,7 +2208,7 @@ function focusDiff(target: DiffTarget): void {
     const session = st.sessions[st.activeSessionId];
     if (!session) return;
     setState((state) => ({ diffTarget: { ...state.diffTarget, [session.cwd]: target } }));
-    focusSessionWindowRole("diff");
+    ensureRoleWindow("diff", "diff", "diff");
 }
 
 /** Review one changed file in the diff tab. `path` is repo-relative. */
@@ -2524,20 +2538,7 @@ export function focusGlobalSearch(seed?: string): void {
         const oneLine = seed.split(/\r?\n/).find((l) => l.trim().length > 0) ?? seed.trim();
         setGlobalSearchQuery(session.id, oneLine);
     }
-    const existing = (st.windowsBySession[session.id] ?? []).find((id) => st.windows[id]?.role === "search");
-    if (existing) {
-        selectWindowId(existing);
-    } else {
-        mutate((d) => {
-            const sess = d.sessions[session.id];
-            const w = makeWindow(sess.cwd, "search", { kind: "search", role: "search" });
-            d.windows[w.id] = w;
-            d.windowsBySession[session.id] = [...(d.windowsBySession[session.id] ?? []), w.id];
-            sess.activeWindowId = w.id;
-            sess.view = "windows";
-            d.zoomedPaneId = null;
-        });
-    }
+    ensureRoleWindow("search", "search", "search");
     emit({ type: "search-focus", sessionId: session.id });
 }
 

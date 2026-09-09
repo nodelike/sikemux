@@ -37,7 +37,9 @@ describe("project terminal tabs", () => {
 
         expect(activeProjectTerminalIds()).toEqual([]);
         expect(getState().windows[terminalId]).toBeUndefined();
-        expect(getState().windows[getState().sessions[getState().activeSessionId].activeWindowId].role).not.toBe("term");
+        // Editor, diff and search are opened on demand, so a project with no
+        // terminal is left with no window tabs at all rather than a stale one.
+        expect(getState().windowsBySession[getState().activeSessionId]).toEqual([]);
     });
 
     it("closes the initial terminal through the tab action and can reopen terminal 1", () => {

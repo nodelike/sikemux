@@ -5,7 +5,7 @@ import { normaliseKeybindingOverrides } from "../keybindings";
 import type { CommandContext, CustomCommand, CustomCommandPlacement } from "../commands/registry";
 import { registerCustomThemes } from "../themes/bus";
 import { normalizePermissionMode } from "../agentLaunch";
-import { ensureDiffWindow, mergePinnedIntoRoots, normaliseProjectRoots, pruneSearchWindows } from "./commands";
+import { mergePinnedIntoRoots, normaliseProjectRoots, pruneOnDemandWindows } from "./commands";
 import { agentDirectCommand, agentStartup } from "./commands";
 import { getState, setState, useStore, type StoreState } from "./store";
 import { errMessage, notify } from "./toast";
@@ -765,8 +765,7 @@ export function applyHydrate(raw: string): HydrationResult {
         ),
         defaultAgentPermissionMode: prefs.defaultAgentPermissionMode === "bypass" ? "bypass" : "workspace-write",
     });
-    pruneSearchWindows();
-    ensureDiffWindow();
+    pruneOnDemandWindows();
     registerCustomThemes(getState().customThemes);
     // Preserve the actual disk payload as the saved marker. The subscription
     // rewrites migrations and sanitized legacy credentials in canonical v7 form.

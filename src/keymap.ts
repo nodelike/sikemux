@@ -224,13 +224,13 @@ export function runKeybindingAction(action: KeybindingActionId, event: KeyboardE
             if (!isBrowserKeyTarget(event)) return false;
             return cmd.cycleBrowserTab(-1);
         case "window.files":
-            cmd.selectWindowByRole("files");
+            cmd.openEditorPane();
             return true;
         case "window.terminal":
             cmd.selectWindowByRole("term");
             return true;
         case "window.git":
-            cmd.selectWindowByRole("diff");
+            cmd.openDiffPane();
             return true;
         case "window.agents":
             cmd.focusAgents();

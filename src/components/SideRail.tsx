@@ -381,6 +381,8 @@ export function SideRail() {
             if (s.id !== activeSessionId) cmd.selectSession(s.id);
             if (role === "term") cmd.newWindow();
             else if (role === "search") cmd.focusGlobalSearch();
+            else if (role === "files") cmd.openEditorPane();
+            else if (role === "diff") cmd.openDiffPane();
         };
 
         const termIcons: React.ReactNode[] =
