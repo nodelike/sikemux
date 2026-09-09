@@ -1067,8 +1067,7 @@
 }
 
 .rail-graph .git-graph {
-    flex: 1;
-    min-height: 0;
+    flex: none;
 }
 
 .rail-file-wrap {
@@ -1137,6 +1136,59 @@
 
 .rail-file-stage:hover:not(:disabled) {
     color: var(--ink);
+}
+
+.rail-branch-row {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    min-width: 0;
+    height: 24px;
+    padding: 0 var(--gutter-rail);
+    color: var(--ink-dim);
+    font-size: 11.5px;
+    text-align: left;
+}
+
+.rail-branch-row:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--rail-2) 70%, transparent);
+    color: var(--ink);
+}
+
+.rail-branch-row.current {
+    cursor: default;
+    color: var(--ink);
+}
+
+.rail-branch-node {
+    flex: none;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--ink-faint);
+}
+
+.rail-branch-row.current .rail-branch-node {
+    background: var(--live);
+}
+
+.rail-branch-name {
+    flex: 0 1 auto;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.rail-branch-upstream {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    color: var(--ink-dim);
+    font-family: var(--mono);
+    font-size: 9.5px;
+    text-align: right;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .rail-commit-row {

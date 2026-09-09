@@ -145,7 +145,6 @@ function projectWindows(cwd: string): Window[] {
     return [
         makeWindow(cwd, "files", { kind: "editor", fixed: true, role: "files" }),
         makeWindow(cwd, "1", { role: "term" }),
-        makeWindow(cwd, "git", { kind: "git", fixed: true, role: "git" }),
         makeWindow(cwd, "diff", { kind: "diff", fixed: true, role: "diff" }),
         makeWindow(cwd, "search", { kind: "search", fixed: true, role: "search" }),
     ];
@@ -157,10 +156,36 @@ export function ensureDiffWindow(): void {
             const sess = d.sessions[sid];
             if (sess.kind !== "project") continue;
             const winIds = d.windowsBySession[sid] ?? [];
-            if (winIds.some((id) => d.windows[id]?.role === "diff")) continue;
-            const w = makeWindow(sess.cwd, "diff", { kind: "diff", fixed: true, role: "diff" });
-            d.windows[w.id] = w;
-            d.windowsBySession[sid] = [...winIds, w.id];
+            const hasDiff = winIds.some((id) => d.windows[id]?.role === "diff");
+            const gitIds = winIds.filter((id) => d.windows[id]?.role === "git");
+
+            // A git window whose root is a single pane converts in place, which
+            // keeps its id and tab position. A split one is rebuilt instead.
+            for (const [index, id] of gitIds.entries()) {
+                const win = d.windows[id];
+                if (!hasDiff && index === 0 && win.root.type === "pane") {
+                    d.windows[id] = {
+                        ...win,
+                        name: "diff",
+                        role: "diff",
+                        root: { ...win.root, kind: "diff", title: "diff" },
+                        activePaneId: win.root.id,
+                    };
+                    delete d.gitViews[id];
+                    continue;
+                }
+                for (const pane of collectPanes(win.root)) delete d.gitViews[pane.id];
+                delete d.windows[id];
+            }
+
+            const kept = (d.windowsBySession[sid] ?? []).filter((id) => d.windows[id]);
+            if (!kept.some((id) => d.windows[id]?.role === "diff")) {
+                const w = makeWindow(sess.cwd, "diff", { kind: "diff", fixed: true, role: "diff" });
+                d.windows[w.id] = w;
+                kept.push(w.id);
+            }
+            d.windowsBySession[sid] = kept;
+            if (!kept.includes(sess.activeWindowId)) d.sessions[sid].activeWindowId = kept[0] ?? sess.activeWindowId;
         }
     });
 }
@@ -2162,7 +2187,7 @@ export function requestOpenFile(path: string, line?: number, character?: number)
 }
 
 export function openGitPane(): void {
-    focusSessionWindowRole("git");
+    focusSessionWindowRole("diff");
 }
 
 function focusDiff(target: DiffTarget): void {

@@ -65,7 +65,7 @@ const ROLE_LABEL: Record<WindowRole, string> = {
     term: "Terminal",
     files: "Files",
     git: "Git",
-    diff: "Diff",
+    diff: "Changes",
     search: "Search",
     aws: "AWS",
     rundeck: "Rundeck",

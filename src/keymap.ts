@@ -230,7 +230,7 @@ export function runKeybindingAction(action: KeybindingActionId, event: KeyboardE
             cmd.selectWindowByRole("term");
             return true;
         case "window.git":
-            cmd.selectWindowByRole("git");
+            cmd.selectWindowByRole("diff");
             return true;
         case "window.agents":
             cmd.focusAgents();

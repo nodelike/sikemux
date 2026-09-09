@@ -412,7 +412,7 @@ export function SideRail() {
                 title: `Term${tabCount > 1 ? ` · ${tabCount} tabs` : ""} — ${kb("window.terminal")}`,
                 icons: termIcons,
             },
-            { role: "git", label: "Git", kbd: kb("window.git"), title: `Git — ${kb("window.git")}`, icons: [] },
+            { role: "diff", label: "Diff", kbd: kb("window.git"), title: `Diff — ${kb("window.git")}`, icons: [] },
             {
                 role: "agents",
                 label: "Agents",

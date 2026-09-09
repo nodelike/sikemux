@@ -23,6 +23,7 @@ export function RailChanges({ cwd }: { cwd: string }) {
     const [message, setMessage] = useState("");
     const [changesOpen, setChangesOpen] = useState(true);
     const [graphOpen, setGraphOpen] = useState(true);
+    const [branchesOpen, setBranchesOpen] = useState(false);
     const [busy, setBusy] = useState(false);
     const [commitIndex, setCommitIndex] = useState(0);
     const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -31,6 +32,7 @@ export function RailChanges({ cwd }: { cwd: string }) {
     const status = overview.data?.status;
     const files = status?.files ?? [];
     const log = overview.data?.log ?? [];
+    const branches = overview.data?.branches ?? [];
     const branch = status?.branch ?? "";
     const staged = files.filter(isStaged);
 
@@ -215,6 +217,34 @@ export function RailChanges({ cwd }: { cwd: string }) {
                         }}
                     />
                 )}
+
+                <section className="rail-section">
+                    <button type="button" className="rail-section-head" aria-expanded={branchesOpen} onClick={() => setBranchesOpen((open) => !open)}>
+                        <span className={`rail-caret${branchesOpen ? " open" : ""}`}>
+                            <IconChevron size={11} />
+                        </span>
+                        <span className="rail-section-label">Branches</span>
+                        {branches.length > 0 && <span className="rail-section-count">{branches.length}</span>}
+                    </button>
+                    {branchesOpen && (
+                        <div className="rail-list">
+                            {branches.length === 0 && <div className="rail-note">no branches</div>}
+                            {branches.map((entry) => (
+                                <button
+                                    key={entry.name}
+                                    type="button"
+                                    className={`rail-branch-row${entry.current ? " current" : ""}`}
+                                    disabled={busy || entry.current}
+                                    title={entry.upstream ? `tracks ${entry.upstream}` : "no upstream"}
+                                    onClick={() => run(`checking out ${entry.name}`, () => git.checkoutSmart(cwd, entry.name))}>
+                                    <span className="rail-branch-node" aria-hidden="true" />
+                                    <span className="rail-branch-name">{entry.name}</span>
+                                    {entry.upstream && <span className="rail-branch-upstream">{entry.upstream}</span>}
+                                </button>
+                            ))}
+                        </div>
+                    )}
+                </section>
 
                 <section className="rail-section">
                     <button type="button" className="rail-section-head" aria-expanded={graphOpen} onClick={() => setGraphOpen((open) => !open)}>
