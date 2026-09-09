@@ -52,8 +52,14 @@ const budgets = [
     gzip: 570_000,
   },
   {
+    label: "Diffs worker chunks",
+    pattern: /^(?:worker|wasm)-.*\.js$/,
+    raw: 930_000,
+    gzip: 335_000,
+  },
+  {
     label: "all JavaScript except Diffs",
-    pattern: /^(?!diffs-).*\.js$/,
+    pattern: /^(?!(?:diffs|worker|wasm)-).*\.js$/,
     raw: 2_820_000,
     gzip: 880_000,
   },
