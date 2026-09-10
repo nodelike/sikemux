@@ -84,6 +84,20 @@ describe("harness command service", () => {
         );
         expect(useStore.getState().sessions[useStore.getState().activeSessionId].cwd).toBe("/two");
     });
+    it("opens the configured preview in the requesting agent's browser", async () => {
+        const state = useStore.getState();
+        const session = Object.values(state.sessions).find((session) => session.cwd === "/one")!;
+        useStore.setState({
+            agents: { ...state.agents, "fixture-agent": { id: "fixture-agent", type: "codex", title: "Fixture", startup: "" } },
+            agentsBySession: { ...state.agentsBySession, [session.id]: ["fixture-agent"] },
+        });
+        const open = vi.fn(() => "fixture-tab");
+        transport.register("browser_new_tab", open);
+        const result = await handleHarnessRequest({ ...request("ui.open", { kind: "preview" }), agentId: "fixture-agent" });
+        expect(result).toEqual({ kind: "preview", tabId: "fixture-tab", url: "http://localhost:5173" });
+        expect(open).toHaveBeenCalledWith({ agentId: "fixture-agent", url: "http://localhost:5173" }, expect.anything());
+        expect(useStore.getState().activeSessionId).toBe(state.activeSessionId);
+    });
     it("rejects invalid read limits and preview opens without an agent", async () => {
         vi.spyOn(harnessTasks, "get").mockReturnValue({ executionId: "run", taskId: "test", project: "/one", status: "running", ptyId: 42 });
         await expect(handleHarnessRequest(request("task.read", { executionId: "run", limit: 99999 }))).rejects.toThrow("limit");
