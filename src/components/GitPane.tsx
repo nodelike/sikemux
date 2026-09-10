@@ -293,11 +293,6 @@ export function GitPane({ paneId, cwd, active }: { paneId: string; cwd: string; 
     const setPanel = (p: GitPanel) => cmd.setGitView(paneId, { panel: p });
     const setSel = (next: typeof sel) => cmd.setGitView(paneId, { selected: next });
 
-    useEffect(() => {
-        if (panel === "stashes" && stashes.length === 0) setPanel("commits");
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [panel, stashes.length]);
-
     const setRemoteDrill = (name: string | null) => cmd.setGitView(paneId, { remoteDrill: name });
     const setRemoteBranchSel = (name: string, idx: number) =>
         cmd.setGitView(paneId, {
@@ -1568,8 +1563,8 @@ export function GitPane({ paneId, cwd, active }: { paneId: string; cwd: string; 
                             onFocus={() => setPanel("stashes")}
                             flex={panelFlex(panel === "stashes")}
                             actions={[
-                                { key: "p", label: "pop", onClick: popSelectedStash },
-                                { key: "d", label: "drop", tone: "danger", onClick: openStashDropConfirm },
+                                { key: "p", label: "pop", onClick: popSelectedStash, disabled: filteredStashes.length === 0 },
+                                { key: "d", label: "drop", tone: "danger", onClick: openStashDropConfirm, disabled: filteredStashes.length === 0 },
                             ]}
                             rangeBadge={rangeBadge(stashesRange)}
                             filterBadge={searchByPanel.stashes || null}>
@@ -1577,7 +1572,12 @@ export function GitPane({ paneId, cwd, active }: { paneId: string; cwd: string; 
                                 (stashesRes.status === "loading" ? (
                                     <SkeletonRows rows={3} label="Loading stashes" />
                                 ) : (
-                                    <EmptyState message={stashQuery ? "no matches" : "no stashes"} />
+                                    <EmptyState
+                                        message={stashQuery ? "No matching stashes." : "No stashed changes."}
+                                        action={
+                                            !stashQuery && files.length ? { label: "Stash working changes", onClick: openFilesStashMenu } : undefined
+                                        }
+                                    />
                                 ))}
                             {filteredStashes.map((s, i) => {
                                 return (
