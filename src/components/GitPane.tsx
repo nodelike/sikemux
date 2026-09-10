@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { git, hasUnstaged, isStaged } from "../api/git";
 import * as cmd from "../state/commands";
-import { openGitCheatsheet, openGitConfirm, openGitMenu, openGitPrompt, runGitCmd, toggleGitCmdLog } from "../state/git";
+import { openGitCheatsheet, openGitConfirm, openGitMenu, openGitPrompt, toggleGitCmdLog } from "../state/git";
 import { useResourceEnabled } from "../state/resources";
 import { gitOverviewR, gitRemoteBranchesR, gitRemotesR, gitStashesR } from "../state/resources.defs";
 import { useStore } from "../state/store";
+import { commitGitDraft, generateGitDraft, runRepositoryGit, setGitDraft, setGitProvider, useGitWorkbench } from "../state/gitWorkbench";
 import { errMessage, reportError } from "../state/toast";
 import { DEFAULT_GIT_VIEW, type GitPanel } from "../state/types";
 import { PRIMARY_SHORTCUT } from "../lib/platform";
@@ -22,22 +23,13 @@ import { GitToolbarButton } from "./git/GitToolbarButton";
 import { VirtualPanelRows } from "./git/VirtualPanelRows";
 import { SkeletonRows } from "./Skeleton";
 import { EmptyState } from "./Panel";
-import {
-    AI_MODEL_STORAGE,
-    AI_MODELS,
-    AI_PROVIDER_LABEL,
-    AI_PROVIDER_STORAGE,
-    DEFAULT_AI_PROVIDER,
-    GIT_HELP,
-    GIT_PANEL_BY_KEY,
-    GIT_PANEL_ORDER,
-    defaultAiModel,
-} from "./git/gitPaneConstants";
+import { DEFAULT_AI_PROVIDER, AI_MODELS, AI_PROVIDER_LABEL, GIT_HELP, GIT_PANEL_BY_KEY, defaultAiModel } from "./git/gitPaneConstants";
 import { filterByQuery, isGitAiProvider, isInRange, rangeBadge } from "./git/gitPaneLogic";
 import type { GitAiProvider, RightView } from "./git/gitPaneTypes";
 import { basename as basenameOf } from "../lib/paths";
 
 export function GitPane({ paneId, cwd, active }: { paneId: string; cwd: string; active: boolean }) {
+    const paneRootRef = useRef<HTMLDivElement>(null);
     const repo = cwd;
     const storedView = useStore((s) => s.gitViews[paneId]);
     const view = {
@@ -69,18 +61,20 @@ export function GitPane({ paneId, cwd, active }: { paneId: string; cwd: string; 
     const currentBranch = branches.find((b) => b.current)?.name ?? status?.branch ?? "";
 
     const [right, setRight] = useState<RightView>({ mode: "output", text: "" });
-    const [busy, setBusy] = useState<string | null>(null);
-    const [commitText, setCommitText] = useState("");
+    const [localBusy, setBusy] = useState<string | null>(null);
+    const commitText = useGitWorkbench((state) => state.drafts[repo] ?? "");
+    const setCommitText = (value: string | ((current: string) => string)) => setGitDraft(repo, value);
     const commitInputRef = useRef<HTMLTextAreaElement>(null);
-    const [aiProvider, setAiProvider] = useState<GitAiProvider>(() => {
-        const stored = window.localStorage.getItem(AI_PROVIDER_STORAGE);
-        return isGitAiProvider(stored) ? stored : DEFAULT_AI_PROVIDER;
-    });
-    const [aiModel, setAiModel] = useState(() => {
-        const storedProvider = window.localStorage.getItem(AI_PROVIDER_STORAGE);
-        const provider = isGitAiProvider(storedProvider) ? storedProvider : DEFAULT_AI_PROVIDER;
-        return window.localStorage.getItem(AI_MODEL_STORAGE) || defaultAiModel(provider);
-    });
+    const aiProvider = useGitWorkbench((state) => state.provider);
+    const aiModel = useGitWorkbench((state) => state.model);
+    const sharedOperation = useGitWorkbench((state) => state.operations[repo]);
+    const busy = sharedOperation?.busy ? sharedOperation.label : localBusy;
+    const setAiProvider = setGitProvider;
+    const setAiModel = (model: string) => useGitWorkbench.setState({ model });
+    useEffect(() => {
+        if (sharedOperation?.error || sharedOperation?.result)
+            setRight({ mode: "output", text: sharedOperation.error || sharedOperation.result || "" });
+    }, [sharedOperation]);
     const rightRef = useRef<HTMLDivElement>(null);
     const [branchInput, setBranchInput] = useState<{ startPoint: string } | null>(null);
     const [branchText, setBranchText] = useState("");
@@ -111,11 +105,6 @@ export function GitPane({ paneId, cwd, active }: { paneId: string; cwd: string; 
     useEffect(() => {
         if (searchOpen) searchInputRef.current?.focus();
     }, [searchOpen]);
-
-    useEffect(() => {
-        window.localStorage.setItem(AI_PROVIDER_STORAGE, aiProvider);
-        window.localStorage.setItem(AI_MODEL_STORAGE, aiModel);
-    }, [aiProvider, aiModel]);
 
     const fileQuery = searchByPanel.files;
     const branchQuery = searchByPanel.branches;
@@ -269,7 +258,16 @@ export function GitPane({ paneId, cwd, active }: { paneId: string; cwd: string; 
         }
         if (!opts?.silent) setBusy(label || "running");
         try {
-            const out = await runGitCmd(label, fn, { showError: false, repo });
+            if (useGitWorkbench.getState().operations[repo]?.busy) {
+                setBusy(null);
+                return undefined;
+            }
+            let out: T | undefined;
+            const succeeded = await runRepositoryGit(repo, label || "Git operation", async () => {
+                out = await fn();
+                return out;
+            });
+            if (!succeeded) throw new Error(useGitWorkbench.getState().operations[repo]?.error || "Another Git operation is running.");
             if (typeof out === "string" && out && !opts?.silent) {
                 setRight({ mode: "output", text: out });
             }
@@ -325,30 +323,11 @@ export function GitPane({ paneId, cwd, active }: { paneId: string; cwd: string; 
         });
     };
 
-    const doCommit = (message: string) => {
-        if (!message.trim()) return;
-        setCommitText("");
-        commitInputRef.current?.blur();
-        void run("committing", async () => {
-            await git.commit(repo, message);
-            return `✓ committed\n\n${message}`;
-        });
+    const doCommit = (_message: string) => {
+        void commitGitDraft(repo).then(() => overview.refresh().catch(reportError("git refresh")));
     };
-
     const generateCommitMessage = () => {
-        setCommitText("");
-        commitInputRef.current?.focus();
-        const model = aiModel.trim() || defaultAiModel(aiProvider);
-        void run(`${AI_PROVIDER_LABEL[aiProvider]} is writing the message…`, async () => {
-            const msg = await git.aiMessage(repo, aiProvider, model, (chunk) => {
-                setCommitText((current) => current + chunk);
-                window.requestAnimationFrame(() => {
-                    const input = commitInputRef.current;
-                    if (input) input.scrollTop = input.scrollHeight;
-                });
-            });
-            setCommitText(msg);
-        });
+        void generateGitDraft(repo);
     };
 
     const moveSel = (d: number) => {
@@ -927,6 +906,11 @@ export function GitPane({ paneId, cwd, active }: { paneId: string; cwd: string; 
             if (e.altKey || e.metaKey) return;
             if (useStore.getState().pickerOpen) return;
             const ae = document.activeElement;
+            if (!ae || !paneRootRef.current?.contains(ae) || ae.closest('[role="dialog"], [role="listbox"], [role="separator"]')) return;
+            if (e.key === "Tab") return;
+            if (ae.closest('button, [role="button"]') && !ae.closest(".git-row, .gg-row") && ["Enter", " ", "ArrowUp", "ArrowDown"].includes(e.key))
+                return;
+            if (ae.closest('input, textarea, [contenteditable="true"]') && !searchOpen) return;
             if (ae && ae.closest(".cm-editor")) return;
             if (ae && ae.closest(".git-commit-panel")) return;
             // The embedded shell owns every key while it has focus, otherwise
@@ -971,11 +955,7 @@ export function GitPane({ paneId, cwd, active }: { paneId: string; cwd: string; 
                 } else handled = false;
             } else if (GIT_PANEL_BY_KEY[k]) {
                 const nextPanel = GIT_PANEL_BY_KEY[k]!;
-                if (nextPanel !== "stashes" || stashes.length > 0) setPanel(nextPanel);
-            } else if (k === "Tab") {
-                const order = GIT_PANEL_ORDER.filter((p) => p !== "stashes" || stashes.length > 0);
-                const i = order.indexOf(panel);
-                setPanel(order[(i + 1) % order.length]);
+                setPanel(nextPanel);
             } else if (k === "j" || k === "ArrowDown") moveSel(1);
             else if (k === "k" || k === "ArrowUp") moveSel(-1);
             else if (k === "r") {
@@ -1087,6 +1067,11 @@ export function GitPane({ paneId, cwd, active }: { paneId: string; cwd: string; 
         return () => window.removeEventListener("keydown", onKey, true);
     });
 
+    useEffect(() => {
+        if (!document.activeElement?.closest(".git-row, .gg-row")) return;
+        paneRootRef.current?.querySelector<HTMLElement>(".git-panel.focused .git-row.sel, .git-panel.focused .gg-row.sel")?.focus();
+    }, [sel, remoteBranchSel]);
+
     const panelFiles = panel === "files";
     const filesRange = rangeFor("files");
     const branchesRange = rangeFor("branches");
@@ -1114,7 +1099,7 @@ export function GitPane({ paneId, cwd, active }: { paneId: string; cwd: string; 
     const commitEmptyText = overviewError ?? (commitQuery ? `Nothing matches "${commitQuery}".` : "No commits on this branch yet.");
 
     return (
-        <div className="git-pane">
+        <div ref={paneRootRef} className="git-pane">
             <div className="git-toolbar">
                 <span className="git-tb-status">
                     <IconGit size={13} className={`git-tb-icon${files.length > 0 ? " dirty" : ""}`} />
@@ -1132,6 +1117,12 @@ export function GitPane({ paneId, cwd, active }: { paneId: string; cwd: string; 
                     )}
                 </span>
                 <span className="git-tb-grow" />
+                <button type="button" className="git-tbtn" aria-pressed={panel === "remotes"} onClick={() => setPanel("remotes")}>
+                    Remotes
+                </button>
+                <button type="button" className="git-tbtn" aria-pressed={panel === "stashes"} onClick={() => setPanel("stashes")}>
+                    Stashes
+                </button>
                 <GitToolbarButton
                     className="live"
                     icon={<IconPush size={13} />}
@@ -1326,8 +1317,15 @@ export function GitPane({ paneId, cwd, active }: { paneId: string; cwd: string; 
                             getKey={(f) => f.path}
                             renderRow={(f, i) => (
                                 <div
+                                    role="button"
+                                    tabIndex={sel.files === i ? 0 : -1}
+                                    onFocus={() => {
+                                        setPanel("files");
+                                        setSel({ ...sel, files: i });
+                                    }}
                                     className={`panel-row git-row${panelFiles && sel.files === i ? " sel" : ""}${isInRange(filesRange, i) ? " ranged" : ""}`}
-                                    onClick={() => {
+                                    onClick={(event) => {
+                                        event.currentTarget.focus();
                                         setPanel("files");
                                         setSel({ ...sel, files: i });
                                     }}>
@@ -1374,8 +1372,15 @@ export function GitPane({ paneId, cwd, active }: { paneId: string; cwd: string; 
                             getKey={(b) => b.name}
                             renderRow={(b, i) => (
                                 <div
+                                    role="button"
+                                    tabIndex={sel.branches === i ? 0 : -1}
+                                    onFocus={() => {
+                                        setPanel("branches");
+                                        setSel({ ...sel, branches: i });
+                                    }}
                                     className={`panel-row git-row${panel === "branches" && sel.branches === i ? " sel" : ""}${isInRange(branchesRange, i) ? " ranged" : ""}`}
-                                    onClick={() => {
+                                    onClick={(event) => {
+                                        event.currentTarget.focus();
                                         setPanel("branches");
                                         setSel({ ...sel, branches: i });
                                     }}>
@@ -1482,10 +1487,17 @@ export function GitPane({ paneId, cwd, active }: { paneId: string; cwd: string; 
                                         return (
                                             <div
                                                 key={rb.full_ref}
+                                                role="button"
+                                                tabIndex={remoteBranchSel === i ? 0 : -1}
+                                                onFocus={() => {
+                                                    setPanel("remotes");
+                                                    setRemoteBranchSel(remoteDrill, i);
+                                                }}
                                                 className={`panel-row git-row${
                                                     panel === "remotes" && remoteBranchSel === i ? " sel" : ""
                                                 }${isInRange(remotesRange, i) ? " ranged" : ""}${rb.is_head_pointer ? " muted" : ""}`}
-                                                onClick={() => {
+                                                onClick={(event) => {
+                                                    event.currentTarget.focus();
                                                     setPanel("remotes");
                                                     setRemoteBranchSel(remoteDrill, i);
                                                 }}
@@ -1523,8 +1535,15 @@ export function GitPane({ paneId, cwd, active }: { paneId: string; cwd: string; 
                                         return (
                                             <div
                                                 key={r.name}
+                                                role="button"
+                                                tabIndex={sel.remotes === i ? 0 : -1}
+                                                onFocus={() => {
+                                                    setPanel("remotes");
+                                                    setSel({ ...sel, remotes: i });
+                                                }}
                                                 className={`panel-row git-row${panel === "remotes" && sel.remotes === i ? " sel" : ""}${isInRange(remotesRange, i) ? " ranged" : ""}`}
-                                                onClick={() => {
+                                                onClick={(event) => {
+                                                    event.currentTarget.focus();
                                                     setPanel("remotes");
                                                     setSel({ ...sel, remotes: i });
                                                 }}
@@ -1541,7 +1560,7 @@ export function GitPane({ paneId, cwd, active }: { paneId: string; cwd: string; 
                         </GitPanelBlock>
                     )}
 
-                    {stashes.length > 0 && (
+                    {(stashes.length > 0 || panel === "stashes") && (
                         <GitPanelBlock
                             n={6}
                             label="Stashes"
@@ -1564,8 +1583,15 @@ export function GitPane({ paneId, cwd, active }: { paneId: string; cwd: string; 
                                 return (
                                     <div
                                         key={s.refname}
+                                        role="button"
+                                        tabIndex={sel.stashes === i ? 0 : -1}
+                                        onFocus={() => {
+                                            setPanel("stashes");
+                                            setSel({ ...sel, stashes: i });
+                                        }}
                                         className={`panel-row git-row${panel === "stashes" && sel.stashes === i ? " sel" : ""}${isInRange(stashesRange, i) ? " ranged" : ""}`}
-                                        onClick={() => {
+                                        onClick={(event) => {
+                                            event.currentTarget.focus();
                                             setPanel("stashes");
                                             setSel({ ...sel, stashes: i });
                                         }}

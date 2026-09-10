@@ -299,11 +299,34 @@ export function GitGraph({
                     <div
                         key={c.full_hash || c.hash}
                         ref={sel ? selRef : undefined}
+                        role="button"
+                        tabIndex={selectedIndex === i ? 0 : -1}
+                        aria-label={`${c.hash} ${c.subject}`}
+                        onKeyDown={(event) => {
+                            if (event.key === "Enter" || event.key === " ") {
+                                event.preventDefault();
+                                event.stopPropagation();
+                                onSelect(i);
+                                onActivate();
+                            }
+                            if (["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) {
+                                event.preventDefault();
+                                event.stopPropagation();
+                                const next =
+                                    event.key === "Home"
+                                        ? 0
+                                        : event.key === "End"
+                                          ? commits.length - 1
+                                          : Math.max(0, Math.min(commits.length - 1, i + (event.key === "ArrowDown" ? 1 : -1)));
+                                onSelect(next);
+                                wrapRef.current?.querySelectorAll<HTMLElement>(".gg-row")[next]?.focus();
+                            }
+                        }}
                         className={`gg-row${sel ? " sel" : ""}${inRange ? " ranged" : ""}`}
                         style={{ height: ROW_H, paddingLeft: gutter }}
                         onClick={() => onSelect(i)}
                         onDoubleClick={onActivate}
-                        title={`${c.hash} · ${c.author}`}>
+                        title={`${c.subject} — ${c.hash} · ${c.author}${c.refs.length ? ` · ${c.refs.join(", ")}` : ""}`}>
                         <span className="gg-hash" style={{ color: hashColor }}>
                             {c.hash}
                         </span>

@@ -31,7 +31,7 @@ export const GIT_HELP: GitCheatsheetSection[] = [
     {
         title: "Global",
         rows: helpRows(
-            ["tab / 2..6", "switch panel"],
+            ["2..6", "switch panel"],
             ["?", "open this cheatsheet"],
             ["@", "toggle command log"],
             ["/", "filter current panel"],

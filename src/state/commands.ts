@@ -2244,6 +2244,8 @@ export function requestOpenFile(path: string, line?: number, character?: number)
 export const openEditorPane = (): void => ensureRoleWindow("files", "editor", "editor");
 export const openDiffPane = (): void => ensureRoleWindow("diff", "diff", "diff");
 
+export const openGitWorkbench = (): void => ensureRoleWindow("git", "git", "Git");
+
 export function openGitPane(): void {
     ensureRoleWindow("diff", "diff", "diff");
 }
