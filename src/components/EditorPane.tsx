@@ -1,3 +1,4 @@
+import { relocatedPath } from "../state/editorPaths";
 import { useCallback, useEffect, useRef, useState } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -836,6 +837,44 @@ export function EditorPane({
     }, [cwd, paneId, visible]);
 
     useEffect(() => {
+        return subscribe("path-renamed", ({ src, dest }) => {
+            const paths = useStore.getState().editorViews[paneId]?.openTabs ?? [];
+            for (const path of paths) {
+                const next = relocatedPath(path, src, dest);
+                if (next === path) continue;
+                const view = currentRef.current === path ? viewRef.current : null;
+                const state = view?.state ?? states.current.get(path);
+                if (state) {
+                    states.current.set(next, state);
+                    states.current.delete(path);
+                }
+                const saved = savedRef.current.get(path);
+                if (saved !== undefined) {
+                    savedRef.current.set(next, saved);
+                    savedRef.current.delete(path);
+                }
+                const image = imagesRef.current.get(path);
+                if (image) {
+                    imagesRef.current.set(next, image);
+                    imagesRef.current.delete(path);
+                }
+                documentIORef.current.relocate(path, next);
+                conflictedRef.current.delete(path);
+                saveSequenceRef.current.delete(path);
+                void closeDoc(path);
+                if (state) void openDoc(next, state.doc.toString());
+                if (currentRef.current === path) {
+                    currentRef.current = next;
+                    if (view) bindLspContext(view, next);
+                    setActiveImage((image) => (image ? { ...image, path: next } : image));
+                }
+            }
+            setDirty((paths) => new Set([...paths].map((path) => relocatedPath(path, src, dest))));
+            setMarkdownPreview((preview) => (preview ? { ...preview, path: relocatedPath(preview.path, src, dest) } : preview));
+        });
+    });
+
+    useEffect(() => {
         return subscribe("close-file", (e) => {
             if (e.paneId === paneId) closeTabs([e.path]);
         });
@@ -964,6 +1003,8 @@ export function EditorPane({
                             const name = basename(path);
                             return {
                                 id: path,
+                                tabId: `editor-tab-${paneId}-${encodeURIComponent(path)}`,
+                                panelId: `editor-content-${paneId}`,
                                 label: name,
                                 icon: <FileIcon name={name} size={18} />,
                                 dirty: dirty.has(path),
@@ -993,7 +1034,11 @@ export function EditorPane({
                         </div>
                     )
                 )}
-                <div className={`ed-host${activeImage ? " image-mode" : ""}${previewingMarkdown ? " preview-mode" : ""}`}>
+                <div
+                    id={`editor-content-${paneId}`}
+                    role={onCloseWindow ? "tabpanel" : undefined}
+                    aria-labelledby={onCloseWindow && activePath ? `editor-tab-${paneId}-${encodeURIComponent(activePath)}` : undefined}
+                    className={`ed-host${activeImage ? " image-mode" : ""}${previewingMarkdown ? " preview-mode" : ""}`}>
                     <div
                         className="ed-source-host"
                         hidden={!!activeImage || previewingMarkdown}
@@ -1025,8 +1070,11 @@ export function EditorPane({
                 {tabs.length === 0 && (
                     <div className="ed-empty">
                         <IconFile size={22} />
-                        <p>no file open</p>
-                        <p className="ed-empty-sub">Pick one from the Files tab in the workspace rail, or press {filePaletteHint}</p>
+                        <p>Open a file to get started</p>
+                        <p className="ed-empty-sub">Browse the Files rail or search by name.</p>
+                        <button type="button" className="settings-btn primary" onClick={cmd.openFilePalette}>
+                            Open file <kbd>{filePaletteHint}</kbd>
+                        </button>
                     </div>
                 )}
             </div>

@@ -48,6 +48,12 @@ export class DocumentIO {
         });
     }
 
+    relocate(src: string, dest: string): void {
+        const document = this.documents.get(src);
+        this.documents.delete(src);
+        if (document) this.documents.set(dest, document);
+    }
+
     forget(path: string): void {
         this.documents.delete(path);
     }

@@ -1,3 +1,4 @@
+import { navigateTabs } from "../lib/tabNavigation";
 import { useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
 import { TreeContextMenu, type CtxItem } from "./FileTree";
@@ -14,6 +15,8 @@ export interface TabDescriptor {
     /** Stable identity — used as the React key and passed to onSelect/onClose. */
     id: string;
     label: string;
+    tabId?: string;
+    panelId?: string;
     /** Leading glyph/badge rendered before the label (FileIcon, agent glyph, method badge…). */
     icon?: ReactNode;
     /** Show the unsaved-changes dot. */
@@ -56,10 +59,35 @@ export function TabBar({ variant, tabs, onSelect, onClose, buildMenu, onAdd, add
                             <button
                                 type="button"
                                 role="tab"
+                                id={t.tabId}
+                                aria-controls={t.panelId}
                                 aria-selected={t.active ?? false}
+                                tabIndex={t.active || (!tabs.some((tab) => tab.active) && tabs[0] === t) ? 0 : -1}
+                                onKeyDown={(event) => {
+                                    navigateTabs(event);
+                                    if (event.key === "Delete" && closable && onClose) {
+                                        event.preventDefault();
+                                        const buttons = [
+                                            ...(event.currentTarget
+                                                .closest('[role="tablist"]')
+                                                ?.querySelectorAll<HTMLButtonElement>('[role="tab"]') ?? []),
+                                        ];
+                                        const index = tabs.indexOf(t);
+                                        (buttons[index + 1] ?? buttons[index - 1])?.focus();
+                                        onClose(t.id);
+                                    }
+                                    if (event.shiftKey && event.key === "F10" && buildMenu) {
+                                        event.preventDefault();
+                                        const rect = event.currentTarget.getBoundingClientRect();
+                                        setMenu({ x: rect.left, y: rect.bottom, id: t.id });
+                                    }
+                                }}
                                 aria-label={`${t.label}${t.dirty ? ", unsaved changes" : ""}`}
                                 className={`tab${t.active ? " active" : ""}`}
-                                onClick={() => onSelect(t.id)}
+                                onClick={(event) => {
+                                    event.currentTarget.focus();
+                                    onSelect(t.id);
+                                }}
                                 onContextMenu={
                                     buildMenu
                                         ? (e) => {

@@ -243,6 +243,7 @@ export function SearchPane({
                         onRefresh={refresh}
                     />
                     <Threads
+                        openOnSelect={compact}
                         sessionId={sessionId}
                         cwd={cwd}
                         query={view.query}
@@ -432,7 +433,7 @@ function Header({
 
 function Toggle({ label, title, active, onClick }: { label: string; title: string; active: boolean; onClick: () => void }) {
     return (
-        <button className={`sp-toggle${active ? " on" : ""}`} onClick={onClick} title={title} type="button">
+        <button className={`sp-toggle${active ? " on" : ""}`} onClick={onClick} title={title} aria-label={title} aria-pressed={active} type="button">
             {label}
         </button>
     );
@@ -469,6 +470,7 @@ function ThreadNotice({ className, children }: { className: string; children: Re
 }
 
 function Threads({
+    openOnSelect,
     sessionId,
     cwd,
     query,
@@ -479,6 +481,7 @@ function Threads({
     status,
     error,
 }: {
+    openOnSelect: boolean;
     sessionId: string;
     cwd: string;
     query: string;
@@ -530,13 +533,18 @@ function Threads({
     if (!query.trim()) {
         return (
             <ThreadNotice className="sp-empty">
-                start typing to search
-                <span className="sp-empty-sub">tab → replace · {PRIMARY_SHORTCUT}↵ replace all</span>
+                Search across your project
+                <span className="sp-empty-sub">Enter a word, symbol, or pattern above. Expand Replace to edit matching text.</span>
             </ThreadNotice>
         );
     }
     if (status === "searching" && rows.length === 0) return <ThreadNotice className="sp-loading">searching…</ThreadNotice>;
-    if (rows.length === 0) return <ThreadNotice className="sp-empty">no matches</ThreadNotice>;
+    if (rows.length === 0)
+        return (
+            <ThreadNotice className="sp-empty">
+                No matches for “{query}”<span className="sp-empty-sub">Try a shorter term or adjust the case, pattern, and file filters above.</span>
+            </ThreadNotice>
+        );
 
     const items = virtualizer.getVirtualItems();
     return (
@@ -562,6 +570,7 @@ function Threads({
                             sessionId={sessionId}
                             repo={cwd}
                             file={row.file}
+                            openOnSelect={openOnSelect}
                             hit={row.hit}
                             hitIndex={row.hitIndex}
                             isSelected={selected?.path === row.file.path && selected.matchIndex === row.hitIndex}
@@ -605,6 +614,7 @@ const FileHeader = memo(function FileHeader({
 });
 
 const MessageRow = memo(function MessageRow({
+    openOnSelect,
     style,
     sessionId,
     repo,
@@ -614,6 +624,7 @@ const MessageRow = memo(function MessageRow({
     isSelected,
     replace,
 }: {
+    openOnSelect: boolean;
     style: React.CSSProperties;
     sessionId: string;
     repo: string;
@@ -628,7 +639,16 @@ const MessageRow = memo(function MessageRow({
             type="button"
             className={`sp-msg${isSelected ? " sel" : ""}`}
             style={style}
-            onClick={() => cmd.setGlobalSearchSelected(sessionId, { path: file.path, matchIndex: hitIndex })}
+            onClick={() => {
+                cmd.setGlobalSearchSelected(sessionId, { path: file.path, matchIndex: hitIndex });
+                if (openOnSelect) cmd.requestOpenFile(joinPath(repo, file.path), hit.line - 1, hit.ranges[0]?.start ?? 0);
+            }}
+            onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                    event.preventDefault();
+                    cmd.requestOpenFile(joinPath(repo, file.path), hit.line - 1, hit.ranges[0]?.start ?? 0);
+                }
+            }}
             onDoubleClick={() => cmd.requestOpenFile(joinPath(repo, file.path), hit.line - 1, hit.ranges[0]?.start ?? 0)}
             title={replace ? `${hit.text}  →  (with replace)` : hit.text}>
             <span className="sp-msg-ln">{hit.line}</span>

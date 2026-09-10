@@ -4,6 +4,7 @@ export type Event =
     | { type: "open-file"; path: string; line?: number; character?: number }
     | { type: "close-file"; paneId: string; path: string }
     | { type: "fs-changed"; repo: string }
+    | { type: "path-renamed"; src: string; dest: string }
     | { type: "tree-native-drag-hover"; cwd: string | null; targetDir: string | null; highlightPath: string | null }
     | { type: "git-refresh"; repo: string }
     | { type: "agent-focus"; sessionId: string }

@@ -1,3 +1,4 @@
+import { renameEditorPath } from "../state/editorPaths";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent, ReactNode } from "react";
@@ -69,6 +70,7 @@ export function FileTree({ cwd, activePath, onOpenFile, width, onResize, active,
     const [rootDragOver, setRootDragOver] = useState(false);
     const [draggingPath, setDraggingPath] = useState<string | null>(null);
     const [dragGhost, setDragGhost] = useState<{ name: string; x: number; y: number } | null>(null);
+    const [focusedPath, setFocusedPath] = useState<string | null>(null);
     const [menu, setMenu] = useState<MenuState | null>(null);
 
     const expandedRef = useRef(expanded);
@@ -169,7 +171,7 @@ export function FileTree({ cwd, activePath, onOpenFile, width, onResize, active,
         const parent = dirname(renaming);
         const dest = joinPath(parent, trimmed);
         try {
-            await fsapi.rename(renaming, dest);
+            await renameEditorPath(renaming, dest);
             await loadDir(parent);
             cancelRename();
         } catch (err) {
@@ -286,7 +288,7 @@ export function FileTree({ cwd, activePath, onOpenFile, width, onResize, active,
         if (!canDropInto(src, destDir)) return;
         const dest = joinPath(destDir, basename(src));
         try {
-            await fsapi.rename(src, dest);
+            await renameEditorPath(src, dest);
             await Promise.all([loadDir(dirname(src)), loadDir(destDir)]);
             setExpanded((s) => new Set(s).add(destDir));
         } catch (err) {
@@ -488,6 +490,27 @@ export function FileTree({ cwd, activePath, onOpenFile, width, onResize, active,
         ];
     };
 
+    const visiblePaths: string[] = [];
+    const collectVisible = (path: string) => {
+        for (const entry of dirs[path] ?? []) {
+            visiblePaths.push(entry.path);
+            if (entry.is_dir && expanded.has(entry.path)) collectVisible(entry.path);
+        }
+    };
+    collectVisible(cwd);
+    const focusPath = focusedPath && visiblePaths.includes(focusedPath) ? focusedPath : visiblePaths[0];
+    const onEntryKey = (event: React.KeyboardEvent<HTMLButtonElement>, entry: DirEntry) => {
+        if (event.key === "F2") {
+            event.preventDefault();
+            startRename(entry);
+        }
+        if (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10")) {
+            event.preventDefault();
+            const rect = event.currentTarget.getBoundingClientRect();
+            setMenu({ x: rect.left, y: rect.bottom, entry });
+        }
+    };
+
     const renderTree = (path: string, depth: number): ReactNode => {
         const entries = dirs[path] ?? [];
         const items: ReactNode[] = [];
@@ -522,8 +545,15 @@ export function FileTree({ cwd, activePath, onOpenFile, width, onResize, active,
                                     }
                                     void toggleDir(e);
                                 }}
-                                onDoubleClick={() => startRename(e)}
+
                                 onContextMenu={(ev) => openMenu(ev, e)}
+                                role="treeitem"
+                                aria-expanded={open}
+                                aria-level={depth + 1}
+                                aria-selected={selectedDir === e.path}
+                                tabIndex={focusPath === e.path ? 0 : -1}
+                                onFocus={() => setFocusedPath(e.path)}
+                                onKeyDown={(event) => onEntryKey(event, e)}
                                 data-folder-path={e.path}>
                                 <span className={`tree-chev${open ? " open" : ""}`}>
                                     <IconChevron size={11} />
@@ -581,8 +611,14 @@ export function FileTree({ cwd, activePath, onOpenFile, width, onResize, active,
                                 setSelectedDir(null);
                                 onOpenFile(e);
                             }}
-                            onDoubleClick={() => startRename(e)}
+
                             onContextMenu={(ev) => openMenu(ev, e)}
+                            role="treeitem"
+                            aria-level={depth + 1}
+                            aria-selected={activePath === e.path}
+                            tabIndex={focusPath === e.path ? 0 : -1}
+                            onFocus={() => setFocusedPath(e.path)}
+                            onKeyDown={(event) => onEntryKey(event, e)}
                             data-file-path={e.path}
                             data-drop-dir={dirname(e.path)}>
                             <span className="tree-file">
@@ -655,13 +691,13 @@ export function FileTree({ cwd, activePath, onOpenFile, width, onResize, active,
                 <div className="ed-tree-head">
                     <span className="ed-tree-name">{basename(cwd) || "files"}</span>
                     <span className="ed-tree-actions">
-                        <Tooltip label="New file — a">
+                        <Tooltip label="New file">
                             <button type="button" className="ed-tree-act" aria-label="New file" onClick={() => startNew("file")}>
                                 <FileIcon name="" size={13} />
                                 <IconPlus size={9} />
                             </button>
                         </Tooltip>
-                        <Tooltip label="New folder — ⇧A">
+                        <Tooltip label="New folder">
                             <button type="button" className="ed-tree-act" aria-label="New folder" onClick={() => startNew("folder")}>
                                 <IconFolder size={13} />
                                 <IconPlus size={9} />
@@ -672,6 +708,37 @@ export function FileTree({ cwd, activePath, onOpenFile, width, onResize, active,
                 <div
                     ref={rootScrollRef}
                     className={`ed-tree-scroll${rootDragOver ? " drag-over-root" : ""}`}
+                    role="tree"
+                    aria-label="Project files"
+                    onKeyDown={(event) => {
+                        const target = event.target as HTMLElement;
+                        if (target.getAttribute("role") !== "treeitem") return;
+                        const rows = [...event.currentTarget.querySelectorAll<HTMLElement>('[role="treeitem"]')];
+                        const index = rows.indexOf(target);
+                        const expanded = target.getAttribute("aria-expanded");
+                        let next = index;
+                        if (event.key === "ArrowDown") next = Math.min(rows.length - 1, index + 1);
+                        else if (event.key === "ArrowUp") next = Math.max(0, index - 1);
+                        else if (event.key === "Home") next = 0;
+                        else if (event.key === "End") next = rows.length - 1;
+                        else if (event.key === "ArrowRight") {
+                            if (expanded === "false") target.click();
+                            else if (expanded === "true") next = Math.min(rows.length - 1, index + 1);
+                        } else if (event.key === "ArrowLeft") {
+                            if (expanded === "true") target.click();
+                            else {
+                                const level = Number(target.getAttribute("aria-level"));
+                                for (let i = index - 1; i >= 0; i--)
+                                    if (Number(rows[i].getAttribute("aria-level")) < level) {
+                                        next = i;
+                                        break;
+                                    }
+                            }
+                        } else return;
+                        event.preventDefault();
+                        event.stopPropagation();
+                        rows[next]?.focus();
+                    }}
                     data-root-path={cwd}
                     onContextMenu={(ev) => openMenu(ev, null)}>
                     {renderTree(cwd, 0)}
@@ -730,13 +797,13 @@ export function TreeContextMenu({ x, y, items, onClose }: { x: number; y: number
         setPos({ left, top });
     }, [x, y]);
 
-    useEffect(() => {
-        const onKey = (e: KeyboardEvent) => {
-            if (e.key === "Escape") onClose();
+    useLayoutEffect(() => {
+        const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+        ref.current?.querySelector<HTMLButtonElement>("button:not(:disabled)")?.focus();
+        return () => {
+            if (previous?.isConnected) previous.focus();
         };
-        window.addEventListener("keydown", onKey, true);
-        return () => window.removeEventListener("keydown", onKey, true);
-    }, [onClose]);
+    }, []);
 
     return createPortal(
         <div
@@ -746,7 +813,31 @@ export function TreeContextMenu({ x, y, items, onClose }: { x: number; y: number
                 e.preventDefault();
                 onClose();
             }}>
-            <div ref={ref} className="tree-ctx-menu" style={{ left: pos.left, top: pos.top }} onClick={(e) => e.stopPropagation()}>
+            <div
+                ref={ref}
+                role="menu"
+                aria-label="Actions"
+                onKeyDown={(event) => {
+                    const buttons = [...event.currentTarget.querySelectorAll<HTMLButtonElement>("button:not(:disabled)")];
+                    const index = buttons.indexOf(document.activeElement as HTMLButtonElement);
+                    let next = index;
+                    if (event.key === "ArrowDown") next = (index + 1) % buttons.length;
+                    else if (event.key === "ArrowUp") next = (index - 1 + buttons.length) % buttons.length;
+                    else if (event.key === "Home") next = 0;
+                    else if (event.key === "End") next = buttons.length - 1;
+                    else if (event.key === "Escape" || event.key === "Tab") {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        onClose();
+                        return;
+                    } else return;
+                    event.preventDefault();
+                    event.stopPropagation();
+                    buttons[next]?.focus();
+                }}
+                className="tree-ctx-menu"
+                style={{ left: pos.left, top: pos.top }}
+                onClick={(e) => e.stopPropagation()}>
                 {items.map((it, i) =>
                     it.sep ? (
                         <div key={i} className="tree-ctx-sep" />
@@ -755,6 +846,8 @@ export function TreeContextMenu({ x, y, items, onClose }: { x: number; y: number
                             key={i}
                             type="button"
                             disabled={it.disabled}
+                            role="menuitem"
+                            tabIndex={-1}
                             className={`tree-ctx-item${it.danger ? " danger" : ""}${it.disabled ? " disabled" : ""}`}
                             onClick={() => {
                                 if (it.disabled) return;
