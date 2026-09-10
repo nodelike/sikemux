@@ -12,8 +12,8 @@ are usually a sign the component is doing something the system should be doing.
 
 ## 1. Principles
 
-**The accent is a scarce resource.** It marks what is selected or focused, and
-nothing else. A hovered row, a raised card, a header, a border, an icon — all
+**The accent is a scarce resource** (§4). It marks what is selected or focused,
+and nothing else. A hovered row, a raised card, a header, a border, an icon — all
 neutral. When every state is tinted, selection has nothing left to be, which is
 exactly the failure the old chrome had.
 
@@ -104,6 +104,7 @@ you mean.
 | `--surface`         | panels           | `--text-secondary` | body              | `--border-strong`   | hover, emphasis    |
 | `--surface-raised`  | cards on a panel | `--text-tertiary`  | meta, placeholder | `--border-selected` | the selected thing |
 | `--surface-overlay` | menus, palettes  | `--text-disabled`  | disabled          |                     |                    |
+| `--on-accent`       | ink on a fill    | `--on-danger`      | ink on a danger   |                     |                    |
 
 ### State
 
@@ -128,7 +129,98 @@ and a diff's meaning should not change because you switched to Ayu.
 
 ---
 
-## 4. Type
+## 4. The accent budget
+
+The single rule the chrome is built on, stated plainly because it is the one
+that gets broken:
+
+> **Hover is neutral. The accent means selected or focused. Nothing else.**
+
+| State                     | Surface                                    | Text               |
+| ------------------------- | ------------------------------------------ | ------------------ |
+| rest                      | transparent                                | `--text-secondary` |
+| hover                     | `--surface-hover`                          | `--text-primary`   |
+| selected / open / current | `--surface-selected` + `--border-selected` | `--text-primary`   |
+| focused (keyboard)        | `var(--focus-ring)`                        | unchanged          |
+
+Hover and selection have to differ in **hue**, not just in strength. When they
+were the same colour at two weights, resting the pointer on a row was
+indistinguishable from having selected it — which is what the rails, the tabs
+and the agent list all did before this rule existed.
+
+**Allowed to be accent:** the selected row, the open menu button, the current
+tab, the checked item, the focus ring, the HEAD ref badge, a link, and exactly
+one filled primary action per surface.
+
+**Not allowed:** hover of any kind, container borders, card fills, category
+tags, section headers, icon buttons at rest, hint text, or a backdrop. Every one
+of those was accent at some point, and each one spent a little more of what
+selection needed in order to stand out.
+
+Filled accent surfaces take `--on-accent` (or `--on-danger`) for their ink —
+never a literal. A near-black tuned for the default purple goes unreadable the
+moment a theme picks a dark accent; those tokens are the window's own ground, so
+they follow the theme instead of fighting it.
+
+The four semantic colours (`--danger`, `--live`, `--warn`, `--cmd`), the git
+status colours and the per-provider brand colours sit outside this budget. They
+carry meaning, not state.
+
+---
+
+## 5. Rows and tabs
+
+Every list row in the app is one rule, in `modern-shell.css`:
+
+```css
+.sess-row,
+.proj-row,
+.proj-child,
+.agent-row {
+    …;
+}
+```
+
+Same height (28px, 26px for a child), same `--radius-2`, same three states from
+§4, same `--dur-1` transition. Tabs (`.tab-wrap`) follow the identical grammar
+at 26px — an unselected tab is a _label_, not an eighth box competing with the
+one that matters.
+
+It is a single rule because it used to be several that disagreed. The project
+navigator was styled twice — once as a rounded row, then again further down as a
+square monospace tree — and the second block won, so half the rules were dead
+and its rows gave no hover feedback at all.
+
+**Adding a row type?** Add its selector to the existing rule rather than writing
+a new block. If it genuinely has to differ, it should differ in one property,
+not in a second definition of what a row is.
+
+The tree spine (`.proj-children`) is one neutral hairline. The indent is what
+says "child of"; tinting the line said it twice.
+
+---
+
+## 6. Overlays
+
+Scrim, card, action — in that order. The confirm dialog is the one modal surface
+in the product, so it sets the pattern the palettes follow.
+
+**The scrim dims without tinting.** Mix it from `--gray-base`, never a literal:
+three hardcoded near-blacks used to pull every theme's chrome toward purple on
+the way down. Roughly 44% for a light overlay, 58–68% for a modal.
+
+**The card floats, so it earns height.** `--surface-overlay`, a `--border`
+hairline, `--radius-4`, and `--shadow-3` for a palette or `--shadow-4` for a
+modal. This is the one place `backdrop-filter` is allowed — a 460px card can
+afford `blur(20px)`; the rails and the stage cannot (§13).
+
+**One filled action.** A footer's primary button is the only filled thing on the
+surface, which is what makes it read as the answer. Everything beside it is a
+bordered neutral, and its ink is `--on-accent` / `--on-danger`.
+
+---
+
+## 7. Type
 
 Two families. `--ui` is Figtree (variable, 300–900). `--mono` is JetBrains Mono
 Nerd Font. `--kbd` is the system sans, used only for shortcut glyphs, because
@@ -155,7 +247,7 @@ Three weights only: `--weight-normal` (400), `--weight-medium` (500),
 
 ---
 
-## 5. Space
+## 8. Space
 
 A 4px scale with two half steps, because 4px is already too big for an icon gap
 in chrome this dense.
@@ -173,7 +265,7 @@ element's height, not the scale.
 
 ---
 
-## 6. Geometry
+## 9. Geometry
 
 Four radii, chosen by what an element **is**, never by how big it is.
 
@@ -198,7 +290,7 @@ block mentioning a selector wins. Add to the block that matches the role.
 
 ---
 
-## 7. Elevation
+## 10. Elevation
 
 Shadows are two-part: a tight contact shadow that pins the element to what is
 under it, and a wide ambient one that gives it height. One large blur reads as
@@ -217,7 +309,7 @@ you want a hairline.
 
 ---
 
-## 8. Focus
+## 11. Focus
 
 One ring, everywhere:
 
@@ -235,7 +327,7 @@ selector for anything a mouse also clicks.
 
 ---
 
-## 9. Motion
+## 12. Motion
 
 Chrome moves fast or not at all.
 
@@ -250,16 +342,16 @@ already accessible — do not write a second reduced-motion rule for it.
 
 ---
 
-## 10. Backdrop
+## 13. Backdrop
 
 The app sits on one continuous ground: a Paper Shaders field mounted on `.shell`
 in `App.tsx`, plus an optional full-window image beneath it.
 
 The shader is a Bayer dither over simplex noise, **monochrome** — it uses the
 ramp's own grey, not the accent, because a coloured backdrop was the most
-saturated thing on screen and violated §1. Rails, stage and the gutters between
-them all sit on it, so the frame reads as one surface rather than a texture that
-starts where the content does.
+saturated thing on screen and broke the accent budget (§4). Rails, stage and the
+gutters between them all sit on it, so the frame reads as one surface rather
+than a texture that starts where the content does.
 
 **Why you mostly see it in the gutter.** Panels keep `--panel-solidity` — six
 points of glass — so the field ghosts through the whole app without a diff ever
@@ -290,7 +382,7 @@ A backdrop that competes with a diff is a backdrop that gets switched off.
 
 ---
 
-## 11. Window transparency
+## 14. Window transparency
 
 `applyWindowOpacity` writes `--window-opacity` and, below 1, adds
 `html.is-transparent`. `--surface-solidity` fades the panels with it, and
@@ -302,12 +394,14 @@ solid the window is. A new opaque surface must be added to that list.
 
 ---
 
-## 12. Checklist
+## 15. Checklist
 
 Before you add a rule:
 
 - [ ] Is there a token for this? There usually is.
-- [ ] Is this accent doing selection or focus work? If not, make it neutral.
+- [ ] Is this accent doing selection or focus work? If not, make it neutral (§4).
+- [ ] Is this a list row? Add the selector to the shared grammar, do not
+      write a second definition of what a row is (§5).
 - [ ] Is this shadow on something that moves? If not, make it a hairline.
 - [ ] Sans or mono — who is speaking, the app or the machine?
 - [ ] Does the radius match the element's _role_, and is it in the right
