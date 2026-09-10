@@ -19,6 +19,7 @@ import {
     type KeybindingOverrides,
 } from "../keybindings";
 import { OnboardingStage, type OnboardingOverlay, type OnboardingRegion } from "./OnboardingStage";
+import { useShaderField } from "../hooks/useShaderField";
 import { Logo } from "./Icons";
 import type { AgentPresentationState } from "../state/types";
 
@@ -116,6 +117,7 @@ export function Onboarding() {
     const [healthUnavailable, setHealthUnavailable] = useState(false);
     const [step, setStep] = useState(0);
     const [direction, setDirection] = useState<"forward" | "back">("forward");
+    const onboardingFieldRef = useShaderField<HTMLSpanElement>("onboarding", open);
     const [region, setRegion] = useState<OnboardingRegion | null>(null);
     const [tried, setTried] = useState<KeybindingActionId[]>([]);
     const [demo, setDemo] = useState<KeybindingActionId | null>(null);
@@ -297,6 +299,7 @@ export function Onboarding() {
                 aria-describedby="onboarding-description"
                 tabIndex={-1}
                 onKeyDown={onKeyDown}>
+                <span className="onb-field" aria-hidden="true" ref={onboardingFieldRef} />
                 <header className="onboarding-header">
                     <div>
                         <Logo size={13} className="onboarding-mark" />

@@ -28,6 +28,7 @@ import { useLspBridge } from "../hooks/useLspBridge";
 import { useNavHistory, type NavEntry } from "../hooks/useNavHistory";
 import { useGitBaseline } from "../hooks/useGitBaseline";
 import { useGitBlame } from "../hooks/useGitBlame";
+import { useShaderField } from "../hooks/useShaderField";
 import type { CliPendingEditorOpen } from "../state/types";
 import type { CtxItem } from "./FileTree";
 import { IconClose, IconEditor, IconEye, IconFile } from "./Icons";
@@ -265,6 +266,9 @@ export function EditorPane({
     const tabs = view.openTabs;
     const activePath = view.activePath;
     const previewingMarkdown = markdownPreview?.path === activePath;
+    // Only while the pane is genuinely empty and on screen: a hidden pane's
+    // field would hold a WebGL context the terminals have better use for.
+    const emptyFieldRef = useShaderField<HTMLSpanElement>("empty", tabs.length === 0 && visible);
 
     useEffect(() => {
         cmd.setEditorDirtyPaths(paneId, [...dirty]);
@@ -1048,6 +1052,7 @@ export function EditorPane({
                 )}
                 {tabs.length === 0 && (
                     <div className="ed-empty">
+                        <span className="ed-empty-field" aria-hidden="true" ref={emptyFieldRef} />
                         <IconFile size={22} />
                         <p>no file open</p>
                         <p className="ed-empty-sub">Pick one from the Files tab in the workspace rail, or press {filePaletteHint}</p>

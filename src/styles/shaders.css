@@ -1,0 +1,87 @@
+/*
+ * Surfaces for the WebGL fields in `src/lib/shaderField.ts`.
+ *
+ * Each host is an empty element the shader paints into, sized and masked here
+ * so the surface still looks deliberate when no shader ever arrives: with no
+ * canvas in it, every rule below paints nothing.
+ *
+ * The runtime injects its own canvas positioning as a `<style data-paper-shader>`
+ * in `@layer paper-shaders`, which this app's CSP permits via `style-src
+ * 'unsafe-inline'`. Nothing here needs to duplicate it.
+ */
+
+/*
+ * Every field's alpha rides `--window-opacity`.
+ *
+ * This is the whole reason a shader can live in this app at all. Window
+ * transparency here is subtractive — `src-tauri/src/transparency.rs` makes the
+ * NSWindow non-opaque and blurs what is behind it, and every surface multiplies
+ * its own alpha by `--window-opacity` — so a field painting at full strength
+ * would put a floor exactly where the user's desktop is supposed to show
+ * through. Tying the canvas to the same variable means the field is at its
+ * richest when the window is opaque and there is nothing behind it to see, and
+ * recedes with the chrome as the window is dialled see-through.
+ */
+[data-shader-field] canvas {
+    opacity: calc(var(--window-opacity, 1) * var(--shader-field-strength, 1));
+}
+
+/* ── Editor: nothing open ─────────────────────────────────────────────────── */
+
+/*
+ * Masked to a soft disc so the dither reads as a glow under the copy rather
+ * than a panel with edges. The copy sits above it on its own stacking order,
+ * since the runtime's canvas is `z-index: -1` inside the host.
+ */
+.ed-empty-field {
+    --shader-field-strength: 0.34;
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    mask-image: radial-gradient(closest-side at 50% 48%, #000 0%, rgba(0, 0, 0, 0.5) 46%, transparent 78%);
+    animation: shader-field-in 900ms ease both;
+}
+
+.ed-empty > :not(.ed-empty-field) {
+    position: relative;
+}
+
+/* ── First run: the tour ──────────────────────────────────────────────────── */
+
+/*
+ * The one screen in the app with no data on it, so the field runs edge to edge
+ * behind the whole card. The frame keeps its own `--pane` ground underneath, so
+ * this is a tint on top of the surface rather than the surface itself.
+ */
+.onboarding-frame {
+    position: relative;
+}
+
+.onb-field {
+    --shader-field-strength: 0.5;
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    mask-image: linear-gradient(to bottom, #000, rgba(0, 0, 0, 0.45) 62%, transparent);
+    animation: shader-field-in 1200ms ease both;
+}
+
+.onboarding-frame > :not(.onb-field) {
+    position: relative;
+}
+
+@keyframes shader-field-in {
+    from {
+        opacity: 0;
+    }
+    to {
+        opacity: 1;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .ed-empty-field,
+    .onb-field {
+        animation: none;
+    }
+}

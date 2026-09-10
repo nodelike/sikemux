@@ -7,8 +7,6 @@ import { FileTree } from "./FileTree";
 import { RailChanges } from "./rail/RailChanges";
 import { SearchPane } from "./SearchPane";
 import { IconAgent, IconFolder, IconGit, IconSearch } from "./Icons";
-import { useResourceEnabled } from "../state/resources";
-import { gitStatusR } from "../state/resources.defs";
 
 const TABS: { id: RailTab; label: string; icon: ReactNode }[] = [
     { id: "agents", label: "Agents", icon: <IconAgent size={12} /> },
@@ -33,10 +31,6 @@ export function WorkspaceRail() {
     const density = useStore((s) => s.railDensity);
     const tab = useStore((s) => s.railTab);
     const cwd = session?.cwd ?? "";
-    const isProject = session?.kind === "project";
-    const status = useResourceEnabled(isProject && !!cwd && tab !== "changes", gitStatusR, cwd || "");
-    const changeCount = status.data?.files.length ?? 0;
-
     if (!session) return null;
 
     return (
@@ -52,7 +46,6 @@ export function WorkspaceRail() {
                         onClick={() => cmd.setRailTab(entry.id)}>
                         <span className="rail-tab-glyph">{entry.icon}</span>
                         <span>{entry.label}</span>
-                        {entry.id === "changes" && changeCount > 0 && <span className="rail-tab-count">{changeCount}</span>}
                     </button>
                 ))}
             </div>

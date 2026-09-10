@@ -823,15 +823,6 @@
     line-height: 1;
 }
 
-.rail-tab-count {
-    padding: 0 4px;
-    border-radius: var(--radius-chip);
-    background: var(--acc-soft);
-    color: var(--acc);
-    font-family: var(--mono);
-    font-size: 9.5px;
-}
-
 .rail-body {
     display: flex;
     flex: 1;

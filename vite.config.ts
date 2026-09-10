@@ -72,6 +72,10 @@ export default defineConfig({
           // dynamic import in useXterm loads this chunk only when the WebGL
           // feature gate is enabled.
           if (id.includes("@xterm/addon-webgl")) return "xterm-webgl";
+          // Same reason as the renderer above: the shader runtime is fetched
+          // only when a surface in src/lib/shaderField.ts asks for one, so it
+          // must not ride along in the eagerly loaded vendor chunk.
+          if (id.includes("@paper-design/shaders")) return "paper-shaders";
           if (id.includes("@xterm")) return "xterm";
           if (
             packagePath.startsWith("react/") ||
