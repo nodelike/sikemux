@@ -1,3 +1,4 @@
+import { useModalFocus } from "../hooks/useModalFocus";
 import { useEffect, useMemo, useRef, useState } from "react";
 import * as cmd from "../state/commands";
 import { rankBy } from "../lib/fuzzy";
@@ -12,6 +13,8 @@ import { FileIcon } from "./FileIcon";
 const MAX_RESULTS = 200;
 
 export function FilePalette() {
+    const modalRef = useRef<HTMLDivElement>(null);
+    useModalFocus(modalRef);
     const session = useStore((s) => s.sessions[s.activeSessionId]);
     const cwd = session?.cwd ?? "";
 
@@ -62,12 +65,20 @@ export function FilePalette() {
 
     return (
         <div className="picker-backdrop" onMouseDown={cmd.closeFilePalette}>
-            <div className="picker" onMouseDown={(e) => e.stopPropagation()}>
+            <div
+                ref={modalRef}
+                tabIndex={-1}
+                className="picker"
+                role="dialog"
+                aria-modal="true"
+                aria-label="Open file"
+                onMouseDown={(e) => e.stopPropagation()}>
                 <div className="picker-input-wrap">
                     <IconSearch size={15} className="picker-search-icon" />
                     <input
                         ref={inputRef}
                         className="picker-input"
+                        aria-label="Search project files"
                         placeholder={cwd ? "search files…" : "no project — open one first"}
                         value={query}
                         onChange={(e) => setQuery(e.target.value)}

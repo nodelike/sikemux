@@ -62,6 +62,7 @@ export interface PersistedPrefs {
     systemLightThemeId?: string;
     systemDarkThemeId?: string;
     customThemes?: Theme[];
+    uiTextScale?: number;
     windowOpacity: number;
     windowBlur: number;
     cloudBrowser: string;

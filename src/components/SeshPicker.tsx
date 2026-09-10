@@ -1,3 +1,4 @@
+import { useModalFocus } from "../hooks/useModalFocus";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { SessionKind } from "../state/types";
 import { fuzzyScore, isSubstringMatch } from "../lib/fuzzy";
@@ -27,6 +28,8 @@ function sshSubtitle(h: SshHost): string {
 }
 
 export function SeshPicker() {
+    const modalRef = useRef<HTMLDivElement>(null);
+    useModalFocus(modalRef);
     const sessionsById = useStore((s) => s.sessions);
     const sessionOrder = useStore((s) => s.sessionOrder);
     const sessions = sessionOrder.map((id) => sessionsById[id]);
@@ -188,7 +191,14 @@ export function SeshPicker() {
 
     return (
         <div className="picker-backdrop" onMouseDown={cmd.closePicker}>
-            <div className="picker" role="dialog" aria-modal="true" aria-label="Open session or project" onMouseDown={(e) => e.stopPropagation()}>
+            <div
+                ref={modalRef}
+                tabIndex={-1}
+                className="picker"
+                role="dialog"
+                aria-modal="true"
+                aria-label="Open session or project"
+                onMouseDown={(e) => e.stopPropagation()}>
                 <div className="picker-input-wrap">
                     <IconSearch size={15} className="picker-search-icon" />
                     <input

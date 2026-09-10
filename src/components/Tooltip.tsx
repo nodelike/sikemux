@@ -1,4 +1,4 @@
-import { cloneElement, useCallback, useEffect, useRef, useState, type ReactElement, type ReactNode } from "react";
+import { cloneElement, useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type ReactElement, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 
 /**
@@ -22,7 +22,7 @@ interface Placement {
 
 /**
  * Wraps a single interactive child. The child keeps its own props; the tooltip
- * only attaches listeners and an `aria-label` when it has no accessible name.
+ * associates its description with the trigger.
  */
 export function Tooltip({
     label,
@@ -36,6 +36,8 @@ export function Tooltip({
     children: ReactElement;
     disabled?: boolean;
 }) {
+    const id = useId();
+    const tipRef = useRef<HTMLDivElement>(null);
     const [placement, setPlacement] = useState<Placement | null>(null);
     const anchorRef = useRef<HTMLElement | null>(null);
     const timerRef = useRef<number | undefined>(undefined);
@@ -73,6 +75,23 @@ export function Tooltip({
         };
     }, [placement, hide]);
 
+    useLayoutEffect(() => {
+        const tip = tipRef.current;
+        if (!tip || !placement) return;
+        const rect = tip.getBoundingClientRect();
+        const dx = Math.max(8 - rect.left, Math.min(0, window.innerWidth - 8 - rect.right));
+        const dy = Math.max(8 - rect.top, Math.min(0, window.innerHeight - 8 - rect.bottom));
+        tip.style.marginLeft = `${dx}px`;
+        tip.style.marginTop = `${dy}px`;
+    }, [placement]);
+    useEffect(() => {
+        if (!placement) return;
+        const dismiss = (event: KeyboardEvent) => {
+            if (event.key === "Escape") hide();
+        };
+        window.addEventListener("keydown", dismiss);
+        return () => window.removeEventListener("keydown", dismiss);
+    }, [placement, hide]);
     if (disabled || !label) return children;
 
     // React 19 types element props as `unknown`; the child is always a DOM
@@ -81,8 +100,11 @@ export function Tooltip({
     const child = cloneElement(children, {
         ref: (node: HTMLElement | null) => {
             anchorRef.current = node;
-            assignRef((children as { ref?: unknown }).ref, node);
+            assignRef((children.props as { ref?: unknown }).ref, node);
         },
+        "aria-describedby": placement
+            ? [(children.props as { "aria-describedby"?: string })["aria-describedby"], id].filter(Boolean).join(" ")
+            : (children.props as { "aria-describedby"?: string })["aria-describedby"],
         onMouseEnter: chain(childProps.onMouseEnter, () => show(false)),
         onMouseLeave: chain(childProps.onMouseLeave, hide),
         onFocus: chain(childProps.onFocus, () => show(true)),
@@ -95,7 +117,12 @@ export function Tooltip({
             {child}
             {placement &&
                 createPortal(
-                    <div className={`tip tip-${placement.side}`} role="tooltip" style={{ left: placement.left, top: placement.top }}>
+                    <div
+                        id={id}
+                        ref={tipRef}
+                        className={`tip tip-${placement.side}`}
+                        role="tooltip"
+                        style={{ left: placement.left, top: placement.top }}>
                         {label}
                     </div>,
                     document.body,

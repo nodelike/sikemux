@@ -217,6 +217,10 @@ export default function App() {
     const brunoReqPaletteOpen = useStore((s) => s.brunoReqPaletteOpen);
     const brunoEnvPaletteOpen = useStore((s) => s.brunoEnvPaletteOpen);
     const settingsOpen = useStore((s) => s.settingsOpen);
+    const uiTextScale = useStore((s) => s.uiTextScale);
+    useEffect(() => {
+        document.documentElement.style.setProperty("--ui-text-scale", String(uiTextScale));
+    }, [uiTextScale]);
     const commandPaletteOpen = useStore((s) => s.commandPaletteOpen);
     const commandPopup = useStore((s) => s.commandPopup);
     const keybindingOverrides = useStore((s) => s.keybindingOverrides);

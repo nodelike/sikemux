@@ -70,6 +70,7 @@ const PERSISTED_KEYS = [
     "systemLightThemeId",
     "systemDarkThemeId",
     "customThemes",
+    "uiTextScale",
     "windowOpacity",
     "windowBlur",
     "cloudBrowser",
@@ -120,6 +121,7 @@ function packPrefs(s: StoreState): PersistedPrefs {
         systemLightThemeId: s.systemLightThemeId,
         systemDarkThemeId: s.systemDarkThemeId,
         customThemes: s.customThemes,
+        uiTextScale: s.uiTextScale,
         windowOpacity: s.windowOpacity,
         windowBlur: s.windowBlur,
         cloudBrowser: s.cloudBrowser,
@@ -715,6 +717,7 @@ export function applyHydrate(raw: string): HydrationResult {
                 ? prefs.systemDarkThemeId
                 : cur.systemDarkThemeId,
         customThemes: Array.isArray(prefs.customThemes) ? prefs.customThemes.filter(isTheme) : cur.customThemes,
+        uiTextScale: typeof prefs.uiTextScale === "number" && [1, 1.1, 1.25].includes(prefs.uiTextScale) ? prefs.uiTextScale : cur.uiTextScale,
         windowOpacity: typeof prefs.windowOpacity === "number" && Number.isFinite(prefs.windowOpacity) ? prefs.windowOpacity : cur.windowOpacity,
         windowBlur: typeof prefs.windowBlur === "number" && Number.isFinite(prefs.windowBlur) ? prefs.windowBlur : cur.windowBlur,
         cloudBrowser: typeof prefs.cloudBrowser === "string" ? prefs.cloudBrowser : cur.cloudBrowser,

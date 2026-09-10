@@ -1,3 +1,4 @@
+import { useModalFocus } from "../hooks/useModalFocus";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
     buildCommandRegistry,
@@ -46,6 +47,8 @@ export function CommandPalette({
 }: CommandPaletteProps) {
     const [query, setQuery] = useState("");
     const [selected, setSelected] = useState(0);
+    const modalRef = useRef<HTMLDivElement>(null);
+    useModalFocus(modalRef);
     const inputRef = useRef<HTMLInputElement>(null);
     const listRef = useRef<HTMLDivElement>(null);
     const mouseActive = useMouseActive();
@@ -100,6 +103,8 @@ export function CommandPalette({
     return (
         <div className="picker-backdrop command-palette-backdrop" onMouseDown={onClose}>
             <div
+                ref={modalRef}
+                tabIndex={-1}
                 className="picker command-palette"
                 role="dialog"
                 aria-modal="true"
@@ -110,6 +115,11 @@ export function CommandPalette({
                     <input
                         ref={inputRef}
                         className="picker-input"
+                        role="combobox"
+                        aria-expanded="true"
+                        aria-controls="command-results"
+                        aria-activedescendant={entries[selected] ? `command-result-${selected}` : undefined}
+                        aria-autocomplete="list"
                         aria-label="Search commands"
                         placeholder="type a command…"
                         value={query}
@@ -119,13 +129,15 @@ export function CommandPalette({
                     />
                 </div>
 
-                <div className="picker-list command-palette-list" ref={listRef} role="listbox" aria-label="Commands">
+                <div className="picker-list command-palette-list" ref={listRef} id="command-results" role="listbox" aria-label="Commands">
                     {entries.length === 0 && <div className="picker-empty">no commands match</div>}
                     {entries.map((entry, index) => (
                         <button
                             key={entry.key}
                             type="button"
                             role="option"
+                            id={`command-result-${index}`}
+                            tabIndex={-1}
                             disabled={entry.kind === "standalone" && entry.disabled}
                             aria-selected={index === selected}
                             className={`picker-item command-palette-item${index === selected ? " sel" : ""}`}

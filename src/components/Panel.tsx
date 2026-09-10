@@ -175,7 +175,22 @@ export function PanelRow({
 }) {
     const state = `${selected ? " sel" : ""}${ranged ? " ranged" : ""}${muted ? " muted" : ""}`;
     return (
-        <div className={`panel-row${state}${className ? ` ${className}` : ""}`} onClick={onClick}>
+        <div
+            className={`panel-row${state}${className ? ` ${className}` : ""}`}
+            role={onClick ? "button" : undefined}
+            tabIndex={onClick ? 0 : undefined}
+            onClick={onClick}
+            onKeyDown={
+                onClick
+                    ? (event) => {
+                          if (event.target !== event.currentTarget) return;
+                          if (event.key === "Enter" || event.key === " ") {
+                              event.preventDefault();
+                              onClick();
+                          }
+                      }
+                    : undefined
+            }>
             {children}
         </div>
     );

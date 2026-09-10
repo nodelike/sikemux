@@ -280,7 +280,7 @@ const keybindingActions = [
     {
         id: "palette.newTab",
         label: "New tab",
-        detail: "Choose what to open: terminal, agent, browser, editor, diff or search",
+        detail: "Choose what to open: terminal, agent, browser, editor, Git or search",
         category: "Navigation",
         defaultBinding: `${IS_MACOS ? "Meta" : "Ctrl"}+KeyT`,
     },

@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import type { ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import * as cmd from "../state/commands";
 import { useStore } from "../state/store";
+import { useModalFocus } from "../hooks/useModalFocus";
 import { IconAgent, IconCommit, IconEditor, IconGlobe, IconRun, IconSearch } from "./Icons";
 
 interface TabChoice {
@@ -10,154 +10,145 @@ interface TabChoice {
     detail: string;
     icon: ReactNode;
     open: () => void;
+    disabled?: boolean;
 }
 
 export function NewTabPalette() {
-    const session = useStore((s) => s.sessions[s.activeSessionId]);
-    const agentIds = useStore((s) => s.agentsBySession[s.activeSessionId]);
-    const agentsById = useStore((s) => s.agents);
+    const session = useStore((state) => state.sessions[state.activeSessionId]);
+    const agentIds = useStore((state) => state.agentsBySession[state.activeSessionId]);
+    const agents = useStore((state) => state.agents);
+    const project = session?.kind === "project";
+    const browserAgent = (agentIds ?? []).map((id) => agents[id]).find(Boolean);
     const [selected, setSelected] = useState(0);
-    // Two keys pressed inside one frame must not both read the pre-render
-    // selection, so the handler moves through a ref and state only mirrors it.
     const selectedRef = useRef(0);
-    const listRef = useRef<HTMLDivElement>(null);
-
-    const moveSelection = (next: number) => {
-        selectedRef.current = next;
-        setSelected(next);
-    };
-
-    const isProject = session?.kind === "project";
-    const browserAgent = (agentIds ?? []).map((id) => agentsById[id]).find(Boolean);
-
-    const choices = useMemo<TabChoice[]>(() => {
-        const all: (TabChoice | null)[] = [
-            {
-                id: "terminal",
-                label: "Terminal",
-                detail: "A new shell in this project",
-                icon: <IconRun size={14} />,
-                open: () => cmd.newWindow(),
+    const modalRef = useRef<HTMLDivElement>(null);
+    useModalFocus(modalRef);
+    const choices: TabChoice[] = [
+        {
+            id: "terminal",
+            label: "Terminal",
+            detail: "A new shell in this project",
+            icon: <IconRun size={14} />,
+            open: cmd.newWindow,
+            disabled: !session,
+        },
+        {
+            id: "agent",
+            label: "Agent",
+            detail: project ? "Start or resume an agent" : "Open a project first",
+            icon: <IconAgent size={14} />,
+            open: cmd.openAgentPalette,
+            disabled: !project,
+        },
+        {
+            id: "browser",
+            label: "Browser",
+            detail: browserAgent ? `Browse alongside ${browserAgent.title}` : "Start an agent to use its browser",
+            icon: <IconGlobe size={14} />,
+            open: () => {
+                void cmd.newBrowserTab();
             },
-            isProject
-                ? {
-                      id: "agent",
-                      label: "Agent",
-                      detail: "Pick an agent to start or resume",
-                      icon: <IconAgent size={14} />,
-                      open: () => cmd.openAgentPalette(),
-                  }
-                : null,
-            browserAgent
-                ? {
-                      id: "browser",
-                      label: "Browser",
-                      detail: `Browse alongside ${browserAgent.title}`,
-                      icon: <IconGlobe size={14} />,
-                      open: () => void cmd.newBrowserTab(),
-                  }
-                : null,
-            isProject
-                ? {
-                      id: "editor",
-                      label: "Editor",
-                      detail: "Open the file editor",
-                      icon: <IconEditor size={14} />,
-                      open: () => cmd.openEditorPane(),
-                  }
-                : null,
-            isProject
-                ? {
-                      id: "diff",
-                      label: "Diff",
-                      detail: "Review this project's changes",
-                      icon: <IconCommit size={14} />,
-                      open: () => cmd.openDiffPane(),
-                  }
-                : null,
-            isProject
-                ? {
-                      id: "search",
-                      label: "Search",
-                      detail: "Search across the project",
-                      icon: <IconSearch size={14} />,
-                      open: () => cmd.focusGlobalSearch(),
-                  }
-                : null,
-        ];
-        return all.filter((choice): choice is TabChoice => choice !== null);
-    }, [isProject, browserAgent]);
-
-    useEffect(() => {
-        moveSelection(Math.min(selectedRef.current, Math.max(0, choices.length - 1)));
-    }, [choices.length]);
-
+            disabled: !browserAgent,
+        },
+        {
+            id: "editor",
+            label: "Editor",
+            detail: project ? "Open a project file" : "Open a project first",
+            icon: <IconEditor size={14} />,
+            open: cmd.openFilePalette,
+            disabled: !project,
+        },
+        {
+            id: "git",
+            label: "Git",
+            detail: project ? "Changes, branches, remotes and stashes" : "Open a project first",
+            icon: <IconCommit size={14} />,
+            open: cmd.openGitWorkbench,
+            disabled: !project,
+        },
+        {
+            id: "search",
+            label: "Search",
+            detail: project ? "Search across the project" : "Open a project first",
+            icon: <IconSearch size={14} />,
+            open: cmd.focusGlobalSearch,
+            disabled: !project,
+        },
+    ];
     const choose = (choice: TabChoice | undefined) => {
-        if (!choice) return;
+        if (!choice || choice.disabled) return;
         cmd.closeNewTabPalette();
         choice.open();
     };
-
-    // The digits are the point of this palette: ⌘T then 1 opens a terminal
-    // without the hand leaving the keyboard.
+    const move = (direction: number) => {
+        let next = selectedRef.current;
+        for (let count = 0; count < choices.length; count++) {
+            next = (next + direction + choices.length) % choices.length;
+            if (!choices[next].disabled) break;
+        }
+        selectedRef.current = next;
+        setSelected(next);
+    };
     useEffect(() => {
-        const onKeyDown = (event: KeyboardEvent) => {
+        const onKey = (event: KeyboardEvent) => {
             if (event.key === "Escape") {
                 event.preventDefault();
+                event.stopPropagation();
                 cmd.closeNewTabPalette();
-                return;
-            }
-            if (event.key === "ArrowDown" || (event.key === "Tab" && !event.shiftKey)) {
+            } else if (event.key === "ArrowDown" || event.key === "ArrowUp") {
                 event.preventDefault();
-                moveSelection(choices.length ? (selectedRef.current + 1) % choices.length : 0);
-                return;
-            }
-            if (event.key === "ArrowUp" || (event.key === "Tab" && event.shiftKey)) {
-                event.preventDefault();
-                moveSelection(choices.length ? (selectedRef.current - 1 + choices.length) % choices.length : 0);
-                return;
-            }
-            if (event.key === "Enter") {
+                move(event.key === "ArrowDown" ? 1 : -1);
+            } else if (event.key === "Enter") {
                 event.preventDefault();
                 choose(choices[selectedRef.current]);
-                return;
-            }
-            const digit = Number.parseInt(event.key, 10);
-            if (Number.isInteger(digit) && digit >= 1 && digit <= choices.length) {
+            } else if (/^[1-6]$/.test(event.key) && !event.metaKey && !event.ctrlKey && !event.altKey) {
                 event.preventDefault();
-                choose(choices[digit - 1]);
+                choose(choices[Number(event.key) - 1]);
             }
         };
-        window.addEventListener("keydown", onKeyDown, true);
-        return () => window.removeEventListener("keydown", onKeyDown, true);
-    }, [choices]);
-
+        const element = modalRef.current;
+        element?.addEventListener("keydown", onKey);
+        return () => element?.removeEventListener("keydown", onKey);
+    });
     useEffect(() => {
-        listRef.current?.querySelector<HTMLElement>(".picker-item.sel")?.scrollIntoView({ block: "nearest" });
+        modalRef.current?.querySelector<HTMLElement>(`[data-choice="${selected}"]`)?.focus();
     }, [selected]);
-
     return (
         <div className="picker-backdrop" onMouseDown={cmd.closeNewTabPalette}>
-            <div className="picker new-tab-palette" onMouseDown={(event) => event.stopPropagation()}>
+            <div
+                ref={modalRef}
+                tabIndex={-1}
+                className="picker new-tab-palette"
+                role="dialog"
+                aria-modal="true"
+                aria-label="New tab"
+                onMouseDown={(event) => event.stopPropagation()}>
                 <div className="new-tab-head">
                     <span>New tab</span>
-                    <span className="new-tab-hint">press a number</span>
+                    <span className="new-tab-hint">Choose a type or press its number</span>
                 </div>
-                <div className="picker-list" ref={listRef}>
+                <div className="picker-list">
                     {choices.map((choice, index) => (
                         <button
                             key={choice.id}
                             type="button"
-                            className={`picker-item new-tab-item${index === selected ? " sel" : ""}`}
-                            onMouseEnter={() => moveSelection(index)}
+                            data-choice={index}
+                            disabled={choice.disabled}
+                            className={`picker-item new-tab-item${selected === index ? " sel" : ""}`}
+                            onFocus={() => {
+                                selectedRef.current = index;
+                                setSelected(index);
+                            }}
                             onClick={() => choose(choice)}>
+                            <span className="picker-icon">{choice.icon}</span>
+                            <span className="picker-text">
+                                <span className="picker-name">{choice.label}</span> <span className="picker-sub">{choice.detail}</span>
+                            </span>
                             <kbd className="new-tab-key">{index + 1}</kbd>
-                            <span className="new-tab-icon">{choice.icon}</span>
-                            <span className="new-tab-label">{choice.label}</span>
-                            <span className="new-tab-detail">{choice.detail}</span>
                         </button>
                     ))}
                 </div>
+                <div className="picker-footer">Esc to cancel</div>
             </div>
         </div>
     );

@@ -1,3 +1,4 @@
+import { keybindingLabel, resolvedKeybinding } from "../keybindings";
 import { lazy, memo, Suspense, useMemo, useRef } from "react";
 import type { PointerEvent as ReactPointerEvent, RefObject } from "react";
 import type { Agent, Divider, Rect, Session, Window as WindowT, WindowRole, WorkspaceTabRef } from "../state/types";
@@ -94,6 +95,9 @@ const ROLE_LABEL: Record<WindowRole, string> = {
 };
 
 function WorkspaceTabsBar({ session }: { session: Session }) {
+    const overrides = useStore((state) => state.keybindingOverrides);
+    const browserBinding = resolvedKeybinding(overrides, "browser.tabNew");
+    const browserLabel = `New browser tab${browserBinding ? ` — ${keybindingLabel(browserBinding)}` : ""}`;
     const windowsById = useStore((s) => s.windows);
     const agentsById = useStore((s) => s.agents);
     const terminalTitles = useStore((s) => s.terminalTitles);
@@ -236,7 +240,11 @@ function WorkspaceTabsBar({ session }: { session: Session }) {
         <TabBar
             variant="agent"
             style={{ height: TABS_H }}
-            tabs={tabs}
+            tabs={tabs.map((tab) => ({
+                ...tab,
+                tabId: `workspace-tab-${session.id}-${encodeURIComponent(tab.id)}`,
+                panelId: `workspace-content-${session.id}`,
+            }))}
             onSelect={(key) => {
                 const ref = refByKey.get(key);
                 if (ref) cmd.selectTab(ref);
@@ -270,12 +278,7 @@ function WorkspaceTabsBar({ session }: { session: Session }) {
                         <IconCommand size={13} />
                         <span>term</span>
                     </button>
-                    <button
-                        type="button"
-                        className="agent-browser-open"
-                        aria-label="New browser tab — ⌘T"
-                        title="New browser tab — ⌘T"
-                        onClick={cmd.newBrowserTab}>
+                    <button type="button" className="agent-browser-open" aria-label={browserLabel} title={browserLabel} onClick={cmd.newBrowserTab}>
                         <IconGlobe size={13} />
                         <span>browser</span>
                     </button>
@@ -288,7 +291,13 @@ function WorkspaceTabsBar({ session }: { session: Session }) {
 const AgentLayer = memo(function AgentLayer({ session, agent, visible }: { session: Session; agent: Agent; visible: boolean }) {
     const profile = useStore((state) => (agent.profileId ? state.providerProfiles.find((candidate) => candidate.id === agent.profileId) : undefined));
     return (
-        <div className={`window-layer${visible ? " visible" : ""}`} aria-hidden={!visible} inert={!visible}>
+        <div
+            className={`window-layer${visible ? " visible" : ""}`}
+            id={visible ? `workspace-content-${session.id}` : undefined}
+            role="tabpanel"
+            aria-labelledby={`workspace-tab-${session.id}-${encodeURIComponent(tabRefKey({ kind: "agent", id: agent.id }))}`}
+            aria-hidden={!visible}
+            inert={!visible}>
             <div className="pane-cell" style={{ left: 0, top: `${TABS_H}px`, width: "100%", height: `calc(100% - ${TABS_H}px)` }}>
                 <div className="pane pane-terminal">
                     <AgentBrowserShell agentId={agent.id} agentType={agent.type} visible={visible}>
@@ -327,13 +336,22 @@ const WindowLayer = memo(function WindowLayer({
     areaRef: RefObject<HTMLDivElement | null>;
     topInset?: number;
 }) {
+    const editorViews = useStore((s) => s.editorViews);
+    const active = activeTabRef(session, { [win.id]: win }, editorViews);
     const zoomedPaneId = useStore((s) => s.zoomedPaneId);
     const { panes, dividers } = useMemo(() => computeLayout(win.root), [win.root]);
     const leaves = useMemo(() => collectPanes(win.root), [win.root]);
     const zoomActive = visible && zoomedPaneId != null;
 
     return (
-        <div className={`window-layer${visible ? " visible" : ""}`} style={topInset ? { top: `${topInset}px` } : undefined}>
+        <div
+            className={`window-layer${visible ? " visible" : ""}`}
+            id={visible ? `workspace-content-${session.id}` : undefined}
+            role="tabpanel"
+            aria-labelledby={active ? `workspace-tab-${session.id}-${encodeURIComponent(tabRefKey(active))}` : undefined}
+            aria-hidden={!visible}
+            inert={!visible}
+            style={topInset ? { top: `${topInset}px` } : undefined}>
             {leaves.map((p) => {
                 const isZoomed = zoomedPaneId === p.id;
                 const shown = !zoomActive || isZoomed;

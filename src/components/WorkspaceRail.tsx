@@ -1,3 +1,4 @@
+import { navigateTabs } from "../lib/tabNavigation";
 import type { ReactNode } from "react";
 import type { RailTab } from "../state/types";
 import * as cmd from "../state/commands";
@@ -42,14 +43,21 @@ export function WorkspaceRail() {
                         type="button"
                         role="tab"
                         aria-selected={tab === entry.id}
+                        id={`workspace-tab-${entry.id}`}
+                        aria-controls={`workspace-panel-${entry.id}`}
+                        tabIndex={tab === entry.id ? 0 : -1}
+                        onKeyDown={navigateTabs}
                         className={`rail-tab${tab === entry.id ? " active" : ""}`}
-                        onClick={() => cmd.setRailTab(entry.id)}>
+                        onClick={(event) => {
+                            event.currentTarget.focus();
+                            cmd.setRailTab(entry.id);
+                        }}>
                         <span className="rail-tab-glyph">{entry.icon}</span>
                         <span>{entry.label}</span>
                     </button>
                 ))}
             </div>
-            <div className="rail-body">
+            <div className="rail-body" role="tabpanel" id={`workspace-panel-${tab}`} aria-labelledby={`workspace-tab-${tab}`} tabIndex={0}>
                 {tab === "agents" && <AgentRailBody />}
                 {tab === "files" && <RailFiles cwd={cwd} />}
                 {tab === "changes" && <RailChanges cwd={cwd} />}

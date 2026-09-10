@@ -260,6 +260,8 @@ export function BrunoPane({ sessionId, active }: Props) {
                             variant="bruno"
                             tabs={openTabs.map((t) => ({
                                 id: t.path,
+                                tabId: `bruno-tab-${sessionId}-${encodeURIComponent(t.path)}`,
+                                panelId: `bruno-content-${sessionId}`,
                                 label: t.name,
                                 title: t.path,
                                 active: t.path === path,
@@ -272,7 +274,13 @@ export function BrunoPane({ sessionId, active }: Props) {
                         />
                     )}
                     {effectiveRequest && path ? (
-                        <div className="bruno-workbench" ref={splitRef} style={{ "--bruno-req-pct": `${reqPanePct}%` } as CSSProperties}>
+                        <div
+                            id={`bruno-content-${sessionId}`}
+                            role="tabpanel"
+                            aria-labelledby={`bruno-tab-${sessionId}-${encodeURIComponent(path)}`}
+                            className="bruno-workbench"
+                            ref={splitRef}
+                            style={{ "--bruno-req-pct": `${reqPanePct}%` } as CSSProperties}>
                             <BrunoRequestView
                                 request={effectiveRequest}
                                 tab={view.reqTab}

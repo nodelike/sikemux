@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from "react";
-import type { ReactNode } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { IconCheck, IconChevron } from "./Icons";
 import { Tooltip } from "./Tooltip";
 import "../styles/dropdown.css";
@@ -7,16 +7,10 @@ import "../styles/dropdown.css";
 export interface DropdownOption {
     value: string;
     label: string;
-    /** Secondary line under the label — a display name, model id, or safety detail. */
     detail?: string;
-    /** Extra class applied to the label (e.g. method colour). */
     className?: string;
 }
 
-/**
- * The app's dropdown: sharp button, scrim, floating menu. Used everywhere a
- * native <select> would otherwise drag its platform chrome into the UI.
- */
 export function Dropdown({
     value,
     options,
@@ -33,11 +27,8 @@ export function Dropdown({
     value: string;
     options: readonly DropdownOption[];
     onChange: (value: string) => void;
-    /** Accessible name for the control; falls back to `title`. */
     label?: string;
-    /** Leading glyph rendered inside the button. */
     icon?: ReactNode;
-    /** Optional status or shortcut between the value and chevron. */
     trailing?: ReactNode;
     className?: string;
     title?: string;
@@ -46,37 +37,95 @@ export function Dropdown({
     menuWidth?: number;
 }) {
     const [open, setOpen] = useState(false);
-    const rootRef = useRef<HTMLDivElement>(null);
-    const active = options.find((o) => o.value === value);
+    const [index, setIndex] = useState(0);
+    const [position, setPosition] = useState({ left: 0, top: 0, width: 0, maxHeight: 280 });
+    const buttonRef = useRef<HTMLButtonElement>(null);
+    const menuRef = useRef<HTMLDivElement>(null);
+    const prefix = useRef({ text: "", at: 0 });
+    const id = useId();
+    const active = options.find((option) => option.value === value);
+    const [owner, setOwner] = useState<string>();
+    const close = () => {
+        setOpen(false);
+        buttonRef.current?.focus();
+    };
+    const show = () => {
+        setOwner(buttonRef.current?.closest<HTMLElement>("[data-modal-scope]")?.dataset.modalScope);
+        setIndex(
+            Math.max(
+                0,
+                options.findIndex((option) => option.value === value),
+            ),
+        );
+        setOpen(true);
+    };
+    const choose = (next: number) => {
+        if (options[next]) onChange(options[next].value);
+        close();
+    };
 
-    // Escape closes the menu without letting the key reach the pane behind it,
-    // which would otherwise dismiss the whole page.
+    useLayoutEffect(() => {
+        if (!open) return;
+        const place = () => {
+            const rect = buttonRef.current?.getBoundingClientRect();
+            const menu = menuRef.current;
+            if (!rect || !menu) return;
+            const width = Math.min(window.innerWidth - 16, Math.max(menuWidth ?? 0, rect.width, 160));
+            const desired = Math.min(menu.scrollHeight, 280);
+            const below = window.innerHeight - rect.bottom - 12;
+            const above = rect.top - 12;
+            const up = below < desired && above > below;
+            const maxHeight = Math.max(24, Math.min(280, up ? above : below));
+            setPosition({
+                width,
+                maxHeight,
+                left: Math.max(8, Math.min(align === "right" ? rect.right - width : rect.left, window.innerWidth - width - 8)),
+                top: up ? Math.max(8, rect.top - Math.min(desired, maxHeight) - 5) : rect.bottom + 5,
+            });
+        };
+        place();
+        menuRef.current?.focus();
+        window.addEventListener("resize", place);
+        window.addEventListener("scroll", place, true);
+        return () => {
+            window.removeEventListener("resize", place);
+            window.removeEventListener("scroll", place, true);
+        };
+    }, [open, menuWidth, align]);
+    useEffect(() => {
+        if (open) menuRef.current?.querySelector<HTMLElement>(`[data-index="${index}"]`)?.scrollIntoView?.({ block: "nearest" });
+    }, [index, open]);
     useEffect(() => {
         if (!open) return;
-        const onKey = (event: KeyboardEvent) => {
-            if (event.key !== "Escape") return;
-            event.preventDefault();
-            event.stopPropagation();
-            setOpen(false);
-            rootRef.current?.querySelector<HTMLButtonElement>(".dd-btn")?.focus();
+        const outside = (event: PointerEvent) => {
+            if (!menuRef.current?.contains(event.target as Node) && !buttonRef.current?.contains(event.target as Node)) setOpen(false);
         };
-        window.addEventListener("keydown", onKey, true);
-        return () => window.removeEventListener("keydown", onKey, true);
+        document.addEventListener("pointerdown", outside, true);
+        return () => document.removeEventListener("pointerdown", outside, true);
     }, [open]);
 
     return (
-        <div className="dd" ref={rootRef}>
+        <div className="dd">
             <Tooltip label={title}>
                 <button
+                    ref={buttonRef}
                     type="button"
                     className={`dd-btn${className ? ` ${className}` : ""}`}
                     aria-label={label ?? title}
                     aria-haspopup="listbox"
                     aria-expanded={open}
-                    disabled={disabled}
-                    onClick={(e) => {
-                        e.stopPropagation();
-                        setOpen((v) => !v);
+                    aria-controls={open ? id : undefined}
+                    disabled={disabled || options.length === 0}
+                    onClick={(event) => {
+                        event.stopPropagation();
+                        if (open) close();
+                        else show();
+                    }}
+                    onKeyDown={(event) => {
+                        if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+                            event.preventDefault();
+                            show();
+                        }
                     }}>
                     {icon && (
                         <span className="dd-icon" aria-hidden="true">
@@ -88,35 +137,68 @@ export function Dropdown({
                     <IconChevron size={9} className="dd-chev" />
                 </button>
             </Tooltip>
-            {open && (
-                <>
-                    <div className="dd-scrim" onClick={() => setOpen(false)} />
+            {open &&
+                createPortal(
                     <div
-                        className={`dd-menu${align === "right" ? " right" : ""}`}
+                        ref={menuRef}
+                        id={id}
+                        data-modal-owner={owner}
+                        className="dd-menu"
                         role="listbox"
+                        tabIndex={-1}
                         aria-label={label ?? title}
-                        style={menuWidth ? { minWidth: menuWidth } : undefined}>
-                        {options.map((o) => (
-                            <button
-                                key={o.value}
-                                type="button"
+                        aria-activedescendant={options[index] ? `${id}-${index}` : undefined}
+                        style={{ position: "fixed", ...position }}
+                        onKeyDown={(event) => {
+                            event.stopPropagation();
+                            if (event.key === "Escape") {
+                                event.preventDefault();
+                                close();
+                            } else if (event.key === "Tab") {
+                                close();
+                            } else if (event.key === "Enter" || event.key === " ") {
+                                event.preventDefault();
+                                choose(index);
+                            } else if (["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) {
+                                event.preventDefault();
+                                setIndex(
+                                    event.key === "Home"
+                                        ? 0
+                                        : event.key === "End"
+                                          ? options.length - 1
+                                          : (index + (event.key === "ArrowDown" ? 1 : -1) + options.length) % options.length,
+                                );
+                            } else if (event.key.length === 1 && !event.metaKey && !event.ctrlKey && !event.altKey) {
+                                event.preventDefault();
+                                const now = Date.now();
+                                prefix.current = {
+                                    text: (now - prefix.current.at < 700 ? prefix.current.text : "") + event.key.toLowerCase(),
+                                    at: now,
+                                };
+                                const found = options.findIndex((option) => option.label.toLowerCase().startsWith(prefix.current.text));
+                                if (found >= 0) setIndex(found);
+                            }
+                        }}>
+                        {options.map((option, itemIndex) => (
+                            <div
+                                key={option.value}
+                                id={`${id}-${itemIndex}`}
+                                data-index={itemIndex}
                                 role="option"
-                                aria-selected={o.value === value}
-                                className={`dd-item${o.value === value ? " active" : ""}`}
-                                onClick={() => {
-                                    onChange(o.value);
-                                    setOpen(false);
-                                }}>
-                                <span className="dd-check">{o.value === value && <IconCheck size={11} />}</span>
-                                <span className={`dd-item-label${o.className ? ` ${o.className}` : ""}`}>
-                                    {o.label}
-                                    {o.detail && <small>{o.detail}</small>}
+                                aria-selected={option.value === value}
+                                className={`dd-item${itemIndex === index ? " active" : ""}`}
+                                onPointerMove={() => setIndex(itemIndex)}
+                                onClick={() => choose(itemIndex)}>
+                                <span className="dd-check">{option.value === value && <IconCheck size={11} />}</span>
+                                <span className={`dd-item-label${option.className ? ` ${option.className}` : ""}`}>
+                                    {option.label}
+                                    {option.detail && <small>{option.detail}</small>}
                                 </span>
-                            </button>
+                            </div>
                         ))}
-                    </div>
-                </>
-            )}
+                    </div>,
+                    document.body,
+                )}
         </div>
     );
 }

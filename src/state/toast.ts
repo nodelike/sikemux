@@ -24,9 +24,18 @@ interface ToastStore {
     toasts: Toast[];
     push: (kind: ToastKind, text: string, options?: ToastOptions) => void;
     dismiss: (id: number) => void;
+    pause: (id: number, reason: string) => void;
+    resume: (id: number, reason: string) => void;
 }
 
 let counter = 1;
+const timers = new Map<number, { timer: number | null; remaining: number; started: number; pauses: Set<string> }>();
+function schedule(id: number) {
+    const entry = timers.get(id);
+    if (!entry || entry.pauses.size > 0) return;
+    entry.started = Date.now();
+    entry.timer = window.setTimeout(() => useToasts.getState().dismiss(id), entry.remaining);
+}
 
 export const useToasts = create<ToastStore>((set) => ({
     toasts: [],
@@ -37,13 +46,34 @@ export const useToasts = create<ToastStore>((set) => ({
             if (last && last.kind === kind && last.text === text && (last.action?.label ?? "") === (action?.label ?? "")) return {};
             const id = counter++;
             const toast: Toast = action ? { id, kind, text, action } : { id, kind, text };
-            const timeoutMs = options?.timeoutMs === undefined ? (action ? null : kind === "error" ? 6000 : 3500) : options.timeoutMs;
+            const timeoutMs = options?.timeoutMs === undefined ? (action || kind === "error" ? null : 5000) : options.timeoutMs;
             if (timeoutMs != null && timeoutMs > 0) {
-                window.setTimeout(() => useToasts.getState().dismiss(id), timeoutMs);
+                timers.set(id, { timer: null, remaining: timeoutMs, started: Date.now(), pauses: new Set() });
+                schedule(id);
             }
             return { toasts: [...st.toasts, toast] };
         }),
-    dismiss: (id) => set((st) => ({ toasts: st.toasts.filter((t) => t.id !== id) })),
+    dismiss: (id) => {
+        const entry = timers.get(id);
+        if (entry?.timer != null) window.clearTimeout(entry.timer);
+        timers.delete(id);
+        set((st) => ({ toasts: st.toasts.filter((t) => t.id !== id) }));
+    },
+    pause: (id, reason) => {
+        const entry = timers.get(id);
+        if (!entry) return;
+        if (entry.timer != null) {
+            window.clearTimeout(entry.timer);
+            entry.timer = null;
+            entry.remaining = Math.max(0, entry.remaining - (Date.now() - entry.started));
+        }
+        entry.pauses.add(reason);
+    },
+    resume: (id, reason) => {
+        const entry = timers.get(id);
+        if (!entry || !entry.pauses.delete(reason)) return;
+        schedule(id);
+    },
 }));
 
 export function notify(kind: ToastKind, text: string, options?: ToastOptions): void {

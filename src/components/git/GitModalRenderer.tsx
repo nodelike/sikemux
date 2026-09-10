@@ -1,3 +1,4 @@
+import { useModalFocus } from "../../hooks/useModalFocus";
 import { useEffect, useRef, useState } from "react";
 import { closeGitModal, dispatchGitMenuKey } from "../../state/git";
 import { getState, useStore } from "../../state/store";
@@ -14,6 +15,8 @@ function submitConfirmation(modal: ConfirmModal): void {
 export function GitModalRenderer({ paneId, active }: { paneId: string; active: boolean }) {
     const modal = useStore((s) => s.gitModal);
     const ownsModal = !!modal && modal.ownerPaneId === paneId;
+    const modalRef = useRef<HTMLDivElement>(null);
+    useModalFocus(modalRef, ownsModal && active);
 
     useEffect(() => {
         return () => {
@@ -53,6 +56,8 @@ export function GitModalRenderer({ paneId, active }: { paneId: string; active: b
     return (
         <div className="dlg-scrim" onClick={closeGitModal}>
             <div
+                ref={modalRef}
+                tabIndex={-1}
                 className={`dlg git-modal git-modal-${modal.kind}`}
                 role="dialog"
                 aria-modal="true"

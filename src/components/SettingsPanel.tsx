@@ -1,3 +1,4 @@
+import { useModalFocus } from "../hooks/useModalFocus";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { KeyboardEvent as ReactKeyboardEvent, ReactNode } from "react";
 import { invokeCommand as invoke } from "../api/invoke";
@@ -43,6 +44,8 @@ const PAGES: { id: Page; name: string; detail: string }[] = [
 ];
 
 export function SettingsPanel() {
+    const modalRef = useRef<HTMLDivElement>(null);
+    useModalFocus(modalRef);
     const projectRoots = useStore((s) => s.projectRoots);
     const themeId = useStore((s) => s.themeId);
     const windowOpacity = useStore((s) => s.windowOpacity);
@@ -70,7 +73,7 @@ export function SettingsPanel() {
     const pretty = (p: string) => prettyPath(p, home);
 
     return (
-        <div className="settings-pane" role="dialog" aria-modal="true" aria-label="Settings">
+        <div ref={modalRef} tabIndex={-1} className="settings-pane" role="dialog" aria-modal="true" aria-label="Settings">
             <div className="settings-frame">
                 <aside className="settings-rail">
                     <nav className="settings-rail-list">
@@ -925,6 +928,7 @@ interface ThemeEdit {
 }
 
 function AppearancePage({ themeId, windowOpacity, windowBlur }: AppearancePageProps) {
+    const uiTextScale = useStore((state) => state.uiTextScale);
     const customThemes = useStore((s) => s.customThemes);
     /** Themes matching the requested appearance, plus the current pick so it stays selectable. */
     const themeOptions = (dark: boolean, selectedId: string): DropdownOption[] =>
@@ -1038,6 +1042,19 @@ function AppearancePage({ themeId, windowOpacity, windowBlur }: AppearancePagePr
                     ? "Theme, window opacity and background blur. Changes apply instantly."
                     : "Theme and editor appearance. Changes apply instantly."
             }>
+            <SettingsSection title="Interface text" sub="Increase labels, controls and navigation text while keeping the workspace compact.">
+                <Dropdown
+                    label="Interface text size"
+                    value={String(uiTextScale)}
+                    options={[
+                        { value: "1", label: "100% · Default" },
+                        { value: "1.1", label: "110% · Larger" },
+                        { value: "1.25", label: "125% · Largest" },
+                    ]}
+                    onChange={(value) => cmd.setUiTextScale(Number(value))}
+                />
+            </SettingsSection>
+
             <SettingsSection
                 title="Host appearance"
                 meta={themeMode}

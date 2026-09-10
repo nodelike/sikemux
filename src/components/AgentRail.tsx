@@ -1,3 +1,4 @@
+import { navigateTabs } from "../lib/tabNavigation";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { AgentInfo, AgentUsage, AgentUsageWindow } from "../api/agents";
 import { selectedAgentRuntimeProfiles, selectedProviderProfile } from "../agentProfiles";
@@ -468,9 +469,14 @@ function AgentHeader({
                         <button
                             role="tab"
                             aria-selected={type === a.type}
+                            tabIndex={type === a.type ? 0 : -1}
+                            onKeyDown={navigateTabs}
                             className={`agent-header-btn ${a.type}${type === a.type ? " active" : ""}`}
                             aria-label={a.label}
-                            onClick={() => setType(a.type)}>
+                            onClick={(event) => {
+                                event.currentTarget.focus();
+                                setType(a.type);
+                            }}>
                             <AgentIcon type={a.type} size={18} />
                         </button>
                     </Tooltip>

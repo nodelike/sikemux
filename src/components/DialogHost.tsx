@@ -1,3 +1,4 @@
+import { useModalFocus } from "../hooks/useModalFocus";
 import { useEffect, useRef, useState } from "react";
 import { acceptDialog, dismissDialog, useDialogs, type PendingDialog } from "../state/dialog";
 import { IconInfo, IconWarning } from "./Icons";
@@ -15,6 +16,8 @@ export function DialogHost() {
 }
 
 function DialogSheet({ dialog }: { dialog: PendingDialog }) {
+    const modalRef = useRef<HTMLDivElement>(null);
+    useModalFocus(modalRef);
     const [value, setValue] = useState(dialog.kind === "prompt" ? (dialog.initial ?? "") : "");
     const inputRef = useRef<HTMLInputElement>(null);
     const confirmRef = useRef<HTMLButtonElement>(null);
@@ -35,7 +38,7 @@ function DialogSheet({ dialog }: { dialog: PendingDialog }) {
     // Capture Escape before the panes behind the scrim can act on it.
     useEffect(() => {
         const onKey = (event: KeyboardEvent) => {
-            if (event.key !== "Escape") return;
+            if (event.key !== "Escape" || (event.target instanceof Element && event.target.closest(".dd-menu"))) return;
             event.preventDefault();
             event.stopPropagation();
             dismiss();
@@ -49,6 +52,8 @@ function DialogSheet({ dialog }: { dialog: PendingDialog }) {
     return (
         <div className="dlg-scrim" onMouseDown={dismiss}>
             <div
+                ref={modalRef}
+                tabIndex={-1}
                 className={`dlg${destructive ? " danger" : ""}`}
                 role="dialog"
                 aria-modal="true"

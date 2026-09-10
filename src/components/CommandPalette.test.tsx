@@ -23,7 +23,7 @@ describe("CommandPalette", () => {
         const onExecute = vi.fn();
         render(<CommandPalette keybindingOverrides={{}} executeBuiltin={executeBuiltin} context="project" onClose={onClose} onExecute={onExecute} />);
 
-        const input = screen.getByRole("textbox", { name: "Search commands" });
+        const input = screen.getByRole("combobox", { name: "Search commands" });
         await user.type(input, "open settings");
         fireEvent.keyDown(input, { key: "Enter" });
 
@@ -66,7 +66,7 @@ describe("CommandPalette", () => {
         const executeBuiltin = vi.fn();
         const onClose = vi.fn();
         render(<CommandPalette keybindingOverrides={{}} executeBuiltin={executeBuiltin} onClose={onClose} />);
-        const input = screen.getByRole("textbox", { name: "Search commands" });
+        const input = screen.getByRole("combobox", { name: "Search commands" });
 
         fireEvent.keyDown(input, { key: "ArrowUp" });
         fireEvent.keyDown(input, { key: "Enter" });
@@ -98,7 +98,7 @@ describe("CommandPalette", () => {
             />,
         );
 
-        const input = screen.getByRole("textbox", { name: "Search commands" });
+        const input = screen.getByRole("combobox", { name: "Search commands" });
         await user.type(input, "unavailable contextual");
         const action = screen.getByRole("option", { name: /Unavailable contextual action/ });
         expect(action).toBeDisabled();

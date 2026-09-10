@@ -1,3 +1,4 @@
+import { useModalFocus } from "../hooks/useModalFocus";
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { agentApi, type AgentInfo, type AgentSession } from "../api/agents";
 import { selectedAgentRuntimeProfiles, selectedProviderProfile } from "../agentProfiles";
@@ -41,6 +42,8 @@ function ago(unixSecs: number): string {
 }
 
 export function AgentPalette() {
+    const modalRef = useRef<HTMLDivElement>(null);
+    useModalFocus(modalRef);
     const session = useStore((state) => state.sessions[state.activeSessionId]);
     const profiles = useStore((state) => state.providerProfiles);
     const profileSelections = useStore((state) => state.selectedProviderProfileIds);
@@ -49,7 +52,6 @@ export function AgentPalette() {
     const catalog = useResource(agentCatalogR, runtimeProfiles);
     const agents = useMemo(() => catalog.data ?? [], [catalog.data]);
     const origin = useRef({ sessionId: session?.id ?? "", cwd: session?.cwd ?? "" });
-    const returnFocusRef = useRef<HTMLElement | null>(null);
     const inputRef = useRef<HTMLInputElement>(null);
     const mouseActive = useMouseActive();
     const [query, setQuery] = useState("");
@@ -58,9 +60,7 @@ export function AgentPalette() {
     const [mode, setMode] = useState<AgentPermissionMode>(defaultMode === YOLO ? YOLO : NORMAL);
 
     useEffect(() => {
-        returnFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
         inputRef.current?.focus();
-        return () => returnFocusRef.current?.focus();
     }, []);
 
     useEffect(() => {
@@ -196,6 +196,8 @@ export function AgentPalette() {
     return (
         <div className="picker-backdrop" onMouseDown={cmd.closeAgentPalette}>
             <div
+                ref={modalRef}
+                tabIndex={-1}
                 className="picker agent-palette"
                 role="dialog"
                 aria-modal="true"

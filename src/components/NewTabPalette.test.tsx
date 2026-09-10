@@ -1,4 +1,4 @@
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as cmd from "../state/commands";
 import { getState, setState } from "../state/store";
@@ -15,19 +15,19 @@ beforeEach(() => {
 afterEach(cleanup);
 
 function pressKey(key: string) {
-    window.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true }));
+    fireEvent.keyDown(document.activeElement ?? window, { key });
 }
 
 function labels(): string[] {
-    return screen.getAllByRole("button").map((row) => row.querySelector(".new-tab-label")?.textContent ?? "");
+    return screen.getAllByRole("button").map((row) => row.querySelector(".picker-name")?.textContent ?? "");
 }
 
 describe("new tab palette", () => {
     it("numbers the destinations a project can open", () => {
         render(<NewTabPalette />);
 
-        expect(labels()).toEqual(["Terminal", "Agent", "Editor", "Diff", "Search"]);
-        expect(screen.getAllByRole("button").map((row) => row.querySelector(".new-tab-key")?.textContent)).toEqual(["1", "2", "3", "4", "5"]);
+        expect(labels()).toEqual(["Terminal", "Agent", "Browser", "Editor", "Git", "Search"]);
+        expect(screen.getAllByRole("button").map((row) => row.querySelector("kbd")?.textContent)).toEqual(["1", "2", "3", "4", "5", "6"]);
     });
 
     it("opens a terminal on 1 and closes itself", () => {
@@ -49,19 +49,19 @@ describe("new tab palette", () => {
         expect(getState().newTabPaletteOpen).toBe(false);
     });
 
-    it("opens the diff tab on 4", () => {
-        render(<NewTabPalette />);
-
-        pressKey("4");
-
-        const roles = (getState().windowsBySession[getState().activeSessionId] ?? []).map((id) => getState().windows[id]?.role);
-        expect(roles).toContain("diff");
-    });
-
-    it("focuses rail search on 5", () => {
+    it("opens the full Git workbench on 5", () => {
         render(<NewTabPalette />);
 
         pressKey("5");
+
+        const roles = (getState().windowsBySession[getState().activeSessionId] ?? []).map((id) => getState().windows[id]?.role);
+        expect(roles).toContain("git");
+    });
+
+    it("focuses rail search on 6", () => {
+        render(<NewTabPalette />);
+
+        pressKey("6");
 
         expect(getState().railTab).toBe("search");
     });
@@ -93,18 +93,21 @@ describe("new tab palette", () => {
         expect(getState().agentPaletteOpen).toBe(true);
     });
 
-    it("omits the browser when no agent is running to host it", () => {
+    it("keeps the browser in its fixed slot when unavailable", () => {
         render(<NewTabPalette />);
 
-        expect(labels()).not.toContain("Browser");
+        expect(screen.getByRole("button", { name: /Browser/ })).toBeDisabled();
+        pressKey("3");
+        expect(getState().newTabPaletteOpen).toBe(true);
     });
 
-    it("offers only a terminal outside a project", () => {
+    it("keeps stable slots and explains unavailable project destinations", () => {
         cmd.closeNewTabPalette();
         cmd.createCommandSession();
         cmd.openNewTabPalette();
         render(<NewTabPalette />);
 
-        expect(labels()).toEqual(["Terminal"]);
+        expect(screen.getAllByRole("button").filter((button) => !(button as HTMLButtonElement).disabled)).toHaveLength(1);
+        expect(labels()).toEqual(["Terminal", "Agent", "Browser", "Editor", "Git", "Search"]);
     });
 });

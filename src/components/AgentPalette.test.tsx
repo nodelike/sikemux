@@ -247,7 +247,7 @@ describe("AgentPalette", () => {
      * anything that held focus first — a terminal pane, which writes the escape
      * byte to its PTY and stops there — left it with no way out.
      */
-    it("closes on Escape when focus is outside the palette", async () => {
+    it("contains attempted outside focus and still captures Escape", async () => {
         setState((state) => ({
             sessions: { ...state.sessions, "sess-project": { ...state.sessions["sess-project"], view: "windows" } },
         }));
@@ -257,7 +257,8 @@ describe("AgentPalette", () => {
         const outsider = document.createElement("textarea");
         document.body.append(outsider);
         outsider.focus();
-        expect(document.activeElement).toBe(outsider);
+        expect(document.activeElement).not.toBe(outsider);
+        expect(screen.getByRole("dialog")).toContainElement(document.activeElement as HTMLElement);
 
         fireEvent.keyDown(outsider, { key: "Escape" });
 

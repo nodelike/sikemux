@@ -2420,6 +2420,8 @@ export function focusBrowserAddress(): boolean {
     return true;
 }
 export const setRestoreAgentTabs = (value: boolean): void => setState({ restoreAgentTabs: value });
+export const setUiTextScale = (value: number): void => setState({ uiTextScale: [1, 1.1, 1.25].includes(value) ? value : 1 });
+
 export const setRailDensity = (value: import("./types").RailDensity): void => setState({ railDensity: value });
 export const setDefaultAgentPermissionMode = (value: import("./types").AgentPermissionMode): void =>
     setState({ defaultAgentPermissionMode: value === "bypass" ? "bypass" : "workspace-write" });

@@ -55,6 +55,7 @@ export interface DomainState {
     systemDarkThemeId: string;
     /** User-defined themes, derived from a built-in or another custom theme via the theme editor. */
     customThemes: Theme[];
+    uiTextScale: number;
     windowOpacity: number;
     windowBlur: number;
     cloudBrowser: string;
@@ -198,6 +199,7 @@ export const useStore = create<StoreState>(() => {
         systemLightThemeId: "aura-day",
         systemDarkThemeId: DEFAULT_THEME_ID,
         customThemes: [],
+        uiTextScale: 1,
         windowOpacity: 1,
         windowBlur: 0,
         cloudBrowser: "",
