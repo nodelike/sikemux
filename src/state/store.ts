@@ -226,7 +226,7 @@ export const useStore = create<StoreState>(() => {
         recentCommandKeys: [],
         providerProfiles: DEFAULT_PROVIDER_PROFILES.map((profile) => ({ ...profile })),
         selectedProviderProfileIds: { ...DEFAULT_PROVIDER_PROFILE_SELECTION },
-        defaultAgentPermissionMode: "workspace-write",
+        defaultAgentPermissionMode: "bypass",
 
         home: "",
         pickerOpen: false,

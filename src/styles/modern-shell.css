@@ -6,44 +6,8 @@
  * type, layered glass surfaces, generous hit areas, and a periwinkle accent
  * that reads like a native macOS selection color instead of a neon terminal.
  */
-:root {
-    --ui: "Figtree", -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
-    /* Two radii, and only two: panels and controls. The four-step ramp meant
-     * neighbouring elements rounded differently for no reason anyone could
-     * name. The old names stay as aliases so call sites need not all change. */
-    /* Radius scales with the control: 6px on an 18px-tall button is a third
-     * of its height and reads as a pill, so compact chips take less. */
-    --radius-chip: 2px;
-    --radius-control: 4px;
-    --radius-panel: 10px;
-    --radius-xs: var(--radius-control);
-    --radius-sm: var(--radius-control);
-    --radius-md: var(--radius-panel);
-    --radius-lg: var(--radius-panel);
-    --shadow-soft: 0 12px 30px rgba(0, 0, 0, 0.18);
-    --shadow-float: 0 18px 48px rgba(0, 0, 0, 0.34);
-
-    /* Spacing scale.
-     *
-     * The app had no rhythm — every value from 1px to 18px was in use, so
-     * nothing lined up between panes. This is a 4px scale with two half steps
-     * for dense chrome (icon gaps, chip padding) where 4px is already too big.
-     * New work uses these; literals mean "this one is genuinely bespoke".
-     */
-    --space-0: 2px;
-    --space-1: 4px;
-    --space-1h: 6px;
-    --space-2: 8px;
-    --space-3: 12px;
-    --space-4: 16px;
-    --space-5: 20px;
-    --space-6: 24px;
-
-    /* Gutters — the inset a surface keeps from its own edge. */
-    --gutter-rail: 10px;
-    --gutter-pane: 12px;
-    --gutter-row: var(--space-3);
-}
+/* Type, spacing, radius, elevation and the neutral ramp all live in
+ * tokens.css now. This sheet is the shell's own layout and surface rules. */
 
 body {
     font-family: var(--ui);
@@ -563,11 +527,6 @@ select:focus-visible,
     border-radius: var(--radius-md);
 }
 
-.yolo-toggle {
-    border-radius: var(--radius-control);
-    background: color-mix(in srgb, var(--pane) calc(var(--window-opacity, 1) * 82%), transparent);
-}
-
 /* Keep menus and modal cards in the same visual family as the shell. */
 :where(.env-dd-menu, .picker, .command-palette, .session-switcher, .settings-theme, [role="dialog"], [role="listbox"]) {
     border-radius: var(--radius-md);
@@ -632,7 +591,6 @@ textarea,
         .agent-glyph-x,
         .agent-empty,
         .tabbar,
-        .yolo-toggle,
         .command-palette,
         .session-switcher,
         .git-tbtn,
@@ -1003,20 +961,41 @@ textarea,
     --surface-solidity: calc((0.62 + var(--window-opacity, 1) * 0.38) * 100%);
 }
 
+/*
+ * Every panel takes the same ground. They used to differ — rails on `--rail`,
+ * the pane on `--pane`, the stage on neither — which put three slightly
+ * different darks side by side and made the window look assembled rather than
+ * designed. One surface, one tone, and the border does the separating.
+ */
+/*
+ * How much of its own colour a panel keeps now that a backdrop runs under it.
+ *
+ * Not all of it. The rails and the stage cover almost the whole window, so at
+ * full solidity the backdrop only ever showed in a 12px gutter and the art was
+ * effectively off. Six points of glass is enough that the dither — and a
+ * backdrop image, when one is set — ghosts through the entire app, and little
+ * enough that a diff on top of it is still crisp.
+ *
+ * Deliberately not `backdrop-filter`. These are the largest elements on screen
+ * and every open terminal is already running a WebGL renderer; a real blur
+ * across two rails and the stage is the one effect that would show up in frame
+ * times. Blur is spent on the floating surfaces instead, where the area is
+ * small and it earns its cost.
+ */
+:root {
+    --panel-solidity: calc(var(--surface-solidity) - 6%);
+}
+
 .side-rail,
-.workspace-rail {
-    background: color-mix(in srgb, var(--rail) var(--surface-solidity), transparent);
-}
-
-/* The stage is a frame, not a surface. It used to paint the same tint the
- * pane inside it does, so the centre carried two layers of it and sat darker
- * and less translucent than either rail. */
+.workspace-rail,
 .stage {
-    background: transparent;
+    background: color-mix(in srgb, var(--surface) var(--panel-solidity), transparent);
 }
 
+/* The stage carries the ground for everything inside it, so the pane and the
+ * tab strip stay transparent (see shaders.css) and simply draw on top. */
 .pane {
-    background: color-mix(in srgb, var(--pane) var(--surface-solidity), transparent);
+    background: transparent;
 }
 
 /* The shell keeps the darkest tone so the gutter always reads as a recess,
@@ -1024,16 +1003,7 @@ textarea,
  * rather than stopping where the bar meets the window. */
 .shell {
     padding-top: var(--space-1h);
-    background: color-mix(in srgb, var(--void) calc(var(--window-opacity, 1) * 100%), transparent);
-}
-
-/* The pane is a surface like the rails, so it takes the same raised tone.
- * The terminal painted the theme's own terminal background on top, which is
- * darker than the chrome and left the centre of the window reading as a hole.
- * It follows the surface now, and still fades with the window like one. */
-/* One painted surface for the centre, with the rails' own glass on it. */
-.pane {
-    background: color-mix(in srgb, var(--rail) var(--surface-solidity), transparent);
+    background: color-mix(in srgb, var(--surface-sunken) calc(var(--window-opacity, 1) * 100%), transparent);
 }
 
 /* Transparent so the pane's surface shows through; painting it here stacked a

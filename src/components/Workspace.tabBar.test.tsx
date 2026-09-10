@@ -2,6 +2,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-libra
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ComponentProps } from "react";
 import type { TerminalPane } from "../terminal/TerminalPane";
+import * as cmd from "../state/commands";
 import { getState, setState } from "../state/store";
 import { acpApi } from "../api/acp";
 import { Workspace } from "./Workspace";
@@ -168,5 +169,39 @@ describe("workspace tab bars", () => {
 
         expect(getState().sessions[sessionId].view).toBe("windows");
         expect(getState().sessions[sessionId].activeWindowId).toBe(windowId);
+    });
+});
+
+describe("stage layers", () => {
+    function addAgentTo(sessionId: string) {
+        setState((s) => ({
+            agents: {
+                ...s.agents,
+                "agent-two": { id: "agent-two", type: "codex", title: "second agent", startup: "codex", launchState: "live" } as never,
+            },
+            agentsBySession: { ...s.agentsBySession, [sessionId]: [...(s.agentsBySession[sessionId] ?? []), "agent-two"] },
+        }));
+    }
+
+    /*
+     * A document tab lighting no layer, or two layers at once, both read as the
+     * editor and an agent painting over each other on one stage.
+     */
+    it("shows exactly one layer when a document tab is active alongside an agent", () => {
+        const sessionId = getState().activeSessionId;
+        addAgentTo(sessionId);
+        cmd.requestOpenFile("/repo/a.ts");
+
+        const { container } = render(<Workspace />);
+
+        expect(container.querySelectorAll(".window-layer.visible")).toHaveLength(1);
+    });
+
+    it("still renders the editor layer when it holds no document", () => {
+        cmd.openEditorPane();
+
+        const { container } = render(<Workspace />);
+
+        expect(container.querySelectorAll(".window-layer.visible")).toHaveLength(1);
     });
 });

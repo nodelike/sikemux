@@ -78,11 +78,20 @@ describe("AgentPalette", () => {
         expect(mocks.sessions).not.toHaveBeenCalledWith("hermes", expect.anything());
         expect(screen.queryByRole("textbox", { name: /task/i })).not.toBeInTheDocument();
         expect(screen.queryByText(/worktree/i)).not.toBeInTheDocument();
-        expect(screen.getByRole("button", { name: "safe" })).toHaveAttribute("aria-pressed", "false");
+        expect(screen.getByRole("radio", { name: "safe" })).toBeChecked();
+        expect(screen.getByRole("radio", { name: "yolo" })).not.toBeChecked();
 
         view.unmount();
         expect(opener).toHaveFocus();
         opener.remove();
+    });
+
+    it("opens armed when the saved default is YOLO", async () => {
+        setState({ defaultAgentPermissionMode: "bypass" });
+        render(<AgentPalette />);
+
+        expect(await screen.findByRole("radio", { name: "yolo" })).toBeChecked();
+        expect(screen.getByRole("button", { name: "+ new Codex in YOLO mode" })).toHaveClass("sel");
     });
 
     it("opens a new CLI directly in a PTY using Normal mode", async () => {
@@ -164,7 +173,7 @@ describe("AgentPalette", () => {
         const user = userEvent.setup();
         render(<AgentPalette />);
 
-        await user.click(screen.getByRole("button", { name: "safe" }));
+        await user.click(screen.getByRole("radio", { name: "yolo" }));
         await user.click(await screen.findByRole("button", { name: "Fix terminal tabs in YOLO mode" }));
 
         const id = getState().agentsBySession["sess-project"][0];
@@ -185,12 +194,12 @@ describe("AgentPalette", () => {
         render(<AgentPalette />);
 
         const search = await screen.findByRole("textbox", { name: "Search agent sessions" });
-        const yolo = screen.getByRole("button", { name: "safe" });
+        const yolo = screen.getByRole("radio", { name: "yolo" });
         yolo.focus();
         fireEvent.keyDown(yolo, { key: "Enter" });
         expect(getState().agentsBySession["sess-project"]).toEqual([]);
         await user.click(yolo);
-        expect(screen.getByRole("button", { name: "yolo" })).toHaveAttribute("aria-pressed", "true");
+        expect(yolo).toBeChecked();
         expect(screen.getByRole("button", { name: "+ new Pi in YOLO mode" })).toBeDisabled();
         fireEvent.keyDown(search, { key: "ArrowDown" });
         expect(screen.getByRole("button", { name: "+ new Hermes in YOLO mode" })).toHaveClass("sel");

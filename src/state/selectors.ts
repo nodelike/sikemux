@@ -100,11 +100,23 @@ export function activeTabRef(session: Session, windows?: StoreState["windows"], 
     }
     if (!session.activeWindowId) return null;
     const win = windows?.[session.activeWindowId];
-    if (win?.role === "files") {
-        const activePath = editorViews?.[win.activePaneId]?.activePath;
-        return activePath ? { kind: "file", id: win.id, path: activePath } : null;
-    }
+    const activePath = win?.role === "files" ? editorViews?.[win.activePaneId]?.activePath : undefined;
+    // An editor showing nothing stays a window ref: it has no document tab to
+    // point at, but its layer still has to render the empty state.
+    if (win?.role === "files" && activePath) return { kind: "file", id: win.id, path: activePath };
     return { kind: "window", id: session.activeWindowId };
+}
+
+/**
+ * The window a strip entry lives in, or null for an agent.
+ *
+ * Layer visibility asks this rather than matching on `kind`, so a document tab
+ * shows the editor holding it and the strip and the stage cannot disagree about
+ * which surface is live.
+ */
+export function tabRefWindowId(ref: WorkspaceTabRef | null): string | null {
+    if (!ref) return null;
+    return ref.kind === "agent" ? null : ref.id;
 }
 
 export const tabRefKey = (ref: WorkspaceTabRef): string => (ref.kind === "file" ? `file:${ref.id}:${ref.path}` : `${ref.kind}:${ref.id}`);

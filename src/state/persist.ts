@@ -763,7 +763,12 @@ export function applyHydrate(raw: string): HydrationResult {
             providerProfiles,
             cur.selectedProviderProfileIds,
         ),
-        defaultAgentPermissionMode: prefs.defaultAgentPermissionMode === "bypass" ? "bypass" : "workspace-write",
+        defaultAgentPermissionMode:
+            prefs.defaultAgentPermissionMode === undefined
+                ? cur.defaultAgentPermissionMode
+                : prefs.defaultAgentPermissionMode === "bypass"
+                  ? "bypass"
+                  : "workspace-write",
     });
     pruneOnDemandWindows();
     registerCustomThemes(getState().customThemes);

@@ -11,7 +11,7 @@ describe("shaderField", () => {
         const host = document.createElement("span");
         document.body.append(host);
 
-        mountShaderField(host, "pane");
+        mountShaderField(host, "ambient");
 
         expect(shaderFieldCount()).toBe(0);
         expect(host.dataset.shaderField).toBeUndefined();
@@ -28,7 +28,7 @@ describe("shaderField", () => {
         const host = document.createElement("span");
         document.body.append(host);
 
-        mountShaderField(host, "pane");
+        mountShaderField(host, "ambient");
         unmountShaderField(host);
 
         expect(host.querySelector("canvas")).toBeNull();
@@ -44,7 +44,7 @@ describe("shaderField", () => {
         const host = document.createElement("span");
         document.body.append(host);
 
-        mountShaderField(host, "pane");
+        mountShaderField(host, "ambient");
 
         const report = shaderFieldDiagnostics();
         expect(report.live).toBe(0);

@@ -47,15 +47,15 @@ interface Runtime {
     getShaderNoiseTexture: Shaders["getShaderNoiseTexture"];
 }
 
-export type ShaderFieldPreset = "pane" | "onboarding";
+export type ShaderFieldPreset = "ambient" | "onboarding";
 
 /*
- * The content area's surface, and room for the tour.
+ * The window's backdrop, and room for the tour.
  *
- * One each, because neither is per-pane: splitting the window no longer costs a
- * context. That matters because every terminal takes one of the page's ~16 for
- * its own renderer, and a terminal losing that to a decoration is a far worse
- * trade than a surface without a texture.
+ * One each, because neither belongs to a pane: splitting the window no longer
+ * costs a context. That matters because every terminal takes one of the page's
+ * ~16 for its own renderer, and a terminal losing that to a decoration is a far
+ * worse trade than a surface without a texture.
  */
 const SURFACE_BUDGET = 2;
 
@@ -187,36 +187,44 @@ interface Recipe {
 
 const PRESETS: Record<ShaderFieldPreset, (runtime: Runtime, theme: Theme) => Recipe> = {
     /*
-     * The content panes: two-colour dithering.
+     * The whole window's backdrop: two-colour dithering.
      *
-     * A Bayer grid over simplex noise, the accent on the shell's own ground, so
-     * it stays inside the theme and reads as texture rather than as colour. The
-     * grain gradient was here first and washed the pane in four hues, which is
-     * a different thing entirely — this is the dither.
+     * A Bayer grid over simplex noise, drawn once behind the entire shell —
+     * rails, stage and the gutters between them — so the app sits on one
+     * continuous field instead of a texture that starts where the content area
+     * does. The panels above are near-opaque, so most of what you actually see
+     * is in the gutter and through the glass at the edges.
+     *
+     * Monochrome on purpose. This used to put the accent on the ground, which
+     * made the backdrop the most colourful thing on screen and left selection
+     * with nothing to be. `inkMuted` is the ramp's own grey, so the field reads
+     * as texture and the accent stays spent on state.
      */
-    pane: (runtime, theme) => ({
+    ambient: (runtime, theme) => ({
         /*
          * Moves, but never restarts.
          *
-         * Only an on-screen pane may hold a WebGL context, so a pane's field is
-         * released on tab switch and rebuilt when you come back. Starting each
-         * rebuild at frame zero made that visible — a background nobody should
-         * notice announced itself every time you changed tabs. Making it static
-         * hid the rebuild but cost the motion, which was the wrong half to give
-         * up. On the shared clock it does both: the pattern is always where the
+         * The host outlives every pane now, so this rarely rebuilds — but it
+         * still does when the shell remounts, and starting each rebuild at
+         * frame zero made that visible: a background nobody should notice
+         * announced itself. On the shared clock the pattern is always where the
          * clock says it should be, so a rebuild lands mid-drift and cannot be
          * told from a surface that was there all along.
          */
         fragmentShader: runtime.ditheringFragmentShader,
-        speed: 0.35,
+        // Slower than it was as a pane field. Across the full window the same
+        // speed reads as drifting weather rather than as a still texture.
+        speed: 0.22,
         continuous: true,
         uniforms: {
             u_colorBack: runtime.getShaderColorFromString(theme.chrome.bgDim),
-            u_colorFront: runtime.getShaderColorFromString(theme.chrome.acc),
+            u_colorFront: runtime.getShaderColorFromString(theme.chrome.inkMuted),
             u_shape: runtime.DitheringShapes.simplex,
-            u_type: runtime.DitheringTypes["4x4"],
-            u_pxSize: 2,
-            ...sizing(runtime, "none", 0.55),
+            u_type: runtime.DitheringTypes["8x8"],
+            // The dots are the texture. At 2px over a whole window they built
+            // into visible bands; 1px stays grain at any window size.
+            u_pxSize: 1,
+            ...sizing(runtime, "none", 0.4),
         },
     }),
 

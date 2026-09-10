@@ -18,6 +18,11 @@ type AgentItem = NewAgentItem | ResumeAgentItem;
 const NORMAL: AgentPermissionMode = "workspace-write";
 const YOLO: AgentPermissionMode = "bypass";
 
+const MODE_CHOICES: { mode: AgentPermissionMode; label: string; title: string }[] = [
+    { mode: NORMAL, label: "safe", title: "Safe mode — the agent launches with normal approvals." },
+    { mode: YOLO, label: "yolo", title: "YOLO mode — the agent launches without approvals." },
+];
+
 function labelForType(type: AgentType, agents: readonly AgentInfo[]): string {
     return agents.find((agent) => agent.type === type)?.label ?? type;
 }
@@ -211,23 +216,23 @@ export function AgentPalette() {
                         }}
                         spellCheck={false}
                     />
-                    {/* Same control the live PTY uses, so the boundary you pick here
-                        looks like the one you toggle later on the agent itself. */}
-                    <button
-                        type="button"
-                        className={`yolo-toggle inline${mode === YOLO ? " on" : ""}`}
-                        aria-pressed={mode === YOLO}
-                        title={
-                            mode === YOLO
-                                ? "YOLO mode — the agent launches without approvals."
-                                : "Safe mode — the agent launches with normal approvals."
-                        }
-                        onClick={() => chooseMode(mode === YOLO ? NORMAL : YOLO)}>
-                        <span className="yolo-glyph" aria-hidden="true">
-                            {mode === YOLO ? <IconShieldBolt size={12} /> : <IconShield size={12} />}
-                        </span>
-                        <span className="yolo-label">{mode === YOLO ? "yolo" : "safe"}</span>
-                    </button>
+                    <div className="yolo-switch" role="radiogroup" aria-label="Agent safety boundary">
+                        {MODE_CHOICES.map((choice) => (
+                            <button
+                                key={choice.mode}
+                                type="button"
+                                role="radio"
+                                aria-checked={mode === choice.mode}
+                                className={`yolo-switch-option${choice.mode === YOLO ? " armed" : ""}${mode === choice.mode ? " active" : ""}`}
+                                title={choice.title}
+                                onClick={() => chooseMode(choice.mode)}>
+                                <span className="yolo-switch-glyph" aria-hidden="true">
+                                    {choice.mode === YOLO ? <IconShieldBolt size={12} /> : <IconShield size={12} />}
+                                </span>
+                                <span className="yolo-switch-label">{choice.label}</span>
+                            </button>
+                        ))}
+                    </div>
                 </div>
 
                 <div className="picker-list">

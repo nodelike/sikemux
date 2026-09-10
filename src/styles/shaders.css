@@ -77,98 +77,84 @@
     }
 }
 
-/* ── The content area's one surface ──────────────────────────────────────── */
+/* ── The window's backdrop ───────────────────────────────────────────────── */
 
 /*
- * One field for the whole right-hand side, not one per pane.
+ * One field, behind the entire app.
  *
- * Three earlier shapes were wrong in instructive ways. A surface behind the
- * whole shell only ever showed in the gutter, because the panels above it are
- * opaque. A field in each rail read as noise behind two columns of dense type.
- * A field in each pane started below the tab strip, drew a different pattern in
- * every pane, and was torn down and rebuilt on every tab switch — three
- * symptoms of the same mistake, which was letting each pane own a surface.
+ * Earlier shapes each owned too little. A field in each pane drew a different
+ * pattern in every split and was rebuilt on every tab switch. Promoting it to
+ * the content area fixed that but drew a hard line where the rails stopped and
+ * the texture started, which made the rails look like they belonged to a
+ * different app. This one is mounted on `.shell`, so rails, stage and the
+ * gutters between them all sit on the same continuous ground.
  *
- * So the content area has exactly one, mounted in `.window-area`: it starts at
- * the top edge above the tab strip, spans every pane and split as a single
- * continuous field, holds one WebGL context however the window is divided, and
- * outlives tab switches because nothing about it belongs to a pane.
- *
- * It also *is* the surface. The ground panes used to paint individually now
- * lives here, under the shader and over nothing, so everything above simply
- * draws on top instead of replacing it.
+ * What you mostly see is the gutter. The panels above are near-opaque by
+ * design — dense type needs a settled surface — so the backdrop reads at the
+ * frame's edges, between the panels, and softly through the glass at the top
+ * of the content area. That restraint is the point: it is the room's light,
+ * not the furniture.
  */
-.window-area {
-    /* Already `z-index: 1`, so it is a stacking context and the negative
-       z-index below cannot escape behind it. Stated for the next reader. */
+.shell {
+    position: relative;
+    /* A stacking context, so the negative z-indexes below stay inside the
+       shell and cannot slide behind the window's own background. */
     isolation: isolate;
 }
 
-.stage-field {
+.shell-field {
     position: absolute;
     inset: 0;
-    /* Above this layer's own ground, below everything drawn in the area. */
     z-index: -1;
     pointer-events: none;
     /*
-     * No ground of its own: `::before` below already lays one across the whole
-     * area, and this layer's mask fades out, so painting the ground here too
-     * would stack two half-transparent copies wherever `--surface-solidity`
-     * drops under 100% and make the top band darker than the rest.
+     * Low, because it is behind everything rather than behind one panel. The
+     * old pane field could afford 0.2 over a single surface; across the whole
+     * window the same value reads as dirt on the screen.
      */
+    --shader-field-strength: 0.14;
     /*
-     * Weighted to the top and gone by the middle. The content area fills
-     * downward — scrollback, a document — so the top is the one band reliably
-     * free of anything being read.
+     * Weighted to the top edge and never quite gone. The window fills downward
+     * — scrollback, a document, a diff — so the top is the one band reliably
+     * free of anything being read, and the floor keeps the bottom corners from
+     * looking like the texture failed to load.
      */
-    --shader-field-strength: 0.2;
-    mask-image: linear-gradient(to bottom, #000 0%, rgba(0, 0, 0, 0.45) 20%, rgba(0, 0, 0, 0.08) 38%, transparent 50%);
-    /*
-     * Clips itself to the stage's corners rather than trusting the stage to do
-     * it. `.stage` is `overflow: hidden` with a `border-radius`, which is
-     * normally enough — but the mask above forces this into its own composited
-     * layer, and a rounded overflow clip on an ancestor is precisely what
-     * WebKit stops applying to a composited descendant. The dither bled square
-     * into all four corners while the ground beside it, an ordinary background,
-     * stayed correctly rounded.
-     *
-     * `clip-path` belongs to this element, so it survives compositing. The
-     * radius is the stage's inner edge: its border sits outside this box.
-     */
-    clip-path: inset(0 round calc(var(--radius-md) - 1px));
+    mask-image: linear-gradient(to bottom, #000 0%, rgba(0, 0, 0, 0.55) 32%, rgba(0, 0, 0, 0.22) 68%, rgba(0, 0, 0, 0.12) 100%);
 }
 
 /*
- * The mask fades the ground away with the shader, so the area below it needs
- * the surface back. Painted on the layer itself rather than on the panes, which
- * keeps "one surface, drawn over" true.
+ * The optional full-window image, under the shader and over the ground.
+ *
+ * `--backdrop-image` is `none` until something sets it, and `background-image:
+ * none` paints nothing, so this element costs a layer and no pixels in the
+ * default build. Set it on `:root` to give the app a photographic ground:
+ *
+ *     :root { --backdrop-image: url("/backdrops/dunes.avif"); }
+ *
+ * It is deliberately dim and blurred by default. A backdrop that competes with
+ * a diff is a backdrop that gets turned off.
  */
-.window-area::before {
-    content: "";
+.shell-image {
     position: absolute;
     inset: 0;
     z-index: -2;
     pointer-events: none;
-    /* Rounded for the same reason, so ground and field share one silhouette. */
-    border-radius: calc(var(--radius-md) - 1px);
-    background: color-mix(in srgb, var(--rail) var(--surface-solidity, 100%), transparent);
+    background-image: var(--backdrop-image);
+    background-size: cover;
+    background-position: center;
+    opacity: var(--backdrop-image-opacity);
+    filter: blur(var(--backdrop-blur)) saturate(0.75);
+    /* Fades into the ground rather than meeting the window edge as a hard
+       photograph, which is what made the first version look like wallpaper. */
+    mask-image: radial-gradient(130% 100% at 50% 0%, #000 0%, rgba(0, 0, 0, 0.55) 45%, transparent 85%);
 }
 
 /*
- * Panes and the tab strip stop painting grounds of their own — that ground is
- * the layer above. Without this each of them would cover the field with an
- * opaque copy of the very colour it is already sitting on.
+ * Panes and the tab strip stop painting grounds of their own — the stage below
+ * them carries one surface for the whole content area. Without this each of
+ * them would cover it with an opaque copy of the colour it already sits on.
  */
 .pane,
 .tabbar.v-agent {
-    background: transparent;
-}
-
-/*
- * Window transparency clears the frame, and this layer is the frame's centre
- * now, so it goes with everything else rather than being the one surface that
- * refuses to let the desktop through.
- */
-html.is-transparent .window-area::before {
     background: transparent;
 }

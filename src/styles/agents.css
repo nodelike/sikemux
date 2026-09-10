@@ -624,21 +624,30 @@
     pointer-events: auto;
 }
 
-/* Agent YOLO toggle — floats over the live PTY. Safe stays quiet; armed uses
-   the workspace spectrum so the dangerous state is impossible to miss. */
-.yolo-toggle {
-    position: absolute;
-    top: 12px;
-    right: 14px;
-    z-index: 6;
+/* Agent safety switch — both boundaries stay on screen, in the same segmented
+   strip the workspace rail uses for its tabs. Safe stays quiet; armed uses the
+   workspace spectrum so the dangerous state is impossible to miss. */
+.yolo-switch {
+    display: inline-flex;
+    flex: none;
+    align-items: center;
+    gap: 2px;
+    padding: 2px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-control);
+    background: color-mix(in srgb, var(--void) 46%, transparent);
+}
+
+.yolo-switch-option {
+    position: relative;
     display: inline-flex;
     align-items: center;
+    justify-content: center;
     gap: 5px;
-    height: 22px;
+    height: 23px;
     padding: 0 10px;
-    color: var(--live);
-    border: 1px solid color-mix(in srgb, var(--live) 38%, transparent);
-    background: color-mix(in srgb, var(--live) 7%, color-mix(in srgb, var(--pane) 82%, transparent));
+    border-radius: calc(var(--radius-control) - 1px);
+    color: var(--ink-dim);
     font-family: var(--mono);
     font-size: 10px;
     font-weight: 600;
@@ -646,60 +655,36 @@
     letter-spacing: 0.14em;
     text-transform: uppercase;
     cursor: pointer;
-    opacity: 0.5;
     transition:
-        opacity 0.16s ease,
-        border-color 0.16s ease,
-        transform 0.16s ease;
-}
-.pane-terminal:hover .yolo-toggle {
-    opacity: 0.85;
-}
-/* Inside a picker toolbar the toggle is part of the row, not an overlay. */
-.yolo-toggle.inline {
-    position: static;
-    flex: none;
-    opacity: 1;
+        color 100ms,
+        background 100ms,
+        box-shadow 100ms;
 }
 
-.yolo-toggle:hover {
-    opacity: 1;
-    border-color: color-mix(in srgb, var(--live) 70%, transparent);
-    transform: translateY(-0.5px);
+.yolo-switch-option:hover:not(.active) {
+    color: var(--ink);
 }
-.yolo-glyph {
+
+.yolo-switch-option.active {
+    color: var(--ink);
+    background: var(--rail-2);
+    box-shadow: inset 0 0 0 1px var(--line);
+}
+
+.yolo-switch-glyph {
     display: flex;
 }
-.yolo-hint {
-    padding-left: 6px;
-    color: var(--ink-faint);
-    border-left: 1px solid color-mix(in srgb, var(--live) 30%, transparent);
-    font-family: var(--kbd);
-    font-size: 9px;
-    font-weight: 600;
-    line-height: 1;
-    letter-spacing: 0.02em;
-    transition:
-        color 0.16s ease,
-        border-color 0.16s ease;
-}
-.yolo-toggle:hover .yolo-hint {
-    color: var(--ink-dim);
-}
 
-.yolo-toggle.on,
-.pane-terminal:hover .yolo-toggle.on {
-    opacity: 1;
-    border-color: transparent;
-    background: color-mix(in srgb, var(--pane) 82%, transparent);
+.yolo-switch-option.armed.active {
+    box-shadow: none;
 }
-.yolo-toggle.on::before {
+.yolo-switch-option.armed.active::before {
     content: "";
     position: absolute;
-    inset: -1px;
+    inset: 0;
     /* The masked gradient ring needs its own radius, or it paints a sharp
-       rectangle over the rounded button. One extra px for the -1px inset. */
-    border-radius: calc(var(--radius-control) + 1px);
+       rectangle over the rounded segment. */
+    border-radius: inherit;
     padding: 1px;
     background: var(--yolo-rainbow);
     background-size: 200% 100%;
@@ -711,7 +696,7 @@
     animation: yolo-flow 5s linear infinite;
     pointer-events: none;
 }
-.yolo-toggle.on .yolo-label {
+.yolo-switch-option.armed.active .yolo-switch-label {
     color: transparent;
     background: var(--yolo-rainbow);
     background-size: 200% 100%;
@@ -720,12 +705,8 @@
     -webkit-text-fill-color: transparent;
     animation: yolo-flow 5s linear infinite;
 }
-.yolo-toggle.on .yolo-glyph {
+.yolo-switch-option.armed.active .yolo-switch-glyph {
     animation: yolo-hue 5s linear infinite;
-}
-.yolo-toggle.on .yolo-hint {
-    color: var(--ink-dim);
-    border-left-color: color-mix(in srgb, var(--ink-faint) 70%, transparent);
 }
 
 @keyframes yolo-flow {
@@ -760,9 +741,9 @@
 @media (prefers-reduced-motion: reduce) {
     .agent-state-loader,
     .proj-pip.is-working::after,
-    .yolo-toggle.on::before,
-    .yolo-toggle.on .yolo-label,
-    .yolo-toggle.on .yolo-glyph {
+    .yolo-switch-option.armed.active::before,
+    .yolo-switch-option.armed.active .yolo-switch-label,
+    .yolo-switch-option.armed.active .yolo-switch-glyph {
         animation: none;
     }
 }

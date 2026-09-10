@@ -1,0 +1,211 @@
+/*
+ * The design tokens every other sheet builds on.
+ *
+ * Everything here derives from the four values the theme bus writes on
+ * `:root` — `--bg-dim`, `--ink`, `--acc`, `--line` — so a token is themed for
+ * free and no theme has to enumerate a ramp of its own. Adding a theme stays
+ * what it is today: one tuple in `src/themes/index.ts`.
+ *
+ * Read DESIGN.md before changing a number here. These are shared by roughly
+ * sixteen thousand lines of component CSS, and a value that looks arbitrary is
+ * usually load-bearing somewhere it is not obvious from.
+ */
+
+:root {
+    /* ── Families ─────────────────────────────────────────────────────────
+     *
+     * Two, with a hard rule about which: the sans is for anything the app
+     * says, the mono is for anything the machine says. A branch name, a
+     * timestamp, a shortcut, a diff — machine. A button label, a row title, a
+     * heading — app. `--mono` and `--kbd` come from base.css.
+     */
+    --ui: "Figtree", -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+
+    /* ── Spacing ──────────────────────────────────────────────────────────
+     *
+     * A 4px scale with two half steps for dense chrome, where 4px is already
+     * too big for an icon gap. Literals in component sheets mean "this one is
+     * genuinely bespoke" — everything else lines up between panes because it
+     * comes from here.
+     */
+    --space-0: 2px;
+    --space-1: 4px;
+    --space-1h: 6px;
+    --space-2: 8px;
+    --space-3: 12px;
+    --space-4: 16px;
+    --space-5: 20px;
+    --space-6: 24px;
+
+    /* Gutters — the inset a surface keeps from its own edge. */
+    --gutter-rail: 10px;
+    --gutter-pane: 12px;
+    --gutter-row: var(--space-3);
+
+    /* ── Neutral ramp ─────────────────────────────────────────────────────
+     *
+     * Ten steps from the window's own ground to full ink, mixed in oklab so
+     * the steps are perceptually even rather than evenly numbered — sRGB
+     * bunches the dark end and the first four steps came out
+     * indistinguishable, which is exactly the range chrome lives in.
+     *
+     * The fallback matters: `--bg-dim` is written by the theme bus at runtime,
+     * so before the first `applyTheme` the ramp resolves against base.css's
+     * static ground instead of collapsing to black.
+     */
+    --gray-base: var(--bg-dim, var(--void));
+    --gray-100: color-mix(in oklab, var(--ink) 4%, var(--gray-base));
+    --gray-200: color-mix(in oklab, var(--ink) 7%, var(--gray-base));
+    --gray-300: color-mix(in oklab, var(--ink) 11%, var(--gray-base));
+    --gray-400: color-mix(in oklab, var(--ink) 15%, var(--gray-base));
+    --gray-500: color-mix(in oklab, var(--ink) 22%, var(--gray-base));
+    --gray-600: color-mix(in oklab, var(--ink) 32%, var(--gray-base));
+    --gray-700: color-mix(in oklab, var(--ink) 42%, var(--gray-base));
+    --gray-800: color-mix(in oklab, var(--ink) 55%, var(--gray-base));
+    --gray-900: color-mix(in oklab, var(--ink) 76%, var(--gray-base));
+    --gray-1000: var(--ink);
+
+    /* ── Surfaces ─────────────────────────────────────────────────────────
+     *
+     * Four depths, and the app only ever needs four: the window recess, the
+     * panels on it, the things raised off a panel, and the things that float
+     * over everything. The old sheets reach for `--rail`, `--rail-2`, `--pane`
+     * and `--void` more or less interchangeably; these say what a surface is
+     * for instead of which pane happened to use it first.
+     */
+    --surface-sunken: var(--gray-base);
+    --surface: var(--gray-100);
+    --surface-raised: var(--gray-200);
+    --surface-overlay: var(--gray-300);
+
+    /* Row states. Hover is a tint, not a colour — an accent wash on every
+     * hovered row is what made the rails read as decorated rather than dense. */
+    --surface-hover: color-mix(in oklab, var(--ink) 6%, transparent);
+    --surface-active: color-mix(in oklab, var(--ink) 10%, transparent);
+    /* The one place a row is allowed to take the accent: current selection. */
+    --surface-selected: color-mix(in oklab, var(--acc) 14%, transparent);
+
+    /* ── Borders ──────────────────────────────────────────────────────────
+     *
+     * Hairlines carry the layout here, so they have to be visible. A 1px line
+     * at the ramp's third step is the Geist trick: dark enough to read as
+     * structure, light enough that a grid of them is not a cage.
+     */
+    --border: var(--gray-300);
+    --border-strong: var(--gray-500);
+    --border-selected: color-mix(in oklab, var(--acc) 42%, transparent);
+
+    /* ── Text ─────────────────────────────────────────────────────────────
+     *
+     * Four weights of presence. Body copy sits at `--text-secondary`, not at
+     * full ink: a pane where every row is `--gray-1000` glares, and leaves the
+     * selected row nothing left to be brighter than.
+     */
+    --text-primary: var(--gray-1000);
+    --text-secondary: var(--gray-900);
+    --text-tertiary: var(--gray-800);
+    --text-disabled: var(--gray-600);
+
+    /* ── Radius ───────────────────────────────────────────────────────────
+     *
+     * Four steps, chosen by what an element is rather than how big it is.
+     * The legacy aliases below are not deprecation debt — they are how the
+     * existing sheets get the new geometry without touching every rule.
+     */
+    --radius-1: 4px; /* badges, chips, dots, the smallest controls */
+    --radius-2: 6px; /* buttons, inputs, rows, tabs — the default */
+    --radius-3: 10px; /* rails, stage, panels, cards */
+    --radius-4: 14px; /* palettes, dialogs, anything that floats */
+    --radius-full: 999px;
+
+    --radius-chip: var(--radius-1);
+    --radius-control: var(--radius-2);
+    --radius-panel: var(--radius-3);
+    --radius-xs: var(--radius-2);
+    --radius-sm: var(--radius-2);
+    --radius-md: var(--radius-3);
+    --radius-lg: var(--radius-3);
+
+    /* ── Elevation ────────────────────────────────────────────────────────
+     *
+     * Two-part shadows: a tight contact shadow that pins an element to what is
+     * under it, and a wide ambient one that gives it height. A single large
+     * blur reads as fog, which is what the old two shadows were doing.
+     *
+     * Flat surfaces get no shadow at all. On a dark ground a border does the
+     * separating and a shadow only muddies it — height is for things that
+     * genuinely float.
+     */
+    --shadow-1: 0 1px 2px rgb(0 0 0 / 0.3);
+    --shadow-2: 0 2px 4px -2px rgb(0 0 0 / 0.32), 0 4px 10px -3px rgb(0 0 0 / 0.34);
+    --shadow-3: 0 4px 8px -4px rgb(0 0 0 / 0.4), 0 14px 28px -8px rgb(0 0 0 / 0.46);
+    --shadow-4: 0 8px 16px -8px rgb(0 0 0 / 0.44), 0 28px 64px -16px rgb(0 0 0 / 0.62);
+
+    --shadow-soft: var(--shadow-3);
+    --shadow-float: var(--shadow-4);
+
+    /* ── Focus ────────────────────────────────────────────────────────────
+     *
+     * One ring, everywhere, drawn outside the element so it never changes a
+     * layout. Keyboard users navigate this app across dense rows, so the ring
+     * has to survive sitting on top of a selected row that is already accent
+     * tinted — hence a solid inner edge under the soft halo.
+     */
+    --focus-ring: 0 0 0 1px var(--gray-base), 0 0 0 3px color-mix(in oklab, var(--acc) 62%, transparent);
+
+    /* ── Type ─────────────────────────────────────────────────────────────
+     *
+     * A dense-tool scale: the steps are close together because everything in
+     * an IDE is small, and the tracking tightens as the size grows because
+     * Figtree sets loose at display sizes.
+     */
+    --text-3xs: 10px; /* tracked-out section labels */
+    --text-2xs: 11px; /* timestamps, shortcut hints, counts */
+    --text-xs: 12px; /* secondary rows, meta */
+    --text-sm: 13px; /* the default: rows, buttons, inputs */
+    --text-md: 14px; /* panel titles */
+    --text-lg: 16px; /* dialog titles */
+    --text-xl: 20px; /* empty-state headings */
+    --text-2xl: 28px; /* onboarding only */
+
+    --tracking-label: 0.08em;
+    --tracking-normal: -0.005em;
+    --tracking-tight: -0.015em;
+    --tracking-display: -0.028em;
+
+    --weight-normal: 400;
+    --weight-medium: 500;
+    --weight-semibold: 600;
+
+    /* ── Motion ───────────────────────────────────────────────────────────
+     *
+     * Chrome moves fast or not at all. Anything a keyboard can trigger twice
+     * in a second gets `--dur-1`; only things that genuinely travel across the
+     * window get the long ones.
+     */
+    --dur-1: 90ms;
+    --dur-2: 140ms;
+    --dur-3: 220ms;
+    --dur-4: 320ms;
+    --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+    --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+
+    /* ── Ambient backdrop ─────────────────────────────────────────────────
+     *
+     * The art layer behind the whole shell. `--backdrop-image` is `none` until
+     * something sets it, so the shader alone is the default and an image is
+     * strictly additive. See DESIGN.md § Backdrop.
+     */
+    --backdrop-image: none;
+    --backdrop-image-opacity: 0.5;
+    --backdrop-blur: 0px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    :root {
+        --dur-1: 0ms;
+        --dur-2: 0ms;
+        --dur-3: 0ms;
+        --dur-4: 0ms;
+    }
+}

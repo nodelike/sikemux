@@ -4,7 +4,7 @@ import type { Agent, Divider, Rect, Session, Window as WindowT, WindowRole, Work
 import { collectPanes, computeLayout, findSplit, MIN_FRAC } from "../state/layout";
 import * as cmd from "../state/commands";
 import { getState, useStore } from "../state/store";
-import { activeTabRef, expandTabRefs, roleHasTab, tabRefKey } from "../state/selectors";
+import { activeTabRef, expandTabRefs, roleHasTab, tabRefKey, tabRefWindowId } from "../state/selectors";
 import { type CtxItem } from "./FileTree";
 import { ErrorBoundary } from "./ErrorBoundary";
 import { TabBar, type TabDescriptor } from "./TabBar";
@@ -12,7 +12,6 @@ import { AgentIcon, IconCommand, IconGlobe, IconPlus, WindowIcon } from "./Icons
 import { AgentStateIndicator } from "./AgentStateIndicator";
 import { renderWorkbenchItem } from "../workbench/renderers";
 import { AgentBrowserShell } from "./BrowserPane";
-import { ShaderField } from "./ShaderField";
 import { FileIcon } from "./FileIcon";
 import { fsapi } from "../api/fs";
 import { basename, relativePath } from "../lib/paths";
@@ -36,6 +35,7 @@ export function Workspace() {
     const windowsBySession = useStore((s) => s.windowsBySession);
     const agentsBySession = useStore((s) => s.agentsBySession);
     const activeSessionId = useStore((s) => s.activeSessionId);
+    const editorViews = useStore((s) => s.editorViews);
     const areaRef = useRef<HTMLDivElement>(null);
 
     const sessions = sessionOrder.map((id) => sessionsById[id]);
@@ -51,25 +51,17 @@ export function Workspace() {
 
     return (
         <div className="window-area" ref={areaRef}>
-            {/*
-             * The content area's one surface. Mounted here rather than per pane
-             * so it spans the tab strip and every pane as a single field, holds
-             * one WebGL context no matter how the window is split, and survives
-             * tab switches instead of being torn down and rebuilt with them.
-             * Panes and the tab strip draw over it; none of them paint a ground
-             * of their own any more.
-             */}
-            <ShaderField preset="pane" className="stage-field" />
             {activeSession && tabCount > 0 && <WorkspaceTabsBar session={activeSession} />}
             {sessions.flatMap((session) => {
                 const isActive = session.id === activeSessionId;
-                const active = activeTabRef(session);
+                const active = activeTabRef(session, windowsById, editorViews);
+                const activeWindowId = tabRefWindowId(active);
                 const winIds = windowsBySession[session.id] ?? [];
                 const aIds = agentsBySession[session.id] ?? [];
                 const windowLayers = winIds.map((wid) => {
                     const win = windowsById[wid];
                     if (!win) return null;
-                    const visible = isActive && active?.kind === "window" && active.id === wid;
+                    const visible = isActive && activeWindowId === wid;
                     if (!visible && wid !== session.activeWindowId) return null;
                     return <WindowLayer key={wid} session={session} win={win} areaRef={areaRef} topInset={TABS_H} visible={visible} />;
                 });
