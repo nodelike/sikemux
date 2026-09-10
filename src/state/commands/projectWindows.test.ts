@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import * as cmd from "../commands";
 import { getState, setState } from "../store";
+import { subscribe } from "../bus";
 import type { PaneKind, Window, WindowRole } from "../types";
 
 const initial = getState();
@@ -164,5 +165,43 @@ describe("pruning legacy fixed tabs", () => {
         cmd.pruneOnDemandWindows();
 
         expect(projectWindows()).toEqual(before);
+    });
+});
+
+describe("file tabs in the session strip", () => {
+    function editorPaneId(): string {
+        const editor = projectWindows().find((win) => win.role === "files");
+        if (!editor) throw new Error("expected an editor window");
+        return editor.activePaneId;
+    }
+
+    it("switches the editor's document when its tab is selected", () => {
+        cmd.createProjectSession("/work/demo");
+        cmd.requestOpenFile("/work/demo/a.ts");
+        const paneId = editorPaneId();
+        cmd.openEditorTab(paneId, "/work/demo/b.ts");
+        const windowId = projectWindows().find((win) => win.role === "files")!.id;
+
+        cmd.selectTab({ kind: "file", id: windowId, path: "/work/demo/a.ts" });
+
+        expect(getState().editorViews[paneId].activePath).toBe("/work/demo/a.ts");
+        expect(getState().sessions[getState().activeSessionId].activeWindowId).toBe(windowId);
+    });
+
+    it("asks the editor to close a document rather than closing it behind its back", () => {
+        cmd.createProjectSession("/work/demo");
+        cmd.requestOpenFile("/work/demo/a.ts");
+        const paneId = editorPaneId();
+        const windowId = projectWindows().find((win) => win.role === "files")!.id;
+        const seen: { paneId: string; path: string }[] = [];
+        const stop = subscribe("close-file", (event) => seen.push({ paneId: event.paneId, path: event.path }));
+
+        cmd.closeTab({ kind: "file", id: windowId, path: "/work/demo/a.ts" });
+        stop();
+
+        // The editor owns the unsaved-changes prompt, so the tab survives until
+        // it decides; the command only asks.
+        expect(seen).toEqual([{ paneId, path: "/work/demo/a.ts" }]);
+        expect(getState().editorViews[paneId].openTabs).toEqual(["/work/demo/a.ts"]);
     });
 });

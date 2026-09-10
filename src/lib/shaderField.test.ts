@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { mountShaderField, shaderFieldCount, unmountShaderField } from "./shaderField";
+import { mountShaderField, shaderFieldCount, shaderFieldDiagnostics, unmountShaderField } from "./shaderField";
 
 /*
  * jsdom has no WebGL, which is the same situation as a machine whose driver is
@@ -11,7 +11,7 @@ describe("shaderField", () => {
         const host = document.createElement("span");
         document.body.append(host);
 
-        mountShaderField(host, "empty");
+        mountShaderField(host, "pane");
 
         expect(shaderFieldCount()).toBe(0);
         expect(host.dataset.shaderField).toBeUndefined();
@@ -28,10 +28,28 @@ describe("shaderField", () => {
         const host = document.createElement("span");
         document.body.append(host);
 
-        mountShaderField(host, "onboarding");
+        mountShaderField(host, "pane");
         unmountShaderField(host);
 
         expect(host.querySelector("canvas")).toBeNull();
+        host.remove();
+    });
+
+    /*
+     * Every refusal above is deliberately silent, which once made a blank panel
+     * impossible to tell apart from a broken one. The reason has to be readable
+     * somewhere.
+     */
+    it("reports why a surface was refused", () => {
+        const host = document.createElement("span");
+        document.body.append(host);
+
+        mountShaderField(host, "pane");
+
+        const report = shaderFieldDiagnostics();
+        expect(report.live).toBe(0);
+        expect(report.webgl2).toBe(false);
+        expect(report.lastRefusal).toBe("no webgl2 context");
         host.remove();
     });
 });

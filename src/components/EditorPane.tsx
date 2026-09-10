@@ -28,16 +28,13 @@ import { useLspBridge } from "../hooks/useLspBridge";
 import { useNavHistory, type NavEntry } from "../hooks/useNavHistory";
 import { useGitBaseline } from "../hooks/useGitBaseline";
 import { useGitBlame } from "../hooks/useGitBlame";
-import { useShaderField } from "../hooks/useShaderField";
 import type { CliPendingEditorOpen } from "../state/types";
-import type { CtxItem } from "./FileTree";
 import { IconClose, IconEditor, IconEye, IconFile } from "./Icons";
 import { FileIcon } from "./FileIcon";
 import { TabBar } from "./TabBar";
 import { EditorFindBar } from "./EditorFindBar";
 import { EditorInsights } from "./EditorInsights";
-import { basename, isPathWithin, relativePath as pathRelative } from "../lib/paths";
-import { FILE_MANAGER_NAME, PRIMARY_SHORTCUT } from "../lib/platform";
+import { basename, isPathWithin } from "../lib/paths";
 import { keybindingLabelForAction } from "../keybindings";
 
 const DEFAULT_VIEW = { openTabs: [], activePath: null };
@@ -266,9 +263,6 @@ export function EditorPane({
     const tabs = view.openTabs;
     const activePath = view.activePath;
     const previewingMarkdown = markdownPreview?.path === activePath;
-    // Only while the pane is genuinely empty and on screen: a hidden pane's
-    // field would hold a WebGL context the terminals have better use for.
-    const emptyFieldRef = useShaderField<HTMLSpanElement>("empty", tabs.length === 0 && visible);
 
     useEffect(() => {
         cmd.setEditorDirtyPaths(paneId, [...dirty]);
@@ -842,6 +836,13 @@ export function EditorPane({
     }, [cwd, paneId, visible]);
 
     useEffect(() => {
+        return subscribe("close-file", (e) => {
+            if (e.paneId === paneId) closeTabs([e.path]);
+        });
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [paneId, tabs, dirty]);
+
+    useEffect(() => {
         return subscribe("open-file", (e) => {
             // Project files open in their owning editor. LSP targets may live
             // in GOMODCACHE, rust stdlib, site-packages, etc.; route those to
@@ -938,12 +939,6 @@ export function EditorPane({
         cmd.setEditorView(paneId, { openTabs: next, activePath: nextActive });
     };
 
-    // ---- tab context menu ---------------------------------------------
-    const relativePath = (p: string) => pathRelative(p, cwd) ?? basename(p);
-
-    const copyText = (text: string, label: string) =>
-        navigator.clipboard.writeText(text).then(() => notify("success", `copied ${label}`), reportError("copy"));
-
     const toggleMarkdownPreview = () => {
         if (!isMarkdownPath(activePath)) return;
         if (previewingMarkdown) {
@@ -956,71 +951,48 @@ export function EditorPane({
         setMarkdownPreview({ path: activePath, content: editorView.state.doc.toString() });
     };
 
-    const buildTabMenu = (path: string): CtxItem[] => {
-        const idx = tabs.indexOf(path);
-        const others = tabs.filter((t) => t !== path);
-        const toLeft = tabs.slice(0, idx);
-        const toRight = tabs.slice(idx + 1);
-        const saved = tabs.filter((t) => !dirty.has(t));
-        return [
-            { label: "Close", hint: `${PRIMARY_SHORTCUT}W`, run: () => closeTabs([path]) },
-            { label: "Close Others", disabled: others.length === 0, run: () => closeTabs(others) },
-            { label: "Close to the Left", disabled: toLeft.length === 0, run: () => closeTabs(toLeft) },
-            { label: "Close to the Right", disabled: toRight.length === 0, run: () => closeTabs(toRight) },
-            { label: "Close Saved", disabled: saved.length === 0, run: () => closeTabs(saved) },
-            { label: "Close All", run: () => closeTabs(tabs) },
-            { sep: true },
-            { label: "Copy Path", run: () => void copyText(path, "path") },
-            { label: "Copy Relative Path", run: () => void copyText(relativePath(path), "relative path") },
-            { sep: true },
-            { label: `Reveal in ${FILE_MANAGER_NAME}`, run: () => void fsapi.revealInFinder(path).catch(reportError("reveal")) },
-        ];
-    };
-
     return (
         <div className="editor-pane">
             <div className="ed-main">
-                <TabBar
-                    variant="editor"
-                    tabs={tabs.map((path) => {
-                        const name = basename(path);
-                        return {
-                            id: path,
-                            label: name,
-                            icon: <FileIcon name={name} size={18} />,
-                            dirty: dirty.has(path),
-                            active: activePath === path,
-                            closable: onCloseWindow ? false : undefined,
-                        };
-                    })}
-                    onSelect={(path) => switchTo(path)}
-                    onClose={(path) => closeTabs([path])}
-                    buildMenu={onCloseWindow ? undefined : buildTabMenu}
-                    trailing={
-                        isMarkdownPath(activePath) || onCloseWindow ? (
-                            <>
-                                {isMarkdownPath(activePath) && (
-                                    <button
-                                        type="button"
-                                        className="ed-markdown-toggle"
-                                        aria-label={
-                                            previewingMarkdown ? `Show source for ${basename(activePath)}` : `Preview ${basename(activePath)}`
-                                        }
-                                        aria-pressed={previewingMarkdown}
-                                        onClick={toggleMarkdownPreview}>
-                                        {previewingMarkdown ? <IconEditor size={13} /> : <IconEye size={13} />}
-                                        <span>{previewingMarkdown ? "Source" : "Preview"}</span>
-                                    </button>
-                                )}
-                                {onCloseWindow && (
-                                    <button type="button" className="tabbar-window-close" title="Close SSH config" onClick={onCloseWindow}>
-                                        <IconClose size={12} />
-                                    </button>
-                                )}
-                            </>
-                        ) : undefined
-                    }
-                />
+                {/* An ordinary editor's documents are tabs in the session
+                    strip, so the only bar left here is the one an SSH config
+                    window needs to close itself. */}
+                {onCloseWindow ? (
+                    <TabBar
+                        variant="editor"
+                        tabs={tabs.map((path) => {
+                            const name = basename(path);
+                            return {
+                                id: path,
+                                label: name,
+                                icon: <FileIcon name={name} size={18} />,
+                                dirty: dirty.has(path),
+                                active: activePath === path,
+                                closable: false,
+                            };
+                        })}
+                        onSelect={(path) => switchTo(path)}
+                        trailing={
+                            <button type="button" className="tabbar-window-close" title="Close SSH config" onClick={onCloseWindow}>
+                                <IconClose size={12} />
+                            </button>
+                        }
+                    />
+                ) : (
+                    isMarkdownPath(activePath) && (
+                        <div className="ed-toolbar">
+                            <button
+                                type="button"
+                                className="ed-markdown-toggle"
+                                aria-label={previewingMarkdown ? `Show source for ${basename(activePath)}` : `Preview ${basename(activePath)}`}
+                                aria-pressed={previewingMarkdown}
+                                onClick={toggleMarkdownPreview}>
+                                {previewingMarkdown ? <IconEditor size={13} /> : <IconEye size={13} />}
+                                <span>{previewingMarkdown ? "Source" : "Preview"}</span>
+                            </button>
+                        </div>
+                    )
+                )}
                 <div className={`ed-host${activeImage ? " image-mode" : ""}${previewingMarkdown ? " preview-mode" : ""}`}>
                     <div
                         className="ed-source-host"
@@ -1052,7 +1024,6 @@ export function EditorPane({
                 )}
                 {tabs.length === 0 && (
                     <div className="ed-empty">
-                        <span className="ed-empty-field" aria-hidden="true" ref={emptyFieldRef} />
                         <IconFile size={22} />
                         <p>no file open</p>
                         <p className="ed-empty-sub">Pick one from the Files tab in the workspace rail, or press {filePaletteHint}</p>

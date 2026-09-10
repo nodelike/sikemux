@@ -232,4 +232,27 @@ describe("AgentPalette", () => {
         fireEvent.keyDown(screen.getByRole("textbox", { name: "Search agent sessions" }), { key: "Escape" });
         expect(getState().agentPaletteOpen).toBe(false);
     });
+
+    /*
+     * The palette used to hear Escape only through its own onKeyDown, so
+     * anything that held focus first — a terminal pane, which writes the escape
+     * byte to its PTY and stops there — left it with no way out.
+     */
+    it("closes on Escape when focus is outside the palette", async () => {
+        setState((state) => ({
+            sessions: { ...state.sessions, "sess-project": { ...state.sessions["sess-project"], view: "windows" } },
+        }));
+        render(<AgentPalette />);
+        await waitFor(() => expect(screen.getByRole("textbox", { name: "Search agent sessions" })).toBeInTheDocument());
+
+        const outsider = document.createElement("textarea");
+        document.body.append(outsider);
+        outsider.focus();
+        expect(document.activeElement).toBe(outsider);
+
+        fireEvent.keyDown(outsider, { key: "Escape" });
+
+        expect(getState().agentPaletteOpen).toBe(false);
+        outsider.remove();
+    });
 });

@@ -90,6 +90,26 @@ export function AgentPalette() {
         if (session && session.id !== origin.current.sessionId) cmd.forceCloseAgentPalette();
     }, [session]);
 
+    /*
+     * Capture Escape before the panes behind the scrim can act on it.
+     *
+     * This used to ride the picker's own `onKeyDown`, which only fires while
+     * focus is inside the picker. Anything that took focus first — a terminal
+     * pane being the usual one — left the palette unclosable: xterm saw the
+     * key, wrote an escape byte to the PTY, and the dialog never heard it. Same
+     * window-capture pattern DialogHost uses, for the same reason.
+     */
+    useEffect(() => {
+        const onKey = (event: KeyboardEvent) => {
+            if (event.key !== "Escape") return;
+            event.preventDefault();
+            event.stopPropagation();
+            cmd.closeAgentPalette();
+        };
+        window.addEventListener("keydown", onKey, true);
+        return () => window.removeEventListener("keydown", onKey, true);
+    }, []);
+
     const items = useMemo(() => {
         const fresh = agents.map(({ type }): NewAgentItem => ({ kind: "new", type }));
         const resumable = rows.map((row): ResumeAgentItem => ({ kind: "resume", row }));
@@ -145,12 +165,9 @@ export function AgentPalette() {
         });
     }
 
+    // Escape is handled by the window-capture listener above, so that it works
+    // regardless of what holds focus.
     function onKeyDown(event: React.KeyboardEvent<HTMLDivElement>) {
-        if (event.key === "Escape") {
-            event.preventDefault();
-            cmd.closeAgentPalette();
-            return;
-        }
         if (event.target !== inputRef.current) return;
         if (event.key === "ArrowDown" || (event.key === "Tab" && !event.shiftKey)) {
             event.preventDefault();

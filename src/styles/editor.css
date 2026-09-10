@@ -331,6 +331,19 @@
     color: var(--danger);
     background: var(--rail-2);
 }
+/* The editor's documents are tabs in the session strip now, so what is left
+ * above the text is a thin row for the few controls that follow the file. */
+.ed-toolbar {
+    display: flex;
+    flex: none;
+    align-items: center;
+    justify-content: flex-end;
+    gap: var(--space-1h);
+    height: 28px;
+    padding: 0 var(--space-2);
+    border-bottom: 1px solid var(--line-soft);
+}
+
 .ed-markdown-toggle {
     min-height: 26px;
     min-width: 84px;

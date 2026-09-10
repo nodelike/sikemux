@@ -25,27 +25,89 @@ export const selectAgentIds =
         state.agentsBySession[sessionId] ?? EMPTY_IDS;
 
 /**
- * The session's tabs as one ordered list: its windows, then its agents. Derived
- * rather than stored, so a window or agent can never exist without a tab.
+ * Roles the workspace rail drives, which therefore have no tab of their own.
+ *
+ * The rail is how you reach these and the stage is where they render, so a tab
+ * for them was a second handle on one surface: "Changes" in the rail and "Diff"
+ * in the strip both meant the same diff. Every other role keeps its tab, since
+ * nothing else offers a way back to it.
+ *
+ * `files` is absent here because an editor is not one surface: the rail browses
+ * the tree, but each open document is its own thing to switch between, so an
+ * editor contributes a tab per document instead of none.
  */
-export function selectTabRefs(state: StoreState, sessionId: string): WorkspaceTabRef[] {
-    const windowIds = state.windowsBySession[sessionId] ?? EMPTY_IDS;
-    const agentIds = state.agentsBySession[sessionId] ?? EMPTY_IDS;
+const RAIL_DRIVEN_ROLES: ReadonlySet<string> = new Set(["diff", "search"]);
+
+/** Whether `role` contributes a window entry to the session tab strip. */
+export function roleHasTab(role: string): boolean {
+    return !RAIL_DRIVEN_ROLES.has(role);
+}
+
+/**
+ * Expand one session's windows and agents into strip entries.
+ *
+ * Rail-driven roles contribute nothing: the rail reaches them and the stage
+ * renders them, so a tab would be a second handle on one surface. An editor
+ * contributes one entry per open document, which is what puts its files in this
+ * strip rather than a second bar inside the pane; with nothing open it
+ * contributes nothing, because an empty editor is not worth a tab. Everything
+ * else gets exactly one entry, and the list is derived rather than stored, so a
+ * window or agent can never exist without its tab.
+ */
+export function expandTabRefs(
+    windowIds: readonly string[],
+    agentIds: readonly string[],
+    windows: StoreState["windows"],
+    agents: StoreState["agents"],
+    editorViews: StoreState["editorViews"] = {},
+): WorkspaceTabRef[] {
     return [
-        ...windowIds.filter((id) => state.windows[id]).map((id): WorkspaceTabRef => ({ kind: "window", id })),
-        ...agentIds.filter((id) => state.agents[id]).map((id): WorkspaceTabRef => ({ kind: "agent", id })),
+        ...windowIds.flatMap((id): WorkspaceTabRef[] => {
+            const win = windows[id];
+            if (!win) return [];
+            if (win.role === "files") {
+                const openTabs = editorViews[win.activePaneId]?.openTabs ?? EMPTY_IDS;
+                return openTabs.map((path): WorkspaceTabRef => ({ kind: "file", id, path }));
+            }
+            return roleHasTab(win.role) ? [{ kind: "window", id }] : [];
+        }),
+        ...agentIds.filter((id) => agents[id]).map((id): WorkspaceTabRef => ({ kind: "agent", id })),
     ];
 }
 
-/** Which tab of `session` is live. `view` is the discriminator, not a mode. */
-export function activeTabRef(session: Session): WorkspaceTabRef | null {
+/**
+ * The session's tabs as one ordered list: its windows, then its agents.
+ */
+export function selectTabRefs(state: StoreState, sessionId: string): WorkspaceTabRef[] {
+    return expandTabRefs(
+        state.windowsBySession[sessionId] ?? EMPTY_IDS,
+        state.agentsBySession[sessionId] ?? EMPTY_IDS,
+        state.windows,
+        state.agents,
+        state.editorViews,
+    );
+}
+
+/**
+ * Which tab of `session` is live. `view` is the discriminator, not a mode.
+ *
+ * `editorViews` resolves an editor to the document it is showing, since the
+ * strip holds its documents rather than the window itself.
+ */
+export function activeTabRef(session: Session, windows?: StoreState["windows"], editorViews?: StoreState["editorViews"]): WorkspaceTabRef | null {
     if (session.kind === "project" && session.view === "agent") {
         return session.activeAgentId ? { kind: "agent", id: session.activeAgentId } : null;
     }
-    return session.activeWindowId ? { kind: "window", id: session.activeWindowId } : null;
+    if (!session.activeWindowId) return null;
+    const win = windows?.[session.activeWindowId];
+    if (win?.role === "files") {
+        const activePath = editorViews?.[win.activePaneId]?.activePath;
+        return activePath ? { kind: "file", id: win.id, path: activePath } : null;
+    }
+    return { kind: "window", id: session.activeWindowId };
 }
 
-export const tabRefKey = (ref: WorkspaceTabRef): string => `${ref.kind}:${ref.id}`;
+export const tabRefKey = (ref: WorkspaceTabRef): string => (ref.kind === "file" ? `file:${ref.id}:${ref.path}` : `${ref.kind}:${ref.id}`);
 
 export const selectActiveWindow = (state: StoreState): Window | undefined => {
     const session = selectActiveSession(state);

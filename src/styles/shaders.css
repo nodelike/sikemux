@@ -11,39 +11,31 @@
  */
 
 /*
- * Every field's alpha rides `--window-opacity`.
+ * A field's alpha is its strength and the global gain. Deliberately NOT
+ * `--window-opacity`.
  *
- * This is the whole reason a shader can live in this app at all. Window
- * transparency here is subtractive — `src-tauri/src/transparency.rs` makes the
- * NSWindow non-opaque and blurs what is behind it, and every surface multiplies
- * its own alpha by `--window-opacity` — so a field painting at full strength
- * would put a floor exactly where the user's desktop is supposed to show
- * through. Tying the canvas to the same variable means the field is at its
- * richest when the window is opaque and there is nothing behind it to see, and
- * recedes with the chrome as the window is dialled see-through.
+ * It used to be. The reasoning was sound for the version of this that hung one
+ * surface behind the whole shell: window transparency here is subtractive, so a
+ * full-bleed field at full strength would have put a floor exactly where the
+ * desktop is meant to show through.
+ *
+ * That reasoning did not survive the field moving inside a pane. A pane already
+ * fades with the window on its own, so multiplying the decoration by the same
+ * factor a second time squares it — and anyone running a see-through window,
+ * which is the whole point of the feature, got `0.2 * 0.5` and saw nothing at
+ * all. The surface it sits on handles transparency; this must not do it again.
  */
 [data-shader-field] canvas {
-    opacity: calc(var(--window-opacity, 1) * var(--shader-field-strength, 1));
+    opacity: calc(var(--shader-field-strength, 1) * var(--shader-field-gain, 1));
 }
-
-/* ── Editor: nothing open ─────────────────────────────────────────────────── */
 
 /*
- * Masked to a soft disc so the dither reads as a glow under the copy rather
- * than a panel with edges. The copy sits above it on its own stacking order,
- * since the runtime's canvas is `z-index: -1` inside the host.
+ * One number for how present every field is. Turn this down to taste rather
+ * than editing each surface — and to nothing to switch them all off without
+ * touching a shader.
  */
-.ed-empty-field {
-    --shader-field-strength: 0.34;
-    position: absolute;
-    inset: 0;
-    pointer-events: none;
-    mask-image: radial-gradient(closest-side at 50% 48%, #000 0%, rgba(0, 0, 0, 0.5) 46%, transparent 78%);
-    animation: shader-field-in 900ms ease both;
-}
-
-.ed-empty > :not(.ed-empty-field) {
-    position: relative;
+:root {
+    --shader-field-gain: 1;
 }
 
 /* ── First run: the tour ──────────────────────────────────────────────────── */
@@ -80,8 +72,103 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-    .ed-empty-field,
     .onb-field {
         animation: none;
     }
+}
+
+/* ── The content area's one surface ──────────────────────────────────────── */
+
+/*
+ * One field for the whole right-hand side, not one per pane.
+ *
+ * Three earlier shapes were wrong in instructive ways. A surface behind the
+ * whole shell only ever showed in the gutter, because the panels above it are
+ * opaque. A field in each rail read as noise behind two columns of dense type.
+ * A field in each pane started below the tab strip, drew a different pattern in
+ * every pane, and was torn down and rebuilt on every tab switch — three
+ * symptoms of the same mistake, which was letting each pane own a surface.
+ *
+ * So the content area has exactly one, mounted in `.window-area`: it starts at
+ * the top edge above the tab strip, spans every pane and split as a single
+ * continuous field, holds one WebGL context however the window is divided, and
+ * outlives tab switches because nothing about it belongs to a pane.
+ *
+ * It also *is* the surface. The ground panes used to paint individually now
+ * lives here, under the shader and over nothing, so everything above simply
+ * draws on top instead of replacing it.
+ */
+.window-area {
+    /* Already `z-index: 1`, so it is a stacking context and the negative
+       z-index below cannot escape behind it. Stated for the next reader. */
+    isolation: isolate;
+}
+
+.stage-field {
+    position: absolute;
+    inset: 0;
+    /* Above this layer's own ground, below everything drawn in the area. */
+    z-index: -1;
+    pointer-events: none;
+    /*
+     * No ground of its own: `::before` below already lays one across the whole
+     * area, and this layer's mask fades out, so painting the ground here too
+     * would stack two half-transparent copies wherever `--surface-solidity`
+     * drops under 100% and make the top band darker than the rest.
+     */
+    /*
+     * Weighted to the top and gone by the middle. The content area fills
+     * downward — scrollback, a document — so the top is the one band reliably
+     * free of anything being read.
+     */
+    --shader-field-strength: 0.2;
+    mask-image: linear-gradient(to bottom, #000 0%, rgba(0, 0, 0, 0.45) 20%, rgba(0, 0, 0, 0.08) 38%, transparent 50%);
+    /*
+     * Clips itself to the stage's corners rather than trusting the stage to do
+     * it. `.stage` is `overflow: hidden` with a `border-radius`, which is
+     * normally enough — but the mask above forces this into its own composited
+     * layer, and a rounded overflow clip on an ancestor is precisely what
+     * WebKit stops applying to a composited descendant. The dither bled square
+     * into all four corners while the ground beside it, an ordinary background,
+     * stayed correctly rounded.
+     *
+     * `clip-path` belongs to this element, so it survives compositing. The
+     * radius is the stage's inner edge: its border sits outside this box.
+     */
+    clip-path: inset(0 round calc(var(--radius-md) - 1px));
+}
+
+/*
+ * The mask fades the ground away with the shader, so the area below it needs
+ * the surface back. Painted on the layer itself rather than on the panes, which
+ * keeps "one surface, drawn over" true.
+ */
+.window-area::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: -2;
+    pointer-events: none;
+    /* Rounded for the same reason, so ground and field share one silhouette. */
+    border-radius: calc(var(--radius-md) - 1px);
+    background: color-mix(in srgb, var(--rail) var(--surface-solidity, 100%), transparent);
+}
+
+/*
+ * Panes and the tab strip stop painting grounds of their own — that ground is
+ * the layer above. Without this each of them would cover the field with an
+ * opaque copy of the very colour it is already sitting on.
+ */
+.pane,
+.tabbar.v-agent {
+    background: transparent;
+}
+
+/*
+ * Window transparency clears the frame, and this layer is the frame's centre
+ * now, so it goes with everything else rather than being the one surface that
+ * refuses to let the desktop through.
+ */
+html.is-transparent .window-area::before {
+    background: transparent;
 }

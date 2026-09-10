@@ -8,6 +8,7 @@ import { getState } from "../state/store";
 import { workbenchRuntime } from "../workbench/runtime";
 import { installInteractionTiming, startEventLoopMonitor, startNativeUiHeartbeat } from "./instrumentation";
 import { performanceTelemetry } from "./performance";
+import { shaderFieldDiagnostics } from "./shaderField";
 
 type LongTaskEntry = {
     name: string;
@@ -173,6 +174,7 @@ export function browserDiagnostics(): Record<string, unknown> {
         workbench: workbenchRuntime.getSnapshot(),
         resources: resourceStats(),
         bus: busStats(),
+        shaderFields: shaderFieldDiagnostics(),
         longTaskCount: longTasks.length,
         lastLongTasks: longTasks.slice(-10),
         runtimeErrors: runtimeErrors.slice(),

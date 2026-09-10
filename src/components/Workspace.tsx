@@ -4,15 +4,23 @@ import type { Agent, Divider, Rect, Session, Window as WindowT, WindowRole, Work
 import { collectPanes, computeLayout, findSplit, MIN_FRAC } from "../state/layout";
 import * as cmd from "../state/commands";
 import { getState, useStore } from "../state/store";
-import { activeTabRef, tabRefKey } from "../state/selectors";
+import { activeTabRef, expandTabRefs, roleHasTab, tabRefKey } from "../state/selectors";
 import { type CtxItem } from "./FileTree";
-import { basename } from "../lib/paths";
 import { ErrorBoundary } from "./ErrorBoundary";
 import { TabBar, type TabDescriptor } from "./TabBar";
 import { AgentIcon, IconCommand, IconGlobe, IconPlus, WindowIcon } from "./Icons";
 import { AgentStateIndicator } from "./AgentStateIndicator";
 import { renderWorkbenchItem } from "../workbench/renderers";
 import { AgentBrowserShell } from "./BrowserPane";
+import { ShaderField } from "./ShaderField";
+import { FileIcon } from "./FileIcon";
+import { fsapi } from "../api/fs";
+import { basename, relativePath } from "../lib/paths";
+import { FILE_MANAGER_NAME, PRIMARY_SHORTCUT } from "../lib/platform";
+import { notify, reportError } from "../state/toast";
+
+const copyPath = (_path: string, text: string, label: string) =>
+    navigator.clipboard.writeText(text).then(() => notify("success", `copied ${label}`), reportError("copy"));
 
 const AgentSurface = lazy(() => import("../chat/AgentSurface").then((module) => ({ default: module.AgentSurface })));
 
@@ -32,10 +40,26 @@ export function Workspace() {
 
     const sessions = sessionOrder.map((id) => sessionsById[id]);
     const activeSession = sessionsById[activeSessionId];
-    const tabCount = activeSession ? (windowsBySession[activeSession.id]?.length ?? 0) + (agentsBySession[activeSession.id]?.length ?? 0) : 0;
+    // Counts what the strip would actually show: a project holding only
+    // rail-driven surfaces has no tabs, and no strip.
+    const tabCount = activeSession
+        ? (windowsBySession[activeSession.id] ?? []).filter((id) => {
+              const role = windowsById[id]?.role;
+              return role !== undefined && roleHasTab(role);
+          }).length + (agentsBySession[activeSession.id]?.length ?? 0)
+        : 0;
 
     return (
         <div className="window-area" ref={areaRef}>
+            {/*
+             * The content area's one surface. Mounted here rather than per pane
+             * so it spans the tab strip and every pane as a single field, holds
+             * one WebGL context no matter how the window is split, and survives
+             * tab switches instead of being torn down and rebuilt with them.
+             * Panes and the tab strip draw over it; none of them paint a ground
+             * of their own any more.
+             */}
+            <ShaderField preset="pane" className="stage-field" />
             {activeSession && tabCount > 0 && <WorkspaceTabsBar session={activeSession} />}
             {sessions.flatMap((session) => {
                 const isActive = session.id === activeSessionId;
@@ -62,6 +86,8 @@ export function Workspace() {
     );
 }
 
+const EMPTY_IDS: readonly string[] = [];
+
 const ROLE_LABEL: Record<WindowRole, string> = {
     term: "Terminal",
     files: "Editor",
@@ -79,18 +105,18 @@ function WorkspaceTabsBar({ session }: { session: Session }) {
     const windowsById = useStore((s) => s.windows);
     const agentsById = useStore((s) => s.agents);
     const terminalTitles = useStore((s) => s.terminalTitles);
-    const editorViews = useStore((s) => s.editorViews);
     const activity = useStore((s) => s.agentActivity);
     const windowIds = useStore((s) => s.windowsBySession[session.id]);
     const agentIds = useStore((s) => s.agentsBySession[session.id]);
+    const editorViews = useStore((s) => s.editorViews);
+    const dirtyEditorPaths = useStore((s) => s.dirtyEditorPaths);
+    // Shared with cycleTab through selectTabRefs, so the strip and the keyboard
+    // can never disagree about what the tabs are.
     const refs = useMemo(
-        () => [
-            ...(windowIds ?? []).filter((id) => windowsById[id]).map((id): WorkspaceTabRef => ({ kind: "window", id })),
-            ...(agentIds ?? []).filter((id) => agentsById[id]).map((id): WorkspaceTabRef => ({ kind: "agent", id })),
-        ],
-        [windowIds, agentIds, windowsById, agentsById],
+        () => expandTabRefs(windowIds ?? EMPTY_IDS, agentIds ?? EMPTY_IDS, windowsById, agentsById, editorViews),
+        [windowIds, agentIds, windowsById, agentsById, editorViews],
     );
-    const active = activeTabRef(session);
+    const active = activeTabRef(session, windowsById, editorViews);
     const activeKey = active ? tabRefKey(active) : null;
 
     const windowMenu = (win: WindowT): CtxItem[] => {
@@ -100,6 +126,34 @@ function WorkspaceTabsBar({ session }: { session: Session }) {
             { label: "Duplicate", run: () => cmd.duplicateWindow(win.id) },
             { label: "Close", hint: "⌥W", disabled: win.fixed, run: () => cmd.closeWindowById(win.id) },
             { label: "Close Others", disabled: others.length === 0, run: () => others.forEach((t) => cmd.closeWindowById(t.id)) },
+        ];
+    };
+
+    const fileMenu = (ref: Extract<WorkspaceTabRef, { kind: "file" }>): CtxItem[] => {
+        const win = windowsById[ref.id];
+        const open = win ? (editorViews[win.activePaneId]?.openTabs ?? []) : [];
+        const dirty = new Set(win ? (dirtyEditorPaths[win.activePaneId] ?? []) : []);
+        const index = open.indexOf(ref.path);
+        const close = (paths: string[]) => paths.forEach((path) => cmd.closeTab({ kind: "file", id: ref.id, path }));
+        const others = open.filter((path) => path !== ref.path);
+        const toLeft = index > 0 ? open.slice(0, index) : [];
+        const toRight = index >= 0 ? open.slice(index + 1) : [];
+        const saved = open.filter((path) => !dirty.has(path));
+        return [
+            { label: "Close", hint: `${PRIMARY_SHORTCUT}W`, run: () => close([ref.path]) },
+            { label: "Close Others", disabled: others.length === 0, run: () => close(others) },
+            { label: "Close to the Left", disabled: toLeft.length === 0, run: () => close(toLeft) },
+            { label: "Close to the Right", disabled: toRight.length === 0, run: () => close(toRight) },
+            { label: "Close Saved", disabled: saved.length === 0, run: () => close(saved) },
+            { label: "Close All", run: () => close(open) },
+            { sep: true },
+            { label: "Copy Path", run: () => void copyPath(ref.path, ref.path, "path") },
+            {
+                label: "Copy Relative Path",
+                run: () => void copyPath(ref.path, relativePath(ref.path, session.cwd) ?? basename(ref.path), "relative path"),
+            },
+            { sep: true },
+            { label: `Reveal in ${FILE_MANAGER_NAME}`, run: () => void fsapi.revealInFinder(ref.path).catch(reportError("reveal")) },
         ];
     };
 
@@ -150,10 +204,24 @@ function WorkspaceTabsBar({ session }: { session: Session }) {
                 },
             ];
         }
+        if (ref.kind === "file") {
+            const win = windowsById[ref.id];
+            if (!win) return [];
+            const name = basename(ref.path);
+            return [
+                {
+                    id: key,
+                    label: name,
+                    title: ref.path,
+                    active: key === activeKey,
+                    dirty: (dirtyEditorPaths[win.activePaneId] ?? []).includes(ref.path),
+                    icon: <FileIcon name={name} size={16} />,
+                },
+            ];
+        }
         const win = windowsById[ref.id];
         if (!win) return [];
-        const editorPath = win.role === "files" ? (editorViews[win.activePaneId]?.activePath ?? null) : null;
-        const label = win.role === "term" ? terminalTitles[win.activePaneId] || win.name : editorPath ? basename(editorPath) : ROLE_LABEL[win.role];
+        const label = win.role === "term" ? terminalTitles[win.activePaneId] || win.name : ROLE_LABEL[win.role];
         return [
             {
                 id: key,
@@ -188,6 +256,7 @@ function WorkspaceTabsBar({ session }: { session: Session }) {
             buildMenu={(key) => {
                 const ref = refByKey.get(key);
                 if (!ref) return [];
+                if (ref.kind === "file") return fileMenu(ref);
                 if (ref.kind === "agent") {
                     const agent = agentsById[ref.id];
                     return agent ? agentMenu(agent) : [];

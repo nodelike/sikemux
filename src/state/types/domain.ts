@@ -196,9 +196,15 @@ export interface Session {
     view: "windows" | "agent";
 }
 
-/** One entry in a session's single tab strip. Windows and agents keep separate
- * stores because their lifecycles differ, so a tab is named by kind plus id. */
-export type WorkspaceTabRef = { kind: "window"; id: string } | { kind: "agent"; id: string };
+/**
+ * One entry in a session's tab strip.
+ *
+ * An editor contributes one `file` entry per open document rather than a single
+ * entry for itself, so its documents sit in the strip beside terminals and
+ * agents instead of in a second tab bar inside the pane. `id` is the window in
+ * every case; a file entry names the document it selects within it.
+ */
+export type WorkspaceTabRef = { kind: "window"; id: string } | { kind: "agent"; id: string } | { kind: "file"; id: string; path: string };
 
 export interface RecentEntry {
     kind: SessionKind;

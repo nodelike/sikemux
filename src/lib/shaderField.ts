@@ -47,13 +47,15 @@ interface Runtime {
     getShaderNoiseTexture: Shaders["getShaderNoiseTexture"];
 }
 
-export type ShaderFieldPreset = "empty" | "onboarding";
+export type ShaderFieldPreset = "pane" | "onboarding";
 
 /*
- * Two surfaces. The editor's empty state and the first-run tour are never on
- * screen at the same time as each other in practice, so this is really "one,
- * plus room for a handover" — and it leaves the rest of the context budget to
- * the terminals that need it.
+ * The content area's surface, and room for the tour.
+ *
+ * One each, because neither is per-pane: splitting the window no longer costs a
+ * context. That matters because every terminal takes one of the page's ~16 for
+ * its own renderer, and a terminal losing that to a decoration is a far worse
+ * trade than a surface without a texture.
  */
 const SURFACE_BUDGET = 2;
 
@@ -67,22 +69,36 @@ const surfaces = new Map<HTMLElement, Surface>();
 let runtimePromise: Promise<Runtime | null> | null = null;
 let noisePromise: Promise<HTMLImageElement> | null = null;
 let webglSupported: boolean | null = null;
+/*
+ * Why the last mount did not happen. Every refusal here is deliberate and
+ * silent — a field is decoration and must never raise — which also made a blank
+ * surface impossible to tell apart from a broken one. This is surfaced through
+ * `browserDiagnostics()` so the answer is one panel away.
+ */
+let lastRefusal: string | null = null;
+/*
+ * Time zero for continuous presets. Read once when the module loads so every
+ * surface — mounted now or twenty tab switches later — derives the same phase
+ * from the same origin.
+ */
+const FIELD_EPOCH = performance.now();
 
 /*
- * Probing costs a context, so the result is remembered and the throwaway one is
- * handed straight back. jsdom has no WebGL at all, which is why this exists:
- * without it every test that renders an empty pane would queue a mount that can
- * only fail.
+ * Whether this engine has WebGL 2 at all — asked without allocating anything.
+ *
+ * This used to probe by actually creating a context and handing it back, and
+ * cache whatever it got. That was a permanent failure waiting to happen: panes
+ * mount while the terminals are bringing up their own WebGL renderers, and if
+ * the page is momentarily at its context limit then `getContext` returns null,
+ * the `false` gets cached, and no field mounts again for the rest of the
+ * session. A transient race turned into a dead feature.
+ *
+ * Checking for the constructor answers the only question worth caching — does
+ * this engine do WebGL 2 — and can never be false because something else is
+ * busy. Real failures are the ShaderMount call's business, and it is wrapped.
  */
 function webglAvailable(): boolean {
-    if (webglSupported !== null) return webglSupported;
-    try {
-        const gl = document.createElement("canvas").getContext("webgl2");
-        webglSupported = Boolean(gl);
-        gl?.getExtension("WEBGL_lose_context")?.loseContext();
-    } catch {
-        webglSupported = false;
-    }
+    webglSupported ??= typeof WebGL2RenderingContext !== "undefined";
     return webglSupported;
 }
 
@@ -160,27 +176,47 @@ function sizing(runtime: Runtime, fit: "none" | "contain" | "cover", scale: numb
 interface Recipe {
     fragmentShader: string;
     speed: number;
+    /**
+     * Join the shared clock instead of starting at zero, so a surface that is
+     * released and rebuilt picks the animation up where it now is.
+     */
+    continuous?: boolean;
     uniforms: ShaderMountUniforms;
     needsNoise?: boolean;
 }
 
 const PRESETS: Record<ShaderFieldPreset, (runtime: Runtime, theme: Theme) => Recipe> = {
     /*
-     * A pane with no file in it. Two-colour dithering drifts under the copy as
-     * an accent-tinted cloud: it reads as depth in the corner of the eye and
-     * never as an animation asking to be watched. Masked to a disc in CSS so it
-     * has no edges of its own to compete with the text.
+     * The content panes: two-colour dithering.
+     *
+     * A Bayer grid over simplex noise, the accent on the shell's own ground, so
+     * it stays inside the theme and reads as texture rather than as colour. The
+     * grain gradient was here first and washed the pane in four hues, which is
+     * a different thing entirely — this is the dither.
      */
-    empty: (runtime, theme) => ({
+    pane: (runtime, theme) => ({
+        /*
+         * Moves, but never restarts.
+         *
+         * Only an on-screen pane may hold a WebGL context, so a pane's field is
+         * released on tab switch and rebuilt when you come back. Starting each
+         * rebuild at frame zero made that visible — a background nobody should
+         * notice announced itself every time you changed tabs. Making it static
+         * hid the rebuild but cost the motion, which was the wrong half to give
+         * up. On the shared clock it does both: the pattern is always where the
+         * clock says it should be, so a rebuild lands mid-drift and cannot be
+         * told from a surface that was there all along.
+         */
         fragmentShader: runtime.ditheringFragmentShader,
-        speed: 0.22,
+        speed: 0.35,
+        continuous: true,
         uniforms: {
             u_colorBack: runtime.getShaderColorFromString(theme.chrome.bgDim),
             u_colorFront: runtime.getShaderColorFromString(theme.chrome.acc),
             u_shape: runtime.DitheringShapes.simplex,
             u_type: runtime.DitheringTypes["4x4"],
             u_pxSize: 2,
-            ...sizing(runtime, "none", 0.5),
+            ...sizing(runtime, "none", 0.55),
         },
     }),
 
@@ -232,9 +268,17 @@ function prune(): void {
  * nothing.
  */
 export function mountShaderField(host: HTMLElement, preset: ShaderFieldPreset): void {
-    if (!webglAvailable() || surfaces.has(host)) return;
+    if (surfaces.has(host)) return;
+    if (!webglAvailable()) {
+        lastRefusal = "no webgl2 context";
+        return;
+    }
     prune();
-    if (surfaces.size >= SURFACE_BUDGET) return;
+    if (surfaces.size >= SURFACE_BUDGET) {
+        lastRefusal = `budget spent (${SURFACE_BUDGET} surfaces live)`;
+        return;
+    }
+    lastRefusal = null;
 
     // Claimed before the first await so a burst of calls mounts once.
     surfaces.set(host, { preset, mount: null, runtime: null });
@@ -253,13 +297,22 @@ export function mountShaderField(host: HTMLElement, preset: ShaderFieldPreset): 
                 return;
             }
             const animate = shouldAnimate();
+            /*
+             * `frame` is in the same accumulated units the runtime advances by
+             * (`currentFrame += dt * speed`), so sharing a phase means scaling
+             * the elapsed time by this preset's own speed rather than passing
+             * raw milliseconds.
+             */
+            const phase = recipe.continuous ? (performance.now() - FIELD_EPOCH) * recipe.speed : 0;
             const mount = new runtime.ShaderMount(
                 host,
                 recipe.fragmentShader,
                 recipe.uniforms,
                 { antialias: false },
                 animate ? recipe.speed : 0,
-                animate ? 0 : 2500,
+                // Asked for less motion, a continuous preset holds the phase it
+                // would have had rather than snapping to an arbitrary still.
+                animate ? phase : phase || 2500,
                 // These are soft fields behind text, not artwork. Rendering at
                 // 1x rather than the default 2x halves the fill cost and is
                 // invisible through the mask.
@@ -268,7 +321,9 @@ export function mountShaderField(host: HTMLElement, preset: ShaderFieldPreset): 
             surfaces.set(host, { preset, mount, runtime });
             host.dataset.shaderField = preset;
         } catch (error) {
-            console.warn(`Paper Shaders: ${preset} field skipped —`, error instanceof Error ? error.message : error);
+            const reason = error instanceof Error ? error.message : String(error);
+            console.warn(`Paper Shaders: ${preset} field skipped —`, reason);
+            lastRefusal = `${preset}: ${reason}`;
             surfaces.delete(host);
         }
     })();
@@ -286,6 +341,18 @@ export function unmountShaderField(host: HTMLElement): void {
 /** Live surface count. Exported for tests and for reasoning about the context budget. */
 export function shaderFieldCount(): number {
     return surfaces.size;
+}
+
+/** What the shader fields are doing, for the diagnostics panel. */
+export function shaderFieldDiagnostics(): Record<string, unknown> {
+    return {
+        live: surfaces.size,
+        budget: SURFACE_BUDGET,
+        webgl2: webglSupported,
+        presets: [...surfaces.values()].map((surface) => `${surface.preset}${surface.mount ? "" : " (pending)"}`),
+        animating: shouldAnimate(),
+        lastRefusal,
+    };
 }
 
 /*

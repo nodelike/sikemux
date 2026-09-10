@@ -165,6 +165,7 @@ export function AgentRailBody() {
                     usagePeaks={usagePeaks}
                     canOpenPalette={catalogAgents.length > 0}
                 />
+                <div className="agent-empty">agents are project-scoped</div>
                 {isUsageAgent(selectedType) && selectedUsage && (
                     <AgentUsagePanel
                         provider={selectedType}
@@ -172,7 +173,6 @@ export function AgentRailBody() {
                         label={availableAgents.find((a) => a.type === selectedType)?.label}
                     />
                 )}
-                <div className="agent-empty">agents are project-scoped</div>
             </>
         );
     }
@@ -190,9 +190,6 @@ export function AgentRailBody() {
                 usagePeaks={usagePeaks}
                 canOpenPalette={catalogAgents.length > 0}
             />
-            {isUsageAgent(selectedType) && selectedUsage && (
-                <AgentUsagePanel provider={selectedType} usage={selectedUsage} label={availableAgents.find((a) => a.type === selectedType)?.label} />
-            )}
             {searchOpen && (
                 <div className="rail-search">
                     <IconSearch size={12} />
@@ -278,6 +275,11 @@ export function AgentRailBody() {
                     </Panel>
                 )}
             </div>
+            {/* The rail's footer: plan limits sit under the agents they apply
+                to, out of the way of the list you came here to use. */}
+            {isUsageAgent(selectedType) && selectedUsage && (
+                <AgentUsagePanel provider={selectedType} usage={selectedUsage} label={availableAgents.find((a) => a.type === selectedType)?.label} />
+            )}
         </>
     );
 }

@@ -401,8 +401,12 @@
     --usage-cell: 4px;
     --usage-pitch: 6px;
     flex: 0 0 auto;
+    /* margin-top pushes it to the foot when the list is shorter than the rail;
+       flex:1 on .rail-scroll already does it when the list is taller. */
+    margin-top: auto;
     padding: 10px 10px 13px;
-    border-bottom: 1px solid var(--line);
+    /* Divides from the list above it now, not from the header above it. */
+    border-top: 1px solid var(--line);
     background: color-mix(in srgb, var(--rail-2) 52%, transparent);
 }
 .agent-usage.claude {

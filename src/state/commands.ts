@@ -1514,13 +1514,32 @@ export function selectWindowId(id: string): void {
 }
 
 export function selectTab(ref: WorkspaceTabRef): void {
-    if (ref.kind === "agent") selectAgent(ref.id);
-    else selectWindowId(ref.id);
+    if (ref.kind === "agent") {
+        selectAgent(ref.id);
+        return;
+    }
+    if (ref.kind === "file") {
+        const win = getState().windows[ref.id];
+        if (win) setEditorView(win.activePaneId, { activePath: ref.path });
+        selectWindowId(ref.id);
+        return;
+    }
+    selectWindowId(ref.id);
 }
 
 export function closeTab(ref: WorkspaceTabRef): void {
-    if (ref.kind === "agent") closeAgent(ref.id);
-    else closeWindowById(ref.id);
+    if (ref.kind === "agent") {
+        closeAgent(ref.id);
+        return;
+    }
+    if (ref.kind === "file") {
+        // The editor owns the unsaved-changes prompt and the CodeMirror state
+        // for each document, so closing goes through it rather than around it.
+        const win = getState().windows[ref.id];
+        if (win) emit({ type: "close-file", paneId: win.activePaneId, path: ref.path });
+        return;
+    }
+    closeWindowById(ref.id);
 }
 
 export function cycleTab(delta: number): void {
@@ -1529,7 +1548,7 @@ export function cycleTab(delta: number): void {
     if (!session) return;
     const refs = selectTabRefs(st, session.id);
     if (refs.length === 0) return;
-    const current = activeTabRef(session);
+    const current = activeTabRef(session, st.windows, st.editorViews);
     const index = current ? refs.findIndex((ref) => tabRefKey(ref) === tabRefKey(current)) : -1;
     const base = index < 0 ? 0 : index;
     selectTab(refs[(base + delta + refs.length) % refs.length]);
@@ -2190,7 +2209,29 @@ export async function openSshConfigEditor(): Promise<void> {
     });
 }
 export const toggleSideRail = (): void => setState((s) => ({ sideRailOpen: !s.sideRailOpen }));
-export const setRailTab = (tab: import("./types").RailTab): void => setState({ railTab: tab });
+/*
+ * Which surface each rail tab drives. These roles have no tab in the session
+ * strip (see `roleHasTab`), so selecting the rail tab is how you bring one
+ * forward into the stage.
+ */
+const RAIL_TAB_ROLE: Partial<Record<import("./types").RailTab, WindowRole>> = {
+    files: "files",
+    changes: "diff",
+    search: "search",
+};
+
+export function setRailTab(tab: import("./types").RailTab): void {
+    setState({ railTab: tab });
+    const role = RAIL_TAB_ROLE[tab];
+    if (!role) return;
+    const st = getState();
+    const session = st.sessions[st.activeSessionId];
+    if (!session) return;
+    // Only bring forward a surface that already exists. Switching rail tabs is
+    // navigation, not a reason to conjure an empty editor into the stage.
+    const existing = (st.windowsBySession[session.id] ?? []).find((id) => st.windows[id]?.role === role);
+    if (existing) selectWindowId(existing);
+}
 export const setRailChangesSplit = (value: number): void => setState({ railChangesSplit: Math.min(0.85, Math.max(0.15, value)) });
 export const toggleWorkspaceRail = (): void => setState((s) => ({ workspaceRailOpen: !s.workspaceRailOpen }));
 export const toggleZen = (): void => setState((s) => ({ zenMode: !s.zenMode }));
