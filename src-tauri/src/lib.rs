@@ -16,6 +16,7 @@ mod files;
 mod fs;
 mod fs_watch;
 mod git;
+mod harness;
 mod lsp;
 pub mod observability;
 mod pty;
@@ -328,6 +329,10 @@ pub fn run() {
             external::run_background_command,
             transparency::set_window_blur,
             bruno::bru_send,
+            harness::harness_resolve_path,
+            harness::harness_claim,
+            harness::harness_reply,
+            pty::harness_task_output,
             cli_server::cli_frontend_ready,
             cli_server::cli_claim_open_requests,
             cli_server::cli_open_result,

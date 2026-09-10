@@ -36,6 +36,7 @@ struct CliBrokerInner {
     endpoint_path: PathBuf,
     descriptor: CliEndpointDescriptor,
     requests: Mutex<HashMap<String, RequestEntry>>,
+    harness: crate::harness::HarnessBroker,
     stopping: AtomicBool,
 }
 
@@ -79,6 +80,7 @@ impl CliBroker {
                 endpoint_path,
                 descriptor,
                 requests: Mutex::new(HashMap::new()),
+                harness: crate::harness::HarnessBroker::default(),
                 stopping: AtomicBool::new(false),
             }),
         };
@@ -87,6 +89,10 @@ impl CliBroker {
             .name("sikemux-cli-listener".into())
             .spawn(move || serving.listen(listener))?;
         Ok(broker)
+    }
+
+    pub fn harness(&self) -> &crate::harness::HarnessBroker {
+        &self.inner.harness
     }
 
     pub fn endpoint_path(&self) -> &Path {
@@ -156,6 +162,20 @@ impl CliBroker {
         };
 
         match command {
+            CliClientCommand::Harness {
+                protocol,
+                token,
+                request,
+            } => {
+                let result = self.authenticate(protocol, &token).and_then(|_| {
+                    crate::harness::execute(&self.inner.app, &self.inner.harness, request)
+                });
+                let response = match result {
+                    Ok(value) => CliServerResponse::Result { value },
+                    Err(message) => CliServerResponse::Error { message },
+                };
+                let _ = write_response(&mut stream, &response);
+            }
             CliClientCommand::Ping { protocol, token } => {
                 if let Err(message) = self.authenticate(protocol, &token) {
                     let _ = write_response(&mut stream, &CliServerResponse::Error { message });
@@ -463,6 +483,7 @@ impl CliBroker {
             }
             requests.clear();
         }
+        self.inner.harness.shutdown();
         remove_owned_endpoint(&self.inner.endpoint_path, &self.inner.descriptor.token);
     }
 }
@@ -520,7 +541,17 @@ fn validate_request(request: &CliOpenRequest) -> Result<(), String> {
 }
 
 fn write_response(stream: &mut TcpStream, response: &CliServerResponse) -> std::io::Result<()> {
-    serde_json::to_writer(&mut *stream, response)?;
+    let bytes = serde_json::to_vec(response)?;
+    if bytes.len() as u64 >= MAX_CLI_FRAME_BYTES {
+        serde_json::to_writer(
+            &mut *stream,
+            &CliServerResponse::Error {
+                message: "Response exceeds 64 KiB; reduce the requested output".into(),
+            },
+        )?;
+    } else {
+        stream.write_all(&bytes)?;
+    }
     stream.write_all(b"\n")?;
     stream.flush()
 }

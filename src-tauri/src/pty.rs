@@ -127,6 +127,8 @@ struct Pty {
     /// Present only for a durable task PTY. The atomic gate makes natural
     /// exit, explicit kill, and app drain race to one channel delivery.
     task_exit: Option<TaskExitReporter>,
+    harness_output: Mutex<crate::harness::OutputLog>,
+    harness_output_pending: Arc<AtomicBool>,
     /// Monotonic task completion timestamp. Zero means the task is still
     /// running; completed task snapshots remain attachable for a fixed grace.
     task_exited_at_ms: AtomicU64,
@@ -1713,6 +1715,21 @@ fn publish_shell_metadata(pty: &Pty, update: ShellProtocolUpdate) {
 }
 
 fn broadcast_output(pty: &Pty, bytes: &[u8]) {
+    if pty.task_exit.is_some() {
+        if let Ok(mut log) = pty.harness_output.lock() {
+            log.push(bytes);
+        }
+        if !pty.harness_output_pending.swap(true, Ordering::AcqRel) {
+            let pending = pty.harness_output_pending.clone();
+            let app = pty.app.clone();
+            let id = pty.id;
+            tauri::async_runtime::spawn(async move {
+                tokio::time::sleep(Duration::from_millis(50)).await;
+                pending.store(false, Ordering::Release);
+                let _ = app.emit("harness-task-output", id);
+            });
+        }
+    }
     let observer = global_observability();
     let mut metadata = Metadata::new();
     metadata.insert("bytes".to_owned(), ScalarValue::from(bytes.len()));
@@ -2705,6 +2722,8 @@ async fn spawn_prepared_pty(
         last_detection_fingerprint: AtomicU64::new(0),
         task_exit,
         task_exited_at_ms: AtomicU64::new(0),
+        harness_output: Mutex::new(crate::harness::OutputLog::default()),
+        harness_output_pending: Arc::new(AtomicBool::new(false)),
         _shell_integration: shell_integration,
         _capacity_permit: capacity_permit,
     });
@@ -4933,7 +4952,12 @@ mod tests {
 
 #[tauri::command]
 pub async fn pty_kill(manager: State<'_, PtyManager>, id: u32) -> AppResult<()> {
-    if let Some((_, pty)) = manager.ptys.remove(&id) {
+    let task = manager
+        .ptys
+        .get(&id)
+        .and_then(|entry| entry.task_exit.as_ref().map(|_| entry.value().clone()));
+    let target = task.or_else(|| manager.ptys.remove(&id).map(|(_, pty)| pty));
+    if let Some(pty) = target {
         pty.report_exit.store(false, Ordering::Release);
         // Notify any remaining subscribers so their xterms render
         // "[process exited]" before the unmount tears them down.
@@ -4964,4 +4988,26 @@ pub async fn pty_kill(manager: State<'_, PtyManager>, id: u32) -> AppResult<()> 
         .map_err(|e| AppError::Pty(format!("pty_kill join: {e}")))?;
     }
     Ok(())
+}
+
+#[tauri::command]
+pub fn harness_task_output(
+    manager: State<'_, PtyManager>,
+    id: u32,
+    cursor: u64,
+    limit: usize,
+) -> Result<crate::harness::OutputPage, String> {
+    let pty = manager
+        .ptys
+        .get(&id)
+        .ok_or("Task output expired or task no longer exists")?;
+    if pty.task_exit.is_none() {
+        return Err("PTY is not a managed task".into());
+    }
+    let result = pty
+        .harness_output
+        .lock()
+        .map_err(|_| "output lock poisoned")?
+        .read(cursor, limit);
+    result
 }

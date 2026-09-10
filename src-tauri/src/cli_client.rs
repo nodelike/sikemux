@@ -61,6 +61,9 @@ fn run_inner() -> Result<i32, String> {
         print_help();
         return Ok(0);
     }
+    if args[0] == "tool" {
+        return execute_tool(&args[1..]);
+    }
     if args[0] == "status" {
         return status();
     }
@@ -76,7 +79,7 @@ fn run_inner() -> Result<i32, String> {
 
 fn print_help() {
     println!(
-        "Sikemux CLI {}\n\nUSAGE:\n  sikemux open [--wait] [--project DIR] <PATH[:LINE[:COLUMN]]>...\n  sikemux <PATH[:LINE[:COLUMN]]>...\n  sikemux status\n  sikemux --version\n\nOPTIONS:\n  -w, --wait         Wait until every opened file tab is closed\n  -p, --project DIR  Route unowned files into this project\n  -h, --help         Print help\n  -V, --version      Print version\n\nLINE and COLUMN are one-based. Existing directories open as projects.",
+        "Sikemux CLI {}\n\nUSAGE:\n  sikemux open [--wait] [--project DIR] <PATH[:LINE[:COLUMN]]>...\n  sikemux <PATH[:LINE[:COLUMN]]>...\n  sikemux status\n  sikemux tool METHOD [JSON_PARAMS]\n  sikemux --version\n\nOPTIONS:\n  -w, --wait         Wait until every opened file tab is closed\n  -p, --project DIR  Route unowned files into this project\n  -h, --help         Print help\n  -V, --version      Print version\n\nLINE and COLUMN are one-based. Existing directories open as projects.",
         env!("CARGO_PKG_VERSION")
     );
 }
@@ -509,6 +512,52 @@ fn launch_app() -> Result<(), String> {
         .spawn()
         .map_err(|error| format!("cannot launch Sikemux: {error}"))?;
     Ok(())
+}
+
+fn execute_tool(args: &[String]) -> Result<i32, String> {
+    if args.is_empty() || args.len() > 2 {
+        return Err("usage: sikemux tool METHOD [JSON_PARAMS]".into());
+    }
+    let params = args
+        .get(1)
+        .map(|value| serde_json::from_str(value))
+        .transpose()
+        .map_err(|_| "invalid JSON params")?
+        .unwrap_or(serde_json::json!({}));
+    let cwd = env::current_dir().map_err(|error| error.to_string())?;
+    let project = env::var("SIKEMUX_PROJECT").unwrap_or_else(|_| {
+        infer_project_root(&cwd, CliTargetKind::Directory, &cwd)
+            .to_string_lossy()
+            .into_owned()
+    });
+    let request = crate::harness::HarnessRequest {
+        id: Uuid::new_v4().to_string(),
+        project,
+        agent_id: env::var("SIKEMUX_AGENT_ID").ok(),
+        method: args[0].clone(),
+        params,
+    };
+    request.validate()?;
+    let descriptor = read_endpoint(&endpoint_path()?)?;
+    let mut stream = connect(&descriptor)?;
+    stream
+        .set_read_timeout(Some(Duration::from_secs(70)))
+        .map_err(|error| error.to_string())?;
+    let command = CliClientCommand::Harness {
+        protocol: CLI_PROTOCOL_VERSION,
+        token: descriptor.token,
+        request,
+    };
+    serde_json::to_writer(&mut stream, &command).map_err(|error| error.to_string())?;
+    stream.write_all(b"\n").map_err(|error| error.to_string())?;
+    match read_response(&mut BufReader::new(stream))? {
+        CliServerResponse::Result { value } => {
+            println!("{}", value);
+            Ok(0)
+        }
+        CliServerResponse::Error { message } => Err(message),
+        _ => Err("unexpected harness response".into()),
+    }
 }
 
 #[cfg(test)]

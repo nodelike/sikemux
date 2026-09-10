@@ -46,6 +46,11 @@ pub struct CliOpenRequest {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(tag = "command", rename_all = "camelCase")]
 pub enum CliClientCommand {
+    Harness {
+        protocol: u16,
+        token: String,
+        request: crate::harness::HarnessRequest,
+    },
     Ping {
         protocol: u16,
         token: String,
@@ -67,6 +72,9 @@ pub struct CliOpenFailure {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(tag = "status", rename_all = "camelCase")]
 pub enum CliServerResponse {
+    Result {
+        value: serde_json::Value,
+    },
     Pong {
         protocol: u16,
         version: String,
