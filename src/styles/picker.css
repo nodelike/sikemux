@@ -7,7 +7,6 @@
     align-items: flex-start;
     padding-top: 13vh;
     background: color-mix(in oklab, var(--gray-base) 68%, transparent);
-    animation: fade var(--dur-2) var(--ease-out);
 }
 
 .agent-palette-stage {
@@ -33,7 +32,6 @@
     justify-content: center;
     padding: var(--space-6);
     background: color-mix(in oklab, var(--gray-base) 44%, transparent);
-    animation: fade var(--dur-1) var(--ease-out);
 }
 
 .session-switcher {
@@ -46,7 +44,6 @@
     border: 1px solid var(--border);
     box-shadow: var(--shadow-4);
     backdrop-filter: blur(20px) saturate(1.4);
-    animation: pop var(--dur-1) var(--ease-out);
 }
 
 .session-switcher-head,
@@ -56,7 +53,7 @@
     gap: 9px;
     padding: 10px 12px;
     color: var(--text-tertiary);
-    font-size: 10px;
+    font-size: var(--text-2xs);
     font-weight: 700;
     letter-spacing: 0.08em;
     text-transform: uppercase;
@@ -165,7 +162,6 @@
     box-shadow: var(--shadow-3);
     backdrop-filter: blur(20px) saturate(1.4);
     overflow: hidden;
-    animation: pop var(--dur-2) var(--ease-out);
 }
 
 .picker-input-wrap {
@@ -332,7 +328,7 @@
     display: inline-flex;
     align-items: center;
     gap: 5px;
-    font-size: 10.5px;
+    font-size: var(--text-2xs);
     line-height: 1;
     padding: 3px 7px;
     border: 1px solid var(--border);
@@ -462,11 +458,12 @@
 
 .new-tab-hint {
     color: var(--text-secondary);
-    font-size: 10.5px;
+    font-size: var(--text-2xs);
 }
 
 .new-tab-item {
-    height: 34px;
+    min-height: 52px;
+    height: auto;
     gap: 9px;
 }
 
@@ -511,8 +508,31 @@
     min-width: 0;
     overflow: hidden;
     color: var(--text-secondary);
-    font-size: 11px;
+    font-size: var(--text-2xs);
     text-align: right;
     text-overflow: ellipsis;
     white-space: nowrap;
+}
+
+.new-tab-item .picker-text {
+    display: grid;
+    flex: 1;
+    min-width: 0;
+    gap: var(--space-0);
+    text-align: left;
+}
+.new-tab-item .picker-sub {
+    max-width: none;
+    margin: 0;
+    white-space: normal;
+    font-size: var(--text-xs);
+}
+.new-tab-item:disabled {
+    opacity: 0.65;
+}
+.new-tab-palette .picker-footer {
+    padding: var(--space-2) var(--gutter-pane);
+    border-top: 1px solid var(--border);
+    font-size: var(--text-xs);
+    color: var(--text-tertiary);
 }

@@ -73,8 +73,8 @@
     position: absolute;
     top: calc(100% + 5px);
     left: 0;
-    z-index: 41;
-    min-width: 100%;
+    z-index: var(--layer-menu);
+    min-width: 0;
     max-height: 280px;
     overflow-y: auto;
     background: var(--surface-overlay);
@@ -131,5 +131,5 @@
     display: block;
     margin-top: 1px;
     color: var(--ink-faint);
-    font-size: 10.5px;
+    font-size: var(--text-2xs);
 }

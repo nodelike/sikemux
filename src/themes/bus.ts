@@ -1,3 +1,4 @@
+import { readableColor } from "../lib/themeContrast";
 import { Compartment } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import type { ITheme, Terminal } from "@xterm/xterm";
@@ -102,23 +103,33 @@ function applyChrome(theme: Theme) {
     root.setProperty("--bg-raised", c.bgRaised);
     root.setProperty("--ink", c.ink);
     root.setProperty("--ink-dim", c.inkDim);
-    root.setProperty("--ink-muted", c.inkMuted);
+    const muted = readableColor(c.inkDim, [c.bg, c.bgDim, c.bgRaised], c.ink);
+    root.setProperty("--ink-muted", muted);
+    root.setProperty("--text-tertiary", muted);
     root.setProperty("--acc", c.acc);
     root.setProperty("--acc-line", c.accLine);
     root.setProperty("--acc-dim", c.accDim);
     root.setProperty("--line", c.line);
     root.setProperty("--hl", c.hl);
-    root.setProperty("--danger", c.danger);
+    root.setProperty("--danger", readableColor(c.danger, [c.bg, c.bgDim, c.bgRaised], c.ink));
 
     root.setProperty("--void", c.bgDim);
     root.setProperty("--rail", c.bg);
     root.setProperty("--rail-2", c.bgRaised);
     root.setProperty("--pane", c.bg);
     root.setProperty("--line-soft", c.bgRaised);
-    root.setProperty("--ink-faint", c.inkMuted);
+    root.setProperty("--ink-faint", muted);
     root.setProperty("--acc-soft", c.accDim);
-    root.setProperty("--live", theme.highlight.string);
-    root.setProperty("--warn", theme.highlight.number);
+    root.setProperty("--live", readableColor(theme.dark ? "#78dca1" : "#247345", [c.bg, c.bgRaised], c.ink));
+    root.setProperty("--warn", readableColor(theme.dark ? "#e9ba6c" : "#875508", [c.bg, c.bgRaised], c.ink));
+    for (const [token, color] of Object.entries({
+        "--git-modified": theme.dark ? "#e2c08d" : "#875508",
+        "--git-untracked": theme.dark ? "#73c991" : "#247345",
+        "--git-added": theme.dark ? "#81b88b" : "#247345",
+        "--git-deleted": theme.dark ? "#ed806b" : "#aa3824",
+        "--git-renamed": theme.dark ? "#94b1ef" : "#345bad",
+    }))
+        root.setProperty(token, readableColor(color, [c.bg, c.bgDim, c.bgRaised], c.ink));
     root.setProperty("--cmd", theme.highlight.function);
     root.setProperty("--terminal-background", theme.terminal.background);
 
@@ -126,6 +137,9 @@ function applyChrome(theme: Theme) {
 }
 
 function applyThemeObject(next: Theme): void {
+    const root = document.documentElement;
+    root.classList.add("theme-changing");
+    void root.offsetWidth;
     current = next;
     applyChrome(next);
     const themeExt = buildEditorThemeExtensions(next);
@@ -135,6 +149,8 @@ function applyThemeObject(next: Theme): void {
     });
     applyTerminalThemes();
     themeListeners.forEach((listener) => listener(next));
+    void root.offsetWidth;
+    requestAnimationFrame(() => root.classList.remove("theme-changing"));
 }
 
 export function applyTheme(id: string): void {

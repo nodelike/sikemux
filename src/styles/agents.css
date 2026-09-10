@@ -6,13 +6,12 @@
     background: color-mix(in srgb, var(--surface) calc(var(--window-opacity, 1) * 100%), transparent);
     border-right: 1px solid var(--border);
     overflow: hidden;
-    animation: slideL 0.42s cubic-bezier(0.2, 0.7, 0.2, 1) backwards;
 }
 
 .agent-empty {
     padding: 16px 14px;
     color: var(--text-tertiary);
-    font-size: 11.5px;
+    font-size: var(--text-2xs);
     line-height: 1.6;
 }
 .agent-row {
@@ -142,7 +141,7 @@
     grid-template-columns: 4px 1fr;
     gap: 8px 16px;
     color: var(--text-secondary);
-    font-size: 12px;
+    font-size: var(--text-xs);
     line-height: 1.55;
 }
 .agent-dormant > :not(.agent-dormant-notch) {
@@ -175,7 +174,7 @@
 }
 .agent-dormant-kicker {
     color: var(--live);
-    font-size: 10px;
+    font-size: var(--text-2xs);
     letter-spacing: var(--tracking-label);
     text-transform: uppercase;
 }
@@ -227,7 +226,7 @@
     border: 1px solid var(--border);
     background: var(--surface-raised);
     color: var(--text-secondary);
-    font-size: 11px;
+    font-size: var(--text-2xs);
 }
 .env-dd-label {
     min-width: 0;
@@ -290,7 +289,7 @@
     height: 28px;
     padding: 0 9px;
     color: var(--text-secondary);
-    font-size: 12px;
+    font-size: var(--text-xs);
 }
 .env-dd-item:hover {
     background: var(--surface-selected);
@@ -319,7 +318,7 @@
     color: var(--text-tertiary);
 }
 .agent-ago {
-    font-size: 10px;
+    font-size: var(--text-2xs);
     color: var(--text-tertiary);
     font-variant-numeric: tabular-nums;
 }
@@ -457,7 +456,7 @@
     align-items: baseline;
     gap: 6px;
     margin-bottom: 6px;
-    font-size: 10px;
+    font-size: var(--text-2xs);
     line-height: 1;
 }
 .agent-usage-name {
@@ -526,7 +525,7 @@
 }
 .agent-usage-empty {
     color: var(--text-tertiary);
-    font-size: 10.5px;
+    font-size: var(--text-2xs);
     font-style: italic;
 }
 .agent-usage-empty[data-loading="true"] {
@@ -649,7 +648,7 @@
     border-radius: calc(var(--radius-control) - 1px);
     color: var(--text-secondary);
     font-family: var(--mono);
-    font-size: 10px;
+    font-size: var(--text-2xs);
     font-weight: 600;
     line-height: 1;
     letter-spacing: var(--tracking-label);
@@ -771,7 +770,7 @@
     border-radius: calc(var(--radius-control) - 1px);
     color: var(--text-secondary);
     font-family: var(--ui);
-    font-size: 11px;
+    font-size: var(--text-2xs);
     line-height: 1;
     transition:
         color 100ms,
@@ -819,7 +818,7 @@
 .rail-note {
     padding: 14px;
     color: var(--text-secondary);
-    font-size: 11.5px;
+    font-size: var(--text-2xs);
 }
 
 /* Files tab: the tree fills the rail instead of owning its own width. */
@@ -865,7 +864,7 @@
 .rail-changes-count {
     color: var(--live);
     font-family: var(--mono);
-    font-size: 11px;
+    font-size: var(--text-2xs);
 }
 
 .rail-branch {
@@ -875,7 +874,7 @@
     min-width: 0;
     overflow: hidden;
     color: var(--text-secondary);
-    font-size: 11px;
+    font-size: var(--text-2xs);
     text-overflow: ellipsis;
     white-space: nowrap;
 }
@@ -898,7 +897,7 @@
     border-radius: var(--radius-control);
     background: color-mix(in srgb, var(--surface-sunken) 46%, transparent);
     color: var(--text-primary);
-    font-size: 12px;
+    font-size: var(--text-xs);
     line-height: 1.5;
     resize: none;
 }
@@ -934,7 +933,7 @@
     border-radius: var(--radius-control);
     background: var(--surface-raised);
     color: var(--text-primary);
-    font-size: 12px;
+    font-size: var(--text-xs);
 }
 
 .rail-commit-go:hover:not(:disabled) {
@@ -981,7 +980,7 @@
     height: 28px;
     padding: 0 var(--gutter-rail);
     color: var(--text-secondary);
-    font-size: 10px;
+    font-size: var(--text-2xs);
     letter-spacing: 0.06em;
     text-transform: uppercase;
 }
@@ -1060,7 +1059,7 @@
     height: 24px;
     padding: 0 var(--gutter-rail);
     color: var(--text-secondary);
-    font-size: 12px;
+    font-size: var(--text-xs);
     text-align: left;
 }
 
@@ -1080,7 +1079,7 @@
     min-width: 0;
     overflow: hidden;
     color: var(--text-secondary);
-    font-size: 10.5px;
+    font-size: var(--text-2xs);
     text-overflow: ellipsis;
     white-space: nowrap;
 }
@@ -1090,7 +1089,7 @@
     margin-left: auto;
     padding-left: 6px;
     font-family: var(--mono);
-    font-size: 10px;
+    font-size: var(--text-2xs);
 }
 
 .rail-file-wrap.staged .rail-file {
@@ -1106,7 +1105,8 @@
     color: transparent;
 }
 
-.rail-file-wrap:hover .rail-file-stage {
+.rail-file-wrap:hover .rail-file-stage,
+.rail-file-wrap:focus-within .rail-file-stage {
     color: var(--text-secondary);
 }
 
@@ -1122,7 +1122,7 @@
     height: 24px;
     padding: 0 var(--gutter-rail);
     color: var(--text-secondary);
-    font-size: 11.5px;
+    font-size: var(--text-2xs);
     text-align: left;
 }
 
@@ -1175,7 +1175,7 @@
     height: 24px;
     padding: 0 var(--gutter-rail);
     color: var(--text-secondary);
-    font-size: 11.5px;
+    font-size: var(--text-2xs);
 }
 
 .rail-commit-row:hover {
@@ -1207,7 +1207,7 @@
     min-width: 0;
     overflow: hidden;
     color: var(--text-secondary);
-    font-size: 10.5px;
+    font-size: var(--text-2xs);
     text-overflow: ellipsis;
     white-space: nowrap;
 }
@@ -1222,4 +1222,116 @@
     background: var(--surface-selected);
     color: var(--acc);
     font-size: var(--text-3xs);
+}
+
+.rail-git-toolbar {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: var(--space-1);
+    padding: 0 var(--gutter-rail) var(--space-2);
+}
+.rail-git-toolbar button,
+.rail-new-branch {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-1);
+    min-height: var(--control-hit);
+    padding: var(--space-1) var(--space-2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-control);
+    color: var(--text-secondary);
+    font-size: var(--text-xs);
+}
+.rail-git-toolbar button:hover:not(:disabled),
+.rail-new-branch:hover:not(:disabled) {
+    background: var(--surface-hover);
+    color: var(--text-primary);
+}
+.rail-git-toolbar button:disabled {
+    color: var(--text-disabled);
+    cursor: default;
+}
+.rail-git-provider {
+    display: flex;
+    gap: var(--space-1);
+    min-width: 0;
+}
+.rail-git-provider .dd {
+    flex: 1;
+    min-width: 0;
+}
+.rail-git-provider .dd-btn {
+    width: 100%;
+    min-width: 0;
+    font-size: var(--text-2xs);
+}
+.rail-operation {
+    margin: 0 var(--gutter-rail) var(--space-2);
+    padding: var(--space-2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-control);
+    font-size: var(--text-xs);
+    color: var(--text-secondary);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    max-height: 140px;
+    overflow: auto;
+    flex: none;
+    user-select: text;
+}
+.rail-operation.error {
+    color: var(--danger);
+}
+.rail-operation button {
+    display: block;
+    min-height: var(--control-hit);
+    text-decoration: underline;
+    color: var(--text-primary);
+}
+.rail-section-heading {
+    display: flex;
+    align-items: center;
+    padding-right: var(--gutter-rail);
+}
+.rail-section-heading .rail-section-head {
+    flex: 1;
+    min-width: 0;
+}
+.rail-file-stage,
+.rail-section-act {
+    min-width: var(--control-hit);
+    min-height: var(--control-hit);
+}
+.rail-new-branch {
+    margin: var(--space-1) var(--gutter-rail);
+    flex: none;
+}
+.rail-note {
+    color: var(--text-tertiary);
+    font-size: var(--text-xs);
+    line-height: 1.5;
+}
+
+.rail-graph .gg-row {
+    min-width: 0;
+    width: 100%;
+    gap: 6px;
+}
+.rail-graph .gg-refs,
+.rail-graph .gg-author,
+.rail-graph .gg-when {
+    display: none;
+}
+.rail-graph .gg-subj {
+    min-width: 0;
+}
+.rail-graph .gg-hash {
+    font-size: var(--text-2xs);
+}
+.rail-file-stage {
+    color: var(--text-tertiary);
+}
+.rail-git-toolbar button:last-child {
+    grid-column: 1 / -1;
 }

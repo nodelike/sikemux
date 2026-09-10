@@ -58,7 +58,7 @@
     padding: 18px 30px;
     color: var(--text-secondary);
     border-bottom: 1px solid var(--border);
-    font-size: 12px;
+    font-size: var(--text-xs);
     line-height: 1.6;
 }
 .experience-list {
@@ -80,11 +80,11 @@
 }
 .experience-list span {
     color: var(--text-primary);
-    font-size: 12px;
+    font-size: var(--text-xs);
 }
 .experience-list small {
     color: var(--text-secondary);
-    font-size: 11px;
+    font-size: var(--text-2xs);
     line-height: 1.5;
 }
 .experience-frame footer {
@@ -111,7 +111,6 @@
    walkthrough reads as Sikemux rather than as a marketing overlay. */
 .onboarding-backdrop {
     background: color-mix(in srgb, var(--surface-sunken) 82%, transparent);
-    animation: fade 220ms ease-out both;
 }
 
 .onboarding-frame {
@@ -119,7 +118,6 @@
     max-height: min(660px, calc(100vh - 48px));
     background: color-mix(in srgb, var(--surface) calc(var(--window-opacity, 1) * 100%), transparent);
     outline: none;
-    animation: onboarding-frame-in 280ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
 }
 
 .onboarding-frame:focus-visible {
@@ -163,7 +161,7 @@
     grid-row: auto;
     padding: 6px 0 6px 10px;
     color: var(--text-tertiary);
-    font-size: 10px;
+    font-size: var(--text-2xs);
     transition: color 0.12s;
 }
 
@@ -239,7 +237,6 @@
 }
 
 .onboarding-copy > * {
-    animation: onboarding-copy-in 260ms cubic-bezier(0.2, 0.75, 0.25, 1) both;
 }
 
 .onboarding-copy[data-direction="back"] > * {
@@ -272,14 +269,14 @@
 .onboarding-copy > p {
     max-width: 445px;
     color: var(--text-secondary);
-    font-size: 12px;
+    font-size: var(--text-xs);
     line-height: 1.65;
 }
 
 .onboarding-aside {
     margin-top: 12px;
     color: var(--text-tertiary);
-    font-size: 10px;
+    font-size: var(--text-2xs);
     line-height: 1.5;
 }
 
@@ -329,7 +326,7 @@
 .onboarding-keys b,
 .onboarding-launch b {
     color: var(--text-primary);
-    font-size: 11px;
+    font-size: var(--text-2xs);
     font-weight: 600;
 }
 
@@ -384,7 +381,7 @@
     margin-left: auto;
     flex: 0 0 auto;
     color: var(--text-tertiary);
-    font-size: 8.5px;
+    font-size: var(--text-2xs);
     font-style: normal;
     letter-spacing: 0.1em;
     text-transform: uppercase;
@@ -422,7 +419,7 @@
 .onboarding-signals b {
     min-width: 84px;
     color: var(--text-secondary);
-    font-size: 11px;
+    font-size: var(--text-2xs);
     font-weight: 600;
 }
 
@@ -481,7 +478,7 @@
 
 .onboarding-detected span {
     color: var(--text-tertiary);
-    font-size: 8px;
+    font-size: var(--text-2xs);
     letter-spacing: var(--tracking-label);
     text-transform: uppercase;
 }
@@ -489,7 +486,7 @@
 .onboarding-detected b {
     overflow: hidden;
     color: var(--live);
-    font-size: 10px;
+    font-size: var(--text-2xs);
     font-weight: 500;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -501,7 +498,7 @@
     flex: 0 0 auto;
     color: var(--text-tertiary);
     font-family: var(--kbd);
-    font-size: 11px;
+    font-size: var(--text-2xs);
     font-style: normal;
     white-space: nowrap;
 }
@@ -522,7 +519,7 @@
     padding: 3px 6px;
     border: 1px solid var(--border);
     color: var(--text-tertiary);
-    font-size: 8.5px;
+    font-size: var(--text-2xs);
 }
 
 .onboarding-health span.is-ready {
@@ -558,7 +555,6 @@
     overflow: hidden;
     border: 1px solid var(--border);
     background: var(--surface-sunken);
-    animation: onboarding-frame-in 320ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
 }
 
 .onb-win-bar {
@@ -568,7 +564,6 @@
     padding: 0 7px;
     background: var(--surface);
     border-bottom: 1px solid var(--border);
-    animation: fadeDown 0.4s ease 60ms backwards;
 }
 
 .onb-win-lights {
@@ -641,12 +636,10 @@
 
 .onb-win-rail {
     border-right: 1px solid var(--border);
-    animation: slideL 0.44s cubic-bezier(0.2, 0.7, 0.2, 1) 80ms backwards;
 }
 
 .onb-win-agents {
     border-right: 1px solid var(--border);
-    animation: slideL 0.44s cubic-bezier(0.2, 0.7, 0.2, 1) 140ms backwards;
 }
 
 .onb-win-group {
@@ -742,7 +735,6 @@
     display: grid;
     grid-template-rows: 14px minmax(0, 1fr);
     min-width: 0;
-    animation: paneIn 0.5s ease 120ms backwards;
 }
 
 .onb-win-tabs {
@@ -765,7 +757,6 @@
 }
 
 .onb-win-tabs span:last-child:not(.is-active) {
-    animation: fade 0.3s ease both;
 }
 
 .onb-win-panes {
@@ -791,7 +782,6 @@
 }
 
 .onb-win-panes.is-split .onb-win-pane.is-code {
-    animation: slideR 0.34s cubic-bezier(0.2, 0.7, 0.2, 1) both;
 }
 
 .onb-win-line {
@@ -859,14 +849,12 @@
     align-items: flex-start;
     padding-top: 28px;
     background: color-mix(in oklab, var(--gray-base) 72%, transparent);
-    animation: fade 0.14s ease;
 }
 
 .onb-win-overlay {
     width: 78%;
     border: 1px solid var(--border-selected);
     background: var(--surface-raised);
-    animation: pop 0.18s cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
 .onb-win-overlay-head {
@@ -908,7 +896,7 @@
 
 .onb-stage-caption {
     color: var(--text-tertiary);
-    font-size: 8.5px;
+    font-size: var(--text-2xs);
     letter-spacing: 0.1em;
     text-align: center;
     text-transform: uppercase;
@@ -1104,7 +1092,7 @@
     padding: 22px 30px;
     overflow: auto;
     color: var(--text-primary);
-    font-size: 12px;
+    font-size: var(--text-xs);
     line-height: 1.7;
 }
 .release-notes > :first-child {
@@ -1131,7 +1119,7 @@
     letter-spacing: 0.015em;
 }
 .release-notes h3 {
-    font-size: 12px;
+    font-size: var(--text-xs);
 }
 .release-notes p {
     margin: 0 0 14px;
@@ -1240,5 +1228,5 @@
 }
 .command-popup > header button {
     color: var(--text-tertiary);
-    font-size: 10px;
+    font-size: var(--text-2xs);
 }

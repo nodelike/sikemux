@@ -7,7 +7,6 @@
     align-items: flex-start;
     padding-top: 9vh;
     background: color-mix(in oklab, var(--gray-base) 62%, transparent);
-    animation: fade 0.15s ease;
 }
 .settings-head {
     display: flex;
@@ -21,7 +20,7 @@
 }
 .settings-title {
     flex: 1;
-    font-size: 10px;
+    font-size: var(--text-2xs);
     font-weight: var(--weight-semibold);
     letter-spacing: 0.24em;
     text-transform: uppercase;
@@ -61,7 +60,7 @@
     padding: 0;
     color: var(--text-primary);
     font-family: var(--ui);
-    animation: fade 0.16s ease;
+
     --s-bg: color-mix(in srgb, var(--bg) calc(var(--window-opacity, 1) * 100%), transparent);
     --s-bg-dim: color-mix(in srgb, var(--bg-dim) calc(var(--window-opacity, 1) * 100%), transparent);
     --s-bg-raised: color-mix(in srgb, var(--bg-raised) calc(var(--window-opacity, 1) * 100%), transparent);
@@ -134,13 +133,13 @@
     border-color: color-mix(in srgb, var(--border-selected) 64%, transparent);
 }
 .settings-rail-name {
-    font-size: 12px;
+    font-size: var(--text-xs);
     font-weight: 650;
     letter-spacing: -0.01em;
 }
 .settings-rail-detail {
     color: var(--ink-muted);
-    font-size: 10px;
+    font-size: var(--text-2xs);
     line-height: 1.2;
 }
 .settings-rail-item.active .settings-rail-detail {
@@ -156,7 +155,7 @@
     gap: 8px;
 }
 .settings-rail-path {
-    font-size: 10px;
+    font-size: var(--text-2xs);
     color: var(--ink-muted);
     line-height: 1.45;
 }
@@ -228,7 +227,6 @@
 }
 
 .settings-page {
-    animation: settingsFadeIn 0.18s ease-out;
     padding: 0 0 28px;
 }
 @keyframes settingsFadeIn {
@@ -255,7 +253,7 @@
 }
 .settings-page-deck {
     color: var(--text-secondary);
-    font-size: 12px;
+    font-size: var(--text-xs);
     line-height: 1.6;
     margin: 8px 0 0;
     max-width: 520px;
@@ -294,7 +292,7 @@
 }
 .settings-section-sub {
     color: var(--text-secondary);
-    font-size: 11.5px;
+    font-size: var(--text-2xs);
     line-height: 1.55;
     margin: 6px 0 16px;
     max-width: 600px;
@@ -369,13 +367,13 @@
 
 .settings-field-label {
     display: block;
-    font-size: 10px;
+    font-size: var(--text-2xs);
     color: var(--text-secondary);
     letter-spacing: 0.1em;
     text-transform: uppercase;
 }
 .settings-field-help {
-    font-size: 11px;
+    font-size: var(--text-2xs);
     color: var(--ink-muted);
     margin-top: 6px;
     line-height: 1.5;
@@ -386,7 +384,7 @@
     background: var(--s-bg-dim);
     border: 1px solid var(--border);
     padding: 0 4px;
-    font-size: 10.5px;
+    font-size: var(--text-2xs);
 }
 
 .settings-list {
@@ -399,7 +397,7 @@
 }
 .settings-empty {
     padding: 12px 14px;
-    font-size: 11.5px;
+    font-size: var(--text-2xs);
     color: var(--ink-muted);
     border: 1px solid var(--border);
     background: var(--s-bg-dim);
@@ -409,7 +407,7 @@
     background: var(--s-bg);
     border: 1px solid var(--border);
     padding: 0 5px;
-    font-size: 11px;
+    font-size: var(--text-2xs);
     color: var(--acc);
 }
 /* One line: the path field takes the slack, the controls keep their size. */
@@ -448,7 +446,7 @@
 }
 .settings-list-idx {
     color: var(--ink-muted);
-    font-size: 10px;
+    font-size: var(--text-2xs);
     font-variant-numeric: tabular-nums;
 }
 .settings-list-path {
@@ -568,7 +566,7 @@
 }
 .settings-theme-name {
     overflow: hidden;
-    font-size: 11.5px;
+    font-size: var(--text-2xs);
     font-weight: 650;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -675,7 +673,7 @@
 .settings-control-copy p {
     margin: 4px 0 0;
     color: var(--ink-muted);
-    font-size: 10.5px;
+    font-size: var(--text-2xs);
     line-height: 1.45;
 }
 
@@ -729,7 +727,7 @@
     border: 1px solid var(--border);
     background: var(--s-bg-dim);
     color: var(--ink-muted);
-    font-size: 10px;
+    font-size: var(--text-2xs);
     line-height: 1.4;
 }
 .keymap-status-light {
@@ -940,7 +938,7 @@
     transition: border-color 0.1s;
 }
 .theme-editor-base {
-    font-size: 10.5px;
+    font-size: var(--text-2xs);
     color: var(--ink-muted);
     white-space: nowrap;
 }
@@ -1019,7 +1017,7 @@
     color: var(--text-primary);
 }
 .theme-group-hint {
-    font-size: 10.5px;
+    font-size: var(--text-2xs);
     color: var(--ink-muted);
 }
 .theme-group-grid {
@@ -1077,7 +1075,7 @@
 }
 .theme-editor-foot {
     margin: 14px 0 0;
-    font-size: 11px;
+    font-size: var(--text-2xs);
     color: var(--ink-muted);
     line-height: 1.5;
 }
@@ -1087,7 +1085,7 @@
     background: var(--bg);
     border: 1px solid var(--border);
     padding: 0 4px;
-    font-size: 10.5px;
+    font-size: var(--text-2xs);
 }
 
 .settings-knob-row {
@@ -1241,7 +1239,7 @@
     border-right: 1px solid var(--border);
     color: var(--text-primary);
     font: inherit;
-    font-size: 12px;
+    font-size: var(--text-xs);
     font-variant-numeric: tabular-nums;
     text-align: center;
     padding: 0;
@@ -1343,10 +1341,10 @@
     flex-wrap: wrap;
     gap: 8px 14px;
     color: var(--text-secondary);
-    font-size: 10px;
+    font-size: var(--text-2xs);
 }
 .command-contexts .cbx {
-    font-size: 11px;
+    font-size: var(--text-2xs);
 }
 .command-editor-actions,
 .about-actions {
@@ -1374,7 +1372,7 @@
 }
 .cli-integration-paths b {
     color: var(--text-secondary);
-    font-size: 10px;
+    font-size: var(--text-2xs);
     font-weight: 550;
     text-transform: uppercase;
     letter-spacing: 0.07em;
@@ -1419,12 +1417,12 @@
 }
 .experience-setting-row b {
     color: var(--text-primary);
-    font-size: 11px;
+    font-size: var(--text-2xs);
     font-weight: 520;
 }
 .experience-setting-row small {
     color: var(--text-tertiary);
-    font-size: 10px;
+    font-size: var(--text-2xs);
     line-height: 1.45;
 }
 .quiet-hours {
@@ -1444,7 +1442,7 @@
     display: grid;
     gap: 6px;
     color: var(--text-tertiary);
-    font-size: 10px;
+    font-size: var(--text-2xs);
 }
 @media (max-width: 760px) {
     .system-theme-grid {
@@ -1488,7 +1486,7 @@
 }
 .agent-mode-settings span {
     color: var(--text-primary);
-    font-size: 10.5px;
+    font-size: var(--text-2xs);
     font-weight: var(--weight-semibold);
 }
 .agent-mode-settings small {
@@ -1547,11 +1545,11 @@
 }
 .provider-profile-list b {
     color: var(--text-primary);
-    font-size: 10.5px;
+    font-size: var(--text-2xs);
 }
 .provider-profile-list small {
     color: var(--ink-muted);
-    font-size: 8.5px;
+    font-size: var(--text-2xs);
 }
 .provider-profile-list .provider-profile-new {
     min-height: 34px;
@@ -1577,7 +1575,7 @@
 .provider-profile-editor label > span,
 .provider-defaults label > span {
     color: var(--ink-muted);
-    font-size: 8.5px;
+    font-size: var(--text-2xs);
     font-weight: var(--weight-semibold);
     letter-spacing: 0.1em;
     text-transform: uppercase;

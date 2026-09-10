@@ -113,7 +113,7 @@
     background: transparent;
     color: var(--text-secondary);
     font-family: var(--mono);
-    font-size: 10px;
+    font-size: var(--text-2xs);
     cursor: pointer;
 }
 .panel-abtn:hover:not(:disabled) {
@@ -134,7 +134,7 @@
 }
 .panel-akbd {
     font-family: var(--kbd);
-    font-size: 8px;
+    font-size: var(--text-2xs);
     color: var(--text-tertiary);
 }
 .panel-abtn:hover:not(:disabled) .panel-akbd {
@@ -156,7 +156,7 @@
     gap: var(--space-2);
     height: 24px;
     padding: 0 var(--gutter-row);
-    font-size: 12px;
+    font-size: var(--text-xs);
     color: var(--text-secondary);
 }
 .panel-row:hover {
@@ -179,7 +179,7 @@
 .panel-row-hint {
     margin-left: auto;
     flex-shrink: 0;
-    font-size: 10px;
+    font-size: var(--text-2xs);
     color: var(--text-tertiary);
 }
 
@@ -212,7 +212,7 @@
 }
 .empty-state-msg {
     max-width: 34ch;
-    font-size: 11px;
+    font-size: var(--text-2xs);
     line-height: 1.5;
 }
 .empty-state-action {
@@ -224,7 +224,7 @@
     background: transparent;
     color: var(--text-secondary);
     font-family: var(--ui);
-    font-size: 11.5px;
+    font-size: var(--text-2xs);
     cursor: pointer;
 }
 .empty-state-action:hover {
@@ -251,7 +251,7 @@
     gap: var(--space-1h);
     padding: var(--space-3) var(--space-3);
     text-align: left;
-    font-size: 11px;
+    font-size: var(--text-2xs);
     line-height: 1.45;
 }
 .empty-state.inline svg {

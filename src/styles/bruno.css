@@ -55,7 +55,7 @@
     align-items: center;
     justify-content: space-between;
     padding: 6px 10px;
-    font-size: 10px;
+    font-size: var(--text-2xs);
     letter-spacing: 0.08em;
     text-transform: uppercase;
     color: var(--ink-faint);
@@ -69,7 +69,7 @@
 .bruno-tree-msg {
     padding: 12px;
     color: var(--ink-faint);
-    font-size: 12px;
+    font-size: var(--text-xs);
 }
 .bruno-tree-err {
     color: var(--danger);
@@ -86,7 +86,7 @@
     cursor: pointer;
     text-align: left;
     font: inherit;
-    font-size: 12px;
+    font-size: var(--text-xs);
     line-height: 1.5;
 }
 .bruno-row:hover {
@@ -123,7 +123,7 @@
 .bruno-method {
     flex: 0 0 auto;
     width: 30px;
-    font-size: 9px;
+    font-size: var(--text-2xs);
     font-weight: 800;
     letter-spacing: 0.03em;
     text-align: left;
@@ -264,7 +264,7 @@ body.bruno-resizing {
     padding: 4px 6px;
     font: inherit;
     font-weight: 800;
-    font-size: 11px;
+    font-size: var(--text-2xs);
     cursor: pointer;
 }
 .bruno-url {
@@ -290,7 +290,7 @@ body.bruno-resizing {
     border: 0;
     padding: 4px 7px;
     font-family: var(--mono);
-    font-size: 12px;
+    font-size: var(--text-xs);
     line-height: 1.5;
 }
 .bruno-var-back {
@@ -347,7 +347,7 @@ body.bruno-resizing {
     padding: 0 13px;
     font-family: var(--mono);
     font-weight: 700;
-    font-size: 12px;
+    font-size: var(--text-xs);
     letter-spacing: 0.02em;
     cursor: pointer;
     transition: background 0.12s;
@@ -416,7 +416,7 @@ body.bruno-resizing {
     gap: 7px;
     padding: 0 12px 6px 12px;
     font-family: var(--mono);
-    font-size: 11px;
+    font-size: var(--text-2xs);
     color: var(--ink-dim);
     white-space: nowrap;
     overflow: hidden;
@@ -443,7 +443,7 @@ body.bruno-resizing {
     color: var(--ink-dim);
     padding: 6px 9px;
     font: inherit;
-    font-size: 12px;
+    font-size: var(--text-xs);
     text-transform: capitalize;
     cursor: pointer;
 }
@@ -482,7 +482,7 @@ body.bruno-resizing {
 }
 .bruno-muted {
     color: var(--ink-faint);
-    font-size: 12px;
+    font-size: var(--text-xs);
     padding: 6px 2px;
 }
 
@@ -515,7 +515,7 @@ body.bruno-resizing {
     padding: 4px 7px;
     color: var(--ink);
     font-family: var(--mono);
-    font-size: 12px;
+    font-size: var(--text-xs);
 }
 .bruno-input:focus {
     outline: none;
@@ -542,13 +542,13 @@ body.bruno-resizing {
 }
 .bruno-h-name {
     font-family: var(--mono);
-    font-size: 12px;
+    font-size: var(--text-xs);
     color: var(--ink-dim);
     word-break: break-all;
 }
 .bruno-h-val {
     font-family: var(--mono);
-    font-size: 12px;
+    font-size: var(--text-xs);
     color: var(--ink);
     word-break: break-all;
 }
@@ -580,7 +580,7 @@ body.bruno-resizing {
     padding: 4px 8px;
     color: var(--ink);
     font: inherit;
-    font-size: 12px;
+    font-size: var(--text-xs);
     cursor: pointer;
 }
 .bruno-field {
@@ -591,7 +591,7 @@ body.bruno-resizing {
 .bruno-field > span {
     flex: 0 0 84px;
     color: var(--ink-dim);
-    font-size: 12px;
+    font-size: var(--text-xs);
 }
 .bruno-field select {
     background: var(--rail-2);
@@ -600,7 +600,7 @@ body.bruno-resizing {
     color: var(--ink);
     padding: 3px 6px;
     font: inherit;
-    font-size: 12px;
+    font-size: var(--text-xs);
 }
 .bruno-field .bruno-input {
     flex: 1 1 auto;
@@ -633,7 +633,7 @@ body.bruno-resizing {
     align-items: center;
     gap: 6px;
     font-weight: 700;
-    font-size: 12px;
+    font-size: var(--text-xs);
     padding: 2px 8px;
 }
 .bruno-resp-status.ok {
@@ -656,7 +656,7 @@ body.bruno-resizing {
 }
 .bruno-resp-meta {
     color: var(--ink-dim);
-    font-size: 11px;
+    font-size: var(--text-2xs);
 }
 .bruno-resp-tabs {
     margin-left: auto;
@@ -677,7 +677,7 @@ body.bruno-resizing {
     margin: 0;
     padding: 10px;
     font-family: var(--mono);
-    font-size: 12px;
+    font-size: var(--text-xs);
     line-height: 1.5;
     white-space: pre-wrap;
     word-break: break-word;
@@ -687,7 +687,7 @@ body.bruno-resizing {
     padding: 10px;
     color: var(--danger);
     font-family: var(--mono);
-    font-size: 12px;
+    font-size: var(--text-xs);
     white-space: pre-wrap;
 }
 
@@ -709,7 +709,7 @@ body.bruno-resizing {
     color: var(--ink-dim);
     padding: 4px 8px;
     font-family: var(--mono);
-    font-size: 11px;
+    font-size: var(--text-2xs);
     cursor: pointer;
     transition:
         color 0.12s,
@@ -742,7 +742,7 @@ body.bruno-resizing {
     padding: 10px;
 }
 .bruno-secrets-head {
-    font-size: 11px;
+    font-size: var(--text-2xs);
     color: var(--ink-dim);
     margin-bottom: 8px;
 }
@@ -754,11 +754,11 @@ body.bruno-resizing {
 }
 .bruno-secret-name {
     font-family: var(--mono);
-    font-size: 11px;
+    font-size: var(--text-2xs);
     color: var(--ink-dim);
 }
 .bruno-secrets-foot {
-    font-size: 10px;
+    font-size: var(--text-2xs);
     color: var(--ink-faint);
     margin-top: 4px;
 }
@@ -768,7 +768,7 @@ body.bruno-resizing {
     color: var(--acc);
     cursor: pointer;
     font: inherit;
-    font-size: 12px;
+    font-size: var(--text-xs);
     margin-left: 6px;
     text-decoration: underline;
 }
@@ -797,14 +797,14 @@ body.bruno-resizing {
     display: flex;
     gap: 8px;
     font-family: var(--mono);
-    font-size: 11.5px;
+    font-size: var(--text-2xs);
     padding: 1px 0;
     align-items: baseline;
 }
 .bruno-log-lvl {
     flex: 0 0 44px;
     text-transform: uppercase;
-    font-size: 9px;
+    font-size: var(--text-2xs);
     color: var(--ink-faint);
 }
 .bruno-log.lvl-error .bruno-log-lvl,
@@ -829,7 +829,7 @@ body.bruno-resizing {
     display: flex;
     align-items: baseline;
     gap: 8px;
-    font-size: 12px;
+    font-size: var(--text-xs);
     font-family: var(--mono);
 }
 .bruno-test-dot {
@@ -975,7 +975,7 @@ body.bruno-resizing {
     background: var(--acc-soft);
     border: 1px solid var(--acc-line);
     color: var(--acc);
-    font-size: 9px;
+    font-size: var(--text-2xs);
     font-weight: 700;
     font-variant-numeric: tabular-nums;
 }

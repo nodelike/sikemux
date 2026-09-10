@@ -20,7 +20,7 @@
     border: 0;
     color: var(--ink-dim);
     font-family: var(--mono);
-    font-size: 11px;
+    font-size: var(--text-2xs);
     cursor: pointer;
     white-space: nowrap;
     transition: color 0.12s;
@@ -39,7 +39,7 @@
     gap: 4px;
     max-width: 86px;
     color: var(--ink-faint);
-    font-size: 10px;
+    font-size: var(--text-2xs);
 }
 .tb-deploy-checkout:disabled,
 .tb-deploy-menu .env-dd-item:disabled {
@@ -55,10 +55,10 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    font-size: 10.5px;
+    font-size: var(--text-2xs);
 }
 .tb-deploy-branch {
-    font-size: 10.5px;
+    font-size: var(--text-2xs);
     display: inline-block;
     min-width: 0;
     max-width: 120px;
@@ -68,7 +68,7 @@
     vertical-align: middle;
 }
 .tb-deploy-meta {
-    font-size: 10.5px;
+    font-size: var(--text-2xs);
 }
 .tb-deploy-meta.muted {
     color: var(--ink-faint);
@@ -104,7 +104,7 @@
     border: 0;
     color: var(--ink-dim);
     font-family: var(--mono);
-    font-size: 11px;
+    font-size: var(--text-2xs);
     cursor: pointer;
     white-space: nowrap;
     transition: color 0.12s;
@@ -132,7 +132,7 @@
     display: inline-flex;
     gap: 4px;
     color: var(--ink-faint);
-    font-size: 10px;
+    font-size: var(--text-2xs);
 }
 .tb-git-ahead {
     color: var(--live);

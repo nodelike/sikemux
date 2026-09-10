@@ -169,14 +169,14 @@
      * an IDE is small, and the tracking tightens as the size grows because
      * Figtree sets loose at display sizes.
      */
-    --text-3xs: 10px; /* tracked-out section labels */
-    --text-2xs: 11px; /* timestamps, shortcut hints, counts */
-    --text-xs: 12px; /* secondary rows, meta */
-    --text-sm: 13px; /* the default: rows, buttons, inputs */
-    --text-md: 14px; /* panel titles */
-    --text-lg: 16px; /* dialog titles */
-    --text-xl: 20px; /* empty-state headings */
-    --text-2xl: 28px; /* onboarding only */
+    --text-3xs: calc(11px * var(--ui-text-scale, 1)); /* tracked-out section labels */
+    --text-2xs: calc(11px * var(--ui-text-scale, 1)); /* timestamps, shortcut hints, counts */
+    --text-xs: calc(12px * var(--ui-text-scale, 1)); /* secondary rows, meta */
+    --text-sm: calc(13px * var(--ui-text-scale, 1)); /* the default: rows, buttons, inputs */
+    --text-md: calc(14px * var(--ui-text-scale, 1)); /* panel titles */
+    --text-lg: calc(16px * var(--ui-text-scale, 1)); /* dialog titles */
+    --text-xl: calc(20px * var(--ui-text-scale, 1)); /* empty-state headings */
+    --text-2xl: calc(28px * var(--ui-text-scale, 1)); /* onboarding only */
 
     --tracking-label: 0.08em;
     --tracking-normal: -0.005em;
@@ -206,6 +206,9 @@
      * something sets it, so the shader alone is the default and an image is
      * strictly additive. See DESIGN.md § Backdrop.
      */
+    --layer-menu: 1200;
+    --layer-tooltip: 1300;
+    --control-hit: 26px;
     --backdrop-image: none;
     --backdrop-image-opacity: 0.5;
     --backdrop-blur: 0px;

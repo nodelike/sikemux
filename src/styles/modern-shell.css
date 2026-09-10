@@ -146,9 +146,11 @@ a:focus-visible,
 }
 
 /* Agent rail: a little wider so titles, provider identity, and timestamps do
- * not compete for the same 250px. */
+ * not compete for the same 250px. The 34px icon gutter is added to that, not
+ * taken out of it — a rail that pays for its own chrome by truncating agent
+ * titles is a worse rail. */
 .workspace-rail {
-    width: 312px;
+    width: 334px;
 }
 
 /* The brand was a 62px slab: a bordered, tinted logo tile next to heavily
@@ -299,17 +301,19 @@ a:focus-visible,
 
 .agent-header-kicker {
     color: var(--ink-faint);
-    font-size: 10px;
+    font-size: var(--text-2xs);
     font-weight: 700;
     letter-spacing: 0.11em;
     text-transform: uppercase;
 }
 
+/* Now the rail's only name for this panel — the tab strip that used to say it
+ * first is gone — but a rail header is a signpost, not a masthead. */
 .agent-header-label {
-    color: var(--ink);
-    font-size: 15px;
-    font-weight: 650;
-    letter-spacing: -0.02em;
+    color: var(--text-primary);
+    font-size: var(--text-xs);
+    font-weight: var(--weight-medium);
+    letter-spacing: var(--tracking-normal);
 }
 
 .agent-header-types,
@@ -416,7 +420,7 @@ a:focus-visible,
 .agent-ago,
 .agent-dormant-label {
     font-family: var(--mono);
-    font-size: 11px;
+    font-size: var(--text-2xs);
 }
 
 .agent-glyph-x {
@@ -561,7 +565,7 @@ a:focus-visible,
     }
 
     .workspace-rail {
-        width: 286px;
+        width: 300px;
     }
 
     .agent-header-copy {
@@ -670,7 +674,7 @@ a:focus-visible,
 }
 
 .rail-peek--end {
-    --rail-peek-width: 312px;
+    --rail-peek-width: 334px;
     --rail-peek-offset: calc(100% + var(--space-3));
     right: 0;
 }
@@ -748,7 +752,7 @@ a:focus-visible,
     }
 
     .rail-peek--end {
-        --rail-peek-width: 286px;
+        --rail-peek-width: 300px;
     }
 }
 
@@ -1061,5 +1065,5 @@ textarea,
 .workspace-rail .agent-ago {
     font-family: var(--mono);
     font-size: var(--text-2xs);
-    color: var(--text-disabled);
+    color: var(--text-tertiary);
 }

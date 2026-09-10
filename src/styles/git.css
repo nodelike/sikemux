@@ -56,7 +56,7 @@
     border: none;
     color: var(--text-primary);
     font: inherit;
-    font-size: 12px;
+    font-size: var(--text-xs);
     line-height: 1.55;
     padding: 10px 12px 36px 12px;
     outline: none;
@@ -123,7 +123,7 @@
     background: color-mix(in srgb, var(--surface-sunken) 82%, transparent);
     color: var(--text-secondary);
     font-family: var(--mono);
-    font-size: 10.5px;
+    font-size: var(--text-2xs);
     cursor: pointer;
     transition:
         color 0.1s,
@@ -176,7 +176,7 @@
     background: transparent;
     color: var(--text-secondary);
     font-family: var(--mono);
-    font-size: 11px;
+    font-size: var(--text-2xs);
     text-align: left;
     white-space: nowrap;
     cursor: pointer;
@@ -209,7 +209,7 @@
     background: var(--surface-selected);
     color: var(--acc);
     font-family: var(--mono);
-    font-size: 11px;
+    font-size: var(--text-2xs);
     cursor: pointer;
     transition:
         background 0.1s,
@@ -234,7 +234,7 @@
     border: 1px solid var(--border-selected);
     color: var(--text-primary);
     font: inherit;
-    font-size: 12px;
+    font-size: var(--text-xs);
     padding: 7px 10px;
     outline: none;
 }
@@ -284,7 +284,7 @@
     opacity: 1;
 }
 .git-tb-changed {
-    font-size: 10.5px;
+    font-size: var(--text-2xs);
     color: var(--text-tertiary);
     white-space: nowrap;
     overflow: hidden;
@@ -294,7 +294,7 @@
     color: var(--danger);
 }
 .git-tb-stash {
-    font-size: 10px;
+    font-size: var(--text-2xs);
     color: var(--warn);
     white-space: nowrap;
 }
@@ -302,7 +302,7 @@
     display: inline-flex;
     align-items: center;
     gap: 5px;
-    font-size: 10.5px;
+    font-size: var(--text-2xs);
     color: var(--warn);
     font-style: italic;
     white-space: nowrap;
@@ -325,7 +325,7 @@
     background: rgba(255, 255, 255, 0.02);
     color: var(--text-secondary);
     font-family: var(--mono);
-    font-size: 11px;
+    font-size: var(--text-2xs);
     cursor: pointer;
     white-space: nowrap;
     transition:
@@ -342,7 +342,7 @@
     opacity: 0.85;
 }
 .git-tbtn-count {
-    font-size: 11px;
+    font-size: var(--text-2xs);
     font-weight: var(--weight-semibold);
     font-variant-numeric: tabular-nums;
 }
@@ -358,7 +358,7 @@
 
 .git-kbd {
     font-family: var(--kbd);
-    font-size: 11px;
+    font-size: var(--text-2xs);
     line-height: 1;
     color: var(--text-tertiary);
     margin-left: 1px;
@@ -390,7 +390,7 @@
 .dlg-body.git-modal-prompt {
     padding: 14px 16px;
     color: var(--text-secondary);
-    font-size: 12px;
+    font-size: var(--text-xs);
     line-height: 1.5;
 }
 .git-menu-item {
@@ -403,7 +403,7 @@
     border: none;
     color: var(--text-secondary);
     font-family: var(--mono);
-    font-size: 12px;
+    font-size: var(--text-xs);
     cursor: pointer;
     text-align: left;
 }
@@ -430,7 +430,7 @@
     background: var(--surface);
     border: 1px solid var(--border);
     padding: 0 3px;
-    font-size: 10.5px;
+    font-size: var(--text-2xs);
     font-weight: var(--weight-semibold);
     color: var(--text-primary);
 }
@@ -443,7 +443,7 @@
 }
 .git-menu-hint {
     color: var(--text-tertiary);
-    font-size: 10.5px;
+    font-size: var(--text-2xs);
     flex-shrink: 0;
 }
 
@@ -466,7 +466,7 @@
     border: none;
     color: var(--text-secondary);
     font-family: var(--mono);
-    font-size: 11.5px;
+    font-size: var(--text-2xs);
     cursor: pointer;
     text-align: left;
 }
@@ -476,7 +476,7 @@
 }
 .git-modal-suggestion-hint {
     color: var(--text-tertiary);
-    font-size: 10.5px;
+    font-size: var(--text-2xs);
 }
 
 .dlg-body.git-modal-cheatsheet {
@@ -491,7 +491,7 @@
 }
 .git-cheat-section-h {
     color: var(--text-tertiary);
-    font-size: 10px;
+    font-size: var(--text-2xs);
     letter-spacing: var(--tracking-label);
     text-transform: uppercase;
     margin-bottom: 6px;
@@ -502,7 +502,7 @@
     gap: 12px;
     padding: 2px 0;
     color: var(--text-secondary);
-    font-size: 11.5px;
+    font-size: var(--text-2xs);
 }
 .git-cheat-keys {
     color: var(--acc);
@@ -525,7 +525,7 @@
     border-top: 1px solid var(--border);
     cursor: pointer;
     color: var(--text-tertiary);
-    font-size: 11px;
+    font-size: var(--text-2xs);
     text-align: left;
     width: 100%;
 }
@@ -546,7 +546,7 @@
     gap: 10px;
     padding: 6px 12px;
     border-bottom: 1px solid var(--border);
-    font-size: 11px;
+    font-size: var(--text-2xs);
 }
 .git-log-bar-title {
     color: var(--text-primary);
@@ -555,7 +555,7 @@
 }
 .git-log-bar-count {
     color: var(--text-tertiary);
-    font-size: 10.5px;
+    font-size: var(--text-2xs);
 }
 .git-log-bar-btn {
     margin-left: auto;
@@ -563,7 +563,7 @@
     border: 1px solid var(--border);
     color: var(--text-secondary);
     font-family: var(--mono);
-    font-size: 10.5px;
+    font-size: var(--text-2xs);
     padding: 2px 8px;
     cursor: pointer;
 }
@@ -583,14 +583,14 @@
     padding: 14px 16px;
     color: var(--text-tertiary);
     font-style: italic;
-    font-size: 11.5px;
+    font-size: var(--text-2xs);
 }
 .git-log-row {
     display: flex;
     align-items: baseline;
     gap: 10px;
     padding: 3px 12px;
-    font-size: 11.5px;
+    font-size: var(--text-2xs);
     color: var(--text-secondary);
 }
 .git-log-row.status-ok .git-log-row-glyph {
@@ -604,7 +604,7 @@
 }
 .git-log-row-time {
     color: var(--text-tertiary);
-    font-size: 10px;
+    font-size: var(--text-2xs);
     flex-shrink: 0;
     width: 60px;
 }
@@ -634,7 +634,7 @@
     text-align: center;
     color: var(--text-tertiary);
     font-weight: var(--weight-semibold);
-    font-size: 11px;
+    font-size: var(--text-2xs);
     font-weight: var(--weight-semibold);
 }
 .gf-x.on {
@@ -665,7 +665,7 @@
 
 .git-remote-url {
     color: var(--text-tertiary);
-    font-size: 10.5px;
+    font-size: var(--text-2xs);
     margin-left: auto;
     max-width: 50%;
     overflow: hidden;
@@ -677,7 +677,7 @@
 
 .git-tracked {
     color: var(--live);
-    font-size: 10.5px;
+    font-size: var(--text-2xs);
     margin-left: auto;
     flex-shrink: 0;
 }
@@ -691,7 +691,7 @@
     text-align: left;
     cursor: pointer;
     font-family: var(--mono);
-    font-size: 11.5px;
+    font-size: var(--text-2xs);
 }
 .git-row.git-row-back:hover {
     background: var(--surface-selected);
@@ -706,7 +706,7 @@
 }
 .gc-hash {
     color: var(--warn);
-    font-size: 11px;
+    font-size: var(--text-2xs);
 }
 .git-graph {
     position: relative;
@@ -748,7 +748,7 @@
 }
 .gg-hash {
     color: var(--text-tertiary);
-    font-size: 11px;
+    font-size: var(--text-2xs);
     flex: none;
     font-variant-numeric: tabular-nums;
 }
@@ -761,13 +761,13 @@
 }
 .gg-when {
     color: var(--text-tertiary);
-    font-size: 10.5px;
+    font-size: var(--text-2xs);
     flex: none;
     font-variant-numeric: tabular-nums;
 }
 .gg-author {
     flex: none;
-    font-size: 10px;
+    font-size: var(--text-2xs);
     font-weight: var(--weight-semibold);
     letter-spacing: 0.04em;
 }
@@ -854,7 +854,7 @@
 .git-output {
     flex: 1;
     overflow: auto;
-    font-size: 12px;
+    font-size: var(--text-xs);
     color: var(--text-secondary);
     white-space: pre-wrap;
     padding: 4px 2px;
@@ -881,7 +881,7 @@
 .merge-review-count {
     margin-right: auto;
     color: var(--text-tertiary);
-    font-size: 10px;
+    font-size: var(--text-2xs);
 }
 .merge-review-action {
     color: var(--text-tertiary);
@@ -965,14 +965,14 @@
     border: 1px solid rgba(255, 103, 103, 0.55);
     color: var(--danger);
     background: rgba(255, 103, 103, 0.07);
-    font-size: 12px;
+    font-size: var(--text-xs);
     line-height: 1.5;
     white-space: pre-wrap;
 }
 .diff-editor-loading {
     padding: 12px;
     color: var(--text-tertiary);
-    font-size: 11px;
+    font-size: var(--text-2xs);
 }
 .diff-editor.auto {
     flex: none;
@@ -997,7 +997,7 @@
 }
 .commit-hash {
     color: var(--warn);
-    font-size: 11px;
+    font-size: var(--text-2xs);
 }
 .commit-subject {
     color: var(--text-primary);
@@ -1006,7 +1006,7 @@
 .commit-empty {
     padding: 12px;
     color: var(--text-tertiary);
-    font-size: 11px;
+    font-size: var(--text-2xs);
 }
 
 .commit-stack {
@@ -1050,7 +1050,7 @@
     flex: 1;
     height: 100%;
     color: var(--text-secondary);
-    font-size: 12px;
+    font-size: var(--text-xs);
 }
 .acc-name:hover {
     color: var(--text-primary);
@@ -1104,7 +1104,7 @@
     padding: var(--space-5);
     color: var(--text-secondary);
     font-family: var(--ui);
-    font-size: 12px;
+    font-size: var(--text-xs);
     text-align: center;
 }
 
