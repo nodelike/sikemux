@@ -1,18 +1,22 @@
 /*
- * Modern shell direction
+ * The shell: the frame you are looking at 100% of the time.
  *
- * The product is still a developer tool, so the terminal grain and provider
- * colors stay intact. The surrounding chrome is intentionally quieter: SF UI
- * type, layered glass surfaces, generous hit areas, and a periwinkle accent
- * that reads like a native macOS selection color instead of a neon terminal.
+ * The product is a developer tool, so the terminal grain and the provider
+ * colours stay exactly as they are. Everything around them is deliberately
+ * quiet — a neutral ramp for every surface, hairlines instead of shadows, one
+ * type scale, and the accent spent only on what is selected or focused. The
+ * discipline is the design: when the chrome stops competing, the code is the
+ * only coloured thing on screen, which is the right answer for an editor.
+ *
+ * Type, spacing, radius, elevation and the ramp itself live in tokens.css.
+ * This sheet is layout and surfaces. See DESIGN.md.
  */
-/* Type, spacing, radius, elevation and the neutral ramp all live in
- * tokens.css now. This sheet is the shell's own layout and surface rules. */
 
 body {
     font-family: var(--ui);
-    font-size: 13.5px;
-    letter-spacing: -0.005em;
+    font-size: var(--text-sm);
+    letter-spacing: var(--tracking-normal);
+    color: var(--text-secondary);
 }
 
 button,
@@ -22,14 +26,31 @@ textarea {
     font-family: var(--ui);
 }
 
+/*
+ * One ring for everything focusable.
+ *
+ * `box-shadow` rather than `outline` so it follows each element's own radius
+ * on every engine, and `:focus-visible` rather than `:focus` so clicking a row
+ * does not light it up — only arriving there from the keyboard does.
+ *
+ * Not wrapped in `:where()`: at zero specificity the component sheets that set
+ * a `box-shadow` of their own would silently win, and a focus ring that
+ * disappears on exactly the dense rows people keyboard through is worse than
+ * no ring at all.
+ */
 button:focus-visible,
 select:focus-visible,
+a:focus-visible,
 [role="button"]:focus-visible,
-[role="tab"]:focus-visible {
-    outline: 1.5px solid color-mix(in srgb, var(--acc) 68%, transparent);
-    outline-offset: 1px;
+[role="tab"]:focus-visible,
+[role="option"]:focus-visible,
+[tabindex]:focus-visible {
+    outline: none;
+    box-shadow: var(--focus-ring);
 }
 
+/* Text fields keep their own border and take the ring outside it, so focus
+ * never shifts the text inside by a pixel. */
 :is(
     input:not([type]),
     input[type="text"],
@@ -42,6 +63,21 @@ select:focus-visible,
 ):focus {
     outline: none;
     box-shadow: none;
+}
+
+:is(
+    input:not([type]),
+    input[type="text"],
+    input[type="search"],
+    input[type="url"],
+    input[type="email"],
+    input[type="password"],
+    input[type="number"],
+    textarea
+):focus-visible {
+    outline: none;
+    border-color: var(--border-selected);
+    box-shadow: var(--focus-ring);
 }
 
 /* The chrome owns the window edges. Content surfaces get a soft inset line so
@@ -96,10 +132,16 @@ select:focus-visible,
     height: 30px;
 }
 
+/* Widths only. Both rails take their surface and their border from the one
+ * rule at the foot of this sheet, so they can never drift apart again. */
 .side-rail {
     width: 258px;
-    background: color-mix(in srgb, var(--rail) calc(var(--window-opacity, 1) * 96%), transparent);
-    border-right-color: color-mix(in srgb, var(--line) 84%, white 3%);
+}
+
+/* Agent rail: a little wider so titles, provider identity, and timestamps do
+ * not compete for the same 250px. */
+.workspace-rail {
+    width: 312px;
 }
 
 /* The brand was a 62px slab: a bordered, tinted logo tile next to heavily
@@ -119,141 +161,97 @@ select:focus-visible,
     padding: var(--space-0) var(--space-2) var(--space-1h);
 }
 
+/* A section label is a signpost, not a headline. It used to be 700 weight at
+ * 0.09em, which made the four words above each list louder than the rows they
+ * were labelling. */
 .side-rail .panel-label,
 .workspace-rail .panel-label {
     font-family: var(--ui);
-    font-size: 11px;
-    font-weight: 700;
-    letter-spacing: 0.09em;
+    font-size: var(--text-2xs);
+    font-weight: var(--weight-medium);
+    letter-spacing: var(--tracking-label);
+    color: var(--text-tertiary);
 }
 
 .session-row-shell {
     margin: 0;
 }
 
+/*
+ * One row grammar for both rails.
+ *
+ * The project navigator used to be styled twice — once as a rounded row and
+ * again, further down, as a square monospace tree with a 2px accent edge and
+ * no hover at all. The second block won, so the first was dead weight and
+ * clickable rows silently gave no feedback under the pointer. This is the one
+ * definition: same height, same radius, same three states.
+ */
 .sess-row,
-.proj-row {
+.proj-row,
+.proj-child,
+.agent-row {
     min-height: 28px;
     height: 28px;
-    border-radius: var(--radius-sm);
     padding-inline: var(--space-2);
+    border: 0;
+    border-radius: var(--radius-2);
+    background: transparent;
+    color: var(--text-secondary);
+    transition:
+        background var(--dur-1) linear,
+        color var(--dur-1) linear;
+}
+
+/*
+ * Hover is neutral, selection is accent. Keeping them the same colour at
+ * different strengths meant the pointer resting on a row looked like it had
+ * selected it — the two states have to differ in hue, not just in weight.
+ */
+.sess-row:hover,
+.proj-row:hover,
+.proj-child:hover,
+.agent-row:hover {
+    background: var(--surface-hover);
+    color: var(--text-primary);
+}
+
+.sess-row.active,
+.proj-row.expanded,
+.proj-child.active,
+.agent-row.active {
+    background: var(--surface-selected);
+    box-shadow: inset 0 0 0 1px var(--border-selected);
+    color: var(--text-primary);
 }
 
 .sess-name,
-.proj-name {
-    font-size: 13.5px;
-}
-
-.side-rail .empty-state.inline {
-    font-size: 12px;
-}
-
-.sess-row:hover,
-.sess-row.active,
-.proj-row:hover,
-.proj-row.expanded {
-    background: color-mix(in srgb, var(--rail-2) calc(var(--window-opacity, 1) * 82%), transparent);
-}
-
-.sess-row.active,
-.proj-row.expanded {
-    color: var(--ink);
-    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--acc) 22%, transparent);
-}
-
-.proj-row.expanded {
-    border-left: 0;
-    background: color-mix(in srgb, var(--acc) calc(var(--window-opacity, 1) * 12%), transparent);
-}
-
-.proj-children {
-    padding: 2px 0 2px 8px;
-    margin-left: 7px;
-    border-left: 1px solid color-mix(in srgb, var(--line) 85%, var(--acc) 15%);
-}
-
-.proj-child {
-    min-height: 27px;
-    height: 27px;
-    gap: 7px;
-    padding-inline: 8px;
-    border-radius: var(--radius-xs);
-}
-
+.proj-name,
 .proj-child-label {
-    font-size: 13px;
+    font-family: var(--ui);
+    font-size: var(--text-sm);
     line-height: 1.2;
 }
 
 .proj-child-kbd {
-    font-size: 11.5px;
+    font-size: var(--text-2xs);
 }
 
-.proj-child.active {
-    background: color-mix(in srgb, var(--acc) calc(var(--window-opacity, 1) * 10%), transparent);
+.side-rail .empty-state.inline {
+    font-size: var(--text-xs);
 }
 
-/* Keep the project navigator's tree grammar distinct from the softer app
- * chrome: monospace labels, a slim active rail, and compact rows make these
- * five workspace tabs read like developer navigation again. */
-.proj-row {
-    min-height: 26px;
-    height: 26px;
-    padding: 0 0 0 var(--space-3);
-    border: 0;
-    border-left: 2px solid transparent;
-    border-radius: 0;
-    background: transparent;
-    font-family: var(--mono);
-}
-
-.proj-row:hover {
-    background: transparent;
-}
-
-.proj-row.expanded {
-    padding: 5px 12px;
-    border-left-color: var(--acc);
-    border-radius: 0;
-    background: color-mix(in srgb, var(--acc) calc(var(--window-opacity, 1) * 12%), transparent);
-}
-
-.proj-name {
-    font-family: var(--mono);
-    font-size: 13px;
-}
-
+/* The tree's spine. One hairline, no accent in it — the indent is what says
+ * "child of", and tinting the line as well said it twice. */
 .proj-children {
-    padding: 2px 6px 2px 0;
-    margin-left: 20px;
+    padding: var(--space-0) 0 var(--space-0) var(--space-2);
+    margin-left: 11px;
+    border-left: 1px solid var(--border);
 }
 
 .proj-child {
-    min-height: 25px;
-    height: 25px;
-    gap: 8px;
-    padding: 2px 8px 2px 0;
-    border-radius: 0;
-    font-family: var(--mono);
-}
-
-.proj-child:hover,
-.proj-child.active {
-    background: transparent;
-}
-
-.proj-child-label {
-    font-family: var(--mono);
-    font-size: 13px;
-    line-height: 1.2;
-}
-
-/* Agent rail: a little wider so titles, provider identity, and timestamps do
- * not compete for the same 250px. */
-.workspace-rail {
-    width: 312px;
-    background: color-mix(in srgb, var(--rail) calc(var(--window-opacity, 1) * 96%), transparent);
-    border-right-color: color-mix(in srgb, var(--line) 84%, white 3%);
+    min-height: 26px;
+    height: 26px;
+    gap: var(--space-2);
 }
 
 .agent-header {
@@ -366,26 +364,16 @@ select:focus-visible,
     margin: 1px 0;
 }
 
+/* Height and gap only — the surface, radius and the three states come from
+ * the shared row rule above, so an agent row and a session row cannot drift. */
 .agent-row {
     height: 32px;
-    padding: 0 var(--space-2);
     gap: var(--space-2);
-    border-radius: var(--radius-sm);
     font-family: var(--ui);
-    color: var(--ink-dim);
 }
 
 .agent-row.recent {
     height: 30px;
-}
-
-.agent-row:hover {
-    background: color-mix(in srgb, var(--rail-2) calc(var(--window-opacity, 1) * 78%), transparent);
-}
-
-.agent-row.active {
-    background: color-mix(in srgb, var(--acc) calc(var(--window-opacity, 1) * 12%), transparent);
-    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--acc) 22%, transparent);
 }
 
 .agent-row.active::before {
@@ -560,86 +548,6 @@ select:focus-visible,
     .workspace-rail {
         animation: none;
     }
-}
-
-/* Final surface geometry pass. A few optional legacy component sheets are
- * imported after this file, so these focused important rules keep their
- * controls in the same rounded macOS visual system without flattening
- * semantic status dots or slider tracks. */
-button,
-input,
-select,
-textarea,
-.shell
-    :where(
-        .top-bar,
-        .crumb,
-        .tb-btn,
-        .env-dd-btn,
-        .zoom-pill,
-        .tb-git-chip,
-        .tb-deploy-chip,
-        .tb-deploy-checkout,
-        .sess-row,
-        .proj-row,
-        .proj-child,
-        .agent-header-btn,
-        .agent-usage,
-        .rail-search,
-        .agent-row,
-        .agent-row .agent-glyph,
-        .agent-glyph-x,
-        .agent-empty,
-        .tabbar,
-        .command-palette,
-        .session-switcher,
-        .git-tbtn,
-        .git-dd-btn,
-        .git-dd-menu,
-        .git-cp-commit,
-        .git-commit-input,
-        .dlg,
-        .dlg-input,
-        .dlg-btn,
-        .tip,
-        .cbx-box,
-        [role="dialog"],
-        [role="listbox"]
-    ) {
-    border-radius: var(--radius-sm) !important;
-}
-
-.shell
-    :where(
-        .side-rail,
-        .workspace-rail,
-        .stage,
-        .agent-usage,
-        .agent-empty,
-        .env-dd-menu,
-        .picker,
-        .command-palette,
-        .session-switcher,
-        .dlg,
-        [role="dialog"],
-        [role="listbox"]
-    ) {
-    border-radius: var(--radius-md) !important;
-}
-
-.shell
-    :where(
-        .swx-track,
-        .swx-thumb,
-        .sld input[type="range"],
-        .sld input[type="range"]::-webkit-slider-runnable-track,
-        .sld input[type="range"]::-webkit-slider-thumb
-    ) {
-    border-radius: 999px !important;
-}
-
-.shell :where([class*="pill"], [class*="chip"]) {
-    border-radius: 999px !important;
 }
 
 /* ---- Scrollbars ---------------------------------------------------------
@@ -848,27 +756,61 @@ textarea,
     border-radius: 0;
 }
 
-.shell :where(.rnd-btn-sm, .git-kbd, .panel-akbd) {
-    border-radius: var(--radius-chip) !important;
-}
-
 .git-toolbar {
     border-radius: 0;
 }
 
-/* ---- Rounding by role ----------------------------------------------------
- * The geometry pass above works off a hand-picked list of selectors, so every
- * sheet written before it kept square corners — text fields worst of all,
- * which is how a square input ended up sitting next to a rounded button.
- * These cover the rest by role. Range, colour, checkbox and radio opt out
- * because their shape is the control; tabs opt out because they own theirs.
+/* ---- Geometry ------------------------------------------------------------
+ * One radius per role, and the role is what the element *is*, not how big it
+ * happens to be.
+ *
+ * This used to be six blocks in two places, and they disagreed: the palette,
+ * the dialogs and the agent meters were each listed twice at two different
+ * radii, so which corner you got came down to which block was written last.
+ * Anything not on a list kept square corners, which is how a square input
+ * ended up sitting beside a rounded button.
+ *
+ * Still `!important`, and that is not laziness. Nineteen component sheets are
+ * imported ahead of this one and most set their own corners; overriding them
+ * by specificity would mean a longer selector for every rule and a new one
+ * every time a sheet grew a nested case. The order below is the whole
+ * mechanism — each block overrides the one above it, so read it top to bottom
+ * and the last mention of a selector wins.
  */
-.shell :where(input, textarea, select):not([type="range"], [type="color"], [type="checkbox"], [type="radio"]) {
-    border-radius: var(--radius-xs) !important;
-}
 
+/* Controls: buttons, fields, rows, menu items. The app's default corner. */
+button,
+input,
+select,
+textarea,
 .shell
     :where(
+        .top-bar,
+        .crumb,
+        .tb-btn,
+        .env-dd-btn,
+        .env-dd-item,
+        .tb-deploy-checkout,
+        .sess-row,
+        .sess-close,
+        .proj-row,
+        .proj-child,
+        .agent-header-btn,
+        .rail-search,
+        .agent-row,
+        .agent-row .agent-glyph,
+        .agent-glyph-x,
+        .tabbar,
+        .git-tbtn,
+        .git-dd-btn,
+        .git-cp-commit,
+        .git-cp-input,
+        .git-commit-input,
+        .dlg-input,
+        .dlg-btn,
+        .tip,
+        .cbx-box,
+        .picker-item,
         .rnd-btn,
         .rnd-input,
         .rnd-cell,
@@ -878,31 +820,71 @@ textarea,
         .bruno-icon-btn,
         .bruno-secrets-btn,
         .bruno-resp-status,
-        .git-cp-input,
         .settings-control,
-        .settings-theme,
         .settings-theme-act,
         .settings-knob-num,
         .settings-rail-item,
         .settings-close,
         .settings-topbar-close,
-        .picker,
-        .picker-item,
-        .env-dd-btn,
-        .env-dd-menu,
-        .env-dd-item,
-        .agent-row,
-        .sess-row,
-        .sess-close,
-        .zoom-pill,
         .gg-ref
     ) {
-    border-radius: var(--radius-xs) !important;
+    border-radius: var(--radius-2) !important;
 }
 
-/* Surfaces that read as cards want the softer corner, not the control one. */
-.shell :where(.picker, .settings-theme, .theme-editor, .bruno-secrets-pop, .env-dd-menu) {
-    border-radius: var(--radius-md) !important;
+/* Every remaining text field by role, so a sheet does not have to be listed
+ * above to stop being square. Range, colour, checkbox and radio opt out —
+ * their shape is the control. */
+.shell :where(input, textarea, select):not([type="range"], [type="color"], [type="checkbox"], [type="radio"]) {
+    border-radius: var(--radius-2) !important;
+}
+
+/* Panels: the frame's own surfaces, which stay put. */
+.shell :where(.side-rail, .workspace-rail, .stage, .agent-usage, .agent-empty) {
+    border-radius: var(--radius-3) !important;
+}
+
+/* Floating: anything that leaves the frame and casts a shadow. A softer
+ * corner than the panels, because height reads as distance. */
+.shell
+    :where(
+        .picker,
+        .command-palette,
+        .session-switcher,
+        .env-dd-menu,
+        .git-dd-menu,
+        .settings-theme,
+        .theme-editor,
+        .bruno-secrets-pop,
+        .dlg,
+        [role="dialog"],
+        [role="listbox"]
+    ) {
+    border-radius: var(--radius-4) !important;
+}
+
+/* Chips: the smallest marks, where the control radius reads as a pill.
+ * The top bar's status chips live here — they are buttons, not badges, so
+ * they take a rounded rectangle rather than the capsule they used to. */
+.shell :where(.rnd-btn-sm, .git-kbd, .panel-akbd, .tb-git-chip, .tb-deploy-chip, .tb-aws-chip, .zoom-pill) {
+    border-radius: var(--radius-1) !important;
+}
+
+/* Round by nature: sliders, and the status dots that genuinely are capsules.
+ * This replaces a blanket `[class*="pill"], [class*="chip"]` rule, which
+ * capsuled every toolbar button that happened to be named one. */
+.shell
+    :where(
+        .swx-track,
+        .swx-thumb,
+        .sld input[type="range"],
+        .sld input[type="range"]::-webkit-slider-runnable-track,
+        .sld input[type="range"]::-webkit-slider-thumb,
+        .aws-logs-pill,
+        .aws-logs-pill-dot,
+        .rnd-exec-pill,
+        .rnd-pill-x
+    ) {
+    border-radius: var(--radius-full) !important;
 }
 
 /* ---- Agent rail header ---------------------------------------------------
