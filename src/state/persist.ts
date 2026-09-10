@@ -81,7 +81,6 @@ const PERSISTED_KEYS = [
     "sideRailOpen",
     "workspaceRailOpen",
     "railTab",
-    "railChangesSplit",
     "zenMode",
     "rundeck",
     "restoreAgentTabs",
@@ -132,7 +131,6 @@ function packPrefs(s: StoreState): PersistedPrefs {
         sideRailOpen: s.sideRailOpen,
         workspaceRailOpen: s.workspaceRailOpen,
         railTab: s.railTab,
-        railChangesSplit: s.railChangesSplit,
         zenMode: s.zenMode,
         rundeck: s.rundeck,
         restoreAgentTabs: s.restoreAgentTabs,
@@ -728,10 +726,6 @@ export function applyHydrate(raw: string): HydrationResult {
         sideRailOpen: typeof prefs.sideRailOpen === "boolean" ? prefs.sideRailOpen : cur.sideRailOpen,
         workspaceRailOpen: typeof prefs.workspaceRailOpen === "boolean" ? prefs.workspaceRailOpen : cur.workspaceRailOpen,
         railTab: RAIL_TABS.has(prefs.railTab as RailTab) ? (prefs.railTab as RailTab) : cur.railTab,
-        railChangesSplit:
-            typeof prefs.railChangesSplit === "number" && Number.isFinite(prefs.railChangesSplit)
-                ? Math.min(0.85, Math.max(0.15, prefs.railChangesSplit))
-                : cur.railChangesSplit,
         zenMode: typeof prefs.zenMode === "boolean" ? prefs.zenMode : cur.zenMode,
         rundeck: {
             activeProject: typeof rundeck.activeProject === "string" ? rundeck.activeProject : "",

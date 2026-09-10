@@ -73,7 +73,6 @@ export interface PersistedPrefs {
     sideRailOpen: boolean;
     workspaceRailOpen: boolean;
     railTab?: RailTab;
-    railChangesSplit?: number;
     zenMode: boolean;
     rundeck?: RundeckSettings;
     restoreAgentTabs?: boolean;

@@ -67,7 +67,6 @@ export interface DomainState {
     workspaceRailOpen: boolean;
     railTab: RailTab;
     diffTarget: Record<string, DiffTarget | null>;
-    railChangesSplit: number;
     zenMode: boolean;
     rundeck: RundeckSettings;
     restoreAgentTabs: boolean;
@@ -211,7 +210,6 @@ export const useStore = create<StoreState>(() => {
         workspaceRailOpen: true,
         railTab: "agents",
         diffTarget: {},
-        railChangesSplit: 0.5,
         zenMode: false,
         rundeck: {
             activeProject: "",

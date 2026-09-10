@@ -2216,12 +2216,15 @@ export const toggleSideRail = (): void => setState((s) => ({ sideRailOpen: !s.si
  */
 const RAIL_TAB_ROLE: Partial<Record<import("./types").RailTab, WindowRole>> = {
     files: "files",
-    changes: "diff",
     search: "search",
 };
 
 export function setRailTab(tab: import("./types").RailTab): void {
     setState({ railTab: tab });
+    if (tab === "changes") {
+        openGitWorkbench();
+        return;
+    }
     const role = RAIL_TAB_ROLE[tab];
     if (!role) return;
     const st = getState();
@@ -2232,7 +2235,6 @@ export function setRailTab(tab: import("./types").RailTab): void {
     const existing = (st.windowsBySession[session.id] ?? []).find((id) => st.windows[id]?.role === role);
     if (existing) selectWindowId(existing);
 }
-export const setRailChangesSplit = (value: number): void => setState({ railChangesSplit: Math.min(0.85, Math.max(0.15, value)) });
 export const toggleWorkspaceRail = (): void => setState((s) => ({ workspaceRailOpen: !s.workspaceRailOpen }));
 export const toggleZen = (): void => setState((s) => ({ zenMode: !s.zenMode }));
 
@@ -2247,7 +2249,7 @@ export const openDiffPane = (): void => ensureRoleWindow("diff", "diff", "diff")
 export const openGitWorkbench = (): void => ensureRoleWindow("git", "git", "Git");
 
 export function openGitPane(): void {
-    ensureRoleWindow("diff", "diff", "diff");
+    openGitWorkbench();
 }
 
 function focusDiff(target: DiffTarget): void {
