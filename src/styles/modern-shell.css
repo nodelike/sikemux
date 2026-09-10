@@ -99,18 +99,25 @@ a:focus-visible,
     max-width: min(420px, 42vw);
     height: 26px;
     padding: 0 var(--space-2);
-    border-radius: var(--radius-sm);
-    background: color-mix(in srgb, var(--rail-2) calc(var(--window-opacity, 1) * 58%), transparent);
+    border-radius: var(--radius-2);
 }
 
 .crumb-session,
 .crumb-name {
     font-family: var(--ui);
-    font-size: 12.5px;
+    font-size: var(--text-xs);
 }
 
+/* The session is the subject and the path is context, so they differ by
+ * colour rather than by weight — 650 next to 400 at 12px was two different
+ * typefaces' worth of contrast for one breadcrumb. */
 .crumb-session {
-    font-weight: 650;
+    font-weight: var(--weight-medium);
+    color: var(--text-primary);
+}
+
+.crumb-name {
+    color: var(--text-tertiary);
 }
 
 .tb-right {
@@ -439,8 +446,10 @@ a:focus-visible,
 .tabbar.v-agent,
 .tabbar.v-editor,
 .tabbar.v-bruno {
-    border-bottom-color: var(--line-soft);
-    background: color-mix(in srgb, var(--rail) calc(var(--window-opacity, 1) * 86%), transparent);
+    /* No fill: the stage under the strip already is the surface, and a second
+     * near-identical tint on top of it drew a seam across the window. */
+    background: transparent;
+    border-bottom: 1px solid var(--border);
 }
 
 /* Tabs are pills, so the active one is filled rather than underlined — a hard
@@ -452,30 +461,41 @@ a:focus-visible,
     align-items: center;
 }
 
-/* Every tab is a surface, not just the active one — an unselected tab with no
- * edge reads as loose text sitting on the bar. */
+/*
+ * Only the selected tab is a surface.
+ *
+ * Every tab used to carry its own fill and its own 1px edge, on the theory
+ * that an unselected tab with no edge reads as loose text. With eight
+ * documents open that produced a row of eight boxes competing with the one
+ * that mattered, and the strip became the busiest thing in the window. An
+ * unselected tab is a label; hover proves it is clickable; only the active one
+ * gets a surface.
+ */
 .tabbar.v-agent .tab-wrap,
 .tabbar.v-editor .tab-wrap {
     height: 26px;
     padding-right: var(--space-1h);
     border-right: 0;
-    /* A shade rounder than the control radius: a tab is wider than it is tall,
-       so the same corner reads tighter on it. */
-    border-radius: 4.5px;
-    background: color-mix(in srgb, var(--rail-2) calc(var(--window-opacity, 1) * 55%), transparent);
-    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--line) 70%, transparent);
+    border-radius: var(--radius-2);
+    background: transparent;
+    color: var(--text-tertiary);
     overflow: hidden;
+    transition:
+        background var(--dur-1) linear,
+        color var(--dur-1) linear;
 }
 
 .tabbar.v-agent .tab-wrap:hover,
 .tabbar.v-editor .tab-wrap:hover {
-    background: color-mix(in srgb, var(--rail-2) calc(var(--window-opacity, 1) * 90%), transparent);
+    background: var(--surface-hover);
+    color: var(--text-secondary);
 }
 
 .tabbar.v-agent .tab-wrap.active,
 .tabbar.v-editor .tab-wrap.active {
-    background: var(--acc-soft);
-    box-shadow: inset 0 0 0 1px var(--acc-line);
+    background: var(--surface-selected);
+    box-shadow: inset 0 0 0 1px var(--border-selected);
+    color: var(--text-primary);
 }
 
 /* The close button was a slab flush against the tab's own edge. */
@@ -500,15 +520,14 @@ a:focus-visible,
     background: color-mix(in srgb, var(--danger) 18%, transparent);
 }
 
+/* The label inherits the tab's colour, so the three states are one decision
+ * above rather than six rules. Weight stays put between them: a label that
+ * gains 100 weight on selection reflows the strip by a pixel or two. */
 .tabbar.v-agent .tab-label,
 .tabbar.v-editor .tab-label {
-    font-size: 12px;
-    font-weight: 500;
-}
-
-.tabbar.v-agent .tab-wrap.active .tab-label,
-.tabbar.v-editor .tab-wrap.active .tab-label {
-    font-weight: 600;
+    font-size: var(--text-xs);
+    font-weight: var(--weight-medium);
+    color: inherit;
 }
 
 .pane {
@@ -520,12 +539,20 @@ a:focus-visible,
     border-radius: var(--radius-md);
 }
 
+/*
+ * Anything that floats: one surface, one hairline, one shadow.
+ *
+ * These are the only elements in the app that get height. Everything flat is
+ * separated by a border instead, because on a dark ground a shadow under a
+ * panel that is not actually above anything just reads as a smudge.
+ */
 .env-dd-menu,
 .picker,
 .command-palette,
 .session-switcher {
-    border-color: color-mix(in srgb, var(--line) 88%, white 4%);
-    background: color-mix(in srgb, var(--rail-2) calc(var(--window-opacity, 1) * 92%), transparent);
+    border: 1px solid var(--border);
+    background: color-mix(in srgb, var(--surface-overlay) calc(var(--window-opacity, 1) * 96%), transparent);
+    box-shadow: var(--shadow-4);
 }
 
 @media (max-width: 900px) {
@@ -734,8 +761,8 @@ a:focus-visible,
 .side-rail,
 .workspace-rail,
 .stage {
-    border: 1px solid color-mix(in srgb, var(--line) 76%, white 4%);
-    border-radius: var(--radius-md);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-3);
 }
 
 /* The gutter replaces the dividing borders the rails used to carry. */
@@ -746,9 +773,9 @@ a:focus-visible,
     border-right-width: 1px;
 }
 
+/* The surface itself is set once, with the rails, further down. */
 .stage {
     overflow: hidden;
-    background: color-mix(in srgb, var(--pane) calc(var(--window-opacity, 1) * 100%), transparent);
 }
 
 .pane {
@@ -910,22 +937,22 @@ textarea,
     box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--agent-provider) 34%, transparent);
 }
 
-/* Inset and rounded so it sits inside the button rather than across its edge. */
 /* ---- Top bar -------------------------------------------------------------
- * The gutter under the bar already separates it from the frame, so the hard
- * rule underneath was a second divider. The breadcrumb gets a real chip so it
- * reads as the window's subject rather than text floating past the lights.
+ * The bar shares the shell's ground with the gutter around the frame, so
+ * there is no bar — just window chrome sitting above the surfaces. The gutter
+ * underneath is the separation; a rule there would be a second one.
  */
-/* Flush: the bar shares the shell background with the gutter around the
- * frame, so there is no bar — just window chrome sitting above the surfaces. */
 .top-bar {
     border-bottom: 0;
     background: transparent;
 }
 
+/* The breadcrumb is the one thing on the bar that needs a surface: it names
+ * what the window is looking at, and without one it reads as text drifting
+ * past the traffic lights. */
 .crumb {
-    background: color-mix(in srgb, var(--rail-2) calc(var(--window-opacity, 1) * 92%), transparent);
-    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--line) 70%, transparent);
+    background: var(--surface-hover);
+    box-shadow: inset 0 0 0 1px var(--border);
 }
 
 /* ---- Surface vs gutter ---------------------------------------------------
@@ -1009,57 +1036,30 @@ textarea,
 }
 .rail-sig-name {
     font-family: var(--ui);
-    font-size: 11px;
-    font-weight: 600;
-    letter-spacing: 0.04em;
+    font-size: var(--text-2xs);
+    font-weight: var(--weight-medium);
+    letter-spacing: var(--tracking-normal);
 }
 .rail-sig .tb-version {
     margin-left: auto;
-    font-size: 10.5px;
+    font-family: var(--mono);
+    font-size: var(--text-3xs);
 }
 
 /* ---- Rail typography -----------------------------------------------------
- * The two rails had drifted apart: session and project names were declared at
- * three different sizes across as many rules, and their shortcut chips were a
- * point larger than the agent rail's timestamps. One scale for both — row
- * title, child row, meta — so the rails read as the same surface.
+ * Row names, sizes, families and the three row colours are all settled by the
+ * shared row rule near the top of this sheet. What is left here is the one
+ * thing that genuinely differs: meta text is what the machine said, so it
+ * stays monospace and a step down while the names around it do not.
  */
-.side-rail .sess-name,
-.side-rail .proj-name,
 .workspace-rail .agent-title {
-    font-size: 13px;
-}
-
-.side-rail .proj-child-label {
-    font-size: 12.5px;
+    font-size: var(--text-sm);
 }
 
 .side-rail .proj-child-kbd,
 .side-rail .rail-group-kbd,
 .workspace-rail .agent-ago {
-    font-size: 10.5px;
-}
-
-/* Row names take the UI font in both rails. The project navigator was
- * deliberately monospace to read as a tree, but next to the agent rail's
- * Figtree titles it made the two halves of the window look unrelated.
- * Shortcuts and timestamps stay monospace, as they do on the agent side. */
-.side-rail .proj-name,
-.side-rail .proj-child-label,
-.side-rail .sess-name {
-    font-family: var(--ui);
-}
-
-/* Rail rows rest below full ink, same as the picker: a column of names all at
- * --ink glares, and leaves the active row nothing to distinguish it. */
-.side-rail .sess-row,
-.side-rail .proj-row {
-    color: color-mix(in srgb, var(--ink) 50%, var(--ink-dim));
-}
-
-.side-rail .sess-row.active,
-.side-rail .proj-row.expanded,
-.side-rail .sess-row:hover,
-.side-rail .proj-row:hover {
-    color: var(--ink);
+    font-family: var(--mono);
+    font-size: var(--text-2xs);
+    color: var(--text-disabled);
 }
