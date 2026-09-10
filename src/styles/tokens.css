@@ -85,6 +85,16 @@
     /* The one place a row is allowed to take the accent: current selection. */
     --surface-selected: color-mix(in oklab, var(--acc) 14%, transparent);
 
+    /*
+     * Text and glyphs sitting *on* a filled accent — a primary button, a
+     * selected badge. The window's own ground, so it is dark on the bright
+     * accents every shipped theme uses and follows the theme rather than
+     * fighting it. This was a hardcoded near-black in three sheets, which is
+     * unreadable the moment a theme picks a dark accent.
+     */
+    --on-accent: var(--gray-base);
+    --on-danger: var(--gray-base);
+
     /* ── Borders ──────────────────────────────────────────────────────────
      *
      * Hairlines carry the layout here, so they have to be visible. A 1px line

@@ -44,10 +44,10 @@
 
 .command-palette-meta {
     flex: 0 0 auto;
-    color: var(--ink-faint);
-    font-size: 9px;
-    font-weight: 700;
-    letter-spacing: 0.07em;
+    color: var(--text-tertiary);
+    font-size: var(--text-3xs);
+    font-weight: var(--weight-semibold);
+    letter-spacing: var(--tracking-label);
     text-transform: uppercase;
 }
 
@@ -55,17 +55,17 @@
     min-width: 48px;
     flex: 0 0 auto;
     padding: 3px 6px;
-    color: var(--ink-dim);
-    font: inherit;
-    font-size: 10px;
+    color: var(--text-tertiary);
+    font-family: var(--kbd);
+    font-size: var(--text-2xs);
     text-align: center;
-    border: 1px solid var(--line);
-    background: var(--rail);
+    border: 1px solid var(--border);
+    background: var(--surface-sunken);
 }
 
 .command-palette-item.sel .command-palette-shortcut {
-    color: var(--ink);
-    border-color: var(--acc-line);
+    color: var(--text-primary);
+    border-color: var(--border-selected);
 }
 
 @media (max-width: 620px) {

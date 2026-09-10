@@ -6,8 +6,8 @@
     justify-content: center;
     align-items: flex-start;
     padding-top: 13vh;
-    background: rgba(8, 7, 12, 0.62);
-    animation: fade 0.15s ease;
+    background: color-mix(in oklab, var(--gray-base) 68%, transparent);
+    animation: fade var(--dur-2) var(--ease-out);
 }
 
 .agent-palette-stage {
@@ -31,9 +31,9 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    padding: 24px;
-    background: rgba(8, 7, 12, 0.38);
-    animation: fade 0.1s ease;
+    padding: var(--space-6);
+    background: color-mix(in oklab, var(--gray-base) 44%, transparent);
+    animation: fade var(--dur-1) var(--ease-out);
 }
 
 .session-switcher {
@@ -42,9 +42,11 @@
     display: flex;
     flex-direction: column;
     overflow: hidden;
-    background: color-mix(in srgb, var(--rail-2) calc(var(--window-opacity, 1) * 100%), transparent);
-    border: 1px solid var(--acc-line);
-    animation: pop 0.12s cubic-bezier(0.2, 0.8, 0.2, 1);
+    background: color-mix(in srgb, var(--surface-overlay) calc(var(--window-opacity, 1) * 94%), transparent);
+    border: 1px solid var(--border);
+    box-shadow: var(--shadow-4);
+    backdrop-filter: blur(20px) saturate(1.4);
+    animation: pop var(--dur-1) var(--ease-out);
 }
 
 .session-switcher-head,
@@ -53,7 +55,7 @@
     align-items: center;
     gap: 9px;
     padding: 10px 12px;
-    color: var(--ink-faint);
+    color: var(--text-tertiary);
     font-size: 10px;
     font-weight: 700;
     letter-spacing: 0.08em;
@@ -62,12 +64,12 @@
 
 .session-switcher-head {
     justify-content: space-between;
-    border-bottom: 1px solid var(--line);
-    color: var(--ink-dim);
+    border-bottom: 1px solid var(--border);
+    color: var(--text-secondary);
 }
 
 .session-switcher-hint {
-    color: var(--ink-faint);
+    color: var(--text-tertiary);
 }
 
 .session-switcher-list {
@@ -83,15 +85,15 @@
     align-items: center;
     gap: 12px;
     padding: 8px 10px;
-    color: var(--ink-dim);
+    color: var(--text-secondary);
     text-align: left;
     border: 1px solid transparent;
 }
 
 .session-switcher-item.selected {
-    color: var(--ink);
-    background: var(--acc-soft);
-    border-color: var(--acc-line);
+    color: var(--text-primary);
+    background: var(--surface-selected);
+    border-color: var(--border-selected);
 }
 
 .session-switcher-icon {
@@ -101,8 +103,8 @@
     display: grid;
     place-items: center;
     color: var(--cmd);
-    border: 1px solid var(--line);
-    background: var(--void);
+    border: 1px solid var(--border);
+    background: var(--surface-sunken);
 }
 
 .session-switcher-icon.project,
@@ -125,24 +127,24 @@
 }
 
 .session-switcher-name {
-    color: var(--ink);
-    font-size: 13px;
-    font-weight: 700;
+    color: var(--text-primary);
+    font-size: var(--text-sm);
+    font-weight: var(--weight-semibold);
 }
 
 .session-switcher-sub {
-    color: var(--ink-faint);
-    font-size: 10.5px;
+    color: var(--text-tertiary);
+    font-size: var(--text-2xs);
 }
 
 .session-switcher-foot {
-    border-top: 1px solid var(--line);
+    border-top: 1px solid var(--border);
 }
 
 .session-switcher-foot span:nth-child(odd) {
     padding: 2px 5px;
-    color: var(--ink-dim);
-    border: 1px solid var(--line);
+    color: var(--text-secondary);
+    border: 1px solid var(--border);
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -158,10 +160,12 @@
     max-height: 62vh;
     display: flex;
     flex-direction: column;
-    background: color-mix(in srgb, var(--rail-2) calc(var(--window-opacity, 1) * 100%), transparent);
-    border: 1px solid var(--line);
+    background: color-mix(in srgb, var(--surface-overlay) calc(var(--window-opacity, 1) * 94%), transparent);
+    border: 1px solid var(--border);
+    box-shadow: var(--shadow-3);
+    backdrop-filter: blur(20px) saturate(1.4);
     overflow: hidden;
-    animation: pop 0.18s cubic-bezier(0.2, 0.8, 0.2, 1);
+    animation: pop var(--dur-2) var(--ease-out);
 }
 
 .picker-input-wrap {
@@ -169,22 +173,22 @@
     align-items: center;
     gap: 10px;
     padding: 14px 16px;
-    border-bottom: 1px solid var(--line);
+    border-bottom: 1px solid var(--border);
 }
 .picker-search-icon {
-    color: var(--ink-faint);
+    color: var(--text-tertiary);
 }
 .picker-input {
     flex: 1;
     background: none;
     border: none;
     outline: none;
-    color: var(--ink);
+    color: var(--text-primary);
     font: inherit;
-    font-size: 14px;
+    font-size: var(--text-md);
 }
 .picker-input::placeholder {
-    color: var(--ink-faint);
+    color: var(--text-tertiary);
 }
 .picker-folder-btn {
     width: 27px;
@@ -194,8 +198,8 @@
     align-items: center;
     justify-content: center;
     background: transparent;
-    border: 1px solid var(--line);
-    color: var(--ink-dim);
+    border: 1px solid var(--border);
+    color: var(--text-secondary);
     cursor: pointer;
     transition:
         color 0.1s,
@@ -203,9 +207,9 @@
         background 0.1s;
 }
 .picker-folder-btn:hover {
-    color: var(--ink);
-    border-color: var(--ink-dim);
-    background: var(--hl);
+    color: var(--text-primary);
+    border-color: var(--border-strong);
+    background: var(--surface-hover);
 }
 .picker-list {
     overflow-y: auto;
@@ -225,16 +229,16 @@
     height: 30px;
     padding: 0 var(--space-1h);
     border-radius: var(--radius-control);
-    color: var(--ink-dim);
+    color: var(--text-secondary);
     text-align: left;
 }
 .picker-item-wrap.has-forget .picker-item {
     padding-right: 38px;
 }
 .picker-item.sel {
-    background: var(--acc-soft);
-    color: var(--ink);
-    box-shadow: inset 0 0 0 1px var(--acc-line);
+    background: var(--surface-selected);
+    color: var(--text-primary);
+    box-shadow: inset 0 0 0 1px var(--border-selected);
 }
 .agent-palette .picker-item:disabled {
     cursor: not-allowed;
@@ -253,7 +257,7 @@
 .agent-palette-divider {
     height: 1px;
     margin: 8px 12px;
-    background: var(--line);
+    background: var(--border);
 }
 .picker-icon {
     display: flex;
@@ -275,7 +279,7 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    color: var(--ink-faint);
+    color: var(--text-tertiary);
     opacity: 0;
     border-radius: var(--radius-control);
     padding: 2px;
@@ -286,8 +290,8 @@
 }
 .picker-forget:hover {
     opacity: 1;
-    color: var(--ink);
-    background: var(--acc-soft);
+    color: var(--text-primary);
+    background: var(--surface-hover);
 }
 .picker-name {
     flex: 1 1 auto;
@@ -299,10 +303,10 @@
     /* A shade above --ink-dim: readable at a glance without the whole column
        sitting at full --ink, which glares and leaves the selected row nothing
        to distinguish it. */
-    color: color-mix(in srgb, var(--ink) 30%, var(--ink-dim));
+    color: var(--text-secondary);
 }
 .picker-item.sel .picker-name {
-    color: var(--ink);
+    color: var(--text-primary);
 }
 .picker-sub {
     /* Never shrink: the provider and age are short and fixed, so the title is
@@ -310,8 +314,8 @@
     flex: 0 0 auto;
     padding-left: var(--space-3);
     text-align: right;
-    font-size: 11px;
-    color: var(--ink-faint);
+    font-size: var(--text-2xs);
+    color: var(--text-tertiary);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -331,14 +335,14 @@
     font-size: 10.5px;
     line-height: 1;
     padding: 3px 7px;
-    border: 1px solid var(--line);
-    color: var(--ink-dim);
+    border: 1px solid var(--border);
+    color: var(--text-secondary);
     white-space: nowrap;
     text-transform: lowercase;
 }
 .picker-tag.proj {
     grid-column: 1;
-    color: var(--ink);
+    color: var(--text-primary);
     border-color: var(--acc-line);
     background: var(--acc-soft);
 }
@@ -355,7 +359,7 @@
     height: 6px;
     border-radius: 50%;
     flex: 0 0 auto;
-    background: var(--ink-dim);
+    background: var(--text-secondary);
 }
 .picker-tag.env-dev .picker-tag-dot {
     background: var(--live);
@@ -372,7 +376,7 @@
 .picker-empty {
     padding: 28px;
     text-align: center;
-    color: var(--ink-faint);
+    color: var(--text-tertiary);
 }
 .picker-check {
     flex: 0 0 auto;
@@ -387,7 +391,7 @@
 }
 .bruno-env-dot.none {
     background: transparent;
-    box-shadow: inset 0 0 0 1.5px var(--ink-faint);
+    box-shadow: inset 0 0 0 1.5px var(--text-tertiary);
 }
 
 @keyframes fadeDown {
@@ -450,14 +454,14 @@
     justify-content: space-between;
     gap: var(--space-2);
     padding: 12px 14px 10px;
-    border-bottom: 1px solid var(--line);
-    color: var(--ink);
+    border-bottom: 1px solid var(--border);
+    color: var(--text-primary);
     font-family: var(--ui);
     font-size: 12.5px;
 }
 
 .new-tab-hint {
-    color: var(--ink-dim);
+    color: var(--text-secondary);
     font-size: 10.5px;
 }
 
@@ -472,10 +476,10 @@
     width: 19px;
     height: 19px;
     place-items: center;
-    border: 1px solid var(--line);
+    border: 1px solid var(--border);
     border-radius: var(--radius-control);
     background: color-mix(in srgb, var(--void) 46%, transparent);
-    color: var(--ink-dim);
+    color: var(--text-secondary);
     font-family: var(--mono);
     font-size: 10.5px;
 }
@@ -489,16 +493,16 @@
     display: grid;
     flex: none;
     place-items: center;
-    color: var(--ink-dim);
+    color: var(--text-secondary);
 }
 
 .new-tab-item.sel .new-tab-icon {
-    color: var(--ink);
+    color: var(--text-primary);
 }
 
 .new-tab-label {
     flex: none;
-    color: var(--ink);
+    color: var(--text-primary);
     font-size: 12.5px;
 }
 
@@ -506,7 +510,7 @@
     flex: 1;
     min-width: 0;
     overflow: hidden;
-    color: var(--ink-dim);
+    color: var(--text-secondary);
     font-size: 11px;
     text-align: right;
     text-overflow: ellipsis;

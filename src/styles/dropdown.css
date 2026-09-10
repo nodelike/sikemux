@@ -10,12 +10,12 @@
     gap: 8px;
     height: 30px;
     padding: 0 10px;
-    border: 1px solid var(--line);
-    border-radius: var(--radius-xs);
-    background: color-mix(in srgb, var(--rail-2) calc(var(--window-opacity, 1) * 92%), transparent);
-    color: var(--ink);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-2);
+    background: color-mix(in srgb, var(--surface-raised) calc(var(--window-opacity, 1) * 92%), transparent);
+    color: var(--text-primary);
     font-family: var(--ui);
-    font-size: 12.5px;
+    font-size: var(--text-sm);
     cursor: pointer;
     transition:
         border-color 0.12s,
@@ -23,12 +23,12 @@
         color 0.12s;
 }
 .dd-btn:hover:not(:disabled) {
-    border-color: var(--acc-line);
-    background: color-mix(in srgb, var(--rail-2) calc(var(--window-opacity, 1) * 100%), transparent);
+    border-color: var(--border-strong);
+    background: color-mix(in srgb, var(--surface-overlay) calc(var(--window-opacity, 1) * 100%), transparent);
 }
 .dd-btn[aria-expanded="true"] {
-    border-color: var(--acc-line);
-    box-shadow: 0 0 0 3px var(--acc-soft);
+    border-color: var(--border-selected);
+    box-shadow: 0 0 0 3px var(--surface-selected);
 }
 /* Settings rows want the control to span the field, not hug its label. */
 .dd-btn.settings-dd {
@@ -39,7 +39,7 @@
     min-width: 0;
 }
 .dd-btn:disabled {
-    color: var(--ink-faint);
+    color: var(--text-disabled);
     cursor: default;
 }
 .dd-icon {
