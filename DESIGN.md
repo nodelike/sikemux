@@ -149,8 +149,12 @@ indistinguishable from having selected it — which is what the rails, the tabs
 and the agent list all did before this rule existed.
 
 **Allowed to be accent:** the selected row, the open menu button, the current
-tab, the checked item, the focus ring, the HEAD ref badge, a link, and exactly
-one filled primary action per surface.
+tab, the checked item, the focus ring, the HEAD ref badge, a link, a resize
+handle under the pointer, and exactly one filled primary action per surface.
+
+The resize handle is the one hover in the app that keeps the accent, because
+there it is not decoration: a splitter has no other way to say it is draggable,
+and the whole affordance is that it lights up under the pointer.
 
 **Not allowed:** hover of any kind, container borders, card fills, category
 tags, section headers, icon buttons at rest, hint text, or a backdrop. Every one

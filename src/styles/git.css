@@ -89,7 +89,7 @@
         transform 0.1s;
 }
 .git-cp-ai:hover {
-    color: var(--acc);
+    color: var(--text-primary);
     transform: scale(1.12);
 }
 .git-cp-ai:disabled {
@@ -891,7 +891,7 @@
         opacity 0.12s;
 }
 .merge-review-action:hover:not(:disabled) {
-    color: var(--acc);
+    color: var(--text-primary);
 }
 .merge-review-action:disabled {
     opacity: 0.35;
@@ -1053,7 +1053,7 @@
     font-size: 12px;
 }
 .acc-name:hover {
-    color: var(--acc);
+    color: var(--text-primary);
 }
 
 .sess-icon.agent {

@@ -313,7 +313,7 @@
     color: var(--text-tertiary);
 }
 .agent-row.new:hover {
-    color: var(--acc);
+    color: var(--text-primary);
 }
 .agent-glyph.dim {
     color: var(--text-tertiary);
@@ -920,8 +920,8 @@
 }
 
 .rail-commit-ai:hover:not(:disabled) {
-    background: var(--surface-selected);
-    color: var(--acc);
+    background: var(--surface-hover);
+    color: var(--text-primary);
 }
 
 .rail-commit-go {

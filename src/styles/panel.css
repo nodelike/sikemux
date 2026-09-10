@@ -267,8 +267,8 @@
     cursor: pointer;
 }
 .empty-state.inline.interactive:hover {
-    color: var(--acc);
-    background: var(--surface-selected);
+    color: var(--text-primary);
+    background: var(--surface-hover);
 }
 
 /* ---- Badge -------------------------------------------------------------- */

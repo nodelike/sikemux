@@ -51,7 +51,7 @@
     line-height: 1;
 }
 .ed-tree-act:hover {
-    color: var(--acc);
+    color: var(--text-primary);
 }
 
 .tree-row.selected {

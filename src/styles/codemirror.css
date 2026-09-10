@@ -238,8 +238,8 @@
         color 0.1s;
 }
 .cm-peek-row:hover {
-    background: var(--acc-soft);
-    color: var(--ink);
+    background: var(--surface-hover);
+    color: var(--text-primary);
 }
 .cm-peek-row-line {
     width: 32px;

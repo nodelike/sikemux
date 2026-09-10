@@ -211,7 +211,7 @@
 }
 
 .onboarding-progress button:hover span {
-    background: color-mix(in srgb, var(--acc) 70%, var(--border));
+    background: var(--border-strong);
 }
 
 .experience-frame .onboarding-progress button:focus-visible {
@@ -453,15 +453,20 @@
     background: var(--warn);
 }
 
-.onboarding-signals .state-done.is-on,
-.onboarding-signals .state-done:hover {
+.onboarding-signals .state-done.is-on {
     border-color: var(--border-selected);
     border-left-color: var(--acc);
     background: var(--surface-selected);
 }
-.onboarding-signals .state-done.is-on i,
-.onboarding-signals .state-done:hover i {
+.onboarding-signals .state-done:hover {
+    border-color: var(--border-strong);
+    background: var(--surface-hover);
+}
+.onboarding-signals .state-done.is-on i {
     background: var(--acc);
+}
+.onboarding-signals .state-done:hover i {
+    background: var(--text-primary);
 }
 
 .onboarding-signals button.is-on b {
@@ -853,7 +858,7 @@
     justify-content: center;
     align-items: flex-start;
     padding-top: 28px;
-    background: rgba(8, 7, 12, 0.72);
+    background: color-mix(in oklab, var(--gray-base) 72%, transparent);
     animation: fade 0.14s ease;
 }
 

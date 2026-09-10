@@ -6,7 +6,7 @@
     justify-content: center;
     align-items: flex-start;
     padding-top: 9vh;
-    background: rgba(8, 7, 12, 0.62);
+    background: color-mix(in oklab, var(--gray-base) 62%, transparent);
     animation: fade 0.15s ease;
 }
 .settings-head {
@@ -1226,8 +1226,8 @@
         background 0.1s;
 }
 .settings-depth-btn:hover:not(:disabled) {
-    color: var(--acc);
-    background: var(--acc-dim);
+    color: var(--text-primary);
+    background: var(--surface-hover);
 }
 .settings-depth-btn:disabled {
     opacity: 0.35;

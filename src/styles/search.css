@@ -486,10 +486,10 @@
         color 0.12s;
 }
 .sp-preview-head:hover {
-    background: rgba(255, 255, 255, 0.03);
+    background: var(--surface-hover);
 }
 .sp-preview-head:hover .sp-preview-open {
-    color: var(--acc);
+    color: var(--text-primary);
     transform: translate(1px, -1px);
 }
 .sp-preview-name {

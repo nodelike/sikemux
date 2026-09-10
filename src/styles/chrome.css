@@ -59,7 +59,7 @@
 }
 
 .boot-state button:hover {
-    background: color-mix(in srgb, var(--acc) 20%, var(--bg-raised, var(--surface-raised)));
+    background: color-mix(in oklab, var(--ink) 6%, var(--bg-raised, var(--surface-raised)));
 }
 
 .body {
@@ -238,8 +238,8 @@
         color 0.12s;
 }
 .tb-update:hover:not(:disabled) {
-    background: var(--surface-selected);
-    border-color: var(--acc);
+    background: var(--surface-hover);
+    border-color: var(--border-strong);
 }
 .tb-update-preparing,
 .tb-update-downloading,
@@ -358,8 +358,8 @@
         background 0.12s;
 }
 .rail-group-add:hover {
-    color: var(--acc);
-    background: var(--surface-selected);
+    color: var(--text-primary);
+    background: var(--surface-hover);
 }
 .rail-group-actions {
     display: flex;

@@ -179,8 +179,8 @@ button {
         opacity 0.12s;
 }
 .copy-btn:hover {
-    color: var(--acc);
-    background: var(--acc-soft);
+    color: var(--text-primary);
+    background: var(--surface-hover);
 }
 .copy-btn.copied {
     color: var(--live);
