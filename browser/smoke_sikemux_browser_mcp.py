@@ -141,7 +141,7 @@ async def exercise_sidecar(sidecar: Path, cdp_url: str, state_dir: Path, page_ur
         async with ClientSession(reader, writer) as session:
             await session.initialize()
             tools = {tool.name for tool in (await session.list_tools()).tools}
-            required = {"browser_navigate", "browser_get_state", "browser_list_tabs"}
+            required = {"browser_navigate", "browser_get_state", "browser_list_tabs", "sikemux_workspace_inspect", "sikemux_task_start", "sikemux_task_read", "sikemux_task_stop", "sikemux_ui_open", "sikemux_events_wait"}
             if not required <= tools:
                 raise RuntimeError(f"frozen sidecar is missing tools: {sorted(required - tools)}")
             if "browser_extract_content" in tools:

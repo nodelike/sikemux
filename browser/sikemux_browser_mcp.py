@@ -21,6 +21,7 @@ from browser_use.telemetry import MCPServerTelemetryEvent
 from browser_use.tools.service import Tools
 from browser_use.utils import get_browser_use_version
 import mcp.types as mcp_types
+import sikemux_harness
 
 
 HIDDEN_TOOLS = {
@@ -54,6 +55,7 @@ class SikemuxBrowserServer(BrowserUseServer):
         async def filtered(request):
             result = await original(request)
             tools = [tool for tool in result.root.tools if tool.name not in HIDDEN_TOOLS]
+            tools.extend(sikemux_harness.tool_definitions())
             return mcp_types.ServerResult(result.root.model_copy(update={"tools": tools}))
 
         self.server.request_handlers[mcp_types.ListToolsRequest] = filtered
@@ -96,6 +98,8 @@ class SikemuxBrowserServer(BrowserUseServer):
         return cdp_url
 
     async def _execute_tool(self, tool_name: str, arguments: dict):
+        if tool_name in sikemux_harness.METHODS:
+            return await sikemux_harness.execute(tool_name, arguments)
         if tool_name in HIDDEN_TOOLS:
             return "This browser tool is disabled by Sikemux."
         if tool_name.startswith("browser_") and tool_name not in {

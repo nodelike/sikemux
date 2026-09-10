@@ -167,9 +167,22 @@ impl CliBroker {
                 token,
                 request,
             } => {
+                let focus = request.method == "ui.open"
+                    && request
+                        .params
+                        .get("focus")
+                        .and_then(serde_json::Value::as_bool)
+                        == Some(true);
                 let result = self.authenticate(protocol, &token).and_then(|_| {
                     crate::harness::execute(&self.inner.app, &self.inner.harness, request)
                 });
+                if focus && result.is_ok() {
+                    if let Some(window) = self.inner.app.get_webview_window("main") {
+                        let _ = window.show();
+                        let _ = window.unminimize();
+                        let _ = window.set_focus();
+                    }
+                }
                 let response = match result {
                     Ok(value) => CliServerResponse::Result { value },
                     Err(message) => CliServerResponse::Error { message },

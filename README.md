@@ -89,6 +89,40 @@ Sikemux detects Claude, Codex, Hermes, Pi, and OpenCode on your `PATH`. It reads
 
 ![Agents view](public/screenshots/project-agents-view.png)
 
+### Agent harness tools
+
+The bundled browser MCP also exposes six Sikemux tools. They operate on the agent's open project and do not require starting Chromium. The native CLI exposes the same operations with JSON input and output:
+
+```bash
+sikemux tool workspace.inspect
+sikemux tool task.start '{"taskId":"dev","idempotencyKey":"dev-first-run"}'
+sikemux tool task.read '{"executionId":"RETURNED_ID","cursor":0}'
+sikemux tool events.wait '{"cursor":"RETURNED_EVENT_CURSOR","timeoutMs":30000}'
+sikemux tool ui.open '{"kind":"file","path":"src/App.tsx","line":42,"focus":true}'
+sikemux tool task.stop '{"executionId":"RETURNED_ID"}'
+```
+
+| CLI method          | MCP tool                    | Behavior                                                                         |
+| ------------------- | --------------------------- | -------------------------------------------------------------------------------- |
+| `workspace.inspect` | `sikemux_workspace_inspect` | Project panes, configured tasks, harness runs, and the current event cursor      |
+| `task.start`        | `sikemux_task_start`        | Start a configured task in a managed terminal; requires an idempotency key       |
+| `task.read`         | `sikemux_task_read`         | Status, exit code, and output after a byte cursor                                |
+| `task.stop`         | `sikemux_task_stop`         | Stop one exact execution and its process tree                                    |
+| `ui.open`           | `sikemux_ui_open`           | Open a file, diff, task terminal, or the configured preview                      |
+| `events.wait`       | `sikemux_events_wait`       | Wait up to 30 seconds for project task output, task lifecycle, or UI-open events |
+
+Task launches use `sikemux.json` and its existing project-trust dialog. A changed configuration is checked again before launch. Reusing an idempotency key returns the original execution, including after completion. Starting an already active harness task returns that execution. A task already running through the command deck must be stopped there before launching the same task through the harness.
+
+Task terminals open in the background and remain available in the project. Use `ui.open` with `kind: "terminal"`, an `executionId`, and `focus: true` to reveal one. Files open as background tabs by default. Set `focus: true` to reveal the file at the requested one-based line. Files must resolve inside the project. Preview opens require an agent session and use that agent's browser. A returned `previewUrl` is configured information; inspect task output or use browser tools to verify readiness.
+
+Pass the returned output cursor into the next `task.read`. `hasMore` means another page is available. Output pages default to 8 KiB, with a supported `limit` of 4–8192 bytes, and may contain terminal escape sequences. Each task retains up to 1 MiB of raw output; `truncated` reports when a cursor predates retained bytes. Completed and stopped PTYs use the native ten-minute retention period and may be evicted earlier under capacity pressure.
+
+Event cursors are separate from output cursors. Inspect the workspace to obtain an event cursor, then pass it to `events.wait`. An optional `executionId` filters the wait. A timeout returns an empty event list and a new cursor. Event history holds 256 entries; `truncated` means the caller should inspect current state again. Waits do not schedule future agent turns.
+
+Harness run history and idempotency keys last for the current frontend session, with limits of 128 runs and 256 keys. App restart does not resume commands, and a frontend reload loses harness run handles. Closing a project stops its harness tasks. The local authenticated endpoint follows `SIKEMUX_CLI_ENDPOINT`; terminals launched by Sikemux also provide project and agent context. From an external shell, run the CLI inside the open project's Git root or set `SIKEMUX_PROJECT` explicitly.
+
+Run the native smoke with `pnpm test:e2e:desktop`. To also exercise managed tasks, run `node scripts/smoke-desktop-e2e.mjs --tasks` after that build and approve the temporary fixture project in its isolated Sikemux window. This checks launch deduplication, live event waits, output cursors, retained logs, exact execution stops, and failure exit codes. The fixture is removed afterward.
+
 ### AWS
 
 The AWS panel shows:

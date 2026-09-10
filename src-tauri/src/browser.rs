@@ -563,6 +563,13 @@ impl BrowserManager {
             ("SIKEMUX_BROWSER_BROKER_URL".into(), broker_url),
             ("SIKEMUX_BROWSER_BROKER_TOKEN".into(), broker_token),
             ("SIKEMUX_BROWSER_AGENT_ID".into(), agent_id.to_owned()),
+            (
+                "SIKEMUX_CLI_ENDPOINT".into(),
+                crate::cli_server::cli_endpoint_path()
+                    .ok_or_else(|| AppError::Other("CLI endpoint unavailable".into()))?
+                    .to_string_lossy()
+                    .into_owned(),
+            ),
         ])
     }
 

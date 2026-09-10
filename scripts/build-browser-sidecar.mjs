@@ -103,6 +103,7 @@ const destination = join(binariesDir, `sikemux-browser-mcp-${target}${suffix}`);
 const sidecarInputs = [
   scriptPath,
   join(browserDir, "sikemux_browser_mcp.py"),
+  join(browserDir, "sikemux_harness.py"),
   join(browserDir, "pyproject.toml"),
   join(browserDir, "uv.lock"),
 ];

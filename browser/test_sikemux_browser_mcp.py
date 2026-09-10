@@ -6,6 +6,7 @@ import threading
 import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from unittest.mock import AsyncMock, patch
 
 from mcp.types import ListToolsRequest
 
@@ -50,9 +51,20 @@ class SikemuxBrowserServerTests(unittest.TestCase):
 
             tools = asyncio.run(list_tools())
             self.assertFalse(tools & HIDDEN_TOOLS)
+            self.assertIn("sikemux_workspace_inspect", tools)
+            self.assertIn("sikemux_events_wait", tools)
             self.assertIn("browser_get_state", tools)
             self.assertIn("browser_switch_tab", tools)
             self.assertNotIn("browser_extract_content", tools)
+
+    def test_harness_tool_does_not_start_chromium(self):
+        with tempfile.TemporaryDirectory() as directory:
+            server = self.server("agent-one", Path(directory))
+            with patch("sikemux_browser_mcp.sikemux_harness.execute", new_callable=AsyncMock, return_value='{"ok":true}') as execute, patch.object(server, "_init_browser_session", new_callable=AsyncMock) as start:
+                result = asyncio.run(server._execute_tool("sikemux_workspace_inspect", {}))
+                self.assertEqual(result, '{"ok":true}')
+                execute.assert_awaited_once_with("sikemux_workspace_inspect", {})
+                start.assert_not_called()
 
     def test_rejects_agent_ids_that_can_escape_state_paths(self):
         with tempfile.TemporaryDirectory() as directory:

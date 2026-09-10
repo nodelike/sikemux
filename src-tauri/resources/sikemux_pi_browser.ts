@@ -98,7 +98,7 @@ class McpClient {
         this.pending.delete(id);
         signal?.removeEventListener("abort", abort);
         reject(new Error(`MCP ${method} timed out`));
-      }, 30_000);
+      }, 75_000);
       this.pending.set(id, {
         resolve: (value) => {
           signal?.removeEventListener("abort", abort);

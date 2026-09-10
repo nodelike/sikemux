@@ -1,7 +1,14 @@
 #!/usr/bin/env node
 
 import { spawn, spawnSync } from "node:child_process";
-import { mkdtemp, mkdir, rm, stat, writeFile } from "node:fs/promises";
+import {
+  mkdtemp,
+  mkdir,
+  realpath,
+  rm,
+  stat,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -29,6 +36,8 @@ const cliExecutable = resolve(
       `sikemux-editor${executableSuffix}`,
     ),
 );
+
+const exerciseHarnessTasks = process.argv.includes("--tasks");
 
 const READY_TIMEOUT_MS = 20_000;
 const OPEN_TIMEOUT_MS = 70_000;
@@ -144,6 +153,31 @@ await writeFile(
   "utf8",
 );
 
+if (exerciseHarnessTasks) {
+  await writeFile(
+    join(project, "sikemux.json"),
+    JSON.stringify({
+      version: 1,
+      tasks: [
+        {
+          id: "server",
+          label: "Harness server test",
+          command: `node -e "console.log('READY'); setInterval(() => {}, 1000)"`,
+          cwd: ".",
+          env: {},
+        },
+        {
+          id: "fail",
+          label: "Harness failure test",
+          command: `node -e "console.log('expected failure'); process.exit(7)"`,
+          cwd: ".",
+          env: {},
+        },
+      ],
+    }),
+  );
+}
+
 const isolatedEnvironment = {
   ...process.env,
   HOME: isolatedHome,
@@ -231,6 +265,146 @@ try {
     },
   );
 
+  const harnessEnv = { ...isolatedEnvironment, SIKEMUX_PROJECT: project };
+  const inspect = run(
+    cliExecutable,
+    ["tool", "workspace.inspect"],
+    harnessEnv,
+    10_000,
+  );
+  if (inspect.status !== 0)
+    fail(`harness inspect failed: ${inspect.stderr}`, desktopLog);
+  const workspace = JSON.parse(inspect.stdout);
+  if (
+    workspace.project !== (await realpath(project)) ||
+    !workspace.windows.length ||
+    !workspace.cursor
+  )
+    fail("harness returned an incomplete workspace", desktopLog);
+  const reveal = run(
+    cliExecutable,
+    [
+      "tool",
+      "ui.open",
+      JSON.stringify({ kind: "file", path: "smoke.ts", line: 2 }),
+    ],
+    harnessEnv,
+    10_000,
+  );
+  if (reveal.status !== 0)
+    fail(`harness file open failed: ${reveal.stderr}`, desktopLog);
+  const events = run(
+    cliExecutable,
+    [
+      "tool",
+      "events.wait",
+      JSON.stringify({ cursor: workspace.cursor, timeoutMs: 0 }),
+    ],
+    harnessEnv,
+    10_000,
+  );
+  if (
+    events.status !== 0 ||
+    !JSON.parse(events.stdout).events.some(
+      (event) => event.kind === "ui.opened",
+    )
+  )
+    fail("harness UI event was not delivered", desktopLog);
+
+  if (exerciseHarnessTasks) {
+    const tool = (method, params = {}) => {
+      const result = run(
+        cliExecutable,
+        ["tool", method, JSON.stringify(params)],
+        harnessEnv,
+        70_000,
+      );
+      if (result.status !== 0) fail(`${method}: ${result.stderr}`, desktopLog);
+      return JSON.parse(result.stdout);
+    };
+    console.log(
+      "Waiting for fixture project trust in the isolated Sikemux window...",
+    );
+    const started = tool("task.start", {
+      taskId: "server",
+      idempotencyKey: "server-first",
+    });
+    if (started.status !== "running") fail("server did not start");
+    const repeated = tool("task.start", {
+      taskId: "server",
+      idempotencyKey: "server-first",
+    });
+    if (started.executionId !== repeated.executionId) fail("duplicate launch");
+    let output;
+    await waitFor("task output", 5000, () => {
+      output = tool("task.read", { executionId: started.executionId });
+      return output.output.includes("READY");
+    });
+    const incremental = tool("task.read", {
+      executionId: started.executionId,
+      cursor: output.cursor,
+    });
+    if (incremental.output !== "") fail("output was repeated");
+    tool("ui.open", {
+      kind: "terminal",
+      executionId: started.executionId,
+      focus: true,
+    });
+    const eventCursor = tool("workspace.inspect").cursor;
+    const liveWait = new Promise((resolveWait, rejectWait) => {
+      const child = spawn(
+        cliExecutable,
+        [
+          "tool",
+          "events.wait",
+          JSON.stringify({
+            cursor: eventCursor,
+            timeoutMs: 5000,
+            executionId: started.executionId,
+          }),
+        ],
+        { env: harnessEnv, cwd: project },
+      );
+      let output = "";
+      child.stdout.on("data", (chunk) => {
+        output += chunk;
+      });
+      child.on("error", rejectWait);
+      child.on("exit", (code) => {
+        if (code === 0) resolveWait(JSON.parse(output));
+        else rejectWait(new Error("event wait failed"));
+      });
+    });
+    const stopped = tool("task.stop", { executionId: started.executionId });
+    if (
+      !(await liveWait).events.some((event) =>
+        ["task.stopping", "task.stopped"].includes(event.kind),
+      )
+    )
+      fail("live event wait missed stop");
+    if (stopped.status !== "stopped") fail("task did not stop");
+    const retained = tool("task.read", { executionId: started.executionId });
+    if (!retained.output.includes("READY")) fail("stopped task lost output");
+    const failed = tool("task.start", {
+      taskId: "fail",
+      idempotencyKey: "fail-first",
+    });
+    await waitFor(
+      "failure status",
+      5000,
+      () =>
+        tool("task.read", { executionId: failed.executionId }).exitCode === 7,
+    );
+    if (
+      tool("task.start", { taskId: "server", idempotencyKey: "server-first" })
+        .executionId !== started.executionId
+    )
+      fail("retry after stop spawned a new process");
+    console.log(
+      "Harness task E2E passed: trust, launch, deduplication, output cursor, terminal reveal, stop, retained output, exit code",
+    );
+  }
+
   const afterOpen = run(cliExecutable, ["status"], isolatedEnvironment, 2_000);
   if (afterOpen.status !== 0) {
     fail(
@@ -244,5 +418,10 @@ try {
   );
 } finally {
   await stopExactChild(desktop);
-  await rm(temporaryRoot, { recursive: true, force: true });
+  await rm(temporaryRoot, {
+    recursive: true,
+    force: true,
+    maxRetries: 10,
+    retryDelay: 200,
+  });
 }
