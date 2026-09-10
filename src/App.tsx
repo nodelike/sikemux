@@ -25,6 +25,7 @@ import { CommandPalette } from "./components/CommandPalette";
 import { DiagnosticsOverlay, Onboarding, WhatsNewOverlay } from "./components/ExperienceOverlays";
 import { DialogHost } from "./components/DialogHost";
 import { TerminalPane } from "./terminal/TerminalPane";
+import { HarnessBridge } from "./components/HarnessBridge";
 import { CliOpenBridge } from "./components/CliOpenBridge";
 import { ShaderField } from "./components/ShaderField";
 import { git } from "./api/git";
@@ -784,6 +785,7 @@ export default function App() {
             <ShaderField preset="ambient" className="shell-field" />
             <div className="shell-image" aria-hidden="true" />
             <CliOpenBridge />
+            <HarnessBridge />
             <AgentSessionSync />
             <AgentLifecycleManager />
             <TopBar />
