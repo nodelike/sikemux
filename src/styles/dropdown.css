@@ -77,9 +77,10 @@
     min-width: 100%;
     max-height: 280px;
     overflow-y: auto;
-    background: var(--rail-2);
-    border: 1px solid color-mix(in srgb, var(--line) 65%, white 10%);
-    border-radius: var(--radius-sm);
+    background: var(--surface-overlay);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-4);
+    box-shadow: var(--shadow-2);
     padding: 4px;
     display: flex;
     flex-direction: column;
@@ -109,8 +110,8 @@
         color 0.1s;
 }
 .dd-item:hover {
-    background: var(--acc-soft);
-    color: var(--ink);
+    background: var(--surface-hover);
+    color: var(--text-primary);
 }
 .dd-item.active {
     color: var(--acc);

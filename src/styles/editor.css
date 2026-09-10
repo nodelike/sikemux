@@ -125,28 +125,32 @@
     contain-intrinsic-size: auto 23px;
 }
 .tree-row:hover {
-    background: var(--rail-2);
-    color: var(--ink);
+    background: var(--surface-hover);
+    color: var(--text-primary);
 }
 .tree-row.file.active {
-    background: var(--acc-soft);
-    color: var(--ink);
+    background: var(--surface-selected);
+    box-shadow: inset 0 0 0 1px var(--border-selected);
+    color: var(--text-primary);
 }
 .tree-chev {
     display: flex;
-    color: var(--ink-faint);
-    transition: transform 0.12s ease;
+    color: var(--text-disabled);
+    transition: transform var(--dur-2) ease;
 }
 .tree-chev.open {
     transform: rotate(90deg);
 }
+/* Folders were accented, so a tree of forty of them made the file list the
+ * most colourful thing in the window and left the open file nothing to be.
+ * The shape already says folder. */
 .tree-folder {
     display: flex;
-    color: var(--acc);
+    color: var(--text-tertiary);
 }
 .tree-file {
     display: flex;
-    color: var(--ink-faint);
+    color: var(--text-disabled);
 }
 .tree-name {
     overflow: hidden;
@@ -744,14 +748,16 @@
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: 6px;
-    color: var(--ink-faint);
+    gap: var(--space-1h);
+    color: var(--text-tertiary);
     pointer-events: none;
 }
 .ed-empty p {
-    font-size: 12px;
+    font-size: var(--text-sm);
 }
+/* This was painting text in --line, a border colour: the hint under an empty
+ * editor was very nearly the same value as the background it sat on. */
 .ed-empty-sub {
-    font-size: 11px;
-    color: var(--line);
+    font-size: var(--text-xs);
+    color: var(--text-disabled);
 }

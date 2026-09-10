@@ -343,8 +343,8 @@
 .picker-tag.proj {
     grid-column: 1;
     color: var(--text-primary);
-    border-color: var(--acc-line);
-    background: var(--acc-soft);
+    border-color: var(--border-strong);
+    background: var(--surface-raised);
 }
 .picker-tag.env {
     grid-column: 2;
@@ -478,14 +478,14 @@
     place-items: center;
     border: 1px solid var(--border);
     border-radius: var(--radius-control);
-    background: color-mix(in srgb, var(--void) 46%, transparent);
+    background: color-mix(in srgb, var(--surface-sunken) 46%, transparent);
     color: var(--text-secondary);
     font-family: var(--mono);
-    font-size: 10.5px;
+    font-size: var(--text-2xs);
 }
 
 .new-tab-item.sel .new-tab-key {
-    border-color: var(--acc-line);
+    border-color: var(--border-selected);
     color: var(--acc);
 }
 
