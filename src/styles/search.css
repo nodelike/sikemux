@@ -3,7 +3,7 @@
     flex-direction: column;
     height: 100%;
     background: transparent;
-    color: var(--ink-dim);
+    color: var(--text-secondary);
     min-height: 0;
 }
 
@@ -28,13 +28,13 @@
     display: grid;
     grid-template-rows: auto 1fr;
     min-height: 0;
-    border-right: 1px solid var(--line);
+    border-right: 1px solid var(--border);
     background: transparent;
 }
 
 .sp-head {
     padding: 0;
-    border-bottom: 1px solid var(--line);
+    border-bottom: 1px solid var(--border);
     background: transparent;
 }
 
@@ -46,10 +46,10 @@
     min-width: 0;
 }
 .sp-row.find {
-    border-bottom: 1px solid var(--line-soft);
+    border-bottom: 1px solid var(--border);
 }
 .sp-row.repl {
-    border-bottom: 1px solid var(--line-soft);
+    border-bottom: 1px solid var(--border);
 }
 .sp-row.scope {
     padding: 4px 10px;
@@ -59,7 +59,7 @@
 }
 .sp-row.actions {
     padding: 6px 10px;
-    border-top: 1px solid var(--line-soft);
+    border-top: 1px solid var(--border);
 }
 
 .sp-chev {
@@ -70,7 +70,7 @@
     place-items: center;
     background: transparent;
     border: 0;
-    color: var(--ink-faint);
+    color: var(--text-tertiary);
     font-size: 10px;
     line-height: 1;
     cursor: pointer;
@@ -79,7 +79,7 @@
         transform 0.15s;
 }
 .sp-chev:hover {
-    color: var(--ink);
+    color: var(--text-primary);
 }
 .sp-chev.open {
     transform: rotate(90deg);
@@ -97,8 +97,8 @@
     place-items: center;
     font-family: var(--mono);
     font-size: 12px;
-    font-weight: 700;
-    color: var(--ink-faint);
+    font-weight: var(--weight-semibold);
+    color: var(--text-tertiary);
     background: transparent;
     border: 0;
 }
@@ -113,7 +113,7 @@
     background: transparent;
     border: none;
     outline: none;
-    color: var(--ink);
+    color: var(--text-primary);
     font-family: var(--mono);
     font-size: 12px;
     padding: 3px 0;
@@ -121,7 +121,7 @@
     width: 100%;
 }
 .sp-input::placeholder {
-    color: var(--ink-faint);
+    color: var(--text-tertiary);
 }
 .sp-row.repl .sp-input {
     color: var(--live);
@@ -131,7 +131,7 @@
     width: 10px;
     height: 10px;
     border-radius: 50%;
-    border: 1.5px solid var(--line);
+    border: 1.5px solid var(--border);
     border-top-color: var(--acc);
     animation: sp-spin 0.7s linear infinite;
     justify-self: end;
@@ -152,11 +152,11 @@
 .sp-filter-label {
     padding: 0 8px 0 0;
     font-family: var(--mono);
-    font-size: 9px;
-    font-weight: 700;
-    letter-spacing: 0.16em;
+    font-size: var(--text-3xs);
+    font-weight: var(--weight-semibold);
+    letter-spacing: var(--tracking-label);
     text-transform: uppercase;
-    color: var(--ink-faint);
+    color: var(--text-tertiary);
     flex: 0 0 28px;
     text-align: left;
 }
@@ -172,10 +172,10 @@
     padding: 2px 0;
 }
 .sp-filter-input::placeholder {
-    color: var(--ink-faint);
+    color: var(--text-tertiary);
 }
 .sp-filter:focus-within .sp-filter-input {
-    color: var(--ink);
+    color: var(--text-primary);
 }
 
 .sp-row-toggles {
@@ -196,10 +196,10 @@
     padding: 2px 0;
     background: transparent;
     border: 0;
-    color: var(--ink-faint);
+    color: var(--text-tertiary);
     font-family: var(--mono);
     font-size: 11px;
-    font-weight: 700;
+    font-weight: var(--weight-semibold);
     letter-spacing: 0.04em;
     cursor: pointer;
     transition:
@@ -208,7 +208,7 @@
     border-bottom: 1px solid transparent;
 }
 .sp-toggle:hover {
-    color: var(--ink);
+    color: var(--text-primary);
 }
 .sp-toggle.on {
     color: var(--acc);
@@ -219,7 +219,7 @@
     flex: 1;
     font-family: var(--mono);
     font-size: 10px;
-    color: var(--ink-faint);
+    color: var(--text-tertiary);
     white-space: nowrap;
     text-align: right;
     display: inline-flex;
@@ -228,18 +228,18 @@
     gap: 4px;
 }
 .sp-stats strong {
-    color: var(--ink-dim);
-    font-weight: 700;
+    color: var(--text-secondary);
+    font-weight: var(--weight-semibold);
 }
 .sp-stats-sep {
-    color: var(--ink-faint);
+    color: var(--text-tertiary);
 }
 .sp-stats-time {
-    color: var(--ink-faint);
+    color: var(--text-tertiary);
     margin-left: 4px;
 }
 .sp-stats-dim {
-    color: var(--ink-faint);
+    color: var(--text-tertiary);
 }
 .sp-truncated {
     color: var(--warn);
@@ -253,19 +253,19 @@
     padding: 2px 0;
     font-family: var(--mono);
     font-size: 11px;
-    font-weight: 700;
+    font-weight: var(--weight-semibold);
     text-transform: lowercase;
     letter-spacing: 0.04em;
     cursor: pointer;
-    border-bottom: 1px solid var(--acc-line);
+    border-bottom: 1px solid var(--border-selected);
     transition:
         color 0.12s,
         border-color 0.12s,
         opacity 0.12s;
 }
 .sp-replace-btn:hover {
-    color: var(--ink);
-    border-bottom-color: var(--ink);
+    color: var(--text-primary);
+    border-bottom-color: var(--text-primary);
 }
 .sp-replace-btn:disabled {
     color: var(--ink-ghost);
@@ -277,8 +277,8 @@
     border-bottom-color: var(--live);
 }
 .sp-replace-btn.sp-replace-btn-commit:hover {
-    color: var(--ink);
-    border-bottom-color: var(--ink);
+    color: var(--text-primary);
+    border-bottom-color: var(--text-primary);
 }
 
 .sp-stale {
@@ -287,7 +287,7 @@
     color: var(--warn);
     font-family: var(--mono);
     font-size: 10px;
-    font-weight: 700;
+    font-weight: var(--weight-semibold);
     letter-spacing: 0.06em;
     cursor: pointer;
     padding: 0 6px 0 0;
@@ -295,8 +295,8 @@
     border-bottom: 1px dashed rgba(255, 202, 133, 0.5);
 }
 .sp-stale:hover {
-    color: var(--ink);
-    border-bottom-color: var(--ink);
+    color: var(--text-primary);
+    border-bottom-color: var(--text-primary);
 }
 
 .sp-threads-wrap {
@@ -318,7 +318,7 @@
 .sp-empty,
 .sp-loading,
 .sp-err {
-    color: var(--ink-faint);
+    color: var(--text-tertiary);
     font-size: 12px;
     text-align: center;
     font-family: var(--mono);
@@ -328,7 +328,7 @@
     align-items: center;
 }
 .sp-empty-sub {
-    color: var(--ink-faint);
+    color: var(--text-tertiary);
     font-size: 10px;
     letter-spacing: 0.04em;
     opacity: 0.7;
@@ -368,8 +368,8 @@
 .sp-thread-chev {
     flex: 0 0 10px;
     width: 10px;
-    color: var(--ink-faint);
-    font-size: 9px;
+    color: var(--text-tertiary);
+    font-size: var(--text-3xs);
     line-height: 1;
     transition:
         transform 0.15s,
@@ -378,19 +378,19 @@
 }
 .sp-thread-chev.open {
     transform: rotate(90deg);
-    color: var(--ink-dim);
+    color: var(--text-secondary);
 }
 .sp-thread-who:hover .sp-thread-chev {
-    color: var(--ink);
+    color: var(--text-primary);
 }
 .sp-thread-name {
-    color: var(--ink);
+    color: var(--text-primary);
     font-weight: 600;
     white-space: nowrap;
 }
 .sp-thread-dir {
-    color: var(--ink-faint);
-    font-size: 9.5px;
+    color: var(--text-tertiary);
+    font-size: var(--text-3xs);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -398,8 +398,8 @@
     min-width: 0;
 }
 .sp-thread-count {
-    color: var(--ink-faint);
-    font-size: 9px;
+    color: var(--text-tertiary);
+    font-size: var(--text-3xs);
     letter-spacing: 0.1em;
     text-transform: uppercase;
     flex: 0 0 auto;
@@ -412,7 +412,7 @@
     height: 20px;
     background: transparent;
     border: 0;
-    color: var(--ink-dim);
+    color: var(--text-secondary);
     font-family: var(--mono);
     font-size: 11px;
     line-height: 16px;
@@ -426,14 +426,14 @@
 }
 .sp-msg:hover {
     background: rgba(255, 255, 255, 0.03);
-    color: var(--ink);
+    color: var(--text-primary);
 }
 .sp-msg.sel {
-    background: var(--acc-soft);
-    color: var(--ink);
+    background: var(--surface-selected);
+    color: var(--text-primary);
 }
 .sp-msg-ln {
-    color: var(--ink-faint);
+    color: var(--text-tertiary);
     text-align: right;
     padding-right: 10px;
     font-variant-numeric: tabular-nums;
@@ -471,12 +471,12 @@
     align-items: center;
     gap: 8px;
     padding: 8px 12px;
-    border-bottom: 1px solid var(--line);
+    border-bottom: 1px solid var(--border);
     font-family: var(--mono);
     font-size: 11px;
     background: rgba(0, 0, 0, 0.22);
     border: 0;
-    border-bottom: 1px solid var(--line);
+    border-bottom: 1px solid var(--border);
     width: 100%;
     text-align: left;
     color: inherit;
@@ -493,16 +493,16 @@
     transform: translate(1px, -1px);
 }
 .sp-preview-name {
-    color: var(--ink);
+    color: var(--text-primary);
     font-weight: 600;
 }
 .sp-preview-dir {
-    color: var(--ink-faint);
+    color: var(--text-tertiary);
     font-size: 10px;
 }
 .sp-preview-meta {
     margin-left: auto;
-    color: var(--ink-dim);
+    color: var(--text-secondary);
     font-size: 10px;
     letter-spacing: 0.04em;
 }
@@ -514,7 +514,7 @@
 .sp-preview-open {
     color: var(--ink-ghost);
     font-size: 11px;
-    font-weight: 700;
+    font-weight: var(--weight-semibold);
     margin-left: 4px;
     transition:
         color 0.12s,
@@ -541,7 +541,7 @@
     inset: 0;
     display: grid;
     place-items: center;
-    color: var(--ink-faint);
+    color: var(--text-tertiary);
     font-family: var(--mono);
     font-size: 12px;
     padding: 24px;
@@ -554,7 +554,7 @@
     flex: 1;
     display: grid;
     place-items: center;
-    color: var(--ink-faint);
+    color: var(--text-tertiary);
     font-family: var(--mono);
     font-size: 12px;
     padding: 24px;
@@ -567,7 +567,7 @@
 }
 
 .cm-sp-hit-line {
-    background: var(--acc-soft);
+    background: var(--surface-selected);
     box-shadow: inset 2px 0 0 var(--acc);
 }
 .cm-sp-hit-match {
@@ -582,16 +582,16 @@
     align-items: center;
     gap: 16px;
     padding: 6px 14px;
-    border-top: 1px solid var(--line);
+    border-top: 1px solid var(--border);
     font-size: 10px;
-    color: var(--ink-faint);
+    color: var(--text-tertiary);
     font-family: var(--mono);
     flex: 0 0 auto;
     background: rgba(0, 0, 0, 0.22);
 }
 .sp-foot kbd {
     margin-right: 5px;
-    color: var(--ink-dim);
+    color: var(--text-secondary);
     font-family: var(--kbd);
     font-size: 11px;
     font-weight: 500;
@@ -613,8 +613,8 @@
     max-width: calc(100% - 16px);
     padding: 4px 6px 4px 4px;
     background: color-mix(in srgb, var(--bg-raised) calc(var(--window-opacity, 1) * 100%), transparent);
-    border: 1px solid var(--line);
-    color: var(--ink-dim);
+    border: 1px solid var(--border);
+    color: var(--text-secondary);
     font-family: var(--mono);
     font-size: 12px;
     animation: fade 0.12s ease;
@@ -628,7 +628,7 @@
     padding: 0;
     background: transparent;
     border: 0;
-    color: var(--ink-faint);
+    color: var(--text-tertiary);
     font-family: var(--mono);
     font-size: 11px;
     line-height: 1;
@@ -639,7 +639,7 @@
     transition: color 0.12s;
 }
 .ed-findbar-chev:hover {
-    color: var(--ink);
+    color: var(--text-primary);
 }
 .ed-findbar-chev svg {
     transform: rotate(90deg);
@@ -664,7 +664,7 @@
     padding: 2px 4px 2px 0;
 }
 .ed-findbar-row + .ed-findbar-row {
-    border-top: 1px solid var(--line-soft);
+    border-top: 1px solid var(--border);
 }
 
 .ed-findbar-av {
@@ -673,10 +673,10 @@
     height: 16px;
     display: grid;
     place-items: center;
-    color: var(--ink-faint);
+    color: var(--text-tertiary);
     font-family: var(--mono);
     font-size: 12px;
-    font-weight: 700;
+    font-weight: var(--weight-semibold);
     background: transparent;
     border: 0;
 }
@@ -694,13 +694,13 @@
     background: transparent;
     border: 0;
     padding: 0;
-    color: var(--ink);
+    color: var(--text-primary);
     font-family: var(--mono);
     font-size: 12px;
     outline: none;
 }
 .ed-findbar-input::placeholder {
-    color: var(--ink-faint);
+    color: var(--text-tertiary);
 }
 
 .ed-findbar-toggles {
@@ -716,10 +716,10 @@
     background: transparent;
     border: 0;
     border-bottom: 1px solid transparent;
-    color: var(--ink-faint);
+    color: var(--text-tertiary);
     font-family: var(--mono);
     font-size: 11px;
-    font-weight: 700;
+    font-weight: var(--weight-semibold);
     letter-spacing: 0.04em;
     cursor: pointer;
     display: inline-flex;
@@ -731,7 +731,7 @@
         border-color 0.12s;
 }
 .ed-findbar-toggle:hover {
-    color: var(--ink);
+    color: var(--text-primary);
 }
 .ed-findbar-toggle.on {
     color: var(--acc);
@@ -743,7 +743,7 @@
     min-width: 0;
     align-self: center;
     padding: 0 6px;
-    color: var(--ink-faint);
+    color: var(--text-tertiary);
     font-size: 11px;
     white-space: nowrap;
 }
@@ -755,7 +755,7 @@
     padding: 0;
     background: transparent;
     border: 0;
-    color: var(--ink-dim);
+    color: var(--text-secondary);
     font-family: var(--mono);
     font-size: 14px;
     line-height: 1;
@@ -766,7 +766,7 @@
     transition: color 0.12s;
 }
 .ed-findbar-btn:hover:not(:disabled) {
-    color: var(--ink);
+    color: var(--text-primary);
 }
 .ed-findbar-btn:disabled {
     opacity: 0.4;

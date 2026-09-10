@@ -9,7 +9,7 @@
 .boot-shell {
     align-items: center;
     justify-content: center;
-    background: color-mix(in srgb, var(--bg, var(--void)) calc(var(--window-opacity, 1) * 100%), transparent);
+    background: color-mix(in srgb, var(--bg, var(--surface-sunken)) calc(var(--window-opacity, 1) * 100%), transparent);
 }
 
 .boot-state {
@@ -17,7 +17,7 @@
     display: grid;
     justify-items: center;
     gap: 12px;
-    color: var(--ink);
+    color: var(--text-primary);
     text-align: center;
 }
 
@@ -26,9 +26,9 @@
     place-items: center;
     width: 42px;
     height: 42px;
-    border: 1px solid color-mix(in srgb, var(--acc) 52%, var(--line));
+    border: 1px solid color-mix(in srgb, var(--acc) 52%, var(--border));
     border-radius: var(--radius-panel);
-    background: color-mix(in srgb, var(--acc) 14%, var(--bg-raised, var(--rail-2)));
+    background: color-mix(in srgb, var(--acc) 14%, var(--bg-raised, var(--surface-raised)));
     color: var(--acc);
     font-weight: 800;
     letter-spacing: 0.04em;
@@ -51,15 +51,15 @@
 .boot-state button {
     margin-top: 4px;
     padding: 8px 12px;
-    border: 1px solid color-mix(in srgb, var(--acc) 48%, var(--line));
+    border: 1px solid color-mix(in srgb, var(--acc) 48%, var(--border));
     border-radius: var(--radius-control);
-    background: color-mix(in srgb, var(--acc) 12%, var(--bg-raised, var(--rail-2)));
-    color: var(--ink);
+    background: color-mix(in srgb, var(--acc) 12%, var(--bg-raised, var(--surface-raised)));
+    color: var(--text-primary);
     cursor: pointer;
 }
 
 .boot-state button:hover {
-    background: color-mix(in srgb, var(--acc) 20%, var(--bg-raised, var(--rail-2)));
+    background: color-mix(in srgb, var(--acc) 20%, var(--bg-raised, var(--surface-raised)));
 }
 
 .body {
@@ -85,8 +85,8 @@
     align-items: center;
     height: 40px;
     flex: 0 0 auto;
-    background: color-mix(in srgb, var(--rail) calc(var(--window-opacity, 1) * 100%), transparent);
-    border-bottom: 1px solid var(--line);
+    background: color-mix(in srgb, var(--surface) calc(var(--window-opacity, 1) * 100%), transparent);
+    border-bottom: 1px solid var(--border);
     position: relative;
     z-index: 5;
     animation: fadeDown 0.4s ease backwards;
@@ -123,12 +123,12 @@
     background: transparent;
 }
 .crumb-kind {
-    color: var(--ink-faint);
+    color: var(--text-tertiary);
     display: flex;
     flex: 0 0 auto;
 }
 .crumb-session {
-    color: var(--ink);
+    color: var(--text-primary);
     font-weight: 600;
     flex: 0 1 auto;
     min-width: 0;
@@ -137,7 +137,7 @@
     white-space: nowrap;
 }
 .crumb-sep {
-    color: var(--ink-faint);
+    color: var(--text-tertiary);
     flex: 0 0 auto;
 }
 .crumb-win {
@@ -188,7 +188,7 @@
 .tb-clock {
     font-size: 12px;
     font-weight: 600;
-    color: var(--ink-dim);
+    color: var(--text-secondary);
     font-variant-numeric: tabular-nums;
     display: inline-flex;
     align-items: baseline;
@@ -198,18 +198,18 @@
 }
 .tb-ampm {
     margin-left: 4px;
-    font-size: 9.5px;
-    font-weight: 700;
+    font-size: var(--text-3xs);
+    font-weight: var(--weight-semibold);
     letter-spacing: 0.08em;
     text-transform: uppercase;
-    color: var(--ink-faint);
+    color: var(--text-tertiary);
 }
 
 .tb-version {
     font-size: 10px;
     font-weight: 600;
     letter-spacing: 0.06em;
-    color: var(--ink-faint);
+    color: var(--text-tertiary);
     font-variant-numeric: tabular-nums;
     text-transform: lowercase;
 }
@@ -222,8 +222,8 @@
     margin: 0 12px 8px;
     height: 30px;
     padding: 0 11px;
-    background: var(--acc-soft);
-    border: 1px solid var(--acc-line);
+    background: var(--surface-selected);
+    border: 1px solid var(--border-selected);
     color: var(--acc);
     font-family: var(--mono);
     font-size: 11px;
@@ -238,7 +238,7 @@
         color 0.12s;
 }
 .tb-update:hover:not(:disabled) {
-    background: var(--acc-soft);
+    background: var(--surface-selected);
     border-color: var(--acc);
 }
 .tb-update-preparing,
@@ -314,14 +314,14 @@
     justify-content: center;
     width: 26px;
     height: 24px;
-    color: var(--ink-faint);
+    color: var(--text-tertiary);
     transition:
         color 0.12s,
         background 0.12s;
 }
 .tb-btn:hover {
-    color: var(--ink-dim);
-    background: var(--rail-2);
+    color: var(--text-secondary);
+    background: var(--surface-raised);
 }
 .tb-btn.on {
     color: var(--acc);
@@ -331,12 +331,12 @@
     display: flex;
     flex-direction: column;
     flex: 0 0 auto;
-    background: color-mix(in srgb, var(--rail) calc(var(--window-opacity, 1) * 100%), transparent);
+    background: color-mix(in srgb, var(--surface) calc(var(--window-opacity, 1) * 100%), transparent);
     overflow: hidden;
 }
 .side-rail {
     width: 238px;
-    border-right: 1px solid var(--line);
+    border-right: 1px solid var(--border);
     animation: slideL 0.42s cubic-bezier(0.2, 0.7, 0.2, 1) backwards;
 }
 
@@ -352,14 +352,14 @@
     justify-content: center;
     width: 18px;
     height: 18px;
-    color: var(--ink-faint);
+    color: var(--text-tertiary);
     transition:
         color 0.12s,
         background 0.12s;
 }
 .rail-group-add:hover {
     color: var(--acc);
-    background: var(--acc-soft);
+    background: var(--surface-selected);
 }
 .rail-group-actions {
     display: flex;
@@ -371,7 +371,7 @@
     font-size: 11px;
     font-weight: 500;
     line-height: 1;
-    color: var(--ink-faint);
+    color: var(--text-tertiary);
 }
 .session-row-shell {
     display: flex;
@@ -396,8 +396,8 @@
     padding: 0;
     border: 0;
     border-radius: var(--radius-xs);
-    color: var(--ink-faint);
-    background: var(--rail-2);
+    color: var(--text-tertiary);
+    background: var(--surface-raised);
     box-shadow: none;
     opacity: 0;
     pointer-events: none;
@@ -422,7 +422,7 @@
     width: auto;
     height: 30px;
     padding: 0 8px;
-    color: var(--ink);
+    color: var(--text-primary);
     position: relative;
     transition:
         background 0.12s,
@@ -475,19 +475,19 @@
     border: none;
     border-left: 2px solid transparent;
     cursor: pointer;
-    color: var(--ink);
+    color: var(--text-primary);
     text-align: left;
     transition:
         background 0.12s,
         color 0.12s;
 }
 .proj-row:hover {
-    color: var(--ink);
+    color: var(--text-primary);
 }
 .proj-row.expanded {
     padding: 6px 12px;
     border-left-color: var(--acc);
-    background: var(--acc-soft);
+    background: var(--surface-selected);
     color: var(--acc);
 }
 .proj-row.expanded .proj-name {
@@ -573,7 +573,7 @@
     top: 0;
     left: 0;
     overflow: hidden;
-    background: color-mix(in srgb, var(--rail) calc(var(--window-opacity, 1) * 96%), transparent);
+    background: color-mix(in srgb, var(--surface) calc(var(--window-opacity, 1) * 96%), transparent);
     box-shadow:
         0 9px 22px rgba(0, 0, 0, 0.3),
         0 2px 7px rgba(0, 0, 0, 0.22);
@@ -676,7 +676,7 @@
 .pane {
     position: absolute;
     inset: 0;
-    background: color-mix(in srgb, var(--pane) calc(var(--window-opacity, 1) * 100%), transparent);
+    background: color-mix(in srgb, var(--surface) calc(var(--window-opacity, 1) * 100%), transparent);
     overflow: hidden;
 }
 .pane-terminal {
@@ -696,7 +696,7 @@
        a light gutter even when the track pseudo-element is transparent. */
     overflow: hidden !important;
     overscroll-behavior: contain;
-    background-color: var(--terminal-background, var(--pane)) !important;
+    background-color: var(--terminal-background, var(--surface)) !important;
     scrollbar-width: none;
 }
 /* Keep every xterm-owned background clear when native window transparency is
@@ -749,7 +749,7 @@ html.is-transparent .terminal-host .xterm-scrollable-element {
 .divider::after {
     content: "";
     position: absolute;
-    background: var(--line);
+    background: var(--border);
     transition:
         background 0.12s,
         width 0.12s,

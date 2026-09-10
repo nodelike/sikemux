@@ -5,7 +5,7 @@
     display: grid;
     place-items: center;
     padding: 24px;
-    background: color-mix(in srgb, var(--void) 76%, transparent);
+    background: color-mix(in srgb, var(--surface-sunken) 76%, transparent);
 }
 .experience-frame {
     position: relative;
@@ -14,8 +14,8 @@
     overflow: hidden;
     display: flex;
     flex-direction: column;
-    background: var(--pane);
-    border: 1px solid var(--line);
+    background: var(--surface);
+    border: 1px solid var(--border);
 }
 .experience-notch {
     position: absolute;
@@ -27,11 +27,11 @@
     display: grid;
     grid-template-columns: 1fr auto;
     padding: 22px 26px 16px 30px;
-    border-bottom: 1px solid var(--line);
+    border-bottom: 1px solid var(--border);
 }
 .experience-frame h1 {
     margin: 3px 0 0;
-    color: var(--ink);
+    color: var(--text-primary);
     font-size: 22px;
     font-weight: 560;
     letter-spacing: -0.03em;
@@ -41,14 +41,14 @@
     font:
         600 9px/1.4 "JetBrainsMono NF",
         monospace;
-    letter-spacing: 0.13em;
+    letter-spacing: var(--tracking-label);
     text-transform: uppercase;
 }
 .experience-frame header button {
     grid-column: 2;
     grid-row: 1 / span 2;
     align-self: start;
-    color: var(--ink-faint);
+    color: var(--text-tertiary);
     font:
         10px "JetBrainsMono NF",
         monospace;
@@ -56,8 +56,8 @@
 .experience-deck {
     margin: 0;
     padding: 18px 30px;
-    color: var(--ink-dim);
-    border-bottom: 1px solid var(--line);
+    color: var(--text-secondary);
+    border-bottom: 1px solid var(--border);
     font-size: 12px;
     line-height: 1.6;
 }
@@ -69,7 +69,7 @@
     grid-template-columns: 32px 150px 1fr;
     gap: 12px;
     padding: 14px 30px;
-    border-bottom: 1px solid color-mix(in srgb, var(--line) 65%, transparent);
+    border-bottom: 1px solid color-mix(in srgb, var(--border) 65%, transparent);
     align-items: baseline;
 }
 .experience-list b {
@@ -79,11 +79,11 @@
         monospace;
 }
 .experience-list span {
-    color: var(--ink);
+    color: var(--text-primary);
     font-size: 12px;
 }
 .experience-list small {
-    color: var(--ink-dim);
+    color: var(--text-secondary);
     font-size: 11px;
     line-height: 1.5;
 }
@@ -92,32 +92,32 @@
     justify-content: flex-end;
     gap: 8px;
     padding: 14px 26px;
-    border-top: 1px solid var(--line);
+    border-top: 1px solid var(--border);
 }
 .experience-frame footer button {
     padding: 7px 12px;
-    border: 1px solid var(--line);
-    color: var(--ink-dim);
-    background: var(--rail-2);
+    border: 1px solid var(--border);
+    color: var(--text-secondary);
+    background: var(--surface-raised);
 }
 .experience-frame footer button.primary {
     border-color: var(--acc);
-    color: var(--ink);
-    background: var(--acc-soft);
+    color: var(--text-primary);
+    background: var(--surface-selected);
 }
 
 /* First run: the tour narrates a scale model of the real window. Everything
    below reuses the app's tokens, square geometry, and entrance keyframes so the
    walkthrough reads as Sikemux rather than as a marketing overlay. */
 .onboarding-backdrop {
-    background: color-mix(in srgb, var(--void) 82%, transparent);
+    background: color-mix(in srgb, var(--surface-sunken) 82%, transparent);
     animation: fade 220ms ease-out both;
 }
 
 .onboarding-frame {
     width: min(940px, 100%);
     max-height: min(660px, calc(100vh - 48px));
-    background: color-mix(in srgb, var(--pane) calc(var(--window-opacity, 1) * 100%), transparent);
+    background: color-mix(in srgb, var(--surface) calc(var(--window-opacity, 1) * 100%), transparent);
     outline: none;
     animation: onboarding-frame-in 280ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
 }
@@ -134,8 +134,8 @@
     height: 40px;
     flex: 0 0 auto;
     padding: 0 14px 0 16px;
-    background: color-mix(in srgb, var(--rail) calc(var(--window-opacity, 1) * 100%), transparent);
-    border-bottom: 1px solid var(--line);
+    background: color-mix(in srgb, var(--surface) calc(var(--window-opacity, 1) * 100%), transparent);
+    border-bottom: 1px solid var(--border);
 }
 
 .onboarding-header > div {
@@ -151,9 +151,9 @@
 
 .onboarding-step-count {
     padding-left: 10px;
-    border-left: 1px solid var(--line);
-    color: var(--ink-faint);
-    font-size: 9px;
+    border-left: 1px solid var(--border);
+    color: var(--text-tertiary);
+    font-size: var(--text-3xs);
     letter-spacing: 0.08em;
     font-variant-numeric: tabular-nums;
 }
@@ -162,7 +162,7 @@
     grid-column: auto;
     grid-row: auto;
     padding: 6px 0 6px 10px;
-    color: var(--ink-faint);
+    color: var(--text-tertiary);
     font-size: 10px;
     transition: color 0.12s;
 }
@@ -170,11 +170,11 @@
 .onboarding-skip span {
     margin-left: 7px;
     padding: 1px 4px;
-    border: 1px solid var(--line);
+    border: 1px solid var(--border);
 }
 
 .onboarding-skip:hover {
-    color: var(--ink-dim) !important;
+    color: var(--text-secondary) !important;
 }
 
 /* Progress — four discrete segments, one per scene. */
@@ -184,7 +184,7 @@
     gap: 1px;
     height: 2px;
     flex: 0 0 auto;
-    background: var(--line-soft);
+    background: var(--border);
 }
 
 .onboarding-progress button {
@@ -203,7 +203,7 @@
 }
 
 .onboarding-progress button.is-complete span {
-    background: color-mix(in srgb, var(--acc) 40%, var(--line));
+    background: color-mix(in srgb, var(--acc) 40%, var(--border));
 }
 
 .onboarding-progress button.is-current span {
@@ -211,7 +211,7 @@
 }
 
 .onboarding-progress button:hover span {
-    background: color-mix(in srgb, var(--acc) 70%, var(--line));
+    background: color-mix(in srgb, var(--acc) 70%, var(--border));
 }
 
 .experience-frame .onboarding-progress button:focus-visible {
@@ -219,7 +219,7 @@
 }
 
 .onboarding-progress button:focus-visible span {
-    background: var(--ink);
+    background: var(--text-primary);
 }
 
 /* Scene — copy on the left, the miniature on the right. */
@@ -262,7 +262,7 @@
 .onboarding-copy h1 {
     max-width: 440px;
     margin: 9px 0 12px;
-    color: var(--ink);
+    color: var(--text-primary);
     font-size: clamp(23px, 2.5vw, 29px);
     font-weight: 600;
     line-height: 1.14;
@@ -271,14 +271,14 @@
 
 .onboarding-copy > p {
     max-width: 445px;
-    color: var(--ink-dim);
+    color: var(--text-secondary);
     font-size: 12px;
     line-height: 1.65;
 }
 
 .onboarding-aside {
     margin-top: 12px;
-    color: var(--ink-faint);
+    color: var(--text-tertiary);
     font-size: 10px;
     line-height: 1.5;
 }
@@ -303,10 +303,10 @@
     gap: 10px;
     width: 100%;
     padding: 8px 10px;
-    border: 1px solid var(--line-soft);
-    border-left: 2px solid var(--line);
-    background: color-mix(in srgb, var(--rail-2) 55%, transparent);
-    color: var(--ink-dim);
+    border: 1px solid var(--border);
+    border-left: 2px solid var(--border);
+    background: color-mix(in srgb, var(--surface-raised) 55%, transparent);
+    color: var(--text-secondary);
     text-align: left;
     transition:
         border-color 0.14s,
@@ -319,16 +319,16 @@
 .onboarding-keys button:hover,
 .onboarding-launch button:hover,
 .onboarding-launch button.is-on {
-    border-color: var(--acc-line);
+    border-color: var(--border-selected);
     border-left-color: var(--acc);
-    background: var(--acc-soft);
-    color: var(--ink);
+    background: var(--surface-selected);
+    color: var(--text-primary);
 }
 
 .onboarding-regions b,
 .onboarding-keys b,
 .onboarding-launch b {
-    color: var(--ink);
+    color: var(--text-primary);
     font-size: 11px;
     font-weight: 600;
 }
@@ -340,8 +340,8 @@
 }
 
 .onboarding-regions small {
-    color: var(--ink-faint);
-    font-size: 9.5px;
+    color: var(--text-tertiary);
+    font-size: var(--text-3xs);
     line-height: 1.4;
 }
 
@@ -353,9 +353,9 @@
 .onboarding-keys kbd {
     min-width: 62px;
     padding: 7px 8px;
-    border: 1px solid var(--line);
-    background: var(--void);
-    color: var(--ink);
+    border: 1px solid var(--border);
+    background: var(--surface-sunken);
+    color: var(--text-primary);
     font-family: var(--kbd);
     font-size: 13px;
     font-weight: 600;
@@ -375,15 +375,15 @@
 }
 
 .onboarding-keys small {
-    color: var(--ink-faint);
-    font-size: 9.5px;
+    color: var(--text-tertiary);
+    font-size: var(--text-3xs);
     line-height: 1.4;
 }
 
 .onboarding-keys em {
     margin-left: auto;
     flex: 0 0 auto;
-    color: var(--ink-faint);
+    color: var(--text-tertiary);
     font-size: 8.5px;
     font-style: normal;
     letter-spacing: 0.1em;
@@ -413,7 +413,7 @@
     width: 6px;
     height: 6px;
     flex: 0 0 auto;
-    background: var(--ink-faint);
+    background: var(--text-tertiary);
     transition:
         background 0.14s,
         box-shadow 0.14s;
@@ -421,19 +421,19 @@
 
 .onboarding-signals b {
     min-width: 84px;
-    color: var(--ink-dim);
+    color: var(--text-secondary);
     font-size: 11px;
     font-weight: 600;
 }
 
 .onboarding-signals span {
-    color: var(--ink-faint);
-    font-size: 9.5px;
+    color: var(--text-tertiary);
+    font-size: var(--text-3xs);
 }
 
 .onboarding-signals .state-working.is-on,
 .onboarding-signals .state-working:hover {
-    border-color: color-mix(in srgb, var(--live) 32%, var(--line));
+    border-color: color-mix(in srgb, var(--live) 32%, var(--border));
     border-left-color: var(--live);
     background: color-mix(in srgb, var(--live) 8%, transparent);
 }
@@ -444,7 +444,7 @@
 
 .onboarding-signals .state-blocked.is-on,
 .onboarding-signals .state-blocked:hover {
-    border-color: color-mix(in srgb, var(--warn) 32%, var(--line));
+    border-color: color-mix(in srgb, var(--warn) 32%, var(--border));
     border-left-color: var(--warn);
     background: color-mix(in srgb, var(--warn) 8%, transparent);
 }
@@ -455,9 +455,9 @@
 
 .onboarding-signals .state-done.is-on,
 .onboarding-signals .state-done:hover {
-    border-color: var(--acc-line);
+    border-color: var(--border-selected);
     border-left-color: var(--acc);
-    background: var(--acc-soft);
+    background: var(--surface-selected);
 }
 .onboarding-signals .state-done.is-on i,
 .onboarding-signals .state-done:hover i {
@@ -465,7 +465,7 @@
 }
 
 .onboarding-signals button.is-on b {
-    color: var(--ink);
+    color: var(--text-primary);
 }
 
 .onboarding-detected {
@@ -475,9 +475,9 @@
 }
 
 .onboarding-detected span {
-    color: var(--ink-faint);
+    color: var(--text-tertiary);
     font-size: 8px;
-    letter-spacing: 0.14em;
+    letter-spacing: var(--tracking-label);
     text-transform: uppercase;
 }
 
@@ -494,7 +494,7 @@
 .onboarding-launch kbd {
     margin-left: auto;
     flex: 0 0 auto;
-    color: var(--ink-faint);
+    color: var(--text-tertiary);
     font-family: var(--kbd);
     font-size: 11px;
     font-style: normal;
@@ -515,13 +515,13 @@
 
 .onboarding-health span {
     padding: 3px 6px;
-    border: 1px solid var(--line-soft);
-    color: var(--ink-faint);
+    border: 1px solid var(--border);
+    color: var(--text-tertiary);
     font-size: 8.5px;
 }
 
 .onboarding-health span.is-ready {
-    border-color: color-mix(in srgb, var(--live) 26%, var(--line));
+    border-color: color-mix(in srgb, var(--live) 26%, var(--border));
     color: var(--live);
 }
 
@@ -551,8 +551,8 @@
     grid-template-rows: 18px minmax(0, 1fr);
     height: 244px;
     overflow: hidden;
-    border: 1px solid var(--line);
-    background: var(--void);
+    border: 1px solid var(--border);
+    background: var(--surface-sunken);
     animation: onboarding-frame-in 320ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
 }
 
@@ -561,8 +561,8 @@
     align-items: center;
     gap: 8px;
     padding: 0 7px;
-    background: var(--rail);
-    border-bottom: 1px solid var(--line);
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
     animation: fadeDown 0.4s ease 60ms backwards;
 }
 
@@ -575,16 +575,16 @@
     width: 4px;
     height: 4px;
     border-radius: 50%;
-    background: var(--line);
+    background: var(--border);
 }
 .onb-win-lights i:first-child {
-    background: color-mix(in srgb, var(--danger) 55%, var(--line));
+    background: color-mix(in srgb, var(--danger) 55%, var(--border));
 }
 .onb-win-lights i:nth-child(2) {
-    background: color-mix(in srgb, var(--warn) 55%, var(--line));
+    background: color-mix(in srgb, var(--warn) 55%, var(--border));
 }
 .onb-win-lights i:last-child {
-    background: color-mix(in srgb, var(--live) 55%, var(--line));
+    background: color-mix(in srgb, var(--live) 55%, var(--border));
 }
 
 .onb-win-crumb {
@@ -592,16 +592,16 @@
     align-items: center;
     gap: 4px;
     min-width: 0;
-    color: var(--ink);
+    color: var(--text-primary);
     font-size: 7px;
     font-weight: 600;
     white-space: nowrap;
 }
 .onb-win-crumb svg {
-    color: var(--ink-faint);
+    color: var(--text-tertiary);
 }
 .onb-win-crumb em {
-    color: var(--ink-faint);
+    color: var(--text-tertiary);
     font-style: normal;
 }
 .onb-win-crumb b {
@@ -611,7 +611,7 @@
 
 .onb-win-clock {
     margin-left: auto;
-    color: var(--ink-faint);
+    color: var(--text-tertiary);
     font-size: 7px;
     font-variant-numeric: tabular-nums;
 }
@@ -630,26 +630,26 @@
     gap: 1px;
     min-width: 0;
     padding: 4px 3px;
-    background: var(--rail);
+    background: var(--surface);
     overflow: hidden;
 }
 
 .onb-win-rail {
-    border-right: 1px solid var(--line);
+    border-right: 1px solid var(--border);
     animation: slideL 0.44s cubic-bezier(0.2, 0.7, 0.2, 1) 80ms backwards;
 }
 
 .onb-win-agents {
-    border-right: 1px solid var(--line);
+    border-right: 1px solid var(--border);
     animation: slideL 0.44s cubic-bezier(0.2, 0.7, 0.2, 1) 140ms backwards;
 }
 
 .onb-win-group {
     padding: 5px 4px 3px;
-    color: var(--ink-faint);
+    color: var(--text-tertiary);
     font-size: 6px;
-    font-weight: 700;
-    letter-spacing: 0.16em;
+    font-weight: var(--weight-semibold);
+    letter-spacing: var(--tracking-label);
     text-transform: uppercase;
 }
 
@@ -661,7 +661,7 @@
     flex: 0 0 auto;
     padding: 0 4px;
     border-left: 2px solid transparent;
-    color: var(--ink-dim);
+    color: var(--text-secondary);
     font-size: 7.5px;
     white-space: nowrap;
     overflow: hidden;
@@ -673,14 +673,14 @@
 
 .onb-win-rail .onb-win-row.is-active {
     border-left-color: var(--acc);
-    background: var(--acc-soft);
+    background: var(--surface-selected);
     color: var(--acc);
 }
 
 .onb-win-agents .onb-win-row.is-active {
     border-left-color: var(--acc);
-    background: var(--acc-soft);
-    color: var(--ink);
+    background: var(--surface-selected);
+    color: var(--text-primary);
 }
 
 .onb-win-pip {
@@ -742,20 +742,20 @@
 
 .onb-win-tabs {
     display: flex;
-    background: var(--rail-2);
+    background: var(--surface-raised);
 }
 
 .onb-win-tabs span {
     padding: 0 6px;
-    border-right: 1px solid var(--line-soft);
-    color: var(--ink-faint);
+    border-right: 1px solid var(--border);
+    color: var(--text-tertiary);
     font-size: 6.5px;
     line-height: 14px;
 }
 
 .onb-win-tabs span.is-active {
-    color: var(--ink);
-    background: var(--acc-soft);
+    color: var(--text-primary);
+    background: var(--surface-selected);
     box-shadow: inset 0 -1.5px 0 var(--acc);
 }
 
@@ -768,7 +768,7 @@
     grid-template-columns: minmax(0, 1fr);
     gap: 1px;
     min-height: 0;
-    background: var(--line);
+    background: var(--border);
 }
 
 .onb-win-panes.is-split {
@@ -782,7 +782,7 @@
     min-width: 0;
     padding: 7px;
     overflow: hidden;
-    background: var(--pane);
+    background: var(--surface);
 }
 
 .onb-win-panes.is-split .onb-win-pane.is-code {
@@ -790,16 +790,16 @@
 }
 
 .onb-win-line {
-    color: var(--ink-dim);
+    color: var(--text-secondary);
     font-size: 7px;
     white-space: nowrap;
 }
 .onb-win-line b {
     color: var(--live);
-    font-weight: 700;
+    font-weight: var(--weight-semibold);
 }
 .onb-win-line.is-dim {
-    color: var(--ink-faint);
+    color: var(--text-tertiary);
 }
 
 .onb-win-caret {
@@ -814,13 +814,13 @@
 .onb-win-code {
     height: 3px;
     flex: 0 0 auto;
-    background: var(--line);
+    background: var(--border);
 }
 .onb-win-code.is-acc {
-    background: color-mix(in srgb, var(--acc) 55%, var(--line));
+    background: color-mix(in srgb, var(--acc) 55%, var(--border));
 }
 .onb-win-code.is-live {
-    background: color-mix(in srgb, var(--live) 45%, var(--line));
+    background: color-mix(in srgb, var(--live) 45%, var(--border));
 }
 
 /* Pointing at a region from the copy column dims the rest of the model. */
@@ -842,7 +842,7 @@
 .onb-stage[data-region="stage"] .onb-win-main,
 .onb-stage[data-region="agents"] .onb-win-agents {
     opacity: 1;
-    box-shadow: inset 0 0 0 1px var(--acc-line);
+    box-shadow: inset 0 0 0 1px var(--border-selected);
 }
 
 /* The model's own picker and command deck, mirroring the real overlays. */
@@ -859,18 +859,18 @@
 
 .onb-win-overlay {
     width: 78%;
-    border: 1px solid var(--acc-line);
-    background: var(--rail-2);
+    border: 1px solid var(--border-selected);
+    background: var(--surface-raised);
     animation: pop 0.18s cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
 .onb-win-overlay-head {
     display: block;
     padding: 5px 7px;
-    border-bottom: 1px solid var(--line);
-    color: var(--ink-faint);
+    border-bottom: 1px solid var(--border);
+    color: var(--text-tertiary);
     font-size: 6.5px;
-    letter-spacing: 0.14em;
+    letter-spacing: var(--tracking-label);
     text-transform: uppercase;
 }
 
@@ -880,7 +880,7 @@
     gap: 5px;
     padding: 4px 7px;
     border-left: 2px solid transparent;
-    color: var(--ink-dim);
+    color: var(--text-secondary);
     font-size: 7px;
     white-space: nowrap;
     overflow: hidden;
@@ -890,19 +890,19 @@
     margin-left: auto;
     flex: 0 0 auto;
     padding-left: 6px;
-    color: var(--ink-faint);
+    color: var(--text-tertiary);
     font-size: 6.5px;
     font-style: normal;
 }
 
 .onb-win-overlay-row.is-sel {
     border-left-color: var(--acc);
-    background: var(--acc-soft);
-    color: var(--ink);
+    background: var(--surface-selected);
+    color: var(--text-primary);
 }
 
 .onb-stage-caption {
-    color: var(--ink-faint);
+    color: var(--text-tertiary);
     font-size: 8.5px;
     letter-spacing: 0.1em;
     text-align: center;
@@ -917,7 +917,7 @@
     min-height: 56px;
     flex: 0 0 auto;
     padding: 11px 14px 11px 16px;
-    border-top: 1px solid var(--line);
+    border-top: 1px solid var(--border);
 }
 
 .onboarding-footer > div {
@@ -929,8 +929,8 @@
     display: flex;
     align-items: center;
     gap: 4px;
-    color: var(--ink-faint);
-    font-size: 9px;
+    color: var(--text-tertiary);
+    font-size: var(--text-3xs);
 }
 
 .onboarding-key-hint kbd {
@@ -939,8 +939,8 @@
     height: 18px;
     margin-right: 1px;
     place-items: center;
-    border: 1px solid var(--line);
-    color: var(--ink-dim);
+    border: 1px solid var(--border);
+    color: var(--text-secondary);
     font-family: var(--kbd);
     font-style: normal;
 }
@@ -956,18 +956,18 @@
 
 .experience-frame .onboarding-footer button.primary {
     min-width: 118px;
-    border-color: var(--acc-line);
-    background: var(--acc-soft);
+    border-color: var(--border-selected);
+    background: var(--surface-selected);
 }
 
 .experience-frame .onboarding-footer button:hover {
-    border-color: var(--ink-faint);
-    color: var(--ink);
+    border-color: var(--text-tertiary);
+    color: var(--text-primary);
 }
 
 .experience-frame .onboarding-footer button.primary:hover {
     border-color: var(--acc);
-    background: color-mix(in srgb, var(--acc) 22%, var(--rail-2));
+    background: color-mix(in srgb, var(--acc) 22%, var(--surface-raised));
 }
 
 .experience-frame button:focus-visible {
@@ -1088,7 +1088,7 @@
     padding: 20px 30px;
     overflow: auto;
     color: var(--live);
-    background: var(--void);
+    background: var(--surface-sunken);
     font:
         10.5px/1.55 "JetBrainsMono NF",
         monospace;
@@ -1098,7 +1098,7 @@
     min-height: 180px;
     padding: 22px 30px;
     overflow: auto;
-    color: var(--ink);
+    color: var(--text-primary);
     font-size: 12px;
     line-height: 1.7;
 }
@@ -1112,7 +1112,7 @@
 .release-notes h2,
 .release-notes h3 {
     margin: 24px 0 10px;
-    color: var(--ink);
+    color: var(--text-primary);
     font-weight: 600;
     line-height: 1.3;
     letter-spacing: -0.015em;
@@ -1130,7 +1130,7 @@
 }
 .release-notes p {
     margin: 0 0 14px;
-    color: var(--ink-dim);
+    color: var(--text-secondary);
 }
 .release-notes ul,
 .release-notes ol {
@@ -1147,13 +1147,13 @@
     color: var(--acc);
 }
 .release-notes strong {
-    color: var(--ink);
+    color: var(--text-primary);
     font-weight: 600;
 }
 .release-notes code {
     padding: 1px 4px;
     color: var(--live);
-    background: var(--rail-2);
+    background: var(--surface-raised);
     font:
         10.5px/1.5 "JetBrainsMono NF",
         monospace;
@@ -1174,7 +1174,7 @@
 .release-notes hr {
     margin: 22px 0;
     border: 0;
-    border-top: 1px solid var(--line);
+    border-top: 1px solid var(--border);
 }
 .experience-error {
     color: var(--danger);
@@ -1185,25 +1185,25 @@
     grid-template-columns: repeat(5, minmax(0, 1fr));
     gap: 1px;
     padding: 14px 30px;
-    background: var(--line);
+    background: var(--border);
 }
 .diagnostics-signals > .experience-kicker {
     grid-column: 1 / -1;
     padding: 3px 0 8px;
-    background: var(--pane);
+    background: var(--surface);
 }
 .diagnostics-signals > span,
 .diagnostics-signals > button {
     display: grid;
     gap: 3px;
     padding: 8px;
-    background: var(--pane);
-    color: var(--ink-dim);
-    font-size: 9px;
+    background: var(--surface);
+    color: var(--text-secondary);
+    font-size: var(--text-3xs);
     text-align: left;
 }
 .diagnostics-signals b {
-    color: var(--ink);
+    color: var(--text-primary);
     font-weight: 600;
 }
 .diagnostics-signals small {
@@ -1211,7 +1211,7 @@
 }
 .diagnostics-explain {
     max-height: 220px;
-    border-bottom: 1px solid var(--line);
+    border-bottom: 1px solid var(--border);
     color: var(--warn);
 }
 .command-popup {
@@ -1219,21 +1219,21 @@
     height: min(620px, calc(100vh - 48px));
     display: grid;
     grid-template-rows: 34px 1fr;
-    border: 1px solid var(--line);
-    background: var(--void);
+    border: 1px solid var(--border);
+    background: var(--surface-sunken);
 }
 .command-popup > header {
     display: flex;
     align-items: center;
     justify-content: space-between;
     padding: 0 10px 0 14px;
-    border-bottom: 1px solid var(--line);
-    color: var(--ink);
+    border-bottom: 1px solid var(--border);
+    color: var(--text-primary);
     font:
         11px "JetBrainsMono NF",
         monospace;
 }
 .command-popup > header button {
-    color: var(--ink-faint);
+    color: var(--text-tertiary);
     font-size: 10px;
 }

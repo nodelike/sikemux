@@ -21,16 +21,16 @@
     align-items: center;
     gap: 14px;
     padding: 16px 22px;
-    background: var(--rail-2);
-    border: 1px solid var(--acc-line);
-    color: var(--ink);
+    background: var(--surface-raised);
+    border: 1px solid var(--border-selected);
+    color: var(--text-primary);
     font-size: 13px;
     letter-spacing: 0.02em;
 }
 .git-busy-spinner {
     width: 16px;
     height: 16px;
-    border: 2px solid var(--line);
+    border: 2px solid var(--border);
     border-top-color: var(--acc);
     border-radius: 50%;
     animation: gitBusySpin 0.75s linear infinite;
@@ -54,7 +54,7 @@
     justify-content: center;
     gap: 8px;
     padding: 20px;
-    color: var(--ink-dim);
+    color: var(--text-secondary);
     text-align: center;
 }
 .pane-error strong {
@@ -62,10 +62,10 @@
 }
 .pane-error button {
     padding: 5px 12px;
-    border: 1px solid var(--line);
+    border: 1px solid var(--border);
     border-radius: var(--radius-control);
-    color: var(--ink);
-    background: var(--rail-2);
+    color: var(--text-primary);
+    background: var(--surface-raised);
 }
 @keyframes gitBusyPulse {
     0%,
@@ -98,8 +98,8 @@
     font-size: 12.5px;
     line-height: 1.4;
     background: #1c1929;
-    color: var(--ink);
-    border: 1px solid var(--line);
+    color: var(--text-primary);
+    border: 1px solid var(--border);
     animation: toastIn 140ms ease-out;
 }
 .toast-error {
@@ -109,7 +109,7 @@
     border-color: #61ffca;
 }
 .toast-info {
-    border-color: var(--acc-line);
+    border-color: var(--border-selected);
 }
 .toast-text {
     flex: 1 1 auto;
@@ -117,9 +117,9 @@
 }
 .toast-action {
     flex: 0 0 auto;
-    border: 1px solid var(--acc-line);
+    border: 1px solid var(--border-selected);
     background: rgba(158, 127, 255, 0.12);
-    color: var(--ink);
+    color: var(--text-primary);
     border-radius: 999px;
     padding: 3px 9px;
     font: inherit;
@@ -141,7 +141,7 @@
     align-items: center;
 }
 .toast-x:hover {
-    color: var(--ink);
+    color: var(--text-primary);
 }
 @keyframes toastIn {
     from {
@@ -172,7 +172,7 @@
 .git-panel-spinner {
     width: 10px;
     height: 10px;
-    border: 1.5px solid var(--line);
+    border: 1.5px solid var(--border);
     border-top-color: var(--acc);
     border-radius: 50%;
     animation: gitBusySpin 0.75s linear infinite;

@@ -3,15 +3,15 @@
     flex-direction: column;
     flex: 0 0 auto;
     width: 252px;
-    background: color-mix(in srgb, var(--rail) calc(var(--window-opacity, 1) * 100%), transparent);
-    border-right: 1px solid var(--line);
+    background: color-mix(in srgb, var(--surface) calc(var(--window-opacity, 1) * 100%), transparent);
+    border-right: 1px solid var(--border);
     overflow: hidden;
     animation: slideL 0.42s cubic-bezier(0.2, 0.7, 0.2, 1) backwards;
 }
 
 .agent-empty {
     padding: 16px 14px;
-    color: var(--ink-faint);
+    color: var(--text-tertiary);
     font-size: 11.5px;
     line-height: 1.6;
 }
@@ -22,19 +22,19 @@
     width: 100%;
     height: 34px;
     padding: 0 10px;
-    color: var(--ink-dim);
+    color: var(--text-secondary);
     position: relative;
     transition:
         background 0.12s,
         color 0.12s;
 }
 .agent-row:hover {
-    background: var(--rail-2);
-    color: var(--ink);
+    background: var(--surface-raised);
+    color: var(--text-primary);
 }
 .agent-row.active {
-    background: var(--acc-soft);
-    color: var(--ink);
+    background: var(--surface-selected);
+    color: var(--text-primary);
 }
 .agent-row-wrap {
     position: relative;
@@ -86,7 +86,7 @@
     flex: 0 0 auto;
     display: inline-grid;
     place-items: center;
-    color: var(--ink-faint);
+    color: var(--text-tertiary);
 }
 .agent-state-icon {
     display: block;
@@ -114,17 +114,17 @@
     color: var(--live);
 }
 .agent-activity.state-unknown {
-    color: var(--ink-faint);
+    color: var(--text-tertiary);
 }
 .agent-activity.state-idle {
-    color: var(--ink-dim);
+    color: var(--text-secondary);
 }
 .agent-activity.state-stopped {
-    color: var(--ink-faint);
+    color: var(--text-tertiary);
 }
 .agent-dormant-label {
-    color: var(--ink-faint);
-    font-size: 9px;
+    color: var(--text-tertiary);
+    font-size: var(--text-3xs);
     text-transform: uppercase;
     letter-spacing: 0.08em;
 }
@@ -141,7 +141,7 @@
     display: grid;
     grid-template-columns: 4px 1fr;
     gap: 8px 16px;
-    color: var(--ink-dim);
+    color: var(--text-secondary);
     font-size: 12px;
     line-height: 1.55;
 }
@@ -176,11 +176,11 @@
 .agent-dormant-kicker {
     color: var(--live);
     font-size: 10px;
-    letter-spacing: 0.12em;
+    letter-spacing: var(--tracking-label);
     text-transform: uppercase;
 }
 .agent-dormant strong {
-    color: var(--ink);
+    color: var(--text-primary);
     font-size: 18px;
     font-weight: 600;
 }
@@ -189,8 +189,8 @@
     margin-top: 8px;
     padding: 7px 14px;
     border: 1px solid var(--acc);
-    color: var(--ink);
-    background: var(--acc-soft);
+    color: var(--text-primary);
+    background: var(--surface-selected);
 }
 
 .proj-pip.is-working::after,
@@ -203,7 +203,7 @@
     height: 6px;
     border-radius: 999px;
     background: var(--acc);
-    box-shadow: 0 0 0 2px var(--rail);
+    box-shadow: 0 0 0 2px var(--surface);
 }
 .proj-pip.is-working::after {
     background: transparent;
@@ -224,9 +224,9 @@
     max-width: 100%;
     min-width: 0;
     padding: 0 8px;
-    border: 1px solid var(--line);
-    background: var(--rail-2);
-    color: var(--ink-dim);
+    border: 1px solid var(--border);
+    background: var(--surface-raised);
+    color: var(--text-secondary);
     font-size: 11px;
 }
 .env-dd-label {
@@ -239,10 +239,10 @@
     flex: 0 0 auto;
 }
 .env-dd-btn:hover {
-    color: var(--ink);
+    color: var(--text-primary);
 }
 .env-dd-chev {
-    color: var(--ink-faint);
+    color: var(--text-tertiary);
     transform: rotate(90deg);
 }
 .env-dot {
@@ -265,7 +265,7 @@
     background: var(--danger);
 }
 .env-dot.other {
-    background: var(--ink-faint);
+    background: var(--text-tertiary);
 }
 .env-dd-scrim {
     position: fixed;
@@ -279,8 +279,8 @@
     z-index: 41;
     min-width: 168px;
     padding: 4px;
-    background: var(--rail-2);
-    border: 1px solid var(--line);
+    background: var(--surface-raised);
+    border: 1px solid var(--border);
 }
 .env-dd-item {
     display: flex;
@@ -289,15 +289,15 @@
     width: 100%;
     height: 28px;
     padding: 0 9px;
-    color: var(--ink-dim);
+    color: var(--text-secondary);
     font-size: 12px;
 }
 .env-dd-item:hover {
-    background: var(--acc-soft);
-    color: var(--ink);
+    background: var(--surface-selected);
+    color: var(--text-primary);
 }
 .env-dd-item.active {
-    color: var(--ink);
+    color: var(--text-primary);
 }
 .agent-row.sel::before {
     content: "";
@@ -310,17 +310,17 @@
     background: var(--acc);
 }
 .agent-row.new {
-    color: var(--ink-faint);
+    color: var(--text-tertiary);
 }
 .agent-row.new:hover {
     color: var(--acc);
 }
 .agent-glyph.dim {
-    color: var(--ink-faint);
+    color: var(--text-tertiary);
 }
 .agent-ago {
     font-size: 10px;
-    color: var(--ink-faint);
+    color: var(--text-tertiary);
     font-variant-numeric: tabular-nums;
 }
 
@@ -329,7 +329,7 @@
     align-items: center;
     gap: 4px;
     padding: 6px 8px;
-    border-bottom: 1px solid var(--line);
+    border-bottom: 1px solid var(--border);
     flex: 0 0 auto;
 }
 .agent-header-types,
@@ -348,26 +348,26 @@
     justify-content: center;
     width: 32px;
     height: 28px;
-    color: var(--ink-faint);
+    color: var(--text-tertiary);
     transition:
         color 0.12s,
         background 0.12s;
 }
 .agent-header-btn:hover {
-    color: var(--ink);
-    background: var(--rail-2);
+    color: var(--text-primary);
+    background: var(--surface-raised);
 }
 .agent-header-btn:disabled {
     opacity: 0.35;
     cursor: default;
 }
 .agent-header-btn:disabled:hover {
-    color: var(--ink-faint);
+    color: var(--text-tertiary);
     background: transparent;
 }
 .agent-header-btn.active {
     color: var(--acc);
-    background: var(--acc-soft);
+    background: var(--surface-selected);
 }
 .agent-header-btn.claude {
     --agent-provider: var(--brand-claude);
@@ -406,8 +406,8 @@
     margin-top: auto;
     padding: 10px 10px 13px;
     /* Divides from the list above it now, not from the header above it. */
-    border-top: 1px solid var(--line);
-    background: color-mix(in srgb, var(--rail-2) 52%, transparent);
+    border-top: 1px solid var(--border);
+    background: color-mix(in srgb, var(--surface-raised) 52%, transparent);
 }
 .agent-usage.claude {
     --usage-fill: var(--brand-claude);
@@ -425,9 +425,9 @@
 .agent-usage-plan {
     max-width: 92px;
     overflow: hidden;
-    color: color-mix(in srgb, var(--usage-fill) 62%, var(--ink-dim));
-    font-size: 9.5px;
-    letter-spacing: 0.14em;
+    color: color-mix(in srgb, var(--usage-fill) 62%, var(--text-secondary));
+    font-size: var(--text-3xs);
+    letter-spacing: var(--tracking-label);
     text-overflow: ellipsis;
     text-transform: uppercase;
     white-space: nowrap;
@@ -437,7 +437,7 @@
     cursor: default;
 }
 .agent-usage-head .rail-group-add:disabled:hover {
-    color: var(--ink-faint);
+    color: var(--text-tertiary);
     background: transparent;
 }
 .agent-usage-row {
@@ -464,7 +464,7 @@
     min-width: 0;
     flex: 0 1 auto;
     overflow: hidden;
-    color: var(--ink-dim);
+    color: var(--text-secondary);
     text-overflow: ellipsis;
     white-space: nowrap;
 }
@@ -474,8 +474,8 @@
     min-width: 0;
     flex: 1 0 auto;
     overflow: hidden;
-    color: var(--ink-faint);
-    font-size: 9px;
+    color: var(--text-tertiary);
+    font-size: var(--text-3xs);
     font-variant-numeric: tabular-nums;
     text-align: right;
     text-overflow: ellipsis;
@@ -497,12 +497,12 @@
     line-height: 1;
 }
 .agent-usage-row[data-tone="steady"] .agent-usage-pct {
-    color: color-mix(in srgb, var(--usage-signal) 58%, var(--ink));
+    color: color-mix(in srgb, var(--usage-signal) 58%, var(--text-primary));
 }
 .agent-usage-pct i {
     margin-left: 1px;
-    color: var(--ink-faint);
-    font-size: 9px;
+    color: var(--text-tertiary);
+    font-size: var(--text-3xs);
     font-style: normal;
     font-weight: 400;
 }
@@ -514,7 +514,7 @@
     overflow: hidden;
     background-image: repeating-linear-gradient(
         90deg,
-        color-mix(in srgb, var(--ink-faint) 34%, transparent) 0 var(--usage-cell),
+        color-mix(in srgb, var(--text-tertiary) 34%, transparent) 0 var(--usage-cell),
         transparent var(--usage-cell) var(--usage-pitch)
     );
 }
@@ -525,7 +525,7 @@
     transition: width 0.32s cubic-bezier(0.2, 0.75, 0.2, 1);
 }
 .agent-usage-empty {
-    color: var(--ink-faint);
+    color: var(--text-tertiary);
     font-size: 10.5px;
     font-style: italic;
 }
@@ -566,20 +566,20 @@
     flex: 0 0 auto;
     height: 30px;
     padding: 0 10px;
-    color: var(--ink-faint);
-    border-bottom: 1px solid var(--line);
+    color: var(--text-tertiary);
+    border-bottom: 1px solid var(--border);
 }
 .rail-search input {
     width: 100%;
     min-width: 0;
-    color: var(--ink);
+    color: var(--text-primary);
     border: 0;
     outline: 0;
     background: transparent;
     font: 400 11px var(--mono);
 }
 .rail-search input::placeholder {
-    color: var(--ink-faint);
+    color: var(--text-tertiary);
 }
 
 .agent-row.active::before {
@@ -633,9 +633,9 @@
     align-items: center;
     gap: 2px;
     padding: 2px;
-    border: 1px solid var(--line);
+    border: 1px solid var(--border);
     border-radius: var(--radius-control);
-    background: color-mix(in srgb, var(--void) 46%, transparent);
+    background: color-mix(in srgb, var(--surface-sunken) 46%, transparent);
 }
 
 .yolo-switch-option {
@@ -647,12 +647,12 @@
     height: 23px;
     padding: 0 10px;
     border-radius: calc(var(--radius-control) - 1px);
-    color: var(--ink-dim);
+    color: var(--text-secondary);
     font-family: var(--mono);
     font-size: 10px;
     font-weight: 600;
     line-height: 1;
-    letter-spacing: 0.14em;
+    letter-spacing: var(--tracking-label);
     text-transform: uppercase;
     cursor: pointer;
     transition:
@@ -662,13 +662,13 @@
 }
 
 .yolo-switch-option:hover:not(.active) {
-    color: var(--ink);
+    color: var(--text-primary);
 }
 
 .yolo-switch-option.active {
-    color: var(--ink);
-    background: var(--rail-2);
-    box-shadow: inset 0 0 0 1px var(--line);
+    color: var(--text-primary);
+    background: var(--surface-raised);
+    box-shadow: inset 0 0 0 1px var(--border);
 }
 
 .yolo-switch-glyph {
@@ -756,9 +756,9 @@
     gap: 2px;
     margin: var(--space-2) var(--gutter-rail);
     padding: 2px;
-    border: 1px solid var(--line);
+    border: 1px solid var(--border);
     border-radius: var(--radius-control);
-    background: color-mix(in srgb, var(--void) 46%, transparent);
+    background: color-mix(in srgb, var(--surface-sunken) 46%, transparent);
 }
 
 .rail-tab {
@@ -769,7 +769,7 @@
     gap: 5px;
     height: 25px;
     border-radius: calc(var(--radius-control) - 1px);
-    color: var(--ink-dim);
+    color: var(--text-secondary);
     font-family: var(--ui);
     font-size: 11px;
     line-height: 1;
@@ -780,13 +780,13 @@
 }
 
 .rail-tab:hover:not(.active) {
-    color: var(--ink);
+    color: var(--text-primary);
 }
 
 .rail-tab.active {
-    color: var(--ink);
-    background: var(--rail-2);
-    box-shadow: inset 0 0 0 1px var(--line);
+    color: var(--text-primary);
+    background: var(--surface-raised);
+    box-shadow: inset 0 0 0 1px var(--border);
 }
 
 .rail-tab-glyph {
@@ -818,7 +818,7 @@
 
 .rail-note {
     padding: 14px;
-    color: var(--ink-dim);
+    color: var(--text-secondary);
     font-size: 11.5px;
 }
 
@@ -874,7 +874,7 @@
     gap: 4px;
     min-width: 0;
     overflow: hidden;
-    color: var(--ink-dim);
+    color: var(--text-secondary);
     font-size: 11px;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -894,17 +894,17 @@
 .rail-commit-input textarea {
     width: 100%;
     padding: 7px 30px 7px 9px;
-    border: 1px solid var(--line);
+    border: 1px solid var(--border);
     border-radius: var(--radius-control);
-    background: color-mix(in srgb, var(--void) 46%, transparent);
-    color: var(--ink);
+    background: color-mix(in srgb, var(--surface-sunken) 46%, transparent);
+    color: var(--text-primary);
     font-size: 12px;
     line-height: 1.5;
     resize: none;
 }
 
 .rail-commit-input textarea::placeholder {
-    color: var(--ink-dim);
+    color: var(--text-secondary);
 }
 
 .rail-commit-ai {
@@ -916,11 +916,11 @@
     height: 21px;
     place-items: center;
     border-radius: var(--radius-control);
-    color: var(--ink-dim);
+    color: var(--text-secondary);
 }
 
 .rail-commit-ai:hover:not(:disabled) {
-    background: var(--acc-soft);
+    background: var(--surface-selected);
     color: var(--acc);
 }
 
@@ -930,21 +930,21 @@
     justify-content: center;
     gap: 6px;
     height: 29px;
-    border: 1px solid var(--line);
+    border: 1px solid var(--border);
     border-radius: var(--radius-control);
-    background: var(--rail-2);
-    color: var(--ink);
+    background: var(--surface-raised);
+    color: var(--text-primary);
     font-size: 12px;
 }
 
 .rail-commit-go:hover:not(:disabled) {
-    border-color: var(--acc-line);
-    background: var(--acc-soft);
+    border-color: var(--border-selected);
+    background: var(--surface-selected);
 }
 
 .rail-commit-go:disabled {
     cursor: default;
-    color: var(--ink-faint);
+    color: var(--text-tertiary);
     opacity: 0.6;
 }
 
@@ -953,7 +953,7 @@
     flex: 1;
     flex-direction: column;
     min-height: 28px;
-    border-top: 1px solid var(--line-soft);
+    border-top: 1px solid var(--border);
 }
 
 .rail-section:not(:has(.rail-list)) {
@@ -964,13 +964,13 @@
     flex: none;
     height: 5px;
     cursor: row-resize;
-    background: var(--line-soft);
+    background: var(--border);
     transition: background 120ms;
 }
 
 .rail-split-handle:hover,
 .rail-split-handle:focus-visible {
-    background: var(--acc-line);
+    background: var(--border-selected);
 }
 
 .rail-section-head {
@@ -980,14 +980,14 @@
     gap: 6px;
     height: 28px;
     padding: 0 var(--gutter-rail);
-    color: var(--ink-dim);
+    color: var(--text-secondary);
     font-size: 10px;
     letter-spacing: 0.06em;
     text-transform: uppercase;
 }
 
 .rail-section-head:hover {
-    color: var(--ink);
+    color: var(--text-primary);
 }
 
 .rail-caret {
@@ -1008,10 +1008,10 @@
 .rail-section-count {
     padding: 0 4px;
     border-radius: var(--radius-chip);
-    background: var(--acc-soft);
+    background: var(--surface-selected);
     color: var(--acc);
     font-family: var(--mono);
-    font-size: 9.5px;
+    font-size: var(--text-3xs);
 }
 
 .rail-section-act {
@@ -1020,12 +1020,12 @@
     height: 18px;
     place-items: center;
     border-radius: var(--radius-control);
-    color: var(--ink-dim);
+    color: var(--text-secondary);
 }
 
 .rail-section-act:hover:not(:disabled) {
-    background: var(--rail-2);
-    color: var(--ink);
+    background: var(--surface-raised);
+    color: var(--text-primary);
 }
 
 .rail-list {
@@ -1059,13 +1059,13 @@
     min-width: 0;
     height: 24px;
     padding: 0 var(--gutter-rail);
-    color: var(--ink-dim);
+    color: var(--text-secondary);
     font-size: 12px;
     text-align: left;
 }
 
 .rail-file:hover {
-    background: color-mix(in srgb, var(--rail-2) 70%, transparent);
+    background: color-mix(in srgb, var(--surface-raised) 70%, transparent);
 }
 
 .rail-file-name {
@@ -1079,7 +1079,7 @@
     flex: 1 1 auto;
     min-width: 0;
     overflow: hidden;
-    color: var(--ink-dim);
+    color: var(--text-secondary);
     font-size: 10.5px;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -1107,11 +1107,11 @@
 }
 
 .rail-file-wrap:hover .rail-file-stage {
-    color: var(--ink-dim);
+    color: var(--text-secondary);
 }
 
 .rail-file-stage:hover:not(:disabled) {
-    color: var(--ink);
+    color: var(--text-primary);
 }
 
 .rail-branch-row {
@@ -1121,19 +1121,19 @@
     min-width: 0;
     height: 24px;
     padding: 0 var(--gutter-rail);
-    color: var(--ink-dim);
+    color: var(--text-secondary);
     font-size: 11.5px;
     text-align: left;
 }
 
 .rail-branch-row:hover:not(:disabled) {
-    background: color-mix(in srgb, var(--rail-2) 70%, transparent);
-    color: var(--ink);
+    background: color-mix(in srgb, var(--surface-raised) 70%, transparent);
+    color: var(--text-primary);
 }
 
 .rail-branch-row.current {
     cursor: default;
-    color: var(--ink);
+    color: var(--text-primary);
 }
 
 .rail-branch-node {
@@ -1141,7 +1141,7 @@
     width: 6px;
     height: 6px;
     border-radius: 50%;
-    background: var(--ink-faint);
+    background: var(--text-tertiary);
 }
 
 .rail-branch-row.current .rail-branch-node {
@@ -1159,9 +1159,9 @@
     flex: 1 1 auto;
     min-width: 0;
     overflow: hidden;
-    color: var(--ink-dim);
+    color: var(--text-secondary);
     font-family: var(--mono);
-    font-size: 9.5px;
+    font-size: var(--text-3xs);
     text-align: right;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -1174,12 +1174,12 @@
     min-width: 0;
     height: 24px;
     padding: 0 var(--gutter-rail);
-    color: var(--ink-dim);
+    color: var(--text-secondary);
     font-size: 11.5px;
 }
 
 .rail-commit-row:hover {
-    background: color-mix(in srgb, var(--rail-2) 70%, transparent);
+    background: color-mix(in srgb, var(--surface-raised) 70%, transparent);
 }
 
 .rail-commit-node {
@@ -1197,7 +1197,7 @@
 .rail-commit-subject {
     flex: 0 1 auto;
     overflow: hidden;
-    color: var(--ink);
+    color: var(--text-primary);
     text-overflow: ellipsis;
     white-space: nowrap;
 }
@@ -1206,7 +1206,7 @@
     flex: 1 1 auto;
     min-width: 0;
     overflow: hidden;
-    color: var(--ink-dim);
+    color: var(--text-secondary);
     font-size: 10.5px;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -1219,7 +1219,7 @@
     gap: 3px;
     padding: 0 4px;
     border-radius: var(--radius-chip);
-    background: var(--acc-soft);
+    background: var(--surface-selected);
     color: var(--acc);
-    font-size: 9.5px;
+    font-size: var(--text-3xs);
 }

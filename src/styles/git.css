@@ -23,7 +23,7 @@
        panel's own body does the scrolling. */
     min-height: 0;
     overflow: hidden;
-    border-right: 1px solid var(--line);
+    border-right: 1px solid var(--border);
 }
 
 .git-commit-bar {
@@ -54,7 +54,7 @@
     resize: none;
     background: transparent;
     border: none;
-    color: var(--ink);
+    color: var(--text-primary);
     font: inherit;
     font-size: 12px;
     line-height: 1.55;
@@ -62,7 +62,7 @@
     outline: none;
 }
 .git-cp-input::placeholder {
-    color: var(--ink-faint);
+    color: var(--text-tertiary);
 }
 .git-cp-head-actions {
     margin-left: auto;
@@ -93,7 +93,7 @@
     transform: scale(1.12);
 }
 .git-cp-ai:disabled {
-    color: var(--ink-faint);
+    color: var(--text-tertiary);
     cursor: default;
     transform: none;
 }
@@ -119,9 +119,9 @@
     height: 20px;
     padding: 0 var(--space-1h);
     gap: var(--space-0);
-    border: 1px solid var(--line);
-    background: color-mix(in srgb, var(--void) 82%, transparent);
-    color: var(--ink-dim);
+    border: 1px solid var(--border);
+    background: color-mix(in srgb, var(--surface-sunken) 82%, transparent);
+    color: var(--text-secondary);
     font-family: var(--mono);
     font-size: 10.5px;
     cursor: pointer;
@@ -130,8 +130,8 @@
         border-color 0.1s;
 }
 .git-dd-btn:hover {
-    color: var(--ink);
-    border-color: var(--acc-line);
+    color: var(--text-primary);
+    border-color: var(--border-selected);
 }
 .git-dd-val {
     flex: 1 1 auto;
@@ -143,7 +143,7 @@
 }
 .git-dd-chev {
     flex: 0 0 auto;
-    color: var(--ink-faint);
+    color: var(--text-tertiary);
     transform: rotate(90deg);
 }
 .git-dd-scrim {
@@ -159,8 +159,8 @@
     min-width: 100%;
     max-height: 240px;
     overflow-y: auto;
-    background: var(--rail-2);
-    border: 1px solid var(--line);
+    background: var(--surface-raised);
+    border: 1px solid var(--border);
     padding: 3px;
     display: flex;
     flex-direction: column;
@@ -174,7 +174,7 @@
     padding: 5px 8px;
     border: none;
     background: transparent;
-    color: var(--ink-dim);
+    color: var(--text-secondary);
     font-family: var(--mono);
     font-size: 11px;
     text-align: left;
@@ -182,8 +182,8 @@
     cursor: pointer;
 }
 .git-dd-item:hover {
-    background: var(--rail);
-    color: var(--ink);
+    background: var(--surface);
+    color: var(--text-primary);
 }
 .git-dd-item.active {
     color: var(--acc);
@@ -192,7 +192,7 @@
     width: 9px;
     flex: 0 0 auto;
     color: var(--acc);
-    font-size: 9px;
+    font-size: var(--text-3xs);
 }
 .git-dd-item-label {
     flex: 1 1 auto;
@@ -205,8 +205,8 @@
     gap: 5px;
     height: 22px;
     padding: 0 11px;
-    border: 1px solid var(--acc-line);
-    background: var(--acc-soft);
+    border: 1px solid var(--border-selected);
+    background: var(--surface-selected);
     color: var(--acc);
     font-family: var(--mono);
     font-size: 11px;
@@ -226,13 +226,13 @@
     cursor: default;
 }
 .git-cp-commit:disabled:hover {
-    background: var(--acc-soft);
+    background: var(--surface-selected);
 }
 .git-commit-input {
     width: 100%;
-    background: var(--void);
-    border: 1px solid var(--acc-line);
-    color: var(--ink);
+    background: var(--surface-sunken);
+    border: 1px solid var(--border-selected);
+    color: var(--text-primary);
     font: inherit;
     font-size: 12px;
     padding: 7px 10px;
@@ -248,7 +248,7 @@
     height: 40px;
     padding: 0 var(--gutter-row);
     line-height: 1;
-    border-bottom: 1px solid var(--line);
+    border-bottom: 1px solid var(--border);
     background: transparent;
     overflow: hidden;
 }
@@ -268,7 +268,7 @@
 }
 .git-tb-branch {
     color: var(--acc);
-    font-weight: 700;
+    font-weight: var(--weight-semibold);
     white-space: nowrap;
     user-select: text;
     -webkit-user-select: text;
@@ -285,7 +285,7 @@
 }
 .git-tb-changed {
     font-size: 10.5px;
-    color: var(--ink-faint);
+    color: var(--text-tertiary);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -321,9 +321,9 @@
     height: 22px;
     padding: 0 9px;
     flex: 0 0 auto;
-    border: 1px solid var(--line);
+    border: 1px solid var(--border);
     background: rgba(255, 255, 255, 0.02);
-    color: var(--ink-dim);
+    color: var(--text-secondary);
     font-family: var(--mono);
     font-size: 11px;
     cursor: pointer;
@@ -334,8 +334,8 @@
         background 0.1s;
 }
 .git-tbtn:hover {
-    color: var(--ink);
-    border-color: var(--acc-line);
+    color: var(--text-primary);
+    border-color: var(--border-selected);
 }
 .git-tbtn svg {
     flex: none;
@@ -343,7 +343,7 @@
 }
 .git-tbtn-count {
     font-size: 11px;
-    font-weight: 700;
+    font-weight: var(--weight-semibold);
     font-variant-numeric: tabular-nums;
 }
 .git-tbtn.icon {
@@ -360,7 +360,7 @@
     font-family: var(--kbd);
     font-size: 11px;
     line-height: 1;
-    color: var(--ink-faint);
+    color: var(--text-tertiary);
     margin-left: 1px;
 }
 .git-tbtn:hover .git-kbd,
@@ -389,7 +389,7 @@
 .dlg-body.git-modal-confirm,
 .dlg-body.git-modal-prompt {
     padding: 14px 16px;
-    color: var(--ink-dim);
+    color: var(--text-secondary);
     font-size: 12px;
     line-height: 1.5;
 }
@@ -401,23 +401,23 @@
     padding: 6px 16px;
     background: transparent;
     border: none;
-    color: var(--ink-dim);
+    color: var(--text-secondary);
     font-family: var(--mono);
     font-size: 12px;
     cursor: pointer;
     text-align: left;
 }
 .git-menu-item:hover:not(:disabled) {
-    background: var(--acc-soft);
-    color: var(--ink);
+    background: var(--surface-selected);
+    color: var(--text-primary);
 }
 .git-menu-item:disabled {
-    color: var(--ink-faint);
+    color: var(--text-tertiary);
     cursor: not-allowed;
     opacity: 0.6;
 }
 .git-menu-item.danger {
-    color: color-mix(in srgb, var(--danger) 85%, var(--ink-dim));
+    color: color-mix(in srgb, var(--danger) 85%, var(--text-secondary));
 }
 .git-menu-item.danger:hover:not(:disabled) {
     background: color-mix(in srgb, var(--danger) 12%, transparent);
@@ -427,22 +427,22 @@
     flex-shrink: 0;
     width: 18px;
     text-align: center;
-    background: var(--rail);
-    border: 1px solid var(--line);
+    background: var(--surface);
+    border: 1px solid var(--border);
     padding: 0 3px;
     font-size: 10.5px;
-    font-weight: 700;
-    color: var(--ink);
+    font-weight: var(--weight-semibold);
+    color: var(--text-primary);
 }
 .git-menu-item.danger .git-menu-key {
     color: var(--danger);
-    border-color: color-mix(in srgb, var(--danger) 30%, var(--line));
+    border-color: color-mix(in srgb, var(--danger) 30%, var(--border));
 }
 .git-menu-label {
     flex: 1 1 auto;
 }
 .git-menu-hint {
-    color: var(--ink-faint);
+    color: var(--text-tertiary);
     font-size: 10.5px;
     flex-shrink: 0;
 }
@@ -455,7 +455,7 @@
     margin-top: 8px;
     max-height: 200px;
     overflow-y: auto;
-    border: 1px solid var(--line);
+    border: 1px solid var(--border);
 }
 .git-modal-suggestion {
     display: flex;
@@ -464,18 +464,18 @@
     padding: 5px 10px;
     background: transparent;
     border: none;
-    color: var(--ink-dim);
+    color: var(--text-secondary);
     font-family: var(--mono);
     font-size: 11.5px;
     cursor: pointer;
     text-align: left;
 }
 .git-modal-suggestion:hover {
-    background: var(--acc-soft);
-    color: var(--ink);
+    background: var(--surface-selected);
+    color: var(--text-primary);
 }
 .git-modal-suggestion-hint {
-    color: var(--ink-faint);
+    color: var(--text-tertiary);
     font-size: 10.5px;
 }
 
@@ -484,15 +484,15 @@
 }
 .git-cheat-section {
     padding: 8px 16px 12px;
-    border-bottom: 1px solid var(--line);
+    border-bottom: 1px solid var(--border);
 }
 .git-cheat-section:last-child {
     border-bottom: none;
 }
 .git-cheat-section-h {
-    color: var(--ink-faint);
+    color: var(--text-tertiary);
     font-size: 10px;
-    letter-spacing: 0.16em;
+    letter-spacing: var(--tracking-label);
     text-transform: uppercase;
     margin-bottom: 6px;
 }
@@ -501,7 +501,7 @@
     grid-template-columns: 180px 1fr;
     gap: 12px;
     padding: 2px 0;
-    color: var(--ink-dim);
+    color: var(--text-secondary);
     font-size: 11.5px;
 }
 .git-cheat-keys {
@@ -511,9 +511,9 @@
 
 .git-log-bar {
     flex: 0 0 auto;
-    background: var(--rail);
-    border-top: 1px solid var(--line);
-    color: var(--ink-dim);
+    background: var(--surface);
+    border-top: 1px solid var(--border);
+    color: var(--text-secondary);
     font-family: var(--mono);
 }
 .git-log-bar.collapsed {
@@ -522,15 +522,15 @@
     gap: 10px;
     padding: 5px 12px;
     border: none;
-    border-top: 1px solid var(--line);
+    border-top: 1px solid var(--border);
     cursor: pointer;
-    color: var(--ink-faint);
+    color: var(--text-tertiary);
     font-size: 11px;
     text-align: left;
     width: 100%;
 }
 .git-log-bar.collapsed:hover {
-    color: var(--ink-dim);
+    color: var(--text-secondary);
 }
 .git-log-bar-summary {
     flex: 1 1 auto;
@@ -545,23 +545,23 @@
     align-items: center;
     gap: 10px;
     padding: 6px 12px;
-    border-bottom: 1px solid var(--line);
+    border-bottom: 1px solid var(--border);
     font-size: 11px;
 }
 .git-log-bar-title {
-    color: var(--ink);
+    color: var(--text-primary);
     font-weight: 600;
     letter-spacing: 0.02em;
 }
 .git-log-bar-count {
-    color: var(--ink-faint);
+    color: var(--text-tertiary);
     font-size: 10.5px;
 }
 .git-log-bar-btn {
     margin-left: auto;
     background: transparent;
-    border: 1px solid var(--line);
-    color: var(--ink-dim);
+    border: 1px solid var(--border);
+    color: var(--text-secondary);
     font-family: var(--mono);
     font-size: 10.5px;
     padding: 2px 8px;
@@ -571,8 +571,8 @@
     margin-left: 4px;
 }
 .git-log-bar-btn:hover:not(:disabled) {
-    color: var(--ink);
-    border-color: var(--acc-line);
+    color: var(--text-primary);
+    border-color: var(--border-selected);
 }
 .git-log-bar-rows {
     flex: 1 1 auto;
@@ -581,7 +581,7 @@
 }
 .git-log-bar-empty {
     padding: 14px 16px;
-    color: var(--ink-faint);
+    color: var(--text-tertiary);
     font-style: italic;
     font-size: 11.5px;
 }
@@ -591,7 +591,7 @@
     gap: 10px;
     padding: 3px 12px;
     font-size: 11.5px;
-    color: var(--ink-dim);
+    color: var(--text-secondary);
 }
 .git-log-row.status-ok .git-log-row-glyph {
     color: var(--live);
@@ -603,7 +603,7 @@
     color: var(--warn);
 }
 .git-log-row-time {
-    color: var(--ink-faint);
+    color: var(--text-tertiary);
     font-size: 10px;
     flex-shrink: 0;
     width: 60px;
@@ -613,11 +613,11 @@
     flex-shrink: 0;
 }
 .git-log-row-label {
-    color: var(--ink);
+    color: var(--text-primary);
     flex-shrink: 0;
 }
 .git-log-row-detail {
-    color: var(--ink-faint);
+    color: var(--text-tertiary);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -625,17 +625,17 @@
 }
 
 .panel.focused .git-row.sel {
-    background: var(--acc-soft);
+    background: var(--surface-selected);
     box-shadow: inset 2px 0 0 var(--acc);
 }
 .gf-x,
 .gf-y {
     width: 11px;
     text-align: center;
-    color: var(--ink-faint);
-    font-weight: 700;
+    color: var(--text-tertiary);
+    font-weight: var(--weight-semibold);
     font-size: 11px;
-    font-weight: 700;
+    font-weight: var(--weight-semibold);
 }
 .gf-x.on {
     color: var(--live);
@@ -653,7 +653,7 @@
     width: 6px;
     height: 6px;
     border-radius: 50%;
-    background: var(--line);
+    background: var(--border);
     flex: 0 0 auto;
 }
 .gb-dot.cur {
@@ -664,7 +664,7 @@
 }
 
 .git-remote-url {
-    color: var(--ink-faint);
+    color: var(--text-tertiary);
     font-size: 10.5px;
     margin-left: auto;
     max-width: 50%;
@@ -685,8 +685,8 @@
 .git-row.git-row-back {
     background: transparent;
     border: none;
-    border-bottom: 1px dashed var(--line);
-    color: var(--ink-dim);
+    border-bottom: 1px dashed var(--border);
+    color: var(--text-secondary);
     width: 100%;
     text-align: left;
     cursor: pointer;
@@ -694,15 +694,15 @@
     font-size: 11.5px;
 }
 .git-row.git-row-back:hover {
-    background: var(--acc-soft);
-    color: var(--ink);
+    background: var(--surface-selected);
+    color: var(--text-primary);
 }
 .git-row-back-glyph {
     color: var(--acc);
     transform: rotate(180deg);
 }
 .panel-row.muted .git-path {
-    color: var(--ink-faint);
+    color: var(--text-tertiary);
 }
 .gc-hash {
     color: var(--warn);
@@ -725,7 +725,7 @@
     gap: 8px;
     padding-right: 10px;
     font-size: 12.5px;
-    color: var(--ink-dim);
+    color: var(--text-secondary);
     cursor: pointer;
     position: relative;
     z-index: 1;
@@ -736,18 +736,18 @@
     background: rgba(255, 255, 255, 0.03);
 }
 .gg-row.sel {
-    background: var(--rail-2);
-    color: var(--ink);
+    background: var(--surface-raised);
+    color: var(--text-primary);
 }
 .panel.focused .gg-row.sel {
-    background: var(--acc-soft);
-    box-shadow: inset 0 0 0 1px var(--acc-line);
+    background: var(--surface-selected);
+    box-shadow: inset 0 0 0 1px var(--border-selected);
 }
 .gg-row.ranged {
     background: rgba(124, 197, 255, 0.08);
 }
 .gg-hash {
-    color: var(--ink-faint);
+    color: var(--text-tertiary);
     font-size: 11px;
     flex: none;
     font-variant-numeric: tabular-nums;
@@ -757,10 +757,10 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    color: var(--ink);
+    color: var(--text-primary);
 }
 .gg-when {
-    color: var(--ink-faint);
+    color: var(--text-tertiary);
     font-size: 10.5px;
     flex: none;
     font-variant-numeric: tabular-nums;
@@ -768,7 +768,7 @@
 .gg-author {
     flex: none;
     font-size: 10px;
-    font-weight: 700;
+    font-weight: var(--weight-semibold);
     letter-spacing: 0.04em;
 }
 .gg-refs {
@@ -778,15 +778,15 @@
     flex: none;
 }
 .gg-ref {
-    font-size: 9.5px;
+    font-size: var(--text-3xs);
     line-height: 1;
     padding: 2px 7px 2px 6px;
     display: inline-flex;
     align-items: center;
     gap: 4px;
     flex: none;
-    border: 1px solid var(--line);
-    color: var(--ink-dim);
+    border: 1px solid var(--border);
+    color: var(--text-secondary);
     max-width: 108px;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -798,12 +798,12 @@
     height: 5px;
     border-radius: 50%;
     flex: none;
-    background: var(--ink-faint);
+    background: var(--text-tertiary);
 }
 .gg-ref.head {
     color: var(--acc);
-    border-color: var(--acc-line);
-    background: var(--acc-soft);
+    border-color: var(--border-selected);
+    background: var(--surface-selected);
 }
 .gg-ref.head::before {
     background: var(--acc);
@@ -855,7 +855,7 @@
     flex: 1;
     overflow: auto;
     font-size: 12px;
-    color: var(--ink-dim);
+    color: var(--text-secondary);
     white-space: pre-wrap;
     padding: 4px 2px;
     line-height: 1.6;
@@ -875,17 +875,17 @@
     min-height: 30px;
     flex: 0 0 auto;
     padding: 0 9px 0 11px;
-    border-bottom: 1px solid var(--line-soft);
-    background: color-mix(in srgb, var(--pane) calc(var(--window-opacity, 1) * 100%), transparent);
+    border-bottom: 1px solid var(--border);
+    background: color-mix(in srgb, var(--surface) calc(var(--window-opacity, 1) * 100%), transparent);
 }
 .merge-review-count {
     margin-right: auto;
-    color: var(--ink-faint);
+    color: var(--text-tertiary);
     font-size: 10px;
 }
 .merge-review-action {
-    color: var(--ink-faint);
-    font-size: 9.5px;
+    color: var(--text-tertiary);
+    font-size: var(--text-3xs);
     transition:
         color 0.12s,
         opacity 0.12s;
@@ -914,7 +914,7 @@
     right: 0;
 }
 .merge-file-header {
-    background: color-mix(in srgb, var(--pane) calc(var(--window-opacity, 1) * 96%), transparent);
+    background: color-mix(in srgb, var(--surface) calc(var(--window-opacity, 1) * 96%), transparent);
 }
 .merge-review-item.focused > .merge-file-header {
     box-shadow: inset 2px 0 0 var(--acc);
@@ -939,7 +939,7 @@
     flex-direction: column;
 }
 .merge-section + .merge-section {
-    border-top: 1px solid var(--line);
+    border-top: 1px solid var(--border);
 }
 .merge-section-title {
     display: flex;
@@ -948,11 +948,11 @@
     flex: 0 0 auto;
     height: 22px;
     padding: 0 10px;
-    color: var(--ink-faint);
-    font-size: 9.5px;
-    letter-spacing: 0.12em;
+    color: var(--text-tertiary);
+    font-size: var(--text-3xs);
+    letter-spacing: var(--tracking-label);
     text-transform: uppercase;
-    background: color-mix(in srgb, var(--rail) calc(var(--window-opacity, 1) * 55%), transparent);
+    background: color-mix(in srgb, var(--surface) calc(var(--window-opacity, 1) * 55%), transparent);
 }
 .diff-editor {
     flex: 1;
@@ -971,7 +971,7 @@
 }
 .diff-editor-loading {
     padding: 12px;
-    color: var(--ink-faint);
+    color: var(--text-tertiary);
     font-size: 11px;
 }
 .diff-editor.auto {
@@ -993,19 +993,19 @@
     flex-direction: column;
     gap: 3px;
     padding: 9px 12px;
-    border-bottom: 1px solid var(--line-soft);
+    border-bottom: 1px solid var(--border);
 }
 .commit-hash {
     color: var(--warn);
     font-size: 11px;
 }
 .commit-subject {
-    color: var(--ink);
+    color: var(--text-primary);
     font-size: 12.5px;
 }
 .commit-empty {
     padding: 12px;
-    color: var(--ink-faint);
+    color: var(--text-tertiary);
     font-size: 11px;
 }
 
@@ -1015,7 +1015,7 @@
     overflow-y: auto;
 }
 .acc-item {
-    border-bottom: 1px solid var(--line-soft);
+    border-bottom: 1px solid var(--border);
 }
 .acc-header {
     display: flex;
@@ -1024,17 +1024,17 @@
     position: sticky;
     top: 0;
     z-index: 2;
-    background: var(--pane);
+    background: var(--surface);
 }
 .acc-toggle {
     display: flex;
     align-items: center;
     height: 100%;
     padding: 0 5px 0 9px;
-    color: var(--ink-faint);
+    color: var(--text-tertiary);
 }
 .acc-toggle:hover {
-    color: var(--ink-dim);
+    color: var(--text-secondary);
 }
 .acc-chev {
     display: flex;
@@ -1049,7 +1049,7 @@
     gap: 7px;
     flex: 1;
     height: 100%;
-    color: var(--ink-dim);
+    color: var(--text-secondary);
     font-size: 12px;
 }
 .acc-name:hover {
@@ -1067,7 +1067,7 @@
     display: flex;
     align-items: center;
     padding: 3px;
-    color: var(--ink-faint);
+    color: var(--text-tertiary);
     opacity: 0;
     transition:
         opacity 0.12s,
@@ -1102,7 +1102,7 @@
     height: 100%;
     place-items: center;
     padding: var(--space-5);
-    color: var(--ink-dim);
+    color: var(--text-secondary);
     font-family: var(--ui);
     font-size: 12px;
     text-align: center;

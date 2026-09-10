@@ -15,12 +15,12 @@
 .panel-block {
     /* Header plus a row: a panel with few items still shows what it has. */
     min-height: 54px;
-    border-bottom: 1px solid var(--line);
+    border-bottom: 1px solid var(--border);
     overflow: hidden;
     background: transparent;
 }
 .panel-block.focused {
-    border-color: var(--acc-line);
+    border-color: var(--border-selected);
 }
 .panel-group {
     margin-top: var(--space-4);
@@ -39,7 +39,7 @@
 .panel-block > .panel-head {
     height: 30px;
     padding: 0 var(--gutter-row);
-    border-bottom: 1px solid var(--line);
+    border-bottom: 1px solid var(--border);
 }
 .panel-group > .panel-head {
     gap: var(--space-2);
@@ -54,35 +54,35 @@
     height: 15px;
     flex: none;
     border-radius: 999px;
-    font-size: 9px;
-    font-weight: 700;
-    color: var(--void);
-    background: var(--ink-faint);
+    font-size: var(--text-3xs);
+    font-weight: var(--weight-semibold);
+    color: var(--surface-sunken);
+    background: var(--text-tertiary);
 }
 .panel.focused .panel-index {
     background: var(--acc);
 }
 
 .panel-label {
-    font-size: 9.5px;
-    font-weight: 700;
-    letter-spacing: 0.16em;
+    font-size: var(--text-3xs);
+    font-weight: var(--weight-semibold);
+    letter-spacing: var(--tracking-label);
     text-transform: uppercase;
-    color: var(--ink-faint);
+    color: var(--text-tertiary);
     white-space: nowrap;
 }
 .panel-group > .panel-head .panel-label {
     letter-spacing: 0.2em;
 }
 .panel.focused .panel-label {
-    color: var(--ink);
+    color: var(--text-primary);
 }
 
 /* Fills the gap between the label and the actions in the rail grouping. */
 .panel-rule {
     flex: 1 1 auto;
     height: 1px;
-    background: var(--line);
+    background: var(--border);
 }
 
 /* ---- Header actions ----------------------------------------------------- */
@@ -108,17 +108,17 @@
     gap: var(--space-1);
     height: 18px;
     padding: 0 var(--space-2);
-    border: 1px solid var(--line);
+    border: 1px solid var(--border);
     border-radius: var(--radius-chip);
     background: transparent;
-    color: var(--ink-dim);
+    color: var(--text-secondary);
     font-family: var(--mono);
     font-size: 10px;
     cursor: pointer;
 }
 .panel-abtn:hover:not(:disabled) {
-    color: var(--ink);
-    border-color: var(--acc-line);
+    color: var(--text-primary);
+    border-color: var(--border-selected);
 }
 .panel-abtn:disabled {
     opacity: 0.45;
@@ -135,10 +135,10 @@
 .panel-akbd {
     font-family: var(--kbd);
     font-size: 8px;
-    color: var(--ink-faint);
+    color: var(--text-tertiary);
 }
 .panel-abtn:hover:not(:disabled) .panel-akbd {
-    color: var(--ink-dim);
+    color: var(--text-secondary);
 }
 
 /* ---- Body and rows ------------------------------------------------------ */
@@ -157,30 +157,30 @@
     height: 24px;
     padding: 0 var(--gutter-row);
     font-size: 12px;
-    color: var(--ink-dim);
+    color: var(--text-secondary);
 }
 .panel-row:hover {
-    background: var(--rail-2);
+    background: var(--surface-raised);
 }
 .panel-row.sel {
-    background: var(--rail-2);
-    color: var(--ink);
+    background: var(--surface-raised);
+    color: var(--text-primary);
 }
 .panel-row.ranged {
     background: color-mix(in srgb, var(--warn) 10%, transparent);
 }
 .panel-row.sel.ranged {
-    background: var(--acc-soft);
+    background: var(--surface-selected);
 }
 .panel-row.muted {
-    color: var(--ink-faint);
+    color: var(--text-tertiary);
     cursor: default;
 }
 .panel-row-hint {
     margin-left: auto;
     flex-shrink: 0;
     font-size: 10px;
-    color: var(--ink-faint);
+    color: var(--text-tertiary);
 }
 
 /* ---- Empty state -------------------------------------------------------- */
@@ -192,7 +192,7 @@
     gap: var(--space-1h);
     padding: var(--space-6) var(--space-4);
     text-align: center;
-    color: var(--ink-faint);
+    color: var(--text-tertiary);
 }
 .empty-state-media {
     display: grid;
@@ -201,14 +201,14 @@
     height: 28px;
     margin-bottom: var(--space-0);
     border-radius: var(--radius-sm);
-    color: var(--ink-dim);
-    background: color-mix(in srgb, var(--ink-faint) 12%, transparent);
+    color: var(--text-secondary);
+    background: color-mix(in srgb, var(--text-tertiary) 12%, transparent);
 }
 .empty-state-title {
     font-family: var(--ui);
     font-size: 12.5px;
     font-weight: 600;
-    color: var(--ink-dim);
+    color: var(--text-secondary);
 }
 .empty-state-msg {
     max-width: 34ch;
@@ -219,18 +219,18 @@
     margin-top: var(--space-1);
     height: 24px;
     padding: 0 var(--space-3);
-    border: 1px solid var(--line);
+    border: 1px solid var(--border);
     border-radius: var(--radius-xs);
     background: transparent;
-    color: var(--ink-dim);
+    color: var(--text-secondary);
     font-family: var(--ui);
     font-size: 11.5px;
     cursor: pointer;
 }
 .empty-state-action:hover {
-    color: var(--ink);
-    border-color: var(--acc-line);
-    background: var(--acc-soft);
+    color: var(--text-primary);
+    border-color: var(--border-selected);
+    background: var(--surface-selected);
 }
 
 .empty-state.tone-error {
@@ -268,7 +268,7 @@
 }
 .empty-state.inline.interactive:hover {
     color: var(--acc);
-    background: var(--acc-soft);
+    background: var(--surface-selected);
 }
 
 /* ---- Badge -------------------------------------------------------------- */
@@ -280,19 +280,19 @@
     border: 1px solid transparent;
     border-radius: 999px;
     font-family: var(--mono);
-    font-size: 9.5px;
+    font-size: var(--text-3xs);
     font-variant-numeric: tabular-nums;
     white-space: nowrap;
 }
 .badge-neutral {
-    color: var(--ink-faint);
-    background: color-mix(in srgb, var(--ink-faint) 14%, transparent);
-    border-color: color-mix(in srgb, var(--ink-faint) 30%, transparent);
+    color: var(--text-tertiary);
+    background: color-mix(in srgb, var(--text-tertiary) 14%, transparent);
+    border-color: color-mix(in srgb, var(--text-tertiary) 30%, transparent);
 }
 .badge-accent {
     color: var(--acc);
-    background: var(--acc-soft);
-    border-color: var(--acc-line);
+    background: var(--surface-selected);
+    border-color: var(--border-selected);
 }
 .badge-warn {
     color: var(--warn);
