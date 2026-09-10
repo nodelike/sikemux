@@ -1335,3 +1335,18 @@
 .rail-git-toolbar button:last-child {
     grid-column: 1 / -1;
 }
+
+.workspace-rail.workspace-rail-git-collapsed {
+    width: 36px;
+    min-width: 36px;
+}
+
+.workspace-rail-git-collapsed [role="tablist"] {
+    display: flex;
+    flex-direction: column;
+    border-right: 0;
+}
+
+.workspace-rail-git-collapsed [role="tab"] > span + span {
+    display: none;
+}
