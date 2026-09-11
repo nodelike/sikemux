@@ -62,20 +62,19 @@ export function subscribeTheme(listener: (theme: Theme) => void): () => void {
     return () => themeListeners.delete(listener);
 }
 
+let editorTheme = buildEditorThemeExtensions(current);
+let indentTheme = buildIndentMarkerExtensions(current);
+
 export function themeCompartmentExtension(opts: { indentMarkers?: boolean } = {}) {
-    return [
-        themeCompartment.of(buildEditorThemeExtensions(current)),
-        ...(opts.indentMarkers === false ? [] : [indentCompartment.of(buildIndentMarkerExtensions(current))]),
-    ];
+    return [themeCompartment.of(editorTheme), ...(opts.indentMarkers === false ? [] : [indentCompartment.of(indentTheme)])];
 }
 
 function pushThemeOnto(view: EditorView): void {
-    view.dispatch({
-        effects: [
-            themeCompartment.reconfigure(buildEditorThemeExtensions(current)),
-            indentCompartment.reconfigure(buildIndentMarkerExtensions(current)),
-        ],
-    });
+    const effects = [];
+    if (themeCompartment.get(view.state) !== editorTheme) effects.push(themeCompartment.reconfigure(editorTheme));
+    const indent = indentCompartment.get(view.state);
+    if (indent !== undefined && indent !== indentTheme) effects.push(indentCompartment.reconfigure(indentTheme));
+    if (effects.length) view.dispatch({ effects });
 }
 
 export function registerView(view: EditorView): () => void {
@@ -142,11 +141,9 @@ function applyThemeObject(next: Theme): void {
     void root.offsetWidth;
     current = next;
     applyChrome(next);
-    const themeExt = buildEditorThemeExtensions(next);
-    const indentExt = buildIndentMarkerExtensions(next);
-    views.forEach((view) => {
-        view.dispatch({ effects: [themeCompartment.reconfigure(themeExt), indentCompartment.reconfigure(indentExt)] });
-    });
+    editorTheme = buildEditorThemeExtensions(next);
+    indentTheme = buildIndentMarkerExtensions(next);
+    views.forEach(pushThemeOnto);
     applyTerminalThemes();
     themeListeners.forEach((listener) => listener(next));
     void root.offsetWidth;

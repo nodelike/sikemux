@@ -63,7 +63,7 @@ function markersFromHunks(view: EditorView, hunks: DiffHunk[]): RangeSet<GitMark
     return builder.finish();
 }
 
-function scheduleHunks(view: EditorView): { cancel: () => void } {
+function scheduleHunks(view: EditorView) {
     let timer: number | undefined;
     let token = 0;
     const run = () => {
@@ -87,23 +87,31 @@ function scheduleHunks(view: EditorView): { cancel: () => void } {
             .catch(swallow("diff hunks"));
     };
     return {
-        cancel: () => {
+        schedule: () => {
+            token++;
             if (timer) window.clearTimeout(timer);
             timer = window.setTimeout(run, 500);
+        },
+        destroy: () => {
+            token++;
+            window.clearTimeout(timer);
         },
     };
 }
 
 const gitPlugin = ViewPlugin.fromClass(
     class {
-        sched: { cancel: () => void };
+        sched: ReturnType<typeof scheduleHunks>;
         constructor(view: EditorView) {
             this.sched = scheduleHunks(view);
-            this.sched.cancel();
+            this.sched.schedule();
         }
         update(u: ViewUpdate) {
             const baseChanged = u.startState.field(baselineField) !== u.state.field(baselineField);
-            if (u.docChanged || baseChanged) this.sched.cancel();
+            if (u.docChanged || baseChanged) this.sched.schedule();
+        }
+        destroy() {
+            this.sched.destroy();
         }
     },
 );

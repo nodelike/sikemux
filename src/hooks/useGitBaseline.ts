@@ -14,12 +14,15 @@ export function useGitBaseline(viewGetter: () => EditorView | null, cwd: string,
         const rel = relativePath(activePath, cwd);
         if (!rel) return;
 
+        let cancelled = false;
+        let request = 0;
         const refetch = () => {
+            const sequence = ++request;
             const view = viewGetter();
             if (!view || view.state.doc.length > LARGE_DOC_BYTES) return;
             git.fileAt(cwd, "HEAD", rel)
                 .then((content) => {
-                    if (viewGetter() !== view) return;
+                    if (cancelled || sequence !== request || viewGetter() !== view) return;
                     setGitBaseline(view, content);
                 })
                 .catch(swallow("git baseline"));
@@ -30,7 +33,10 @@ export function useGitBaseline(viewGetter: () => EditorView | null, cwd: string,
             if (e.repo !== cwd) return;
             refetch();
         });
-        return unsub;
+        return () => {
+            cancelled = true;
+            unsub();
+        };
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [activePath, cwd]);
 }
