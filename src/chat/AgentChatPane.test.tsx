@@ -67,6 +67,24 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("AgentChatPane", () => {
+    it("keeps receiving hidden session updates while freezing transcript rendering", async () => {
+        const props = { agent, cwd: "/repo", active: true, visible: true, onBusyChange: () => {} };
+        const { rerender } = render(<AgentChatPane {...props} />);
+        await waitFor(() => expect(mocks.eventListener).not.toBeNull());
+        rerender(<AgentChatPane {...props} visible={false} />);
+        emit("permission_request", {
+            requestId: "hidden-request",
+            sessionId: "session-1",
+            toolCall: { toolCallId: "tool-1" },
+            options: [{ optionId: "allow", name: "Allow hidden tool", kind: "allow_once" }],
+        });
+        expect(screen.queryByRole("button", { name: "Allow hidden tool" })).not.toBeInTheDocument();
+        expect(acpApi.stop).not.toHaveBeenCalled();
+
+        rerender(<AgentChatPane {...props} />);
+        expect(await screen.findByRole("button", { name: "Allow hidden tool" })).toBeInTheDocument();
+    });
+
     it("keeps the harness editable for a loaded session without messages", async () => {
         render(<AgentChatPane agent={{ ...agent, resumeId: "empty-session" }} cwd="/repo" active onBusyChange={() => {}} />);
         await waitFor(() => expect(screen.getByRole("button", { name: "Agent" })).toBeEnabled());

@@ -286,15 +286,20 @@ export function AgentChatPane({
     profile,
     cwd,
     active,
+    visible = active,
     onBusyChange,
 }: {
     agent: Agent;
     profile?: ProviderProfile;
     cwd: string;
     active: boolean;
+    visible?: boolean;
     onBusyChange: (busy: boolean) => void;
 }) {
     const [state, dispatch] = useReducer(chatReducer, initialChatState);
+    const displayStateRef = useRef(state);
+    if (visible) displayStateRef.current = state;
+    const displayState = displayStateRef.current;
     const [draft, setDraft] = useState("");
     const [attachments, setAttachments] = useState<string[]>([]);
     const [slashSelection, setSlashSelection] = useState(0);
@@ -322,11 +327,11 @@ export function AgentChatPane({
     const permissionMode = agent.permissionMode ?? (agent.skipPermissions ? "bypass" : "workspace-write");
 
     const virtualizer = useVirtualizer({
-        count: state.messages.length,
+        count: displayState.messages.length,
         getScrollElement: () => scrollRef.current,
         estimateSize: () => 76,
         overscan: 8,
-        getItemKey: (index) => state.messages[index]?.id ?? index,
+        getItemKey: (index) => displayState.messages[index]?.id ?? index,
     });
 
     useEffect(() => {
@@ -488,10 +493,10 @@ export function AgentChatPane({
     }, [agent.id, agent.title, state.title]);
 
     useLayoutEffect(() => {
-        if (!atBottom || state.messages.length === 0) return;
-        const frame = window.requestAnimationFrame(() => virtualizer.scrollToIndex(state.messages.length - 1, { align: "end" }));
+        if (!visible || !atBottom || displayState.messages.length === 0) return;
+        const frame = window.requestAnimationFrame(() => virtualizer.scrollToIndex(displayState.messages.length - 1, { align: "end" }));
         return () => window.cancelAnimationFrame(frame);
-    }, [atBottom, state.messages.length, state.revision, virtualizer]);
+    }, [atBottom, displayState.messages.length, displayState.revision, virtualizer, visible]);
 
     const slashCommands = useMemo(() => {
         if (slashDismissed || !draft.startsWith("/") || /\s/.test(draft.slice(1))) return [];
@@ -606,31 +611,31 @@ export function AgentChatPane({
                     const next = element.scrollHeight - element.scrollTop - element.clientHeight < 72;
                     if (next !== atBottom) setAtBottom(next);
                 }}>
-                {state.messages.length === 0 && (
-                    <div className={`chat-connection-state ${state.connection}`} role="status">
+                {displayState.messages.length === 0 && (
+                    <div className={`chat-connection-state ${displayState.connection}`} role="status">
                         <span>
-                            {state.connection === "ready"
+                            {displayState.connection === "ready"
                                 ? "Start a session with this project."
-                                : state.connection === "installing"
+                                : displayState.connection === "installing"
                                   ? "Installing structured-session adapter…"
-                                  : state.connection === "starting"
+                                  : displayState.connection === "starting"
                                     ? "Starting agent adapter…"
-                                    : state.connection === "initializing"
+                                    : displayState.connection === "initializing"
                                       ? "Connecting to agent session…"
-                                      : state.connection === "error"
+                                      : displayState.connection === "error"
                                         ? "Structured session unavailable."
-                                        : state.connection === "stopped"
+                                        : displayState.connection === "stopped"
                                           ? "Agent session stopped."
                                           : "Preparing agent session…"}
                         </span>
-                        {(state.connection === "error" || state.connection === "stopped") && (
+                        {(displayState.connection === "error" || displayState.connection === "stopped") && (
                             <button type="button" onClick={() => setRestartKey((value) => value + 1)}>
                                 Retry
                             </button>
                         )}
                     </div>
                 )}
-                {state.connection === "error" && agent.resumeId && (
+                {displayState.connection === "error" && agent.resumeId && (
                     <button
                         type="button"
                         onClick={() =>
@@ -646,7 +651,7 @@ export function AgentChatPane({
                 )}
                 <div className="chat-virtual-space" style={{ height: `${virtualizer.getTotalSize()}px` }}>
                     {virtualizer.getVirtualItems().map((item) => {
-                        const message = state.messages[item.index];
+                        const message = displayState.messages[item.index];
                         return (
                             <div
                                 key={message.id}
@@ -659,13 +664,13 @@ export function AgentChatPane({
                         );
                     })}
                 </div>
-                {state.plan !== null && (
+                {displayState.plan !== null && (
                     <details className="chat-plan">
                         <summary>Plan</summary>
-                        <pre>{formatDetail(state.plan)}</pre>
+                        <pre>{formatDetail(displayState.plan)}</pre>
                     </details>
                 )}
-                {state.permissions.map((request) => (
+                {displayState.permissions.map((request) => (
                     <PermissionRequest
                         key={request.requestId}
                         request={request}
@@ -673,27 +678,27 @@ export function AgentChatPane({
                         onReply={(optionId) => void replyPermission(request.requestId, optionId)}
                     />
                 ))}
-                {state.error && (
+                {displayState.error && (
                     <div className="chat-error" role="alert">
                         <IconWarning size={14} />
-                        <span>{state.error}</span>
+                        <span>{displayState.error}</span>
                     </div>
                 )}
-                {state.messages.length > 0 && (state.connection === "error" || state.connection === "stopped") && (
+                {displayState.messages.length > 0 && (displayState.connection === "error" || displayState.connection === "stopped") && (
                     <button type="button" onClick={() => setRestartKey((value) => value + 1)}>
                         Reconnect
                     </button>
                 )}
             </div>
 
-            {!atBottom && state.messages.length > 0 && (
+            {!atBottom && displayState.messages.length > 0 && (
                 <button
                     type="button"
                     className="chat-jump-bottom"
                     aria-label="Jump to latest message"
                     onClick={() => {
                         setAtBottom(true);
-                        virtualizer.scrollToIndex(state.messages.length - 1, { align: "end" });
+                        virtualizer.scrollToIndex(displayState.messages.length - 1, { align: "end" });
                     }}>
                     <IconArrowDown size={14} />
                 </button>

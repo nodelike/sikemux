@@ -66,6 +66,7 @@ export function AgentSurface({ agent, session, profile, visible }: { agent: Agen
                             profile={profile}
                             cwd={agent.cwd || session.cwd}
                             active={opened && sessionActive}
+                            visible={visible && sessionActive}
                             onBusyChange={setChatBusy}
                         />
                     </div>
