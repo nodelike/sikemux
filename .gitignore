@@ -16,3 +16,6 @@ src-tauri/binaries/sikemux-editor-*
 src-tauri/binaries/sikemux-browser-mcp-*
 .env
 .design/
+
+# Design scratchpads, like .design/ above.
+scratch/
