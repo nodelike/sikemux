@@ -240,6 +240,7 @@ export function EditorPane({
 
     const savedRef = useRef<Map<string, string>>(new Map());
     const imagesRef = useRef<Map<string, FileBlob>>(new Map());
+    const closeTabsRef = useRef<(paths: string[]) => void>(() => {});
     const [activeImage, setActiveImage] = useState<ImageState | null>(null);
     const [markdownPreview, setMarkdownPreview] = useState<{ path: string; content: string } | null>(null);
 
@@ -856,50 +857,50 @@ export function EditorPane({
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [cwd, paneId, visible]);
 
-    useEffect(() => {
-        return subscribe("path-renamed", ({ src, dest }) => {
-            const paths = useStore.getState().editorViews[paneId]?.openTabs ?? [];
-            for (const path of paths) {
-                const next = relocatedPath(path, src, dest);
-                if (next === path) continue;
-                const view = currentRef.current === path ? viewRef.current : null;
-                const state = view?.state ?? states.current.get(path);
-                if (state) {
-                    cacheState(next, state);
-                    states.current.delete(path);
-                }
-                const saved = savedRef.current.get(path);
-                if (saved !== undefined) {
-                    savedRef.current.set(next, saved);
-                    savedRef.current.delete(path);
-                }
-                const image = imagesRef.current.get(path);
-                if (image) {
-                    cacheImage(next, image);
-                    imagesRef.current.delete(path);
-                }
-                documentIORef.current.relocate(path, next);
-                conflictedRef.current.delete(path);
-                saveSequenceRef.current.delete(path);
-                void closeDoc(path);
-                if (state) void openDoc(next, state.doc.toString());
-                if (currentRef.current === path) {
-                    currentRef.current = next;
-                    if (view) bindLspContext(view, next);
-                    setActiveImage((image) => (image ? { ...image, path: next } : image));
-                }
+    const pathRenamedRef = useRef<(event: { src: string; dest: string }) => void>(() => {});
+    pathRenamedRef.current = ({ src, dest }) => {
+        const paths = useStore.getState().editorViews[paneId]?.openTabs ?? [];
+        for (const path of paths) {
+            const next = relocatedPath(path, src, dest);
+            if (next === path) continue;
+            const view = currentRef.current === path ? viewRef.current : null;
+            const state = view?.state ?? states.current.get(path);
+            if (state) {
+                cacheState(next, state);
+                states.current.delete(path);
             }
-            setDirty((paths) => new Set([...paths].map((path) => relocatedPath(path, src, dest))));
-            setMarkdownPreview((preview) => (preview ? { ...preview, path: relocatedPath(preview.path, src, dest) } : preview));
-        });
-    });
+            const saved = savedRef.current.get(path);
+            if (saved !== undefined) {
+                savedRef.current.set(next, saved);
+                savedRef.current.delete(path);
+            }
+            const image = imagesRef.current.get(path);
+            if (image) {
+                cacheImage(next, image);
+                imagesRef.current.delete(path);
+            }
+            documentIORef.current.relocate(path, next);
+            conflictedRef.current.delete(path);
+            saveSequenceRef.current.delete(path);
+            void closeDoc(path);
+            if (state) void openDoc(next, state.doc.toString());
+            if (currentRef.current === path) {
+                currentRef.current = next;
+                if (view) bindLspContext(view, next);
+                setActiveImage((image) => (image ? { ...image, path: next } : image));
+            }
+        }
+        setDirty((paths) => new Set([...paths].map((path) => relocatedPath(path, src, dest))));
+        setMarkdownPreview((preview) => (preview ? { ...preview, path: relocatedPath(preview.path, src, dest) } : preview));
+    };
+
+    useEffect(() => subscribe("path-renamed", (event) => pathRenamedRef.current(event)), []);
 
     useEffect(() => {
         return subscribe("close-file", (e) => {
-            if (e.paneId === paneId) closeTabs([e.path]);
+            if (e.paneId === paneId) closeTabsRef.current([e.path]);
         });
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [paneId, tabs, dirty]);
+    }, [paneId]);
 
     useEffect(() => {
         return subscribe("open-file", (e) => {
@@ -962,6 +963,7 @@ export function EditorPane({
             else notify("info", "close cancelled — unsaved changes remain");
         });
     };
+    closeTabsRef.current = closeTabs;
 
     const closeTabsNow = (closing: Set<string>) => {
         for (const p of closing) {
