@@ -1,0 +1,57 @@
+.workspace-rail.agent-rail {
+    flex-direction: column;
+    width: 288px;
+    min-width: 240px;
+}
+.agent-rail > .rail-scroll {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+}
+.side-rail .proj-children {
+    display: flex;
+    flex-direction: column;
+}
+.side-rail .proj-child {
+    display: flex;
+    align-items: center;
+    width: 100%;
+    padding: 2px 8px 2px 0;
+    text-align: left;
+    cursor: pointer;
+}
+.proj-child-tick {
+    height: 1px;
+    width: 6px;
+    background: var(--border);
+    flex-shrink: 0;
+}
+.proj-child-ic {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    flex-shrink: 0;
+}
+.proj-child-label {
+    flex: 1;
+}
+.proj-child-kbd {
+    flex-shrink: 0;
+    margin-left: auto;
+    color: var(--text-tertiary);
+    font-family: var(--kbd);
+}
+.proj-child-icons {
+    display: inline-flex;
+    align-items: center;
+    flex-shrink: 0;
+}
+.proj-pip {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    flex-shrink: 0;
+}

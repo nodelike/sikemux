@@ -159,7 +159,6 @@ export type RailDensity = "comfortable" | "compact";
 export type DiffTarget = { kind: "worktree"; path: string } | { kind: "commit"; rev: string; subject: string };
 
 /** Which panel the workspace rail is showing. */
-export type RailTab = "agents" | "files" | "changes" | "search";
 
 /** A resolved Rundeck deploy location for a service: a project plus an env subfolder. */
 export interface DeployRef {

@@ -63,7 +63,7 @@ describe("new tab palette", () => {
 
         pressKey("6");
 
-        expect(getState().railTab).toBe("search");
+        expect(Object.values(getState().windows).some((window) => window.role === "search")).toBe(true);
     });
 
     it("ignores a digit past the end of the list", () => {

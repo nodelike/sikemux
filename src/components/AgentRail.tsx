@@ -32,6 +32,15 @@ function ago(unixSecs: number): string {
 const persistedSessionIdOf = (a: Agent) => a.resumeId ?? a.id;
 const sessionKey = (type: AgentType, id: string) => `${type}:${id}`;
 
+export function AgentRail() {
+    const density = useStore((s) => s.railDensity);
+    return (
+        <aside className="workspace-rail agent-rail" aria-label="Agents" data-density={density}>
+            <AgentRailBody />
+        </aside>
+    );
+}
+
 export function AgentRailBody() {
     const session = useStore((s) => s.sessions[s.activeSessionId]);
     const activityById = useStore((s) => s.agentActivity);

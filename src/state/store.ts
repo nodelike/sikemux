@@ -25,7 +25,6 @@ import type {
     RecentEntry,
     RundeckSettings,
     RailDensity,
-    RailTab,
     DiffTarget,
     RundeckView,
     Session,
@@ -64,8 +63,7 @@ export interface DomainState {
     awsProfile: string | null;
     awsService: AwsService;
     sideRailOpen: boolean;
-    workspaceRailOpen: boolean;
-    railTab: RailTab;
+    agentRailOpen: boolean;
     diffTarget: Record<string, DiffTarget | null>;
     zenMode: boolean;
     rundeck: RundeckSettings;
@@ -207,8 +205,7 @@ export const useStore = create<StoreState>(() => {
         awsProfile: null,
         awsService: "ecs",
         sideRailOpen: true,
-        workspaceRailOpen: true,
-        railTab: "agents",
+        agentRailOpen: true,
         diffTarget: {},
         zenMode: false,
         rundeck: {

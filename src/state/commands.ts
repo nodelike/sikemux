@@ -2081,6 +2081,7 @@ export function focusAgents(): void {
         const ids = d.agentsBySession[session.id] ?? [];
         const sess = d.sessions[session.id];
         sess.view = "agent";
+        d.agentRailOpen = true;
         sess.activeAgentId = session.activeAgentId ?? ids[0] ?? null;
         if (ids.length === 0) d.agentPaletteOpen = true;
         d.zoomedPaneId = null;
@@ -2209,33 +2210,7 @@ export async function openSshConfigEditor(): Promise<void> {
     });
 }
 export const toggleSideRail = (): void => setState((s) => ({ sideRailOpen: !s.sideRailOpen }));
-/*
- * Which surface each rail tab drives. These roles have no tab in the session
- * strip (see `roleHasTab`), so selecting the rail tab is how you bring one
- * forward into the stage.
- */
-const RAIL_TAB_ROLE: Partial<Record<import("./types").RailTab, WindowRole>> = {
-    files: "files",
-    search: "search",
-};
-
-export function setRailTab(tab: import("./types").RailTab): void {
-    setState({ railTab: tab });
-    if (tab === "changes") {
-        openGitWorkbench();
-        return;
-    }
-    const role = RAIL_TAB_ROLE[tab];
-    if (!role) return;
-    const st = getState();
-    const session = st.sessions[st.activeSessionId];
-    if (!session) return;
-    // Only bring forward a surface that already exists. Switching rail tabs is
-    // navigation, not a reason to conjure an empty editor into the stage.
-    const existing = (st.windowsBySession[session.id] ?? []).find((id) => st.windows[id]?.role === role);
-    if (existing) selectWindowId(existing);
-}
-export const toggleWorkspaceRail = (): void => setState((s) => ({ workspaceRailOpen: !s.workspaceRailOpen }));
+export const toggleAgentRail = (): void => setState((s) => ({ agentRailOpen: !s.agentRailOpen }));
 export const toggleZen = (): void => setState((s) => ({ zenMode: !s.zenMode }));
 
 export function requestOpenFile(path: string, line?: number, character?: number): void {
@@ -2589,7 +2564,7 @@ export function focusGlobalSearch(seed?: string): void {
         const oneLine = seed.split(/\r?\n/).find((l) => l.trim().length > 0) ?? seed.trim();
         setGlobalSearchQuery(session.id, oneLine);
     }
-    setState({ railTab: "search", workspaceRailOpen: true });
+    ensureRoleWindow("search", "search", "Search");
     emit({ type: "search-focus", sessionId: session.id });
 }
 

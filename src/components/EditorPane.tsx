@@ -1,3 +1,4 @@
+import { FileTree } from "./FileTree";
 import { relocatedPath } from "../state/editorPaths";
 import { useCallback, useEffect, useRef, useState } from "react";
 import Markdown from "react-markdown";
@@ -232,6 +233,7 @@ export function EditorPane({
     const showConflictRef = useRef<(path: string, detail: string) => void>(() => {});
     const reloadFromDiskRef = useRef<(path: string, announce?: boolean) => Promise<void>>(async () => {});
 
+    const [treeWidth, setTreeWidth] = useState(240);
     const [dirty, setDirty] = useState<ReadonlySet<string>>(() => new Set());
     const dirtyRef = useRef(dirty);
     dirtyRef.current = dirty;
@@ -992,6 +994,16 @@ export function EditorPane({
 
     return (
         <div className="editor-pane">
+            {!onCloseWindow && (
+                <FileTree
+                    width={treeWidth}
+                    onResize={setTreeWidth}
+                    cwd={cwd}
+                    activePath={activePath}
+                    onOpenFile={(entry) => void openPath(entry.path).catch(reportError("open file"))}
+                    active={visible}
+                />
+            )}
             <div className="ed-main">
                 {/* An ordinary editor's documents are tabs in the session
                     strip, so the only bar left here is the one an SSH config
@@ -1071,7 +1083,7 @@ export function EditorPane({
                     <div className="ed-empty">
                         <IconFile size={22} />
                         <p>Open a file to get started</p>
-                        <p className="ed-empty-sub">Browse the Files rail or search by name.</p>
+                        <p className="ed-empty-sub">Browse the project tree or search by name.</p>
                         <button type="button" className="settings-btn primary" onClick={cmd.openFilePalette}>
                             Open file <kbd>{filePaletteHint}</kbd>
                         </button>

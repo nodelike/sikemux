@@ -23,7 +23,6 @@ import type {
     PersistedSnapshot,
     ProviderProfile,
     ProviderProfileSelection,
-    RailTab,
     RecentEntry,
     Session,
     Window,
@@ -79,8 +78,7 @@ const PERSISTED_KEYS = [
     "awsProfile",
     "awsService",
     "sideRailOpen",
-    "workspaceRailOpen",
-    "railTab",
+    "agentRailOpen",
     "zenMode",
     "rundeck",
     "restoreAgentTabs",
@@ -129,8 +127,7 @@ function packPrefs(s: StoreState): PersistedPrefs {
         awsProfile: s.awsProfile,
         awsService: s.awsService,
         sideRailOpen: s.sideRailOpen,
-        workspaceRailOpen: s.workspaceRailOpen,
-        railTab: s.railTab,
+        agentRailOpen: s.agentRailOpen,
         zenMode: s.zenMode,
         rundeck: s.rundeck,
         restoreAgentTabs: s.restoreAgentTabs,
@@ -157,7 +154,6 @@ function mergeBrunoWorkspaces(saved: string[] | undefined, sessions: Session[]):
 
 const SESSION_KINDS = new Set<Session["kind"]>(["project", "command", "ssh", "aws", "rundeck", "bruno"]);
 const WINDOW_ROLES = new Set<WindowRole>(["term", "files", "git", "diff", "search", "aws", "rundeck", "bruno", "ssh-config", "named"]);
-const RAIL_TABS = new Set<RailTab>(["agents", "files", "changes", "search"]);
 const AWS_SERVICES = new Set<StoreState["awsService"]>(["ecs", "ec2", "lambda", "sqs", "billing", "s3"]);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -724,8 +720,7 @@ export function applyHydrate(raw: string): HydrationResult {
         awsProfile: prefs.awsProfile === null || typeof prefs.awsProfile === "string" ? prefs.awsProfile : cur.awsProfile,
         awsService: AWS_SERVICES.has(prefs.awsService as StoreState["awsService"]) ? (prefs.awsService as StoreState["awsService"]) : cur.awsService,
         sideRailOpen: typeof prefs.sideRailOpen === "boolean" ? prefs.sideRailOpen : cur.sideRailOpen,
-        workspaceRailOpen: typeof prefs.workspaceRailOpen === "boolean" ? prefs.workspaceRailOpen : cur.workspaceRailOpen,
-        railTab: RAIL_TABS.has(prefs.railTab as RailTab) ? (prefs.railTab as RailTab) : cur.railTab,
+        agentRailOpen: typeof prefs.agentRailOpen === "boolean" ? prefs.agentRailOpen : cur.agentRailOpen,
         zenMode: typeof prefs.zenMode === "boolean" ? prefs.zenMode : cur.zenMode,
         rundeck: {
             activeProject: typeof rundeck.activeProject === "string" ? rundeck.activeProject : "",

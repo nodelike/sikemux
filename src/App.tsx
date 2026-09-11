@@ -1,3 +1,4 @@
+import "./styles/restored-rails.css";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { invokeCommand as invoke } from "./api/invoke";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
@@ -5,7 +6,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { checkForUpdate } from "./api/updater";
 import { TopBar } from "./components/TopBar";
 import { SideRail } from "./components/SideRail";
-import { WorkspaceRail } from "./components/WorkspaceRail";
+import { AgentRail } from "./components/AgentRail";
 import { RailPeek } from "./components/RailPeek";
 import { AgentSessionSync } from "./components/AgentSessionSync";
 import { AgentLifecycleManager } from "./components/AgentLifecycleManager";
@@ -205,9 +206,9 @@ export default function App() {
     const [bootIssue, setBootIssue] = useState<string | null>(null);
     const zen = useStore((s) => s.zenMode);
     const sideRailOpen = useStore((s) => s.sideRailOpen);
-    const workspaceRailOpen = useStore((s) => s.workspaceRailOpen);
+    const agentRailOpen = useStore((s) => s.agentRailOpen);
     const sideRailVisible = sideRailOpen && !zen;
-    const workspaceRailVisible = workspaceRailOpen && !zen;
+    const agentRailVisible = agentRailOpen && !zen;
     const activeSessionIsProject = useStore((s) => s.sessions[s.activeSessionId]?.kind === "project");
     const pickerOpen = useStore((s) => s.pickerOpen);
     const agentPaletteOpen = useStore((s) => s.agentPaletteOpen);
@@ -800,14 +801,14 @@ export default function App() {
                         <SideRail />
                     </RailPeek>
                 )}
-                {workspaceRailVisible && activeSessionIsProject && <WorkspaceRail />}
                 <main className={`stage${settingsOpen ? " stage--settings" : ""}`}>
                     <Workspace />
                     {settingsOpen && <SettingsPanel />}
                 </main>
-                {!workspaceRailOpen && !zen && activeSessionIsProject && (
+                {agentRailVisible && activeSessionIsProject && <AgentRail />}
+                {!agentRailOpen && !zen && activeSessionIsProject && (
                     <RailPeek edge="end">
-                        <WorkspaceRail />
+                        <AgentRail />
                     </RailPeek>
                 )}
             </div>

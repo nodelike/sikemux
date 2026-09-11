@@ -89,14 +89,12 @@ describe("project windows", () => {
         expect(getState().editorViews[editor.activePaneId].openTabs).toEqual(["/work/demo/a.ts"]);
     });
 
-    it("focuses search in the workspace rail instead of opening a centre tab", () => {
+    it("opens search in the content area", () => {
         cmd.createProjectSession("/work/demo");
 
         cmd.focusGlobalSearch("needle");
 
-        expect(getState().railTab).toBe("search");
-        expect(getState().workspaceRailOpen).toBe(true);
-        expect(roles()).not.toContain("search");
+        expect(roles()).toContain("search");
     });
 
     it("points the diff tab at the file whose changes were clicked", () => {

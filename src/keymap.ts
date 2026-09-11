@@ -234,7 +234,7 @@ export function runKeybindingAction(action: KeybindingActionId, event: KeyboardE
             cmd.selectWindowByRole("term");
             return true;
         case "window.git":
-            cmd.openDiffPane();
+            cmd.openGitWorkbench();
             return true;
         case "window.agents":
             cmd.focusAgents();
