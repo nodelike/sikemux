@@ -63,20 +63,36 @@ export async function stopProcessTree(pid) {
 
 export function findRunningDevProcess(projectRoot = root) {
   if (process.platform === "win32") return null;
-  const listing = spawnSync("ps", ["-axo", "pid=,command="], { encoding: "utf8" });
+  const listing = spawnSync("ps", ["-axo", "pid=,command="], {
+    encoding: "utf8",
+  });
   if (listing.status !== 0) return null;
   for (const line of listing.stdout.split("\n")) {
     const match = line.trim().match(/^(\d+)\s+(.+)$/);
     if (!match) continue;
     const pid = Number(match[1]);
     const executable = match[2];
-    const absolute = join(projectRoot, "src-tauri", "target", "debug", "sikemux");
+    const absolute = join(
+      projectRoot,
+      "src-tauri",
+      "target",
+      "debug",
+      "sikemux",
+    );
     if (executable === absolute) return pid;
     if (executable !== "target/debug/sikemux") continue;
-    const cwd = process.platform === "darwin"
-      ? spawnSync("lsof", ["-a", "-p", String(pid), "-d", "cwd", "-Fn"], { encoding: "utf8" })
-      : spawnSync("readlink", [`/proc/${pid}/cwd`], { encoding: "utf8" });
-    const directories = cwd.stdout?.split("\n").map((value) => process.platform === "darwin" ? value.slice(1) : value.trim()) ?? [];
+    const cwd =
+      process.platform === "darwin"
+        ? spawnSync("lsof", ["-a", "-p", String(pid), "-d", "cwd", "-Fn"], {
+            encoding: "utf8",
+          })
+        : spawnSync("readlink", [`/proc/${pid}/cwd`], { encoding: "utf8" });
+    const directories =
+      cwd.stdout
+        ?.split("\n")
+        .map((value) =>
+          process.platform === "darwin" ? value.slice(1) : value.trim(),
+        ) ?? [];
     if (directories.includes(join(projectRoot, "src-tauri"))) return pid;
   }
   return null;
@@ -85,7 +101,9 @@ export function findRunningDevProcess(projectRoot = root) {
 export async function runDevDesktop() {
   const existingPid = findRunningDevProcess();
   if (existingPid !== null) {
-    console.error(`Sikemux Dev is already running from this checkout (PID ${existingPid}). Quit that Dev instance before running make dev again. Production Sikemux can stay open.`);
+    console.error(
+      `Sikemux Dev is already running from this checkout (PID ${existingPid}). Quit that Dev instance before running make dev again. Production Sikemux can stay open.`,
+    );
     return 1;
   }
   const startedAt = Date.now();
@@ -137,7 +155,9 @@ export async function runDevDesktop() {
 
   if (requestedExitCode !== null) return requestedExitCode;
   if (outcome.code === 0 && Date.now() - startedAt < 10_000) {
-    console.error("Sikemux Dev exited immediately. Check for another running Dev instance; a duplicate launch can exit without opening a window.");
+    console.error(
+      "Sikemux Dev exited immediately. Check for another running Dev instance; a duplicate launch can exit without opening a window.",
+    );
     return 1;
   }
   if (outcome.code !== null) return outcome.code;
