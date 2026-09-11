@@ -1,4 +1,4 @@
-import { useEffect, useSyncExternalStore } from "react";
+import { useEffect, useRef, useSyncExternalStore } from "react";
 
 export interface ResourceDef<Args extends unknown[], T> {
     kind: string;
@@ -201,7 +201,23 @@ export interface ResourceHandle<T> {
 }
 
 export function useResourceEnabled<Args extends unknown[], T>(enabled: boolean, def: ResourceDef<Args, T>, ...args: Args): ResourceHandle<T> {
-    const key = enabled ? keyOf(def.kind, args as unknown[], def as unknown as AnyDef) : "";
+    return useResourceHandle(enabled, false, def, args);
+}
+
+export function useCachedResourceEnabled<Args extends unknown[], T>(enabled: boolean, def: ResourceDef<Args, T>, ...args: Args): ResourceHandle<T> {
+    return useResourceHandle(enabled, true, def, args);
+}
+
+function useResourceHandle<Args extends unknown[], T>(
+    enabled: boolean,
+    retainCached: boolean,
+    def: ResourceDef<Args, T>,
+    args: Args,
+): ResourceHandle<T> {
+    const key = enabled || retainCached ? keyOf(def.kind, args as unknown[], def as unknown as AnyDef) : "";
+
+    const retained = useRef<{ key: string; data: T | undefined }>({ key, data: undefined });
+    if (retained.current.key !== key) retained.current = { key, data: undefined };
 
     useEffect(() => {
         if (!enabled) return;
@@ -230,12 +246,14 @@ export function useResourceEnabled<Args extends unknown[], T>(enabled: boolean, 
                 }
             };
         },
-        () => (enabled ? (cache.get(key) as Entry<T> | undefined) : undefined),
+        () => (enabled || retainCached ? (cache.get(key) as Entry<T> | undefined) : undefined),
         () => undefined,
     );
 
+    if (retainCached && entry?.data !== undefined) retained.current.data = entry.data;
+
     return {
-        data: entry?.data,
+        data: entry?.data ?? (retainCached ? retained.current.data : undefined),
         status: entry?.status ?? "loading",
         error: entry?.error,
         refresh: () => (enabled ? trigger(def, key, args).then(() => {}) : Promise.resolve()),

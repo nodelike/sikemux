@@ -1,8 +1,8 @@
-import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, memo, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { git, hasUnstaged, isStaged } from "../api/git";
 import * as cmd from "../state/commands";
 import { openGitCheatsheet, openGitConfirm, openGitMenu, openGitPrompt, toggleGitCmdLog } from "../state/git";
-import { useResourceEnabled } from "../state/resources";
+import { invalidate, useCachedResourceEnabled } from "../state/resources";
 import { gitOverviewR, gitRemoteBranchesR, gitRemotesR, gitStashesR } from "../state/resources.defs";
 import { useStore } from "../state/store";
 import { commitGitDraft, generateGitDraft, runRepositoryGit, setGitDraft, setGitProvider, useGitWorkbench } from "../state/gitWorkbench";
@@ -26,8 +26,8 @@ import { filterByQuery, isGitAiProvider, isInRange, rangeBadge } from "./git/git
 import type { GitAiProvider, RightView } from "./git/gitPaneTypes";
 import { basename as basenameOf } from "../lib/paths";
 
-const CommitReview = lazy(() => import("./CommitReview").then((module) => ({ default: module.CommitReview })));
-const MergeReview = lazy(() => import("./MergeReview").then((module) => ({ default: module.MergeReview })));
+const CommitReview = lazy(() => import("./CommitReview").then((module) => ({ default: memo(module.CommitReview) })));
+const MergeReview = lazy(() => import("./MergeReview").then((module) => ({ default: memo(module.MergeReview) })));
 
 export function GitPane({ paneId, cwd, active }: { paneId: string; cwd: string; active: boolean }) {
     const paneRootRef = useRef<HTMLDivElement>(null);
@@ -46,10 +46,10 @@ export function GitPane({ paneId, cwd, active }: { paneId: string; cwd: string; 
     const remoteBranchSelected = view.remoteBranchSelected ?? {};
     const modalOpen = useStore((s) => s.gitModal !== null);
 
-    const overview = useResourceEnabled(active && !!repo, gitOverviewR, repo || "");
-    const remotesRes = useResourceEnabled(active && !!repo, gitRemotesR, repo || "");
-    const stashesRes = useResourceEnabled(active && !!repo, gitStashesR, repo || "");
-    const remoteBranchesRes = useResourceEnabled(active && !!repo && !!remoteDrill, gitRemoteBranchesR, repo || "", remoteDrill ?? "");
+    const overview = useCachedResourceEnabled(active && !!repo, gitOverviewR, repo || "");
+    const remotesRes = useCachedResourceEnabled(active && !!repo, gitRemotesR, repo || "");
+    const stashesRes = useCachedResourceEnabled(active && !!repo, gitStashesR, repo || "");
+    const remoteBranchesRes = useCachedResourceEnabled(active && !!repo && !!remoteDrill, gitRemoteBranchesR, repo || "", remoteDrill ?? "");
     const overviewLoading = !!repo && overview.status === "loading" && !overview.data;
     const overviewError = !!repo && overview.status === "error" && !overview.data ? (overview.error ?? "failed to load git state") : null;
     const status = repo ? (overview.data?.status ?? null) : null;
@@ -59,6 +59,7 @@ export function GitPane({ paneId, cwd, active }: { paneId: string; cwd: string; 
     const remotes = useMemo(() => (repo ? (remotesRes.data ?? []) : []), [repo, remotesRes.data]);
     const stashes = useMemo(() => (repo ? (stashesRes.data ?? []) : []), [repo, stashesRes.data]);
     const remoteBranches = useMemo(() => (repo && remoteDrill ? (remoteBranchesRes.data ?? []) : []), [repo, remoteDrill, remoteBranchesRes.data]);
+    const onReviewSaved = useCallback(() => invalidate((kind, args) => kind === "git.overview" && args[0] === repo), [repo]);
     const currentBranch = branches.find((b) => b.current)?.name ?? status?.branch ?? "";
 
     const [right, setRight] = useState<RightView>({ mode: "output", text: "" });
@@ -1617,8 +1618,8 @@ export function GitPane({ paneId, cwd, active }: { paneId: string; cwd: string; 
                                     repo={repo}
                                     files={right.files}
                                     focusPath={filteredFiles[Math.min(sel.files, filteredFiles.length - 1)]?.path}
-                                    onOpenFile={(abs) => cmd.requestOpenFile(abs)}
-                                    onSaved={() => void overview.refresh().catch(reportError("git refresh"))}
+                                    onOpenFile={cmd.requestOpenFile}
+                                    onSaved={onReviewSaved}
                                 />
                             ) : right.mode === "commit" ? (
                                 <CommitReview
@@ -1627,7 +1628,7 @@ export function GitPane({ paneId, cwd, active }: { paneId: string; cwd: string; 
                                     rev={right.rev}
                                     title={right.title}
                                     subtitle={right.subtitle}
-                                    onOpenFile={(abs) => cmd.requestOpenFile(abs)}
+                                    onOpenFile={cmd.requestOpenFile}
                                 />
                             ) : (
                                 <pre className="git-output">{right.text || "—"}</pre>

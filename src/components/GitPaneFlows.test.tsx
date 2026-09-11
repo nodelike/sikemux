@@ -6,6 +6,7 @@ import { gitOverviewR } from "../state/resources.defs";
 import { getState, setState } from "../state/store";
 import { useGitWorkbench } from "../state/gitWorkbench";
 const resources = vi.hoisted(() => ({
+    reviewRender: vi.fn(),
     overview: {
         status: "ok",
         data: {
@@ -19,10 +20,15 @@ const resources = vi.hoisted(() => ({
 }));
 vi.mock("../state/resources", async (original) => ({
     ...(await original<typeof import("../state/resources")>()),
-    useResourceEnabled: (_enabled: boolean, definition: unknown) => (definition === gitOverviewR ? resources.overview : resources.empty),
+    useCachedResourceEnabled: (_enabled: boolean, definition: unknown) => (definition === gitOverviewR ? resources.overview : resources.empty),
 }));
 vi.mock("./CommitReview", () => ({ CommitReview: () => <div>Review</div> }));
-vi.mock("./MergeReview", () => ({ MergeReview: () => <div>Merge review</div> }));
+vi.mock("./MergeReview", () => ({
+    MergeReview: () => {
+        resources.reviewRender();
+        return <div>Merge review</div>;
+    },
+}));
 beforeEach(() => {
     setState({ gitViews: {}, gitModal: null, pickerOpen: false });
     useGitWorkbench.setState({ drafts: {}, operations: {} });
@@ -48,4 +54,17 @@ it("does not consume text or Tab intended for controls outside the Git pane", ()
     expect(fireEvent.keyDown(search, { key: "s" })).toBe(true);
     expect(fireEvent.keyDown(search, { key: "Tab" })).toBe(true);
     expect(getState().gitModal).toBeNull();
+});
+
+it("reuses the diff preview across repeated warm switches", async () => {
+    const { rerender } = render(<GitPane paneId="git-test" cwd="/repo" active />);
+    await screen.findByText("Merge review");
+    resources.reviewRender.mockClear();
+    const row = screen.getByText("file.ts");
+    for (let i = 0; i < 10; i++) {
+        rerender(<GitPane paneId="git-test" cwd="/repo" active={false} />);
+        rerender(<GitPane paneId="git-test" cwd="/repo" active />);
+        expect(screen.getByText("file.ts")).toBe(row);
+    }
+    expect(resources.reviewRender).not.toHaveBeenCalled();
 });
