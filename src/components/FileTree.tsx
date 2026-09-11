@@ -1,4 +1,5 @@
 import { renameEditorPath } from "../state/editorPaths";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent, ReactNode } from "react";
@@ -39,6 +40,12 @@ interface MenuState {
     entry: DirEntry | null;
 }
 
+type VisibleTreeRow =
+    { key: string; kind: "entry"; entry: DirEntry; depth: number } | { key: string; kind: "new"; depth: number; request: NewEntryRequest };
+
+const TREE_ROW_HEIGHT = 23;
+const TREE_VIRTUALIZE_AFTER = 150;
+
 export interface CtxItem {
     label?: string;
     hint?: string;
@@ -72,6 +79,8 @@ export function FileTree({ cwd, activePath, onOpenFile, width, onResize, active,
     const [dragGhost, setDragGhost] = useState<{ name: string; x: number; y: number } | null>(null);
     const [focusedPath, setFocusedPath] = useState<string | null>(null);
     const [menu, setMenu] = useState<MenuState | null>(null);
+    const rootScrollRef = useRef<HTMLDivElement>(null);
+    const rowButtonRefs = useRef(new Map<string, HTMLButtonElement>());
 
     const expandedRef = useRef(expanded);
     expandedRef.current = expanded;
@@ -84,6 +93,36 @@ export function FileTree({ cwd, activePath, onOpenFile, width, onResize, active,
         }
         return m;
     }, [cwd, status.data]);
+
+    const visibleRows = useMemo(() => {
+        const rows: VisibleTreeRow[] = [];
+        const collect = (path: string, depth: number) => {
+            for (const entry of dirs[path] ?? []) {
+                rows.push({ key: entry.path, kind: "entry", entry, depth });
+                if (entry.is_dir && expanded.has(entry.path)) collect(entry.path, depth + 1);
+                if (newRequest?.parent === entry.path) {
+                    rows.push({ key: `new:${entry.path}`, kind: "new", depth: depth + 1, request: newRequest });
+                }
+            }
+        };
+        collect(cwd, 0);
+        if (newRequest?.parent === cwd) rows.push({ key: `new:${cwd}`, kind: "new", depth: 0, request: newRequest });
+        return rows;
+    }, [cwd, dirs, expanded, newRequest]);
+    const entryRows = useMemo(
+        () => visibleRows.filter((row): row is Extract<VisibleTreeRow, { kind: "entry" }> => row.kind === "entry"),
+        [visibleRows],
+    );
+    const focusPath = focusedPath && entryRows.some((row) => row.entry.path === focusedPath) ? focusedPath : entryRows[0]?.entry.path;
+    const virtualized = visibleRows.length > TREE_VIRTUALIZE_AFTER;
+    const treeVirtualizer = useVirtualizer({
+        count: visibleRows.length,
+        getScrollElement: () => rootScrollRef.current,
+        estimateSize: () => TREE_ROW_HEIGHT,
+        getItemKey: (index) => visibleRows[index]?.key ?? index,
+        overscan: 20,
+        enabled: virtualized,
+    });
 
     const loadDir = useCallback((path: string) => {
         return fsapi
@@ -136,8 +175,11 @@ export function FileTree({ cwd, activePath, onOpenFile, width, onResize, active,
     }, [revealPath, activePath, cwd, active]);
 
     useEffect(() => {
-        if (newRequest) newInputRef.current?.focus();
-    }, [newRequest]);
+        if (!newRequest) return;
+        const rowIndex = visibleRows.findIndex((row) => row.key === `new:${newRequest.parent}`);
+        if (virtualized && rowIndex >= 0) treeVirtualizer.scrollToIndex(rowIndex, { align: "auto" });
+        requestAnimationFrame(() => newInputRef.current?.focus());
+    }, [newRequest, treeVirtualizer, virtualized, visibleRows]);
 
     useEffect(() => {
         if (renaming) {
@@ -492,15 +534,6 @@ export function FileTree({ cwd, activePath, onOpenFile, width, onResize, active,
         ];
     };
 
-    const visiblePaths: string[] = [];
-    const collectVisible = (path: string) => {
-        for (const entry of dirs[path] ?? []) {
-            visiblePaths.push(entry.path);
-            if (entry.is_dir && expanded.has(entry.path)) collectVisible(entry.path);
-        }
-    };
-    collectVisible(cwd);
-    const focusPath = focusedPath && visiblePaths.includes(focusedPath) ? focusedPath : visiblePaths[0];
     const onEntryKey = (event: React.KeyboardEvent<HTMLButtonElement>, entry: DirEntry) => {
         if (event.key === "F2") {
             event.preventDefault();
@@ -513,127 +546,111 @@ export function FileTree({ cwd, activePath, onOpenFile, width, onResize, active,
         }
     };
 
-    const renderTree = (path: string, depth: number): ReactNode => {
-        const entries = dirs[path] ?? [];
-        const items: ReactNode[] = [];
-        for (const e of entries) {
-            const pad = 10 + depth * 13;
-            if (e.is_dir) {
-                const open = expanded.has(e.path);
-                const isRenaming = renaming === e.path;
-                items.push(
-                    <div key={e.path}>
-                        {isRenaming ? (
-                            <RenameRow
-                                depth={depth}
-                                kind="folder"
-                                value={renameName}
-                                inputRef={renameInputRef}
-                                onChange={setRenameName}
-                                onSubmit={submitRename}
-                                onCancel={cancelRename}
-                            />
-                        ) : (
-                            <button
-                                ref={(el) => attachFolderDrop(el, e.path)}
-                                className={`tree-row is-folder${selectedDir === e.path ? " selected" : ""}${dragOver === e.path ? " drag-over" : ""}${draggingPath === e.path ? " dragging" : ""}`}
-                                style={{ paddingLeft: pad }}
-                                onPointerDown={(ev) => onRowPointerDown(ev, e.path)}
-                                onDragStart={(ev) => ev.preventDefault()}
-                                onClick={() => {
-                                    if (suppressClickRef.current) {
-                                        suppressClickRef.current = false;
-                                        return;
-                                    }
-                                    void toggleDir(e);
-                                }}
+    const attachRowButton = (path: string, el: HTMLButtonElement | null) => {
+        if (el) rowButtonRefs.current.set(path, el);
+        else rowButtonRefs.current.delete(path);
+    };
 
-                                onContextMenu={(ev) => openMenu(ev, e)}
-                                role="treeitem"
-                                aria-expanded={open}
-                                aria-level={depth + 1}
-                                aria-selected={selectedDir === e.path}
-                                tabIndex={focusPath === e.path ? 0 : -1}
-                                onFocus={() => setFocusedPath(e.path)}
-                                onKeyDown={(event) => onEntryKey(event, e)}
-                                data-folder-path={e.path}>
-                                <span className={`tree-chev${open ? " open" : ""}`}>
-                                    <IconChevron size={11} />
-                                </span>
-                                <span className="tree-folder">
-                                    <IconFolder size={17} />
-                                </span>
-                                <span className="tree-name">{e.name}</span>
-                            </button>
-                        )}
-                        {open && renderTree(e.path, depth + 1)}
-                        {newRequest?.parent === e.path && (
-                            <NewEntryRow
-                                depth={depth + 1}
-                                kind={newRequest.kind}
-                                value={newName}
-                                inputRef={newInputRef}
-                                onChange={setNewName}
-                                onSubmit={submitNew}
-                                onCancel={cancelNew}
-                            />
-                        )}
-                    </div>,
-                );
-            } else {
-                const gf = gitMap.get(normalizePath(e.path));
-                const gd = gf ? gitFileDecoration(gf) : null;
-                const isRenaming = renaming === e.path;
-                if (isRenaming) {
-                    items.push(
-                        <RenameRow
-                            key={e.path}
-                            depth={depth + 1}
-                            kind="file"
-                            value={renameName}
-                            inputRef={renameInputRef}
-                            onChange={setRenameName}
-                            onSubmit={submitRename}
-                            onCancel={cancelRename}
-                        />,
-                    );
-                } else {
-                    items.push(
-                        <button
-                            key={e.path}
-                            className={`tree-row file${activePath === e.path ? " active" : ""}${gd ? ` git-${gd.cls}` : ""}${dragOver === e.path ? " drag-over" : ""}${draggingPath === e.path ? " dragging" : ""}`}
-                            style={{ paddingLeft: pad + 13 }}
-                            onPointerDown={(ev) => onRowPointerDown(ev, e.path)}
-                            onDragStart={(ev) => ev.preventDefault()}
-                            onClick={() => {
-                                if (suppressClickRef.current) {
-                                    suppressClickRef.current = false;
-                                    return;
-                                }
-                                setSelectedDir(null);
-                                onOpenFile(e);
-                            }}
-
-                            onContextMenu={(ev) => openMenu(ev, e)}
-                            role="treeitem"
-                            aria-level={depth + 1}
-                            aria-selected={activePath === e.path}
-                            tabIndex={focusPath === e.path ? 0 : -1}
-                            onFocus={() => setFocusedPath(e.path)}
-                            onKeyDown={(event) => onEntryKey(event, e)}
-                            data-file-path={e.path}
-                            data-drop-dir={dirname(e.path)}>
-                            <span className="tree-file">
-                                <FileIcon name={e.name} size={20} />
-                            </span>
-                            <span className="tree-name">{e.name}</span>
-                            {gd && <span className="tree-git">{gd.letter}</span>}
-                        </button>,
-                    );
-                }
-            }
+    const renderRow = (row: VisibleTreeRow): ReactNode => {
+        if (row.kind === "new") {
+            return (
+                <NewEntryRow
+                    depth={row.depth}
+                    kind={row.request.kind}
+                    value={newName}
+                    inputRef={newInputRef}
+                    onChange={setNewName}
+                    onSubmit={submitNew}
+                    onCancel={cancelNew}
+                />
+            );
         }
-        return items;
+        const e = row.entry;
+        const pad = 10 + row.depth * 13;
+        if (renaming === e.path) {
+            return (
+                <RenameRow
+                    depth={row.depth + (e.is_dir ? 0 : 1)}
+                    kind={e.is_dir ? "folder" : "file"}
+                    value={renameName}
+                    inputRef={renameInputRef}
+                    onChange={setRenameName}
+                    onSubmit={submitRename}
+                    onCancel={cancelRename}
+                />
+            );
+        }
+        if (e.is_dir) {
+            const open = expanded.has(e.path);
+            return (
+                <button
+                    ref={(el) => {
+                        attachFolderDrop(el, e.path);
+                        attachRowButton(e.path, el);
+                    }}
+                    className={`tree-row is-folder${selectedDir === e.path ? " selected" : ""}${dragOver === e.path ? " drag-over" : ""}${draggingPath === e.path ? " dragging" : ""}`}
+                    style={{ paddingLeft: pad }}
+                    onPointerDown={(ev) => onRowPointerDown(ev, e.path)}
+                    onDragStart={(ev) => ev.preventDefault()}
+                    onClick={() => {
+                        if (suppressClickRef.current) {
+                            suppressClickRef.current = false;
+                            return;
+                        }
+                        void toggleDir(e);
+                    }}
+                    onContextMenu={(ev) => openMenu(ev, e)}
+                    role="treeitem"
+                    aria-expanded={open}
+                    aria-level={row.depth + 1}
+                    aria-selected={selectedDir === e.path}
+                    tabIndex={focusPath === e.path ? 0 : -1}
+                    onFocus={() => setFocusedPath(e.path)}
+                    onKeyDown={(event) => onEntryKey(event, e)}
+                    data-folder-path={e.path}>
+                    <span className={`tree-chev${open ? " open" : ""}`}>
+                        <IconChevron size={11} />
+                    </span>
+                    <span className="tree-folder">
+                        <IconFolder size={17} />
+                    </span>
+                    <span className="tree-name">{e.name}</span>
+                </button>
+            );
+        }
+        const gf = gitMap.get(normalizePath(e.path));
+        const gd = gf ? gitFileDecoration(gf) : null;
+        return (
+            <button
+                ref={(el) => attachRowButton(e.path, el)}
+                className={`tree-row file${activePath === e.path ? " active" : ""}${gd ? ` git-${gd.cls}` : ""}${dragOver === e.path ? " drag-over" : ""}${draggingPath === e.path ? " dragging" : ""}`}
+                style={{ paddingLeft: pad + 13 }}
+                onPointerDown={(ev) => onRowPointerDown(ev, e.path)}
+                onDragStart={(ev) => ev.preventDefault()}
+                onClick={() => {
+                    if (suppressClickRef.current) {
+                        suppressClickRef.current = false;
+                        return;
+                    }
+                    setSelectedDir(null);
+                    onOpenFile(e);
+                }}
+                onContextMenu={(ev) => openMenu(ev, e)}
+                role="treeitem"
+                aria-level={row.depth + 1}
+                aria-selected={activePath === e.path}
+                tabIndex={focusPath === e.path ? 0 : -1}
+                onFocus={() => setFocusedPath(e.path)}
+                onKeyDown={(event) => onEntryKey(event, e)}
+                data-file-path={e.path}
+                data-drop-dir={dirname(e.path)}>
+                <span className="tree-file">
+                    <FileIcon name={e.name} size={20} />
+                </span>
+                <span className="tree-name">{e.name}</span>
+                {gd && <span className="tree-git">{gd.letter}</span>}
+            </button>
+        );
     };
 
     const onResizeDrag = (e: ReactPointerEvent<HTMLDivElement>) => {
@@ -673,7 +690,6 @@ export function FileTree({ cwd, activePath, onOpenFile, width, onResize, active,
         onResize?.(Math.min(600, Math.max(160, (width ?? 0) + (e.key === "ArrowRight" ? step : -step))));
     };
 
-    const rootScrollRef = useRef<HTMLDivElement>(null);
     useEffect(() => {
         const el = rootScrollRef.current;
         if (!el || !cwd || !active) return;
@@ -686,6 +702,28 @@ export function FileTree({ cwd, activePath, onOpenFile, width, onResize, active,
             }
         });
     }, [cwd, active, loadDir]);
+
+    const focusEntryAt = (entryIndex: number) => {
+        const row = entryRows[entryIndex];
+        if (!row) return;
+        setFocusedPath(row.entry.path);
+        const visibleIndex = visibleRows.indexOf(row);
+        if (virtualized) treeVirtualizer.scrollToIndex(visibleIndex, { align: "auto" });
+        requestAnimationFrame(() => rowButtonRefs.current.get(row.entry.path)?.focus());
+    };
+
+    const renderedRows = virtualized
+        ? treeVirtualizer.getVirtualItems().map((item) => {
+              const row = visibleRows[item.index];
+              return (
+                  <div
+                      key={row.key}
+                      style={{ position: "absolute", top: 0, left: 0, width: "100%", height: item.size, transform: `translateY(${item.start}px)` }}>
+                      {renderRow(row)}
+                  </div>
+              );
+          })
+        : visibleRows.map((row) => <div key={row.key}>{renderRow(row)}</div>);
 
     return (
         <>
@@ -715,23 +753,25 @@ export function FileTree({ cwd, activePath, onOpenFile, width, onResize, active,
                     onKeyDown={(event) => {
                         const target = event.target as HTMLElement;
                         if (target.getAttribute("role") !== "treeitem") return;
-                        const rows = [...event.currentTarget.querySelectorAll<HTMLElement>('[role="treeitem"]')];
-                        const index = rows.indexOf(target);
-                        const expanded = target.getAttribute("aria-expanded");
+                        const path = target.dataset.folderPath ?? target.dataset.filePath;
+                        const index = entryRows.findIndex((row) => row.entry.path === path);
+                        if (index < 0) return;
+                        const row = entryRows[index];
+                        const isExpanded = row.entry.is_dir && expanded.has(row.entry.path);
                         let next = index;
-                        if (event.key === "ArrowDown") next = Math.min(rows.length - 1, index + 1);
+                        if (event.key === "ArrowDown") next = Math.min(entryRows.length - 1, index + 1);
                         else if (event.key === "ArrowUp") next = Math.max(0, index - 1);
                         else if (event.key === "Home") next = 0;
-                        else if (event.key === "End") next = rows.length - 1;
+                        else if (event.key === "End") next = entryRows.length - 1;
                         else if (event.key === "ArrowRight") {
-                            if (expanded === "false") target.click();
-                            else if (expanded === "true") next = Math.min(rows.length - 1, index + 1);
+                            if (row.entry.is_dir && !isExpanded) target.click();
+                            else if (isExpanded) next = Math.min(entryRows.length - 1, index + 1);
                         } else if (event.key === "ArrowLeft") {
-                            if (expanded === "true") target.click();
+                            if (isExpanded) target.click();
                             else {
-                                const level = Number(target.getAttribute("aria-level"));
+                                const level = row.depth;
                                 for (let i = index - 1; i >= 0; i--)
-                                    if (Number(rows[i].getAttribute("aria-level")) < level) {
+                                    if (entryRows[i].depth < level) {
                                         next = i;
                                         break;
                                     }
@@ -739,22 +779,13 @@ export function FileTree({ cwd, activePath, onOpenFile, width, onResize, active,
                         } else return;
                         event.preventDefault();
                         event.stopPropagation();
-                        rows[next]?.focus();
+                        focusEntryAt(next);
                     }}
                     data-root-path={cwd}
                     onContextMenu={(ev) => openMenu(ev, null)}>
-                    {renderTree(cwd, 0)}
-                    {newRequest?.parent === cwd && (
-                        <NewEntryRow
-                            depth={0}
-                            kind={newRequest.kind}
-                            value={newName}
-                            inputRef={newInputRef}
-                            onChange={setNewName}
-                            onSubmit={submitNew}
-                            onCancel={cancelNew}
-                        />
-                    )}
+                    <div style={virtualized ? { position: "relative", width: "100%", height: treeVirtualizer.getTotalSize() } : undefined}>
+                        {renderedRows}
+                    </div>
                 </div>
             </div>
             {resizable && (
