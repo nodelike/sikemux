@@ -58,10 +58,22 @@ const budgets = [
     gzip: 335_000,
   },
   {
-    label: "all JavaScript except Diffs",
-    pattern: /^(?!(?:diffs|worker|wasm)-).*\.js$/,
+    label: "default-path JavaScript except Diffs",
+    pattern: /^(?!(?:diffs|worker|wasm|paper-shaders|xterm-webgl)-).*\.js$/,
     raw: 2_820_000,
     gzip: 880_000,
+  },
+  {
+    label: "opt-in shader renderer",
+    pattern: /^paper-shaders-.*\.js$/,
+    raw: 70_000,
+    gzip: 35_000,
+  },
+  {
+    label: "opt-in xterm WebGL renderer",
+    pattern: /^xterm-webgl-.*\.js$/,
+    raw: 130_000,
+    gzip: 36_000,
   },
   {
     label: "ACP chat CSS",
@@ -70,12 +82,16 @@ const budgets = [
     gzip: 6_000,
   },
   {
-    // v0.3.4 adds Markdown preview and edge-peek rails. These ceilings keep
-    // more than 10% reserve against the measured release bundle.
     label: "application CSS",
     pattern: /^index-.*\.css$/,
     raw: 255_000,
     gzip: 44_000,
+  },
+  {
+    label: "settings lazy CSS",
+    pattern: /^SettingsPanel-.*\.css$/,
+    raw: 40_000,
+    gzip: 7_000,
   },
 ];
 

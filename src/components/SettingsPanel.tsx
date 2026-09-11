@@ -29,6 +29,7 @@ import { Tooltip } from "./Tooltip";
 import type { CommandContext, CustomCommand, CustomCommandPlacement } from "../commands/registry";
 import type { AgentProvider, ProjectRoot, ProviderProfile } from "../state/types";
 import { AGENT_PERMISSION_COPY, AGENT_PERMISSION_MODES } from "../agentLaunch";
+import "../styles/settings.css";
 
 type Page = "general" | "appearance" | "keybindings" | "commands" | "agents" | "cli" | "cloud" | "about";
 
