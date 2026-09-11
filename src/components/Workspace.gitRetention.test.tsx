@@ -5,7 +5,7 @@ import { Workspace } from "./Workspace";
 import * as cmd from "../state/commands";
 import { getState, setState } from "../state/store";
 
-const lifecycle = vi.hoisted(() => ({ mounted: vi.fn(), unmounted: vi.fn() }));
+const lifecycle = vi.hoisted(() => ({ mounted: vi.fn(), unmounted: vi.fn(), editorMounted: vi.fn(), editorUnmounted: vi.fn() }));
 vi.mock("./GitPane", () => ({
     GitPane: ({ active }: { active: boolean }) => {
         useEffect(() => {
@@ -13,6 +13,15 @@ vi.mock("./GitPane", () => ({
             return lifecycle.unmounted;
         }, []);
         return <div data-testid="git-workbench" data-active={active} />;
+    },
+}));
+vi.mock("./EditorPane", () => ({
+    EditorPane: ({ active }: { active: boolean }) => {
+        useEffect(() => {
+            lifecycle.editorMounted();
+            return lifecycle.editorUnmounted;
+        }, []);
+        return <textarea data-testid="file-editor" data-active={active} defaultValue="unsaved buffer" />;
     },
 }));
 vi.mock("../terminal/TerminalPane", () => ({ TerminalPane: () => <div>Terminal</div> }));
@@ -41,4 +50,31 @@ it("keeps Git mounted but inactive between tab switches, and releases it when cl
     expect(lifecycle.unmounted).not.toHaveBeenCalled();
     act(() => cmd.closeWindowById(gitWindow));
     expect(lifecycle.unmounted).toHaveBeenCalledTimes(1);
+});
+
+it("retains the editor and its local buffer across Git switches, then releases it on close", async () => {
+    cmd.requestOpenFile("/work/demo/file.ts");
+    const state = getState();
+    const editorWindow = state.sessions[state.activeSessionId].activeWindowId;
+    const { getByTestId } = render(<Workspace />);
+    await waitFor(() => expect(lifecycle.editorMounted).toHaveBeenCalledTimes(1));
+    const editor = getByTestId("file-editor") as HTMLTextAreaElement;
+    editor.value = "edited text that has not been saved";
+    editor.setSelectionRange(7, 11);
+    for (let i = 0; i < 10; i++) {
+        act(() => cmd.openGitWorkbench());
+        expect(getByTestId("file-editor")).toBe(editor);
+        expect(editor).toHaveAttribute("data-active", "false");
+        expect(editor.closest('[role="tabpanel"]')).toHaveAttribute("inert");
+        await waitFor(() => expect(lifecycle.mounted).toHaveBeenCalledTimes(1));
+        act(() => cmd.requestOpenFile("/work/demo/file.ts"));
+        expect(getByTestId("file-editor")).toBe(editor);
+        expect(editor).toHaveAttribute("data-active", "true");
+        expect(editor.value).toBe("edited text that has not been saved");
+        expect([editor.selectionStart, editor.selectionEnd]).toEqual([7, 11]);
+    }
+    expect(lifecycle.editorMounted).toHaveBeenCalledTimes(1);
+    expect(lifecycle.editorUnmounted).not.toHaveBeenCalled();
+    act(() => cmd.closeWindowById(editorWindow));
+    expect(lifecycle.editorUnmounted).toHaveBeenCalledTimes(1);
 });

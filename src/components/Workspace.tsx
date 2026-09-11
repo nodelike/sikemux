@@ -38,9 +38,9 @@ export function Workspace() {
     const activeSessionId = useStore((s) => s.activeSessionId);
     const editorViews = useStore((s) => s.editorViews);
     const areaRef = useRef<HTMLDivElement>(null);
-    const mountedGitWindows = useRef(new Set<string>());
-    for (const id of mountedGitWindows.current) {
-        if (!windowsById[id]) mountedGitWindows.current.delete(id);
+    const mountedWorkbenchWindows = useRef(new Set<string>());
+    for (const id of mountedWorkbenchWindows.current) {
+        if (!windowsById[id]) mountedWorkbenchWindows.current.delete(id);
     }
 
     const sessions = sessionOrder.map((id) => sessionsById[id]);
@@ -67,8 +67,8 @@ export function Workspace() {
                     const win = windowsById[wid];
                     if (!win) return null;
                     const visible = isActive && activeWindowId === wid;
-                    if (visible && win.role === "git") mountedGitWindows.current.add(wid);
-                    if (!visible && wid !== session.activeWindowId && !mountedGitWindows.current.has(wid)) return null;
+                    if (visible && (win.role === "git" || win.role === "files")) mountedWorkbenchWindows.current.add(wid);
+                    if (!visible && wid !== session.activeWindowId && !mountedWorkbenchWindows.current.has(wid)) return null;
                     return <WindowLayer key={wid} session={session} win={win} areaRef={areaRef} topInset={TABS_H} visible={visible} />;
                 });
                 const agentLayers = aIds.map((aid) => {

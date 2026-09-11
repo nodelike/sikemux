@@ -490,8 +490,11 @@ export function EditorPane({
         if (!editorView) return;
         editorView.dispatch({ effects: editableCompartment.reconfigure(EditorView.editable.of(!previewingMarkdown)) });
         if (previewingMarkdown) editorView.contentDOM.blur();
-        else if (active && !activeImage) editorView.focus();
-    }, [active, activePath, activeImage, editableCompartment, previewingMarkdown]);
+    }, [editableCompartment, previewingMarkdown]);
+
+    useEffect(() => {
+        if (active && !activeImage && !previewingMarkdown) viewRef.current?.focus();
+    }, [active, activePath, activeImage, previewingMarkdown]);
 
     useEffect(() => {
         setMarkdownPreview(null);
