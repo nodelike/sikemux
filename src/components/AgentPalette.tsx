@@ -57,7 +57,8 @@ export function AgentPalette() {
     const [query, setQuery] = useState("");
     const [rows, setRows] = useState<Row[]>([]);
     const [selected, setSelected] = useState(0);
-    const [mode, setMode] = useState<AgentPermissionMode>(defaultMode === YOLO ? YOLO : NORMAL);
+    const [selectedMode, setMode] = useState<AgentPermissionMode | null>(null);
+    const mode = selectedMode ?? (defaultMode === YOLO ? YOLO : NORMAL);
 
     useEffect(() => {
         inputRef.current?.focus();

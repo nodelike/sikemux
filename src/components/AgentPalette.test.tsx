@@ -94,6 +94,18 @@ describe("AgentPalette", () => {
         expect(screen.getByRole("button", { name: "+ new Codex in YOLO mode" })).toHaveClass("sel");
     });
 
+    it("follows a loaded default without replacing an explicit picker choice", async () => {
+        const user = userEvent.setup();
+        const view = render(<AgentPalette />);
+        setState({ defaultAgentPermissionMode: "bypass" });
+        view.rerender(<AgentPalette />);
+        expect(await screen.findByRole("radio", { name: "yolo" })).toBeChecked();
+
+        await user.click(screen.getByRole("radio", { name: "safe" }));
+        view.rerender(<AgentPalette />);
+        expect(screen.getByRole("radio", { name: "safe" })).toBeChecked();
+    });
+
     it("opens a new CLI directly in a PTY using Normal mode", async () => {
         const user = userEvent.setup();
         render(<AgentPalette />);

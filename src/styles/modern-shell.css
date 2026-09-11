@@ -49,35 +49,11 @@ a:focus-visible,
     box-shadow: var(--focus-ring);
 }
 
-/* Text fields keep their own border and take the ring outside it, so focus
- * never shifts the text inside by a pixel. */
-:is(
-    input:not([type]),
-    input[type="text"],
-    input[type="search"],
-    input[type="url"],
-    input[type="email"],
-    input[type="password"],
-    input[type="number"],
-    textarea
-):focus {
+input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):focus,
+textarea:focus,
+[contenteditable="true"]:focus {
     outline: none;
     box-shadow: none;
-}
-
-:is(
-    input:not([type]),
-    input[type="text"],
-    input[type="search"],
-    input[type="url"],
-    input[type="email"],
-    input[type="password"],
-    input[type="number"],
-    textarea
-):focus-visible {
-    outline: none;
-    border-color: var(--border-selected);
-    box-shadow: var(--focus-ring);
 }
 
 /* The chrome owns the window edges. Content surfaces get a soft inset line so
