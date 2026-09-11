@@ -6,7 +6,7 @@ import { SerializeAddon } from "@xterm/addon-serialize";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import type { WebglAddon } from "@xterm/addon-webgl";
 import { invokeCommand as invoke } from "../api/invoke";
-import { currentTheme, registerTerminal } from "../themes/bus";
+import { currentTerminalTheme, registerTerminal } from "../themes/bus";
 import { IS_MACOS } from "../lib/platform";
 import {
     completeInitialReplay,
@@ -225,7 +225,7 @@ export function useXterm(opts: {
                     fontWeight: FONT_WEIGHT,
                     fontWeightBold: FONT_WEIGHT_BOLD,
                     lineHeight: 1.0,
-                    theme: currentTheme().terminal,
+                    theme: currentTerminalTheme(),
                     cursorBlink: true,
                     allowProposedApi: true,
                     allowTransparency: true,

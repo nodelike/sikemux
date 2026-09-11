@@ -694,15 +694,17 @@
        a light gutter even when the track pseudo-element is transparent. */
     overflow: hidden !important;
     overscroll-behavior: contain;
-    background-color: var(--terminal-background, var(--surface)) !important;
     scrollbar-width: none;
 }
-/* Keep every xterm-owned background clear when native window transparency is
-   active; xterm writes an inline background onto the nested scroll container. */
-html.is-transparent .terminal-host .xterm-viewport {
-    background-color: transparent !important;
-}
-html.is-transparent .terminal-host .xterm-scrollable-element {
+/* No ground of its own, transparency or not. theme.terminal.background mirrors
+   chrome.bg in all nine themes while the stage draws --surface (a lift off
+   chrome.bgDim), so painting it here put a rectangle a shade off the rest of
+   the frame inside every terminal and agent TUI. terminalThemeFor() already
+   strips the same value out of xterm's canvas, and every theme ships
+   editor.bg: transparent for the same reason: the stage owns the surface.
+   xterm also writes an inline background onto the nested scroll container. */
+.terminal-host .xterm-viewport,
+.terminal-host .xterm-scrollable-element {
     background-color: transparent !important;
 }
 .terminal-host .xterm-viewport::-webkit-scrollbar {

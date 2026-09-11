@@ -77,7 +77,7 @@ vi.mock("@xterm/addon-web-links", () => ({
 }));
 
 vi.mock("../themes/bus", () => ({
-    currentTheme: () => ({ terminal: {} }),
+    currentTerminalTheme: () => ({ background: "rgba(0, 0, 0, 0)" }),
     registerTerminal: () => mocks.unregisterTheme,
 }));
 

@@ -46,6 +46,13 @@ function terminalThemeFor(theme: Theme): ITheme {
     };
 }
 
+/* The one sanitized terminal palette. Construction and later theme changes
+ * must both go through this; a Terminal built straight from theme.terminal
+ * carries the opaque background this function exists to strip. */
+export function currentTerminalTheme(): ITheme {
+    return terminalThemeFor(current);
+}
+
 function applyTerminalThemes() {
     const t = terminalThemeFor(current);
     terms.forEach((term) => {
