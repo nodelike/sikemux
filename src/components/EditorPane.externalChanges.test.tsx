@@ -50,7 +50,7 @@ describe("EditorPane external changes", () => {
         failReads = true;
 
         act(() => emit({ type: "fs-changed", repo: "/repo" }));
-        await waitFor(() => expect(invoke.mock.calls.filter(([command]) => command === "read_file_versioned").length).toBeGreaterThan(2));
+        await waitFor(() => expect(invoke.mock.calls.filter(([command]) => command === "read_file_versioned").length).toBeGreaterThan(1));
 
         expect(getState().dirtyEditorPaths.pane ?? []).toEqual([]);
         expect(container.querySelector(".tab-dot")).not.toBeInTheDocument();

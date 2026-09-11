@@ -97,7 +97,7 @@ export function activeTaskControls(snapshot: TaskControllerSnapshot | null, curr
 }
 
 export function subscribeGitChanged(signal?: AbortSignal): Promise<IpcUnsubscribe> {
-    return getIpcTransport().subscribe<{ repo: string }>(
+    return getIpcTransport().subscribe<{ repo: string; paths: string[] | null }>(
         "git_changed",
         (event) => {
             const repo = event.payload.repo || "";
@@ -107,7 +107,11 @@ export function subscribeGitChanged(signal?: AbortSignal): Promise<IpcUnsubscrib
                 if (!repo) return true;
                 return args[0] === repo;
             });
-            emit({ type: "fs-changed", repo });
+            // An empty array would mean "these zero paths changed", and the scoped
+            // consumers would refresh nothing. Absent or empty both mean "unknown",
+            // which has to fall back to refreshing everything.
+            const paths = event.payload.paths;
+            emit({ type: "fs-changed", repo, ...(paths?.length ? { paths } : {}) });
         },
         { signal },
     );

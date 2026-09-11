@@ -103,8 +103,10 @@ export function FileTree({ cwd, activePath, onOpenFile, width, onResize, active,
         if (!cwd || !active) return;
         const unsubscribe = subscribe("fs-changed", (e) => {
             if (e.repo && e.repo !== cwd) return;
-            void loadDir(cwd);
-            for (const p of expandedRef.current) void loadDir(p);
+            const changed = e.paths?.map((path) => joinPath(cwd, path));
+            for (const path of [cwd, ...expandedRef.current]) {
+                if (!changed || changed.some((entry) => dirname(entry) === path || isPathWithin(path, entry))) void loadDir(path);
+            }
         });
         return unsubscribe;
     }, [cwd, active, loadDir]);

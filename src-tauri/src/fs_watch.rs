@@ -297,15 +297,49 @@ fn active_routes(repo_key: &str) -> Vec<String> {
     lock_registry().routes(repo_key)
 }
 
-fn emit_changed_to_active_routes(app: &AppHandle, repo_key: &str) {
+fn emit_changed_to_active_routes(app: &AppHandle, repo_key: &str, paths: Option<Vec<String>>) {
     for repo in active_routes(repo_key) {
-        let _ = app.emit("git_changed", ChangePayload { repo });
+        let _ = app.emit(
+            "git_changed",
+            ChangePayload {
+                repo,
+                paths: paths.clone(),
+            },
+        );
     }
 }
 
 #[derive(Serialize, Clone)]
 struct ChangePayload {
     repo: String,
+    paths: Option<Vec<String>>,
+}
+
+fn changed_relative_paths(
+    repo: &Path,
+    changes: &[WatcherChange],
+    force_rescan: bool,
+) -> Option<Vec<String>> {
+    if force_rescan {
+        return None;
+    }
+    let mut paths = Vec::with_capacity(changes.len());
+    for change in changes {
+        let path = match change {
+            WatcherChange::Reconcile(path) | WatcherChange::Remove(path) => path,
+        };
+        if is_git_signal(path) {
+            return None;
+        }
+        let relative = path.strip_prefix(repo).ok()?.to_str()?;
+        if relative.is_empty() {
+            return None;
+        }
+        paths.push(relative.replace('\\', "/"));
+    }
+    paths.sort_unstable();
+    paths.dedup();
+    Some(paths)
 }
 
 // 200ms debounce — fsevents on macOS fires bursts for a single save.
@@ -378,6 +412,7 @@ fn spawn_debouncer(
             }
 
             force_rescan |= rescan_requested.swap(false, Ordering::AcqRel);
+            let paths = changed_relative_paths(Path::new(&repo_key), &changes, force_rescan);
             let repo_for_update = repo_key.clone();
             let update_lifetime = lifetime.clone();
             let update = tauri::async_runtime::spawn_blocking(move || {
@@ -387,13 +422,13 @@ fn spawn_debouncer(
             })
             .await;
             match update {
-                Ok(true) => emit_changed_to_active_routes(&app, &repo_key),
+                Ok(true) => emit_changed_to_active_routes(&app, &repo_key, paths),
                 Ok(false) => return,
                 Err(_) => {
                     // A panicked blocking task must not leave a trusted stale
                     // snapshot behind. The next palette open performs a full scan.
                     crate::files::invalidate(&repo_key);
-                    emit_changed_to_active_routes(&app, &repo_key);
+                    emit_changed_to_active_routes(&app, &repo_key, None);
                 }
             }
             if closed {
@@ -636,7 +671,7 @@ pub fn repo_watch_start(app: AppHandle, repo: String, token: String) -> AppResul
     // after subscribing. Keep it scoped; an empty repo means "invalidate all"
     // on the JS side and causes an O(open projects) refetch storm.
     crate::files::invalidate(&repo_key);
-    let _ = app.emit::<ChangePayload>("git_changed", ChangePayload { repo });
+    let _ = app.emit::<ChangePayload>("git_changed", ChangePayload { repo, paths: None });
     Ok(())
 }
 
@@ -674,6 +709,31 @@ pub fn repo_watch_stop(token: String) -> AppResult<()> {
 mod tests {
     use super::*;
     use notify::event::Flag;
+
+    #[test]
+    fn change_payload_bounds_refreshes_and_falls_back_for_ambiguous_batches() {
+        let repo = Path::new("/repo");
+        let changes = vec![
+            WatcherChange::Remove(repo.join("src/old.rs")),
+            WatcherChange::Reconcile(repo.join("src/new.rs")),
+            WatcherChange::Reconcile(repo.join("src/new.rs")),
+        ];
+        assert_eq!(
+            changed_relative_paths(repo, &changes, false),
+            Some(vec!["src/new.rs".into(), "src/old.rs".into()])
+        );
+        assert_eq!(changed_relative_paths(repo, &changes, true), None);
+        for path in [
+            repo.join(".git/HEAD"),
+            repo.to_path_buf(),
+            PathBuf::from("/outside/file"),
+        ] {
+            assert_eq!(
+                changed_relative_paths(repo, &[WatcherChange::Reconcile(path)], false),
+                None
+            );
+        }
+    }
 
     #[test]
     fn watcher_registry_leases_reuse_one_handle_and_remove_only_at_zero() {

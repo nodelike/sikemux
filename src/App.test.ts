@@ -73,8 +73,10 @@ describe("Git change IPC subscription", () => {
         const unsubscribe = await subscribeGitChanged(controller.signal);
 
         expect(transport.eventListenerCount).toBe(1);
-        transport.emit("git_changed", { repo: "/repo" });
+        transport.emit("git_changed", { repo: "/repo", paths: null });
         expect(changed).toHaveBeenCalledWith({ type: "fs-changed", repo: "/repo" });
+        transport.emit("git_changed", { repo: "/repo", paths: ["src/file.ts"] });
+        expect(changed).toHaveBeenLastCalledWith({ type: "fs-changed", repo: "/repo", paths: ["src/file.ts"] });
 
         controller.abort();
         controller.abort();

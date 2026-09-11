@@ -1,7 +1,8 @@
-import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import { EditorPane } from "./EditorPane";
 import { getState, setState } from "../state/store";
+import { emit } from "../state/bus";
 
 const { invoke } = vi.hoisted(() => ({ invoke: vi.fn() }));
 vi.mock("@tauri-apps/api/core", () => ({ invoke }));
@@ -27,7 +28,7 @@ it("stress switches 20 warm documents 200 times", async () => {
     });
     setState({ editorViews: { pane: { openTabs: paths, activePath: paths[0] } } });
     const { container } = render(<EditorPane paneId="pane" cwd="/repo" active visible showInsights={false} onCloseWindow={() => {}} />);
-    await waitFor(() => expect(invoke.mock.calls.filter(([cmd]) => cmd === "read_file_versioned")).toHaveLength(40));
+    await waitFor(() => expect(invoke.mock.calls.filter(([cmd]) => cmd === "read_file_versioned")).toHaveLength(20));
     const tabs = [...container.querySelectorAll<HTMLElement>('[role="tab"]')];
     expect(tabs).toHaveLength(20);
     const samples: number[] = [];
@@ -40,5 +41,8 @@ it("stress switches 20 warm documents 200 times", async () => {
     }
     samples.sort((a, b) => a - b);
     process.stdout.write(JSON.stringify({ switches: samples.length, medianMs: samples[100], p95Ms: samples[190], maxMs: samples[199] }) + "\n");
-    expect(invoke.mock.calls.filter(([cmd]) => cmd === "read_file_versioned")).toHaveLength(40);
+    expect(invoke.mock.calls.filter(([cmd]) => cmd === "read_file_versioned")).toHaveLength(20);
+    act(() => emit({ type: "fs-changed", repo: "/repo", paths: ["file-4.ts"] }));
+    await waitFor(() => expect(invoke.mock.calls.filter(([cmd]) => cmd === "read_file_versioned")).toHaveLength(21));
+    expect(invoke.mock.calls.filter(([cmd]) => cmd === "read_file_versioned").at(-1)?.[1]).toEqual({ path: paths[4] });
 }, 30_000);

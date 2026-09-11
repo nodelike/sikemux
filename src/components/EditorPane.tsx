@@ -36,7 +36,7 @@ import { FileIcon } from "./FileIcon";
 import { TabBar } from "./TabBar";
 import { EditorFindBar } from "./EditorFindBar";
 import { EditorInsights } from "./EditorInsights";
-import { basename, isPathWithin } from "../lib/paths";
+import { basename, isPathWithin, joinPath } from "../lib/paths";
 import { keybindingLabelForAction } from "../keybindings";
 
 const DEFAULT_VIEW = { openTabs: [], activePath: null };
@@ -712,7 +712,7 @@ export function EditorPane({
     }, [visible]);
 
     useEffect(() => {
-        if (!visible || !cwd) return;
+        if (!visible || !cwd || !hydratedRef.current) return;
         let cancelled = false;
         (async () => {
             const tabsNow = useStore.getState().editorViews[paneId]?.openTabs ?? [];
@@ -761,6 +761,8 @@ export function EditorPane({
         let timer: number | undefined;
         let running = false;
         let rerun = false;
+        let cancelled = false;
+        let pendingPaths: Set<string> | null = new Set();
 
         const refreshOpenTabs = async () => {
             if (running) {
@@ -768,9 +770,13 @@ export function EditorPane({
                 return;
             }
             running = true;
+            const changed = pendingPaths ? [...pendingPaths] : null;
+            pendingPaths = new Set();
             try {
                 const tabsNow = useStore.getState().editorViews[paneId]?.openTabs ?? [];
                 for (const path of tabsNow) {
+                    if (cancelled) return;
+                    if (changed && !changed.some((entry) => isPathWithin(path, entry))) continue;
                     if (isImagePath(path)) {
                         imagesRef.current.delete(path);
                         if (currentRef.current === path) showImage(path, true);
@@ -779,6 +785,7 @@ export function EditorPane({
                     if (dirtyRef.current.has(path)) {
                         try {
                             const snapshot = await documentIORef.current.peek(path);
+                            if (cancelled) return;
                             if (documentIORef.current.changedSinceObserved(path, snapshot) && !conflictedRef.current.has(path)) {
                                 showConflictRef.current(path, "The disk version changed while this editor had unsaved work.");
                             }
@@ -795,6 +802,7 @@ export function EditorPane({
                         swallow("refresh clean editor")(error);
                         continue;
                     }
+                    if (cancelled || dirtyRef.current.has(path)) continue;
                     const isActive = currentRef.current === path;
                     const view = viewRef.current;
                     if (isActive && view) {
@@ -805,6 +813,7 @@ export function EditorPane({
                         // will apply the external update after the selection settles.
                         if (!view.state.selection.main.empty) {
                             rerun = true;
+                            pendingPaths?.add(path);
                             continue;
                         }
                         savedRef.current.set(path, fresh);
@@ -822,7 +831,7 @@ export function EditorPane({
                 }
             } finally {
                 running = false;
-                if (rerun) {
+                if (rerun && !cancelled) {
                     rerun = false;
                     timer = window.setTimeout(refreshOpenTabs, 300);
                 }
@@ -831,10 +840,13 @@ export function EditorPane({
 
         const unsubscribe = subscribe("fs-changed", (e) => {
             if (e.repo && e.repo !== cwd) return;
+            if (!e.paths) pendingPaths = null;
+            else for (const path of e.paths) pendingPaths?.add(joinPath(cwd, path));
             if (timer) window.clearTimeout(timer);
             timer = window.setTimeout(refreshOpenTabs, 250);
         });
         return () => {
+            cancelled = true;
             unsubscribe();
             if (timer) window.clearTimeout(timer);
         };
