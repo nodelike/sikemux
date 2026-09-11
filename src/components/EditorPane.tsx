@@ -243,6 +243,30 @@ export function EditorPane({
     const [activeImage, setActiveImage] = useState<ImageState | null>(null);
     const [markdownPreview, setMarkdownPreview] = useState<{ path: string; content: string } | null>(null);
 
+    const cacheState = (path: string, state: EditorState) => {
+        states.current.delete(path);
+        states.current.set(path, state);
+        while (states.current.size > 16) {
+            const candidate = [...states.current.keys()].find(
+                (cachedPath) => cachedPath !== path && cachedPath !== currentRef.current && !dirtyRef.current.has(cachedPath),
+            );
+            if (!candidate) break;
+            states.current.delete(candidate);
+            savedRef.current.delete(candidate);
+            documentIORef.current.forget(candidate);
+        }
+    };
+
+    const cacheImage = (path: string, blob: FileBlob) => {
+        imagesRef.current.delete(path);
+        imagesRef.current.set(path, blob);
+        while (imagesRef.current.size > 4) {
+            const candidate = [...imagesRef.current.keys()].find((cachedPath) => cachedPath !== path && cachedPath !== currentRef.current);
+            if (!candidate) break;
+            imagesRef.current.delete(candidate);
+        }
+    };
+
     const [findState, setFindState] = useState<{
         open: boolean;
         replaceOpen: boolean;
@@ -447,7 +471,7 @@ export function EditorPane({
                 selection: { anchor: head },
             });
         } else {
-            states.current.set(path, makeState(path, snapshot.content));
+            cacheState(path, makeState(path, snapshot.content));
         }
         setMarkdownPreview((preview) => (preview?.path === path ? { path, content: snapshot.content } : preview));
         setDirty((dirtyPaths) => {
@@ -510,7 +534,7 @@ export function EditorPane({
         void fsapi
             .readFileBase64(path)
             .then((blob) => {
-                imagesRef.current.set(path, blob);
+                cacheImage(path, blob);
                 if (currentRef.current === path) setActiveImage({ path, loading: false, blob });
             })
             .catch((e) => {
@@ -529,7 +553,7 @@ export function EditorPane({
     const switchTo = (path: string, fresh?: EditorState) => {
         const view = viewRef.current;
         if (!view) return;
-        if (currentRef.current && !isImagePath(currentRef.current)) states.current.set(currentRef.current, view.state);
+        if (currentRef.current && !isImagePath(currentRef.current)) cacheState(currentRef.current, view.state);
 
         if (isImagePath(path)) {
             currentRef.current = path;
@@ -562,7 +586,7 @@ export function EditorPane({
         }
         if (isImagePath(path)) {
             const blob = await fsapi.readFileBase64(path);
-            imagesRef.current.set(path, blob);
+            cacheImage(path, blob);
             cmd.openEditorTab(paneId, path);
             switchTo(path);
             return;
@@ -577,7 +601,7 @@ export function EditorPane({
             return;
         }
         const st = makeState(path, content);
-        states.current.set(path, st);
+        cacheState(path, st);
         savedRef.current.set(path, content);
         cmd.openEditorTab(paneId, path, latest);
         if (latest) switchTo(path, st);
@@ -655,7 +679,7 @@ export function EditorPane({
                 const content = snapshot.content;
                 if (cancelled) return;
                 const st = makeState(activePath, content);
-                states.current.set(activePath, st);
+                cacheState(activePath, st);
                 savedRef.current.set(activePath, content);
                 switchTo(activePath, st);
             } catch {}
@@ -680,7 +704,7 @@ export function EditorPane({
                     const content = snapshot.content;
                     if (cancelled) return false;
                     const st = makeState(path, content);
-                    states.current.set(path, st);
+                    cacheState(path, st);
                     savedRef.current.set(path, content);
                     return true;
                 } catch {
@@ -696,13 +720,6 @@ export function EditorPane({
                 hydratedRef.current = true;
             }
 
-            // Warm the rest after the active tab is usable. This avoids blocking
-            // first paint/focus on a pile of persisted tabs or one huge file.
-            for (const path of tabs) {
-                if (cancelled) return;
-                if (path === want) continue;
-                await load(path);
-            }
             if (!cancelled) hydratedRef.current = true;
         })();
         return () => {
@@ -715,40 +732,26 @@ export function EditorPane({
         if (!visible || !cwd || !hydratedRef.current) return;
         let cancelled = false;
         (async () => {
-            const tabsNow = useStore.getState().editorViews[paneId]?.openTabs ?? [];
-            for (const path of tabsNow) {
-                if (cancelled || dirtyRef.current.has(path)) continue;
-                if (isImagePath(path)) {
-                    imagesRef.current.delete(path);
-                    if (currentRef.current === path) showImage(path, true);
-                    continue;
-                }
-                let fresh: string;
-                try {
-                    const snapshot = await documentIORef.current.read(path);
-                    fresh = snapshot.content;
-                } catch (error) {
-                    swallow("refresh clean editor")(error);
-                    continue;
-                }
-                if (cancelled) return;
-                const isActive = currentRef.current === path;
-                const view = viewRef.current;
-                if (isActive && view) {
-                    const doc = view.state.doc;
-                    if (doc.length === fresh.length && doc.toString() === fresh) continue;
-                    savedRef.current.set(path, fresh);
-                    const head = Math.min(view.state.selection.main.head, fresh.length);
-                    view.dispatch({
-                        changes: { from: 0, to: view.state.doc.length, insert: fresh },
-                        selection: { anchor: head },
-                    });
-                } else {
-                    const cached = states.current.get(path);
-                    if (cached && cached.doc.length === fresh.length && cached.doc.toString() === fresh) continue;
-                    savedRef.current.set(path, fresh);
-                    states.current.set(path, makeState(path, fresh));
-                }
+            const path = currentRef.current;
+            if (!path || dirtyRef.current.has(path)) return;
+            if (isImagePath(path)) {
+                imagesRef.current.delete(path);
+                showImage(path, true);
+                return;
+            }
+            try {
+                const snapshot = await documentIORef.current.read(path);
+                if (cancelled || currentRef.current !== path) return;
+                const editor = viewRef.current;
+                if (!editor || (editor.state.doc.length === snapshot.content.length && editor.state.doc.toString() === snapshot.content)) return;
+                savedRef.current.set(path, snapshot.content);
+                const head = Math.min(editor.state.selection.main.head, snapshot.content.length);
+                editor.dispatch({
+                    changes: { from: 0, to: editor.state.doc.length, insert: snapshot.content },
+                    selection: { anchor: head },
+                });
+            } catch (error) {
+                swallow("refresh clean editor")(error);
             }
         })();
         return () => {
@@ -826,7 +829,7 @@ export function EditorPane({
                         const cached = states.current.get(path);
                         if (cached && cached.doc.length === fresh.length && cached.doc.toString() === fresh) continue;
                         savedRef.current.set(path, fresh);
-                        states.current.set(path, makeState(path, fresh));
+                        cacheState(path, makeState(path, fresh));
                     }
                 }
             } finally {
@@ -862,7 +865,7 @@ export function EditorPane({
                 const view = currentRef.current === path ? viewRef.current : null;
                 const state = view?.state ?? states.current.get(path);
                 if (state) {
-                    states.current.set(next, state);
+                    cacheState(next, state);
                     states.current.delete(path);
                 }
                 const saved = savedRef.current.get(path);
@@ -872,7 +875,7 @@ export function EditorPane({
                 }
                 const image = imagesRef.current.get(path);
                 if (image) {
-                    imagesRef.current.set(next, image);
+                    cacheImage(next, image);
                     imagesRef.current.delete(path);
                 }
                 documentIORef.current.relocate(path, next);

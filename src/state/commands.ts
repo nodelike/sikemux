@@ -4,6 +4,7 @@ import type { AgentSession } from "../api/agents";
 import { awsApi } from "../api/aws";
 import { browserApi } from "../api/browser";
 import { fsapi } from "../api/fs";
+import { filesApi } from "../api/files";
 import { lsp } from "../api/lsp";
 import { sshApi } from "../api/ssh";
 import { checkForUpdateNow } from "../api/updater";
@@ -865,6 +866,7 @@ function closeSessionNow(id: string): void {
     if (closingCwd) {
         const stillOpen = Object.values(getState().sessions).some((s) => s.cwd === closingCwd);
         if (!stillOpen) {
+            filesApi.evict(closingCwd);
             void lsp.stop(closingCwd).catch(() => {});
         }
     }

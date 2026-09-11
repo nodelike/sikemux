@@ -18,6 +18,7 @@ interface InflightSnapshot {
 const inflight = new Map<string, InflightSnapshot>();
 const cache = new Map<string, CachedSnapshot>();
 const repoGenerations = new Map<string, number>();
+export const MAX_FRONTEND_FILE_SNAPSHOTS = 32;
 let invalidationSequence = 0;
 let globalGeneration = 0;
 
@@ -29,6 +30,17 @@ function nextInvalidationGeneration(): number {
     if (invalidationSequence >= Number.MAX_SAFE_INTEGER) throw new RangeError("file cache generation space exhausted");
     invalidationSequence += 1;
     return invalidationSequence;
+}
+
+function touchCache(repo: string, entry: CachedSnapshot): void {
+    cache.delete(repo);
+    cache.set(repo, entry);
+    while (cache.size > MAX_FRONTEND_FILE_SNAPSHOTS) {
+        const oldest = cache.keys().next().value as string | undefined;
+        if (oldest === undefined) break;
+        cache.delete(oldest);
+        if (!inflight.has(oldest)) repoGenerations.delete(oldest);
+    }
 }
 
 function assertSnapshot(value: unknown): ProjectFilesSnapshot {
@@ -48,7 +60,10 @@ function assertSnapshot(value: unknown): ProjectFilesSnapshot {
 function snapshot(repo: string): Promise<ProjectFilesSnapshot> {
     const generation = generationFor(repo);
     const hit = cache.get(repo);
-    if (hit?.generation === generation) return Promise.resolve(hit.snapshot);
+    if (hit?.generation === generation) {
+        touchCache(repo, hit);
+        return Promise.resolve(hit.snapshot);
+    }
 
     const pending = inflight.get(repo);
     if (pending?.generation === generation) return pending.promise;
@@ -65,7 +80,7 @@ function snapshot(repo: string): Promise<ProjectFilesSnapshot> {
                     : previous?.scanId === incoming.scanId
                       ? { scanId: incoming.scanId, files: previous.files }
                       : incoming;
-            if (generationFor(repo) === generation) cache.set(repo, { generation, snapshot: resolved });
+            if (generationFor(repo) === generation) touchCache(repo, { generation, snapshot: resolved });
             return resolved;
         })
         .finally(() => {
@@ -83,4 +98,9 @@ export const filesApi = {
         if (repo) repoGenerations.set(repo, generation);
         else globalGeneration = generation;
     },
+    evict: (repo: string) => {
+        cache.delete(repo);
+        if (!inflight.has(repo)) repoGenerations.delete(repo);
+    },
+    stats: () => ({ cacheEntries: cache.size, inflight: inflight.size, generations: repoGenerations.size }),
 };

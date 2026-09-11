@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ProjectBackendNotRegisteredError, createProjectLocation } from "../projects/backend";
 import { LOCAL_PROJECT_FILE_SNAPSHOT_OPERATION, projectBackends } from "../projects/application";
-import { filesApi, type ProjectFilesSnapshot } from "./files";
+import { filesApi, MAX_FRONTEND_FILE_SNAPSHOTS, type ProjectFilesSnapshot } from "./files";
 
 const { invokeCommand } = vi.hoisted(() => ({ invokeCommand: vi.fn() }));
 
@@ -21,6 +21,25 @@ beforeEach(() => {
 });
 
 describe("filesApi snapshots", () => {
+    it("evicts least-recently-used frontend snapshots", async () => {
+        invokeCommand.mockImplementation(async (_command: string, args: { repo: string }) => ({
+            scanId: Number(args.repo.slice(1)) + 1,
+            files: [`${args.repo}.ts`],
+        }));
+        for (let index = 0; index < MAX_FRONTEND_FILE_SNAPSHOTS; index++) await filesApi.snapshot(`/${index}`);
+        await filesApi.snapshot("/0");
+        await filesApi.snapshot(`/${MAX_FRONTEND_FILE_SNAPSHOTS}`);
+        expect(filesApi.stats().cacheEntries).toBe(MAX_FRONTEND_FILE_SNAPSHOTS);
+
+        invokeCommand.mockClear();
+        await filesApi.snapshot("/0");
+        expect(invokeCommand).not.toHaveBeenCalled();
+        await filesApi.snapshot("/1");
+        expect(invokeCommand).toHaveBeenCalledTimes(1);
+        filesApi.evict("/0");
+        expect(filesApi.stats().cacheEntries).toBe(MAX_FRONTEND_FILE_SNAPSHOTS - 1);
+    });
+
     it("deduplicates requests and preserves file identity for an unchanged scan", async () => {
         const firstFiles = ["a.ts"];
         invokeCommand.mockResolvedValueOnce({ scanId: 1, files: firstFiles });
