@@ -41,17 +41,18 @@ function worktree(path: string): GitWorktree {
 
 function services() {
     let watchSequence = 0;
-    const fsListeners = new Set<(repo: string) => void>();
-    const gitListeners = new Set<(repo: string) => void>();
-    const fsHistory: ((repo: string) => void)[] = [];
-    const gitHistory: ((repo: string) => void)[] = [];
+    type ChangeListener = Parameters<ProjectControllerRuntimeServices["subscribeFsChanged"]>[0];
+    const fsListeners = new Set<ChangeListener>();
+    const gitListeners = new Set<ChangeListener>();
+    const fsHistory: ChangeListener[] = [];
+    const gitHistory: ChangeListener[] = [];
     const api = {
         loadConfig: vi.fn<(root: string) => Promise<ProjectConfigLoadResult>>().mockImplementation(async (root) => config(root)),
         loadWorktrees: vi.fn<(root: string) => Promise<readonly GitWorktree[]>>().mockImplementation(async (root) => [worktree(root)]),
         newWatchLeaseToken: vi.fn(() => watchToken((watchSequence += 1))),
         watchStart: vi.fn<ProjectControllerRuntimeServices["watchStart"]>().mockResolvedValue(undefined),
         watchStop: vi.fn<ProjectControllerRuntimeServices["watchStop"]>().mockResolvedValue(undefined),
-        subscribeFsChanged: vi.fn<(listener: (repo: string) => void) => () => void>().mockImplementation((listener) => {
+        subscribeFsChanged: vi.fn<ProjectControllerRuntimeServices["subscribeFsChanged"]>().mockImplementation((listener) => {
             fsListeners.add(listener);
             fsHistory.push(listener);
             let active = true;
@@ -61,7 +62,7 @@ function services() {
                 fsListeners.delete(listener);
             };
         }),
-        subscribeGitRefresh: vi.fn<(listener: (repo: string) => void) => () => void>().mockImplementation((listener) => {
+        subscribeGitRefresh: vi.fn<ProjectControllerRuntimeServices["subscribeGitRefresh"]>().mockImplementation((listener) => {
             gitListeners.add(listener);
             gitHistory.push(listener);
             let active = true;
@@ -78,7 +79,7 @@ function services() {
         gitListeners,
         fsHistory,
         gitHistory,
-        emitFs: (repo: string) => fsListeners.forEach((listener) => listener(repo)),
+        emitFs: (repo: string, paths?: readonly string[]) => fsListeners.forEach((listener) => listener(repo, paths)),
         emitGit: (repo: string) => gitListeners.forEach((listener) => listener(repo)),
     };
 }
@@ -130,7 +131,12 @@ describe("ProjectControllerRuntime", () => {
         harness.api.loadConfig.mockClear();
         harness.api.loadWorktrees.mockClear();
 
-        harness.emitFs("/alpha");
+        harness.emitFs("/alpha", ["src/file.ts"]);
+        await flushMicrotasks();
+        expect(harness.api.loadConfig).not.toHaveBeenCalled();
+        expect(harness.api.loadWorktrees).not.toHaveBeenCalled();
+
+        harness.emitFs("/alpha", ["sikemux.json"]);
         await flushMicrotasks();
         expect(harness.api.loadConfig.mock.calls).toEqual([["/alpha"]]);
         expect(harness.api.loadWorktrees.mock.calls).toEqual([["/alpha"]]);

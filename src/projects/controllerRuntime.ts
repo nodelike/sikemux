@@ -19,7 +19,7 @@ export const PROJECT_CONTROLLER_RUNTIME_LIMITS = Object.freeze({
 export type ActiveProjectControllerSnapshot = ProjectControllerSnapshot<ProjectConfigLoadResult, GitWorktree>;
 
 type Listener = () => void;
-type ProjectChangeListener = (repo: string) => void;
+type ProjectChangeListener = (repo: string, paths?: readonly string[]) => void;
 
 export interface ProjectControllerRuntimeServices {
     readonly loadConfig: (cwd: string) => Promise<ProjectConfigLoadResult>;
@@ -92,7 +92,7 @@ const productionServices: ProjectControllerRuntimeServices = Object.freeze({
     newWatchLeaseToken: () => globalThis.crypto.randomUUID(),
     watchStart: (cwd: string, token: string) => git.watchStart(cwd, token),
     watchStop: (token: string) => git.watchStop(token),
-    subscribeFsChanged: (listener: ProjectChangeListener) => subscribeBus("fs-changed", (event) => listener(event.repo)),
+    subscribeFsChanged: (listener: ProjectChangeListener) => subscribeBus("fs-changed", (event) => listener(event.repo, event.paths)),
     subscribeGitRefresh: (listener: ProjectChangeListener) => subscribeBus("git-refresh", (event) => listener(event.repo)),
 });
 
@@ -153,11 +153,10 @@ export class ProjectControllerRuntime {
 
         let stopFs: (() => void) | undefined;
         const token = Object.freeze({});
-        const listener = (repo: string) => this.handleProjectChange(token, repo);
         try {
-            stopFs = this.services.subscribeFsChanged(listener);
+            stopFs = this.services.subscribeFsChanged((repo, paths) => this.handleProjectChange(token, repo, paths));
             if (typeof stopFs !== "function") throw new TypeError("fs-changed subscription must return a disposer");
-            const stopGit = this.services.subscribeGitRefresh(listener);
+            const stopGit = this.services.subscribeGitRefresh((repo) => this.handleProjectChange(token, repo));
             if (typeof stopGit !== "function") throw new TypeError("git-refresh subscription must return a disposer");
             this.subscriptions = Object.freeze([stopFs, stopGit]);
             this.subscriptionToken = token;
@@ -214,8 +213,9 @@ export class ProjectControllerRuntime {
         this.listeners.clear();
     };
 
-    private handleProjectChange(token: object, repo: string): void {
+    private handleProjectChange(token: object, repo: string, paths?: readonly string[]): void {
         if (!this.isStarted || this.subscriptionToken !== token) return;
+        if (paths?.length && !paths.some((path) => path === "sikemux.json" || path === ".git" || path.startsWith(".git/"))) return;
         if (repo) {
             const owner = this.roots.get(repo);
             if (owner) {

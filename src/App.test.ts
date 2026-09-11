@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { activeTaskControls, subscribeGitChanged } from "./App";
+import { activeTaskControls, gitChangeInvalidates, subscribeGitChanged } from "./App";
 import { installIpcTransportForTests, MemoryIpcTransport, resetIpcTransportForTests } from "./api/transport";
 import { subscribe } from "./state/bus";
 import type { ResolvedTaskDefinition, TaskControllerSnapshot, TaskLifecycleState } from "./tasks/taskRegistry";
@@ -66,6 +66,15 @@ describe("active task command reachability", () => {
 });
 
 describe("Git change IPC subscription", () => {
+    it("keeps file changes to status resources and reserves broad Git refreshes for metadata signals", () => {
+        expect(gitChangeInvalidates("files.list", ["/repo"], "/repo", ["src/file.ts"])).toBe(true);
+        expect(gitChangeInvalidates("git.overview", ["/repo"], "/repo", ["src/file.ts"])).toBe(true);
+        expect(gitChangeInvalidates("git.status", ["/repo"], "/repo", ["src/file.ts"])).toBe(true);
+        expect(gitChangeInvalidates("git.stashes", ["/repo"], "/repo", ["src/file.ts"])).toBe(false);
+        expect(gitChangeInvalidates("git.remotes", ["/repo"], "/repo", null)).toBe(true);
+        expect(gitChangeInvalidates("git.status", ["/other"], "/repo", null)).toBe(false);
+    });
+
     it("routes through the installed transport and aborts idempotently", async () => {
         const changed = vi.fn();
         const unsubscribeBus = subscribe("fs-changed", changed);

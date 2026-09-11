@@ -97,17 +97,21 @@ export function activeTaskControls(snapshot: TaskControllerSnapshot | null, curr
     });
 }
 
+export function gitChangeInvalidates(kind: string, args: unknown[], repo: string, paths: readonly string[] | null): boolean {
+    if (repo && args[0] !== repo) return false;
+    if (kind === "files.list") return true;
+    if (!kind.startsWith("git.")) return false;
+    if (!paths?.length) return true;
+    return kind === "git.overview" || kind === "git.status";
+}
+
 export function subscribeGitChanged(signal?: AbortSignal): Promise<IpcUnsubscribe> {
     return getIpcTransport().subscribe<{ repo: string; paths: string[] | null }>(
         "git_changed",
         (event) => {
             const repo = event.payload.repo || "";
             filesApi.invalidate(repo || undefined);
-            invalidate((kind, args) => {
-                if (!kind.startsWith("git.") && kind !== "files.list") return false;
-                if (!repo) return true;
-                return args[0] === repo;
-            });
+            invalidate((kind, args) => gitChangeInvalidates(kind, args, repo, event.payload.paths));
             // An empty array would mean "these zero paths changed", and the scoped
             // consumers would refresh nothing. Absent or empty both mean "unknown",
             // which has to fall back to refreshing everything.
