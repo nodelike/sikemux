@@ -779,7 +779,8 @@ export function subscribePersist(): () => void {
     persistenceReady = true;
     queueSnapshot(snapshot());
     void startSaveLoop();
-    const unsubscribe = useStore.subscribe(() => {
+    const unsubscribe = useStore.subscribe((state, previous) => {
+        if (slicesEqual(state, previous)) return;
         if (persistTimer != null) window.clearTimeout(persistTimer);
         persistTimer = window.setTimeout(() => {
             persistTimer = undefined;

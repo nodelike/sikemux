@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { fetchResource, invalidate, peekResource, resetResourcesForTests, resource } from "./resources";
+import { act, renderHook, waitFor } from "@testing-library/react";
+import { fetchResource, invalidate, peekResource, resetResourcesForTests, resource, useResource } from "./resources";
 
 function deferred<T>() {
     let resolve!: (value: T) => void;
@@ -12,6 +13,24 @@ function deferred<T>() {
 beforeEach(() => resetResourcesForTests());
 
 describe("resources", () => {
+    it("coalesces a subscribed invalidation storm into one follow-up fetch", async () => {
+        const stale = deferred<string>();
+        const fetch = vi
+            .fn()
+            .mockImplementationOnce(() => stale.promise)
+            .mockResolvedValue("fresh");
+        const def = resource({ kind: "storm", fetch });
+        const { result, unmount } = renderHook(() => useResource(def, "/repo"));
+        act(() => {
+            for (let index = 0; index < 100; index++) invalidate((kind) => kind === def.kind);
+        });
+        expect(fetch).toHaveBeenCalledTimes(1);
+        await act(async () => stale.resolve("stale"));
+        await waitFor(() => expect(result.current.data).toBe("fresh"));
+        expect(fetch).toHaveBeenCalledTimes(2);
+        unmount();
+    });
+
     it("uses collision-free keys for typed and delimited arguments", async () => {
         const fetch = vi.fn(async (...args: unknown[]) => args.join(","));
         const def = resource({ kind: "key-test", fetch });
@@ -51,12 +70,14 @@ describe("resources", () => {
         const first = fetchResource(def, "x");
         invalidate((kind) => kind === def.kind);
         const second = fetchResource(def, "x");
-        expect(fetch).toHaveBeenCalledTimes(2);
+        for (let index = 0; index < 100; index++) invalidate((kind) => kind === def.kind);
+        expect(fetch).toHaveBeenCalledTimes(1);
 
-        fresh.resolve("fresh");
-        await expect(second).resolves.toBe("fresh");
         stale.resolve("stale");
         await expect(first).resolves.toBe("stale");
+        expect(peekResource(def, "x")).toBeUndefined();
+        fresh.resolve("fresh");
+        await expect(second).resolves.toBe("fresh");
         expect(peekResource(def, "x")).toBe("fresh");
         expect(fetch).toHaveBeenCalledTimes(2);
     });

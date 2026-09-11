@@ -29,6 +29,24 @@ beforeEach(() => {
 });
 
 describe("frontend persistence", () => {
+    it("saves durable changes while terminal activity continues", async () => {
+        vi.useFakeTimers();
+        invoke.mockResolvedValue(undefined);
+        const unsubscribe = subscribePersist();
+        await vi.advanceTimersByTimeAsync(0);
+        invoke.mockClear();
+        setState({ uiTextScale: 1.2 });
+        for (let index = 0; index < 6; index++) {
+            await vi.advanceTimersByTimeAsync(100);
+            setState({ terminalTitles: { pane: `output-${index}` } });
+        }
+        expect(invoke).toHaveBeenCalledTimes(1);
+        expect(JSON.parse(invoke.mock.calls[0][1].data).prefs.uiTextScale).toBe(1.2);
+        await vi.advanceTimersByTimeAsync(600);
+        expect(invoke).toHaveBeenCalledTimes(1);
+        unsubscribe();
+    });
+
     it("omits transient task terminals and restores a durable active window", async () => {
         cmd.createProjectSession("/work/demo");
         const paneId = cmd.openTaskTerminal({

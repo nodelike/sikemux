@@ -23,6 +23,7 @@ type AnyDef = ResourceDef<unknown[], unknown>;
 interface Inflight {
     generation: number;
     promise: Promise<unknown>;
+    queued?: Promise<unknown>;
 }
 
 const cache = new Map<string, Entry<unknown>>();
@@ -145,6 +146,10 @@ function trigger<Args extends unknown[], T>(def: ResourceDef<Args, T>, key: stri
     const generation = generations.get(key) ?? 0;
     const existing = inflight.get(key);
     if (existing?.generation === generation) return existing.promise as Promise<T>;
+    if (existing) {
+        existing.queued ??= existing.promise.catch(() => undefined).then(() => trigger(def, key, args));
+        return existing.queued as Promise<T>;
+    }
     const current = cache.get(key) as Entry<T> | undefined;
     setEntry(key, {
         kind: def.kind,
