@@ -105,15 +105,16 @@ export function MergeReview({
                         {virtualizer.getVirtualItems().map((row) => {
                             const file = files[row.index];
                             if (!file) return null;
-                            const style: CSSProperties = { transform: `translateY(${row.start}px)` };
+                            const style: CSSProperties = {
+                                transform: `translateY(${row.start}px)`,
+                                height: row.size,
+                                overflow: "clip",
+                            };
                             return (
-                                <div
-                                    key={row.key}
-                                    ref={virtualizer.measureElement}
-                                    data-index={row.index}
-                                    className="merge-review-virtual-item"
-                                    style={style}>
-                                    {renderFile(file)}
+                                <div key={row.key} className="merge-review-virtual-item" style={style}>
+                                    <div ref={virtualizer.measureElement} data-index={row.index}>
+                                        {renderFile(file)}
+                                    </div>
                                 </div>
                             );
                         })}

@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { GitFile } from "../api/git";
 
@@ -81,5 +81,50 @@ describe("MergeReview", () => {
         expect(screen.getByText("1000 files · 0 expanded")).toBeInTheDocument();
         expect(container.querySelectorAll('[data-testid^="diff:"]')).toHaveLength(0);
         expect(container.querySelectorAll(".merge-review-item").length).toBeLessThan(40);
+    });
+
+    it("contains loading diffs within their slots while measuring their full growing height", () => {
+        const observers = new Map<Element, ResizeObserverCallback>();
+        vi.stubGlobal(
+            "ResizeObserver",
+            class {
+                constructor(private callback: ResizeObserverCallback) {}
+                observe(element: Element) {
+                    observers.set(element, this.callback);
+                }
+                unobserve(element: Element) {
+                    observers.delete(element);
+                }
+                disconnect() {}
+            },
+        );
+        vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockImplementation(function (this: HTMLElement) {
+            return this.classList.contains("merge-review-list") ? 800 : 250;
+        });
+        vi.spyOn(HTMLElement.prototype, "offsetWidth", "get").mockReturnValue(1_000);
+        const manyFiles = Array.from<unknown, GitFile>({ length: 30 }, (_, index) => ({
+            path: `file-${index}.ts`,
+            index: " ",
+            worktree: "M",
+        }));
+        const { container } = render(<MergeReview repo="/repo" files={manyFiles} onOpenFile={() => {}} onSaved={() => {}} />);
+        const slot = container.querySelector<HTMLElement>(".merge-review-virtual-item")!;
+        const content = slot.firstElementChild as HTMLElement;
+
+        expect(slot).toHaveStyle({ height: "250px", overflow: "clip" });
+        expect(content.style.height).toBe("");
+        expect(observers.has(content)).toBe(true);
+        expect(observers.has(slot)).toBe(false);
+
+        act(() => {
+            observers.get(content)!(
+                [{ target: content, borderBoxSize: [{ blockSize: 1_200, inlineSize: 1_000 }] } as unknown as ResizeObserverEntry],
+                {} as ResizeObserver,
+            );
+        });
+
+        expect(slot).toHaveStyle({ height: "1200px", overflow: "clip" });
+        expect(slot.nextElementSibling).toHaveStyle({ transform: "translateY(1200px)" });
+        expect(screen.getByTestId("diff:file-0.ts:HEAD:working")).toBeInTheDocument();
     });
 });
