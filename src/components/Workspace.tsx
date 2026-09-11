@@ -67,7 +67,7 @@ export function Workspace() {
                     const win = windowsById[wid];
                     if (!win) return null;
                     const visible = isActive && activeWindowId === wid;
-                    if (visible && (win.role === "git" || win.role === "files")) mountedWorkbenchWindows.current.add(wid);
+                    if (visible && (win.role === "git" || win.role === "files" || win.role === "term")) mountedWorkbenchWindows.current.add(wid);
                     if (!visible && wid !== session.activeWindowId && !mountedWorkbenchWindows.current.has(wid)) return null;
                     return <WindowLayer key={wid} session={session} win={win} areaRef={areaRef} topInset={TABS_H} visible={visible} />;
                 });
@@ -341,8 +341,8 @@ const WindowLayer = memo(function WindowLayer({
     areaRef: RefObject<HTMLDivElement | null>;
     topInset?: number;
 }) {
-    const editorViews = useStore((s) => s.editorViews);
-    const active = activeTabRef(session, { [win.id]: win }, editorViews);
+    const editorView = useStore((s) => s.editorViews[win.activePaneId]);
+    const active = activeTabRef(session, { [win.id]: win }, editorView ? { [win.activePaneId]: editorView } : {});
     const zoomedPaneId = useStore((s) => s.zoomedPaneId);
     const { panes, dividers } = useMemo(() => computeLayout(win.root), [win.root]);
     const leaves = useMemo(() => collectPanes(win.root), [win.root]);

@@ -24,7 +24,11 @@ vi.mock("./EditorPane", () => ({
         return <textarea data-testid="file-editor" data-active={active} defaultValue="unsaved buffer" />;
     },
 }));
-vi.mock("../terminal/TerminalPane", () => ({ TerminalPane: () => <div>Terminal</div> }));
+vi.mock("../terminal/TerminalPane", () => ({
+    TerminalPane: ({ context }: { context?: { paneId?: string } }) => (
+        <textarea data-testid={`terminal-${context?.paneId}`} defaultValue="shell output" />
+    ),
+}));
 const initial = getState();
 beforeEach(() => {
     vi.clearAllMocks();
@@ -32,6 +36,26 @@ beforeEach(() => {
     cmd.createProjectSession("/work/demo");
 });
 afterEach(cleanup);
+
+it("retains a visited terminal across switches and releases its layer on close", async () => {
+    cmd.newWindow();
+    const state = getState();
+    const terminalWindow = state.sessions[state.activeSessionId].activeWindowId;
+    const terminalId = `terminal-${state.windows[terminalWindow].activePaneId}`;
+    const { getByTestId, queryByTestId } = render(<Workspace />);
+    await waitFor(() => expect(getByTestId(terminalId)).toBeInTheDocument());
+    const terminal = getByTestId(terminalId);
+    for (let index = 0; index < 10; index++) {
+        act(() => cmd.openGitWorkbench());
+        expect(getByTestId(terminalId)).toBe(terminal);
+        expect(terminal.closest('[role="tabpanel"]')).toHaveAttribute("inert");
+        act(() => cmd.selectTab({ kind: "window", id: terminalWindow }));
+        expect(getByTestId(terminalId)).toBe(terminal);
+        expect(terminal.closest('[role="tabpanel"]')).not.toHaveAttribute("inert");
+    }
+    act(() => cmd.closeWindowById(terminalWindow));
+    expect(queryByTestId(terminalId)).toBeNull();
+});
 
 it("keeps Git mounted but inactive between tab switches, and releases it when closed", async () => {
     cmd.openGitWorkbench();
