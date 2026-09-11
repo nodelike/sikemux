@@ -785,7 +785,13 @@ textarea:focus,
  * and the last mention of a selector wins.
  */
 
-/* Controls: buttons, fields, rows, menu items. The app's default corner. */
+/* Controls: buttons, fields, rows, menu items. The app's default corner.
+ *
+ * `.tabbar` is deliberately absent. It was listed here once, but a full-width
+ * strip is not a control — rounding it put a corner on the strip's bottom edge
+ * where it meets the pane, so the two never read as flush. The stage already
+ * clips the strip's top corners to the frame's radius, which is the only
+ * rounding it should have. */
 button,
 input,
 select,
@@ -807,7 +813,6 @@ textarea,
         .agent-row,
         .agent-row .agent-glyph,
         .agent-glyph-x,
-        .tabbar,
         .git-tbtn,
         .git-dd-btn,
         .git-cp-commit,
