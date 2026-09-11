@@ -1,14 +1,6 @@
 {
   "reviewBy": "2026-11-01",
   "allowedRustWarnings": {
-    "RUSTSEC-2024-0411": "Tauri's Linux-only GTK3/WebKit backend; Sikemux releases and CI support macOS and Windows.",
-    "RUSTSEC-2024-0412": "Tauri's Linux-only GTK3/WebKit backend; Sikemux releases and CI support macOS and Windows.",
-    "RUSTSEC-2024-0413": "Tauri's Linux-only GTK3/WebKit backend; Sikemux releases and CI support macOS and Windows.",
-    "RUSTSEC-2024-0415": "Tauri's Linux-only GTK3/WebKit backend; Sikemux releases and CI support macOS and Windows.",
-    "RUSTSEC-2024-0416": "Tauri's Linux-only GTK3/WebKit backend; Sikemux releases and CI support macOS and Windows.",
-    "RUSTSEC-2024-0418": "Tauri's Linux-only GTK3/WebKit backend; Sikemux releases and CI support macOS and Windows.",
-    "RUSTSEC-2024-0419": "Tauri's Linux-only GTK3/WebKit backend; Sikemux releases and CI support macOS and Windows.",
-    "RUSTSEC-2024-0420": "Tauri's Linux-only GTK3/WebKit backend; Sikemux releases and CI support macOS and Windows.",
     "RUSTSEC-2024-0370": "Build-time macro dependency reached only through Tauri's Linux GTK3 graph; no supported bundle includes it.",
     "RUSTSEC-2024-0429": "Unsound GLib iterator is in Tauri's Linux-only GTK3 graph; no supported macOS or Windows bundle links GLib.",
     "RUSTSEC-2025-0075": "Unmaintained UNIC component is transitive through current Tauri urlpattern; no patched Tauri release is available.",
