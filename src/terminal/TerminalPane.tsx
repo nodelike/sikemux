@@ -12,12 +12,11 @@ import { applyPtyShellMetadataEvent, type PtyShellMetadataEvent } from "../api/p
 import type { PtyShellMetadataSnapshot } from "./ptyController";
 import { basename } from "../lib/paths";
 
-const SWITCH_KEEPALIVE_MS = 10_000;
-const MAX_HIDDEN_RENDERERS = 1;
+export const TERMINAL_RENDERER_RETENTION = Object.freeze({ keepaliveMs: 15_000, maxHidden: 3 });
 const hiddenRendererEvictions = new Map<symbol, () => void>();
 
 function enforceHiddenRendererBudget() {
-    while (hiddenRendererEvictions.size > MAX_HIDDEN_RENDERERS) {
+    while (hiddenRendererEvictions.size > TERMINAL_RENDERER_RETENTION.maxHidden) {
         const oldest = hiddenRendererEvictions.values().next().value as (() => void) | undefined;
         if (!oldest) return;
         oldest();
@@ -120,7 +119,7 @@ export function TerminalPane({
         hiddenRendererEvictions.delete(token);
         hiddenRendererEvictions.set(token, evict);
         enforceHiddenRendererBudget();
-        const id = window.setTimeout(evict, SWITCH_KEEPALIVE_MS);
+        const id = window.setTimeout(evict, TERMINAL_RENDERER_RETENTION.keepaliveMs);
         return () => {
             window.clearTimeout(id);
             hiddenRendererEvictions.delete(token);
