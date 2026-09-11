@@ -81,9 +81,37 @@ describe("AgentSessionSync IPC events", () => {
         }));
 
         render(<AgentSessionSync />);
-        await waitFor(() => expect(transport.eventListenerCount).toBe(1));
+        await waitFor(() => expect(transport.eventListenerCount).toBe(2));
         expect(resources.fetchResource).not.toHaveBeenCalled();
         expect(agentApi.watchStart).not.toHaveBeenCalled();
+    });
+
+    it("reconciles watcher groups without restarting unchanged watches", async () => {
+        vi.mocked(agentApi.watchStart).mockResolvedValueOnce(17).mockResolvedValueOnce(18);
+        render(<AgentSessionSync />);
+        await waitFor(() => expect(agentApi.watchStart).toHaveBeenCalledTimes(1));
+
+        const sessionId = getState().activeSessionId;
+        act(() =>
+            setState((state) => ({
+                agents: {
+                    ...state.agents,
+                    "agent-2": { id: "agent-2", type: "codex", title: "Other", startup: "codex", cwd: "/other" },
+                },
+                agentsBySession: { ...state.agentsBySession, [sessionId]: ["agent-1", "agent-2"] },
+            })),
+        );
+
+        await waitFor(() => expect(agentApi.watchStart).toHaveBeenCalledTimes(2));
+        expect(agentApi.watchStop).not.toHaveBeenCalled();
+
+        act(() =>
+            setState((state) => ({
+                agents: { ...state.agents, "agent-1": { ...state.agents["agent-1"], launchState: "dormant" } },
+            })),
+        );
+        await waitFor(() => expect(agentApi.watchStop).toHaveBeenCalledWith(17));
+        expect(agentApi.watchStop).not.toHaveBeenCalledWith(18);
     });
 
     it("keeps session discovery inside the selected provider profile", async () => {

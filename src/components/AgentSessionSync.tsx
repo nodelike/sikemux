@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { agentApi } from "../api/agents";
 import { getIpcTransport } from "../api/transport";
 import { fetchResource } from "../state/resources";
@@ -30,6 +30,13 @@ interface AgentStateChanged {
     matchedRule?: string;
 }
 
+interface AgentWatchRecord {
+    group: AgentSyncGroup;
+    watchId: number | null;
+    cancelled: boolean;
+    titleRetries: number;
+}
+
 const TITLE_RETRY_MS = 1_500;
 const TITLE_RETRY_LIMIT = 20;
 
@@ -58,6 +65,29 @@ function collectAgentSyncGroups(): AgentSyncGroup[] {
     return [...groups.values()];
 }
 
+function syncGroup({ type, cwd, configPath }: AgentSyncGroup): void {
+    void fetchResource(agentSessionsR, type, cwd, configPath)
+        .then((rows) => cmd.reconcileAgentSessions(type, cwd, configPath, rows))
+        .catch(swallow("agent sessions"));
+}
+
+function groupNeedsMetadata({ type, cwd, configPath }: AgentSyncGroup): boolean {
+    const state = getState();
+    return state.sessionOrder.some((sessionId) => {
+        const session = state.sessions[sessionId];
+        if (session?.kind !== "project") return false;
+        return (state.agentsBySession[sessionId] ?? []).some((agentId) => {
+            const agent = state.agents[agentId];
+            const agentConfigPath = agent?.profileId
+                ? state.providerProfiles.find((profile) => profile.id === agent.profileId && profile.provider === agent.type)?.configPath
+                : undefined;
+            return (
+                agent?.type === type && (agent.cwd || session.cwd) === cwd && agentConfigPath === configPath && cmd.agentSessionMetadataPending(agent)
+            );
+        });
+    });
+}
+
 function useAgentSyncKey(): string {
     return useStore((s) => {
         const parts: string[] = [];
@@ -81,6 +111,7 @@ function useAgentSyncKey(): string {
 
 export function AgentSessionSync() {
     const syncKey = useAgentSyncKey();
+    const watchesRef = useRef(new Map<string, AgentWatchRecord>());
     const visibleAgentId = useStore((s) => {
         const session = s.sessions[s.activeSessionId];
         return session?.view === "agent" ? session.activeAgentId : null;
@@ -107,95 +138,71 @@ export function AgentSessionSync() {
     }, [visibleAgentId]);
 
     useEffect(() => {
-        if (!syncKey) return;
-
-        let cancelled = false;
-        const listenerController = new AbortController();
-        const watchIds: number[] = [];
-        const groups = collectAgentSyncGroups();
-        const activeGroups = new Set(groups.map((group) => groupKey(group.type, group.cwd, group.configPath)));
-
-        const syncGroup = (type: AgentType, cwd: string, configPath?: string) => {
-            void fetchResource(agentSessionsR, type, cwd, configPath)
-                .then((rows) => cmd.reconcileAgentSessions(type, cwd, configPath, rows))
-                .catch(swallow("agent sessions"));
-        };
-
-        const groupNeedsMetadata = ({ type, cwd, configPath }: AgentSyncGroup): boolean => {
-            const state = getState();
-            return state.sessionOrder.some((sessionId) => {
-                const session = state.sessions[sessionId];
-                if (session?.kind !== "project") return false;
-                return (state.agentsBySession[sessionId] ?? []).some((agentId) => {
-                    const agent = state.agents[agentId];
-                    const agentConfigPath = agent?.profileId
-                        ? state.providerProfiles.find((profile) => profile.id === agent.profileId && profile.provider === agent.type)?.configPath
-                        : undefined;
-                    return (
-                        agent?.type === type &&
-                        (agent.cwd || session.cwd) === cwd &&
-                        agentConfigPath === configPath &&
-                        cmd.agentSessionMetadataPending(agent)
-                    );
-                });
-            });
-        };
-
-        for (const group of groups) {
-            syncGroup(group.type, group.cwd, group.configPath);
-            void agentApi
-                .watchStart(group.type, group.cwd, group.configPath)
-                .then((id) => {
-                    if (cancelled) {
-                        void agentApi.watchStop(id).catch(swallow("agent sessions watch stop"));
-                    } else {
-                        watchIds.push(id);
-                    }
-                })
-                .catch(swallow("agent sessions watch"));
-        }
-
+        const controller = new AbortController();
+        const watches = watchesRef.current;
         void getIpcTransport()
             .subscribe<AgentSessionsChanged>(
                 "agent_sessions_changed",
                 (event) => {
                     const { agent, cwd, configPath } = event.payload;
-                    if (!activeGroups.has(groupKey(agent, cwd, configPath))) return;
-                    syncGroup(agent, cwd, configPath);
+                    const record = watches.get(groupKey(agent, cwd, configPath));
+                    if (record) syncGroup(record.group);
                 },
-                { signal: listenerController.signal },
+                { signal: controller.signal },
             )
             .catch((error: unknown) => {
-                if (!listenerController.signal.aborted) swallow("agent sessions listener")(error);
+                if (!controller.signal.aborted) swallow("agent sessions listener")(error);
             });
 
-        // Filesystem events can land while a brand-new transcript contains
-        // only session metadata, before the first user prompt that supplies a
-        // useful title. Retry only groups with unresolved open agents; stop as
-        // soon as their session id and human title have both been discovered.
-        let titleRetries = 0;
         const titleRetryTimer = window.setInterval(() => {
-            if (cancelled || titleRetries >= TITLE_RETRY_LIMIT) {
-                window.clearInterval(titleRetryTimer);
-                return;
+            for (const record of watches.values()) {
+                if (record.titleRetries >= TITLE_RETRY_LIMIT || !groupNeedsMetadata(record.group)) continue;
+                record.titleRetries += 1;
+                syncGroup(record.group);
             }
-            const pending = groups.filter(groupNeedsMetadata);
-            if (pending.length === 0) {
-                window.clearInterval(titleRetryTimer);
-                return;
-            }
-            titleRetries += 1;
-            for (const group of pending) syncGroup(group.type, group.cwd, group.configPath);
         }, TITLE_RETRY_MS);
 
         return () => {
-            cancelled = true;
-            listenerController.abort();
+            controller.abort();
             window.clearInterval(titleRetryTimer);
-            for (const id of watchIds) {
-                void agentApi.watchStop(id).catch(swallow("agent sessions watch stop"));
+            for (const record of watches.values()) {
+                record.cancelled = true;
+                if (record.watchId !== null) void agentApi.watchStop(record.watchId).catch(swallow("agent sessions watch stop"));
             }
+            watches.clear();
         };
+    }, []);
+
+    useEffect(() => {
+        const desired = new Map(collectAgentSyncGroups().map((group) => [groupKey(group.type, group.cwd, group.configPath), group]));
+
+        for (const [key, record] of watchesRef.current) {
+            if (desired.has(key)) continue;
+            record.cancelled = true;
+            watchesRef.current.delete(key);
+            if (record.watchId !== null) void agentApi.watchStop(record.watchId).catch(swallow("agent sessions watch stop"));
+        }
+
+        for (const [key, group] of desired) {
+            const existing = watchesRef.current.get(key);
+            if (existing) {
+                syncGroup(existing.group);
+                continue;
+            }
+            const record: AgentWatchRecord = { group, watchId: null, cancelled: false, titleRetries: 0 };
+            watchesRef.current.set(key, record);
+            syncGroup(group);
+            void agentApi
+                .watchStart(group.type, group.cwd, group.configPath)
+                .then((id) => {
+                    if (record.cancelled || watchesRef.current.get(key) !== record) {
+                        void agentApi.watchStop(id).catch(swallow("agent sessions watch stop"));
+                    } else {
+                        record.watchId = id;
+                    }
+                })
+                .catch(swallow("agent sessions watch"));
+        }
     }, [syncKey]);
 
     return null;
