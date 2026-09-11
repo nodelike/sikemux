@@ -20,7 +20,7 @@
 }
 .settings-title {
     flex: 1;
-    font-size: var(--text-2xs);
+    font-size: 10px;
     font-weight: var(--weight-semibold);
     letter-spacing: 0.24em;
     text-transform: uppercase;
@@ -139,7 +139,7 @@
 }
 .settings-rail-detail {
     color: var(--ink-muted);
-    font-size: var(--text-2xs);
+    font-size: 10px;
     line-height: 1.2;
 }
 .settings-rail-item.active .settings-rail-detail {
@@ -155,7 +155,7 @@
     gap: 8px;
 }
 .settings-rail-path {
-    font-size: var(--text-2xs);
+    font-size: 10px;
     color: var(--ink-muted);
     line-height: 1.45;
 }
@@ -292,7 +292,7 @@
 }
 .settings-section-sub {
     color: var(--text-secondary);
-    font-size: var(--text-2xs);
+    font-size: 11.5px;
     line-height: 1.55;
     margin: 6px 0 16px;
     max-width: 600px;
@@ -367,7 +367,7 @@
 
 .settings-field-label {
     display: block;
-    font-size: var(--text-2xs);
+    font-size: 10px;
     color: var(--text-secondary);
     letter-spacing: 0.1em;
     text-transform: uppercase;
@@ -384,7 +384,7 @@
     background: var(--s-bg-dim);
     border: 1px solid var(--border);
     padding: 0 4px;
-    font-size: var(--text-2xs);
+    font-size: 10.5px;
 }
 
 .settings-list {
@@ -397,7 +397,7 @@
 }
 .settings-empty {
     padding: 12px 14px;
-    font-size: var(--text-2xs);
+    font-size: 11.5px;
     color: var(--ink-muted);
     border: 1px solid var(--border);
     background: var(--s-bg-dim);
@@ -446,7 +446,7 @@
 }
 .settings-list-idx {
     color: var(--ink-muted);
-    font-size: var(--text-2xs);
+    font-size: 10px;
     font-variant-numeric: tabular-nums;
 }
 .settings-list-path {
@@ -566,7 +566,7 @@
 }
 .settings-theme-name {
     overflow: hidden;
-    font-size: var(--text-2xs);
+    font-size: 11.5px;
     font-weight: 650;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -673,7 +673,7 @@
 .settings-control-copy p {
     margin: 4px 0 0;
     color: var(--ink-muted);
-    font-size: var(--text-2xs);
+    font-size: 10.5px;
     line-height: 1.45;
 }
 
@@ -727,7 +727,7 @@
     border: 1px solid var(--border);
     background: var(--s-bg-dim);
     color: var(--ink-muted);
-    font-size: var(--text-2xs);
+    font-size: 10px;
     line-height: 1.4;
 }
 .keymap-status-light {
@@ -938,7 +938,7 @@
     transition: border-color 0.1s;
 }
 .theme-editor-base {
-    font-size: var(--text-2xs);
+    font-size: 10.5px;
     color: var(--ink-muted);
     white-space: nowrap;
 }
@@ -1017,7 +1017,7 @@
     color: var(--text-primary);
 }
 .theme-group-hint {
-    font-size: var(--text-2xs);
+    font-size: 10.5px;
     color: var(--ink-muted);
 }
 .theme-group-grid {
@@ -1085,7 +1085,7 @@
     background: var(--bg);
     border: 1px solid var(--border);
     padding: 0 4px;
-    font-size: var(--text-2xs);
+    font-size: 10.5px;
 }
 
 .settings-knob-row {
@@ -1341,7 +1341,7 @@
     flex-wrap: wrap;
     gap: 8px 14px;
     color: var(--text-secondary);
-    font-size: var(--text-2xs);
+    font-size: 10px;
 }
 .command-contexts .cbx {
     font-size: var(--text-2xs);
@@ -1372,7 +1372,7 @@
 }
 .cli-integration-paths b {
     color: var(--text-secondary);
-    font-size: var(--text-2xs);
+    font-size: 10px;
     font-weight: 550;
     text-transform: uppercase;
     letter-spacing: 0.07em;
@@ -1422,7 +1422,7 @@
 }
 .experience-setting-row small {
     color: var(--text-tertiary);
-    font-size: var(--text-2xs);
+    font-size: 10px;
     line-height: 1.45;
 }
 .quiet-hours {
@@ -1442,7 +1442,7 @@
     display: grid;
     gap: 6px;
     color: var(--text-tertiary);
-    font-size: var(--text-2xs);
+    font-size: 10px;
 }
 @media (max-width: 760px) {
     .system-theme-grid {
@@ -1486,7 +1486,7 @@
 }
 .agent-mode-settings span {
     color: var(--text-primary);
-    font-size: var(--text-2xs);
+    font-size: 10.5px;
     font-weight: var(--weight-semibold);
 }
 .agent-mode-settings small {
@@ -1545,11 +1545,11 @@
 }
 .provider-profile-list b {
     color: var(--text-primary);
-    font-size: var(--text-2xs);
+    font-size: 10.5px;
 }
 .provider-profile-list small {
     color: var(--ink-muted);
-    font-size: var(--text-2xs);
+    font-size: 8.5px;
 }
 .provider-profile-list .provider-profile-new {
     min-height: 34px;
@@ -1575,7 +1575,7 @@
 .provider-profile-editor label > span,
 .provider-defaults label > span {
     color: var(--ink-muted);
-    font-size: var(--text-2xs);
+    font-size: 8.5px;
     font-weight: var(--weight-semibold);
     letter-spacing: 0.1em;
     text-transform: uppercase;

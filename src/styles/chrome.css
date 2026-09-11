@@ -76,9 +76,7 @@
 }
 .stage--settings > .window-area {
     visibility: hidden;
-}
-.stage--settings .window-layer.visible {
-    visibility: hidden;
+    pointer-events: none;
 }
 .top-bar {
     display: flex;
@@ -175,7 +173,7 @@
     display: flex;
     align-items: center;
     gap: 4px;
-    font-size: var(--text-2xs);
+    font-size: 10px;
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.08em;
@@ -205,7 +203,7 @@
 }
 
 .tb-version {
-    font-size: var(--text-2xs);
+    font-size: 10px;
     font-weight: 600;
     letter-spacing: 0.06em;
     color: var(--text-tertiary);
@@ -661,10 +659,12 @@
 .window-layer {
     position: absolute;
     inset: 0;
-    visibility: hidden;
 }
-.window-layer.visible {
-    visibility: visible;
+/* One tab's surface is on screen at a time. Hidden layers keep their layout so
+   terminals and editors stay measured, but must not paint or take a click. */
+.window-layer:not(.visible) {
+    visibility: hidden;
+    pointer-events: none;
 }
 
 .pane-cell {

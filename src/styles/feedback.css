@@ -156,7 +156,7 @@
     margin-left: auto;
     display: flex;
     gap: 8px;
-    font-size: var(--text-2xs);
+    font-size: 10px;
     font-variant-numeric: tabular-nums;
     padding-left: 8px;
 }

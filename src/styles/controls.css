@@ -182,7 +182,7 @@
     border: 1px solid color-mix(in srgb, var(--border) 60%, white 12%);
     color: var(--text-primary);
     font-family: var(--ui);
-    font-size: var(--text-2xs);
+    font-size: 11.5px;
     line-height: 1.4;
     white-space: pre-line;
     pointer-events: none;

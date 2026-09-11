@@ -137,7 +137,7 @@
     color: var(--ink-faint);
     cursor: pointer;
     font-family: var(--mono);
-    font-size: var(--text-2xs);
+    font-size: 11.5px;
     text-align: left;
 }
 .rnd-tree-leaf:hover {
@@ -155,7 +155,7 @@
     white-space: nowrap;
 }
 .rnd-tree-leaf-n {
-    font-size: var(--text-2xs);
+    font-size: 10px;
     color: var(--ink-faint);
     margin-left: 8px;
     flex-shrink: 0;
@@ -276,7 +276,7 @@
     gap: 10px;
 }
 .rnd-host {
-    font-size: var(--text-2xs);
+    font-size: 10.5px;
     color: var(--ink-faint);
     letter-spacing: 0.04em;
 }
@@ -328,7 +328,7 @@
 }
 .rnd-btn-sm {
     padding: 3px 8px;
-    font-size: var(--text-2xs);
+    font-size: 10.5px;
 }
 .rnd-btn:hover:not(:disabled),
 .rnd-btn-sm:hover:not(:disabled) {
@@ -401,7 +401,7 @@
     gap: 18px;
 }
 .rnd-login-title {
-    font-size: var(--text-2xs);
+    font-size: 9.5px;
     font-weight: 700;
     color: var(--ink-faint);
     letter-spacing: 0.24em;
@@ -410,7 +410,7 @@
     border-bottom: 1px solid var(--line);
 }
 .rnd-login-help {
-    font-size: var(--text-2xs);
+    font-size: 10.5px;
     color: var(--ink-dim);
     line-height: 1.55;
 }
@@ -418,7 +418,7 @@
     color: var(--ink);
     background: transparent;
     padding: 0;
-    font-size: var(--text-2xs);
+    font-size: 10.5px;
 }
 
 .rnd-insecure-http {
@@ -470,7 +470,7 @@
     position: relative;
 }
 .rnd-field > span:first-child {
-    font-size: var(--text-2xs);
+    font-size: 9.5px;
     font-weight: 700;
     color: var(--ink-faint);
     text-transform: uppercase;
@@ -494,7 +494,7 @@
     background: transparent;
     border: none;
     color: var(--ink-faint);
-    font-size: var(--text-2xs);
+    font-size: 10px;
     cursor: pointer;
     padding: 0 2px;
 }
@@ -520,7 +520,7 @@
     display: inline-flex;
     align-items: center;
     gap: 6px;
-    font-size: var(--text-2xs);
+    font-size: 10.5px;
     color: var(--ink-faint);
     letter-spacing: 0.04em;
 }
@@ -531,7 +531,7 @@
 .rnd-list-meta-l {
     text-transform: uppercase;
     letter-spacing: 0.14em;
-    font-size: var(--text-2xs);
+    font-size: 9.5px;
 }
 .rnd-list-meta-v {
     color: var(--ink-dim);
@@ -572,7 +572,7 @@
 }
 .rnd-group-count {
     font-family: var(--mono);
-    font-size: var(--text-2xs);
+    font-size: 10.5px;
     color: var(--ink-faint);
 }
 
@@ -624,13 +624,13 @@
     font-size: 12.5px;
 }
 .rnd-row-branch {
-    font-size: var(--text-2xs);
+    font-size: 11.5px;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
 }
 .rnd-row-status {
-    font-size: var(--text-2xs);
+    font-size: 9.5px;
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.14em;
@@ -654,7 +654,7 @@
     background: transparent;
     border: 1px solid var(--line);
     color: var(--ink-dim);
-    font-size: var(--text-2xs);
+    font-size: 10px;
     letter-spacing: 0.1em;
     text-transform: uppercase;
     padding: 3px 8px;
@@ -702,7 +702,7 @@
     gap: 3px;
 }
 .rnd-section-eyebrow {
-    font-size: var(--text-2xs);
+    font-size: 9.5px;
     font-weight: 700;
     color: var(--ink-faint);
     text-transform: uppercase;
@@ -715,7 +715,7 @@
     letter-spacing: 0.01em;
 }
 .rnd-section-proj {
-    font-size: var(--text-2xs);
+    font-size: 10px;
     color: var(--ink-faint);
     letter-spacing: 0.04em;
 }
@@ -750,7 +750,7 @@
     color: var(--ink);
     padding: 0 11px;
     font-family: var(--mono);
-    font-size: var(--text-2xs);
+    font-size: 11.5px;
     outline: none;
 }
 .rnd-composer input::placeholder {
@@ -843,7 +843,7 @@
     justify-content: space-between;
     align-items: baseline;
     padding: 10px 16px;
-    font-size: var(--text-2xs);
+    font-size: 9.5px;
     font-weight: 700;
     color: var(--ink-faint);
     text-transform: uppercase;
@@ -854,7 +854,7 @@
     font-weight: 400;
     letter-spacing: 0.04em;
     text-transform: none;
-    font-size: var(--text-2xs);
+    font-size: 10px;
 }
 
 .rnd-exec-row {
@@ -870,7 +870,7 @@
     padding: 9px 16px;
     cursor: pointer;
     font-family: var(--mono);
-    font-size: var(--text-2xs);
+    font-size: 11.5px;
     color: var(--ink);
     transition: background 0.08s;
 }
@@ -881,7 +881,7 @@
     row-gap: 7px;
 }
 .rnd-exec-status {
-    font-size: var(--text-2xs);
+    font-size: 9.5px;
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.14em;
@@ -918,7 +918,7 @@
 .rnd-progress-copy,
 .rnd-progress-value {
     color: var(--ink-faint);
-    font-size: var(--text-2xs);
+    font-size: 9.5px;
     letter-spacing: 0.05em;
 }
 .rnd-progress-value {
@@ -966,7 +966,7 @@
     border-bottom: 1px solid var(--line);
 }
 .rnd-plan-head {
-    font-size: var(--text-2xs);
+    font-size: 9.5px;
     font-weight: 700;
     color: var(--ink-faint);
     text-transform: uppercase;
@@ -980,7 +980,7 @@
 .rnd-plan-row {
     display: grid;
     grid-template-columns: 180px 1fr;
-    font-size: var(--text-2xs);
+    font-size: 11.5px;
     padding: 4px 0;
 }
 .rnd-plan-row.muted {
@@ -997,7 +997,7 @@
 }
 .rnd-plan-k {
     color: var(--ink-faint);
-    font-size: var(--text-2xs);
+    font-size: 9.5px;
     text-transform: uppercase;
     letter-spacing: 0.14em;
     font-weight: 700;
@@ -1049,7 +1049,7 @@
     white-space: nowrap;
 }
 .rnd-exec-pill {
-    font-size: var(--text-2xs);
+    font-size: 9.5px;
     font-weight: 700;
     padding: 2px 8px;
     text-transform: uppercase;
@@ -1118,7 +1118,7 @@
     align-items: center;
     justify-content: space-between;
     padding: 10px 14px;
-    font-size: var(--text-2xs);
+    font-size: 9.5px;
     font-weight: 700;
     color: var(--ink-faint);
     border-bottom: 1px solid var(--line);
@@ -1130,7 +1130,7 @@
     border: 1px solid var(--line);
     color: var(--ink-faint);
     padding: 2px 7px;
-    font-size: var(--text-2xs);
+    font-size: 9.5px;
     cursor: pointer;
     font-family: var(--mono);
     text-transform: uppercase;
@@ -1156,7 +1156,7 @@
     padding: 7px 14px;
     cursor: pointer;
     font-family: var(--mono);
-    font-size: var(--text-2xs);
+    font-size: 11.5px;
     color: var(--ink);
     transition:
         background 0.08s,
@@ -1171,7 +1171,7 @@
 }
 .rnd-step-num {
     color: var(--ink-faint);
-    font-size: var(--text-2xs);
+    font-size: 10px;
     text-align: right;
 }
 .rnd-step-glyph {
@@ -1200,7 +1200,7 @@
 }
 .rnd-step-dur {
     color: var(--ink-faint);
-    font-size: var(--text-2xs);
+    font-size: 10.5px;
     text-align: right;
 }
 @keyframes rnd-pulse {
@@ -1236,7 +1236,7 @@
     gap: 14px;
     padding: 8px 14px;
     border-bottom: 1px solid var(--line);
-    font-size: var(--text-2xs);
+    font-size: 9.5px;
     color: var(--ink-faint);
     text-transform: uppercase;
     letter-spacing: 0.14em;
@@ -1255,7 +1255,7 @@
     align-items: center;
     cursor: pointer;
     text-transform: none;
-    font-size: var(--text-2xs);
+    font-size: 10.5px;
     letter-spacing: 0.04em;
     color: var(--ink-dim);
     font-weight: 400;
@@ -1269,7 +1269,7 @@
     overflow: auto;
     padding: 8px 14px 14px;
     font-family: var(--mono);
-    font-size: var(--text-2xs);
+    font-size: 11.5px;
     line-height: 1.55;
     cursor: text;
 }
@@ -1283,7 +1283,7 @@
     color: var(--ink-faint);
     flex-shrink: 0;
     min-width: 36px;
-    font-size: var(--text-2xs);
+    font-size: 10.5px;
 }
 .rnd-log-text {
     color: var(--ink);

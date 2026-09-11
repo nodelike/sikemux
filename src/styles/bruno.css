@@ -55,7 +55,7 @@
     align-items: center;
     justify-content: space-between;
     padding: 6px 10px;
-    font-size: var(--text-2xs);
+    font-size: 10px;
     letter-spacing: 0.08em;
     text-transform: uppercase;
     color: var(--ink-faint);
@@ -123,7 +123,7 @@
 .bruno-method {
     flex: 0 0 auto;
     width: 30px;
-    font-size: var(--text-2xs);
+    font-size: 9px;
     font-weight: 800;
     letter-spacing: 0.03em;
     text-align: left;
@@ -758,7 +758,7 @@ body.bruno-resizing {
     color: var(--ink-dim);
 }
 .bruno-secrets-foot {
-    font-size: var(--text-2xs);
+    font-size: 10px;
     color: var(--ink-faint);
     margin-top: 4px;
 }
@@ -797,14 +797,14 @@ body.bruno-resizing {
     display: flex;
     gap: 8px;
     font-family: var(--mono);
-    font-size: var(--text-2xs);
+    font-size: 11.5px;
     padding: 1px 0;
     align-items: baseline;
 }
 .bruno-log-lvl {
     flex: 0 0 44px;
     text-transform: uppercase;
-    font-size: var(--text-2xs);
+    font-size: 9px;
     color: var(--ink-faint);
 }
 .bruno-log.lvl-error .bruno-log-lvl,
@@ -975,7 +975,7 @@ body.bruno-resizing {
     background: var(--acc-soft);
     border: 1px solid var(--acc-line);
     color: var(--acc);
-    font-size: var(--text-2xs);
+    font-size: 9px;
     font-weight: 700;
     font-variant-numeric: tabular-nums;
 }

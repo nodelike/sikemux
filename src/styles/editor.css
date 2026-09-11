@@ -217,7 +217,7 @@
 .tree-ctx-hint {
     flex-shrink: 0;
     color: var(--text-tertiary);
-    font-size: var(--text-2xs);
+    font-size: 10.5px;
 }
 .tree-ctx-sep {
     height: 1px;

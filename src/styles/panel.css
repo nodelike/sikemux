@@ -113,7 +113,7 @@
     background: transparent;
     color: var(--text-secondary);
     font-family: var(--mono);
-    font-size: var(--text-2xs);
+    font-size: 10px;
     cursor: pointer;
 }
 .panel-abtn:hover:not(:disabled) {
@@ -134,7 +134,7 @@
 }
 .panel-akbd {
     font-family: var(--kbd);
-    font-size: var(--text-2xs);
+    font-size: 8px;
     color: var(--text-tertiary);
 }
 .panel-abtn:hover:not(:disabled) .panel-akbd {
@@ -179,7 +179,7 @@
 .panel-row-hint {
     margin-left: auto;
     flex-shrink: 0;
-    font-size: var(--text-2xs);
+    font-size: 10px;
     color: var(--text-tertiary);
 }
 
@@ -224,7 +224,7 @@
     background: transparent;
     color: var(--text-secondary);
     font-family: var(--ui);
-    font-size: var(--text-2xs);
+    font-size: 11.5px;
     cursor: pointer;
 }
 .empty-state-action:hover {

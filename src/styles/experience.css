@@ -161,7 +161,7 @@
     grid-row: auto;
     padding: 6px 0 6px 10px;
     color: var(--text-tertiary);
-    font-size: var(--text-2xs);
+    font-size: 10px;
     transition: color 0.12s;
 }
 
@@ -276,7 +276,7 @@
 .onboarding-aside {
     margin-top: 12px;
     color: var(--text-tertiary);
-    font-size: var(--text-2xs);
+    font-size: 10px;
     line-height: 1.5;
 }
 
@@ -381,7 +381,7 @@
     margin-left: auto;
     flex: 0 0 auto;
     color: var(--text-tertiary);
-    font-size: var(--text-2xs);
+    font-size: 8.5px;
     font-style: normal;
     letter-spacing: 0.1em;
     text-transform: uppercase;
@@ -478,7 +478,7 @@
 
 .onboarding-detected span {
     color: var(--text-tertiary);
-    font-size: var(--text-2xs);
+    font-size: 8px;
     letter-spacing: var(--tracking-label);
     text-transform: uppercase;
 }
@@ -486,7 +486,7 @@
 .onboarding-detected b {
     overflow: hidden;
     color: var(--live);
-    font-size: var(--text-2xs);
+    font-size: 10px;
     font-weight: 500;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -519,7 +519,7 @@
     padding: 3px 6px;
     border: 1px solid var(--border);
     color: var(--text-tertiary);
-    font-size: var(--text-2xs);
+    font-size: 8.5px;
 }
 
 .onboarding-health span.is-ready {
@@ -896,7 +896,7 @@
 
 .onb-stage-caption {
     color: var(--text-tertiary);
-    font-size: var(--text-2xs);
+    font-size: 8.5px;
     letter-spacing: 0.1em;
     text-align: center;
     text-transform: uppercase;
@@ -1228,5 +1228,5 @@
 }
 .command-popup > header button {
     color: var(--text-tertiary);
-    font-size: var(--text-2xs);
+    font-size: 10px;
 }

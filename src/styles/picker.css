@@ -53,7 +53,7 @@
     gap: 9px;
     padding: 10px 12px;
     color: var(--text-tertiary);
-    font-size: var(--text-2xs);
+    font-size: 10px;
     font-weight: 700;
     letter-spacing: 0.08em;
     text-transform: uppercase;
@@ -328,7 +328,7 @@
     display: inline-flex;
     align-items: center;
     gap: 5px;
-    font-size: var(--text-2xs);
+    font-size: 10.5px;
     line-height: 1;
     padding: 3px 7px;
     border: 1px solid var(--border);
@@ -458,12 +458,11 @@
 
 .new-tab-hint {
     color: var(--text-secondary);
-    font-size: var(--text-2xs);
+    font-size: 10.5px;
 }
 
 .new-tab-item {
-    min-height: 52px;
-    height: auto;
+    height: 34px;
     gap: 9px;
 }
 
@@ -514,19 +513,6 @@
     white-space: nowrap;
 }
 
-.new-tab-item .picker-text {
-    display: grid;
-    flex: 1;
-    min-width: 0;
-    gap: var(--space-0);
-    text-align: left;
-}
-.new-tab-item .picker-sub {
-    max-width: none;
-    margin: 0;
-    white-space: normal;
-    font-size: var(--text-xs);
-}
 .new-tab-item:disabled {
     opacity: 0.65;
 }

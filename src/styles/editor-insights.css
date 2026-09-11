@@ -28,7 +28,7 @@
     background: transparent;
     color: var(--text-tertiary);
     font-family: inherit;
-    font-size: var(--text-2xs);
+    font-size: 10px;
     letter-spacing: 0.04em;
     cursor: pointer;
 }
