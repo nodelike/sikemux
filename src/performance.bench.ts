@@ -32,6 +32,18 @@ function pierreInputs(fileCount: number, lineCount: number, changeEvery: number)
 const manyPierreDiffs = pierreInputs(1_000, 250, 25);
 const tallPierreDiffs = pierreInputs(25, 2_000, 100);
 
+for (const count of [5_000, 50_000, 250_000]) {
+    const files = Array.from({ length: count }, (_, index) => `src/project-${index % 97}/component-${index}.tsx`);
+    describe(`file palette with ${count.toLocaleString("en-US")} files`, () => {
+        bench("rank all matches then slice 200", () => {
+            rankBy("component", files, (path) => path).slice(0, 200);
+        });
+        bench("retain only the best 200 matches", () => {
+            rankBy("component", files, (path) => path, 200);
+        });
+    });
+}
+
 describe("interactive hot paths", () => {
     bench("rank 5,000 file-palette candidates", () => {
         rankBy("component 42", candidates, (value) => value);

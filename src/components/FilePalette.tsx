@@ -31,7 +31,7 @@ export function FilePalette() {
         inputRef.current?.focus();
     }, []);
 
-    const items = useMemo(() => rankBy(query, all, (path) => [basename(path), path]).slice(0, MAX_RESULTS), [all, query]);
+    const items = useMemo(() => rankBy(query, all, (path) => [basename(path), path], MAX_RESULTS), [all, query]);
 
     useEffect(() => {
         setSel(0);
