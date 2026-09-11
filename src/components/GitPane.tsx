@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { git, hasUnstaged, isStaged } from "../api/git";
 import * as cmd from "../state/commands";
 import { openGitCheatsheet, openGitConfirm, openGitMenu, openGitPrompt, toggleGitCmdLog } from "../state/git";
@@ -9,11 +9,9 @@ import { commitGitDraft, generateGitDraft, runRepositoryGit, setGitDraft, setGit
 import { errMessage, reportError } from "../state/toast";
 import { DEFAULT_GIT_VIEW, type GitPanel } from "../state/types";
 import { PRIMARY_SHORTCUT } from "../lib/platform";
-import { CommitReview } from "./CommitReview";
 import { FileIcon } from "./FileIcon";
 import { CopyButton } from "./CopyButton";
 import { IconCommit, IconFetch, IconGit, IconPull, IconPullRequest, IconPush, IconRefresh, IconSparkle, IconWarning, IconChevron } from "./Icons";
-import { MergeReview } from "./MergeReview";
 import { GitCmdLogBar } from "./git/GitCmdLogBar";
 import { GitGraph } from "./git/GitGraph";
 import { GitModalRenderer } from "./git/GitModalRenderer";
@@ -27,6 +25,9 @@ import { DEFAULT_AI_PROVIDER, AI_MODELS, AI_PROVIDER_LABEL, GIT_HELP, GIT_PANEL_
 import { filterByQuery, isGitAiProvider, isInRange, rangeBadge } from "./git/gitPaneLogic";
 import type { GitAiProvider, RightView } from "./git/gitPaneTypes";
 import { basename as basenameOf } from "../lib/paths";
+
+const CommitReview = lazy(() => import("./CommitReview").then((module) => ({ default: module.CommitReview })));
+const MergeReview = lazy(() => import("./MergeReview").then((module) => ({ default: module.MergeReview })));
 
 export function GitPane({ paneId, cwd, active }: { paneId: string; cwd: string; active: boolean }) {
     const paneRootRef = useRef<HTMLDivElement>(null);
@@ -1610,26 +1611,28 @@ export function GitPane({ paneId, cwd, active }: { paneId: string; cwd: string; 
 
                 <div className="git-right" ref={rightRef}>
                     <div className="git-right-review">
-                        {right.mode === "merge" ? (
-                            <MergeReview
-                                repo={repo}
-                                files={right.files}
-                                focusPath={filteredFiles[Math.min(sel.files, filteredFiles.length - 1)]?.path}
-                                onOpenFile={(abs) => cmd.requestOpenFile(abs)}
-                                onSaved={() => void overview.refresh().catch(reportError("git refresh"))}
-                            />
-                        ) : right.mode === "commit" ? (
-                            <CommitReview
-                                key={right.rev}
-                                repo={repo}
-                                rev={right.rev}
-                                title={right.title}
-                                subtitle={right.subtitle}
-                                onOpenFile={(abs) => cmd.requestOpenFile(abs)}
-                            />
-                        ) : (
-                            <pre className="git-output">{right.text || "—"}</pre>
-                        )}
+                        <Suspense fallback={<SkeletonRows rows={6} label="Loading diff preview" />}>
+                            {right.mode === "merge" ? (
+                                <MergeReview
+                                    repo={repo}
+                                    files={right.files}
+                                    focusPath={filteredFiles[Math.min(sel.files, filteredFiles.length - 1)]?.path}
+                                    onOpenFile={(abs) => cmd.requestOpenFile(abs)}
+                                    onSaved={() => void overview.refresh().catch(reportError("git refresh"))}
+                                />
+                            ) : right.mode === "commit" ? (
+                                <CommitReview
+                                    key={right.rev}
+                                    repo={repo}
+                                    rev={right.rev}
+                                    title={right.title}
+                                    subtitle={right.subtitle}
+                                    onOpenFile={(abs) => cmd.requestOpenFile(abs)}
+                                />
+                            ) : (
+                                <pre className="git-output">{right.text || "—"}</pre>
+                            )}
+                        </Suspense>
                         {busy && (
                             <div className="git-busy-overlay">
                                 <div className={`git-busy-card${busy.startsWith("✗") ? " error" : ""}`}>
