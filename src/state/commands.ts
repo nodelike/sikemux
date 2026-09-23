@@ -17,6 +17,9 @@ import { cloneTheme, DEFAULT_THEME_ID, THEMES_BY_ID, type Theme } from "../theme
 import { sshStartup } from "../terminal/sshStartup";
 import { taskPtyBindings, type TaskTerminalPresentationRequest } from "../tasks/nativeRuntime";
 import { applyTheme, applyWindowOpacity, previewTheme, registerCustomThemes } from "../themes/bus";
+import { applyTerminalFontSize, clampTerminalFontSize, DEFAULT_TERMINAL_FONT_SIZE } from "../terminal/fontSize";
+import { applyChatTextScale, clampChatTextScale, DEFAULT_CHAT_TEXT_SCALE } from "../chat/textScale";
+import { applyEditorTextScale, clampEditorTextScale, DEFAULT_EDITOR_TEXT_SCALE } from "../editor/textScale";
 import { brunoDrafts, forgetBrunoSession, setBrunoDraft, setBrunoSecret } from "./brunoRuntime";
 import { emit } from "./bus";
 import { reduceAgentState } from "./agentStatus";
@@ -2304,6 +2307,48 @@ export function duplicateCustomTheme(id: string): void {
     const src = getState().customThemes.find((t) => t.id === id);
     if (!src) return;
     saveCustomTheme(cloneTheme(src, { id: `custom-${Date.now().toString(36)}`, name: `${src.name} copy` }));
+}
+
+export function setTerminalFontSize(v: number): void {
+    const value = clampTerminalFontSize(v);
+    applyTerminalFontSize(value);
+    setState({ terminalFontSize: value });
+}
+
+export function adjustTerminalFontSize(step: number): void {
+    setTerminalFontSize(getState().terminalFontSize + step);
+}
+
+export function resetTerminalFontSize(): void {
+    setTerminalFontSize(DEFAULT_TERMINAL_FONT_SIZE);
+}
+
+export function setChatTextScale(v: number): void {
+    const value = clampChatTextScale(v);
+    applyChatTextScale(value);
+    setState({ chatTextScale: value });
+}
+
+export function adjustChatTextScale(step: number): void {
+    setChatTextScale(getState().chatTextScale + step);
+}
+
+export function resetChatTextScale(): void {
+    setChatTextScale(DEFAULT_CHAT_TEXT_SCALE);
+}
+
+export function setEditorTextScale(v: number): void {
+    const value = clampEditorTextScale(v);
+    applyEditorTextScale(value);
+    setState({ editorTextScale: value });
+}
+
+export function adjustEditorTextScale(step: number): void {
+    setEditorTextScale(getState().editorTextScale + step);
+}
+
+export function resetEditorTextScale(): void {
+    setEditorTextScale(DEFAULT_EDITOR_TEXT_SCALE);
 }
 
 export function setWindowOpacity(v: number): void {

@@ -5,14 +5,18 @@ import { indentationMarkers } from "@replit/codemirror-indentation-markers";
 import { tags as t } from "@lezer/highlight";
 import type { Theme } from "../themes";
 
+/* Both the content and the root carry it: the gutter takes its size from the
+   root, so scaling only the content would leave the line numbers behind. */
+const EDITOR_FONT_SIZE = "calc(13px * var(--editor-text-scale, 1))";
+
 export function buildEditorThemeExtensions(theme: Theme): Extension {
     const editorTheme = EditorView.theme(
         {
-            "&": { color: theme.editor.fg, backgroundColor: theme.editor.bg },
+            "&": { color: theme.editor.fg, backgroundColor: theme.editor.bg, fontSize: EDITOR_FONT_SIZE },
             ".cm-content": {
                 caretColor: theme.editor.caret,
                 fontFamily: '"JetBrainsMono Nerd Font", "JetBrains Mono", monospace',
-                fontSize: "13px",
+                fontSize: EDITOR_FONT_SIZE,
             },
             ".cm-cursor, .cm-dropCursor": { borderLeftColor: theme.editor.caret },
             "&.cm-focused .cm-selectionBackground, .cm-selectionBackground, .cm-content ::selection": { backgroundColor: theme.editor.selection },

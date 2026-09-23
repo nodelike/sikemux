@@ -61,7 +61,7 @@
     padding: 0 10px;
     color: var(--ink-faint);
     font-family: var(--ui);
-    font-size: 10.5px;
+    font-size: calc(10.5px * var(--chat-text-em, 1));
     transition:
         color 100ms,
         background 100ms;
@@ -122,7 +122,7 @@
     background: color-mix(in srgb, var(--void) 46%, transparent);
     color: var(--ink-faint);
     font-family: var(--ui);
-    font-size: 10.5px;
+    font-size: calc(10.5px * var(--chat-text-em, 1));
     font-weight: 560;
     line-height: 1;
     letter-spacing: 0.08em;
@@ -145,7 +145,7 @@
     border-left: 1px solid var(--line);
     color: var(--ink-faint);
     font-family: var(--kbd);
-    font-size: 9px;
+    font-size: calc(9px * var(--chat-text-em, 1));
     font-weight: 600;
     letter-spacing: 0.02em;
 }
@@ -241,6 +241,15 @@
 }
 
 .agent-chat-pane {
+    /* Every text size in this pane goes through this one multiplier. It is
+       deliberately NOT multiplied by the app-wide text scale: stacking the two
+       made the transcript 1.5x when Settings said 1.25 and the reader had
+       pressed zoom twice, and no single key could undo it. Here ⌘0 always
+       returns the transcript to exactly its designed size. */
+    --chat-text-em: var(--chat-text-scale, 1);
+    --text-3xs: calc(10px * var(--chat-text-em));
+    --text-2xs: calc(11px * var(--chat-text-em));
+    --text-xs: calc(12px * var(--chat-text-em));
     position: relative;
     display: grid;
     /* Without a column of its own the grid widens to the longest unbreakable
@@ -304,14 +313,14 @@
     border: 1px solid color-mix(in srgb, var(--line) 80%, transparent);
     border-radius: var(--radius-3);
     background: color-mix(in srgb, var(--rail-2) 72%, transparent);
-    font-size: 13.5px;
+    font-size: calc(13.5px * var(--chat-text-em, 1));
 }
 
 .chat-message-content {
     flex: 1 1 auto;
     min-width: 0;
     color: var(--ink);
-    font-size: 14px;
+    font-size: calc(14px * var(--chat-text-em, 1));
     line-height: 1.65;
     user-select: text;
 }
@@ -349,7 +358,7 @@
 .chat-message-rate {
     margin-left: auto;
     font-family: var(--mono);
-    font-size: 10.5px;
+    font-size: calc(10.5px * var(--chat-text-em, 1));
     font-style: italic;
     letter-spacing: 0.02em;
     color: var(--ink-dim);
@@ -415,7 +424,7 @@
     background: color-mix(in srgb, var(--void) 72%, transparent);
     color: var(--ink-dim);
     font-family: var(--mono);
-    font-size: 12px;
+    font-size: calc(12px * var(--chat-text-em, 1));
     line-height: 1.55;
     white-space: pre-wrap;
 }
@@ -473,7 +482,7 @@
 .chat-table table {
     border-collapse: collapse;
     width: 100%;
-    font-size: 13.5px;
+    font-size: calc(13.5px * var(--chat-text-em, 1));
     font-variant-numeric: tabular-nums;
 }
 
@@ -579,7 +588,7 @@
 .chat-thought {
     margin: 9px 0;
     color: var(--ink-faint);
-    font-size: 12.5px;
+    font-size: calc(12.5px * var(--chat-text-em, 1));
     font-style: italic;
 }
 
@@ -982,14 +991,14 @@ button.chat-tool:hover,
     flex: none;
     color: var(--ink);
     font-family: var(--mono);
-    font-size: 10.5px;
+    font-size: calc(10.5px * var(--chat-text-em, 1));
 }
 
 .chat-subagent-task {
     min-width: 0;
     overflow: hidden;
     color: var(--ink-faint);
-    font-size: 10.5px;
+    font-size: calc(10.5px * var(--chat-text-em, 1));
     text-overflow: ellipsis;
     white-space: nowrap;
 }
@@ -1001,7 +1010,7 @@ button.chat-tool:hover,
     gap: 7px;
     margin-left: auto;
     font-family: var(--mono);
-    font-size: 9.5px;
+    font-size: calc(9.5px * var(--chat-text-em, 1));
 }
 
 .chat-subagent-calls {
@@ -1021,7 +1030,7 @@ button.chat-tool:hover,
 
 .chat-subagent-empty {
     color: var(--ink-faint);
-    font-size: 10.5px;
+    font-size: calc(10.5px * var(--chat-text-em, 1));
 }
 
 /*
@@ -1114,7 +1123,7 @@ button.chat-tool:hover,
     overflow: hidden;
     color: var(--ink);
     font-family: var(--mono);
-    font-size: 10.5px;
+    font-size: calc(10.5px * var(--chat-text-em, 1));
     text-overflow: ellipsis;
     white-space: nowrap;
 }
@@ -1123,7 +1132,7 @@ button.chat-tool:hover,
     min-width: 0;
     overflow: hidden;
     color: var(--ink-faint);
-    font-size: 10.5px;
+    font-size: calc(10.5px * var(--chat-text-em, 1));
     text-overflow: ellipsis;
     white-space: nowrap;
 }
@@ -1169,7 +1178,7 @@ button.chat-tool:hover,
     padding: 2px 7px;
     border-radius: var(--radius-xs);
     color: var(--ink-dim);
-    font-size: 10.5px;
+    font-size: calc(10.5px * var(--chat-text-em, 1));
 }
 
 .chat-queued-steer:hover {
@@ -1209,12 +1218,12 @@ button.chat-tool:hover,
     flex: none;
     color: var(--ink);
     font-family: var(--mono);
-    font-size: 10.5px;
+    font-size: calc(10.5px * var(--chat-text-em, 1));
 }
 
 .chat-notice-state {
     flex: none;
-    font-size: 10.5px;
+    font-size: calc(10.5px * var(--chat-text-em, 1));
 }
 
 .chat-notice.state-failed .chat-notice-state {
@@ -1224,7 +1233,7 @@ button.chat-tool:hover,
 .chat-notice-summary {
     min-width: 0;
     overflow: hidden;
-    font-size: 10.5px;
+    font-size: calc(10.5px * var(--chat-text-em, 1));
     text-overflow: ellipsis;
     white-space: nowrap;
 }
@@ -1293,7 +1302,7 @@ button.chat-tool:hover,
     border-radius: var(--radius-control);
     color: var(--ink-dim);
     font-family: var(--mono);
-    font-size: 10px;
+    font-size: calc(10px * var(--chat-text-em, 1));
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -1342,7 +1351,7 @@ button.chat-tool:hover,
 .chat-activity-elapsed {
     color: color-mix(in srgb, var(--ink-faint) 68%, transparent);
     font-family: var(--mono);
-    font-size: 9.5px;
+    font-size: calc(9.5px * var(--chat-text-em, 1));
 }
 
 .chat-activity-dot {
@@ -1396,7 +1405,7 @@ button.chat-tool:hover,
     border-radius: var(--radius-control);
     background: var(--rail-2);
     color: var(--ink-dim);
-    font-size: 10.5px;
+    font-size: calc(10.5px * var(--chat-text-em, 1));
 }
 
 .chat-connection-state button:hover,
@@ -1476,7 +1485,7 @@ button.chat-tool:hover,
     border-radius: var(--radius-control);
     background: var(--rail-2);
     color: var(--ink-dim);
-    font-size: 10.5px;
+    font-size: calc(10.5px * var(--chat-text-em, 1));
 }
 
 .chat-permission-actions button.allow {
@@ -1561,7 +1570,7 @@ button.chat-tool:hover,
     background: transparent;
     color: var(--ink);
     font-family: var(--ui);
-    font-size: 14.5px;
+    font-size: calc(14.5px * var(--chat-text-em, 1));
     line-height: 1.5;
     user-select: text;
 }
@@ -1597,7 +1606,7 @@ button.chat-tool:hover,
 
 .chat-attachments > span > span {
     overflow: hidden;
-    font-size: 10.5px;
+    font-size: calc(10.5px * var(--chat-text-em, 1));
     text-overflow: ellipsis;
     white-space: nowrap;
 }
@@ -1667,7 +1676,7 @@ button.chat-tool:hover,
     padding: 0 7px;
     border-radius: var(--radius-control);
     color: var(--ink-dim);
-    font-size: 10.5px;
+    font-size: calc(10.5px * var(--chat-text-em, 1));
 }
 
 .chat-permission-mode.tone-danger {
@@ -1714,7 +1723,7 @@ button.chat-tool:hover,
 .chat-composer-error {
     padding: 0 16px 5px;
     color: var(--danger);
-    font-size: 10.5px;
+    font-size: calc(10.5px * var(--chat-text-em, 1));
 }
 
 .chat-slash-menu {
@@ -1734,7 +1743,7 @@ button.chat-tool:hover,
     padding: 0 10px;
     border-bottom: 1px solid var(--line-soft);
     color: var(--ink-faint);
-    font-size: 9.5px;
+    font-size: calc(9.5px * var(--chat-text-em, 1));
 }
 
 .chat-slash-menu button {
@@ -1755,13 +1764,13 @@ button.chat-tool:hover,
 
 .chat-slash-menu code {
     color: var(--ink);
-    font-size: 10.5px;
+    font-size: calc(10.5px * var(--chat-text-em, 1));
 }
 
 .chat-slash-menu button > span {
     overflow: hidden;
     color: var(--ink-dim);
-    font-size: 10.5px;
+    font-size: calc(10.5px * var(--chat-text-em, 1));
     text-overflow: ellipsis;
     white-space: nowrap;
 }
@@ -1769,7 +1778,7 @@ button.chat-tool:hover,
 .chat-slash-menu em {
     color: var(--ink-faint);
     font-family: var(--mono);
-    font-size: 9.5px;
+    font-size: calc(9.5px * var(--chat-text-em, 1));
     font-style: normal;
 }
 
@@ -1995,7 +2004,7 @@ button.chat-tool:hover,
 .chat-picker-options small {
     margin-top: 3px;
     color: var(--ink-faint);
-    font-size: 10.5px;
+    font-size: calc(10.5px * var(--chat-text-em, 1));
 }
 
 @media (max-width: 650px) {

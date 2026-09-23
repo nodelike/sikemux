@@ -34,6 +34,13 @@ describe("keybindings", () => {
         );
     });
 
+    it("treats the shifted + as the plain = it shares a key with", () => {
+        const increase = getKeybindingAction("terminal.fontIncrease").defaultBinding;
+        const held = { metaKey: increase.startsWith("Meta"), ctrlKey: increase.startsWith("Ctrl") };
+        expect(actionForEvent(key("Equal", held), {})).toBe("terminal.fontIncrease");
+        expect(actionForEvent(key("Equal", { ...held, shiftKey: true }), {})).toBe("terminal.fontIncrease");
+    });
+
     it("resolves defaults, replacements, and explicit unassignment", () => {
         expect(resolvedKeybinding({}, "settings.toggle")).toBe(getKeybindingAction("settings.toggle").defaultBinding);
         expect(resolvedKeybinding({ "settings.toggle": "Ctrl+Comma" }, "settings.toggle")).toBe("Ctrl+Comma");

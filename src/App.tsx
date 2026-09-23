@@ -52,6 +52,9 @@ import { confirmDialog } from "./state/dialog";
 import { invalidate } from "./state/resources";
 import { getState, useStore } from "./state/store";
 import { applyTheme, applyWindowOpacity, registerCustomThemes } from "./themes/bus";
+import { applyTerminalFontSize } from "./terminal/fontSize";
+import { applyChatTextScale } from "./chat/textScale";
+import { applyEditorTextScale } from "./editor/textScale";
 import { dirname } from "./lib/paths";
 import type { StandaloneCommand } from "./commands/registry";
 import type { ProjectConfigLoadResult } from "./projectConfig";
@@ -701,6 +704,9 @@ export default function App() {
                     registerCustomThemes(st.customThemes);
                     applyTheme(st.themeId);
                     applyWindowOpacity(st.windowOpacity);
+                    applyTerminalFontSize(st.terminalFontSize);
+                    applyChatTextScale(st.chatTextScale);
+                    applyEditorTextScale(st.editorTextScale);
                     if (st.themeMode === "system") cmd.applySystemTheme(window.matchMedia("(prefers-color-scheme: dark)").matches);
                     cmd.setWindowBlur(st.windowBlur);
                     if (hydrationAllowsPersistence(hydrationResult)) {

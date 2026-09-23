@@ -1,6 +1,9 @@
 import { create } from "zustand";
 import { enableMapSet, produce, type Draft } from "immer";
 import { DEFAULT_THEME_ID, type Theme } from "../themes";
+import { DEFAULT_TERMINAL_FONT_SIZE } from "../terminal/fontSize";
+import { DEFAULT_CHAT_TEXT_SCALE } from "../chat/textScale";
+import { DEFAULT_EDITOR_TEXT_SCALE } from "../editor/textScale";
 import type { KeybindingOverrides } from "../keybindings";
 import type { CustomCommand } from "../commands/registry";
 import { DEFAULT_PROVIDER_PROFILES, DEFAULT_PROVIDER_PROFILE_SELECTION } from "./types";
@@ -56,6 +59,9 @@ export interface DomainState {
     /** User-defined themes, derived from a built-in or another custom theme via the theme editor. */
     customThemes: Theme[];
     uiTextScale: number;
+    terminalFontSize: number;
+    chatTextScale: number;
+    editorTextScale: number;
     windowOpacity: number;
     windowBlur: number;
     cloudBrowser: string;
@@ -204,6 +210,9 @@ export const useStore = create<StoreState>(() => {
         systemDarkThemeId: DEFAULT_THEME_ID,
         customThemes: [],
         uiTextScale: 1,
+        terminalFontSize: DEFAULT_TERMINAL_FONT_SIZE,
+        chatTextScale: DEFAULT_CHAT_TEXT_SCALE,
+        editorTextScale: DEFAULT_EDITOR_TEXT_SCALE,
         windowOpacity: 1,
         windowBlur: 0,
         cloudBrowser: "",

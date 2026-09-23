@@ -7,6 +7,7 @@ import { WebLinksAddon } from "@xterm/addon-web-links";
 import type { WebglAddon } from "@xterm/addon-webgl";
 import { invokeCommand as invoke } from "../api/invoke";
 import { currentTerminalTheme, registerTerminal } from "../themes/bus";
+import { currentTerminalFontSize, registerTerminalFontSize } from "./fontSize";
 import { IS_MACOS } from "../lib/platform";
 import {
     completeInitialReplay,
@@ -225,7 +226,7 @@ export function useXterm(opts: {
             try {
                 term = new Terminal({
                     fontFamily: FONT,
-                    fontSize: FONT_SIZE,
+                    fontSize: currentTerminalFontSize(),
                     fontWeight: FONT_WEIGHT,
                     fontWeightBold: FONT_WEIGHT_BOLD,
                     lineHeight: 1.0,
@@ -304,7 +305,10 @@ export function useXterm(opts: {
                 let contextLossSub: { dispose(): void } | null = null;
                 resourceDisposers.push(() => contextLossSub?.dispose());
                 const applyCellCorrection = () => {
-                    const next = renderer === "webgl" ? cellWidthCorrection(measureCharWidth(FONT, FONT_SIZE), window.devicePixelRatio) : 0;
+                    const next =
+                        renderer === "webgl"
+                            ? cellWidthCorrection(measureCharWidth(FONT, term.options.fontSize ?? FONT_SIZE), window.devicePixelRatio)
+                            : 0;
                     if (term.options.letterSpacing !== next) term.options.letterSpacing = next;
                 };
                 const setRenderer = (next: TerminalRenderer) => {
@@ -650,6 +654,7 @@ export function useXterm(opts: {
                     if (resizeFrame == null) resizeFrame = window.requestAnimationFrame(resizeNow);
                 };
                 resizeRef.current = resize;
+                resourceDisposers.push(registerTerminalFontSize({ term, refit: resize }));
                 const ro = new ResizeObserver(resize);
                 ro.observe(host);
                 resourceDisposers.push(() => ro.disconnect());
