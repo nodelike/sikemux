@@ -237,6 +237,7 @@ pub fn run() {
             fs_watch::repo_watch_start,
             fs_watch::repo_watch_stop,
             git::git_status,
+            git::git_discover_repos,
             git::git_diff,
             git::git_stage,
             git::git_unstage,

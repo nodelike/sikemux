@@ -86,6 +86,7 @@
     "allow-repo-watch-start",
     "allow-repo-watch-stop",
     "allow-git-status",
+    "allow-git-discover-repos",
     "allow-git-diff",
     "allow-git-stage",
     "allow-git-unstage",

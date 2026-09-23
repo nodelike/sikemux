@@ -198,6 +198,16 @@ pub struct GitStatus {
     files: Vec<GitFile>,
 }
 
+#[derive(Serialize, Clone, Debug)]
+pub struct DiscoveredRepo {
+    path: String,
+    name: String,
+    branch: String,
+    ahead: i32,
+    behind: i32,
+    changes: usize,
+}
+
 #[derive(Serialize, Clone)]
 pub struct GitBranch {
     name: String,
@@ -697,6 +707,56 @@ fn store_walk<T>(cache: &WalkCache<T>, key: String, generation: u64, value: T) {
         cache.clear();
     }
     cache.insert(key, (generation, value));
+}
+
+/* Only `node_modules` and the `.git` directory itself are skipped, matching what
+VS Code leaves out of its own scan. The much wider `files::should_skip_dir` list
+is deliberately not reused here, because it hides directory names like `vendor`,
+`build` and `out` that are perfectly ordinary repository names. */
+fn skip_repo_scan_dir(name: &str) -> bool {
+    matches!(name, "node_modules" | ".git")
+}
+
+/* One level below the opened folder, like VS Code's default scan depth. A project
+directory that is not itself a repository is usually a flat container of them. */
+#[tauri::command]
+pub async fn git_discover_repos(root: String) -> Result<Vec<DiscoveredRepo>, String> {
+    let _permit = git_walk_permit().await?;
+    run_blocking(move || -> Result<Vec<DiscoveredRepo>, String> {
+        let mut found: Vec<DiscoveredRepo> = Vec::new();
+        for entry in std::fs::read_dir(&root)
+            .map_err(|e| e.to_string())?
+            .flatten()
+        {
+            if !entry.file_type().is_ok_and(|kind| kind.is_dir()) {
+                continue;
+            }
+            let name = entry.file_name().to_string_lossy().to_string();
+            if skip_repo_scan_dir(&name) {
+                continue;
+            }
+            let path = entry.path();
+            // `open` rather than `discover`, so a plain directory never reports
+            // the repository it happens to sit inside.
+            let Ok(repo) = Repository::open(&path) else {
+                continue;
+            };
+            let Ok(status) = read_status(&repo) else {
+                continue;
+            };
+            found.push(DiscoveredRepo {
+                path: path.to_string_lossy().to_string(),
+                name,
+                branch: status.branch,
+                ahead: status.ahead,
+                behind: status.behind,
+                changes: status.files.len(),
+            });
+        }
+        found.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+        Ok(found)
+    })
+    .await
 }
 
 #[tauri::command]
@@ -4369,6 +4429,46 @@ mod tests {
         assert!(last.uncommitted, "appended line should be uncommitted");
         assert_eq!(last.summary, "Uncommitted changes");
         assert!(!blame.commits[blame.lines[0] as usize].uncommitted);
+    }
+
+    /// `vendor` is a real repository name, so the scan has to return it even
+    /// though the file-palette walker treats that name as noise.
+    #[tokio::test]
+    async fn discovers_child_repositories_and_skips_only_node_modules() {
+        let td = tempdir().expect("tempdir");
+        let root = td.path();
+        for name in ["beta", "alpha", "vendor", "node_modules"] {
+            let child = root.join(name);
+            fs::create_dir_all(&child).expect("child dir");
+            git(&child, &["init"]);
+            git(&child, &["config", "user.email", "sikemux@example.test"]);
+            git(&child, &["config", "user.name", "sikemux"]);
+            commit_base(&child);
+        }
+        fs::create_dir_all(root.join("plain/nested")).expect("plain dir");
+        fs::write(root.join("alpha/dirty.txt"), "x\n").expect("write dirty");
+
+        let found = git_discover_repos(repo_arg(root)).await.expect("discover");
+
+        let names: Vec<&str> = found.iter().map(|r| r.name.as_str()).collect();
+        assert_eq!(names, vec!["alpha", "beta", "vendor"]);
+        assert_eq!(found[0].changes, 1, "alpha has one untracked file");
+        assert_eq!(found[1].changes, 0, "beta is clean");
+    }
+
+    /// A directory inside a repository is not itself one, so it must not be
+    /// listed just because `discover` would have walked up and found the parent.
+    #[tokio::test]
+    async fn plain_directories_never_report_the_repository_above_them() {
+        let td = init_repo();
+        commit_base(td.path());
+        fs::create_dir_all(td.path().join("src")).expect("src dir");
+
+        let found = git_discover_repos(repo_arg(td.path()))
+            .await
+            .expect("discover");
+
+        assert!(found.is_empty(), "{found:?} should be empty");
     }
 
     #[tokio::test]

@@ -59,6 +59,8 @@ export interface GitPaneView {
     selected: Record<GitPanel, number>;
     remoteDrill: string | null;
     remoteBranchSelected: Record<string, number>;
+    /** A repository found inside the project folder, when the folder is not one itself. */
+    repo: string | null;
 }
 
 export const DEFAULT_GIT_VIEW: GitPaneView = {
@@ -66,6 +68,7 @@ export const DEFAULT_GIT_VIEW: GitPaneView = {
     selected: { status: 0, files: 0, branches: 0, remotes: 0, commits: 0, stashes: 0 },
     remoteDrill: null,
     remoteBranchSelected: {},
+    repo: null,
 };
 
 export interface GlobalSearchView {

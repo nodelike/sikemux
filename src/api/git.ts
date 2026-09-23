@@ -16,6 +16,15 @@ export interface GitStatus {
     files: GitFile[];
 }
 
+export interface DiscoveredRepo {
+    path: string;
+    name: string;
+    branch: string;
+    ahead: number;
+    behind: number;
+    changes: number;
+}
+
 export interface GitBranch {
     name: string;
     current: boolean;
@@ -152,6 +161,7 @@ subscribe("git-refresh", (event) => forgetMovingRevisions(event.repo || undefine
 
 export const git = {
     status: (repo: string) => invoke<GitStatus>("git_status", { repo }),
+    discoverRepos: (root: string) => invoke<DiscoveredRepo[]>("git_discover_repos", { root }),
     overview: (repo: string) => invoke<GitOverview>("git_overview", { repo }),
     diff: (repo: string, path: string, staged: boolean) => invoke<string>("git_diff", { repo, path, staged }),
     stage: (repo: string, path: string) => invoke<void>("git_stage", { repo, path }),

@@ -73,6 +73,7 @@ pub const IPC_COMMANDS: &[&str] = &[
     "repo_watch_start",
     "repo_watch_stop",
     "git_status",
+    "git_discover_repos",
     "git_diff",
     "git_stage",
     "git_unstage",
