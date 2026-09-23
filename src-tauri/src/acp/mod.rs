@@ -22,7 +22,7 @@ use tokio::sync::{mpsc, oneshot};
 use url::Url;
 use uuid::Uuid;
 
-const CLAUDE_ADAPTER: &str = "@agentclientprotocol/claude-agent-acp@0.73.0";
+const CLAUDE_ADAPTER: &str = "@agentclientprotocol/claude-agent-acp@0.81.0";
 const CODEX_ADAPTER: &str = "@agentclientprotocol/codex-acp@1.8.0";
 const MAX_AGENT_ID: usize = 200;
 const MAX_PROMPT_BYTES: usize = 2 * 1024 * 1024;
@@ -261,7 +261,7 @@ fn adapter_spec(provider: &str) -> Result<AdapterSpec, String> {
     match provider {
         "claude" => Ok(AdapterSpec {
             package: CLAUDE_ADAPTER,
-            package_dir: "claude-0.73.0",
+            package_dir: "claude-0.81.0",
             executable: "@agentclientprotocol/claude-agent-acp/dist/index.js",
         }),
         "codex" => Ok(AdapterSpec {
