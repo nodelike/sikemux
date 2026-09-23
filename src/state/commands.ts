@@ -1946,6 +1946,16 @@ export function selectAgent(id: string): void {
     });
 }
 
+/** Open an agent that lives in some other project, switching to it on the way. */
+export function revealAgent(id: string): void {
+    const state = getState();
+    const windowId = agentWindowId(state, id);
+    const sessionId = windowId ? ownerSessionId(state, windowId) : null;
+    if (!sessionId) return;
+    if (sessionId !== state.activeSessionId) selectSession(sessionId);
+    selectAgent(id);
+}
+
 export function resumeAgent(id: string): void {
     mutate((d) => {
         const agent = d.agents[id];

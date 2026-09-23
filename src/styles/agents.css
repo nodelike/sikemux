@@ -1330,3 +1330,27 @@
 .workspace-rail[data-density="compact"] .agent-row {
     height: 27px;
 }
+
+.agent-attention .panel-label {
+    color: var(--warn);
+}
+.agent-row.attention {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.agent-row.attention .agent-title {
+    min-width: 0;
+}
+/* Shrinks by `min-width: 0` rather than a percentage cap. A percentage
+   max-width on a flex item makes the row resolve its intrinsic width, which
+   is the expensive layout path this rail cannot afford. */
+.agent-attention-project {
+    flex: 0 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 10px;
+    color: var(--text-tertiary);
+}

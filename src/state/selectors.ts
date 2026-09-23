@@ -20,6 +20,36 @@ export const selectWindowIds =
     (sessionId: string) =>
     (state: StoreState): readonly string[] =>
         state.windowsBySession[sessionId] ?? EMPTY_IDS;
+export interface AgentAttention {
+    agentId: string;
+    agentTitle: string;
+    agentType: import("./types").AgentType;
+    sessionId: string;
+    sessionName: string;
+}
+
+/**
+ * Every agent across every project that stopped to ask the user something. The
+ * rail lists these together because a blocked agent in a project you are not
+ * looking at is exactly the one you cannot see.
+ */
+export function agentsAwaitingInput(
+    state: Pick<StoreState, "sessionOrder" | "sessions" | "windows" | "windowsBySession" | "agents" | "agentActivity">,
+): AgentAttention[] {
+    const waiting: AgentAttention[] = [];
+    for (const sessionId of state.sessionOrder) {
+        const session = state.sessions[sessionId];
+        if (!session) continue;
+        for (const agentId of agentIdsOf(state, sessionId)) {
+            if (state.agentActivity[agentId]?.state !== "blocked") continue;
+            const agent = state.agents[agentId];
+            if (!agent) continue;
+            waiting.push({ agentId, agentTitle: agent.title, agentType: agent.type, sessionId, sessionName: session.name });
+        }
+    }
+    return waiting;
+}
+
 /**
  * The agents a session holds, in strip order. An agent is a window whose one
  * pane carries its id, so this is a read over the windows, not a second list.

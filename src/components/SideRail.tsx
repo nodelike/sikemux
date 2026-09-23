@@ -289,6 +289,7 @@ function ProjectBlock({ s }: { s: Session }) {
                             <IconFolder size={12} />
                         </span>
                         <span className="proj-name">{s.name}</span>
+                        {(rollup || rollupBackground) && <AgentStateIndicator state={rollup ?? "idle"} background={rollupBackground} />}
                     </button>
                 </Tooltip>
                 <SessionCloseButton session={s} />
