@@ -79,6 +79,8 @@
     "allow-create-dir",
     "allow-copy-into-dir",
     "allow-downloads-dir",
+    "allow-chat-attachment-dir",
+    "allow-clipboard-png",
     "allow-save-base64-into-dir",
     "allow-rename-path",
     "allow-reveal-in-finder",

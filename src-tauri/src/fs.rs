@@ -640,6 +640,62 @@ pub async fn downloads_dir(app: tauri::AppHandle) -> AppResult<String> {
     Ok(dir.to_string_lossy().into_owned())
 }
 
+/// The picture on the system clipboard as base64 PNG, or `None` when the
+/// clipboard holds something else. WKWebView does not reliably put a pasted
+/// image into the DOM clipboard event, so the composer asks AppKit directly.
+/// Data is read off the pasteboard rather than built into an `NSImage`, which
+/// keeps this off the main thread.
+#[cfg(target_os = "macos")]
+pub fn clipboard_png_sync() -> Option<String> {
+    use objc2_app_kit::{
+        NSBitmapImageFileType, NSBitmapImageRep, NSPasteboard, NSPasteboardTypePNG,
+        NSPasteboardTypeTIFF,
+    };
+    use objc2_foundation::NSDictionary;
+
+    let pasteboard = unsafe { NSPasteboard::generalPasteboard() };
+
+    // Already a PNG on the clipboard: hand it straight over.
+    if let Some(png) = unsafe { pasteboard.dataForType(NSPasteboardTypePNG) } {
+        return Some(general_purpose::STANDARD.encode(png.to_vec()));
+    }
+
+    // A screenshot arrives as TIFF, which has to be re-encoded.
+    let tiff = unsafe { pasteboard.dataForType(NSPasteboardTypeTIFF) }?;
+    let bitmap = NSBitmapImageRep::imageRepWithData(&tiff)?;
+    let empty = NSDictionary::new();
+    let png =
+        unsafe { bitmap.representationUsingType_properties(NSBitmapImageFileType::PNG, &empty) }?;
+    Some(general_purpose::STANDARD.encode(png.to_vec()))
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn clipboard_png_sync() -> Option<String> {
+    None
+}
+
+#[tauri::command]
+pub async fn clipboard_png() -> AppResult<Option<String>> {
+    spawn_blocking(clipboard_png_sync)
+        .await
+        .map_err(|e| AppError::Other(format!("clipboard_png join: {e}")))
+}
+
+/// Where a picture pasted into a chat is written. An agent is given a path, not
+/// bytes, so a pasted image has to become a file first — and it belongs in the
+/// app's own cache rather than in the project or the user's Downloads.
+#[tauri::command]
+pub async fn chat_attachment_dir(app: tauri::AppHandle) -> AppResult<String> {
+    use tauri::Manager;
+    let dir = app
+        .path()
+        .app_cache_dir()
+        .unwrap_or_else(|_| std::env::temp_dir())
+        .join("pasted");
+    std::fs::create_dir_all(&dir)?;
+    Ok(dir.to_string_lossy().into_owned())
+}
+
 /// Write base64 bytes into `dir` under `name`, the way a copied file lands
 /// there: never over something already named that. Returns the final path.
 #[tauri::command]
