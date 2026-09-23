@@ -273,11 +273,19 @@
     width: 100%;
 }
 
+/* macOS asks for a hit test on hover, and WebKit answers it by laying out the
+   whole document first. Without containment that walk descends into every row
+   in the transcript and re-measures all of its text, which on a long session is
+   seconds of glyph shaping for a mouse movement. `layout style` promises the
+   engine a row cannot disturb anything outside it, so the walk can stop at the
+   rows that actually changed. Size is deliberately not contained: the
+   virtualizer measures each row to learn its real height. */
 .chat-virtual-row {
     position: absolute;
     top: 0;
     left: 0;
     width: 100%;
+    contain: layout style;
 }
 
 .chat-message {
@@ -2019,4 +2027,24 @@ button.chat-tool:hover,
         bottom: 120px;
         width: auto;
     }
+}
+
+.chat-show-rest {
+    display: block;
+    margin-top: 8px;
+    padding: 4px 10px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-control);
+    background: transparent;
+    color: var(--ink-faint);
+    font-family: var(--ui);
+    font-size: var(--text-2xs);
+    cursor: pointer;
+    transition:
+        color 100ms,
+        border-color 100ms;
+}
+.chat-show-rest:hover {
+    border-color: var(--acc-line);
+    color: var(--ink);
 }

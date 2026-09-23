@@ -55,6 +55,7 @@ import type { CodeLine } from "./types";
 import { localImagePath, localPath, useImagePreview } from "./imagePreview";
 import { ChatFileRef, PathRootsProvider, useFileRef } from "./FileRef";
 import { chatUrlTransform, PATH_CLASS, PATH_CODE_CLASS, remarkFilePaths } from "./remarkFilePaths";
+import { cutLongText, LONG_TEXT_LIMIT } from "./longText";
 import { showImage } from "../state/imageViewer";
 import type {
     AcpAsyncTask,
@@ -578,11 +579,29 @@ function ContentPart({ part }: { part: Extract<ChatPart, { kind: "content" }> })
     return <pre className="chat-unknown-part">{formatDetail(content)}</pre>;
 }
 
+/* Folded only when the message was already this long on arrival. One the reader
+   watched stream in is left whole: collapsing it the moment it finished would
+   take the text away mid-sentence. */
+function FoldedMarkdown({ text, live }: { text: string; live: boolean }) {
+    const [expanded, setExpanded] = useState(false);
+    const foldable = useRef(!live && text.length > LONG_TEXT_LIMIT);
+    const cut = useMemo(() => (foldable.current && !expanded ? cutLongText(text) : null), [text, expanded]);
+    if (!cut) return <LiveMarkdown text={text} live={live} />;
+    return (
+        <>
+            <LiveMarkdown text={cut.head} live={false} />
+            <button type="button" className="chat-show-rest" onClick={() => setExpanded(true)}>
+                Show the rest — {Math.round(cut.hidden / 1000)}k more characters
+            </button>
+        </>
+    );
+}
+
 const MessagePart = memo(function MessagePart({ part, live }: { part: ChatPart; live: boolean }) {
     if (part.kind === "text") {
         return (
             <div className="chat-markdown">
-                <LiveMarkdown text={part.text} live={live} />
+                <FoldedMarkdown text={part.text} live={live} />
             </div>
         );
     }
@@ -590,7 +609,7 @@ const MessagePart = memo(function MessagePart({ part, live }: { part: ChatPart; 
         return (
             <div className="chat-thought">
                 <div className="chat-markdown">
-                    <LiveMarkdown text={part.text} live={live} />
+                    <FoldedMarkdown text={part.text} live={live} />
                 </div>
             </div>
         );
