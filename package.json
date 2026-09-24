@@ -1,7 +1,7 @@
 {
   "name": "sikemux",
   "private": true,
-  "version": "0.4.0-nightly.10",
+  "version": "0.4.1",
   "type": "module",
   "packageManager": "pnpm@10.33.0",
   "engines": {

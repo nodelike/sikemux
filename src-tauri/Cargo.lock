@@ -4129,7 +4129,7 @@ dependencies = [
 
 [[package]]
 name = "sikemux"
-version = "0.4.0-nightly.10"
+version = "0.4.1"
 dependencies = [
  "agent-client-protocol",
  "base64 0.22.1",
