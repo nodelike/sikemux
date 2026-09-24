@@ -148,6 +148,9 @@ if [[ "$NOTARIZED" == "1" ]]; then
   fi
 else
   export APPLE_SIGNING_IDENTITY="-"
+  # The bundler notarizes whenever these are set, even to an empty string, and
+  # the release workflow always sets them.
+  unset APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID APPLE_API_KEY APPLE_API_ISSUER APPLE_API_KEY_PATH
   echo "! Community release: updater-signed and ad-hoc code signed, but not Apple-notarized." >&2
 fi
 if [[ "$PUBLISH" == "1" ]]; then
