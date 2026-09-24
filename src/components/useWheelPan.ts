@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import type { RefObject } from "react";
 import * as cmd from "../state/commands";
 import { fingersDown, onFingers, watchFingers } from "../lib/wheelTouch";
+import { selectSwipeOrder } from "../state/selectors";
 import { getState } from "../state/store";
 import { panOffset, RETURN_MS, settleMs } from "./useWindowPan";
 import type { WindowPan } from "./useWindowPan";
@@ -80,7 +81,7 @@ export function useWheelPan(areaRef: RefObject<HTMLElement | null>, pan: WindowP
         const session = () => {
             const state = getState();
             return {
-                order: state.windowsBySession[state.activeSessionId] ?? [],
+                order: selectSwipeOrder(state, state.activeSessionId),
                 on: state.sessions[state.activeSessionId]?.activeWindowId ?? null,
             };
         };

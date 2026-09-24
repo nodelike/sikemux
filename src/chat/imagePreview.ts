@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { fsapi } from "../api/fs";
+import { fsapi, type FileBlob } from "../api/fs";
 import { isImagePath } from "../editor/media";
 
 const MAX_CACHED = 12;
@@ -51,9 +51,39 @@ async function shrink(blob: Blob): Promise<string | null> {
     }
 }
 
-async function readPreview(path: string): Promise<string | null> {
+/* An SVG that gives only a viewBox has no size of its own, and WebKit draws it
+   0px wide anywhere the box it sits in sizes itself to its content. */
+export function sizedSvg(markup: string): string {
+    const document = new DOMParser().parseFromString(markup, "image/svg+xml");
+    const root = document.documentElement;
+    if (root.localName !== "svg" || root.hasAttribute("width") || root.hasAttribute("height")) return markup;
+    const [, , width, height] = (root.getAttribute("viewBox") ?? "")
+        .trim()
+        .split(/[\s,]+/)
+        .map(Number);
+    if (!(width > 0 && height > 0)) return markup;
+    root.setAttribute("width", String(width));
+    root.setAttribute("height", String(height));
+    return new XMLSerializer().serializeToString(document);
+}
+
+function base64Of(bytes: Uint8Array): string {
+    let binary = "";
+    for (const byte of bytes) binary += String.fromCharCode(byte);
+    return btoa(binary);
+}
+
+async function readImage(path: string): Promise<FileBlob | null> {
     const blob = await fsapi.readFileBase64(path);
     if (!blob.mime.startsWith("image/")) return null;
+    if (blob.mime !== "image/svg+xml") return blob;
+    const markup = sizedSvg(new TextDecoder().decode(bytesOf(blob.data)));
+    return { ...blob, data: base64Of(new TextEncoder().encode(markup)) };
+}
+
+async function readPreview(path: string): Promise<string | null> {
+    const blob = await readImage(path);
+    if (!blob) return null;
     if (blob.size <= SHRINK_OVER_BYTES) return `data:${blob.mime};base64,${blob.data}`;
     return shrink(new Blob([bytesOf(blob.data)], { type: blob.mime }));
 }
@@ -94,8 +124,8 @@ export function previewCacheBytes(): number {
 /** Reads a local image whole, for a viewer that wants it at its own size. */
 export async function readImageSource(path: string): Promise<string | null> {
     try {
-        const blob = await fsapi.readFileBase64(path);
-        return blob.mime.startsWith("image/") ? `data:${blob.mime};base64,${blob.data}` : null;
+        const blob = await readImage(path);
+        return blob ? `data:${blob.mime};base64,${blob.data}` : null;
     } catch {
         return null;
     }

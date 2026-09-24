@@ -19,6 +19,7 @@ function tab(overrides: Partial<BrowserTab> = {}): BrowserTab {
         canGoBack: false,
         canGoForward: false,
         favicon: null,
+        acting: false,
         ...overrides,
     };
 }

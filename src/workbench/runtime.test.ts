@@ -39,4 +39,35 @@ describe("WorkbenchRuntime", () => {
         runtime.stop();
         expect(runtime.getSnapshot()).toEqual({ sessions: 0, items: 0, reconciliations: 2, started: false });
     });
+
+    it("starts with a plugin's pane open, whether or not the plugin is in this build", () => {
+        const pane = { type: "pane", id: "pane-plugin", cwd: "", kind: "sikemux.rundeck:deploy", title: "Rundeck" } as const;
+        const window: Window = {
+            id: "window-plugin",
+            name: "Rundeck",
+            role: "sikemux.rundeck:deploy",
+            root: pane,
+            activePaneId: pane.id,
+            fixed: true,
+        };
+        const session: Session = {
+            id: "session-plugin",
+            name: "Rundeck",
+            kind: "sikemux.rundeck:deploy",
+            cwd: "",
+            pinned: false,
+            activeWindowId: window.id,
+        };
+        setState({
+            sessions: { [session.id]: session },
+            sessionOrder: [session.id],
+            activeSessionId: session.id,
+            windows: { [window.id]: window },
+            windowsBySession: { [session.id]: [window.id] },
+        });
+        const runtime = new WorkbenchRuntime();
+        expect(() => runtime.start()).not.toThrow();
+        expect(runtime.getSession(session.id)?.getSnapshot().activeItemId).toBe(pane.id);
+        runtime.stop();
+    });
 });

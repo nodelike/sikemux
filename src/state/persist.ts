@@ -1,10 +1,15 @@
 import { invokeCommand as invoke } from "../api/invoke";
+import { fixedSessionName } from "./sessionNames";
 import { sshStartup } from "../terminal/sshStartup";
-import { isBuiltinTheme, isTheme } from "../themes";
+import { clampTerminalFontSize } from "../terminal/fontSize";
+import { clampChatTextScale } from "../chat/textScale";
+import { clampEditorTextScale } from "../editor/textScale";
+import { isTheme } from "../themes";
 import { normaliseKeybindingOverrides } from "../keybindings";
 import type { CommandContext, CustomCommand, CustomCommandPlacement } from "../commands/registry";
 import { registerCustomThemes } from "../themes/bus";
 import { normalizePermissionMode } from "../agentLaunch";
+import { clampRailWidth } from "../lib/railWidths";
 import { mergePinnedIntoRoots, normaliseProjectRoots, pruneOnDemandWindows } from "./commands";
 import { agentPaneId } from "./selectors";
 import { collectPanes, removePane } from "./layout";
@@ -13,7 +18,8 @@ import { agentDirectCommand, agentStartup } from "./commands";
 import { agentWindow } from "./agentWindow";
 import { getState, setState, useStore, type StoreState } from "./store";
 import { errMessage, notify } from "./toast";
-import { validatePersistedLayout } from "./persistValidation";
+import { isSessionKind, validatePersistedLayout } from "./persistValidation";
+import { isPluginId, isPluginKind } from "../plugins/kinds";
 import { createWorkbenchItemRef, workbenchItemRegistry, workbenchItemRefFromPane, type BuiltinWorkbenchItemState } from "../workbench/registry";
 import type {
     Agent,
@@ -21,9 +27,9 @@ import type {
     AgentProvider,
     AgentType,
     BrowserPaneView,
+    CorePaneKind,
     EditorPaneView,
     LayoutNode,
-    PaneKind,
     PersistedAgent,
     PersistedPrefs,
     PersistedSession,
@@ -37,20 +43,23 @@ import type {
 } from "./types";
 
 function deriveRole(w: Window): WindowRole {
-    if (WINDOW_ROLES.has(w.role)) return w.role;
+    if (WINDOW_ROLES.has(w.role) || isPluginKind(w.role)) return w.role;
     if (w.name === "files") return "files";
     if (w.name === "git") return "git";
-    if (w.name === "aws") return "aws";
-    if (w.name === "rundeck") return "rundeck";
-    if (w.name === "bruno") return "bruno";
     if (w.name === "term" || /^\d+$/.test(w.name)) return "term";
     return "named";
 }
 
-export const VERSION = 9;
+export const VERSION = 15;
 const MIN_SUPPORTED_VERSION = 3;
 const ONBOARDING_MIGRATION_VERSION = 6;
 const AGENT_PERMISSION_DEFAULT_MIGRATION_VERSION = 9;
+const PLUGIN_KIND_MIGRATION_VERSION = 10;
+const PLUGIN_SETTINGS_MIGRATION_VERSION = 11;
+const ONE_BRUNO_SESSION_MIGRATION_VERSION = 12;
+const AWS_PLUGIN_MIGRATION_VERSION = 13;
+const BRUNO_PLUGIN_MIGRATION_VERSION = 14;
+const RUNDECK_GROUPS_MIGRATION_VERSION = 15;
 const RETRY_MS = 1500;
 let lastSaved = "";
 let activeSnapshot: string | null = null;
@@ -73,24 +82,24 @@ const PERSISTED_KEYS = [
     "browserStrips",
     "browserRestores",
     "projectRoots",
-    "brunoWorkspaces",
     "themeId",
-    "themeMode",
-    "systemLightThemeId",
-    "systemDarkThemeId",
     "customThemes",
     "uiTextScale",
+    "terminalFontSize",
+    "chatTextScale",
+    "editorTextScale",
     "windowOpacity",
     "windowBlur",
     "cloudBrowser",
     "cloudBrowserShortcut",
     "keybindingOverrides",
-    "awsProfile",
-    "awsService",
     "sideRailOpen",
     "agentRailOpen",
+    "sideRailWidth",
+    "agentRailWidth",
     "zenMode",
-    "rundeck",
+    "pluginSettings",
+    "disabledPlugins",
     "restoreAgentTabs",
     "railDensity",
     "onboardingComplete",
@@ -122,24 +131,24 @@ function packPrefs(s: StoreState): PersistedPrefs {
     const providerProfiles = normaliseProviderProfiles(s.providerProfiles, []);
     return {
         projectRoots: s.projectRoots,
-        brunoWorkspaces: s.brunoWorkspaces,
         themeId: s.themeId,
-        themeMode: s.themeMode,
-        systemLightThemeId: s.systemLightThemeId,
-        systemDarkThemeId: s.systemDarkThemeId,
         customThemes: s.customThemes,
         uiTextScale: s.uiTextScale,
+        terminalFontSize: s.terminalFontSize,
+        chatTextScale: s.chatTextScale,
+        editorTextScale: s.editorTextScale,
         windowOpacity: s.windowOpacity,
         windowBlur: s.windowBlur,
         cloudBrowser: s.cloudBrowser,
         cloudBrowserShortcut: s.cloudBrowserShortcut,
         keybindingOverrides: s.keybindingOverrides,
-        awsProfile: s.awsProfile,
-        awsService: s.awsService,
         sideRailOpen: s.sideRailOpen,
         agentRailOpen: s.agentRailOpen,
+        sideRailWidth: s.sideRailWidth,
+        agentRailWidth: s.agentRailWidth,
         zenMode: s.zenMode,
-        rundeck: s.rundeck,
+        pluginSettings: s.pluginSettings,
+        disabledPlugins: [...s.disabledPlugins],
         restoreAgentTabs: s.restoreAgentTabs,
         railDensity: s.railDensity,
         onboardingComplete: s.onboardingComplete,
@@ -154,28 +163,12 @@ function packPrefs(s: StoreState): PersistedPrefs {
     };
 }
 
-/** Union of the persisted registry with any currently-open Bruno collection paths, deduped, most-recent-first. */
-function mergeBrunoWorkspaces(saved: string[] | undefined, sessions: Session[]): string[] {
-    const open = sessions.filter((s) => s.kind === "bruno").map((s) => s.bruno?.collectionPath);
-    const out: string[] = [];
-    for (const p of [...(saved ?? []), ...open]) if (typeof p === "string" && p && !out.includes(p)) out.push(p);
-    return out;
-}
-
-const SESSION_KINDS = new Set<Session["kind"]>(["project", "command", "ssh", "aws", "rundeck", "bruno"]);
-const WINDOW_ROLES = new Set<WindowRole>(["term", "files", "git", "diff", "search", "aws", "rundeck", "bruno", "ssh-config", "named", "agent"]);
-const AWS_SERVICES = new Set<StoreState["awsService"]>(["ecs", "ec2", "lambda", "sqs", "billing", "s3"]);
+const WINDOW_ROLES = new Set<WindowRole>(["term", "files", "git", "diff", "search", "ssh-config", "named", "agent"]);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
     return !!value && typeof value === "object" && !Array.isArray(value);
 }
 
-function isThemeId(value: string, customThemes: unknown): boolean {
-    if (isBuiltinTheme(value)) return true;
-    return Array.isArray(customThemes) && customThemes.some((theme) => isTheme(theme) && theme.id === value);
-}
-
-const COMMAND_CONTEXTS = new Set<CommandContext>(["project", "command", "ssh", "aws", "rundeck", "bruno"]);
 const COMMAND_PLACEMENTS = new Set<CustomCommandPlacement>(["background", "terminal", "split", "popup", "replace"]);
 
 function normaliseCustomCommands(value: unknown): CustomCommand[] {
@@ -186,9 +179,7 @@ function normaliseCustomCommands(value: unknown): CustomCommand[] {
         if (!isRecord(row) || typeof row.id !== "string" || !row.id || seen.has(row.id)) continue;
         if (typeof row.title !== "string" || !row.title.trim() || typeof row.command !== "string" || !row.command.trim()) continue;
         if (!COMMAND_PLACEMENTS.has(row.placement as CustomCommandPlacement)) continue;
-        const contexts = Array.isArray(row.contexts)
-            ? row.contexts.filter((v): v is CommandContext => COMMAND_CONTEXTS.has(v as CommandContext))
-            : [];
+        const contexts = Array.isArray(row.contexts) ? row.contexts.filter((v): v is CommandContext => isSessionKind(v)) : [];
         seen.add(row.id);
         commands.push({
             id: row.id.slice(0, 100),
@@ -201,10 +192,6 @@ function normaliseCustomCommands(value: unknown): CustomCommand[] {
         if (commands.length >= 100) break;
     }
     return commands;
-}
-
-function isStringRecord(value: unknown): value is Record<string, string> {
-    return isRecord(value) && Object.values(value).every((item) => typeof item === "string");
 }
 
 function isLayout(value: unknown): value is Window["root"] {
@@ -248,42 +235,26 @@ function toSession(value: unknown): Session | null {
     if (
         typeof value.id !== "string" ||
         typeof value.name !== "string" ||
-        !SESSION_KINDS.has(value.kind as Session["kind"]) ||
+        !isSessionKind(value.kind) ||
         typeof value.cwd !== "string" ||
         typeof value.pinned !== "boolean" ||
         typeof value.activeWindowId !== "string"
     ) {
         return null;
     }
-    const deploy =
-        isRecord(value.deploy) &&
-        typeof value.deploy.project === "string" &&
-        (value.deploy.folder === null || typeof value.deploy.folder === "string")
-            ? { project: value.deploy.project, folder: value.deploy.folder }
-            : null;
     const session: Session = {
         id: value.id,
-        name: value.name,
+        name: fixedSessionName(value.kind as Session["kind"]) ?? value.name,
         kind: value.kind as Session["kind"],
         cwd: value.cwd,
-        deploy,
         pinned: value.pinned,
         activeWindowId: value.activeWindowId,
     };
-    if (session.kind === "bruno") {
-        const bruno = isRecord(value.bruno) ? value.bruno : {};
-        session.bruno = {
-            collectionPath: typeof bruno.collectionPath === "string" ? bruno.collectionPath : session.cwd,
-            selectedEnvs: isStringRecord(bruno.selectedEnvs) ? bruno.selectedEnvs : {},
-        };
-    } else {
-        delete session.bruno;
-    }
     return session;
 }
 
 function isRecent(value: unknown): value is RecentEntry {
-    return isRecord(value) && SESSION_KINDS.has(value.kind as Session["kind"]) && typeof value.name === "string" && typeof value.cwd === "string";
+    return isRecord(value) && isSessionKind(value.kind) && typeof value.name === "string" && typeof value.cwd === "string";
 }
 
 const AGENT_TYPES = new Set<AgentType>(["claude", "codex", "hermes", "pi", "opencode", "omp", "grok"]);
@@ -380,9 +351,7 @@ function toPersistedAgent(value: unknown): PersistedAgent | null {
 }
 
 function persistedSession(sess: Session): PersistedSession {
-    const { bruno, ...base } = sess;
-    if (sess.kind !== "bruno" || !bruno) return base;
-    return { ...base, bruno: { collectionPath: bruno.collectionPath, selectedEnvs: bruno.selectedEnvs } };
+    return sess;
 }
 
 /** Startup commands are rebuilt from the type and resume id on restore, never saved. */
@@ -435,7 +404,7 @@ function durableWindow(s: StoreState, id: string): Window | null {
 }
 
 /** One malformed item must not cost every other item, or the layout, its save. */
-function encodeItemState<Kind extends PaneKind>(
+function encodeItemState<Kind extends CorePaneKind>(
     itemStates: NonNullable<PersistedSnapshot["itemStates"]>,
     itemId: string,
     kind: Kind,
@@ -566,6 +535,161 @@ export function flushPersist(): Promise<boolean> {
     return startSaveLoop();
 }
 
+/** Before v10 Rundeck was built in, and its sessions, windows, panes and command contexts were plain "rundeck". */
+const LEGACY_PLUGIN_KINDS: ReadonlyMap<unknown, string> = new Map([["rundeck", "sikemux.rundeck:deploy"]]);
+
+function renameLegacyPluginKinds(decoded: Record<string, unknown>, kinds: ReadonlyMap<unknown, string> = LEGACY_PLUGIN_KINDS): void {
+    const rename = (value: unknown) => kinds.get(value) ?? value;
+    for (const row of Array.isArray(decoded.sessions) ? decoded.sessions : []) if (isRecord(row)) row.kind = rename(row.kind);
+    const windowsBySession = isRecord(decoded.windowsBySession) ? decoded.windowsBySession : {};
+    for (const rows of Object.values(windowsBySession)) {
+        for (const row of Array.isArray(rows) ? rows : []) {
+            if (!isRecord(row)) continue;
+            row.role = rename(row.role);
+            const pending: unknown[] = [row.root];
+            for (let node = pending.pop(); node !== undefined; node = pending.pop()) {
+                if (!isRecord(node)) continue;
+                if (node.type === "pane") node.kind = rename(node.kind);
+                else if (Array.isArray(node.children)) for (const child of node.children) pending.push(child);
+            }
+        }
+    }
+    const prefs = isRecord(decoded.prefs) ? decoded.prefs : {};
+    for (const command of Array.isArray(prefs.customCommands) ? prefs.customCommands : []) {
+        if (isRecord(command) && Array.isArray(command.contexts)) command.contexts = command.contexts.map(rename);
+    }
+}
+
+/**
+ * Before v13 AWS was built in. Its sessions, windows and panes were plain "aws",
+ * its profile and service sat among core's settings, and its shortcut was core's.
+ */
+function moveAwsIntoItsPlugin(decoded: Record<string, unknown>): void {
+    const windowsBySession = isRecord(decoded.windowsBySession) ? decoded.windowsBySession : {};
+    for (const rows of Object.values(windowsBySession)) {
+        for (const row of Array.isArray(rows) ? rows : []) {
+            if (isRecord(row) && row.role === undefined && row.name === "aws") row.role = "aws";
+        }
+    }
+    renameLegacyPluginKinds(decoded, new Map([["aws", "sikemux.aws:console"]]));
+    const prefs = isRecord(decoded.prefs) ? decoded.prefs : {};
+    const pluginSettings = isRecord(prefs.pluginSettings) ? prefs.pluginSettings : {};
+    const keybindingOverrides = isRecord(prefs.keybindingOverrides) ? { ...prefs.keybindingOverrides } : {};
+    if ("aws.open" in keybindingOverrides) {
+        keybindingOverrides["plugin.open:sikemux.aws"] = keybindingOverrides["aws.open"];
+        delete keybindingOverrides["aws.open"];
+    }
+    decoded.prefs = {
+        ...prefs,
+        keybindingOverrides,
+        pluginSettings: { ...pluginSettings, "sikemux.aws": { profile: prefs.awsProfile, service: prefs.awsService } },
+    };
+}
+
+const LEGACY_BRUNO_SHORTCUTS: Readonly<Record<string, string>> = {
+    "bruno.open": "plugin.open:sikemux.bruno",
+    "bruno.save": "plugin.run:sikemux.bruno/save",
+    "bruno.send": "plugin.run:sikemux.bruno/send",
+    "bruno.environment": "plugin.run:sikemux.bruno/environment",
+};
+
+/**
+ * Before v14 Bruno was built in. Its session kept the loaded collection and the
+ * chosen environments, the workspace list sat among core's settings, and its
+ * shortcuts were core's.
+ */
+function moveBrunoIntoItsPlugin(decoded: Record<string, unknown>): void {
+    const sessions = Array.isArray(decoded.sessions) ? decoded.sessions : [];
+    const session = sessions.find((row): row is Record<string, unknown> => isRecord(row) && row.kind === "bruno");
+    const saved = session && isRecord(session.bruno) ? session.bruno : {};
+    const collectionPath = typeof saved.collectionPath === "string" ? saved.collectionPath : typeof session?.cwd === "string" ? session.cwd : "";
+    for (const row of sessions) if (isRecord(row)) delete row.bruno;
+
+    const windowsBySession = isRecord(decoded.windowsBySession) ? decoded.windowsBySession : {};
+    for (const rows of Object.values(windowsBySession)) {
+        for (const row of Array.isArray(rows) ? rows : []) {
+            if (isRecord(row) && row.role === undefined && row.name === "bruno") row.role = "bruno";
+        }
+    }
+    renameLegacyPluginKinds(decoded, new Map([["bruno", "sikemux.bruno:client"]]));
+
+    const prefs = isRecord(decoded.prefs) ? decoded.prefs : {};
+    const workspaces = Array.isArray(prefs.brunoWorkspaces) ? prefs.brunoWorkspaces : [];
+    const keybindingOverrides: Record<string, unknown> = {};
+    for (const [id, binding] of Object.entries(isRecord(prefs.keybindingOverrides) ? prefs.keybindingOverrides : {})) {
+        keybindingOverrides[LEGACY_BRUNO_SHORTCUTS[id] ?? id] = binding;
+    }
+    const { brunoWorkspaces: _moved, ...rest } = prefs;
+    const pluginSettings = isRecord(prefs.pluginSettings) ? prefs.pluginSettings : {};
+    decoded.prefs = {
+        ...rest,
+        keybindingOverrides,
+        pluginSettings: {
+            ...pluginSettings,
+            "sikemux.bruno": {
+                collectionPath,
+                selectedEnvs: saved.selectedEnvs,
+                workspaces: collectionPath ? [collectionPath, ...workspaces] : workspaces,
+            },
+        },
+    };
+}
+
+/** Before v11 Rundeck's settings sat among core's, and each session kept the deploy location picked for its folder. */
+function moveRundeckSettings(decoded: Record<string, unknown>): void {
+    const prefs = isRecord(decoded.prefs) ? decoded.prefs : {};
+    const deployTargets: Record<string, unknown> = {};
+    for (const row of Array.isArray(decoded.sessions) ? decoded.sessions : []) {
+        if (isRecord(row) && typeof row.cwd === "string" && row.cwd && isRecord(row.deploy)) deployTargets[row.cwd] = row.deploy;
+    }
+    const legacy = isRecord(prefs.rundeck) ? prefs.rundeck : {};
+    const pluginSettings = isRecord(prefs.pluginSettings) ? prefs.pluginSettings : {};
+    decoded.prefs = { ...prefs, pluginSettings: { ...pluginSettings, "sikemux.rundeck": { ...legacy, deployTargets } } };
+}
+
+/**
+ * Before v15 Rundeck browsed one env folder and remembered a folder per project.
+ * Now it browses any group path and remembers a job, which a folder can't name, so those picks are dropped.
+ */
+function reshapeRundeckSettings(decoded: Record<string, unknown>): void {
+    const prefs = isRecord(decoded.prefs) ? decoded.prefs : {};
+    const pluginSettings = isRecord(prefs.pluginSettings) ? prefs.pluginSettings : {};
+    const saved = pluginSettings["sikemux.rundeck"];
+    if (!isRecord(saved)) return;
+    const { activeEnvFolder, deployTargets: _folders, ...rest } = saved;
+    const activeGroup = typeof activeEnvFolder === "string" && activeEnvFolder ? activeEnvFolder : null;
+    decoded.prefs = { ...prefs, pluginSettings: { ...pluginSettings, "sikemux.rundeck": { ...rest, activeGroup } } };
+}
+
+/**
+ * Before v12 each Bruno workspace was its own session. Now one session switches
+ * between them, so the first stays, the rest close, and every folder stays on
+ * the list of workspaces.
+ */
+function mergeBrunoSessions(decoded: Record<string, unknown>): void {
+    const sessions = Array.isArray(decoded.sessions) ? decoded.sessions : [];
+    const [kept, ...extra] = sessions.filter((row): row is Record<string, unknown> => isRecord(row) && row.kind === "bruno");
+    if (!kept) return;
+    const folders = [kept, ...extra].flatMap((row) => {
+        const path = isRecord(row.bruno) ? row.bruno.collectionPath : row.cwd;
+        return typeof path === "string" && path ? [path] : [];
+    });
+    const prefs = isRecord(decoded.prefs) ? decoded.prefs : {};
+    const saved = Array.isArray(prefs.brunoWorkspaces) ? prefs.brunoWorkspaces : [];
+    decoded.prefs = { ...prefs, brunoWorkspaces: [...saved, ...folders] };
+
+    const closed = new Set(extra.map((row) => row.id));
+    decoded.sessions = sessions.filter((row) => !isRecord(row) || !closed.has(row.id));
+    if (Array.isArray(decoded.sessionOrder)) decoded.sessionOrder = decoded.sessionOrder.filter((id) => !closed.has(id));
+    if (isRecord(decoded.windowsBySession)) for (const id of closed) if (typeof id === "string") delete decoded.windowsBySession[id];
+    if (closed.has(decoded.activeSessionId)) decoded.activeSessionId = kept.id;
+}
+
+function normalisePluginSettings(value: unknown): Record<string, unknown> {
+    if (!isRecord(value)) return {};
+    return Object.fromEntries(Object.entries(value).filter(([id]) => isPluginId(id)));
+}
+
 export type HydrationResult = "empty" | "applied" | "invalid" | "unsupported-future";
 
 export function hydrationAllowsPersistence(result: HydrationResult): boolean {
@@ -584,6 +708,12 @@ export function applyHydrate(raw: string): HydrationResult {
     if (decoded.version > VERSION) return "unsupported-future";
     if (decoded.version < MIN_SUPPORTED_VERSION) return "invalid";
     if (!Array.isArray(decoded.sessions)) return "invalid";
+    if (decoded.version < PLUGIN_KIND_MIGRATION_VERSION) renameLegacyPluginKinds(decoded);
+    if (decoded.version < PLUGIN_SETTINGS_MIGRATION_VERSION) moveRundeckSettings(decoded);
+    if (decoded.version < ONE_BRUNO_SESSION_MIGRATION_VERSION) mergeBrunoSessions(decoded);
+    if (decoded.version < AWS_PLUGIN_MIGRATION_VERSION) moveAwsIntoItsPlugin(decoded);
+    if (decoded.version < BRUNO_PLUGIN_MIGRATION_VERSION) moveBrunoIntoItsPlugin(decoded);
+    if (decoded.version < RUNDECK_GROUPS_MIGRATION_VERSION) reshapeRundeckSettings(decoded);
 
     const sessions: Record<string, Session> = {};
     for (const row of decoded.sessions) {
@@ -744,8 +874,6 @@ export function applyHydrate(raw: string): HydrationResult {
     for (const sid of Object.keys(sessions)) if (!sessionOrder.includes(sid)) sessionOrder.push(sid);
     const requestedActive = typeof decoded.activeSessionId === "string" ? decoded.activeSessionId : "";
     const activeSessionId = sessions[requestedActive] ? requestedActive : sessionOrder[0];
-    const rundeck = isRecord(prefs.rundeck) ? prefs.rundeck : {};
-    const prodEnvs = Array.isArray(rundeck.prodEnvs) ? rundeck.prodEnvs.filter((v): v is string => typeof v === "string") : cur.rundeck.prodEnvs;
 
     setState({
         sessions,
@@ -755,6 +883,7 @@ export function applyHydrate(raw: string): HydrationResult {
         windowsBySession,
         agentActivity: {},
         agentBackgroundWork: {},
+        agentSubagents: {},
         activeSessionId,
         recent: Array.isArray(decoded.recent) ? decoded.recent.filter(isRecent) : [],
         editorViews,
@@ -767,37 +896,30 @@ export function applyHydrate(raw: string): HydrationResult {
             Array.isArray(prefs.projectRoots) ? normaliseProjectRoots(prefs.projectRoots) : cur.projectRoots,
             prefs.pinnedProjects,
         ),
-        brunoWorkspaces: mergeBrunoWorkspaces(
-            Array.isArray(prefs.brunoWorkspaces) ? prefs.brunoWorkspaces.filter((v): v is string => typeof v === "string") : undefined,
-            Object.values(sessions),
-        ),
         themeId: typeof prefs.themeId === "string" ? prefs.themeId : cur.themeId,
-        themeMode: prefs.themeMode === "system" || prefs.themeMode === "manual" ? prefs.themeMode : cur.themeMode,
-        systemLightThemeId:
-            typeof prefs.systemLightThemeId === "string" && isThemeId(prefs.systemLightThemeId, prefs.customThemes)
-                ? prefs.systemLightThemeId
-                : cur.systemLightThemeId,
-        systemDarkThemeId:
-            typeof prefs.systemDarkThemeId === "string" && isThemeId(prefs.systemDarkThemeId, prefs.customThemes)
-                ? prefs.systemDarkThemeId
-                : cur.systemDarkThemeId,
         customThemes: Array.isArray(prefs.customThemes) ? prefs.customThemes.filter(isTheme) : cur.customThemes,
         uiTextScale: typeof prefs.uiTextScale === "number" && [1, 1.1, 1.25].includes(prefs.uiTextScale) ? prefs.uiTextScale : cur.uiTextScale,
+        terminalFontSize: typeof prefs.terminalFontSize === "number" ? clampTerminalFontSize(prefs.terminalFontSize) : cur.terminalFontSize,
+        chatTextScale: typeof prefs.chatTextScale === "number" ? clampChatTextScale(prefs.chatTextScale) : cur.chatTextScale,
+        editorTextScale: typeof prefs.editorTextScale === "number" ? clampEditorTextScale(prefs.editorTextScale) : cur.editorTextScale,
         windowOpacity: typeof prefs.windowOpacity === "number" && Number.isFinite(prefs.windowOpacity) ? prefs.windowOpacity : cur.windowOpacity,
         windowBlur: typeof prefs.windowBlur === "number" && Number.isFinite(prefs.windowBlur) ? prefs.windowBlur : cur.windowBlur,
         cloudBrowser: typeof prefs.cloudBrowser === "string" ? prefs.cloudBrowser : cur.cloudBrowser,
         cloudBrowserShortcut: typeof prefs.cloudBrowserShortcut === "string" ? prefs.cloudBrowserShortcut : cur.cloudBrowserShortcut,
         keybindingOverrides: normaliseKeybindingOverrides(prefs.keybindingOverrides),
-        awsProfile: prefs.awsProfile === null || typeof prefs.awsProfile === "string" ? prefs.awsProfile : cur.awsProfile,
-        awsService: AWS_SERVICES.has(prefs.awsService as StoreState["awsService"]) ? (prefs.awsService as StoreState["awsService"]) : cur.awsService,
         sideRailOpen: typeof prefs.sideRailOpen === "boolean" ? prefs.sideRailOpen : cur.sideRailOpen,
         agentRailOpen: typeof prefs.agentRailOpen === "boolean" ? prefs.agentRailOpen : cur.agentRailOpen,
+        sideRailWidth:
+            typeof prefs.sideRailWidth === "number" && Number.isFinite(prefs.sideRailWidth)
+                ? clampRailWidth("start", prefs.sideRailWidth)
+                : cur.sideRailWidth,
+        agentRailWidth:
+            typeof prefs.agentRailWidth === "number" && Number.isFinite(prefs.agentRailWidth)
+                ? clampRailWidth("end", prefs.agentRailWidth)
+                : cur.agentRailWidth,
         zenMode: typeof prefs.zenMode === "boolean" ? prefs.zenMode : cur.zenMode,
-        rundeck: {
-            activeProject: typeof rundeck.activeProject === "string" ? rundeck.activeProject : "",
-            activeEnvFolder: rundeck.activeEnvFolder === null || typeof rundeck.activeEnvFolder === "string" ? rundeck.activeEnvFolder : null,
-            prodEnvs,
-        },
+        pluginSettings: normalisePluginSettings(prefs.pluginSettings),
+        disabledPlugins: Array.isArray(prefs.disabledPlugins) ? [...new Set(prefs.disabledPlugins.filter(isPluginId))] : [],
         restoreAgentTabs,
         railDensity: prefs.railDensity === "compact" || prefs.railDensity === "comfortable" ? prefs.railDensity : cur.railDensity,
         onboardingComplete:

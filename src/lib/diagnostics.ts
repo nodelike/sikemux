@@ -252,8 +252,6 @@ function storeSnapshot() {
         ),
         editorViews: Object.keys(s.editorViews).length,
         gitViews: Object.keys(s.gitViews).length,
-        rundeckViews: Object.keys(s.rundeckViews).length,
-        brunoViews: Object.keys(s.brunoViews).length,
         gitCmdLog: s.gitCmdLog.length,
     };
 }

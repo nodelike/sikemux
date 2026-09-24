@@ -1,23 +1,43 @@
 [package]
 name = "sikemux"
-version = "0.4.0"
+version = "0.4.0-nightly.10"
 description = "A GUI terminal multiplexer"
 authors = ["nodelike"]
 edition = "2021"
 default-run = "sikemux"
+
+[workspace]
+members = ["crates/*", "plugins/*"]
+
+# Only crates that set `lints.workspace = true` get these, which is every
+# plugin crate and not the app. A plugin that panics takes the app down.
+[workspace.lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+indexing_slicing = "deny"
+string_slice = "deny"
+todo = "deny"
+unimplemented = "deny"
+unreachable = "deny"
 
 [lib]
 name = "sikemux_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [features]
+default = ["aws", "bruno", "rundeck", "signoz"]
 ipc-command-tests = ["tauri/test"]
+aws = ["dep:sikemux-plugin-aws"]
+bruno = ["dep:sikemux-plugin-bruno"]
+rundeck = ["dep:sikemux-plugin-rundeck"]
+signoz = ["dep:sikemux-plugin-signoz"]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", default-features = false, features = ["macos-private-api", "wry", "unstable"] }
+tauri = { version = "2", default-features = false, features = ["macos-private-api", "wry", "unstable", "compression"] }
 tauri-plugin-dialog = "2"
 tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
@@ -47,10 +67,18 @@ linked-hash-map = "0.5"
 thiserror = "1"
 uuid = { version = "1", features = ["v4"] }
 futures = "0.3"
+semver = "1"
+sikemux-plugin-api = { path = "crates/sikemux-plugin-api" }
+sikemux-plugin-aws = { path = "plugins/aws", optional = true }
+sikemux-plugin-bruno = { path = "plugins/bruno", optional = true }
+sikemux-plugin-rundeck = { path = "plugins/rundeck", optional = true }
+sikemux-plugin-signoz = { path = "plugins/signoz", optional = true }
+sikemux-process = { path = "crates/sikemux-process" }
 agent-client-protocol = "2.0.0"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "process", "time", "sync", "io-util", "net"] }
 tokio-tungstenite = "0.28"
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "gzip", "stream", "cookies", "multipart"] }
+reqwest = { version = "0.13", default-features = false, features = ["json", "rustls-no-provider", "gzip", "stream", "cookies", "multipart"] }
+rustls = { version = "0.23", default-features = false, features = ["ring"] }
 open = "5"
 trash = "5"
 
@@ -60,10 +88,15 @@ libc = "0.2"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"
-objc2-app-kit = { version = "0.3", default-features = false, features = ["NSAlert", "NSApplication", "NSBitmapImageRep", "NSControl", "NSEvent", "NSImage", "NSImageRep", "NSResponder", "NSTextField", "NSView", "NSWindow", "block2"] }
-objc2-foundation = { version = "0.3", default-features = false, features = ["NSData", "NSDictionary", "NSError", "NSGeometry", "NSObject", "NSString", "NSThread", "NSURL", "NSValue"] }
-objc2-web-kit = { version = "0.3", default-features = false, features = ["WKFrameInfo", "WKNavigationAction", "WKOpenPanelParameters", "WKSecurityOrigin", "WKSnapshotConfiguration", "WKUIDelegate", "WKWebView", "WKWebViewConfiguration", "WKWindowFeatures", "block2", "objc2-app-kit"] }
+objc2-app-kit = { version = "0.3", default-features = false, features = ["NSAlert", "NSApplication", "NSBitmapImageRep", "NSControl", "NSEvent", "NSGraphicsContext", "NSImage", "NSImageRep", "NSPasteboard", "NSResponder", "NSScreen", "NSTextField", "NSView", "NSWindow", "NSWorkspace", "block2", "objc2-core-graphics"] }
+objc2-foundation = { version = "0.3", default-features = false, features = ["NSData", "NSDictionary", "NSError", "NSGeometry", "NSObject", "NSProcessInfo", "NSString", "NSThread", "NSURL", "NSValue"] }
+objc2-web-kit = { version = "0.3", default-features = false, features = ["WKContentWorld", "WKFrameInfo", "WKNavigationAction", "WKOpenPanelParameters", "WKPDFConfiguration", "WKSecurityOrigin", "WKSnapshotConfiguration", "WKUIDelegate", "WKWebView", "WKWebViewConfiguration", "WKWindowFeatures", "block2", "objc2-app-kit"] }
 block2 = "0.6"
+objc2-av-foundation = { version = "0.3", default-features = false, features = ["std", "AVAssetWriter", "AVAssetWriterInput", "AVMediaFormat", "AVVideoSettings", "block2", "objc2-core-media", "objc2-core-video"] }
+objc2-core-foundation = { version = "0.3", default-features = false, features = ["std", "CFCGTypes", "CFString"] }
+objc2-core-graphics = { version = "0.3", default-features = false, features = ["std", "CGBitmapContext", "CGColorSpace", "CGContext", "CGImage"] }
+objc2-core-media = { version = "0.3", default-features = false, features = ["std", "CMTime"] }
+objc2-core-video = { version = "0.3", default-features = false, features = ["std", "CVBase", "CVBuffer", "CVImageBuffer", "CVPixelBuffer", "CVPixelBufferPool", "CVReturn"] }
 
 # Full debug info on our own code costs roughly 15 MB of DWARF per codegen
 # unit, and cargo keeps every past build's copy of it forever. Line tables keep

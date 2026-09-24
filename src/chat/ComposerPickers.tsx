@@ -69,7 +69,9 @@ function Picker({
     disabled,
     onSelect,
     icon,
-    hint,
+    header,
+    loading = false,
+    onOpen,
     compact = false,
 }: {
     name: string;
@@ -79,8 +81,10 @@ function Picker({
     disabled: boolean;
     onSelect: (value: string) => void;
     icon?: ReactNode;
-    /** Shown on the trigger when the picker is disabled and cannot explain itself. */
-    hint?: string;
+    header?: ReactNode;
+    /** Holds the menu open while the control is disabled, with the list waiting on new options. */
+    loading?: boolean;
+    onOpen?: () => void;
     /** Descriptions stay searchable but go unrendered, so the rows read as one line. */
     compact?: boolean;
 }) {
@@ -94,6 +98,7 @@ function Picker({
     const filtered = options.filter((option) =>
         [option.label, option.value, option.description].join(" ").toLowerCase().includes(query.toLowerCase()),
     );
+    const shown = open && (!disabled || loading);
     const close = () => {
         setOpen(false);
         trigger.current?.focus();
@@ -124,10 +129,11 @@ function Picker({
                 className="chat-picker-trigger"
                 aria-label={name}
                 aria-haspopup="listbox"
-                aria-expanded={open && !disabled}
+                aria-expanded={shown}
                 disabled={disabled}
-                title={disabled && hint ? hint : label}
+                title={label}
                 onClick={() => {
+                    if (!open) onOpen?.();
                     setOpen(!open);
                     setQuery("");
                     setSelected(0);
@@ -136,7 +142,7 @@ function Picker({
                 <span>{label}</span>
                 <IconChevron size={10} />
             </button>
-            {open && !disabled && (
+            {shown && (
                 <div
                     className={`chat-picker-menu${compact ? " compact" : ""}`}
                     style={{
@@ -168,37 +174,40 @@ function Picker({
                                     filtered.length ? (index + (event.key === "ArrowDown" ? 1 : filtered.length - 1)) % filtered.length : 0,
                                 );
                             }
-                            if (event.key === "Enter" && !event.nativeEvent.isComposing && filtered[selected]) {
+                            if (event.key === "Enter" && !event.nativeEvent.isComposing && !loading && filtered[selected]) {
                                 event.preventDefault();
                                 onSelect(filtered[selected].value);
                                 close();
                             }
                         }}
                     />
+                    {header}
                     <div id={listId} role="listbox" aria-label={`${name} options`} className="chat-picker-options">
-                        {filtered.map((option, index) => (
-                            <button
-                                type="button"
-                                key={option.value}
-                                id={`${listId}-${index}`}
-                                role="option"
-                                aria-selected={option.value === value}
-                                className={index === selected ? "highlighted" : ""}
-                                onMouseEnter={() => setSelected(index)}
-                                onMouseDown={(event) => event.preventDefault()}
-                                onClick={() => {
-                                    onSelect(option.value);
-                                    close();
-                                }}>
-                                {option.icon}
-                                <span>
-                                    <strong>{option.label}</strong>
-                                    {option.description && !compact && <small>{option.description}</small>}
-                                </span>
-                                {option.value === value && <IconCheck size={14} />}
-                            </button>
-                        ))}
-                        {filtered.length === 0 && <div className="chat-picker-hint">No matches</div>}
+                        {loading && <div className="chat-picker-hint">Loading models…</div>}
+                        {!loading &&
+                            filtered.map((option, index) => (
+                                <button
+                                    type="button"
+                                    key={option.value}
+                                    id={`${listId}-${index}`}
+                                    role="option"
+                                    aria-selected={option.value === value}
+                                    className={index === selected ? "highlighted" : ""}
+                                    onMouseEnter={() => setSelected(index)}
+                                    onMouseDown={(event) => event.preventDefault()}
+                                    onClick={() => {
+                                        onSelect(option.value);
+                                        close();
+                                    }}>
+                                    {option.icon}
+                                    <span>
+                                        <strong>{option.label}</strong>
+                                        {option.description && !compact && <small>{option.description}</small>}
+                                    </span>
+                                    {option.value === value && <IconCheck size={14} />}
+                                </button>
+                            ))}
+                        {!loading && filtered.length === 0 && <div className="chat-picker-hint">No matches</div>}
                     </div>
                 </div>
             )}
@@ -226,52 +235,67 @@ export function ComposerPickers({
     const profiles = useStore((state) => state.providerProfiles);
     const configs = sessionConfigs(setup);
     const agentOptions = HARNESSES.flatMap(({ type, label }) => {
-        const icon = <AgentIcon type={type} size={19} className={`agent-glyph ${type}`} />;
+        const icon = <AgentIcon type={type} size={15} className={`agent-glyph ${type}`} />;
         const owned = profiles.filter((item) => item.provider === type);
-        if (owned.length === 0) return [{ value: type, label, description: "Default configuration", icon }];
-        return owned.map((item) => ({
-            value: item.id,
-            label: item.name,
-            description: item.id === DEFAULT_PROVIDER_PROFILE_SELECTION[type] ? "Default configuration" : label,
-            icon,
-        }));
+        if (owned.length === 0) return [{ value: type, label, icon }];
+        return owned.map((item) => ({ value: item.id, label: item.name, icon }));
     });
     const builtin = DEFAULT_PROVIDER_PROFILE_SELECTION[agent.type];
     const agentValue = profile?.id ?? (builtin && agentOptions.some((option) => option.value === builtin) ? builtin : agent.type);
+    const agentIcon = <AgentIcon type={agent.type} size={17} className={`agent-glyph ${agent.type}`} />;
+    const rowIcon = <AgentIcon type={agent.type} size={15} className={`agent-glyph ${agent.type}`} />;
+    const [switching, setSwitching] = useState<Record<string, unknown>>();
+    const loading = switching !== undefined && (disabled || switching === setup);
+    useEffect(() => {
+        if (switching && !loading) setSwitching(undefined);
+    }, [switching, loading]);
+    const agentRow = (
+        <div className="chat-picker-agents" role="group" aria-label="Agent">
+            {agentOptions.map((option) => (
+                <button
+                    type="button"
+                    key={option.value}
+                    aria-pressed={option.value === agentValue}
+                    title={option.label}
+                    onMouseDown={(event) => event.preventDefault()}
+                    onClick={() => {
+                        if (option.value === agentValue) return;
+                        const next = profiles.find((item) => item.id === option.value);
+                        const type = next?.provider ?? option.value;
+                        if (type !== "claude" && type !== "codex") return;
+                        setSwitching(setup);
+                        onAgent(type, next?.id);
+                    }}>
+                    {option.icon}
+                    <span>{option.label}</span>
+                </button>
+            ))}
+        </div>
+    );
     return (
         <div className="chat-pickers">
-            <Picker
-                name="Agent"
-                label={profile?.name || (agent.type === "codex" ? "Codex" : "Claude")}
-                value={agentValue}
-                options={agentOptions}
-                compact
-                disabled={disabled || agentLocked}
-                icon={<AgentIcon type={agent.type} size={17} className={`agent-glyph ${agent.type}`} />}
-                hint={agentLocked ? "The agent is fixed after the first message." : undefined}
-                onSelect={(value) => {
-                    if (agentLocked || value === agentValue) return;
-                    const next = profiles.find((item) => item.id === value);
-                    const type = next?.provider ?? value;
-                    if (type !== "claude" && type !== "codex") return;
-                    onAgent(type, next?.id);
-                }}
-            />
             {["model", agent.type === "claude" ? "effort" : "reasoning_effort"].map((id) => {
                 const config = configs.find((item) => item.id === id);
-                const name = id === "model" ? "Model" : "Reasoning effort";
+                const model = id === "model";
+                const name = model ? "Model" : "Reasoning effort";
                 const label =
                     config?.options.find((option) => option.value === config.currentValue)?.label ??
                     config?.currentValue ??
-                    (id === "model" ? agent.model || "Model" : agent.effort || "Effort");
+                    (model ? agent.model || "Model" : agent.effort || "Effort");
+                const options = config?.options || [];
                 return (
                     <Picker
                         key={id}
                         name={name}
                         label={label}
                         value={config?.currentValue || ""}
-                        options={config?.options || []}
-                        disabled={disabled || !config?.options.length}
+                        options={model ? options.map((option) => ({ ...option, icon: rowIcon })) : options}
+                        disabled={disabled || (!options.length && (!model || agentLocked))}
+                        icon={model ? agentIcon : undefined}
+                        header={model && !agentLocked ? agentRow : undefined}
+                        loading={model && loading}
+                        onOpen={model ? () => setSwitching(undefined) : undefined}
+                        compact={model}
                         onSelect={(value) => {
                             if (config && value !== config.currentValue) onConfig(config, value);
                         }}

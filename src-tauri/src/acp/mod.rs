@@ -22,7 +22,7 @@ use tokio::sync::{mpsc, oneshot};
 use url::Url;
 use uuid::Uuid;
 
-const CLAUDE_ADAPTER: &str = "@agentclientprotocol/claude-agent-acp@0.73.0";
+const CLAUDE_ADAPTER: &str = "@agentclientprotocol/claude-agent-acp@0.81.2";
 const CODEX_ADAPTER: &str = "@agentclientprotocol/codex-acp@1.8.0";
 const MAX_AGENT_ID: usize = 200;
 const MAX_PROMPT_BYTES: usize = 2 * 1024 * 1024;
@@ -30,6 +30,9 @@ const MAX_ATTACHMENTS: usize = 32;
 const START_TIMEOUT: Duration = Duration::from_secs(150);
 const INSTALL_TIMEOUT: Duration = Duration::from_secs(120);
 const INSTALL_OUTPUT_LIMIT: usize = 1024 * 1024;
+/// How long a stopped turn may keep running before the adapter is killed. The
+/// agent only reads a cancel between steps, and a wedged tool never gets there.
+const CANCEL_GRACE: Duration = Duration::from_secs(10);
 type ReadySender = Arc<Mutex<Option<oneshot::Sender<Result<AcpStartResponse, String>>>>>;
 
 #[derive(Clone, Copy)]
@@ -261,7 +264,7 @@ fn adapter_spec(provider: &str) -> Result<AdapterSpec, String> {
     match provider {
         "claude" => Ok(AdapterSpec {
             package: CLAUDE_ADAPTER,
-            package_dir: "claude-0.73.0",
+            package_dir: "claude-0.81.2",
             executable: "@agentclientprotocol/claude-agent-acp/dist/index.js",
         }),
         "codex" => Ok(AdapterSpec {
@@ -672,6 +675,7 @@ async fn run_connection(
                             Vec::new()
                         }
                     };
+                let resumed = resume_id.is_some();
                 let (session_id, mut setup) = if let Some(existing) = resume_id {
                     if !initialize.agent_capabilities.load_session {
                         return Err(agent_client_protocol::Error::invalid_params()
@@ -728,6 +732,22 @@ async fn run_connection(
                     }
                 }
 
+                {
+                    let provider = provider.clone();
+                    let cwd = cwd.to_string_lossy().into_owned();
+                    let session_id = session_id.clone();
+                    let config_path = config_path.clone();
+                    tauri::async_runtime::spawn_blocking(move || {
+                        crate::activity::record_launch(
+                            &provider,
+                            &cwd,
+                            "chat",
+                            resumed.then_some(session_id.as_str()),
+                            config_path.as_deref(),
+                        )
+                    });
+                }
+
                 let start = AcpStartResponse {
                     session_id: session_id.clone(),
                     capabilities,
@@ -754,7 +774,29 @@ async fn run_connection(
                 let _turn_mark = TurnMark(stream.clone());
 
                 let running = Arc::new(AtomicBool::new(false));
-                while let Some(command) = commands.recv().await {
+                let mut turn: u64 = 0;
+                let (stalled_tx, mut stalled_rx) = mpsc::unbounded_channel::<u64>();
+                loop {
+                    let command = tokio::select! {
+                        command = commands.recv() => match command {
+                            Some(command) => command,
+                            None => break,
+                        },
+                        Some(stalled) = stalled_rx.recv() => {
+                            if running.load(Ordering::Acquire)
+                                && turn == stalled
+                            {
+                                emit(
+                                    &app,
+                                    &agent_id,
+                                    "error",
+                                    json!({ "message": "The agent did not stop, so its session was restarted" }),
+                                );
+                                break;
+                            }
+                            continue;
+                        }
+                    };
                     match command {
                         AcpCommand::Prompt { text, paths } => {
                             if running.swap(true, Ordering::AcqRel) {
@@ -775,6 +817,7 @@ async fn run_connection(
                                 }
                             };
                             stream.set(true);
+                            turn += 1;
                             emit(&app, &agent_id, "turn_started", json!({}));
                             let response_app = app.clone();
                             let response_agent_id = agent_id.clone();
@@ -865,12 +908,24 @@ async fn run_connection(
                                 Ok("promptRequired".to_string())
                             } else {
                                 match prompt_blocks(text, paths) {
-                                    Ok(blocks) => connection
-                                        .send_request(air::Steer::new(session_id.clone(), blocks))
-                                        .block_task()
-                                        .await
-                                        .map(|response| response.outcome)
-                                        .map_err(|error| error.to_string()),
+                                    // Answered off the loop, so a stop sent right
+                                    // after a steer is never queued behind it.
+                                    Ok(blocks) => {
+                                        let _ = connection
+                                            .send_request(air::Steer::new(
+                                                session_id.clone(),
+                                                blocks,
+                                            ))
+                                            .on_receiving_result(async move |result| {
+                                                let _ = reply.send(
+                                                    result
+                                                        .map(|response| response.outcome)
+                                                        .map_err(|error| error.to_string()),
+                                                );
+                                                Ok(())
+                                            });
+                                        continue;
+                                    }
                                     Err(error) => Err(error),
                                 }
                             };
@@ -909,6 +964,14 @@ async fn run_connection(
                         AcpCommand::Cancel => {
                             connection
                                 .send_notification(CancelNotification::new(session_id.clone()))?;
+                            if running.load(Ordering::Acquire) {
+                                let cancelled = turn;
+                                let stalled = stalled_tx.clone();
+                                tauri::async_runtime::spawn(async move {
+                                    tokio::time::sleep(CANCEL_GRACE).await;
+                                    let _ = stalled.send(cancelled);
+                                });
+                            }
                         }
                         AcpCommand::Stop => break,
                     }

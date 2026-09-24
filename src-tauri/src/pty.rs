@@ -2198,9 +2198,9 @@ pub(crate) const OPTIONAL_PTY_ENV: &[&str] = &[
     "SIKEMUX_BROWSER_CDP_URL",
     "SIKEMUX_BROWSER_BROKER_URL",
     "SIKEMUX_BROWSER_BROKER_TOKEN",
-    "SIKEMUX_BROWSER_MCP_COMMAND",
-    "SIKEMUX_BROWSER_MCP_ARGS",
-    "SIKEMUX_BROWSER_AGENT_ID",
+    "SIKEMUX_TOOLS_MCP_COMMAND",
+    "SIKEMUX_TOOLS_MCP_ARGS",
+    "SIKEMUX_TOOLS_AGENT_ID",
 ];
 
 fn non_empty(value: &Option<String>) -> Option<&str> {
@@ -2554,6 +2554,23 @@ pub async fn pty_spawn(
     if let Some(command) = direct_command.as_ref() {
         validate_direct_command(command, context.as_ref())?;
     }
+    let agent_launch = match (direct_command.as_ref(), context.as_ref()) {
+        (Some(command), Some(context)) => {
+            match (context.agent_type.clone(), context.project.clone()) {
+                (Some(agent), Some(project)) => {
+                    let resumed = crate::activity::resumed_session_in_args(&agent, &command.args)
+                        .map(str::to_string);
+                    let config_path = command
+                        .profile
+                        .as_ref()
+                        .and_then(|profile| profile.config_path.clone());
+                    Some((agent, project, resumed, config_path))
+                }
+                _ => None,
+            }
+        }
+        _ => None,
+    };
     // An agent can only reach the browser tools if its own host is told they
     // exist, and every host is told differently (see browser::agents). A host
     // that cannot be told still launches, without them.
@@ -2655,7 +2672,7 @@ pub async fn pty_spawn(
         }
     }
 
-    spawn_prepared_pty(
+    let id = spawn_prepared_pty(
         app,
         &manager,
         PreparedPtyLaunch {
@@ -2667,7 +2684,19 @@ pub async fn pty_spawn(
             task_exit: None,
         },
     )
-    .await
+    .await?;
+    if let Some((agent, project, resumed, config_path)) = agent_launch {
+        tauri::async_runtime::spawn_blocking(move || {
+            crate::activity::record_launch(
+                &agent,
+                &project,
+                "terminal",
+                resumed.as_deref(),
+                config_path.as_deref(),
+            )
+        });
+    }
+    Ok(id)
 }
 
 #[tauri::command]

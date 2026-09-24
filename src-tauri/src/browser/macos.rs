@@ -7,15 +7,16 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::ffi::c_void;
 use std::ptr::NonNull;
+use std::rc::Rc;
 
 use block2::RcBlock;
 use objc2::rc::Retained;
 use objc2::runtime::{AnyObject, Bool, ProtocolObject};
 use objc2::{define_class, msg_send, DefinedClass, MainThreadMarker, MainThreadOnly};
 use objc2_app_kit::{
-    NSAlert, NSAlertFirstButtonReturn, NSBitmapImageFileType, NSBitmapImageRep, NSEvent,
-    NSEventMask, NSEventModifierFlags, NSImage, NSImageCompressionFactor, NSModalResponse,
-    NSTextField, NSView,
+    NSAlert, NSAlertFirstButtonReturn, NSAlertSecondButtonReturn, NSBitmapImageFileType,
+    NSBitmapImageRep, NSEvent, NSEventMask, NSEventModifierFlags, NSImage,
+    NSImageCompressionFactor, NSModalResponse, NSTextField, NSView,
 };
 use objc2_foundation::{
     NSData, NSDictionary, NSError, NSKeyValueChangeKey, NSKeyValueObservingOptions, NSNumber,
@@ -23,13 +24,13 @@ use objc2_foundation::{
     NSString,
 };
 use objc2_web_kit::{
-    WKFrameInfo, WKMediaCaptureType, WKNavigationAction, WKOpenPanelParameters,
-    WKPermissionDecision, WKSecurityOrigin, WKSnapshotConfiguration, WKUIDelegate, WKWebView,
-    WKWebViewConfiguration, WKWindowFeatures,
+    WKContentWorld, WKFrameInfo, WKMediaCaptureType, WKNavigationAction, WKOpenPanelParameters,
+    WKPDFConfiguration, WKPermissionDecision, WKSecurityOrigin, WKSnapshotConfiguration,
+    WKUIDelegate, WKWebView, WKWebViewConfiguration, WKWindowFeatures,
 };
 use tauri::{AppHandle, Emitter};
 
-use super::{BrowserShortcut, BROWSER_SHORTCUT_EVENT};
+use super::{BrowserShortcut, PageDialog, BROWSER_SHORTCUT_EVENT};
 
 /// The property the tab watches to hear about a page that moved on its own.
 const URL_KEY_PATH: &str = "URL";
@@ -57,6 +58,13 @@ impl Drop for NativeTab {
 thread_local! {
     static TABS: RefCell<HashMap<String, NativeTab>> = RefCell::new(HashMap::new());
     static SHORTCUT_MONITOR: RefCell<Option<Retained<AnyObject>>> = const { RefCell::new(None) };
+    static OPEN_DIALOGS: RefCell<HashMap<String, OpenDialog>> = RefCell::new(HashMap::new());
+}
+
+/// A page dialog showing as a sheet, kept so the agent can answer it too.
+struct OpenDialog {
+    alert: Retained<NSAlert>,
+    field: Option<Retained<NSTextField>>,
 }
 
 fn webview_from(pointer: *mut c_void) -> Option<Retained<WKWebView>> {
@@ -65,18 +73,28 @@ fn webview_from(pointer: *mut c_void) -> Option<Retained<WKWebView>> {
 
 /// Take over the tab's UI delegate so page dialogs get a sheet, watch where the
 /// page says it is, and remember the view so shortcuts can tell which tab has
-/// focus. `moved` hears the new address and whether history can go either way.
+/// focus. `moved` hears the new address and whether history can go either way;
+/// `dialog` hears a page dialog open and close; `upload` hands over files the
+/// agent picked for the next file chooser, which then never shows.
 pub fn adopt(
     pointer: *mut c_void,
     agent_id: String,
     tab_id: String,
     moved: impl Fn(String, bool, bool) + 'static,
+    dialog: impl Fn(Option<PageDialog>) + 'static,
+    upload: impl Fn() -> Option<Vec<std::path::PathBuf>> + 'static,
 ) {
     let (Some(webview), Some(mtm)) = (webview_from(pointer), MainThreadMarker::new()) else {
         return;
     };
     let inner = unsafe { webview.UIDelegate() };
-    let delegate = TabUiDelegate::new(mtm, inner);
+    let delegate = TabUiDelegate::new(
+        mtm,
+        inner,
+        tab_id.clone(),
+        Rc::new(dialog),
+        Box::new(upload),
+    );
     let address_observer = AddressObserver::new(mtm, Box::new(moved));
     unsafe {
         webview.setUIDelegate(Some(ProtocolObject::from_ref(&*delegate)));
@@ -103,6 +121,7 @@ pub fn adopt(
 }
 
 pub fn forget(tab_id: &str) {
+    let _ = answer_dialog(tab_id, false, None);
     TABS.with(|tabs| {
         tabs.borrow_mut().remove(tab_id);
     });
@@ -228,6 +247,101 @@ pub fn snapshot_jpeg(pointer: *mut c_void, done: Box<dyn FnOnce(Result<Vec<u8>, 
     };
 }
 
+/// Runs `body` as the body of an async function in the page, awaiting any
+/// promise it returns. The body must return a string.
+pub fn call_async(
+    pointer: *mut c_void,
+    body: &str,
+    done: Box<dyn FnOnce(Result<String, String>) + Send>,
+) {
+    let (Some(webview), Some(mtm)) = (webview_from(pointer), MainThreadMarker::new()) else {
+        done(Err("the tab is gone".into()));
+        return;
+    };
+    let done = std::sync::Mutex::new(Some(done));
+    let block = RcBlock::new(move |value: *mut AnyObject, error: *mut NSError| {
+        let Some(done) = done.lock().ok().and_then(|mut slot| slot.take()) else {
+            return;
+        };
+        if let Some(error) = unsafe { Retained::retain(error) } {
+            done(Err(script_error(&error)));
+            return;
+        }
+        let text = unsafe { value.as_ref() }
+            .and_then(|value| value.downcast_ref::<NSString>())
+            .map(|text| text.to_string());
+        done(text.ok_or_else(|| "the script returned nothing readable".into()));
+    });
+    unsafe {
+        webview.callAsyncJavaScript_arguments_inFrame_inContentWorld_completionHandler(
+            &NSString::from_str(body),
+            None,
+            None,
+            &WKContentWorld::pageWorld(mtm),
+            Some(&block),
+        );
+    }
+}
+
+/// WebKit's own description of a thrown exception is only "A JavaScript
+/// exception occurred"; the page's message sits in the error's details.
+fn script_error(error: &NSError) -> String {
+    let details = error.userInfo();
+    let message = details
+        .objectForKey(&NSString::from_str("WKJavaScriptExceptionMessage"))
+        .and_then(|value| value.downcast::<NSString>().ok())
+        .map(|text| text.to_string());
+    message.unwrap_or_else(|| error.localizedDescription().to_string())
+}
+
+/// The whole page rather than the part on screen, as a JPEG at 1x. WebKit
+/// lays it out as one tall PDF page, which is then drawn as a picture. A page
+/// taller than `most` is cut at that height.
+pub fn full_page_jpeg(
+    pointer: *mut c_void,
+    height: f64,
+    most: f64,
+    done: Box<dyn FnOnce(Result<Vec<u8>, String>) + Send>,
+) {
+    let (Some(webview), Some(mtm)) = (webview_from(pointer), MainThreadMarker::new()) else {
+        done(Err("the tab is gone".into()));
+        return;
+    };
+    let configuration = unsafe { WKPDFConfiguration::new(mtm) };
+    if height > most {
+        let width = webview.frame().size.width;
+        unsafe {
+            configuration.setRect(NSRect::new(
+                NSPoint::new(0.0, 0.0),
+                NSSize::new(width, most),
+            ))
+        };
+    }
+    let done = std::sync::Mutex::new(Some(done));
+    let block = RcBlock::new(move |data: *mut NSData, error: *mut NSError| {
+        let Some(done) = done.lock().ok().and_then(|mut slot| slot.take()) else {
+            return;
+        };
+        let Some(data) = (unsafe { Retained::retain(data) }) else {
+            done(Err(unsafe { Retained::retain(error) }
+                .map(|error| error.localizedDescription().to_string())
+                .unwrap_or_else(|| "the page could not be captured".into())));
+            return;
+        };
+        let pixels = NSImage::initWithData(mtm.alloc::<NSImage>(), &data)
+            .and_then(|image| image.TIFFRepresentation())
+            .map(|tiff| tiff.to_vec());
+        let Some(pixels) = pixels else {
+            done(Err("could not draw the page".into()));
+            return;
+        };
+        std::thread::spawn(move || {
+            done(jpeg_bytes(&pixels).ok_or_else(|| "could not encode the page image".to_string()));
+        });
+    });
+    unsafe { webview.createPDFWithConfiguration_completionHandler(Some(&configuration), &block) };
+}
+
 fn jpeg_bytes(image: &[u8]) -> Option<Vec<u8>> {
     let bitmap = NSBitmapImageRep::imageRepWithData(&NSData::with_bytes(image))?;
     let quality = NSNumber::numberWithDouble(0.82);
@@ -241,6 +355,9 @@ fn jpeg_bytes(image: &[u8]) -> Option<Vec<u8>> {
 
 struct TabUiDelegateIvars {
     inner: Option<Retained<ProtocolObject<dyn WKUIDelegate>>>,
+    tab_id: String,
+    dialog: Rc<dyn Fn(Option<PageDialog>)>,
+    upload: Box<dyn Fn() -> Option<Vec<std::path::PathBuf>>>,
 }
 
 define_class!(
@@ -262,6 +379,7 @@ define_class!(
         ) {
             let done = handler.copy();
             present_sheet(
+                self.ivars(),
                 webview,
                 frame,
                 &message.to_string(),
@@ -282,6 +400,7 @@ define_class!(
         ) {
             let done = handler.copy();
             present_sheet(
+                self.ivars(),
                 webview,
                 frame,
                 &message.to_string(),
@@ -306,6 +425,7 @@ define_class!(
                 .map(|text| text.to_string())
                 .unwrap_or_default();
             present_sheet(
+                self.ivars(),
                 webview,
                 frame,
                 &prompt.to_string(),
@@ -343,6 +463,22 @@ define_class!(
                 dyn Fn(*const objc2_foundation::NSArray<objc2_foundation::NSURL>),
             >,
         ) {
+            if let Some(mut paths) = (self.ivars().upload)() {
+                if !parameters.allowsMultipleSelection() {
+                    paths.truncate(1);
+                }
+                let urls: Vec<Retained<objc2_foundation::NSURL>> = paths
+                    .iter()
+                    .map(|path| {
+                        objc2_foundation::NSURL::fileURLWithPath(&NSString::from_str(
+                            &path.to_string_lossy(),
+                        ))
+                    })
+                    .collect();
+                let chosen = objc2_foundation::NSArray::from_retained_slice(&urls);
+                handler.call((Retained::as_ptr(&chosen),));
+                return;
+            }
             match &self.ivars().inner {
                 Some(inner) => {
                     let _: () = msg_send![
@@ -383,10 +519,16 @@ impl TabUiDelegate {
     fn new(
         mtm: MainThreadMarker,
         inner: Option<Retained<ProtocolObject<dyn WKUIDelegate>>>,
+        tab_id: String,
+        dialog: Rc<dyn Fn(Option<PageDialog>)>,
+        upload: Box<dyn Fn() -> Option<Vec<std::path::PathBuf>>>,
     ) -> Retained<Self> {
-        let delegate = mtm
-            .alloc::<TabUiDelegate>()
-            .set_ivars(TabUiDelegateIvars { inner });
+        let delegate = mtm.alloc::<TabUiDelegate>().set_ivars(TabUiDelegateIvars {
+            inner,
+            tab_id,
+            dialog,
+            upload,
+        });
         unsafe { msg_send![super(delegate), init] }
     }
 }
@@ -398,8 +540,10 @@ enum Sheet {
 }
 
 /// A page dialog as a sheet on the app window, the way Safari shows them. The
-/// page waits on `answer`, so every path must call it exactly once.
+/// page waits on `answer`, so every path must call it exactly once. The agent
+/// answers through `answer_dialog`, which ends the same sheet.
 fn present_sheet(
+    tab: &TabUiDelegateIvars,
     webview: &WKWebView,
     frame: &WKFrameInfo,
     message: &str,
@@ -436,9 +580,32 @@ fn present_sheet(
         }
         _ => None,
     };
-    let kept = alert.clone();
+    let described = PageDialog {
+        kind: match &sheet {
+            Sheet::Alert => "alert",
+            Sheet::Confirm => "confirm",
+            Sheet::Prompt(_) => "prompt",
+        },
+        message: message.to_owned(),
+        default_text: match &sheet {
+            Sheet::Prompt(default) => Some(default.clone()),
+            _ => None,
+        },
+    };
+    OPEN_DIALOGS.with(|open| {
+        open.borrow_mut().insert(
+            tab.tab_id.clone(),
+            OpenDialog {
+                alert: alert.clone(),
+                field: field.clone(),
+            },
+        );
+    });
+    (tab.dialog)(Some(described));
+    let (tab_id, closed) = (tab.tab_id.clone(), tab.dialog.clone());
     let block = RcBlock::new(move |response: NSModalResponse| {
-        let _ = &kept;
+        OPEN_DIALOGS.with(|open| open.borrow_mut().remove(&tab_id));
+        closed(None);
         let accepted = response == NSAlertFirstButtonReturn;
         let text = field
             .as_ref()
@@ -447,6 +614,32 @@ fn present_sheet(
         answer(accepted, text);
     });
     alert.beginSheetModalForWindow_completionHandler(&window, Some(&block));
+}
+
+/// Ends the tab's open dialog as if the person pressed OK or Cancel, typing
+/// `text` into a prompt first.
+pub fn answer_dialog(tab_id: &str, accept: bool, text: Option<&str>) -> Result<(), String> {
+    let (alert, field) = OPEN_DIALOGS
+        .with(|open| {
+            open.borrow()
+                .get(tab_id)
+                .map(|dialog| (dialog.alert.clone(), dialog.field.clone()))
+        })
+        .ok_or("this tab has no open dialog")?;
+    if let (Some(field), Some(text)) = (field, text) {
+        field.setStringValue(&NSString::from_str(text));
+    }
+    let sheet = alert.window();
+    let parent = sheet.sheetParent().ok_or("the dialog is not showing")?;
+    parent.endSheet_returnCode(
+        &sheet,
+        if accept {
+            NSAlertFirstButtonReturn
+        } else {
+            NSAlertSecondButtonReturn
+        },
+    );
+    Ok(())
 }
 
 /// Command chords are the app's, not the page's, apart from the editing set

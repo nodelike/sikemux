@@ -1,12 +1,13 @@
 import { useModalFocus } from "../hooks/useModalFocus";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { KeyboardEvent as ReactKeyboardEvent, ReactNode } from "react";
 import { invokeCommand as invoke } from "../api/invoke";
 import {
     eventToKeybinding,
     findKeybindingConflict,
-    KEYBINDING_ACTIONS,
-    KEYBINDING_CATEGORIES,
+    keybindingActions,
+    type KeybindingAction,
+    keybindingCategories,
     keybindingHasModifier,
     keybindingLabel,
     resolvedKeybinding,
@@ -16,68 +17,81 @@ import {
 import { settingsApi } from "../api/settings";
 import { isUpdateBusy, updateCheckLabel } from "../api/updater";
 import { prettyPath } from "../lib/paths";
-import { IS_MACOS } from "../lib/platform";
+import { IS_MACOS, PRIMARY_SHORTCUT } from "../lib/platform";
 import { notify, reportError } from "../state/toast";
 import * as cmd from "../state/commands";
 import { useStore } from "../state/store";
-import { cloneTheme, newCustomThemeId, THEME_GROUPS, THEMES, THEMES_BY_ID, type Theme, type ThemeGroupKey } from "../themes";
+import { cloneTheme, newCustomThemeId, THEME_GROUPS, THEMES, themeFromColours, type Theme, type ThemeGroupKey } from "../themes";
+import { wallpaperPixels, wallpaperTheme } from "../themes/wallpaper";
+import { ThemePicker } from "./ThemePicker";
 import {
+    IconActivity,
     IconAgent,
     IconCheck,
     IconClose,
     IconCommand,
+    IconContrast,
     IconEditor,
     IconFolder,
     IconGlobe,
+    IconPlug,
     IconInfo,
-    IconPencil,
     IconPlus,
     IconRefresh,
     IconRun,
     IconSave,
     IconSearch,
     IconTrash,
-    IconWindow,
 } from "./Icons";
-import { Dropdown, type DropdownOption } from "./Dropdown";
+import { Dropdown } from "./Dropdown";
 import { Checkbox, Slider, Switch } from "./Controls";
 import { Tooltip } from "./Tooltip";
 import type { CommandContext, CustomCommand, CustomCommandPlacement } from "../commands/registry";
 import type { AgentProvider, ProjectRoot, ProviderProfile } from "../state/types";
 import { AGENT_PERMISSION_COPY, AGENT_PERMISSION_MODES } from "../agentLaunch";
+import {
+    searchSettings,
+    SETTINGS_GROUPS,
+    SETTINGS_INDEX,
+    SETTINGS_PAGE_NAMES,
+    SETTINGS_PAGE_ORDER,
+    type SettingsEntry,
+    type SettingsPageId,
+} from "../settingsIndex";
+import { useBuiltPlugins } from "../plugins/enabled";
+import { frontendPlugin, pluginSurface } from "../plugins/registry";
+import { ActivityPage } from "./ActivityPage";
+import { SettingsPage, SettingsSection } from "./SettingsLayout";
 import "../styles/settings.css";
 
-type Page = "general" | "appearance" | "keybindings" | "commands" | "agents" | "cli" | "cloud" | "about";
+const PAGE_ICONS: Record<SettingsPageId, ReactNode> = {
+    general: <IconFolder size={13} />,
+    appearance: <IconContrast size={13} />,
+    keybindings: <IconCommand size={13} />,
+    activity: <IconActivity size={13} />,
+    about: <IconInfo size={13} />,
+    agents: <IconAgent size={13} />,
+    actions: <IconRun size={13} />,
+    cli: <IconEditor size={13} />,
+    cloud: <IconGlobe size={13} />,
+    plugins: <IconPlug size={13} />,
+};
 
-interface PageEntry {
-    id: Page;
-    name: string;
-    icon: ReactNode;
+const FOCUSABLE = "button:not(:disabled), input:not(:disabled), textarea:not(:disabled), select:not(:disabled), [tabindex]:not([tabindex='-1'])";
+
+const RAIL_STEPS: Record<string, (index: number) => number> = {
+    ArrowDown: (index) => (index + 1) % SETTINGS_PAGE_ORDER.length,
+    ArrowRight: (index) => (index + 1) % SETTINGS_PAGE_ORDER.length,
+    ArrowUp: (index) => (index - 1 + SETTINGS_PAGE_ORDER.length) % SETTINGS_PAGE_ORDER.length,
+    ArrowLeft: (index) => (index - 1 + SETTINGS_PAGE_ORDER.length) % SETTINGS_PAGE_ORDER.length,
+    Home: () => 0,
+    End: () => SETTINGS_PAGE_ORDER.length - 1,
+};
+
+function isFindShortcut(event: KeyboardEvent): boolean {
+    const primary = IS_MACOS ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey;
+    return primary && !event.shiftKey && !event.altKey && event.code === "KeyF";
 }
-
-/** Two groups: what the window looks and feels like, then what it talks to. */
-const NAV: { label: string; pages: PageEntry[] }[] = [
-    {
-        label: "Workspace",
-        pages: [
-            { id: "general", name: "General", icon: <IconFolder size={13} /> },
-            { id: "appearance", name: "Appearance", icon: <IconWindow size={13} /> },
-            { id: "keybindings", name: "Keybindings", icon: <IconCommand size={13} /> },
-            { id: "commands", name: "Command deck", icon: <IconRun size={13} /> },
-        ],
-    },
-    {
-        label: "Integrations",
-        pages: [
-            { id: "agents", name: "Agents", icon: <IconAgent size={13} /> },
-            { id: "cli", name: "Command line", icon: <IconEditor size={13} /> },
-            { id: "cloud", name: "Cloud", icon: <IconGlobe size={13} /> },
-            { id: "about", name: "About", icon: <IconInfo size={13} /> },
-        ],
-    },
-];
-
-const PAGE_TITLES = Object.fromEntries(NAV.flatMap((group) => group.pages).map((entry) => [entry.id, entry.name])) as Record<Page, string>;
 
 export function SettingsPanel() {
     const modalRef = useRef<HTMLDivElement>(null);
@@ -90,21 +104,106 @@ export function SettingsPanel() {
     const cloudBrowserShortcut = useStore((s) => s.cloudBrowserShortcut);
     const keybindingOverrides = useStore((s) => s.keybindingOverrides);
     const home = useStore((s) => s.home);
+    const page = useStore((s) => s.settingsPage);
     const settingsBinding = resolvedKeybinding(keybindingOverrides, "settings.toggle");
     const closeSettingsHint = settingsBinding ? `Esc / ${keybindingLabel(settingsBinding)}` : "Esc";
 
-    const [page, setPage] = useState<Page>("general");
+    const [query, setQuery] = useState("");
+    const [activeResult, setActiveResult] = useState(0);
+    const [jump, setJump] = useState<{ entry: SettingsEntry; at: number } | null>(null);
+    const searchRef = useRef<HTMLInputElement>(null);
+    const scrollRef = useRef<HTMLDivElement>(null);
+    const railItems = useRef(new Map<SettingsPageId, HTMLButtonElement>());
+
+    const entries = useMemo<SettingsEntry[]>(
+        () => [
+            ...SETTINGS_INDEX,
+            ...keybindingActions().map((action) => ({
+                page: "keybindings" as const,
+                section: "Shortcuts",
+                label: action.label,
+                target: "Shortcuts",
+                keywords: `${action.detail} shortcut ${keybindingLabel(resolvedKeybinding(keybindingOverrides, action.id as KeybindingActionId))}`,
+                filter: action.label,
+            })),
+        ],
+        [keybindingOverrides],
+    );
+    const results = useMemo(() => searchSettings(query, entries), [query, entries]);
+    const searching = query.trim().length > 0;
+
+    useEffect(() => {
+        searchRef.current?.focus();
+    }, []);
 
     useEffect(() => {
         const onKey = (e: KeyboardEvent) => {
             if (e.key === "Escape") {
                 e.preventDefault();
                 cmd.closeSettings();
+            } else if (isFindShortcut(e)) {
+                e.preventDefault();
+                searchRef.current?.focus();
+                searchRef.current?.select();
             }
         };
         window.addEventListener("keydown", onKey);
         return () => window.removeEventListener("keydown", onKey);
     }, []);
+
+    useEffect(() => {
+        if (!jump) return;
+        const target = [...(scrollRef.current?.querySelectorAll<HTMLElement>("[data-settings-target]") ?? [])].find(
+            (element) => element.dataset.settingsTarget === jump.entry.target,
+        );
+        if (!target) return;
+        target.scrollIntoView({ block: "center", behavior: "smooth" });
+        target.querySelector<HTMLElement>(FOCUSABLE)?.focus({ preventScroll: true });
+        delete target.dataset.settingsFlash;
+        void target.offsetWidth;
+        target.dataset.settingsFlash = "";
+        const timer = window.setTimeout(() => delete target.dataset.settingsFlash, 1600);
+        return () => window.clearTimeout(timer);
+    }, [jump]);
+
+    const goTo = (next: SettingsPageId) => {
+        setJump(null);
+        setQuery("");
+        cmd.setSettingsPage(next);
+    };
+
+    const openEntry = (entry: SettingsEntry) => {
+        setQuery("");
+        setActiveResult(0);
+        cmd.setSettingsPage(entry.page);
+        setJump({ entry, at: Date.now() });
+    };
+
+    const onSearchKey = (e: ReactKeyboardEvent<HTMLInputElement>) => {
+        if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+            if (!results.length) return;
+            e.preventDefault();
+            setActiveResult((index) => (e.key === "ArrowDown" ? Math.min(index + 1, results.length - 1) : Math.max(index - 1, 0)));
+        } else if (e.key === "Enter") {
+            const entry = results[activeResult];
+            if (!entry) return;
+            e.preventDefault();
+            openEntry(entry);
+        } else if (e.key === "Escape" && query) {
+            e.preventDefault();
+            e.stopPropagation();
+            setQuery("");
+        }
+    };
+
+    const onRailKey = (e: ReactKeyboardEvent<HTMLElement>) => {
+        const step = RAIL_STEPS[e.key];
+        if (!step || !(e.target instanceof HTMLElement) || !e.target.closest(".settings-rail-item")) return;
+        e.preventDefault();
+        const next = SETTINGS_PAGE_ORDER[step(SETTINGS_PAGE_ORDER.indexOf(page))];
+        goTo(next);
+        railItems.current.get(next)?.focus();
+    };
 
     const pretty = (p: string) => prettyPath(p, home);
 
@@ -112,21 +211,47 @@ export function SettingsPanel() {
         <div ref={modalRef} tabIndex={-1} className="settings-pane" role="dialog" aria-modal="true" aria-label="Settings">
             <div className="settings-frame">
                 <aside className="settings-rail">
-                    <nav className="settings-nav" aria-label="Settings sections">
-                        {NAV.map((group) => (
+                    <label className="settings-search">
+                        <IconSearch size={12} />
+                        <input
+                            ref={searchRef}
+                            value={query}
+                            onChange={(e) => {
+                                setQuery(e.target.value);
+                                setActiveResult(0);
+                            }}
+                            onKeyDown={onSearchKey}
+                            placeholder="Search settings"
+                            aria-label="Search settings"
+                            role="combobox"
+                            aria-autocomplete="list"
+                            aria-expanded={searching}
+                            aria-controls="settings-results"
+                            aria-activedescendant={searching && results.length ? `settings-result-${activeResult}` : undefined}
+                            spellCheck={false}
+                        />
+                        {!query && <kbd className="settings-search-key">{PRIMARY_SHORTCUT}F</kbd>}
+                    </label>
+
+                    <nav className="settings-nav" aria-label="Settings sections" onKeyDown={onRailKey}>
+                        {SETTINGS_GROUPS.map((group) => (
                             <div className="settings-nav-group" key={group.label}>
                                 <span className="settings-nav-label">{group.label}</span>
-                                {group.pages.map((entry) => (
+                                {group.pages.map((id) => (
                                     <button
-                                        key={entry.id}
-                                        className={`settings-rail-item${page === entry.id ? " active" : ""}`}
-                                        onClick={() => setPage(entry.id)}
-                                        aria-current={page === entry.id ? "page" : undefined}
+                                        key={id}
+                                        ref={(node) => {
+                                            if (node) railItems.current.set(id, node);
+                                            else railItems.current.delete(id);
+                                        }}
+                                        className={`settings-rail-item${page === id && !searching ? " active" : ""}`}
+                                        onClick={() => goTo(id)}
+                                        aria-current={page === id ? "page" : undefined}
                                         type="button">
                                         <span className="settings-rail-icon" aria-hidden="true">
-                                            {entry.icon}
+                                            {PAGE_ICONS[id]}
                                         </span>
-                                        <span className="settings-rail-name">{entry.name}</span>
+                                        <span className="settings-rail-name">{SETTINGS_PAGE_NAMES[id]}</span>
                                     </button>
                                 ))}
                             </div>
@@ -138,7 +263,7 @@ export function SettingsPanel() {
 
                 <div className="settings-main">
                     <header className="settings-topbar">
-                        <span className="settings-topbar-title">{PAGE_TITLES[page]}</span>
+                        <span className="settings-topbar-title">{searching ? "Search" : SETTINGS_PAGE_NAMES[page]}</span>
                         <button
                             className="settings-topbar-close"
                             onClick={cmd.closeSettings}
@@ -149,22 +274,33 @@ export function SettingsPanel() {
                         </button>
                     </header>
 
-                    <div className="settings-scroll">
-                        {page === "general" && <GeneralPage projectRoots={projectRoots} home={home} pretty={pretty} />}
+                    <div className="settings-scroll" ref={scrollRef}>
+                        {searching ? (
+                            <SearchResults query={query} results={results} active={activeResult} onHover={setActiveResult} onOpen={openEntry} />
+                        ) : (
+                            <>
+                                {page === "general" && <GeneralPage projectRoots={projectRoots} home={home} pretty={pretty} />}
 
-                        {page === "appearance" && <AppearancePage themeId={themeId} windowOpacity={windowOpacity} windowBlur={windowBlur} />}
+                                {page === "appearance" && <AppearancePage themeId={themeId} windowOpacity={windowOpacity} windowBlur={windowBlur} />}
 
-                        {page === "keybindings" && <KeybindingsPage overrides={keybindingOverrides} />}
+                                {page === "keybindings" && (
+                                    <KeybindingsPage key={jump?.at} overrides={keybindingOverrides} initialQuery={jump?.entry.filter ?? ""} />
+                                )}
 
-                        {page === "commands" && <CommandsPage />}
+                                {page === "activity" && <ActivityPage />}
 
-                        {page === "agents" && <AgentsPage />}
+                                {page === "about" && <AboutPage />}
 
-                        {page === "cli" && <CliPage />}
+                                {page === "agents" && <AgentsPage />}
 
-                        {page === "cloud" && <CloudPage cloudBrowser={cloudBrowser} cloudBrowserShortcut={cloudBrowserShortcut} />}
+                                {page === "actions" && <ActionsPage />}
 
-                        {page === "about" && <AboutPage />}
+                                {page === "cli" && <CliPage />}
+
+                                {page === "cloud" && <CloudPage cloudBrowser={cloudBrowser} cloudBrowserShortcut={cloudBrowserShortcut} />}
+                                {page === "plugins" && <PluginsPage />}
+                            </>
+                        )}
                     </div>
                 </div>
             </div>
@@ -172,15 +308,66 @@ export function SettingsPanel() {
     );
 }
 
-const COMMAND_CONTEXT_OPTIONS: CommandContext[] = ["project", "command", "ssh", "aws", "rundeck", "bruno"];
+interface SearchResultsProps {
+    query: string;
+    results: SettingsEntry[];
+    active: number;
+    onHover: (index: number) => void;
+    onOpen: (entry: SettingsEntry) => void;
+}
+
+function SearchResults({ query, results, active, onHover, onOpen }: SearchResultsProps) {
+    return (
+        <SettingsPage>
+            {results.length === 0 ? (
+                <div className="settings-empty">No settings match “{query.trim()}”.</div>
+            ) : (
+                <div className="settings-results" id="settings-results" role="listbox" aria-label="Matching settings">
+                    {results.map((entry, index) => {
+                        const pageName = SETTINGS_PAGE_NAMES[entry.page];
+                        const path = entry.section === entry.label ? pageName : `${pageName} › ${entry.section}`;
+                        return (
+                            <button
+                                key={`${entry.page}:${entry.section}:${entry.label}`}
+                                id={`settings-result-${index}`}
+                                className={`settings-result${index === active ? " active" : ""}`}
+                                role="option"
+                                aria-selected={index === active}
+                                tabIndex={-1}
+                                type="button"
+                                onMouseMove={() => index !== active && onHover(index)}
+                                onClick={() => onOpen(entry)}>
+                                <span className="settings-rail-icon" aria-hidden="true">
+                                    {PAGE_ICONS[entry.page]}
+                                </span>
+                                <span className="settings-result-label">{entry.label}</span>
+                                <span className="settings-result-path">{path}</span>
+                            </button>
+                        );
+                    })}
+                </div>
+            )}
+        </SettingsPage>
+    );
+}
+
+const CORE_COMMAND_CONTEXTS: readonly CommandContext[] = ["project", "command", "ssh"];
 const COMMAND_PLACEMENTS: CustomCommandPlacement[] = ["terminal", "split", "popup", "background", "replace"];
 
 function blankCommand(): CustomCommand {
     return { id: `command-${Date.now().toString(36)}`, title: "", detail: "", command: "", contexts: [], placement: "terminal" };
 }
 
-function CommandsPage() {
+function ActionsPage() {
     const commands = useStore((s) => s.customCommands);
+    const pluginManifests = useStore((s) => s.pluginManifests);
+    const contextOptions = useMemo(
+        () => [
+            ...CORE_COMMAND_CONTEXTS,
+            ...pluginManifests.flatMap((manifest) => frontendPlugin(manifest.id)?.surfaces.map((surface) => surface.kind) ?? []),
+        ],
+        [pluginManifests],
+    );
     const [draft, setDraft] = useState<CustomCommand>(() => blankCommand());
     const editing = commands.some((item) => item.id === draft.id);
     const save = () => {
@@ -251,7 +438,7 @@ function CommandsPage() {
                     </SettingsRow>
                     <SettingsRow label="Contexts" desc="Leave all unticked to offer it everywhere." stack>
                         <div className="command-contexts">
-                            {COMMAND_CONTEXT_OPTIONS.map((context) => (
+                            {contextOptions.map((context) => (
                                 <Checkbox
                                     key={context}
                                     checked={draft.contexts.includes(context)}
@@ -261,7 +448,7 @@ function CommandsPage() {
                                             contexts: on ? [...draft.contexts, context] : draft.contexts.filter((item) => item !== context),
                                         })
                                     }>
-                                    {context}
+                                    {pluginSurface(context)?.title ?? context}
                                 </Checkbox>
                             ))}
                         </div>
@@ -586,14 +773,17 @@ function AboutPage() {
         <SettingsPage>
             <SettingsSection title="Updates">
                 <SettingsRows>
-                    <SettingsRow label="Channel" desc="Stable follows the latest signed release; nightly the newest prerelease." wide>
+                    <SettingsRow
+                        label="Channel"
+                        desc="Stable follows the latest signed release; nightly the newest build, prerelease or stable."
+                        wide>
                         <Dropdown
                             className="settings-dd"
                             label="update channel"
                             value={updateChannel}
                             options={[
                                 { value: "stable", label: "Stable", detail: "Latest signed release" },
-                                { value: "nightly", label: "Nightly", detail: "Newest signed prerelease build" },
+                                { value: "nightly", label: "Nightly", detail: "Newest signed build, prerelease or stable" },
                             ]}
                             onChange={(value) => cmd.setUpdateChannel(value as "stable" | "nightly")}
                         />
@@ -634,21 +824,6 @@ function AboutPage() {
                     </button>
                 </div>
             </SettingsSection>
-
-            <SettingsSection title="Session transfer" sub="Move a workspace between machines through the clipboard.">
-                <div className="settings-actions start">
-                    <button className="settings-btn" onClick={() => void cmd.exportActiveSession().catch(reportError("session export"))}>
-                        Copy active session
-                    </button>
-                    <button className="settings-btn" onClick={() => void cmd.importSessionFromClipboard().catch(reportError("session import"))}>
-                        Import from clipboard
-                    </button>
-                </div>
-                <p className="settings-hint">
-                    A bundle leaves out Bruno secrets, drafts, terminal history, environment values and startup commands. Imported agents arrive
-                    dormant.
-                </p>
-            </SettingsSection>
         </SettingsPage>
     );
 }
@@ -663,11 +838,6 @@ function GeneralPage({ projectRoots, home, pretty }: GeneralPageProps) {
     const [draftPath, setDraftPath] = useState("");
     const [draftDepth, setDraftDepth] = useState(1);
     const [draftSelfIndex, setDraftSelfIndex] = useState(false);
-    const inputRef = useRef<HTMLInputElement>(null);
-
-    useEffect(() => {
-        inputRef.current?.focus();
-    }, []);
 
     const resolveDirectory = async (raw: string) => {
         const expanded = await settingsApi.expandPath(raw);
@@ -749,7 +919,6 @@ function GeneralPage({ projectRoots, home, pretty }: GeneralPageProps) {
                     <div className="settings-list-add">
                         <div className="settings-add">
                             <input
-                                ref={inputRef}
                                 className="settings-input mono"
                                 aria-label="Folder to add"
                                 placeholder="~/proj    or    /Users/me/work"
@@ -785,12 +954,27 @@ function GeneralPage({ projectRoots, home, pretty }: GeneralPageProps) {
                     Indexing a folder itself offers it in the picker even when it is not a repo — useful for a scratch directory.
                 </p>
             </SettingsSection>
+
+            <SettingsSection title="Session transfer" sub="Move a workspace between machines through the clipboard.">
+                <div className="settings-actions start">
+                    <button className="settings-btn" onClick={() => void cmd.exportActiveSession().catch(reportError("session export"))}>
+                        Copy active session
+                    </button>
+                    <button className="settings-btn" onClick={() => void cmd.importSessionFromClipboard().catch(reportError("session import"))}>
+                        Import from clipboard
+                    </button>
+                </div>
+                <p className="settings-hint">
+                    A bundle leaves out Bruno secrets, drafts, terminal history, environment values and startup commands. Imported agents arrive
+                    dormant.
+                </p>
+            </SettingsSection>
         </SettingsPage>
     );
 }
 
-function KeybindingsPage({ overrides }: { overrides: KeybindingOverrides }) {
-    const [query, setQuery] = useState("");
+function KeybindingsPage({ overrides, initialQuery }: { overrides: KeybindingOverrides; initialQuery: string }) {
+    const [query, setQuery] = useState(initialQuery);
     const [recording, setRecording] = useState<KeybindingActionId | null>(null);
     const [message, setMessage] = useState("");
     const normalizedQuery = query.trim().toLowerCase();
@@ -826,7 +1010,7 @@ function KeybindingsPage({ overrides }: { overrides: KeybindingOverrides }) {
         if (event.key === "Backspace" || event.key === "Delete") {
             cmd.setKeybinding(id, null);
             setRecording(null);
-            setMessage(`${KEYBINDING_ACTIONS.find((action) => action.id === id)?.label} is now unassigned.`);
+            setMessage(`${keybindingActions().find((action) => action.id === id)?.label} is now unassigned.`);
             return;
         }
 
@@ -844,10 +1028,10 @@ function KeybindingsPage({ overrides }: { overrides: KeybindingOverrides }) {
 
         cmd.setKeybinding(id, binding);
         setRecording(null);
-        setMessage(`${KEYBINDING_ACTIONS.find((action) => action.id === id)?.label} changed to ${keybindingLabel(binding)}.`);
+        setMessage(`${keybindingActions().find((action) => action.id === id)?.label} changed to ${keybindingLabel(binding)}.`);
     };
 
-    const matches = (action: (typeof KEYBINDING_ACTIONS)[number]) =>
+    const matches = (action: KeybindingAction) =>
         !normalizedQuery ||
         `${action.label} ${action.detail} ${keybindingLabel(resolvedKeybinding(overrides, action.id as KeybindingActionId))}`
             .toLowerCase()
@@ -857,7 +1041,7 @@ function KeybindingsPage({ overrides }: { overrides: KeybindingOverrides }) {
         <SettingsPage>
             <SettingsSection
                 title="Shortcuts"
-                meta={`${KEYBINDING_ACTIONS.length} commands · ${overrideCount} changed`}
+                meta={`${keybindingActions().length} commands · ${overrideCount} changed`}
                 sub="Select a keycap, then press a new combination. Conflicts are blocked.">
                 <div className="keymap-toolbar">
                     <label className="keymap-search">
@@ -889,8 +1073,8 @@ function KeybindingsPage({ overrides }: { overrides: KeybindingOverrides }) {
                 </div>
 
                 <div className="keymap-groups">
-                    {KEYBINDING_CATEGORIES.map((category) => {
-                        const actions = KEYBINDING_ACTIONS.filter((action) => action.category === category && matches(action));
+                    {keybindingCategories().map((category) => {
+                        const actions = keybindingActions().filter((action) => action.category === category && matches(action));
                         if (!actions.length) return null;
                         return (
                             <section className="keymap-group" key={category}>
@@ -944,7 +1128,7 @@ function KeybindingsPage({ overrides }: { overrides: KeybindingOverrides }) {
                             </section>
                         );
                     })}
-                    {normalizedQuery && !KEYBINDING_ACTIONS.some(matches) && (
+                    {normalizedQuery && !keybindingActions().some(matches) && (
                         <div className="settings-empty">No commands match “{query.trim()}”.</div>
                     )}
                 </div>
@@ -977,18 +1161,6 @@ interface ThemeEdit {
 function AppearancePage({ themeId, windowOpacity, windowBlur }: AppearancePageProps) {
     const uiTextScale = useStore((state) => state.uiTextScale);
     const customThemes = useStore((s) => s.customThemes);
-    /** Themes matching the requested appearance, plus the current pick so it stays selectable. */
-    const themeOptions = (dark: boolean, selectedId: string): DropdownOption[] =>
-        [...THEMES, ...customThemes]
-            .filter((theme) => theme.dark === dark || theme.id === selectedId)
-            .map((theme) => ({
-                value: theme.id,
-                label: theme.name,
-                ...(customThemes.some((candidate) => candidate.id === theme.id) ? { detail: "custom" } : {}),
-            }));
-    const themeMode = useStore((s) => s.themeMode);
-    const systemLightThemeId = useStore((s) => s.systemLightThemeId);
-    const systemDarkThemeId = useStore((s) => s.systemDarkThemeId);
     const [edit, setEdit] = useState<ThemeEdit | null>(null);
     const editorRef = useRef<HTMLDivElement>(null);
 
@@ -1011,9 +1183,21 @@ function AppearancePage({ themeId, windowOpacity, windowBlur }: AppearancePagePr
             baseName: src.name,
         });
 
-    const editCustom = (src: Theme) => openEditor({ theme: cloneTheme(src), original: cloneTheme(src), isNew: false, baseName: src.name });
+    const [readingWallpaper, setReadingWallpaper] = useState(false);
+    const fromWallpaper = async () => {
+        setReadingWallpaper(true);
+        try {
+            const wallpaper = await settingsApi.wallpaperImage();
+            const theme = themeFromColours(wallpaperTheme(await wallpaperPixels(wallpaper.dataUrl), `${wallpaper.name} wallpaper`));
+            openEditor({ theme: cloneTheme(theme, { id: newCustomThemeId() }), original: cloneTheme(theme), isNew: true, baseName: theme.name });
+        } catch (error) {
+            reportError("Theme from wallpaper")(error);
+        } finally {
+            setReadingWallpaper(false);
+        }
+    };
 
-    const newFromActive = () => customizeFrom(THEMES_BY_ID[themeId] ?? customThemes.find((t) => t.id === themeId) ?? THEMES[0]);
+    const editCustom = (src: Theme) => openEditor({ theme: cloneTheme(src), original: cloneTheme(src), isNew: false, baseName: src.name });
 
     const closeEditor = () => {
         setEdit(null);
@@ -1026,86 +1210,21 @@ function AppearancePage({ themeId, windowOpacity, windowBlur }: AppearancePagePr
         setEdit(null);
     };
 
-    const renderCard = (th: Theme, custom: boolean) => {
-        const active = th.id === themeId;
-        const editing = edit?.theme.id === th.id;
-        return (
-            <div key={th.id} className={`settings-theme${active ? " active" : ""}${editing ? " editing" : ""}`}>
-                <button className="settings-theme-hit" onClick={() => cmd.setThemeId(th.id)} title={`Apply ${th.name}`} type="button">
-                    {/* The theme's own ground. `editor.bg` is "transparent" in every theme —
-                        the editor sits on the chrome — so using it painted nothing and left
-                        all ten swatches showing the theme already applied. */}
-                    <div className="settings-theme-preview" style={{ background: th.chrome.bg, color: th.chrome.ink }}>
-                        <span className="settings-theme-preview-mark" style={{ color: th.chrome.acc }}>
-                            Aa
-                        </span>
-                        <span className="settings-theme-preview-code" style={{ color: th.highlight.comment }}>
-                            // make it yours
-                        </span>
-                    </div>
-                    <div className="settings-theme-body">
-                        <div className="settings-theme-name-row">
-                            <span className="settings-theme-name">{th.name}</span>
-                            {active ? (
-                                <span className="settings-theme-current">Current</span>
-                            ) : (
-                                custom && <span className="settings-theme-badge">Custom</span>
-                            )}
-                        </div>
-                        <div className="settings-swatches">
-                            <span style={{ background: th.terminal.red }} />
-                            <span style={{ background: th.terminal.green }} />
-                            <span style={{ background: th.terminal.yellow }} />
-                            <span style={{ background: th.terminal.blue }} />
-                            <span style={{ background: th.terminal.magenta }} />
-                            <span style={{ background: th.terminal.cyan }} />
-                        </div>
-                    </div>
-                </button>
-                <div className="settings-theme-actions">
-                    {custom ? (
-                        <>
-                            <button className="settings-theme-act" onClick={() => editCustom(th)} title="Edit theme" type="button">
-                                <IconPencil size={11} />
-                            </button>
-                            <button
-                                className="settings-theme-act danger"
-                                onClick={() => cmd.deleteCustomTheme(th.id)}
-                                title="Delete theme"
-                                type="button">
-                                <IconTrash size={11} />
-                            </button>
-                        </>
-                    ) : (
-                        <button className="settings-theme-act" onClick={() => customizeFrom(th)} title="Customize a copy" type="button">
-                            <IconPencil size={11} />
-                        </button>
-                    )}
-                </div>
-            </div>
-        );
-    };
-
     return (
         <SettingsPage>
             <SettingsSection
                 title="Theme"
                 meta={`${THEMES.length} built-in · ${customThemes.length} custom`}
-                sub="Applies instantly to chrome, editor and terminal. Hover a card to fork or delete it.">
-                <div className="settings-theme-grid">{THEMES.map((th) => renderCard(th, false))}</div>
-
-                {customThemes.length > 0 && (
-                    <>
-                        <div className="settings-theme-divider">your themes</div>
-                        <div className="settings-theme-grid">{customThemes.map((th) => renderCard(th, true))}</div>
-                    </>
-                )}
-
-                <div className="settings-actions start">
-                    <button className="settings-btn" onClick={newFromActive} type="button" title="Fork the active theme into a new editable copy">
-                        <IconPlus size={12} /> New from current
-                    </button>
-                </div>
+                sub="Applies instantly to chrome, editor and terminal. Arrow keys in the search step through the list.">
+                <ThemePicker
+                    themeId={themeId}
+                    customThemes={customThemes}
+                    editingId={edit?.theme.id}
+                    onCustomize={customizeFrom}
+                    onEdit={editCustom}
+                    onFromWallpaper={fromWallpaper}
+                    readingWallpaper={readingWallpaper}
+                />
             </SettingsSection>
 
             {edit && (
@@ -1130,41 +1249,6 @@ function AppearancePage({ themeId, windowOpacity, windowBlur }: AppearancePagePr
                     />
                 </div>
             )}
-
-            <SettingsSection title="System appearance">
-                <SettingsRows>
-                    <SettingsRow
-                        label="Follow system light/dark"
-                        desc="Switches the moment the host appearance changes."
-                        asLabel
-                        control={
-                            <Switch
-                                checked={themeMode === "system"}
-                                onChange={(enabled) => cmd.setThemeMode(enabled ? "system" : "manual")}
-                                label="Follow system light/dark"
-                            />
-                        }
-                    />
-                    <SettingsRow label="Light appearance" wide>
-                        <Dropdown
-                            className="settings-dd"
-                            label="Light appearance"
-                            value={systemLightThemeId}
-                            options={themeOptions(false, systemLightThemeId)}
-                            onChange={cmd.setSystemLightThemeId}
-                        />
-                    </SettingsRow>
-                    <SettingsRow label="Dark appearance" wide>
-                        <Dropdown
-                            className="settings-dd"
-                            label="Dark appearance"
-                            value={systemDarkThemeId}
-                            options={themeOptions(true, systemDarkThemeId)}
-                            onChange={cmd.setSystemDarkThemeId}
-                        />
-                    </SettingsRow>
-                </SettingsRows>
-            </SettingsSection>
 
             <SettingsSection title="Interface">
                 <SettingsRows>
@@ -1395,6 +1479,42 @@ interface CloudPageProps {
     cloudBrowserShortcut: string;
 }
 
+function PluginsPage() {
+    const built = useBuiltPlugins();
+    const manifests = useStore((s) => s.pluginManifests);
+    const disabled = useStore((s) => s.disabledPlugins);
+    return (
+        <SettingsPage>
+            <SettingsSection
+                title="Built-in plugins"
+                sub="A plugin switched off leaves the rail, the top bar and agents' tools, and costs nothing until it is back on.">
+                <SettingsRows>
+                    {built.length === 0 && <div className="settings-empty">No plugins in this build.</div>}
+                    {built.map((plugin) => {
+                        const title = plugin.surfaces[0]?.title ?? plugin.id;
+                        const version = manifests.find((manifest) => manifest.id === plugin.id)?.version;
+                        return (
+                            <SettingsRow
+                                key={plugin.id}
+                                label={title}
+                                desc={`${plugin.id}${version ? ` · ${version}` : ""}`}
+                                asLabel
+                                control={
+                                    <Switch
+                                        checked={!disabled.includes(plugin.id)}
+                                        onChange={(enabled) => cmd.setPluginEnabled(plugin.id, enabled)}
+                                        label={title}
+                                    />
+                                }
+                            />
+                        );
+                    })}
+                </SettingsRows>
+            </SettingsSection>
+        </SettingsPage>
+    );
+}
+
 function CloudPage({ cloudBrowser, cloudBrowserShortcut }: CloudPageProps) {
     return (
         <SettingsPage>
@@ -1426,25 +1546,6 @@ function CloudPage({ cloudBrowser, cloudBrowserShortcut }: CloudPageProps) {
     );
 }
 
-function SettingsPage({ children }: { children: ReactNode }) {
-    return <div className="settings-page">{children}</div>;
-}
-
-function SettingsSection({ title, meta, sub, children }: { title: ReactNode; meta?: ReactNode; sub?: ReactNode; children: ReactNode }) {
-    return (
-        <section className="settings-section">
-            <header className="settings-section-head">
-                <div className="settings-section-topline">
-                    <h2 className="settings-section-title">{title}</h2>
-                    {meta && <span className="settings-section-meta">{meta}</span>}
-                </div>
-                {sub && <p className="settings-section-sub">{sub}</p>}
-            </header>
-            <div className="settings-section-body">{children}</div>
-        </section>
-    );
-}
-
 function SettingsRows({ children }: { children: ReactNode }) {
     return <div className="settings-rows">{children}</div>;
 }
@@ -1473,7 +1574,9 @@ function SettingsRow({
 }) {
     const Tag = asLabel ? "label" : "div";
     return (
-        <Tag className={`settings-row${wide ? " wide" : ""}${stack ? " stack" : ""}`}>
+        <Tag
+            className={`settings-row${wide ? " wide" : ""}${stack ? " stack" : ""}`}
+            data-settings-target={typeof label === "string" ? label : undefined}>
             <span className="settings-row-copy">
                 <span className="settings-row-label">{label}</span>
                 {desc && <span className="settings-row-desc">{desc}</span>}

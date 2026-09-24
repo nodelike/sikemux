@@ -6,7 +6,8 @@
  * octicons, weather, seti-ui, codicons). The unicode-range on each pair is
  * an exact partition of the original font's cmap, generated from its own
  * glyph table, so nothing is dropped — the Icons face just doesn't
- * download until a prompt actually renders a PUA icon glyph.
+ * download until a prompt actually renders a PUA icon glyph. The icons are
+ * drawn identically in every style, so all four Icons faces share one file.
  */
 @font-face {
     font-family: "JetBrainsMono Nerd Font";
@@ -68,7 +69,7 @@
 }
 @font-face {
     font-family: "JetBrainsMono Nerd Font";
-    src: url("/fonts/JetBrainsMonoNerdFontMono-Bold-Icons.woff2") format("woff2");
+    src: url("/fonts/JetBrainsMonoNerdFontMono-Regular-Icons.woff2") format("woff2");
     font-weight: 700;
     font-style: normal;
     font-display: swap;
@@ -102,7 +103,7 @@
 }
 @font-face {
     font-family: "JetBrainsMono Nerd Font";
-    src: url("/fonts/JetBrainsMonoNerdFontMono-Italic-Icons.woff2") format("woff2");
+    src: url("/fonts/JetBrainsMonoNerdFontMono-Regular-Icons.woff2") format("woff2");
     font-weight: 400;
     font-style: italic;
     font-display: swap;
@@ -136,7 +137,7 @@
 }
 @font-face {
     font-family: "JetBrainsMono Nerd Font";
-    src: url("/fonts/JetBrainsMonoNerdFontMono-BoldItalic-Icons.woff2") format("woff2");
+    src: url("/fonts/JetBrainsMonoNerdFontMono-Regular-Icons.woff2") format("woff2");
     font-weight: 700;
     font-style: italic;
     font-display: swap;
@@ -192,6 +193,13 @@ body,
     width: 100%;
 }
 
+/* WebKit rubber-bands the whole page on a trackpad swipe even with overflow
+   hidden, and can leave it resting a few points down the window. */
+html,
+body {
+    overscroll-behavior: none;
+}
+
 body {
     background: color-mix(in srgb, var(--bg, var(--void)) calc(var(--window-opacity, 1) * 100%), transparent);
     color: var(--ink);
@@ -239,7 +247,10 @@ html.is-transparent
         .settings-empty,
         .settings-depth,
         .settings-knob-num,
-        .settings-theme,
+        .theme-pick-current,
+        .theme-pick-search,
+        .theme-pick-tones,
+        .theme-pick-list,
         .settings-theme-act,
         .keymap-search,
         .keymap-status,

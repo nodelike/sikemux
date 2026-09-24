@@ -1,0 +1,18 @@
+.rnd-branch-main {
+    color: var(--live);
+}
+.rnd-branch-feature {
+    color: #7aa0d6;
+}
+.rnd-branch-fix {
+    color: var(--danger);
+}
+.rnd-branch-release {
+    color: var(--acc);
+}
+.rnd-branch-other {
+    color: var(--ink);
+}
+.rnd-branch-na {
+    color: var(--ink-faint);
+}

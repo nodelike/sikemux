@@ -38,6 +38,7 @@ impl HarnessRequest {
         }
         if !crate::generated_agent_tools::HARNESS_METHODS.contains(&self.method.as_str())
             && !crate::browser::tools::is_browser_method(&self.method)
+            && !crate::plugins::agent::is_agent_method(&self.method)
         {
             return Err("unknown harness method".into());
         }
@@ -132,6 +133,9 @@ pub fn execute(
         .into_owned();
     if crate::browser::tools::is_browser_method(&request.method) {
         return crate::browser::tools::execute(app, &request);
+    }
+    if crate::plugins::agent::is_agent_method(&request.method) {
+        return crate::plugins::agent::execute(app, &request.method, &request.params);
     }
     let id = request.id.clone();
     let receiver = broker.enqueue(request)?;

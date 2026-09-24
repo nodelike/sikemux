@@ -9,9 +9,7 @@ export type Event =
     | { type: "git-refresh"; repo: string }
     | { type: "agent-focus"; sessionId: string }
     | { type: "search-focus"; sessionId: string }
-    | { type: "rnd-auth-expired"; reason: string }
-    | { type: "aws-auth-expired"; profile: string; reason: string }
-    | { type: "bruno-run"; sessionId: string };
+    | { type: "pane-closed"; paneId: string };
 
 type AnyHandler = (e: Event) => void;
 

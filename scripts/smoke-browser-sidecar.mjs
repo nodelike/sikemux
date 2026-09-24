@@ -21,8 +21,8 @@ const EXPECTED_TOOLS = [
   "browser_state",
   "browser_click",
   "browser_screenshot",
-  "sikemux_workspace_inspect",
-  "sikemux_guide",
+  "workspace_inspect",
+  "guide",
 ];
 
 function fakeSikemux(received) {
@@ -32,8 +32,10 @@ function fakeSikemux(received) {
       frame += chunk;
       const newline = frame.indexOf("\n");
       if (newline < 0) return;
-      received.push(JSON.parse(frame.slice(0, newline)));
-      socket.end(`${JSON.stringify({ status: "result", value: STATE })}\n`);
+      const call = JSON.parse(frame.slice(0, newline));
+      received.push(call);
+      const value = call.request?.method === "plugins.tools" ? [] : STATE;
+      socket.end(`${JSON.stringify({ status: "result", value })}\n`);
     });
   });
   return new Promise((resolve) => {
@@ -82,7 +84,7 @@ async function exercise(sidecar, environment, received) {
       capabilities: {},
       clientInfo: { name: "sikemux-smoke", version: "1" },
     });
-    if (start.serverInfo?.name !== "sikemux-browser")
+    if (start.serverInfo?.name !== "sikemux-tools")
       throw new Error(`unexpected server: ${JSON.stringify(start.serverInfo)}`);
     mcp.notify("notifications/initialized");
 
@@ -95,7 +97,7 @@ async function exercise(sidecar, environment, received) {
     }
 
     const guide = await mcp.request("tools/call", {
-      name: "sikemux_guide",
+      name: "guide",
       arguments: {},
     });
     if (
@@ -117,7 +119,9 @@ async function exercise(sidecar, environment, received) {
         `the sidecar relayed the wrong answer: ${JSON.stringify(navigated.content)}`,
       );
 
-    const [call] = received;
+    const call = received.find(
+      (entry) => entry?.request?.method === "browser.navigate",
+    );
     if (
       call?.request?.method !== "browser.navigate" ||
       call?.request?.agentId !== "agent-smoke" ||
@@ -154,7 +158,7 @@ export async function smokeBrowserSidecar(sidecar) {
         ...process.env,
         SIKEMUX_CLI_ENDPOINT: endpoint,
         SIKEMUX_PROJECT: directory,
-        SIKEMUX_BROWSER_AGENT_ID: "agent-smoke",
+        SIKEMUX_TOOLS_AGENT_ID: "agent-smoke",
       },
       received,
     );

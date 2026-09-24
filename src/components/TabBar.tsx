@@ -5,10 +5,11 @@ import { prefersReducedMotion } from "../lib/motion";
 import { TreeContextMenu, type CtxItem } from "./FileTree";
 import { IconClose } from "./Icons";
 import { Tooltip } from "./Tooltip";
+import { useTabReorder, type TabDropRule, type TabReorderHandler } from "./useTabReorder";
 
 /**
  * One normalized tab. Every tab strip in the app (editor files, agents,
- * terminals, Bruno requests) describes its tabs as these, so selection,
+ * terminals, plugin documents) describes its tabs as these, so selection,
  * closing, the dirty dot, accessories and the right-click menu all behave
  * identically. A new group only has to map its state into `TabDescriptor[]`.
  */
@@ -29,6 +30,9 @@ export interface TabDescriptor {
     /** Per-tab status mark (spinner, activity dot). Takes the trailing slot, and
      * the close button takes it back under the pointer. */
     accessory?: ReactNode;
+    /** Sits after the label, just before the close button, and stays visible. */
+    badge?: ReactNode;
+    className?: string;
 }
 
 export type TabVariant = "editor" | "agent" | "browser" | "stack";
@@ -62,9 +66,27 @@ interface TabBarProps {
     trailing?: ReactNode;
     /** Names the strip for assistive tech when more than one is on screen. */
     ariaLabel?: string;
+    /** Enables press-and-drag reordering. Omit and the strip's order is fixed. */
+    onReorder?: TabReorderHandler;
+    /** Rules out drops the owner cannot honour, such as a file leaving its editor. */
+    canReorder?: TabDropRule;
 }
 
-export function TabBar({ variant, tabs, onSelect, onClose, buildMenu, onAdd, addIcon, addTitle, addLabel, trailing, ariaLabel }: TabBarProps) {
+export function TabBar({
+    variant,
+    tabs,
+    onSelect,
+    onClose,
+    buildMenu,
+    onAdd,
+    addIcon,
+    addTitle,
+    addLabel,
+    trailing,
+    ariaLabel,
+    onReorder,
+    canReorder,
+}: TabBarProps) {
     const [menu, setMenu] = useState<{ x: number; y: number; id: string } | null>(null);
     const menuItems = menu && buildMenu ? buildMenu(menu.id) : null;
     const scrollRef = useRef<HTMLDivElement>(null);
@@ -80,6 +102,12 @@ export function TabBar({ variant, tabs, onSelect, onClose, buildMenu, onAdd, add
         overscan: 8,
         enabled: virtualized,
     });
+    const reorder = useTabReorder(
+        tabRefs,
+        tabs.map((tab) => tab.id),
+        onReorder,
+        canReorder,
+    );
     const activeIndex = tabs.findIndex((tab) => tab.active);
     const activeId = tabs[activeIndex]?.id;
 
@@ -114,7 +142,7 @@ export function TabBar({ variant, tabs, onSelect, onClose, buildMenu, onAdd, add
         : tabs.map((tab, index) => ({ tab, index }));
 
     return (
-        <div ref={scrollRef} className={`tabbar v-${variant}`} role="tablist" aria-label={ariaLabel}>
+        <div ref={scrollRef} className={`tabbar v-${variant}${reorder.dragging ? " is-reordering" : ""}`} role="tablist" aria-label={ariaLabel}>
             {virtualized && <div aria-hidden="true" style={{ flex: `0 0 ${firstVirtual?.start ?? 0}px` }} />}
             {visibleTabs.map(({ tab: t, index }) => {
                 const closable = t.closable ?? !!onClose;
@@ -126,7 +154,7 @@ export function TabBar({ variant, tabs, onSelect, onClose, buildMenu, onAdd, add
                         key={t.id}
                         data-index={index}
                         ref={virtualized ? tabVirtualizer.measureElement : undefined}
-                        className={`tab-wrap${t.active ? " active" : ""}`}
+                        className={`tab-wrap${t.active ? " active" : ""}${t.className ? ` ${t.className}` : ""}${reorder.dragClass(t.id)}`}
                         role="presentation">
                         <Tooltip label={t.title}>
                             <button
@@ -166,7 +194,9 @@ export function TabBar({ variant, tabs, onSelect, onClose, buildMenu, onAdd, add
                                 }}
                                 aria-label={`${t.label}${t.dirty ? ", unsaved changes" : ""}`}
                                 className={`tab${t.active ? " active" : ""}`}
+                                onPointerDown={onReorder ? (event) => reorder.onPointerDown(event, t.id) : undefined}
                                 onClick={(event) => {
+                                    if (reorder.consumeClick()) return;
                                     event.currentTarget.focus({ preventScroll: true });
                                     onSelect(t.id);
                                 }}
@@ -180,6 +210,7 @@ export function TabBar({ variant, tabs, onSelect, onClose, buildMenu, onAdd, add
                                 }>
                                 {t.icon && <span className="tab-mark">{t.icon}</span>}
                                 <span className="tab-label">{t.label}</span>
+                                {t.badge && <span className="tab-badge">{t.badge}</span>}
                             </button>
                         </Tooltip>
                         {(status || (closable && onClose)) && (

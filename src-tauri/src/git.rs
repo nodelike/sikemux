@@ -198,6 +198,16 @@ pub struct GitStatus {
     files: Vec<GitFile>,
 }
 
+#[derive(Serialize, Clone, Debug)]
+pub struct DiscoveredRepo {
+    path: String,
+    name: String,
+    branch: String,
+    ahead: i32,
+    behind: i32,
+    changes: usize,
+}
+
 #[derive(Serialize, Clone)]
 pub struct GitBranch {
     name: String,
@@ -697,6 +707,51 @@ fn store_walk<T>(cache: &WalkCache<T>, key: String, generation: u64, value: T) {
         cache.clear();
     }
     cache.insert(key, (generation, value));
+}
+
+// Not `files::should_skip_dir`: it hides `vendor`, `build` and `out`, which are ordinary repository names.
+fn skip_repo_scan_dir(name: &str) -> bool {
+    matches!(name, "node_modules" | ".git")
+}
+
+/// The repositories directly inside `root`, one level down like VS Code's default scan.
+#[tauri::command]
+pub async fn git_discover_repos(root: String) -> Result<Vec<DiscoveredRepo>, String> {
+    let _permit = git_walk_permit().await?;
+    run_blocking(move || -> Result<Vec<DiscoveredRepo>, String> {
+        let mut found: Vec<DiscoveredRepo> = Vec::new();
+        for entry in std::fs::read_dir(&root)
+            .map_err(|e| e.to_string())?
+            .flatten()
+        {
+            if !entry.file_type().is_ok_and(|kind| kind.is_dir()) {
+                continue;
+            }
+            let name = entry.file_name().to_string_lossy().to_string();
+            if skip_repo_scan_dir(&name) {
+                continue;
+            }
+            let path = entry.path();
+            // `open`, not `discover`, so a plain folder never reports the repository it sits in.
+            let Ok(repo) = Repository::open(&path) else {
+                continue;
+            };
+            let Ok(status) = read_status(&repo) else {
+                continue;
+            };
+            found.push(DiscoveredRepo {
+                path: path.to_string_lossy().to_string(),
+                name,
+                branch: status.branch,
+                ahead: status.ahead,
+                behind: status.behind,
+                changes: status.files.len(),
+            });
+        }
+        found.sort_by_cached_key(|repo| repo.name.to_lowercase());
+        Ok(found)
+    })
+    .await
 }
 
 #[tauri::command]
@@ -1889,6 +1944,7 @@ fn commit_with_message(repo: &str, message: &str) -> Result<String, String> {
     let out =
         run_command_with_timeout(&mut command, Some(message.as_bytes()), GIT_COMMAND_TIMEOUT)?;
     if out.status.success() {
+        crate::activity::record_commit(repo);
         Ok(String::from_utf8_lossy(&out.stdout).into_owned())
     } else {
         Err(String::from_utf8_lossy(&out.stderr).into_owned())
@@ -4369,6 +4425,42 @@ mod tests {
         assert!(last.uncommitted, "appended line should be uncommitted");
         assert_eq!(last.summary, "Uncommitted changes");
         assert!(!blame.commits[blame.lines[0] as usize].uncommitted);
+    }
+
+    #[tokio::test]
+    async fn discovers_child_repositories_and_skips_only_node_modules() {
+        let td = tempdir().expect("tempdir");
+        let root = td.path();
+        for name in ["beta", "alpha", "vendor", "node_modules"] {
+            let child = root.join(name);
+            fs::create_dir_all(&child).expect("child dir");
+            git(&child, &["init"]);
+            git(&child, &["config", "user.email", "sikemux@example.test"]);
+            git(&child, &["config", "user.name", "sikemux"]);
+            commit_base(&child);
+        }
+        fs::create_dir_all(root.join("plain/nested")).expect("plain dir");
+        fs::write(root.join("alpha/dirty.txt"), "x\n").expect("write dirty");
+
+        let found = git_discover_repos(repo_arg(root)).await.expect("discover");
+
+        let names: Vec<&str> = found.iter().map(|r| r.name.as_str()).collect();
+        assert_eq!(names, vec!["alpha", "beta", "vendor"]);
+        assert_eq!(found[0].changes, 1, "alpha has one untracked file");
+        assert_eq!(found[1].changes, 0, "beta is clean");
+    }
+
+    #[tokio::test]
+    async fn plain_directories_never_report_the_repository_above_them() {
+        let td = init_repo();
+        commit_base(td.path());
+        fs::create_dir_all(td.path().join("src")).expect("src dir");
+
+        let found = git_discover_repos(repo_arg(td.path()))
+            .await
+            .expect("discover");
+
+        assert!(found.is_empty(), "{found:?} should be empty");
     }
 
     #[tokio::test]

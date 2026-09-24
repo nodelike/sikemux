@@ -1,5 +1,7 @@
 import type { AgentType } from "../state/types";
 
+const brunoLogo = new URL("../assets/bruno.svg", import.meta.url).href;
+const codexLogo = new URL("../assets/agent-logos/codex.svg", import.meta.url).href;
 const ompLogo = new URL("../assets/agent-logos/omp.svg", import.meta.url).href;
 
 interface IconProps {
@@ -90,6 +92,13 @@ export const IconSearch = makeSvgIcon(
         <path d="M10.4 10.4 14 14" />
     </>,
 );
+export const IconImage = makeSvgIcon(
+    <>
+        <rect x="2" y="3" width="12" height="10" rx="1.6" />
+        <circle cx="5.8" cy="6.4" r="1.1" />
+        <path d="m2.4 11.6 3.4-3.2 2.6 2.4 1.9-1.7 3.3 2.9" />
+    </>,
+);
 export const IconEye = makeSvgIcon(
     <>
         <path d="M1.6 8s2.3-4 6.4-4 6.4 4 6.4 4-2.3 4-6.4 4S1.6 8 1.6 8Z" />
@@ -126,6 +135,12 @@ export const IconTimer = makeSvgIcon(
 );
 export const IconAgent = makeSvgIcon(<path d="M8 1.8c.5 3.3 2.9 5.7 6.2 6.2-3.3.5-5.7 2.9-6.2 6.2-.5-3.3-2.9-5.7-6.2-6.2C5.1 7.5 7.5 5.1 8 1.8Z" />);
 export const IconWindow = makeSvgIcon(<rect x="2.2" y="2.8" width="11.6" height="10.4" rx="0" />);
+export const IconContrast = makeSvgIcon(
+    <>
+        <circle cx="8" cy="8" r="5.8" />
+        <path d="M8 2.2a5.8 5.8 0 0 1 0 11.6z" fill="currentColor" stroke="none" />
+    </>,
+);
 export const IconCommand = makeSvgIcon(<path d="M3 4.6 6 8l-3 3.4M7.6 11.4H13" />);
 export const IconFolder = makeSvgIcon(<path d="M2 4.4h4l1.6 2H14v7.2H2z" />);
 export const IconPlug = makeSvgIcon(
@@ -200,6 +215,7 @@ export const IconWarning = makeSvgIcon(
         <path d="M8 6.1v3.6M8 11.6v.1" />
     </>,
 );
+export const IconActivity = makeSvgIcon(<path d="M3.2 13V9.4M8 13V3.4M12.8 13V6.6" />);
 export const IconInfo = makeSvgIcon(
     <>
         <circle cx="8" cy="8" r="6.2" />
@@ -251,15 +267,7 @@ export function IconClaude({ size, className }: IconProps) {
 }
 
 export function IconCodex({ size, className }: IconProps) {
-    return (
-        <Svg size={size} className={className} viewBox="-4 -4 32 32" fill="currentColor">
-            <path
-                stroke="none"
-                fillRule="evenodd"
-                d="M9.205 8.658v-2.26c0-.19.072-.333.238-.428l4.543-2.616c.619-.357 1.356-.523 2.117-.523 2.854 0 4.662 2.212 4.662 4.566 0 .167 0 .357-.024.547l-4.71-2.759a.797.797 0 00-.856 0l-5.97 3.473zm10.609 8.8V12.06c0-.333-.143-.57-.429-.737l-5.97-3.473 1.95-1.118a.433.433 0 01.476 0l4.543 2.617c1.309.76 2.189 2.378 2.189 3.948 0 1.808-1.07 3.473-2.76 4.163zM7.802 12.703l-1.95-1.142c-.167-.095-.239-.238-.239-.428V5.899c0-2.545 1.95-4.472 4.591-4.472 1 0 1.927.333 2.712.928L8.23 5.067c-.285.166-.428.404-.428.737v6.898zM12 15.128l-2.795-1.57v-3.33L12 8.658l2.795 1.57v3.33L12 15.128zm1.796 7.23c-1 0-1.927-.332-2.712-.927l4.686-2.712c.285-.166.428-.404.428-.737v-6.898l1.974 1.142c.167.095.238.238.238.428v5.233c0 2.545-1.974 4.472-4.614 4.472zm-5.637-5.303l-4.544-2.617c-1.308-.761-2.188-2.378-2.188-3.948A4.482 4.482 0 014.21 6.327v5.423c0 .333.143.571.428.738l5.947 3.449-1.95 1.118a.432.432 0 01-.476 0zm-.262 3.9c-2.688 0-4.662-2.021-4.662-4.519 0-.19.024-.38.047-.57l4.686 2.71c.286.167.571.167.856 0l5.97-3.448v2.26c0 .19-.07.333-.237.428l-4.543 2.616c-.619.357-1.356.523-2.117.523zm5.899 2.83a5.947 5.947 0 005.827-4.756C22.287 18.339 24 15.84 24 13.296c0-1.665-.713-3.282-1.998-4.448.119-.5.19-.999.19-1.498 0-3.401-2.759-5.947-5.946-5.947-.642 0-1.26.095-1.88.31A5.962 5.962 0 0010.205 0a5.947 5.947 0 00-5.827 4.757C1.713 5.447 0 7.945 0 10.49c0 1.666.713 3.283 1.998 4.448-.119.5-.19 1-.19 1.499 0 3.401 2.759 5.946 5.946 5.946.642 0 1.26-.095 1.88-.309a5.96 5.96 0 004.162 1.713z"
-            />
-        </Svg>
-    );
+    return <img src={codexLogo} width={size ?? 16} height={size ?? 16} className={className} alt="" aria-hidden="true" />;
 }
 
 export function IconPi({ size, className }: IconProps) {
@@ -320,6 +328,7 @@ export function AgentIcon({ type, size, className }: { type: AgentType; size?: n
 }
 
 import type { WindowRole } from "../state/types";
+import { pluginSurface } from "../plugins/registry";
 export function WindowIcon({ role, size }: { role: WindowRole; size?: number }) {
     if (role === "files") return <IconEditor size={size} />;
     if (role === "term") return <IconCommand size={size} />;
@@ -327,9 +336,8 @@ export function WindowIcon({ role, size }: { role: WindowRole; size?: number }) 
     if (role === "diff") return <IconCommit size={size} />;
     if (role === "search") return <IconSearch size={size} />;
     if (role === "agent") return <IconAgent size={size} />;
-    // The aws mark is a wordmark, so it keeps its own width instead of the square glyph size.
-    if (role === "aws") return <IconAws className="icon-aws" />;
-    if (role === "rundeck") return <IconRundeck size={size} />;
+    const surface = pluginSurface(role);
+    if (surface) return surface.icon(size ?? 14);
     return <IconWindow size={size} />;
 }
 
@@ -366,24 +374,7 @@ export function IconRundeck({ size = 14, className }: IconProps) {
 }
 
 export function IconBruno({ size = 14, className }: IconProps) {
-    return (
-        <svg
-            xmlns="http://www.w3.org/2000/svg"
-            width={size}
-            height={size}
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth={1.8}
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            className={className}
-            aria-hidden="true">
-            <path d="M3.5 11h17a8.5 8.5 0 0 1-17 0Z" />
-            <path d="M2.5 11h19" />
-            <path d="M9 3.2c-.9 1.1.9 2.1 0 3.2M14.5 2.8c-.9 1.1.9 2.1 0 3.2" />
-        </svg>
-    );
+    return <img src={brunoLogo} width={size} height={size} className={className} alt="" aria-hidden="true" />;
 }
 
 function Svg24({ size = 14, children }: { size?: number; children: React.ReactNode }) {

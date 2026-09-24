@@ -640,6 +640,66 @@ pub async fn downloads_dir(app: tauri::AppHandle) -> AppResult<String> {
     Ok(dir.to_string_lossy().into_owned())
 }
 
+#[cfg(target_os = "macos")]
+fn clipboard_png() -> Option<Vec<u8>> {
+    use objc2_app_kit::{
+        NSBitmapImageFileType, NSBitmapImageRep, NSPasteboard, NSPasteboardTypePNG,
+        NSPasteboardTypeTIFF,
+    };
+    use objc2_foundation::NSDictionary;
+
+    let pasteboard = NSPasteboard::generalPasteboard();
+    if let Some(png) = unsafe { pasteboard.dataForType(NSPasteboardTypePNG) } {
+        return Some(png.to_vec());
+    }
+    // Screenshots land on the clipboard as TIFF.
+    let tiff = unsafe { pasteboard.dataForType(NSPasteboardTypeTIFF) }?;
+    let bitmap = NSBitmapImageRep::imageRepWithData(&tiff)?;
+    let empty = NSDictionary::new();
+    let png =
+        unsafe { bitmap.representationUsingType_properties(NSBitmapImageFileType::PNG, &empty) }?;
+    Some(png.to_vec())
+}
+
+#[cfg(not(target_os = "macos"))]
+fn clipboard_png() -> Option<Vec<u8>> {
+    None
+}
+
+fn chat_attachment_path(app: &tauri::AppHandle) -> PathBuf {
+    use tauri::Manager;
+    app.path()
+        .app_cache_dir()
+        .unwrap_or_else(|_| std::env::temp_dir())
+        .join("pasted")
+}
+
+/// Pictures pasted into a chat are kept in the app cache, not the project.
+#[tauri::command]
+pub async fn chat_attachment_dir(app: tauri::AppHandle) -> AppResult<String> {
+    let dir = chat_attachment_path(&app);
+    std::fs::create_dir_all(&dir)?;
+    Ok(dir.to_string_lossy().into_owned())
+}
+
+/// Saves the clipboard's picture beside other pasted ones; `None` when it holds no picture.
+#[tauri::command]
+pub async fn save_clipboard_image(
+    app: tauri::AppHandle,
+    name: String,
+) -> AppResult<Option<String>> {
+    let dir = chat_attachment_path(&app);
+    spawn_blocking(move || {
+        let Some(png) = clipboard_png() else {
+            return Ok(None);
+        };
+        let file_name = leaf_name(&name)?;
+        write_new_in_dir(&dir, &file_name, |destination| destination.write_all(&png)).map(Some)
+    })
+    .await
+    .map_err(|e| AppError::Other(format!("save_clipboard_image join: {e}")))?
+}
+
 /// Write base64 bytes into `dir` under `name`, the way a copied file lands
 /// there: never over something already named that. Returns the final path.
 #[tauri::command]
@@ -649,14 +709,17 @@ pub async fn save_base64_into_dir(dir: String, name: String, data: String) -> Ap
         .map_err(|e| AppError::Other(format!("save_base64_into_dir join: {e}")))?
 }
 
-fn save_base64_into_dir_sync(dir: String, name: String, data: String) -> AppResult<String> {
-    // The name is whatever named the picture, which may be a path an agent
-    // wrote. Only the last part of it can say where the file goes.
-    let file_name = Path::new(&name)
+// The name may be a path an agent wrote. Only its last part can say where the file goes.
+fn leaf_name(name: &str) -> AppResult<std::ffi::OsString> {
+    Path::new(name)
         .file_name()
         .filter(|name| !name.is_empty())
-        .ok_or(AppError::BadArg("a saved file needs a name"))?
-        .to_os_string();
+        .map(|name| name.to_os_string())
+        .ok_or(AppError::BadArg("a saved file needs a name"))
+}
+
+fn save_base64_into_dir_sync(dir: String, name: String, data: String) -> AppResult<String> {
+    let file_name = leaf_name(&name)?;
     let bytes = general_purpose::STANDARD
         .decode(data.as_bytes())
         .map_err(|_| AppError::BadArg("a saved file needs base64 contents"))?;

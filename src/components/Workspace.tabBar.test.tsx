@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ComponentProps } from "react";
 import type { TerminalPane } from "../terminal/TerminalPane";
@@ -113,7 +113,7 @@ describe("workspace tab bars", () => {
         projectWithAgent(false);
         render(<Workspace />);
 
-        const toggle = await screen.findByRole("button", { name: /normal/i });
+        const toggle = await screen.findByRole("button", { name: /safe/i });
         await waitFor(() => expect(toggle).not.toBeDisabled());
         fireEvent.click(toggle);
 
@@ -122,7 +122,7 @@ describe("workspace tab bars", () => {
             skipPermissions: true,
             directCommand: { program: "codex", args: ["--dangerously-bypass-approvals-and-sandbox"] },
         });
-        expect(await screen.findByRole("button", { name: /yolo/i })).toHaveClass("chat-permission-mode", "tone-danger");
+        expect(await screen.findByRole("button", { name: /yolo/i })).toHaveAttribute("aria-pressed", "true");
         expect(screen.queryByTestId("terminal-agent-only")).not.toBeInTheDocument();
     });
 
@@ -135,7 +135,8 @@ describe("workspace tab bars", () => {
         });
 
         const original = await screen.findByTestId("terminal-agent-only");
-        const toggle = screen.getByRole("button", { name: /safe/i });
+        const header = document.querySelector(".agent-surface-header") as HTMLElement;
+        const toggle = within(header).getByRole("button", { name: /safe/i });
         expect(toggle).toHaveAttribute("aria-pressed", "false");
         await act(async () => {
             fireEvent.click(toggle);
@@ -174,15 +175,15 @@ describe("workspace tab bars", () => {
         const editor = await screen.findByRole("textbox", { name: "Message agent" });
         await waitFor(() => expect(editor).toBeEnabled());
         fireEvent.change(editor, { target: { value: "Keep this draft" } });
-        fireEvent.click(screen.getByRole("button", { name: "Agent" }));
-        fireEvent.click(screen.getByRole("option", { name: "Claude" }));
+        fireEvent.click(screen.getByRole("button", { name: "Model" }));
+        fireEvent.click(within(screen.getByRole("group", { name: "Agent" })).getByRole("button", { name: /Claude/ }));
         await waitFor(() => expect(acpApi.start).toHaveBeenCalledTimes(2));
         expect(acpApi.start).toHaveBeenLastCalledWith(expect.objectContaining({ agentId: "agent-only", provider: "claude", resumeId: undefined }));
         expect(acpApi.stop).toHaveBeenCalledWith("agent-only");
         expect(agentIdsOf(getState(), sessionId)).toEqual(["agent-only"]);
         expect(getState().agents["agent-only"]).toMatchObject({ type: "claude", title: "Claude" });
         expect(editor).toHaveValue("Keep this draft");
-        expect(screen.getByRole("button", { name: "Agent" })).toHaveTextContent("Claude");
+        expect(within(screen.getByRole("group", { name: "Agent" })).getByRole("button", { name: /Claude/ })).toHaveAttribute("aria-pressed", "true");
         expect(screen.queryByText("only agent")).not.toBeInTheDocument();
         expect(screen.getAllByText("Claude").length).toBeGreaterThan(0);
     });
@@ -195,7 +196,7 @@ describe("workspace tab bars", () => {
 
         render(<Workspace />);
 
-        expect(await screen.findByRole("button", { name: /yolo/i })).toHaveClass("chat-permission-mode", "tone-danger");
+        expect(await screen.findByRole("button", { name: /yolo/i })).toHaveAttribute("aria-pressed", "true");
     });
 
     it("puts windows and agents in one tab strip", () => {

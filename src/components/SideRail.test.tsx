@@ -2,6 +2,7 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { getState, setState } from "../state/store";
 import type { Session, SessionKind } from "../state/types";
+import "../plugins/builtin";
 import { SideRail } from "./SideRail";
 
 const initial = getState();
@@ -12,7 +13,6 @@ function session(id: string, kind: SessionKind): Session {
         name: id,
         kind,
         cwd: `/${id}`,
-        deploy: null,
         pinned: false,
         activeWindowId: "",
     };
@@ -98,5 +98,42 @@ describe("project tree", () => {
         for (const row of rows) {
             expect(row.parentElement).toBe(children);
         }
+    });
+});
+
+const MANIFESTS = ["sikemux.aws", "sikemux.bruno", "sikemux.rundeck", "sikemux.signoz"].map((id) => ({
+    id,
+    name: id,
+    version: "0.1.0",
+    sikemux: ">=0.4",
+}));
+
+describe("plugins group", () => {
+    it("always lists every enabled plugin, and opens one only when it is clicked", () => {
+        setState({
+            sessions: { ...getState().sessions, aws: session("aws", "sikemux.aws:console") },
+            sessionOrder: [...getState().sessionOrder, "aws"],
+            windowsBySession: { ...getState().windowsBySession, aws: [] },
+            pluginManifests: MANIFESTS,
+        });
+        render(<SideRail />);
+
+        expect(screen.getByText("Plugins")).toBeTruthy();
+        expect(screen.getByRole("button", { name: "aws" })).toBeTruthy();
+        for (const name of ["Bruno", "Rundeck", "SigNoz"]) expect(screen.getByRole("button", { name })).toBeTruthy();
+        expect(screen.queryByText(/^open /)).toBeNull();
+        const before = getState().sessionOrder.length;
+        expect(Object.values(getState().sessions).some((each) => each.kind === "sikemux.signoz:explore")).toBe(false);
+
+        fireEvent.click(screen.getByRole("button", { name: "SigNoz" }));
+        expect(getState().sessionOrder.length).toBe(before + 1);
+        expect(getState().sessions[getState().activeSessionId].kind).toBe("sikemux.signoz:explore");
+    });
+
+    it("leaves out a plugin that is switched off", () => {
+        setState({ pluginManifests: MANIFESTS, disabledPlugins: ["sikemux.rundeck"] });
+        render(<SideRail />);
+        expect(screen.getByRole("button", { name: "Bruno" })).toBeTruthy();
+        expect(screen.queryByRole("button", { name: "Rundeck" })).toBeNull();
     });
 });

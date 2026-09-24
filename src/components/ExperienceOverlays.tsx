@@ -1,6 +1,4 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import Markdown from "react-markdown";
-import { getVersion } from "@tauri-apps/api/app";
 import { invokeCommand as invoke } from "../api/invoke";
 import { uiActivity, type UiActivityReport } from "../lib/activity";
 import { browserDiagnostics, exportDiagnosticsSnapshot, nativeDiagnostics } from "../lib/diagnostics";
@@ -8,7 +6,6 @@ import { useResourceEnabled } from "../state/resources";
 import { agentCatalogR } from "../state/resources.defs";
 import { useStore } from "../state/store";
 import * as cmd from "../state/commands";
-import { installPendingUpdate, isUpdateBusy, updateStatusLabel } from "../api/updater";
 import { agentDetectionApi, type ManifestReport } from "../api/agentDetection";
 import { selectedAgentRuntimeProfiles } from "../agentProfiles";
 import {
@@ -16,6 +13,7 @@ import {
     keybindingLabelForAction,
     matchesKeybinding,
     resolvedKeybinding,
+    type CoreKeybindingActionId,
     type KeybindingActionId,
     type KeybindingOverrides,
 } from "../keybindings";
@@ -66,7 +64,7 @@ const ONBOARDING_LAUNCHES = [
     { id: "session.open", label: "Open any session", overlay: "sessions", region: null, run: () => cmd.openPicker("all") },
     { id: "palette.commands", label: "Open the command deck", overlay: "commands", region: null, run: cmd.openCommandPalette },
 ] as const satisfies readonly {
-    id: KeybindingActionId;
+    id: CoreKeybindingActionId;
     label: string;
     overlay: OnboardingOverlay | null;
     region: OnboardingRegion | null;
@@ -76,7 +74,17 @@ const ONBOARDING_LAUNCHES = [
 const SIGNAL_CYCLE_MS = 2400;
 const KEY_DEMO_MS = 4200;
 
-function Frame({ label, onClose, children }: { label: string; onClose: () => void; children: React.ReactNode }) {
+export function ExperienceBackdrop({
+    label,
+    className,
+    onClose,
+    children,
+}: {
+    label: string;
+    className: string;
+    onClose: () => void;
+    children: React.ReactNode;
+}) {
     useEffect(() => {
         const key = (event: KeyboardEvent) => {
             if (event.key === "Escape") onClose();
@@ -86,18 +94,26 @@ function Frame({ label, onClose, children }: { label: string; onClose: () => voi
     }, [onClose]);
     return (
         <div className="experience-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
-            <section className="experience-frame" role="dialog" aria-modal="true" aria-label={label}>
-                <div className="experience-notch" aria-hidden="true" />
-                <header>
-                    <span className="experience-kicker">Sikemux signal deck</span>
-                    <h1>{label}</h1>
-                    <button onClick={onClose} aria-label={`Close ${label}`}>
-                        esc
-                    </button>
-                </header>
+            <section className={className} role="dialog" aria-modal="true" aria-label={label}>
                 {children}
             </section>
         </div>
+    );
+}
+
+function Frame({ label, onClose, children }: { label: string; onClose: () => void; children: React.ReactNode }) {
+    return (
+        <ExperienceBackdrop label={label} className="experience-frame" onClose={onClose}>
+            <div className="experience-notch" aria-hidden="true" />
+            <header>
+                <span className="experience-kicker">Sikemux signal deck</span>
+                <h1>{label}</h1>
+                <button onClick={onClose} aria-label={`Close ${label}`}>
+                    esc
+                </button>
+            </header>
+            {children}
+        </ExperienceBackdrop>
     );
 }
 
@@ -270,7 +286,7 @@ export function Onboarding() {
             first.focus();
         }
     };
-    const shortcut = (id: KeybindingActionId) => ({
+    const shortcut = (id: CoreKeybindingActionId) => ({
         action: getKeybindingAction(id),
         label: keybindingLabelForAction(overrides, id),
     });
@@ -646,48 +662,6 @@ export function DiagnosticsOverlay() {
                     }>
                     Save JSON
                 </button>
-            </footer>
-        </Frame>
-    );
-}
-
-export function WhatsNewOverlay() {
-    const open = useStore((s) => s.whatsNewOpen);
-    useOccludeNativeViews(open);
-    const pending = useStore((s) => s.pendingUpdate);
-    const installedNotes = useStore((s) => s.lastReleaseNotes);
-    const [version, setVersion] = useState("");
-    useEffect(() => {
-        if (open) void getVersion().then(setVersion);
-    }, [open]);
-    if (!open) return null;
-    const updateBusy = pending ? isUpdateBusy(pending.state) : false;
-    return (
-        <Frame label="What’s new" onClose={cmd.closeWhatsNew}>
-            <p className="experience-deck">
-                You are on Sikemux v{version || "…"}. Release notes stay reachable here instead of disappearing into an update tooltip.
-            </p>
-            <div className="release-notes">
-                <Markdown skipHtml>
-                    {pending?.notes ||
-                        installedNotes?.notes ||
-                        (pending
-                            ? `Version ${pending.version} is ready.`
-                            : installedNotes
-                              ? `Updated to ${installedNotes.version}.`
-                              : "You are up to date. No newer release notes are available yet.")}
-                </Markdown>
-            </div>
-            <footer>
-                {pending && (
-                    <button className="primary" disabled={updateBusy} onClick={() => void installPendingUpdate()}>
-                        {updateBusy
-                            ? updateStatusLabel(pending)
-                            : pending.state === "error"
-                              ? `Retry v${pending.version}`
-                              : `Install v${pending.version}`}
-                    </button>
-                )}
             </footer>
         </Frame>
     );

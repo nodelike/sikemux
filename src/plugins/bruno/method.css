@@ -1,0 +1,28 @@
+.bruno-method {
+    flex: 0 0 auto;
+    width: 30px;
+    font-size: 9px;
+    font-weight: 800;
+    letter-spacing: 0.03em;
+    text-align: left;
+    color: var(--ink-dim);
+}
+.m-get {
+    color: var(--live);
+}
+.m-post {
+    color: var(--warn);
+}
+.m-put {
+    color: #7dd3fc;
+}
+.m-delete {
+    color: var(--danger);
+}
+.m-patch {
+    color: var(--cmd);
+}
+.m-options,
+.m-head {
+    color: var(--ink-dim);
+}

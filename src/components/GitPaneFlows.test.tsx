@@ -56,6 +56,14 @@ it("does not consume text or Tab intended for controls outside the Git pane", ()
     expect(getState().gitModal).toBeNull();
 });
 
+it("takes keyboard focus when it becomes the active pane", () => {
+    const { rerender } = render(<GitPane paneId="git-test" cwd="/repo" active={false} />);
+    document.body.focus();
+    rerender(<GitPane paneId="git-test" cwd="/repo" active />);
+    fireEvent.keyDown(document.activeElement ?? document.body, { key: "3" });
+    expect(getState().gitViews["git-test"].panel).toBe("branches");
+});
+
 it("reuses the diff preview across repeated warm switches", async () => {
     const { rerender } = render(<GitPane paneId="git-test" cwd="/repo" active />);
     await screen.findByText("Merge review");

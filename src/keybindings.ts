@@ -1,6 +1,10 @@
 import { IS_MACOS } from "./lib/platform";
+import { enabledFrontendPlugins } from "./plugins/enabled";
+import { frontendPlugin, frontendPlugins, type FrontendPlugin, type PluginShortcut } from "./plugins/registry";
 
-export type KeybindingCategory = "Workspace" | "Panes" | "Navigation" | "Browser" | "Bruno";
+type CoreKeybindingCategory = "Workspace" | "Panes" | "Navigation" | "Browser";
+/** A plugin's own shortcuts are grouped under its name. */
+export type KeybindingCategory = CoreKeybindingCategory | (string & {});
 
 export interface KeybindingAction {
     id: string;
@@ -10,7 +14,7 @@ export interface KeybindingAction {
     defaultBinding: string;
 }
 
-const keybindingActions = [
+const coreKeybindingActions = [
     {
         id: "palette.commands",
         label: "Open command deck",
@@ -21,7 +25,7 @@ const keybindingActions = [
     {
         id: "palette.files",
         label: "Open file or request palette",
-        detail: "Files in projects, requests in Bruno",
+        detail: "Files in projects, or what the plugin in front offers",
         category: "Workspace",
         defaultBinding: `${IS_MACOS ? "Meta" : "Ctrl"}+KeyP`,
     },
@@ -59,20 +63,6 @@ const keybindingActions = [
         detail: "Open the SSH host picker",
         category: "Workspace",
         defaultBinding: "Alt+Shift+KeyS",
-    },
-    {
-        id: "aws.open",
-        label: "Open AWS",
-        detail: "Create an AWS session",
-        category: "Workspace",
-        defaultBinding: "Alt+KeyA",
-    },
-    {
-        id: "bruno.open",
-        label: "Open Bruno workspace",
-        detail: "Choose a Bruno collection",
-        category: "Workspace",
-        defaultBinding: "Alt+KeyB",
     },
     {
         id: "session.newContextual",
@@ -185,6 +175,27 @@ const keybindingActions = [
         detail: "Close the current pane or focused agent",
         category: "Panes",
         defaultBinding: "Alt+KeyW",
+    },
+    {
+        id: "text.sizeIncrease",
+        label: "Increase text size",
+        detail: "Larger text in the focused editor or chat, or in every terminal",
+        category: "Workspace",
+        defaultBinding: `${IS_MACOS ? "Meta" : "Ctrl"}+Equal`,
+    },
+    {
+        id: "text.sizeDecrease",
+        label: "Decrease text size",
+        detail: "Smaller text in the focused editor or chat, or in every terminal",
+        category: "Workspace",
+        defaultBinding: `${IS_MACOS ? "Meta" : "Ctrl"}+Minus`,
+    },
+    {
+        id: "text.sizeReset",
+        label: "Reset text size",
+        detail: "Return the focused editor or chat, or every terminal, to its default size",
+        category: "Workspace",
+        defaultBinding: `${IS_MACOS ? "Meta" : "Ctrl"}+Digit0`,
     },
     {
         id: "window.previous",
@@ -347,46 +358,93 @@ const keybindingActions = [
         category: "Browser",
         defaultBinding: "Ctrl+Shift+Tab",
     },
-    {
-        id: "bruno.save",
-        label: "Save request",
-        detail: "Save the active Bruno request",
-        category: "Bruno",
-        defaultBinding: `${IS_MACOS ? "Meta" : "Ctrl"}+KeyS`,
-    },
-    {
-        id: "bruno.send",
-        label: "Send request",
-        detail: "Run the active Bruno request",
-        category: "Bruno",
-        defaultBinding: `${IS_MACOS ? "Meta" : "Ctrl"}+Enter`,
-    },
-    {
-        id: "bruno.environment",
-        label: "Choose environment",
-        detail: "Open the Bruno environment picker",
-        category: "Bruno",
-        defaultBinding: "Alt+KeyE",
-    },
 ] as const satisfies readonly KeybindingAction[];
 
-export type KeybindingActionId = (typeof keybindingActions)[number]["id"];
+export type CoreKeybindingActionId = (typeof coreKeybindingActions)[number]["id"];
+/** Opens a plugin, for plugins that ask for a shortcut. */
+export type PluginOpenActionId = `plugin.open:${string}`;
+/** One of a plugin's own shortcuts, as `plugin.run:<plugin id>/<name>`. */
+export type PluginRunActionId = `plugin.run:${string}`;
+export type KeybindingActionId = CoreKeybindingActionId | PluginOpenActionId | PluginRunActionId;
 export type KeybindingOverrides = Partial<Record<KeybindingActionId, string | null>>;
 
-export const KEYBINDING_ACTIONS: readonly KeybindingAction[] = keybindingActions;
-export const KEYBINDING_CATEGORIES: readonly KeybindingCategory[] = ["Workspace", "Panes", "Navigation", "Browser", "Bruno"];
+const CORE_KEYBINDING_CATEGORIES: readonly KeybindingCategory[] = ["Workspace", "Panes", "Navigation", "Browser"];
 
-const ACTION_IDS = new Set<string>(KEYBINDING_ACTIONS.map((action) => action.id));
-const ACTIONS_BY_ID = new Map<string, KeybindingAction>(KEYBINDING_ACTIONS.map((action) => [action.id, action]));
+/** Core's sections, then one for each plugin with shortcuts of its own. */
+export function keybindingCategories(): readonly KeybindingCategory[] {
+    return [
+        ...CORE_KEYBINDING_CATEGORIES,
+        ...enabledFrontendPlugins()
+            .filter((plugin) => plugin.shortcuts?.length)
+            .map(pluginCategory),
+    ];
+}
+
+const PLUGIN_OPEN = "plugin.open:";
+const PLUGIN_RUN = "plugin.run:";
+
+function pluginCategory(plugin: FrontendPlugin): KeybindingCategory {
+    return plugin.surfaces[0]?.title ?? plugin.id;
+}
+
+export function pluginRunAction(pluginId: string, name: string): PluginRunActionId {
+    return `${PLUGIN_RUN}${pluginId}/${name}`;
+}
+
+/** The plugin shortcut an action runs, when it is one of those. */
+export function pluginShortcutFor(id: string): PluginShortcut | null {
+    if (!id.startsWith(PLUGIN_RUN)) return null;
+    const [pluginId, name] = id.slice(PLUGIN_RUN.length).split("/");
+    return frontendPlugin(pluginId)?.shortcuts?.find((shortcut) => shortcut.name === name) ?? null;
+}
+
+export function pluginOpenAction(pluginId: string): PluginOpenActionId {
+    return `${PLUGIN_OPEN}${pluginId}`;
+}
+
+/** The plugin a shortcut opens, when it is one of those. */
+export function pluginOpenedBy(id: string): string | null {
+    return id.startsWith(PLUGIN_OPEN) ? id.slice(PLUGIN_OPEN.length) : null;
+}
+
+/** Core's actions, then each enabled plugin's: one to open it if it asks, and its own. */
+export function keybindingActions(): readonly KeybindingAction[] {
+    return [...coreKeybindingActions, ...enabledFrontendPlugins().flatMap(pluginActions)];
+}
+
+function pluginActions(plugin: FrontendPlugin): KeybindingAction[] {
+    const opens: KeybindingAction[] = plugin.openShortcut
+        ? [
+              {
+                  id: pluginOpenAction(plugin.id),
+                  label: plugin.openTitle,
+                  detail: `${plugin.openTitle}, or bring it forward`,
+                  category: "Workspace",
+                  defaultBinding: plugin.openShortcut,
+              },
+          ]
+        : [];
+    const own: KeybindingAction[] = (plugin.shortcuts ?? []).map((shortcut) => ({
+        id: pluginRunAction(plugin.id, shortcut.name),
+        label: shortcut.label,
+        detail: shortcut.detail,
+        category: pluginCategory(plugin),
+        defaultBinding: shortcut.defaultBinding,
+    }));
+    return [...opens, ...own];
+}
+
 const MODIFIER_CODES = new Set(["MetaLeft", "MetaRight", "ControlLeft", "ControlRight", "AltLeft", "AltRight", "ShiftLeft", "ShiftRight"]);
 
-export function getKeybindingAction(id: KeybindingActionId): KeybindingAction {
-    return ACTIONS_BY_ID.get(id) as KeybindingAction;
+export function getKeybindingAction(id: CoreKeybindingActionId): KeybindingAction;
+export function getKeybindingAction(id: KeybindingActionId): KeybindingAction | undefined;
+export function getKeybindingAction(id: KeybindingActionId): KeybindingAction | undefined {
+    return keybindingActions().find((action) => action.id === id);
 }
 
 export function resolvedKeybinding(overrides: KeybindingOverrides, id: KeybindingActionId): string | null {
     const override = overrides[id];
-    return override === undefined ? getKeybindingAction(id).defaultBinding : override;
+    return override === undefined ? (getKeybindingAction(id)?.defaultBinding ?? null) : override;
 }
 
 export function eventToKeybinding(event: Pick<KeyboardEvent, "code" | "metaKey" | "ctrlKey" | "altKey" | "shiftKey">): string | null {
@@ -420,18 +478,19 @@ export function matchesKeybinding(event: Pick<KeyboardEvent, "code" | "metaKey" 
  * or so actions and built a binding string for each — on every single keydown,
  * including every character typed into a terminal.
  */
-let bindingIndex: { overrides: KeybindingOverrides; byBinding: Map<string, KeybindingActionId> } | null = null;
+let bindingIndex: { overrides: KeybindingOverrides; actions: number; byBinding: Map<string, KeybindingActionId> } | null = null;
 
 function keybindingIndex(overrides: KeybindingOverrides): Map<string, KeybindingActionId> {
-    if (bindingIndex?.overrides !== overrides) {
+    const actions = keybindingActions();
+    if (bindingIndex?.overrides !== overrides || bindingIndex.actions !== actions.length) {
         const byBinding = new Map<string, KeybindingActionId>();
-        for (const action of KEYBINDING_ACTIONS) {
+        for (const action of actions) {
             const binding = resolvedKeybinding(overrides, action.id as KeybindingActionId);
             // Declaration order decides a clash, which is what the scan this
             // replaces did by returning the first match.
             if (binding && !byBinding.has(binding)) byBinding.set(binding, action.id as KeybindingActionId);
         }
-        bindingIndex = { overrides, byBinding };
+        bindingIndex = { overrides, actions: actions.length, byBinding };
     }
     return bindingIndex.byBinding;
 }
@@ -447,12 +506,14 @@ export function actionForEvent(
     if (direct) return direct;
     // The main and numpad Enter keys are interchangeable for command shortcuts.
     if (event.code === "NumpadEnter") return index.get(pressed.replace(/\+NumpadEnter$/, "+Enter")) ?? null;
+    // "+" is Shift and the "=" key, so a binding on plain Equal has to answer for both.
+    if (event.shiftKey && event.code === "Equal") return index.get(pressed.replace(/\+Shift\+Equal$/, "+Equal")) ?? null;
     return null;
 }
 
 export function findKeybindingConflict(overrides: KeybindingOverrides, id: KeybindingActionId, binding: string): KeybindingAction | null {
     return (
-        KEYBINDING_ACTIONS.find((action) => action.id !== id && resolvedKeybinding(overrides, action.id as KeybindingActionId) === binding) ?? null
+        keybindingActions().find((action) => action.id !== id && resolvedKeybinding(overrides, action.id as KeybindingActionId) === binding) ?? null
     );
 }
 
@@ -506,9 +567,11 @@ export function keybindingLabelForAction(overrides: KeybindingOverrides, id: Key
 
 export function normaliseKeybindingOverrides(value: unknown): KeybindingOverrides {
     if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+    // A switched-off plugin keeps its rebound keys for when it is switched back on.
+    const known = new Set([...coreKeybindingActions, ...frontendPlugins().flatMap(pluginActions)].map((action) => action.id));
     const out: KeybindingOverrides = {};
     for (const [id, binding] of Object.entries(value)) {
-        if (!ACTION_IDS.has(id)) continue;
+        if (!known.has(id)) continue;
         if (binding === null) {
             out[id as KeybindingActionId] = null;
             continue;

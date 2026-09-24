@@ -7,10 +7,11 @@ import * as cmd from "../state/commands";
 import { type ResourceHandle, useResource, useResourceEnabled } from "../state/resources";
 import { agentCatalogR, agentSessionsR, agentUsageR } from "../state/resources.defs";
 import { useStore } from "../state/store";
-import { activeAgentId, agentIdsOf } from "../state/selectors";
+import { activeAgentId, agentIdsOf, agentsAwaitingInput } from "../state/selectors";
 import { type Agent, type AgentType } from "../state/types";
 import { AgentIcon, IconClose, IconPlus, IconRefresh, IconSearch } from "./Icons";
 import { AgentStateIndicator } from "./AgentStateIndicator";
+import { sortByAttention } from "../state/agentStatus";
 import { Tooltip } from "./Tooltip";
 import { Panel, PanelHeader } from "./Panel";
 
@@ -144,11 +145,15 @@ export function AgentRailBody() {
 
     if (!session) return null;
 
-    const opens = (
-        agentIdsOf({ windowsBySession, windows: windowsById }, session.id)
-            .map((id) => agentsById[id])
-            .filter(Boolean) as Agent[]
-    ).filter((a) => availableTypes.has(a.type));
+    const opens = sortByAttention(
+        (
+            agentIdsOf({ windowsBySession, windows: windowsById }, session.id)
+                .map((id) => agentsById[id])
+                .filter(Boolean) as Agent[]
+        ).filter((a) => availableTypes.has(a.type)),
+        activityById,
+        backgroundById,
+    );
 
     const activeOpenKeys = new Set(opens.map((a) => sessionKey(a.type, persistedSessionIdOf(a))));
     const needle = query.trim().toLowerCase();
@@ -267,6 +272,8 @@ export function AgentRailBody() {
                     </Panel>
                 )}
 
+                <AgentAttentionGroup />
+
                 {selectedType && recentDisplay.length > 0 && (
                     <Panel variant="group" className="agent-group">
                         <PanelHeader label="Recent" rule />
@@ -296,6 +303,45 @@ export function AgentRailBody() {
                 <AgentUsagePanel provider={selectedType} usage={selectedUsage} label={availableAgents.find((a) => a.type === selectedType)?.label} />
             )}
         </>
+    );
+}
+
+/* Cross-project on purpose: an agent waiting on an answer is easy to miss in a
+   project you are not currently looking at, which is the case this list is for. */
+function AgentAttentionGroup() {
+    /* Each slice is read on its own and the list derived in a memo: returning a
+       fresh array straight from a store selector makes the snapshot differ on
+       every render, which zustand answers with an endless re-render. */
+    const sessionOrder = useStore((s) => s.sessionOrder);
+    const sessions = useStore((s) => s.sessions);
+    const windows = useStore((s) => s.windows);
+    const windowsBySession = useStore((s) => s.windowsBySession);
+    const agents = useStore((s) => s.agents);
+    const agentActivity = useStore((s) => s.agentActivity);
+    const activeSessionId = useStore((s) => s.activeSessionId);
+    const waiting = useMemo(
+        () => agentsAwaitingInput({ sessionOrder, sessions, windows, windowsBySession, agents, agentActivity }),
+        [sessionOrder, sessions, windows, windowsBySession, agents, agentActivity],
+    );
+    if (waiting.length === 0) return null;
+    return (
+        <Panel variant="group" className="agent-group agent-attention">
+            <PanelHeader label={waiting.length === 1 ? "1 action required" : `${waiting.length} actions required`} rule />
+            {waiting.map((entry) => (
+                <button
+                    key={entry.agentId}
+                    className="agent-row attention"
+                    title={`${entry.sessionName} — ${entry.agentTitle} is waiting for you`}
+                    onClick={() => cmd.revealAgent(entry.agentId)}>
+                    <span className={`agent-glyph ${entry.agentType}`}>
+                        <AgentIcon type={entry.agentType} size={20} />
+                    </span>
+                    <span className="agent-title">{entry.agentTitle}</span>
+                    {entry.sessionId !== activeSessionId && <span className="agent-attention-project">{entry.sessionName}</span>}
+                    <AgentStateIndicator state="blocked" />
+                </button>
+            ))}
+        </Panel>
     );
 }
 

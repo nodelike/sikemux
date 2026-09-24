@@ -1,6 +1,7 @@
 // Runs before a page's own scripts, on every document, so the calls a page
-// makes are already recorded by the time an agent asks about them. Reading the
-// DOM cannot answer "did that button reach the server, and what came back".
+// makes and what it logs are already recorded by the time an agent asks.
+// Reading the DOM cannot answer "did that button reach the server, and what
+// came back", nor "did the page throw".
 (() => {
   if (window.__sikemuxNet) return;
   const MAX_ENTRIES = 120;
@@ -122,4 +123,56 @@
   };
 
   window.__sikemuxNet = { entries: () => entries };
+})();
+
+(() => {
+  if (window.__sikemuxConsole) return;
+  const MAX_ENTRIES = 200;
+  const MAX_TEXT = 2000;
+  const entries = [];
+
+  const clip = (text) =>
+    text.length > MAX_TEXT ? `${text.slice(0, MAX_TEXT)}…` : text;
+  const describe = (value) => {
+    if (typeof value === "string") return value;
+    // WebKit's stack lists only the frames, never the message.
+    if (value instanceof Error)
+      return [`${value.name}: ${value.message}`, value.stack]
+        .filter(Boolean)
+        .join("\n");
+    if (typeof Node === "function" && value instanceof Node)
+      return `<${(value.nodeName || "node").toLowerCase()}>`;
+    try {
+      const json = JSON.stringify(value);
+      return json === undefined ? String(value) : json;
+    } catch {
+      return String(value);
+    }
+  };
+  const add = (level, parts) => {
+    entries.push({
+      level,
+      at: Math.round(performance.now()),
+      text: clip(parts.map(describe).join(" ")),
+    });
+    if (entries.length > MAX_ENTRIES) entries.shift();
+  };
+
+  for (const level of ["log", "info", "warn", "error", "debug"]) {
+    const original = console[level];
+    if (typeof original !== "function") continue;
+    console[level] = function (...parts) {
+      add(level, parts);
+      return original.apply(this, parts);
+    };
+  }
+  window.addEventListener("error", (event) => {
+    if (event.error || event.message)
+      add("uncaught", [event.error || event.message]);
+  });
+  window.addEventListener("unhandledrejection", (event) => {
+    add("unhandled rejection", [event.reason]);
+  });
+
+  window.__sikemuxConsole = { entries: () => entries };
 })();

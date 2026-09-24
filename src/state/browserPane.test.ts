@@ -1,8 +1,14 @@
-import { beforeEach, describe, expect, it } from "vitest";
-import { closeBrowserPane, openBrowserPane } from "./commands";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { browserApi } from "../api/browser";
+import { closeBrowserPane, openBrowserPane, revealBrowserPane, toggleBrowserPane } from "./commands";
 import { collectPanes } from "./layout";
-import { agentIdsOf, agentPaneId } from "./selectors";
+import { agentIdsOf, agentPaneId, shownBrowserPaneId } from "./selectors";
 import { getState, setState } from "./store";
+
+vi.mock("../api/browser", async () => {
+    const actual = await vi.importActual<typeof import("../api/browser")>("../api/browser");
+    return { ...actual, browserApi: { ...actual.browserApi, snapshot: vi.fn(), newTab: vi.fn(), closeTab: vi.fn(), closeAgent: vi.fn() } };
+});
 
 const initial = getState();
 
@@ -18,6 +24,9 @@ function window_() {
 }
 
 beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(browserApi.snapshot).mockResolvedValue({ tabs: [], activeTabId: null });
+    vi.mocked(browserApi.newTab).mockResolvedValue("tab-1");
     setState(initial, true);
     setState({
         sessions: {
@@ -127,5 +136,63 @@ describe("the browser pane", () => {
         expect(getState().windows.window.activePaneId).not.toBe("agent-1");
         expect(agentPaneId(getState().windows.window)).toBe("agent-1");
         expect(agentIdsOf(getState(), "project")).toEqual(["agent-1"]);
+    });
+
+    it("hides on a second press of the toggle and leaves the tabs open", async () => {
+        toggleBrowserPane("agent-1");
+        await vi.waitFor(() => expect(browserApi.newTab).toHaveBeenCalledTimes(1));
+
+        toggleBrowserPane("agent-1");
+
+        expect(collectPanes(getState().windows.window.root).map((pane) => pane.kind)).toEqual(["agent"]);
+        expect(getState().browserPanes).toEqual({});
+        expect(browserApi.closeTab).not.toHaveBeenCalled();
+        expect(browserApi.closeAgent).not.toHaveBeenCalled();
+    });
+
+    it("shows the tabs it already has instead of opening another", async () => {
+        const tab = {
+            id: "tab-1",
+            title: "Example",
+            url: "https://example.com",
+            active: true,
+            loading: false,
+            canGoBack: false,
+            canGoForward: false,
+            favicon: null,
+            acting: false,
+        };
+        vi.mocked(browserApi.snapshot).mockResolvedValue({ tabs: [tab], activeTabId: "tab-1" });
+
+        toggleBrowserPane("agent-1");
+        await vi.waitFor(() => expect(browserApi.snapshot).toHaveBeenCalledWith("agent-1"));
+
+        expect(collectPanes(getState().windows.window.root).map((pane) => pane.kind)).toEqual(["agent", "browser"]);
+        expect(browserApi.newTab).not.toHaveBeenCalled();
+    });
+
+    it("comes on screen for an agent that starts browsing, without taking focus from the agent", () => {
+        revealBrowserPane("agent-1");
+
+        const panes = collectPanes(getState().windows.window.root);
+        expect(panes.map((pane) => pane.kind)).toEqual(["agent", "browser"]);
+        expect(getState().browserPanes[panes[1].id]).toBe("agent-1");
+        expect(getState().windows.window.activePaneId).toBe("agent-1");
+
+        revealBrowserPane("agent-1");
+
+        expect(collectPanes(getState().windows.window.root)).toHaveLength(2);
+        expect(getState().windows.window.activePaneId).toBe("agent-1");
+    });
+
+    it("counts a browser as shown only while its pane is in a window's layout", () => {
+        expect(shownBrowserPaneId(getState(), "agent-1")).toBeNull();
+
+        openBrowserPane("agent-1");
+        const browserId = collectPanes(getState().windows.window.root)[1].id;
+        expect(shownBrowserPaneId(getState(), "agent-1")).toBe(browserId);
+
+        setState({ windows: { window: window_() } } as never);
+        expect(shownBrowserPaneId(getState(), "agent-1")).toBeNull();
     });
 });

@@ -14,7 +14,7 @@ describe("layout helpers", () => {
         expect(p.title).toBe("shell");
 
         expect(makePane("/repo", { kind: "editor" }).title).toBe("editor");
-        expect(makePane("/repo", { kind: "rundeck" }).title).toBe("rundeck");
+        expect(makePane("/repo", { kind: "sikemux.example:view" }).title).toBe("sikemux.example:view");
         expect(makePane("/repo", { startup: "top" }).title).toBe("top");
     });
 

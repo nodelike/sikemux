@@ -14,6 +14,8 @@ export interface BrowserTab {
     canGoForward: boolean;
     /** The site's icon as a data URL, once the tab has one. */
     favicon: string | null;
+    /** The agent's browser tools are working in this tab right now. */
+    acting: boolean;
 }
 
 export interface BrowserSnapshot {
@@ -63,6 +65,8 @@ export const browserApi = {
     subscribeTabs: (listener: () => void, signal: AbortSignal) => getIpcTransport().subscribe("browser-tabs-changed", listener, { signal }),
     subscribeShortcuts: (listener: (shortcut: BrowserShortcut) => void, signal: AbortSignal) =>
         getIpcTransport().subscribe<BrowserShortcut>("browser-shortcut", (event) => listener(event.payload), { signal }),
+    subscribeActing: (listener: (agentId: string) => void, signal: AbortSignal) =>
+        getIpcTransport().subscribe<string>("browser-agent-acting", (event) => listener(event.payload), { signal }),
     subscribeDownloads: (listener: (download: BrowserDownload) => void, signal: AbortSignal) =>
         getIpcTransport().subscribe<BrowserDownload>("browser-download", (event) => listener(event.payload), { signal }),
 };

@@ -1,12 +1,13 @@
 import {
-    KEYBINDING_ACTIONS,
+    keybindingActions,
     keybindingLabelForAction,
     type KeybindingActionId,
     type KeybindingCategory,
     type KeybindingOverrides,
 } from "../keybindings";
+import type { SessionKind } from "../state/types";
 
-export type CommandContext = "project" | "command" | "ssh" | "aws" | "rundeck" | "bruno";
+export type CommandContext = SessionKind;
 
 export type CustomCommandPlacement = "background" | "terminal" | "split" | "popup" | "replace";
 
@@ -96,7 +97,7 @@ export function customCommandAvailable(command: CustomCommand, context?: Command
 }
 
 export function buildBuiltinCommandEntries(keybindingOverrides: KeybindingOverrides, executeBuiltin: BuiltinCommandExecutor): BuiltinCommandEntry[] {
-    return KEYBINDING_ACTIONS.map((action) => {
+    return keybindingActions().map((action) => {
         const id = action.id as KeybindingActionId;
         const shortcut = keybindingLabelForAction(keybindingOverrides, id);
         return {

@@ -27,6 +27,10 @@ export default defineConfig({
         replacement: resolve("src/vendor/pierreThemes.ts"),
       },
       { find: /^shiki$/, replacement: resolve("src/vendor/shiki.ts") },
+      {
+        find: /^shiki\/(wasm|engine\/oniguruma)$/,
+        replacement: resolve("src/vendor/oniguruma.ts"),
+      },
     ],
   },
   define: {

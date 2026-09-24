@@ -1,33 +1,16 @@
-import { memo, useEffect, useMemo, useState, type MouseEvent as ReactMouseEvent } from "react";
+import { memo, useEffect, useState, type MouseEvent as ReactMouseEvent } from "react";
 import { getVersion } from "@tauri-apps/api/app";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useBattery } from "../hooks/useBattery";
 import { useClock } from "../hooks/useClock";
-import { git } from "../api/git";
-import type { RundeckEnvSpec } from "../api/rundeck";
 import * as cmd from "../state/commands";
-import { invalidate, peekResource, useResource, useResourceEnabled } from "../state/resources";
-import { notify, reportError, swallow } from "../state/toast";
-import { awsIdentityR, gitOverviewR, rndMatrixR, rndProjectsR } from "../state/resources.defs";
-import { envFolderOf } from "../state/rundeckShape";
+import { useResource } from "../state/resources";
+import { swallow } from "../state/toast";
+import { gitOverviewR } from "../state/resources.defs";
+import { useInstalledPlugins } from "../plugins/installed";
 import { useStore } from "../state/store";
 import { activeAgentId } from "../state/selectors";
-import {
-    IconAgent,
-    IconAws,
-    IconBattery,
-    IconChevron,
-    IconCommand,
-    IconFocus,
-    IconFolder,
-    IconGit,
-    IconPanelLeft,
-    IconRundeck,
-    IconZoom,
-    WindowIcon,
-} from "./Icons";
-import { branchKind } from "./rundeck/branchStyle";
-import { CopyButton } from "./CopyButton";
+import { IconAgent, IconBattery, IconChevron, IconCommand, IconFocus, IconFolder, IconGit, IconPanelLeft, IconZoom, WindowIcon } from "./Icons";
 import { PRIMARY_SHORTCUT } from "../lib/platform";
 import { Tooltip } from "./Tooltip";
 import { isUpdateBusy, updateDownloadPercent, updateStatusLabel } from "../api/updater";
@@ -64,135 +47,6 @@ function twelveHour(d: Date): { h: number; m: number; ap: "am" | "pm" } {
     return { h, m: d.getMinutes(), ap: h24 >= 12 ? "pm" : "am" };
 }
 
-function AwsChip() {
-    const profile = useStore((s) => s.awsProfile);
-    const identity = useResourceEnabled(!!profile, awsIdentityR, profile ?? "", false);
-    const status = profile ? identity.data?.status : undefined;
-
-    const dotClass =
-        status === "authed"
-            ? "ok"
-            : identity.status === "loading"
-              ? "checking"
-              : status === "expired" || status === "no-credentials"
-                ? "fail"
-                : !profile
-                  ? "off"
-                  : "warn";
-
-    const onClick = () => {
-        if (!profile) {
-            cmd.openAwsSession();
-            return;
-        }
-        if (status === "expired" || status === "no-credentials") {
-            cmd.openAwsAuthModal(profile, null);
-            return;
-        }
-        cmd.openAwsSession();
-    };
-
-    const title = profile ? `AWS · ${profile}${status ? ` · ${status}` : ""}` : "AWS — sign in";
-
-    return (
-        <Tooltip label={title}>
-            <button className={`tb-aws-chip ${dotClass}`} onClick={onClick} aria-label={title}>
-                <IconAws />
-            </button>
-        </Tooltip>
-    );
-}
-
-/** A Rundeck deploy location for the current service: where it lives + its last deploy. */
-interface DeployLoc {
-    project: string;
-    folder: string | null;
-    label: string;
-    service: string;
-    jobId: string;
-    branch: string | null;
-    status: string | null;
-    group: string | null;
-}
-
-function envDotKind(name: string | null): string {
-    const e = (name ?? "").toLowerCase();
-    if (e.startsWith("prod")) return "production";
-    if (e.startsWith("stag")) return "staging";
-    if (e.startsWith("pre")) return "preprod";
-    if (e.startsWith("dev")) return "dev";
-    return "other";
-}
-
-function DeployChip({ loc, repo }: { loc: DeployLoc; repo: string | null }) {
-    const k = branchKind(loc.branch);
-    const repoStatus = useResourceEnabled(!!repo, gitOverviewR, repo ?? "");
-    const currentBranch = repoStatus.data?.status.branch.trim() ?? "";
-    const [checkingOut, setCheckingOut] = useState(false);
-    const [menuOpen, setMenuOpen] = useState(false);
-    const deployBranch = () => {
-        cmd.openRundeckDeploy({ project: loc.project, service: loc.service, jobId: loc.jobId, group: loc.group, branch: currentBranch });
-        setMenuOpen(false);
-    };
-    const checkoutBranch = () => {
-        if (!repo || !loc.branch || checkingOut) return;
-        setCheckingOut(true);
-        void git
-            .checkoutSmart(repo, loc.branch)
-            .then((msg) => {
-                notify("success", msg);
-                invalidate((kind, args) => (kind.startsWith("git.") || kind === "files.list") && args[0] === repo);
-                setMenuOpen(false);
-            })
-            .catch(reportError("checkout deployed branch"))
-            .finally(() => setCheckingOut(false));
-    };
-    return (
-        <span className="tb-deploy-actions" data-no-window-drag>
-            <Tooltip
-                label={
-                    loc.branch
-                        ? `Rundeck actions: ${loc.status ?? "?"} · ${loc.branch} · ${loc.label}`
-                        : `Rundeck actions for ${loc.service} on ${loc.label}`
-                }>
-                <button className="tb-deploy-chip" onClick={() => setMenuOpen((v) => !v)} aria-haspopup="menu" aria-expanded={menuOpen}>
-                    <IconRundeck size={12} />
-                    {loc.branch && <span className={`tb-deploy-branch rnd-branch-${k}`}>{loc.branch}</span>}
-                    <IconChevron size={10} className="env-dd-chev" />
-                </button>
-            </Tooltip>
-            {menuOpen && (
-                <>
-                    <div className="env-dd-scrim" onClick={() => setMenuOpen(false)} />
-                    <div className="env-dd-menu tb-deploy-menu" role="menu" aria-label="Rundeck actions">
-                        <button
-                            className="env-dd-item"
-                            role="menuitem"
-                            onClick={deployBranch}
-                            disabled={!!repo && repoStatus.status === "loading" && !currentBranch}>
-                            <IconRundeck size={12} />
-                            <span>{repo && !currentBranch ? "deploy (loading branch…)" : "deploy"}</span>
-                            {currentBranch && (
-                                <span className={`tb-deploy-menu-branch rnd-branch-${branchKind(currentBranch)}`}>{currentBranch}</span>
-                            )}
-                        </button>
-                        {repo && loc.branch && (
-                            <Tooltip
-                                side="left"
-                                label={`Checkout deployed branch ${loc.branch}. If it only exists on a remote, Sikemux will fetch and create a tracking local branch.`}>
-                                <button className="env-dd-item" role="menuitem" onClick={checkoutBranch} disabled={checkingOut}>
-                                    <IconGit size={12} />
-                                    <span>{checkingOut ? "checking out…" : "checkout"}</span>
-                                </button>
-                            </Tooltip>
-                        )}
-                    </div>
-                </>
-            )}
-        </span>
-    );
-}
-
 /*
  * The branch and its counts come off the overview the rest of the app already
  * reads. Asking for a status of its own made the backend do the recursive
@@ -223,7 +77,6 @@ function GitChip({ repo }: { repo: string }) {
                         )}
                     </button>
                 </Tooltip>
-                <CopyButton className="tb-git-copy" value={st.branch} label="branch name" size={11} />
             </span>
             <span className="tb-sep" />
         </>
@@ -347,59 +200,10 @@ export const TopBar = memo(function TopBar() {
     const zen = useStore((s) => s.zenMode);
     const sideRailVisible = useStore((s) => s.sideRailOpen && !s.zenMode);
     const agentRailVisible = useStore((s) => s.agentRailOpen && !s.zenMode);
-    const [envOpen, setEnvOpen] = useState(false);
+    const [stripHovered, setStripHovered] = useState(false);
+    const plugins = useInstalledPlugins();
 
     const isProject = !!session && session.kind === "project";
-    const svc = isProject && session!.cwd ? (session!.cwd.replace(/\/+$/, "").split("/").pop() ?? null) : null;
-
-    /*
-     * Find every Rundeck project/sub-folder where this service is deployed, so
-     * the picker can offer e.g. "channeliq/production" instead of a static env
-     * list.
-     *
-     * Two HTTP round trips to a deploy server, which most projects in most
-     * windows have nothing to do with — so they wait until either something
-     * else in the app has already asked Rundeck for its projects, or the reader
-     * moves the pointer over the strip the chip would appear in.
-     */
-    const [deployHovered, setDeployHovered] = useState(false);
-    const deployWanted = deployHovered || peekResource(rndProjectsR) !== undefined;
-    const rndProjects = useResourceEnabled(!!svc && deployWanted, rndProjectsR);
-    const specs = useMemo<RundeckEnvSpec[]>(
-        () => (rndProjects.data ?? []).map((p) => ({ label: p.name, project: p.name, only_succeeded: true })),
-        [rndProjects.data],
-    );
-    const matrix = useResourceEnabled(!!svc && specs.length > 0, rndMatrixR, specs);
-    const locations = useMemo<DeployLoc[]>(() => {
-        if (!svc) return [];
-        const out: DeployLoc[] = [];
-        const seen = new Set<string>();
-        for (const env of matrix.data?.envs ?? []) {
-            for (const cell of env.cells) {
-                if (cell.name !== svc && cell.service !== svc && !cell.service.endsWith(`/${svc}`)) continue;
-                const folder = envFolderOf(cell.group);
-                const key = `${env.project}/${folder ?? ""}`;
-                if (seen.has(key)) continue;
-                seen.add(key);
-                out.push({
-                    project: env.project,
-                    folder,
-                    label: folder ? `${env.project}/${folder}` : env.project,
-                    service: cell.service,
-                    jobId: cell.job_id,
-                    branch: cell.branch,
-                    status: cell.status,
-                    group: cell.group,
-                });
-            }
-        }
-        out.sort((a, b) => a.label.localeCompare(b.label));
-        return out;
-    }, [matrix.data, svc]);
-
-    const picked = session?.deploy;
-    const activeLoc = locations.find((l) => picked && l.project === picked.project && l.folder === picked.folder) ?? locations[0] ?? null;
-
     if (!session || !win) return null;
 
     return (
@@ -428,7 +232,7 @@ export const TopBar = memo(function TopBar() {
                 </div>
             </div>
 
-            <div className="tb-right" onPointerEnter={() => setDeployHovered(true)}>
+            <div className="tb-right" onPointerEnter={() => setStripHovered(true)}>
                 {zoomed && (
                     <span className="zoom-pill">
                         <IconZoom size={11} />
@@ -436,45 +240,9 @@ export const TopBar = memo(function TopBar() {
                     </span>
                 )}
                 {isProject && session.cwd && <GitChip repo={session.cwd} />}
-                {activeLoc && (
-                    <div className="env-dd" data-no-window-drag>
-                        <button
-                            className="env-dd-btn"
-                            type="button"
-                            aria-haspopup="listbox"
-                            aria-expanded={envOpen}
-                            onClick={() => locations.length > 1 && setEnvOpen((v) => !v)}
-                            aria-label={locations.length > 1 ? "Switch deploy location" : activeLoc.label}>
-                            <span className={`env-dot ${envDotKind(activeLoc.folder)}`} />
-                            <span className="env-dd-label">{activeLoc.label}</span>
-                            {locations.length > 1 && <IconChevron size={10} className="env-dd-chev" />}
-                        </button>
-                        {envOpen && locations.length > 1 && (
-                            <>
-                                <div className="env-dd-scrim" onClick={() => setEnvOpen(false)} />
-                                <div className="env-dd-menu" role="listbox" aria-label="Deploy location">
-                                    {locations.map((loc) => (
-                                        <button
-                                            key={loc.label}
-                                            className={`env-dd-item${activeLoc.label === loc.label ? " active" : ""}`}
-                                            role="option"
-                                            aria-selected={activeLoc.label === loc.label}
-                                            onClick={() => {
-                                                cmd.setDeployTarget({ project: loc.project, folder: loc.folder });
-                                                setEnvOpen(false);
-                                            }}>
-                                            <span className={`env-dot ${envDotKind(loc.folder)}`} />
-                                            <span>{loc.label}</span>
-                                        </button>
-                                    ))}
-                                </div>
-                            </>
-                        )}
-                    </div>
+                {plugins.map(({ id, TopBarItem }) =>
+                    TopBarItem ? <TopBarItem key={id} projectCwd={isProject ? session.cwd || null : null} stripHovered={stripHovered} /> : null,
                 )}
-                {activeLoc && <DeployChip loc={activeLoc} repo={isProject ? session.cwd : null} />}
-                {activeLoc && <span className="tb-sep" />}
-                <AwsChip />
                 <BatteryChip />
                 <ClockChip />
                 <div className="tb-toggles">

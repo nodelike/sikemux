@@ -118,7 +118,7 @@ textarea:focus,
 /* Widths only. Both rails take their surface and their border from the one
  * rule at the foot of this sheet, so they can never drift apart again. */
 .side-rail {
-    width: 258px;
+    width: var(--side-rail-w);
 }
 
 /* Agent rail: a little wider so titles, provider identity, and timestamps do
@@ -126,7 +126,7 @@ textarea:focus,
  * taken out of it — a rail that pays for its own chrome by truncating agent
  * titles is a worse rail. */
 .workspace-rail {
-    width: 312px;
+    width: var(--agent-rail-w);
 }
 
 /* The brand was a 62px slab: a bordered, tinted logo tile next to heavily
@@ -234,11 +234,35 @@ textarea:focus,
  */
 .shell {
     --mark: 16px;
+    --row-inset: var(--space-1);
+    --row-slot: 20px;
+}
+
+/* The leading mark sits in a column the same width and inset as the trailing
+   close, so a row's two ends mirror each other. */
+.sess-row,
+.proj-row,
+.agent-row {
+    padding-left: calc(var(--row-inset) + (var(--row-slot) - var(--mark, 16px)) / 2);
+}
+
+.proj-row {
+    padding-right: var(--row-inset);
+}
+
+.side-rail .panel-group > .panel-head,
+.workspace-rail .panel-group > .panel-head {
+    padding-left: calc(var(--row-inset) + var(--space-1));
 }
 
 .agent-row,
 .tabbar.v-agent {
     --mark: 22px;
+}
+
+/* Provider logos read at the agents' glyph size, so they take the whole slot. */
+.rail-logos {
+    --mark: var(--row-slot);
 }
 
 .agent-row .agent-glyph,
@@ -249,6 +273,12 @@ textarea:focus,
     place-items: center;
     min-width: var(--mark, 16px);
     height: var(--mark, 16px);
+    flex: 0 0 auto;
+}
+
+.tab-badge {
+    display: grid;
+    place-items: center;
     flex: 0 0 auto;
 }
 
@@ -280,14 +310,13 @@ textarea:focus,
     position: absolute;
     z-index: 3;
     top: 50%;
-    right: var(--space-1);
+    right: var(--row-inset);
     transform: translateY(-50%);
 }
 
 .session-row-shell > .sess-row,
-.session-row-shell > .proj-row,
 .agent-row-wrap > .agent-row {
-    padding-right: calc(var(--space-2) + 20px + var(--space-1));
+    padding-right: calc(var(--row-inset) + var(--row-slot) + var(--space-1));
 }
 
 /*
@@ -328,7 +357,7 @@ textarea:focus,
     position: absolute;
     z-index: 2;
     top: 50%;
-    right: var(--space-1);
+    right: var(--row-inset);
     transform: translateY(-50%);
 }
 
@@ -350,6 +379,35 @@ textarea:focus,
 .session-row-shell:has(> .row-x:focus-visible) > .row-status,
 .agent-row-wrap:hover > .row-status,
 .agent-row-wrap:has(> .row-x:focus-visible) > .row-status {
+    opacity: 0;
+}
+
+.session-row-shell:hover > .sess-row:not(.active),
+.session-row-shell:hover > .proj-row:not(.expanded),
+.agent-row-wrap:hover > .agent-row:not(.active) {
+    background: var(--surface-hover);
+    color: var(--text-primary);
+}
+
+.proj-row-status {
+    display: grid;
+    place-items: center;
+    width: 20px;
+    height: 20px;
+    flex: 0 0 auto;
+    margin-left: -6px;
+    transition: opacity var(--dur-1) linear;
+}
+
+/* Project rows keep no room for the close, so it covers whatever ends the row. */
+.project-row-shell .proj-child-icons > :last-child {
+    transition: opacity var(--dur-1) linear;
+}
+
+.project-row-shell:hover .proj-row-status,
+.project-row-shell:has(> .row-x:focus-visible) .proj-row-status,
+.project-row-shell:not(:has(.proj-row-status)):hover .proj-child-icons > :last-child,
+.project-row-shell:not(:has(.proj-row-status)):has(> .row-x:focus-visible) .proj-child-icons > :last-child {
     opacity: 0;
 }
 
@@ -657,14 +715,6 @@ textarea:focus,
 }
 
 @media (max-width: 900px) {
-    .side-rail {
-        width: 224px;
-    }
-
-    .workspace-rail {
-        width: 286px;
-    }
-
     .agent-header-copy {
         min-width: 60px;
     }
@@ -749,37 +799,56 @@ textarea:focus,
  */
 .body {
     position: relative;
-    gap: var(--space-3);
+    gap: var(--shell-gap);
     /* Half gutter under the bar: it is window chrome, not another panel, so it
        sits closer than the panels do to each other. The bar's own slack under
        the crumb is most of it; this tops it up to match the gap above. */
-    padding: var(--space-1) var(--space-3) var(--space-3);
+    padding: var(--space-1) var(--shell-gap) var(--shell-gap);
+}
+
+/* The rail handles sit in the middle of the gutter beside each rail. */
+.rail-resizer {
+    top: var(--space-1);
+    bottom: var(--shell-gap);
+}
+.rail-resizer--start {
+    left: calc(var(--shell-gap) * 1.5 + var(--side-rail-w));
+}
+.rail-resizer--end {
+    right: calc(var(--shell-gap) * 1.5 + var(--agent-rail-w));
+    transform: translateX(50%);
+}
+
+/* Panes hold a gutter back from their cell, so the window area reaches out by
+   that much to put the outer panes flush with the stage's edges. */
+.window-area {
+    inset: 0 calc(-1 * var(--pane-gutter)) calc(-1 * var(--pane-gutter));
 }
 
 .rail-peek {
-    --rail-peek-width: 258px;
+    --rail-peek-width: var(--side-rail-w);
     position: absolute;
     inset-block: 0;
     z-index: 4;
-    width: calc(var(--rail-peek-width) + var(--space-3));
+    width: calc(var(--rail-peek-width) + var(--shell-gap));
     pointer-events: none;
 }
 
 .rail-peek--start {
-    --rail-peek-offset: calc(-100% - var(--space-3));
+    --rail-peek-offset: calc(-100% - var(--shell-gap));
     left: 0;
 }
 
 .rail-peek--end {
-    --rail-peek-width: 312px;
-    --rail-peek-offset: calc(100% + var(--space-3));
+    --rail-peek-width: var(--agent-rail-w);
+    --rail-peek-offset: calc(100% + var(--shell-gap));
     right: 0;
 }
 
 .rail-peek-sensor {
     position: absolute;
     inset-block: 0;
-    width: var(--space-3);
+    width: var(--shell-gap);
     pointer-events: auto;
 }
 
@@ -840,16 +909,6 @@ textarea:focus,
     to {
         opacity: 0;
         transform: translate3d(var(--rail-peek-offset), 0, 0);
-    }
-}
-
-@media (max-width: 900px) {
-    .rail-peek--start {
-        --rail-peek-width: 224px;
-    }
-
-    .rail-peek--end {
-        --rail-peek-width: 286px;
     }
 }
 
@@ -994,7 +1053,8 @@ textarea,
         .rnd-login-card,
         .settings-list,
         .settings-empty,
-        .settings-theme,
+        .theme-pick-current,
+        .theme-pick-list,
         .keymap-list,
         .custom-command-list,
         .cli-paths,
@@ -1091,7 +1151,8 @@ textarea,
         .aws-logs-pill,
         .aws-logs-pill-dot,
         .rnd-exec-pill,
-        .rnd-pill-x
+        .rnd-pill-x,
+        .chat-send
     ) {
     border-radius: var(--radius-full) !important;
 }
@@ -1290,10 +1351,15 @@ textarea,
     font-size: var(--text-sm);
 }
 
-.side-rail .proj-child-kbd,
-.side-rail .rail-group-kbd,
 .workspace-rail .agent-ago {
     font-family: var(--mono);
+    font-size: var(--text-2xs);
+    color: var(--text-tertiary);
+}
+
+.side-rail .proj-child-kbd,
+.side-rail .rail-group-kbd {
+    font-family: var(--kbd);
     font-size: var(--text-2xs);
     color: var(--text-tertiary);
 }

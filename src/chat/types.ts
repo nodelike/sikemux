@@ -112,8 +112,11 @@ export interface ChatState {
     capabilities: Record<string, unknown>;
     setup: Record<string, unknown>;
     plan: unknown;
-    usage: unknown;
+    usage: ContextUsage | null;
     running: boolean;
+    /* The agent started this turn on its own, woken by a message from another
+       session or a finished background task, so no prompt of ours will end it. */
+    unprompted: boolean;
     suppressUserEcho: boolean;
     error: string | null;
     title: string | null;
@@ -130,6 +133,7 @@ export type ChatAction =
     | { type: "ready"; capabilities: Record<string, unknown>; setup: Record<string, unknown> }
     | { type: "local_prompt"; text: string; paths: string[] }
     | { type: "session_update"; sessionId: string; update: Record<string, unknown> }
+    | { type: "saved_usage"; usage: ContextUsage }
     | { type: "turn_started" }
     | { type: "turn_completed"; stopReason?: string }
     | { type: "permission_requested"; request: AcpPermissionRequest }
@@ -148,3 +152,10 @@ export interface CodeToken {
 }
 
 export type CodeLine = readonly CodeToken[];
+
+/** How full the session's context window is, as the agent last reported it. */
+export interface ContextUsage {
+    used: number;
+    size: number;
+    cost?: { amount: number; currency: string };
+}

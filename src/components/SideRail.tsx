@@ -17,35 +17,25 @@ import * as cmd from "../state/commands";
 import { prefersReducedMotion } from "../lib/motion";
 import { rollupAgentStates } from "../state/agentStatus";
 import { getState, useStore } from "../state/store";
-import {
-    AgentIcon,
-    IconAgent,
-    IconAws,
-    IconBruno,
-    IconClose,
-    IconCommand,
-    IconFolder,
-    IconPencil,
-    IconPlus,
-    IconRundeck,
-    Logo,
-    WindowIcon,
-} from "./Icons";
+import { AgentIcon, IconAgent, IconClose, IconCommand, IconFolder, IconPencil, IconPlus, Logo, WindowIcon } from "./Icons";
 import { Tooltip } from "./Tooltip";
 import { EmptyState, Panel, PanelHeader } from "./Panel";
 import { UpdateChip, VersionChip } from "./TopBar";
-import { AgentStateIndicator } from "./AgentStateIndicator";
+import { AgentStateIndicator, showsAgentState } from "./AgentStateIndicator";
 import { agentIdsOf } from "../state/selectors";
+import { pluginSurface, type FrontendPlugin } from "../plugins/registry";
+import { useInstalledPlugins } from "../plugins/installed";
+import { railGroupOf, type RailGroup } from "../state/railGroups";
+import { isPluginKind, pluginIdOf } from "../plugins/kinds";
 
 function kindIcon(kind: SessionKind): ReactNode {
     if (kind === "project") return <IconFolder size={13} />;
-    if (kind === "aws") return <IconAws />;
-    if (kind === "rundeck") return <IconRundeck size={14} />;
-    if (kind === "bruno") return <IconBruno size={14} />;
+    const surface = pluginSurface(kind);
+    if (surface) return surface.icon(15);
     return <IconCommand size={13} />;
 }
 
-const MAX_BADGE_ICONS = 3;
+const MAX_BADGE_ICONS = 5;
 type ProjectDropPlacement = "before" | "after";
 
 interface ProjectDragSession {
@@ -200,13 +190,13 @@ function ProjectBlock({ s }: { s: Session }) {
                                 {overflow > 0 && <span className="proj-child-icons-more">+{overflow}</span>}
                             </span>
                         )}
+                        {showsAgentState(rollup ?? "idle", rollupBackground) && (
+                            <span className="proj-row-status">
+                                <AgentStateIndicator state={rollup ?? "idle"} background={rollupBackground} />
+                            </span>
+                        )}
                     </button>
                 </Tooltip>
-                {(rollup || rollupBackground) && (
-                    <span className="row-status">
-                        <AgentStateIndicator state={rollup ?? "idle"} background={rollupBackground} />
-                    </span>
-                )}
                 <SessionCloseButton session={s} />
             </div>
         );
@@ -289,6 +279,7 @@ function ProjectBlock({ s }: { s: Session }) {
                             <IconFolder size={12} />
                         </span>
                         <span className="proj-name">{s.name}</span>
+                        {(rollup || rollupBackground) && <AgentStateIndicator state={rollup ?? "idle"} background={rollupBackground} />}
                     </button>
                 </Tooltip>
                 <SessionCloseButton session={s} />
@@ -344,15 +335,34 @@ function renderSession(s: Session) {
     return s.kind === "project" ? <ProjectBlock key={s.id} s={s} /> : <SimpleRow key={s.id} s={s} />;
 }
 
+/** A plugin that is enabled but not open yet: the same row its session will be, opening it on click. */
+function PluginLauncherRow({ plugin }: { plugin: FrontendPlugin }) {
+    const surface = plugin.surfaces[0];
+    if (!surface) return null;
+    return (
+        <div className="session-row-shell">
+            <button className="sess-row" onClick={plugin.open}>
+                <span className={`sess-icon ${surface.kind}`}>
+                    <span className="sess-icon-glyph">{kindIcon(surface.kind)}</span>
+                </span>
+                <span className="sess-name">{surface.title}</span>
+            </button>
+        </div>
+    );
+}
+
 function Group({
     label,
     list,
+    rows,
     add,
     addTitle,
     addKbd,
     action,
     actionTitle,
     emptyText,
+    singleton,
+    className,
 }: {
     label: string;
     list: Session[];
@@ -362,14 +372,19 @@ function Group({
     action?: () => void;
     actionTitle?: string;
     emptyText: string;
+    singleton?: boolean;
+    /** Rows drawn in place of `list`, for a group that is more than its sessions. */
+    rows?: ReactNode;
+    className?: string;
 }) {
     return (
-        <Panel variant="group">
+        <Panel variant="group" className={className}>
             <PanelHeader
                 label={label}
                 rule
                 extra={
-                    add && (
+                    add &&
+                    !singleton && (
                         <span className="rail-group-actions">
                             {addKbd && <span className="rail-group-kbd">{addKbd}</span>}
                             {action && (
@@ -388,11 +403,12 @@ function Group({
                     )
                 }
             />
-            {list.length === 0 ? (
-                <EmptyState variant="inline" message={emptyText} action={add ? { label: emptyText, onClick: add } : undefined} />
-            ) : (
-                list.map(renderSession)
-            )}
+            {rows ??
+                (list.length === 0 ? (
+                    <EmptyState variant="inline" message={emptyText} action={add ? { label: emptyText, onClick: add } : undefined} />
+                ) : (
+                    list.map(renderSession)
+                ))}
         </Panel>
     );
 }
@@ -422,12 +438,19 @@ export const SideRail = memo(function SideRail() {
     const projectDragSequenceRef = useRef(0);
     const suppressProjectClickRef = useRef(false);
 
-    const projects = sessions.filter((s) => s.kind === "project");
-    const sshs = sessions.filter((s) => s.kind === "ssh");
-    const cloud = sessions.filter((s) => s.kind === "aws");
-    const cicd = sessions.filter((s) => s.kind === "rundeck");
-    const apis = sessions.filter((s) => s.kind === "bruno");
-    const commands = sessions.filter((s) => s.kind === "command");
+    const pluginManifests = useStore((s) => s.pluginManifests);
+    const disabledPlugins = useStore((s) => s.disabledPlugins);
+    const inGroup = (group: RailGroup) => sessions.filter((s) => railGroupOf(s.kind, pluginManifests, disabledPlugins) === group);
+    const projects = inGroup("project");
+    const sshs = inGroup("ssh");
+    const commands = inGroup("command");
+    const plugins = inGroup("plugins");
+    const enabledPlugins = useInstalledPlugins();
+    // Every enabled plugin always has a row; its session is only made on the first click.
+    const pluginRows = enabledPlugins.flatMap((plugin) => {
+        const opened = plugins.filter((session) => isPluginKind(session.kind) && pluginIdOf(session.kind) === plugin.id);
+        return opened.length > 0 ? opened.map(renderSession) : [<PluginLauncherRow key={plugin.id} plugin={plugin} />];
+    });
 
     const resolveProjectDrop = useCallback((x: number, y: number) => {
         const ghost = projectGhostRef.current;
@@ -655,30 +678,8 @@ export const SideRail = memo(function SideRail() {
                         actionTitle="Edit ~/.ssh/config"
                         emptyText="no ssh hosts"
                     />
-                    <Group
-                        label="Cloud"
-                        list={cloud}
-                        add={cmd.openAwsSession}
-                        addTitle={`Open AWS — ${kb("aws.open")}`}
-                        addKbd={kb("aws.open")}
-                        emptyText="no cloud sessions"
-                    />
-                    <Group
-                        label="CI/CD"
-                        list={cicd}
-                        add={cmd.openRundeckSession}
-                        addTitle="Open Rundeck deploy center"
-                        emptyText="open rundeck deploy center"
-                    />
-                    <Group
-                        label="API"
-                        list={apis}
-                        add={() => cmd.openPicker("bruno")}
-                        addTitle={`Open Bruno workspace — ${kb("bruno.open")}`}
-                        addKbd={kb("bruno.open")}
-                        emptyText="open a bruno workspace"
-                    />
-                    <Group label="Command" list={commands} add={cmd.createCommandSession} addTitle="New command session" emptyText="no commands" />
+                    <Group label="Plugins" list={plugins} rows={pluginRows} emptyText="no plugins" className="rail-logos" />
+                    <Group label="Terminals" list={commands} add={cmd.createCommandSession} addTitle="New terminal" emptyText="no terminals" />
                 </div>
 
                 <UpdateChip />

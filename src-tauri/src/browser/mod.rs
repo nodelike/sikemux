@@ -10,12 +10,17 @@
 pub mod agents;
 mod favicon;
 #[cfg(target_os = "macos")]
+mod input;
+#[cfg(target_os = "macos")]
 mod macos;
+#[cfg(target_os = "macos")]
+mod recording;
 pub mod tools;
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Mutex;
+use std::time::Duration;
 
 use std::path::{Path, PathBuf};
 
@@ -31,10 +36,12 @@ use crate::error::{AppError, AppResult};
 pub const BROWSER_TABS_EVENT: &str = "browser-tabs-changed";
 pub const BROWSER_SHORTCUT_EVENT: &str = "browser-shortcut";
 pub const BROWSER_DOWNLOAD_EVENT: &str = "browser-download";
+pub const BROWSER_ACTING_EVENT: &str = "browser-agent-acting";
 pub const BLANK_URL: &str = "about:blank";
 /// Injected into every document before its own scripts, so a page's calls are
 /// already recorded by the time an agent asks about them.
 const RECORDER_SCRIPT: &str = include_str!("recorder.js");
+const PAGE_DIALOGS_SCRIPT: &str = include_str!("page-dialogs.js");
 const MAX_URL_LEN: usize = 8192;
 const PARKED_BOUNDS: BrowserBounds = BrowserBounds {
     x: 0.0,
@@ -42,6 +49,8 @@ const PARKED_BOUNDS: BrowserBounds = BrowserBounds {
     width: 1200.0,
     height: 800.0,
 };
+
+const ACTING_LINGER: Duration = Duration::from_secs(3);
 
 /// WebKit's own agent string names no browser at all, and sites answer that
 /// with an "unsupported browser" page, so tabs — and the fetch that goes after
@@ -60,6 +69,8 @@ pub struct BrowserTab {
     pub can_go_forward: bool,
     /// The site's own icon, inline, since the window can only draw `data:`.
     pub favicon: Option<String>,
+    /// The agent's browser tools are working in this tab right now.
+    pub acting: bool,
 }
 
 #[derive(Clone, Debug, Serialize, PartialEq, Eq)]
@@ -113,6 +124,15 @@ pub enum DownloadState {
     Failed,
 }
 
+/// An alert, confirm or prompt the page is blocked on until someone answers.
+#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct PageDialog {
+    pub kind: &'static str,
+    pub message: String,
+    pub default_text: Option<String>,
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct TabPage {
     pub title: String,
@@ -130,6 +150,9 @@ pub struct TabStrip {
     pub order: Vec<String>,
     pub active: Option<String>,
     pub pages: HashMap<String, TabPage>,
+    /// Tabs the agent is working in, each with the mark that put it there, so
+    /// only the latest mark may take it away again.
+    pub acting: HashMap<String, u64>,
 }
 
 impl TabStrip {
@@ -147,6 +170,7 @@ impl TabStrip {
         };
         self.order.remove(index);
         self.pages.remove(id);
+        self.acting.remove(id);
         if self.active.as_deref() == Some(id) {
             self.active = self
                 .order
@@ -162,6 +186,20 @@ impl TabStrip {
             return false;
         }
         self.active = Some(id.to_owned());
+        true
+    }
+
+    pub fn mark_acting(&mut self, mark: u64) -> Option<String> {
+        let tab = self.active.clone()?;
+        self.acting.insert(tab.clone(), mark);
+        Some(tab)
+    }
+
+    pub fn release_acting(&mut self, tab: &str, mark: u64) -> bool {
+        if self.acting.get(tab) != Some(&mark) {
+            return false;
+        }
+        self.acting.remove(tab);
         true
     }
 
@@ -181,6 +219,7 @@ impl TabStrip {
                         can_go_back: page.can_go_back,
                         can_go_forward: page.can_go_forward,
                         favicon: page.favicon.clone(),
+                        acting: self.acting.contains_key(id),
                     })
                 })
                 .collect(),
@@ -200,9 +239,14 @@ struct AgentBrowser {
 pub struct BrowserManager {
     agents: Mutex<HashMap<String, AgentBrowser>>,
     next_tab: AtomicU64,
+    next_acting_mark: AtomicU64,
     shortcuts_installed: AtomicBool,
     downloads: Mutex<HashMap<(String, String), PathBuf>>,
     icons: Mutex<favicon::IconCache>,
+    dialogs: Mutex<HashMap<String, PageDialog>>,
+    uploads: Mutex<HashMap<String, Vec<PathBuf>>>,
+    #[cfg(target_os = "macos")]
+    recordings: Mutex<HashMap<String, recording::Session>>,
 }
 
 impl BrowserManager {
@@ -258,14 +302,33 @@ impl BrowserManager {
             let (app_handle, agent, tab) = (app.clone(), agent_id.to_owned(), tab_id.clone());
             let _ = webview.with_webview(move |platform| {
                 let (moved_agent, moved_tab) = (agent.clone(), tab.clone());
-                macos::adopt(platform.inner(), agent, tab, move |url, back, forward| {
-                    let manager = app_handle.state::<BrowserManager>();
-                    manager.note_page(&app_handle, &moved_agent, &moved_tab, |page| {
-                        page.url = url;
-                        page.can_go_back = back;
-                        page.can_go_forward = forward;
-                    });
-                });
+                let (dialog_app, dialog_tab) = (app_handle.clone(), tab.clone());
+                let (upload_app, upload_tab) = (app_handle.clone(), tab.clone());
+                macos::adopt(
+                    platform.inner(),
+                    agent,
+                    tab,
+                    move |url, back, forward| {
+                        let manager = app_handle.state::<BrowserManager>();
+                        manager.note_page(&app_handle, &moved_agent, &moved_tab, |page| {
+                            page.url = url;
+                            page.can_go_back = back;
+                            page.can_go_forward = forward;
+                        });
+                    },
+                    move |dialog| {
+                        let manager = dialog_app.state::<BrowserManager>();
+                        let mut dialogs = manager.dialogs_lock();
+                        match dialog {
+                            Some(dialog) => dialogs.insert(dialog_tab.clone(), dialog),
+                            None => dialogs.remove(&dialog_tab),
+                        };
+                    },
+                    move || {
+                        let manager = upload_app.state::<BrowserManager>();
+                        manager.take_upload(&upload_tab)
+                    },
+                );
             });
         }
         self.install_shortcuts(app);
@@ -298,7 +361,8 @@ impl BrowserManager {
             .accept_first_mouse(true)
             .focused(false)
             .zoom_hotkeys_enabled(true)
-            .initialization_script(RECORDER_SCRIPT);
+            .initialization_script(RECORDER_SCRIPT)
+            .initialization_script(PAGE_DIALOGS_SCRIPT);
         #[cfg(target_os = "macos")]
         let builder = builder.user_agent(USER_AGENT);
 
@@ -399,6 +463,43 @@ impl BrowserManager {
         );
     }
 
+    fn dialogs_lock(&self) -> std::sync::MutexGuard<'_, HashMap<String, PageDialog>> {
+        self.dialogs
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    pub fn dialog(&self, tab_id: &str) -> Option<PageDialog> {
+        self.dialogs_lock().get(tab_id).cloned()
+    }
+
+    fn uploads_lock(&self) -> std::sync::MutexGuard<'_, HashMap<String, Vec<PathBuf>>> {
+        self.uploads
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    /// Files for the tab's next file chooser, answered in place of the person.
+    pub fn offer_upload(&self, tab_id: &str, paths: Vec<PathBuf>) {
+        self.uploads_lock().insert(tab_id.to_owned(), paths);
+    }
+
+    #[cfg(target_os = "macos")]
+    fn recordings_lock(&self) -> std::sync::MutexGuard<'_, HashMap<String, recording::Session>> {
+        self.recordings
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    pub fn upload_pending(&self, tab_id: &str) -> bool {
+        self.uploads_lock().contains_key(tab_id)
+    }
+
+    /// `None` once the chooser took the files or the offer was withdrawn.
+    pub fn take_upload(&self, tab_id: &str) -> Option<Vec<PathBuf>> {
+        self.uploads_lock().remove(tab_id)
+    }
+
     fn downloads_lock(&self) -> std::sync::MutexGuard<'_, HashMap<(String, String), PathBuf>> {
         self.downloads
             .lock()
@@ -457,6 +558,8 @@ impl BrowserManager {
 
     pub fn close_agent(&self, app: &AppHandle, agent_id: &str) -> AppResult<()> {
         validate_agent_id(agent_id)?;
+        #[cfg(target_os = "macos")]
+        self.recordings_lock().remove(agent_id);
         let views = self
             .lock()
             .remove(agent_id)
@@ -584,6 +687,43 @@ impl BrowserManager {
         }
     }
 
+    /// Tells the app which agent took the wheel, so its browser can come on
+    /// screen even before it has a tab.
+    pub fn announce_acting(&self, app: &AppHandle, agent_id: &str) {
+        let _ = app.emit(BROWSER_ACTING_EVENT, agent_id);
+    }
+
+    /// Marks the tab the agent's tools are on, so the strip can show it working there.
+    pub fn mark_acting(&self, app: &AppHandle, agent_id: &str) -> Option<(String, u64)> {
+        let mark = self.next_acting_mark.fetch_add(1, Ordering::AcqRel);
+        let tab = self.lock().get_mut(agent_id)?.strip.mark_acting(mark)?;
+        self.announce(app);
+        Some((tab, mark))
+    }
+
+    /// The highlight lingers a moment after the last action, so a run of quick
+    /// tool calls reads as one stretch of work rather than a flicker.
+    pub fn release_acting(&self, app: &AppHandle, agent_id: &str, marks: Vec<(String, u64)>) {
+        if marks.is_empty() {
+            return;
+        }
+        let app = app.clone();
+        let agent_id = agent_id.to_owned();
+        tauri::async_runtime::spawn(async move {
+            tokio::time::sleep(ACTING_LINGER).await;
+            let manager = app.state::<BrowserManager>();
+            let mut released = false;
+            if let Some(agent) = manager.lock().get_mut(&agent_id) {
+                for (tab, mark) in &marks {
+                    released |= agent.strip.release_acting(tab, *mark);
+                }
+            }
+            if released {
+                manager.announce(&app);
+            }
+        });
+    }
+
     fn announce(&self, app: &AppHandle) {
         let _ = app.emit(BROWSER_TABS_EVENT, ());
     }
@@ -617,7 +757,7 @@ impl BrowserManager {
     }
 
     pub fn mcp_launch(&self, app: &AppHandle) -> AppResult<BrowserMcpLaunch> {
-        if let Some(command) = std::env::var_os("SIKEMUX_BROWSER_MCP_EXECUTABLE") {
+        if let Some(command) = std::env::var_os("SIKEMUX_TOOLS_MCP_EXECUTABLE") {
             return Ok(BrowserMcpLaunch {
                 command: std::path::PathBuf::from(command)
                     .to_string_lossy()
@@ -626,9 +766,9 @@ impl BrowserManager {
             });
         }
         let executable_name = if cfg!(windows) {
-            "sikemux-browser-mcp.exe"
+            "sikemux-tools-mcp.exe"
         } else {
-            "sikemux-browser-mcp"
+            "sikemux-tools-mcp"
         };
         if let Ok(current) = std::env::current_exe() {
             if let Some(parent) = current.parent() {
@@ -928,6 +1068,32 @@ mod tests {
             url: url.into(),
             ..TabPage::default()
         }
+    }
+
+    #[test]
+    fn the_tab_the_agent_works_in_is_marked_until_its_latest_mark_is_released() {
+        let mut strip = TabStrip::default();
+        strip.insert("a".into(), page("https://a.test"));
+
+        assert_eq!(strip.mark_acting(1).as_deref(), Some("a"));
+        assert_eq!(strip.mark_acting(2).as_deref(), Some("a"));
+        assert!(!strip.release_acting("a", 1));
+        assert!(strip.snapshot().tabs[0].acting);
+
+        assert!(strip.release_acting("a", 2));
+        assert!(!strip.snapshot().tabs[0].acting);
+    }
+
+    #[test]
+    fn nothing_is_marked_without_a_tab_and_a_closed_tab_drops_its_mark() {
+        let mut strip = TabStrip::default();
+        assert_eq!(strip.mark_acting(1), None);
+
+        strip.insert("a".into(), page("https://a.test"));
+        strip.mark_acting(2);
+        strip.remove("a");
+
+        assert!(strip.acting.is_empty());
     }
 
     #[test]

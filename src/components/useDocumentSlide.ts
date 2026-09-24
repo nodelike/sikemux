@@ -10,7 +10,7 @@ const SETTLE_GUARD_MS = PAN_MS + 120;
  * The element inside a pane that holds the document and nothing around it: the
  * file tree, the collection tree and the bars beside them stay where they are.
  */
-const DOCUMENT_HOST = ".ed-host, .bruno-workbench";
+const DOCUMENT_HOST = ".ed-host, [data-document-host]";
 
 /** Which side the document arriving travels in from: a later document in the list comes from the right. */
 export function arrivesFrom(order: readonly string[], leaving: string, arriving: string): -1 | 0 | 1 {

@@ -33,20 +33,6 @@ export function normalizePermissionMode(type: AgentType, mode: AgentPermissionMo
     return supportedPermissionModes(type).includes(mode) ? mode : "workspace-write";
 }
 
-export function permissionCopyForType(
-    type: AgentType,
-    mode: AgentPermissionMode,
-): { label: string; detail: string; tone: "safe" | "balanced" | "open" | "danger" } {
-    if (type !== "claude" && type !== "codex" && mode === "workspace-write") {
-        return {
-            label: "Normal",
-            detail: "This provider does not expose a configurable Sikemux boundary; its own settings apply.",
-            tone: "balanced",
-        };
-    }
-    return AGENT_PERMISSION_COPY[mode];
-}
-
 export const AGENT_PERMISSION_COPY: Record<AgentPermissionMode, { label: string; detail: string; tone: "safe" | "balanced" | "open" | "danger" }> = {
     "read-only": {
         label: "Observe",

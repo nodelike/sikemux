@@ -96,6 +96,12 @@ export interface LiveAgentSession {
     status: string;
 }
 
+/** How full a saved session's context window was. Claude does not record the window's size. */
+export interface SavedSessionContext {
+    used: number;
+    size: number | null;
+}
+
 export const agentApi = {
     available: fetchAvailable,
     models: (agent: AgentType, executablePath?: string, configPath?: string): Promise<AgentModelInfo[]> =>
@@ -103,6 +109,8 @@ export const agentApi = {
     usage: (agent: AgentType, executablePath?: string, configPath?: string): Promise<AgentUsage> =>
         invoke<AgentUsage>("agent_usage", { agent, executablePath, configPath }),
     sessions: fetchSessions,
+    sessionContext: (agent: AgentType, cwd: string, sessionId: string, configPath?: string): Promise<SavedSessionContext | null> =>
+        invoke<SavedSessionContext | null>("agent_session_context", { agent, cwd, sessionId, configPath }),
     sessionResults: fetchSessionResults,
     watchStart: (agent: AgentType, cwd: string, configPath?: string): Promise<number> =>
         invoke<number>("agent_sessions_watch_start", { agent, cwd, configPath }),

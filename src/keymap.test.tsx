@@ -1,5 +1,5 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { loadApplicationActions } from "./actions/bridge";
 import { browserApi } from "./api/browser";
 import { IS_MACOS } from "./lib/platform";
@@ -267,5 +267,86 @@ describe("contributed action keybindings", () => {
         } finally {
             registration.dispose();
         }
+    });
+});
+
+describe("text size shortcuts", () => {
+    const MOD = IS_MACOS ? { metaKey: true } : { ctrlKey: true };
+
+    // The harnesses in this block render real nodes, unlike the null-rendering
+    // ones above, so each case has to start from an empty document.
+    afterEach(cleanup);
+
+    function ChatHarness() {
+        useKeymap();
+        return (
+            <div className="agent-chat-pane">
+                <button aria-label="In chat" />
+            </div>
+        );
+    }
+
+    function press(code: string, target: EventTarget, extra: Record<string, boolean> = {}) {
+        target.dispatchEvent(new KeyboardEvent("keydown", { key: code, code, ...MOD, ...extra, bubbles: true, cancelable: true }));
+    }
+
+    beforeEach(() => {
+        setState({ terminalFontSize: 13, chatTextScale: 1, editorTextScale: 1 });
+    });
+
+    it("resizes the terminal when the press lands outside a chat", () => {
+        render(<KeymapHarness />);
+
+        press("Equal", window);
+
+        expect(getState().terminalFontSize).toBe(14);
+        expect(getState().chatTextScale).toBe(1);
+    });
+
+    function EditorHarness() {
+        useKeymap();
+        return (
+            <div className="cm-editor">
+                <button aria-label="In editor" />
+            </div>
+        );
+    }
+
+    it("resizes the editor when the press lands inside one", () => {
+        render(<EditorHarness />);
+
+        press("Equal", screen.getByRole("button", { name: "In editor" }));
+
+        expect(getState().editorTextScale).toBe(1.1);
+        expect(getState().terminalFontSize).toBe(13);
+        expect(getState().chatTextScale).toBe(1);
+    });
+
+    it("resizes the transcript when the press lands inside a chat", () => {
+        render(<ChatHarness />);
+
+        press("Equal", screen.getByRole("button", { name: "In chat" }));
+
+        expect(getState().chatTextScale).toBe(1.1);
+        expect(getState().terminalFontSize).toBe(13);
+    });
+
+    it("shrinks and resets the transcript it is focused in", () => {
+        render(<ChatHarness />);
+        const inChat = screen.getByRole("button", { name: "In chat" });
+
+        press("Minus", inChat);
+        expect(getState().chatTextScale).toBe(0.9);
+
+        press("Digit0", inChat);
+        expect(getState().chatTextScale).toBe(1);
+    });
+
+    it("accepts the shifted + as well as a bare =", () => {
+        render(<KeymapHarness />);
+
+        press("Equal", window, { shiftKey: true });
+
+        expect(getState().terminalFontSize).toBe(14);
     });
 });

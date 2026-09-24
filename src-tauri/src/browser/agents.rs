@@ -61,9 +61,9 @@ impl BrowserManager {
             "claude" => claude_browser_args(app, &launch)?,
             "codex" => codex_browser_args(&launch)?,
             "pi" | "omp" => {
-                environment.push(("SIKEMUX_BROWSER_MCP_COMMAND".into(), launch.command.clone()));
+                environment.push(("SIKEMUX_TOOLS_MCP_COMMAND".into(), launch.command.clone()));
                 environment.push((
-                    "SIKEMUX_BROWSER_MCP_ARGS".into(),
+                    "SIKEMUX_TOOLS_MCP_ARGS".into(),
                     serde_json::to_string(&launch.args)?,
                 ));
                 vec![
@@ -103,7 +103,7 @@ impl BrowserManager {
 pub fn acp_browser_server(app: &AppHandle, agent_id: &str) -> AppResult<McpServer> {
     validate_agent_id(agent_id)?;
     let launch = app.state::<BrowserManager>().mcp_launch(app)?;
-    let mut server = McpServerStdio::new("sikemux-browser", absolute_command(&launch.command)?);
+    let mut server = McpServerStdio::new("sikemux-tools", absolute_command(&launch.command)?);
     server.args = launch.args;
     server.env = base_environment(agent_id)?
         .into_iter()
@@ -127,7 +127,7 @@ fn absolute_command(command: &str) -> AppResult<PathBuf> {
 /// this through the agent process, so it never appears in a config file.
 fn base_environment(agent_id: &str) -> AppResult<Vec<(String, String)>> {
     Ok(vec![
-        ("SIKEMUX_BROWSER_AGENT_ID".into(), agent_id.to_owned()),
+        ("SIKEMUX_TOOLS_AGENT_ID".into(), agent_id.to_owned()),
         (
             "SIKEMUX_CLI_ENDPOINT".into(),
             crate::cli_server::cli_endpoint_path()
@@ -154,7 +154,7 @@ fn claude_browser_args(app: &AppHandle, launch: &BrowserMcpLaunch) -> AppResult<
     let directory = browser_state_dir(app)?;
     std::fs::create_dir_all(&directory)?;
     let path = directory.join("claude-mcp.json");
-    let document = json!({ "mcpServers": { "sikemux-browser": mcp_server_document(launch) } });
+    let document = json!({ "mcpServers": { "sikemux-tools": mcp_server_document(launch) } });
     let temporary = directory.join(format!(".claude-mcp-{}.json", uuid::Uuid::new_v4()));
     std::fs::write(&temporary, serde_json::to_vec_pretty(&document)?)?;
     std::fs::rename(temporary, &path)?;
@@ -166,9 +166,9 @@ fn codex_browser_args(launch: &BrowserMcpLaunch) -> AppResult<Vec<String>> {
     let args = serde_json::to_string(&launch.args)?;
     Ok(vec![
         "-c".into(),
-        format!("mcp_servers.sikemux_browser.command={command}"),
+        format!("mcp_servers.sikemux_tools.command={command}"),
         "-c".into(),
-        format!("mcp_servers.sikemux_browser.args={args}"),
+        format!("mcp_servers.sikemux_tools.args={args}"),
     ])
 }
 
@@ -196,7 +196,7 @@ fn opencode_browser_config(existing: Option<&str>, launch: &BrowserMcpLaunch) ->
     let mut command = vec![launch.command.clone()];
     command.extend(launch.args.iter().cloned());
     mcp.insert(
-        "sikemux_browser".into(),
+        "sikemux_tools".into(),
         json!({ "type": "local", "command": command, "enabled": true }),
     );
     serde_json::to_string(&config).map_err(AppError::from)
@@ -204,7 +204,7 @@ fn opencode_browser_config(existing: Option<&str>, launch: &BrowserMcpLaunch) ->
 
 fn pi_browser_extension(app: &AppHandle) -> AppResult<PathBuf> {
     if let Ok(resource_dir) = app.path().resource_dir() {
-        let path = resource_dir.join("sikemux_pi_browser.ts");
+        let path = resource_dir.join("sikemux_pi_tools.ts");
         if path.is_file() {
             return Ok(path);
         }
@@ -213,7 +213,7 @@ fn pi_browser_extension(app: &AppHandle) -> AppResult<PathBuf> {
     {
         let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("resources")
-            .join("sikemux_pi_browser.ts");
+            .join("sikemux_pi_tools.ts");
         if path.is_file() {
             return Ok(path);
         }
@@ -248,7 +248,7 @@ async fn prepare_hermes_home(
         &[
             "config",
             "set",
-            "mcp_servers.sikemux_browser",
+            "mcp_servers.sikemux_tools",
             &server,
             "--force",
         ],
@@ -273,13 +273,7 @@ async fn prepare_grok_home(
         "config.toml",
         "",
     )?;
-    let mut args = vec![
-        "mcp",
-        "add",
-        "sikemux_browser",
-        "--",
-        launch.command.as_str(),
-    ];
+    let mut args = vec!["mcp", "add", "sikemux_tools", "--", launch.command.as_str()];
     args.extend(launch.args.iter().map(String::as_str));
     run_config_command(agent_program, &args, ("GROK_HOME", &home), "Grok").await?;
     Ok(home)
@@ -392,7 +386,7 @@ mod tests {
 
     fn launch() -> BrowserMcpLaunch {
         BrowserMcpLaunch {
-            command: "/Apps/Sikemux.app/sikemux-browser-mcp".into(),
+            command: "/Apps/Sikemux.app/sikemux-tools-mcp".into(),
             args: vec!["--stdio".into()],
         }
     }
@@ -401,7 +395,7 @@ mod tests {
     fn sikemux_options_land_before_the_launch_the_pane_built() {
         let integration = BrowserAgentIntegration {
             args_prefix: vec!["--mcp-config=/state/claude-mcp.json".into()],
-            environment: vec![("SIKEMUX_BROWSER_AGENT_ID".into(), "agent-one".into())],
+            environment: vec![("SIKEMUX_TOOLS_AGENT_ID".into(), "agent-one".into())],
         };
         let mut args = vec![
             "--model".to_string(),
@@ -428,7 +422,7 @@ mod tests {
         let integration = BrowserAgentIntegration {
             args_prefix: vec![
                 "-c".into(),
-                "mcp_servers.sikemux_browser.command=\"x\"".into(),
+                "mcp_servers.sikemux_tools.command=\"x\"".into(),
             ],
             environment: Vec::new(),
         };
@@ -441,15 +435,15 @@ mod tests {
     /// tag, so the shape matters as much as the values.
     #[test]
     fn an_acp_stdio_server_is_untagged_with_its_environment_spelled_out() {
-        let mut stdio = McpServerStdio::new("sikemux-browser", "/apps/sikemux-browser-mcp");
+        let mut stdio = McpServerStdio::new("sikemux-tools", "/apps/sikemux-tools-mcp");
         stdio.args = vec!["--stdio".into()];
-        stdio.env = vec![EnvVariable::new("SIKEMUX_BROWSER_AGENT_ID", "agent-one")];
+        stdio.env = vec![EnvVariable::new("SIKEMUX_TOOLS_AGENT_ID", "agent-one")];
         let value = serde_json::to_value(McpServer::Stdio(stdio)).unwrap();
         assert!(value.get("type").is_none(), "{value}");
-        assert_eq!(value["name"], "sikemux-browser");
-        assert_eq!(value["command"], "/apps/sikemux-browser-mcp");
+        assert_eq!(value["name"], "sikemux-tools");
+        assert_eq!(value["command"], "/apps/sikemux-tools-mcp");
         assert_eq!(value["args"], json!(["--stdio"]));
-        assert_eq!(value["env"][0]["name"], "SIKEMUX_BROWSER_AGENT_ID");
+        assert_eq!(value["env"][0]["name"], "SIKEMUX_TOOLS_AGENT_ID");
         assert_eq!(value["env"][0]["value"], "agent-one");
     }
 
@@ -479,10 +473,10 @@ mod tests {
             codex_browser_args(&launch()).unwrap(),
             vec![
                 "-c".to_string(),
-                "mcp_servers.sikemux_browser.command=\"/Apps/Sikemux.app/sikemux-browser-mcp\""
+                "mcp_servers.sikemux_tools.command=\"/Apps/Sikemux.app/sikemux-tools-mcp\""
                     .to_string(),
                 "-c".to_string(),
-                "mcp_servers.sikemux_browser.args=[\"--stdio\"]".to_string(),
+                "mcp_servers.sikemux_tools.args=[\"--stdio\"]".to_string(),
             ]
         );
     }
@@ -498,11 +492,10 @@ mod tests {
 
     #[test]
     fn claude_is_handed_a_stdio_server_named_for_sikemux() {
-        let document =
-            json!({ "mcpServers": { "sikemux-browser": mcp_server_document(&launch()) } });
-        let server = &document["mcpServers"]["sikemux-browser"];
+        let document = json!({ "mcpServers": { "sikemux-tools": mcp_server_document(&launch()) } });
+        let server = &document["mcpServers"]["sikemux-tools"];
         assert_eq!(server["type"], "stdio");
-        assert_eq!(server["command"], "/Apps/Sikemux.app/sikemux-browser-mcp");
+        assert_eq!(server["command"], "/Apps/Sikemux.app/sikemux-tools-mcp");
         assert_eq!(server["args"], json!(["--stdio"]));
     }
 
@@ -515,17 +508,17 @@ mod tests {
         assert_eq!(merged["theme"], "dark");
         assert_eq!(merged["mcp"]["other"]["type"], "local");
         assert_eq!(
-            merged["mcp"]["sikemux_browser"]["command"],
-            json!(["/Apps/Sikemux.app/sikemux-browser-mcp", "--stdio"])
+            merged["mcp"]["sikemux_tools"]["command"],
+            json!(["/Apps/Sikemux.app/sikemux-tools-mcp", "--stdio"])
         );
-        assert_eq!(merged["mcp"]["sikemux_browser"]["enabled"], true);
+        assert_eq!(merged["mcp"]["sikemux_tools"]["enabled"], true);
     }
 
     #[test]
     fn opencode_starts_from_nothing_and_refuses_junk() {
         let fresh: Value =
             serde_json::from_str(&opencode_browser_config(None, &launch()).unwrap()).unwrap();
-        assert!(fresh["mcp"]["sikemux_browser"].is_object());
+        assert!(fresh["mcp"]["sikemux_tools"].is_object());
         assert!(opencode_browser_config(Some("   "), &launch()).is_ok());
         assert!(opencode_browser_config(Some("not json"), &launch()).is_err());
         assert!(opencode_browser_config(Some("[1,2]"), &launch()).is_err());

@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import { getState, setState } from "./store";
-import type { StoreState } from "./store";
 import { selectActiveSession, selectActiveWindow, selectItemState, selectSession, selectSessionIds, selectWindowIds } from "./selectors";
 
 describe("narrow store selectors", () => {
@@ -28,14 +27,7 @@ describe("narrow store selectors", () => {
     it("adapts existing item-local state maps by kind", () => {
         const state = getState();
         expect(selectItemState(state, "terminal", "pane")).toBeUndefined();
-        expect(selectItemState(state, "aws", "pane")).toBeUndefined();
+        expect(selectItemState(state, "agent", "pane")).toBeUndefined();
         expect(selectItemState(state, "editor", "missing")).toBeUndefined();
-    });
-
-    it("reads Bruno view state by its pane like every other item", () => {
-        const view = { openPaths: ["/a.bru"], activeRequestPath: "/a.bru" } as StoreState["brunoViews"][string];
-        setState({ brunoViews: { pane: view } });
-
-        expect(selectItemState(getState(), "bruno", "pane")).toBe(view);
     });
 });

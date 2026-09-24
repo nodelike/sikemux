@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { fsapi } from "../api/fs";
-import { localImagePath, localPath, previewCacheBytes, useImagePreview } from "./imagePreview";
+import { localImagePath, localPath, previewCacheBytes, sizedSvg, useImagePreview } from "./imagePreview";
 import { act, renderHook, waitFor } from "@testing-library/react";
 
 describe("chat image previews", () => {
@@ -68,6 +68,24 @@ describe("chat image previews", () => {
         expect(previewCacheBytes()).toBeLessThanOrEqual(held);
         vi.unstubAllGlobals();
         vi.restoreAllMocks();
+    });
+
+    it("gives an SVG that only has a viewBox the size its viewBox names", async () => {
+        const markup = '<svg viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg"><path d="M0 0h16v16H0z"/></svg>';
+        vi.spyOn(fsapi, "readFileBase64").mockResolvedValue({ mime: "image/svg+xml", data: btoa(markup), size: markup.length });
+
+        const { result } = renderHook(() => useImagePreview("/Downloads/codex-icon.svg"));
+
+        await waitFor(() => expect(result.current).not.toBeNull());
+        const drawn = atob(result.current!.replace("data:image/svg+xml;base64,", ""));
+        expect(drawn).toContain('width="512"');
+        expect(drawn).toContain('height="512"');
+        vi.restoreAllMocks();
+    });
+
+    it("leaves an SVG that already has a size as it is", () => {
+        const markup = '<svg width="24" height="24" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg"/>';
+        expect(sizedSvg(markup)).toBe(markup);
     });
 
     it("has no local path for remote links", () => {

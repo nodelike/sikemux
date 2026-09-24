@@ -1,4 +1,6 @@
-import type { PaneKind, PaneNode } from "../state/types/domain";
+import { isPluginKind } from "../plugins/kinds";
+import { pluginSurface } from "../plugins/registry";
+import type { CorePaneKind, PaneKind, PaneNode } from "../state/types/domain";
 import type { BrowserPaneTab, BrowserPaneView, EditorPaneView } from "../state/types/view";
 
 declare const ITEM_ID_BRAND: unique symbol;
@@ -38,10 +40,7 @@ export interface BuiltinWorkbenchItemState {
     editor: EditorPaneView;
     git: null;
     diff: null;
-    aws: null;
     search: null;
-    rundeck: null;
-    bruno: null;
     agent: null;
     /* The agent it belongs to is held in `browserPanes`, keyed by pane id,
        the same way an editor keeps its view. */
@@ -79,11 +78,13 @@ export interface PersistedWorkbenchItemEnvelope<Kind extends PaneKind = PaneKind
 export type PersistedItemFailureReason =
     "invalid-envelope" | "unknown-kind" | "item-id-mismatch" | "kind-mismatch" | "version-mismatch" | "invalid-state";
 
+type PersistedItemState<Kind extends PaneKind> = Kind extends CorePaneKind ? BuiltinWorkbenchItemState[Kind] : never;
+
 export type DecodePersistedItemResult<Kind extends PaneKind> =
     | {
           readonly ok: true;
           readonly ref: WorkbenchItemRef<Kind>;
-          readonly state: BuiltinWorkbenchItemState[Kind];
+          readonly state: PersistedItemState<Kind>;
       }
     | { readonly ok: false; readonly reason: PersistedItemFailureReason };
 
@@ -241,7 +242,7 @@ const EDITOR_CODEC: VersionedPersistedCodec<EditorPaneView> = Object.freeze({
 
 const NULL_CODEC = nullCodec();
 
-function builtinDefinition<Kind extends PaneKind, State>(
+function builtinDefinition<Kind extends CorePaneKind, State>(
     kind: Kind,
     defaultTitle: string,
     persisted: VersionedPersistedCodec<State>,
@@ -256,34 +257,37 @@ function builtinDefinition<Kind extends PaneKind, State>(
 }
 
 type BuiltinDefinitionMap = {
-    readonly [Kind in PaneKind]: WorkbenchItemDefinition<Kind, BuiltinWorkbenchItemState[Kind]>;
+    readonly [Kind in CorePaneKind]: WorkbenchItemDefinition<Kind, BuiltinWorkbenchItemState[Kind]>;
 };
 
-/** This keyed shape intentionally makes additions to PaneKind a compile-time exhaustiveness error. */
+/** This keyed shape intentionally makes additions to CorePaneKind a compile-time exhaustiveness error. */
 export const BUILTIN_WORKBENCH_ITEM_MANIFEST = Object.freeze({
     terminal: builtinDefinition("terminal", "shell", NULL_CODEC),
     editor: builtinDefinition("editor", "editor", EDITOR_CODEC),
     git: builtinDefinition("git", "git", NULL_CODEC),
     diff: builtinDefinition("diff", "diff", NULL_CODEC),
-    aws: builtinDefinition("aws", "aws", NULL_CODEC),
     search: builtinDefinition("search", "search", NULL_CODEC),
-    rundeck: builtinDefinition("rundeck", "rundeck", NULL_CODEC),
-    bruno: builtinDefinition("bruno", "bruno", NULL_CODEC),
     agent: builtinDefinition("agent", "agent", NULL_CODEC),
     browser: builtinDefinition("browser", "browser", BROWSER_CODEC),
 }) satisfies BuiltinDefinitionMap;
 
 export function defaultWorkbenchItemTitle(kind: PaneKind, startup?: string): string {
+    if (isPluginKind(kind)) return pluginSurface(kind)?.title ?? kind;
     return kind === "terminal" && startup ? startup : BUILTIN_WORKBENCH_ITEM_MANIFEST[kind].defaultTitle;
 }
 
-const BUILTIN_KIND_SET = new Set<PaneKind>(Object.keys(BUILTIN_WORKBENCH_ITEM_MANIFEST) as PaneKind[]);
+const BUILTIN_KIND_SET = new Set<string>(Object.keys(BUILTIN_WORKBENCH_ITEM_MANIFEST));
 
-export function isBuiltinWorkbenchItemKind(value: unknown): value is PaneKind {
-    return typeof value === "string" && BUILTIN_KIND_SET.has(value as PaneKind);
+export function isBuiltinWorkbenchItemKind(value: unknown): value is CorePaneKind {
+    return typeof value === "string" && BUILTIN_KIND_SET.has(value);
 }
 
-function builtinDefinitionFor<Kind extends PaneKind>(kind: Kind): WorkbenchItemDefinition<Kind, BuiltinWorkbenchItemState[Kind]> {
+/** Plugin kinds are accepted whether or not the plugin is in this build, so its panes survive a build without it. */
+export function isWorkbenchItemKind(value: unknown): value is PaneKind {
+    return isBuiltinWorkbenchItemKind(value) || isPluginKind(value);
+}
+
+function builtinDefinitionFor<Kind extends CorePaneKind>(kind: Kind): WorkbenchItemDefinition<Kind, BuiltinWorkbenchItemState[Kind]> {
     return BUILTIN_WORKBENCH_ITEM_MANIFEST[kind] as unknown as WorkbenchItemDefinition<Kind, BuiltinWorkbenchItemState[Kind]>;
 }
 
@@ -346,7 +350,7 @@ export class WorkbenchItemRegistry {
     private readonly definitions = new Map<string, ErasedDefinition>();
 
     constructor() {
-        for (const kind of Object.keys(BUILTIN_WORKBENCH_ITEM_MANIFEST) as PaneKind[]) {
+        for (const kind of Object.keys(BUILTIN_WORKBENCH_ITEM_MANIFEST) as CorePaneKind[]) {
             this.register(builtinDefinitionFor(kind));
         }
     }
@@ -377,8 +381,21 @@ export class WorkbenchItemRegistry {
     }
 
     get(kind: string): ErasedDefinition {
-        const definition = this.definitions.get(kind);
+        const definition = this.definitions.get(kind) ?? this.pluginDefinition(kind);
         if (!definition) throw new UnknownWorkbenchItemKindError(kind);
+        return definition;
+    }
+
+    /** A plugin's pane keeps its state in the plugin, so here it is an item with nothing to save. */
+    private pluginDefinition(kind: string): ErasedDefinition | undefined {
+        if (!isPluginKind(kind)) return undefined;
+        const definition = eraseDefinition({
+            kind,
+            defaultTitle: pluginSurface(kind)?.title ?? kind,
+            persisted: NULL_CODEC,
+            create: () => createNoopWorkbenchItemController(),
+        });
+        this.definitions.set(kind, definition);
         return definition;
     }
 
@@ -394,7 +411,7 @@ export class WorkbenchItemRegistry {
         if (cleanup) await cleanup(state);
     }
 
-    encodePersisted<Kind extends PaneKind>(
+    encodePersisted<Kind extends CorePaneKind>(
         ref: WorkbenchItemRef<Kind>,
         state: BuiltinWorkbenchItemState[Kind],
     ): PersistedWorkbenchItemEnvelope<Kind> {
@@ -423,7 +440,7 @@ export class WorkbenchItemRegistry {
         try {
             const decoded = definition.persisted.decode(envelope.state);
             if (!decoded.ok) return decodeFailure("invalid-state");
-            return { ok: true, ref: expected, state: decoded.value };
+            return { ok: true, ref: expected, state: decoded.value as PersistedItemState<Kind> };
         } catch {
             return decodeFailure("invalid-state");
         }

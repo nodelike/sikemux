@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { PaneKind, PaneNode } from "../state/types/domain";
+import type { CorePaneKind, PaneKind, PaneNode } from "../state/types/domain";
 import {
     BROWSER_PERSISTENCE_LIMITS,
     BUILTIN_WORKBENCH_ITEM_MANIFEST,
@@ -15,18 +15,7 @@ import {
     type WorkbenchItemDefinition,
 } from "./registry";
 
-const BUILTIN_KINDS = [
-    "terminal",
-    "editor",
-    "git",
-    "diff",
-    "aws",
-    "search",
-    "rundeck",
-    "bruno",
-    "agent",
-    "browser",
-] as const satisfies readonly PaneKind[];
+const BUILTIN_KINDS = ["terminal", "editor", "git", "diff", "search", "agent", "browser"] as const satisfies readonly CorePaneKind[];
 
 function nullEnvelope(itemId: string, kind: PaneKind, overrides: Record<string, unknown> = {}): Record<string, unknown> {
     return { itemId, kind, version: 1, state: null, ...overrides };
@@ -37,7 +26,7 @@ function editorEnvelope(state: unknown): Record<string, unknown> {
 }
 
 describe("built-in workbench item manifest", () => {
-    it("is exhaustive for current PaneKind values and creates safe no-op controllers", async () => {
+    it("is exhaustive for current CorePaneKind values and creates safe no-op controllers", async () => {
         expect(Object.keys(BUILTIN_WORKBENCH_ITEM_MANIFEST)).toEqual(BUILTIN_KINDS);
         const registry = new WorkbenchItemRegistry();
 
@@ -316,7 +305,7 @@ describe("workbench item persistence", () => {
         const runtimeRef = createWorkbenchItemRef("item-notes", "notes");
         expect(registry.create(runtimeRef).canClose()).toBe(true);
 
-        const forgedBuiltinRef = runtimeRef as unknown as ReturnType<typeof createWorkbenchItemRef<PaneKind>>;
+        const forgedBuiltinRef = runtimeRef as unknown as ReturnType<typeof createWorkbenchItemRef<CorePaneKind>>;
         const encoded = { itemId: "item-notes", kind: "notes", version: 1, state: "private draft" };
         expect(registry.decodePersisted(forgedBuiltinRef, encoded)).toEqual({ ok: false, reason: "unknown-kind" });
         expect(() => registry.encodePersisted(forgedBuiltinRef, null)).toThrow(UnknownWorkbenchItemKindError);

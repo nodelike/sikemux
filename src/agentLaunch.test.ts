@@ -5,7 +5,6 @@ import {
     normalizeAgentEffort,
     normalizePermissionMode,
     permissionArgs,
-    permissionCopyForType,
     supportedEfforts,
     supportedPermissionModes,
 } from "./agentLaunch";
@@ -37,7 +36,6 @@ describe("agent launch policy", () => {
         expect(supportedPermissionModes("grok")).toEqual(["workspace-write", "bypass"]);
         expect(supportedPermissionModes("pi")).toEqual(["workspace-write"]);
         expect(normalizePermissionMode("opencode", "read-only")).toBe("workspace-write");
-        expect(permissionCopyForType("pi", "workspace-write").label).toBe("Normal");
         expect(permissionArgs("pi", "read-only")).toEqual([]);
     });
 

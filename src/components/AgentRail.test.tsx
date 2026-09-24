@@ -37,7 +37,6 @@ beforeEach(() => {
                 name: "sikemux",
                 kind: "project" as const,
                 cwd: "/code/sikemux",
-                deploy: null,
                 pinned: false,
                 activeWindowId: "win-project",
             },

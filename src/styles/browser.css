@@ -1,5 +1,4 @@
 .browser-pane {
-    --browser-agent: var(--acc);
     display: grid;
     grid-template-rows: 31px 34px minmax(0, 1fr);
     min-width: 0;
@@ -9,12 +8,32 @@
     color: var(--ink);
 }
 
-.browser-pane.codex {
-    --browser-agent: #10a37f;
+.browser-pane.claude {
+    --browser-agent: var(--brand-claude);
 }
 
-.browser-pane.claude {
-    --browser-agent: #d97757;
+.browser-pane.codex {
+    --browser-agent: var(--brand-codex);
+}
+
+.browser-pane.hermes {
+    --browser-agent: var(--brand-hermes);
+}
+
+.browser-pane.pi {
+    --browser-agent: var(--brand-pi);
+}
+
+.browser-pane.opencode {
+    --browser-agent: var(--brand-opencode);
+}
+
+.browser-pane.omp {
+    --browser-agent: var(--brand-omp);
+}
+
+.browser-pane.grok {
+    --browser-agent: var(--brand-grok);
 }
 
 /* The pill, its three states and its close come from the shared strip rule in
@@ -44,6 +63,12 @@
     min-width: 0;
     max-width: none;
     text-align: left;
+}
+
+.browser-pane .tabbar.v-browser .tab-wrap.acting {
+    background: color-mix(in srgb, var(--browser-agent) 14%, transparent);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--browser-agent) 70%, transparent);
+    color: var(--text-primary);
 }
 
 /* Site icons arrive at whatever shape the site chose, so the box holds them

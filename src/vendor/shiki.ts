@@ -1,6 +1,6 @@
 import { codeToHtml, createCssVariablesTheme, createHighlighterCore, getTokenStyleObject, stringifyTokenStyle } from "shiki/core";
 import { createJavaScriptRegexEngine } from "shiki/engine/javascript";
-import { createOnigurumaEngine } from "shiki/engine/oniguruma";
+import { createOnigurumaEngine } from "./oniguruma";
 
 export const bundledLanguages = {
     c: () => import("@shikijs/langs/c"),

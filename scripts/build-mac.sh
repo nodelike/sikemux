@@ -65,6 +65,19 @@ fail() {
   exit 1
 }
 
+# Tauri packs the DMG with zlib; LZMA makes it about a fifth smaller. The
+# conversion drops the DMG's signature, so a real identity signs it again.
+shopt -s nullglob
+for DMG in "$BUNDLE"/dmg/*.dmg; do
+  PACKED="${DMG%.dmg}.lzma.dmg"
+  /usr/bin/hdiutil convert "$DMG" -format ULMO -o "$PACKED" -quiet -ov || fail "could not repack $DMG"
+  mv -f "$PACKED" "$DMG"
+  if [[ -n "${APPLE_SIGNING_IDENTITY:-}" && "$APPLE_SIGNING_IDENTITY" != "-" ]]; then
+    /usr/bin/codesign --force --timestamp --sign "$APPLE_SIGNING_IDENTITY" "$DMG" || fail "could not sign $DMG"
+  fi
+done
+shopt -u nullglob
+
 [[ -d "$APP_PATH" ]] || fail "missing app at $APP_PATH"
 [[ -f "$PLIST" ]] || fail "missing $PLIST"
 [[ -s "$APP_PATH/Contents/Resources/Assets.car" ]] || fail "missing or empty Assets.car"
@@ -89,11 +102,11 @@ CLI_EXECUTABLE="$APP_PATH/Contents/MacOS/sikemux-editor"
 [[ -x "$CLI_EXECUTABLE" ]] || fail "bundled CLI sidecar is missing or not executable"
 CLI_ARCHS="$(/usr/bin/lipo -archs "$CLI_EXECUTABLE")"
 [[ "$CLI_ARCHS" == "$ARCHS" ]] || fail "CLI sidecar architecture ($CLI_ARCHS) differs from app ($ARCHS)"
-BROWSER_EXECUTABLE="$APP_PATH/Contents/MacOS/sikemux-browser-mcp"
+BROWSER_EXECUTABLE="$APP_PATH/Contents/MacOS/sikemux-tools-mcp"
 [[ -x "$BROWSER_EXECUTABLE" ]] || fail "bundled browser MCP sidecar is missing or not executable"
 BROWSER_ARCHS="$(/usr/bin/lipo -archs "$BROWSER_EXECUTABLE")"
 [[ "$BROWSER_ARCHS" == "$ARCHS" ]] || fail "browser sidecar architecture ($BROWSER_ARCHS) differs from app ($ARCHS)"
-[[ -s "$APP_PATH/Contents/Resources/sikemux_pi_browser.ts" ]] || fail "bundled Pi browser extension is missing"
+[[ -s "$APP_PATH/Contents/Resources/sikemux_pi_tools.ts" ]] || fail "bundled Pi browser extension is missing"
 
 # Packaged apps must never depend on libraries from the build machine's
 # Homebrew/MacPorts installation. Such binaries pass codesign verification but
@@ -118,8 +131,8 @@ fi
 # bundled copy proves it survives signing: the copy built beside it is signed
 # without the hardened runtime and starts whether or not the bundle would. An
 # empty agent id is the earliest thing it checks.
-BROWSER_START="$(SIKEMUX_BROWSER_AGENT_ID='' "$BROWSER_EXECUTABLE" 2>&1 || true)"
-if ! grep -Fq "Missing SIKEMUX_BROWSER_AGENT_ID" <<<"$BROWSER_START"; then
+BROWSER_START="$(SIKEMUX_TOOLS_AGENT_ID='' "$BROWSER_EXECUTABLE" 2>&1 || true)"
+if ! grep -Fq "Missing SIKEMUX_TOOLS_AGENT_ID" <<<"$BROWSER_START"; then
   echo "$BROWSER_START" >&2
   fail "bundled browser sidecar does not start"
 fi

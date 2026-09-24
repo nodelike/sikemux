@@ -1,5 +1,5 @@
 import { useModalFocus } from "../hooks/useModalFocus";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { SessionKind } from "../state/types";
 import { fuzzyScore, isSubstringMatch } from "../lib/fuzzy";
 import { basename, expandHome, normalizePath, prettyPath, relativePath } from "../lib/paths";
@@ -12,12 +12,15 @@ import { useStore } from "../state/store";
 import { reportError } from "../state/toast";
 import type { SshHost } from "../api/ssh";
 import { useMouseActive } from "../hooks/useMouseActive";
-import { IconBruno, IconClose, IconCommand, IconFolder, IconSearch } from "./Icons";
+import { isPluginKind } from "../plugins/kinds";
+import { enabledFrontendPlugins } from "../plugins/enabled";
+import { pluginSurface } from "../plugins/registry";
+import { IconClose, IconCommand, IconFolder, IconSearch } from "./Icons";
 
 type Item =
     | { kind: "session"; id: string; name: string; sub: string; sk: SessionKind }
     | { kind: "dir"; path: string; name: string; sub: string }
-    | { kind: "bruno"; path: string; name: string; sub: string }
+    | { kind: "plugin"; key: string; name: string; sub: string; heading: string; icon: ReactNode; open: () => void; forget?: () => void }
     | { kind: "ssh"; alias: string; name: string; sub: string };
 
 function sshSubtitle(h: SshHost): string {
@@ -35,7 +38,8 @@ export function SeshPicker() {
     const sessions = sessionOrder.map((id) => sessionsById[id]);
     const home = useStore((s) => s.home);
     const projectRoots = useStore((s) => s.projectRoots);
-    const brunoWorkspaces = useStore((s) => s.brunoWorkspaces);
+    const pluginSettings = useStore((s) => s.pluginSettings);
+    const disabledPlugins = useStore((s) => s.disabledPlugins);
     const mode = useStore((s) => s.pickerMode);
 
     const [query, setQuery] = useState("");
@@ -45,7 +49,7 @@ export function SeshPicker() {
 
     const showProjects = mode === "all" || mode === "projects";
     const showSsh = mode === "all" || mode === "ssh";
-    const showBruno = mode === "all" || mode === "bruno";
+    const showPlugins = mode === "all";
 
     useEffect(() => {
         inputRef.current?.focus();
@@ -71,15 +75,14 @@ export function SeshPicker() {
     };
 
     const items = useMemo<Item[]>(() => {
-        const wantKind = (k: SessionKind) =>
-            mode === "all" || (mode === "projects" && k === "project") || (mode === "ssh" && k === "ssh") || (mode === "bruno" && k === "bruno");
+        const wantKind = (k: SessionKind) => mode === "all" || (mode === "projects" && k === "project") || (mode === "ssh" && k === "ssh");
         const sessionItems: Item[] = sessions
             .filter((s) => wantKind(s.kind))
             .map((s) => ({
                 kind: "session",
                 id: s.id,
                 name: s.kind === "project" ? projectLabel(s.cwd, s.name) : s.name,
-                sub: s.kind === "project" || s.kind === "bruno" ? pretty(s.cwd) : s.kind === "ssh" ? "ssh" : "command",
+                sub: s.kind === "project" ? pretty(s.cwd) : s.kind === "ssh" ? "ssh" : isPluginKind(s.kind) ? "plugin" : "command",
                 sk: s.kind,
             }));
 
@@ -95,21 +98,23 @@ export function SeshPicker() {
                   }))
             : [];
 
-        const openBrunoPaths = new Set(
-            sessions
-                .filter((s) => s.kind === "bruno")
-                .map((s) => s.cwd)
-                .filter(Boolean),
-        );
-        const brunoItems: Item[] = showBruno
-            ? brunoWorkspaces
-                  .filter((p) => !openBrunoPaths.has(p))
-                  .map<Item>((p) => ({
-                      kind: "bruno",
-                      path: p,
-                      name: basename(p),
-                      sub: pretty(p),
-                  }))
+        const pluginGroups: Item[][] = showPlugins
+            ? enabledFrontendPlugins().flatMap((plugin) =>
+                  plugin.picker
+                      ? [
+                            plugin.picker.entries().map<Item>((entry) => ({
+                                kind: "plugin",
+                                key: `${plugin.id}:${entry.id}`,
+                                name: entry.name,
+                                sub: pretty(entry.sub),
+                                heading: plugin.picker!.heading,
+                                icon: entry.icon,
+                                open: entry.open,
+                                forget: entry.forget,
+                            })),
+                        ]
+                      : [],
+              )
             : [];
 
         const openSshAliases = new Set(sessions.filter((s) => s.kind === "ssh").map((s) => s.name));
@@ -126,7 +131,7 @@ export function SeshPicker() {
 
         const score = (it: Item) => fuzzyScore(query, `${it.name} ${it.sub}`);
         const scoreGroup = (arr: Item[]) => arr.map((it) => ({ it, s: score(it) })).filter((x) => x.s >= 0);
-        const groups = [scoreGroup(sessionItems), scoreGroup(dirItems), scoreGroup(brunoItems), scoreGroup(sshItems)];
+        const groups = [scoreGroup(sessionItems), scoreGroup(dirItems), ...pluginGroups.map(scoreGroup), scoreGroup(sshItems)];
         const hasSubstring = groups.some((g) => g.some((x) => isSubstringMatch(x.s)));
         const finalize = (g: { it: Item; s: number }[]) => {
             const kept = hasSubstring ? g.filter((x) => isSubstringMatch(x.s)) : g;
@@ -135,7 +140,7 @@ export function SeshPicker() {
         };
         return groups.flatMap(finalize);
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [sessions, projects, hosts, brunoWorkspaces, query, home, mode, projectRoots]);
+    }, [sessions, projects, hosts, pluginSettings, disabledPlugins, query, home, mode, projectRoots]);
 
     useEffect(() => {
         setSel((s) => Math.min(s, Math.max(0, items.length - 1)));
@@ -145,8 +150,10 @@ export function SeshPicker() {
         if (!it) return;
         if (it.kind === "session") cmd.selectSession(it.id);
         else if (it.kind === "dir") cmd.createProjectSession(it.path);
-        else if (it.kind === "bruno") cmd.openBrunoSession(it.path);
-        else cmd.createSshSession(it.alias);
+        else if (it.kind === "plugin") {
+            cmd.closePicker();
+            it.open();
+        } else cmd.createSshSession(it.alias);
     };
 
     const openFolder = async () => {
@@ -176,7 +183,10 @@ export function SeshPicker() {
     };
 
     const firstDirIdx = items.findIndex((it) => it.kind === "dir");
-    const firstBrunoIdx = items.findIndex((it) => it.kind === "bruno");
+    const headingAt = new Map<number, string>();
+    items.forEach((it, index) => {
+        if (it.kind === "plugin" && ![...headingAt.values()].includes(it.heading)) headingAt.set(index, it.heading);
+    });
     const firstSshIdx = items.findIndex((it) => it.kind === "ssh");
     const firstSessIdx = items.findIndex((it) => it.kind === "session");
 
@@ -185,9 +195,7 @@ export function SeshPicker() {
             ? "find a project…"
             : mode === "ssh"
               ? "ssh — search hosts from ~/.ssh/config…"
-              : mode === "bruno"
-                ? "open or pick a bruno workspace…"
-                : "jump to a session, project, or ssh host…";
+              : "jump to a session, project, or ssh host…";
 
     return (
         <div className="picker-backdrop" onMouseDown={cmd.closePicker}>
@@ -218,15 +226,6 @@ export function SeshPicker() {
                             <IconFolder size={14} />
                         </button>
                     )}
-                    {mode === "bruno" && (
-                        <button
-                            className="picker-folder-btn"
-                            onClick={() => void cmd.openBrunoFolder()}
-                            title="Import a Bruno workspace folder"
-                            type="button">
-                            <IconFolder size={14} />
-                        </button>
-                    )}
                 </div>
 
                 <div className="picker-list">
@@ -239,7 +238,7 @@ export function SeshPicker() {
                                         className="picker-link"
                                         onClick={() => {
                                             cmd.closePicker();
-                                            cmd.openSettings();
+                                            cmd.openSettings("general");
                                         }}>
                                         open settings
                                     </button>{" "}
@@ -247,10 +246,6 @@ export function SeshPicker() {
                                 </>
                             ) : showSsh && hosts.length === 0 && mode === "ssh" ? (
                                 "no hosts in ~/.ssh/config"
-                            ) : mode === "bruno" && brunoWorkspaces.length === 0 ? (
-                                <button className="picker-link" onClick={() => void cmd.openBrunoFolder()}>
-                                    import a Bruno workspace folder
-                                </button>
                             ) : (
                                 "no matches"
                             )}
@@ -259,24 +254,24 @@ export function SeshPicker() {
                     {items.map((it, i) => {
                         const sessLabel = i === firstSessIdx && firstSessIdx >= 0 ? "Open" : null;
                         const dirLabel = i === firstDirIdx && firstDirIdx >= 0 ? "Projects" : null;
-                        const brunoLabel = i === firstBrunoIdx && firstBrunoIdx >= 0 ? "API" : null;
+                        const pluginLabel = headingAt.get(i) ?? null;
                         const sshLabel = i === firstSshIdx && firstSshIdx >= 0 ? "SSH" : null;
                         const key =
                             it.kind === "session"
                                 ? `s-${it.id}`
                                 : it.kind === "dir"
                                   ? `d-${it.path}`
-                                  : it.kind === "bruno"
-                                    ? `b-${it.path}`
+                                  : it.kind === "plugin"
+                                    ? `p-${it.key}`
                                     : `h-${it.alias}`;
-                        const isBruno = it.kind === "bruno" || (it.kind === "session" && it.sk === "bruno");
+                        const pluginIcon = it.kind === "plugin" ? it.icon : it.kind === "session" ? pluginSurface(it.sk)?.icon(14) : undefined;
                         const isFolder = it.kind === "dir" || (it.kind === "session" && it.sk === "project");
-                        const iconClass = isBruno ? "bruno" : it.kind === "dir" ? "project" : it.kind === "session" ? it.sk : "command";
+                        const iconClass = pluginIcon ? "plugin" : it.kind === "dir" ? "project" : it.kind === "session" ? it.sk : "command";
                         return (
                             <div key={key}>
                                 {sessLabel && <div className="picker-group">{sessLabel}</div>}
                                 {dirLabel && <div className="picker-group">{dirLabel}</div>}
-                                {brunoLabel && <div className="picker-group">{brunoLabel}</div>}
+                                {pluginLabel && <div className="picker-group">{pluginLabel}</div>}
                                 {sshLabel && <div className="picker-group">{sshLabel}</div>}
                                 <div
                                     className="picker-item-wrap"
@@ -285,20 +280,20 @@ export function SeshPicker() {
                                     }}>
                                     <button className={`picker-item${i === sel ? " sel" : ""}`} onClick={() => activate(it)}>
                                         <span className={`picker-icon ${iconClass}`}>
-                                            {isBruno ? <IconBruno size={14} /> : isFolder ? <IconFolder size={14} /> : <IconCommand size={14} />}
+                                            {pluginIcon ?? (isFolder ? <IconFolder size={14} /> : <IconCommand size={14} />)}
                                         </span>
                                         <span className="picker-name">{it.name}</span>
                                         <span className="picker-sub">{it.sub}</span>
                                     </button>
-                                    {it.kind === "bruno" && (
+                                    {it.kind === "plugin" && it.forget && (
                                         <button
                                             type="button"
                                             className="picker-forget"
-                                            aria-label={`Forget ${it.name} workspace`}
-                                            title="Forget this workspace"
+                                            aria-label={`Forget ${it.name}`}
+                                            title="Forget this"
                                             onClick={(e) => {
                                                 e.stopPropagation();
-                                                cmd.removeBrunoWorkspace(it.path);
+                                                it.forget?.();
                                             }}>
                                             <IconClose size={11} />
                                         </button>

@@ -3,7 +3,7 @@ import { git, hasUnstaged, isStaged } from "../api/git";
 import * as cmd from "../state/commands";
 import { openGitCheatsheet, openGitConfirm, openGitMenu, openGitPrompt, toggleGitCmdLog } from "../state/git";
 import { invalidate, useCachedResourceEnabled } from "../state/resources";
-import { gitOverviewR, gitRemoteBranchesR, gitRemotesR, gitStashesR } from "../state/resources.defs";
+import { gitDiscoveredReposR, gitOverviewR, gitRemoteBranchesR, gitRemotesR, gitStashesR } from "../state/resources.defs";
 import { useStore } from "../state/store";
 import { commitGitDraft, generateGitDraft, runRepositoryGit, setGitDraft, setGitProvider, useGitWorkbench } from "../state/gitWorkbench";
 import { errMessage, reportError } from "../state/toast";
@@ -30,9 +30,8 @@ const CommitReview = lazy(() => import("./CommitReview").then((module) => ({ def
 const MergeReview = lazy(() => import("./MergeReview").then((module) => ({ default: memo(module.MergeReview) })));
 const DiffWorkerProvider = lazy(() => import("./DiffWorkerProvider").then((module) => ({ default: module.DiffWorkerProvider })));
 
-export function GitPane({ paneId, cwd, active }: { paneId: string; cwd: string; active: boolean }) {
+function GitWorkbench({ paneId, repo, active, onLeaveRepo }: { paneId: string; repo: string; active: boolean; onLeaveRepo: (() => void) | null }) {
     const paneRootRef = useRef<HTMLDivElement>(null);
-    const repo = cwd;
     const storedView = useStore((s) => s.gitViews[paneId]);
     const view = {
         ...DEFAULT_GIT_VIEW,
@@ -1073,6 +1072,12 @@ export function GitPane({ paneId, cwd, active }: { paneId: string; cwd: string; 
         return () => window.removeEventListener("keydown", onKey, true);
     }, [active, branchInput, modalOpen]);
 
+    useEffect(() => {
+        const root = paneRootRef.current;
+        if (!active || !root || root.contains(document.activeElement)) return;
+        (root.querySelector<HTMLElement>(".git-panel.focused .git-row.sel, .git-panel.focused .gg-row.sel") ?? root).focus({ preventScroll: true });
+    }, [active]);
+
     const focusKey = `${panel}:${sel[panel]}:${remoteDrill ?? ""}:${remoteBranchSel}`;
     useEffect(() => {
         if (!document.activeElement?.closest(".git-row, .gg-row")) return;
@@ -1106,8 +1111,14 @@ export function GitPane({ paneId, cwd, active }: { paneId: string; cwd: string; 
     const commitEmptyText = overviewError ?? (commitQuery ? `Nothing matches "${commitQuery}".` : "No commits on this branch yet.");
 
     return (
-        <div ref={paneRootRef} className="git-pane">
+        <div ref={paneRootRef} className="git-pane" tabIndex={-1}>
             <div className="git-toolbar">
+                {onLeaveRepo && (
+                    <button type="button" className="git-tbtn git-tb-back" onClick={onLeaveRepo} title="Back to the repositories in this folder">
+                        <IconChevron size={12} className="git-tb-back-icon" />
+                        {basenameOf(repo)}
+                    </button>
+                )}
                 <span className="git-tb-status">
                     <IconGit size={13} className={`git-tb-icon${files.length > 0 ? " dirty" : ""}`} />
                     <span className="git-tb-branch" title={overviewError ?? `upstream: ${upstreamLabel}`}>
@@ -1660,5 +1671,81 @@ export function GitPane({ paneId, cwd, active }: { paneId: string; cwd: string; 
 
             <GitModalRenderer paneId={paneId} active={active} />
         </div>
+    );
+}
+
+function isMissingRepository(error: string | null | undefined): boolean {
+    return !!error && /could not find repository/i.test(error);
+}
+
+function GitRepoPicker({ paneId, root, active }: { paneId: string; root: string; active: boolean }) {
+    const discovered = useCachedResourceEnabled(active && !!root, gitDiscoveredReposR, root || "");
+    const repos = discovered.data ?? [];
+
+    if (discovered.status === "loading" && !discovered.data) {
+        return (
+            <div className="git-pane git-repo-picker">
+                <SkeletonRows rows={4} />
+            </div>
+        );
+    }
+
+    if (repos.length === 0) {
+        return (
+            <div className="git-pane git-repo-picker">
+                <EmptyState
+                    tone="error"
+                    icon={<IconWarning size={14} />}
+                    title="Not a repository"
+                    message={
+                        discovered.status === "error"
+                            ? (discovered.error ?? "could not read this folder")
+                            : `No repository at ${root}, and none in the folders directly inside it.`
+                    }
+                />
+            </div>
+        );
+    }
+
+    return (
+        <div className="git-pane git-repo-picker">
+            <div className="git-toolbar">
+                <span className="git-tb-status">
+                    <IconGit size={13} className="git-tb-icon" />
+                    <span className="git-tb-branch">{basenameOf(root)}</span>
+                    <span className="git-tb-changed">{repos.length === 1 ? "1 repository inside" : `${repos.length} repositories inside`}</span>
+                </span>
+            </div>
+            <ul className="git-repo-list">
+                {repos.map((entry) => (
+                    <li key={entry.path}>
+                        <button type="button" className="git-repo-row" onClick={() => cmd.setGitView(paneId, { repo: entry.path })}>
+                            <IconGit size={13} className={`git-repo-icon${entry.changes > 0 ? " dirty" : ""}`} />
+                            <span className="git-repo-name">{entry.name}</span>
+                            <span className="git-repo-branch">{entry.branch || "no commits"}</span>
+                            {entry.ahead > 0 && <span className="git-repo-sync">{entry.ahead}↑</span>}
+                            {entry.behind > 0 && <span className="git-repo-sync">{entry.behind}↓</span>}
+                            <span className={`git-repo-changes${entry.changes > 0 ? " dirty" : ""}`}>{entry.changes > 0 ? entry.changes : "—"}</span>
+                        </button>
+                    </li>
+                ))}
+            </ul>
+        </div>
+    );
+}
+
+export function GitPane({ paneId, cwd, active }: { paneId: string; cwd: string; active: boolean }) {
+    const selectedRepo = useStore((s) => s.gitViews[paneId]?.repo ?? null);
+    const rootOverview = useCachedResourceEnabled(active && !!cwd && !selectedRepo, gitOverviewR, cwd || "");
+    const rootMissing = rootOverview.status === "error" && !rootOverview.data && isMissingRepository(rootOverview.error);
+
+    if (!selectedRepo && rootMissing) return <GitRepoPicker paneId={paneId} root={cwd} active={active} />;
+    return (
+        <GitWorkbench
+            paneId={paneId}
+            repo={selectedRepo ?? cwd}
+            active={active}
+            onLeaveRepo={selectedRepo ? () => cmd.setGitView(paneId, { repo: null }) : null}
+        />
     );
 }

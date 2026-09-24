@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { acknowledgeAgentState, reduceAgentState, rollupAgentStates, type AgentStateEvent } from "./agentStatus";
+import { acknowledgeAgentState, reduceAgentState, rollupAgentStates, sortByAttention, type AgentStateEvent } from "./agentStatus";
 
 const event = (state: AgentStateEvent["state"], sequence: number): AgentStateEvent => ({
     agentId: "a",
@@ -35,5 +35,44 @@ describe("semantic agent presentation", () => {
         const stopped = reduceAgentState(ready, event("stopped", 2), false)!;
         expect(stopped).toMatchObject({ state: "stopped", backendState: "stopped", unread: false });
         expect(rollupAgentStates([ready, stopped])).toBe("stopped");
+    });
+
+    it("orders open agents by what needs attention, then by when they last ran", () => {
+        const at = (state: AgentStateEvent["state"], workedAt: number, settledAt: number) => {
+            const worked = reduceAgentState(undefined, event("working", 1), true, workedAt)!;
+            return state === "working" ? worked : reduceAgentState(worked, event(state, 2), false, settledAt)!;
+        };
+        const activity = {
+            stale: at("idle", 10, 11),
+            fresh: at("idle", 50, 51),
+            finished: at("idle", 5, 6),
+            asking: at("blocked", 1, 2),
+            running: at("working", 3, 3),
+        };
+        const acknowledged = {
+            ...activity,
+            finished: acknowledgeAgentState(activity.finished),
+            fresh: acknowledgeAgentState(activity.fresh),
+            stale: acknowledgeAgentState(activity.stale),
+        };
+        const ids = ["never", "stale", "finished", "fresh", "running", "asking", "shell"].map((id) => ({ id }));
+        expect(sortByAttention(ids, activity, { shell: 1 }).map((a) => a.id)).toEqual([
+            "asking",
+            "running",
+            "shell",
+            "fresh",
+            "stale",
+            "finished",
+            "never",
+        ]);
+        expect(sortByAttention(ids, acknowledged, {}).map((a) => a.id)).toEqual([
+            "asking",
+            "running",
+            "fresh",
+            "stale",
+            "finished",
+            "never",
+            "shell",
+        ]);
     });
 });

@@ -9,6 +9,22 @@ function update(state: ChatState, value: Record<string, unknown>, sessionId = RO
 }
 
 describe("chat reducer", () => {
+    it("keeps the context window the agent reports and ignores a malformed one", () => {
+        const claude = update(initialChatState, {
+            sessionUpdate: "usage_update",
+            used: 84_000,
+            size: 200_000,
+            cost: { amount: 1.25, currency: "USD" },
+        });
+        expect(claude.usage).toEqual({ used: 84_000, size: 200_000, cost: { amount: 1.25, currency: "USD" } });
+
+        const codex = update(claude, { sessionUpdate: "usage_update", used: 90_000, size: 272_000 });
+        expect(codex.usage).toEqual({ used: 90_000, size: 272_000 });
+
+        expect(update(codex, { sessionUpdate: "usage_update", used: 1, size: 0 })).toBe(codex);
+        expect(update(codex, { sessionUpdate: "usage_update", used: "lots", size: 10 })).toBe(codex);
+    });
+
     it("merges streamed text chunks by ACP message id", () => {
         const first = update(initialChatState, {
             sessionUpdate: "agent_message_chunk",
@@ -248,6 +264,15 @@ describe("chat reducer", () => {
         expect(notified.messages).toEqual([]);
     });
 
+    it("keeps Claude's interrupt marker out of the transcript", () => {
+        const replayed = ["[Request interrupted by user]", "[Request interrupted by user for tool use]"].reduce(
+            (state, text) => update(state, { sessionUpdate: "user_message_chunk", content: { type: "text", text } }),
+            initialChatState,
+        );
+
+        expect(replayed.messages).toEqual([]);
+    });
+
     it("keeps a message that only mentions a tag", () => {
         const asked = update(initialChatState, {
             sessionUpdate: "user_message_chunk",
@@ -262,6 +287,45 @@ describe("chat reducer", () => {
         const stopped = chatReducer(spawned, { type: "status", state: "stopped" });
 
         expect(stopped.tasks).toEqual([]);
+    });
+
+    it("runs a turn the agent starts on its own until its closing usage report", () => {
+        const ready = chatReducer(initialChatState, { type: "ready", capabilities: {}, setup: {} });
+        const woken = update(ready, {
+            sessionUpdate: "tool_call",
+            toolCallId: "call-1",
+            title: "git log",
+            status: "in_progress",
+        });
+        expect(woken).toMatchObject({ running: true, unprompted: true });
+
+        const report = { sessionUpdate: "usage_update", used: 1_000, size: 200_000 };
+        expect(update(woken, report).running).toBe(true);
+
+        const ended = update(woken, { ...report, _meta: { "_claude/origin": { kind: "peer" } } });
+        expect(ended).toMatchObject({ running: false, unprompted: false, usage: { used: 1_000, size: 200_000 } });
+        const part = ended.messages[0].parts[0];
+        expect(part.kind === "tool" && part.tool.status).toBe("cancelled");
+    });
+
+    it("does not mistake a resumed session's replay for a turn", () => {
+        const replayed = update(initialChatState, {
+            sessionUpdate: "agent_message_chunk",
+            content: { type: "text", text: "Earlier answer" },
+        });
+        expect(replayed.running).toBe(false);
+    });
+
+    it("leaves a prompted turn to its own completion", () => {
+        const ready = chatReducer(initialChatState, { type: "ready", capabilities: {}, setup: {} });
+        const prompted = chatReducer(ready, { type: "turn_started" });
+        const reported = update(prompted, {
+            sessionUpdate: "usage_update",
+            used: 1,
+            size: 10,
+            _meta: { "_claude/origin": { kind: "task-notification" } },
+        });
+        expect(reported.running).toBe(true);
     });
 
     it("replaces slash commands when ACP sends a new command list", () => {

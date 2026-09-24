@@ -1,18 +1,14 @@
-import { isBuiltinWorkbenchItemKind, isValidWorkbenchItemId } from "../workbench/registry";
-import type { LayoutNode, Window, WindowRole } from "./types";
+import { isPluginKind } from "../plugins/kinds";
+import { isValidWorkbenchItemId, isWorkbenchItemKind } from "../workbench/registry";
+import type { LayoutNode, SessionKind, Window, WindowRole } from "./types";
 
-export const PERSISTED_WINDOW_ROLES = new Set<WindowRole>([
-    "term",
-    "files",
-    "git",
-    "search",
-    "aws",
-    "rundeck",
-    "bruno",
-    "ssh-config",
-    "named",
-    "agent",
-]);
+export const PERSISTED_WINDOW_ROLES = new Set<WindowRole>(["term", "files", "git", "search", "ssh-config", "named", "agent"]);
+
+const CORE_SESSION_KINDS = new Set<string>(["project", "command", "ssh"]);
+
+export function isSessionKind(value: unknown): value is SessionKind {
+    return (typeof value === "string" && CORE_SESSION_KINDS.has(value)) || isPluginKind(value);
+}
 
 export interface LayoutValidationLimits {
     maxDepth: number;
@@ -72,7 +68,7 @@ export function validatePersistedLayout(value: unknown, limits: LayoutValidation
                 return { ok: false, reason: "pane contains runtime-only process metadata" };
             }
             if (!boundedString(current.value.cwd, limits.maxStringLength, true)) return { ok: false, reason: "pane has an invalid cwd" };
-            if (!isBuiltinWorkbenchItemKind(current.value.kind)) return { ok: false, reason: `unsupported pane kind: ${String(current.value.kind)}` };
+            if (!isWorkbenchItemKind(current.value.kind)) return { ok: false, reason: `unsupported pane kind: ${String(current.value.kind)}` };
             if (!boundedString(current.value.title, limits.maxStringLength, true)) return { ok: false, reason: "pane has an invalid title" };
             if (current.value.startup !== undefined && !boundedString(current.value.startup, limits.maxStringLength, true))
                 return { ok: false, reason: "pane startup is invalid" };
@@ -107,7 +103,7 @@ export function validatePersistedWindow(
 ): { window: Window; layout: ValidLayout } | null {
     if (!isRecord(value)) return null;
     if (!boundedString(value.id, limits.maxStringLength) || !boundedString(value.name, limits.maxStringLength, true)) return null;
-    if (!PERSISTED_WINDOW_ROLES.has(value.role as WindowRole)) return null;
+    if (!PERSISTED_WINDOW_ROLES.has(value.role as WindowRole) && !isPluginKind(value.role)) return null;
     if (!boundedString(value.activePaneId, limits.maxStringLength)) return null;
     if (value.transient !== undefined) return null;
     if (value.fixed !== undefined && typeof value.fixed !== "boolean") return null;

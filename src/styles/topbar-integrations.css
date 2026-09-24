@@ -81,14 +81,6 @@
     flex: 0 1 auto;
     min-width: 0;
 }
-.tb-git-copy {
-    opacity: 0;
-}
-.tb-git:hover .tb-git-copy,
-.tb-git-copy:focus-visible,
-.tb-git-copy.copied {
-    opacity: 1;
-}
 .tb-git-chip {
     display: inline-flex;
     align-items: center;

@@ -3,6 +3,7 @@
     flex-direction: column;
     height: 100%;
     width: 100%;
+    outline: none;
 }
 
 .git-body {
@@ -363,7 +364,10 @@
     color: var(--text-tertiary);
     margin-left: 1px;
 }
-.git-tbtn:hover .git-kbd,
+.git-tbtn:hover .git-kbd {
+    color: var(--text-secondary);
+}
+
 /* The git modal reuses the .dlg surface; only its sizing differs — menus and
    the cheatsheet need more room than a confirm sheet. */
 .git-modal {
@@ -1092,4 +1096,73 @@
 
 .diff-pane-empty.error {
     color: var(--danger);
+}
+
+.git-tb-back-icon {
+    transform: rotate(180deg);
+}
+.git-repo-list {
+    list-style: none;
+    margin: 0;
+    padding: 6px 0;
+    overflow-y: auto;
+    flex: 1 1 auto;
+}
+.git-repo-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 0 12px;
+    height: 28px;
+    border: 0;
+    background: transparent;
+    color: var(--text-secondary);
+    font-family: var(--mono);
+    font-size: var(--text-xs);
+    text-align: left;
+    cursor: pointer;
+}
+.git-repo-row:hover {
+    background: var(--hl);
+    color: var(--text-primary);
+}
+.git-repo-icon {
+    flex: none;
+    opacity: 0.7;
+}
+.git-repo-icon.dirty {
+    color: var(--warn);
+    opacity: 1;
+}
+.git-repo-name {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.git-repo-branch {
+    flex: 0 1 auto;
+    min-width: 0;
+    color: var(--acc);
+    font-size: var(--text-2xs);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.git-repo-sync {
+    flex: none;
+    color: var(--text-tertiary);
+    font-size: var(--text-2xs);
+}
+.git-repo-changes {
+    flex: none;
+    min-width: 18px;
+    text-align: right;
+    color: var(--text-tertiary);
+    font-size: var(--text-2xs);
+}
+.git-repo-changes.dirty {
+    color: var(--warn);
 }

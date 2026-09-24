@@ -1,7 +1,6 @@
 import type { AgentType, SessionKind, Window } from "./types";
-import { isRecord, validatePersistedWindow, type LayoutValidationLimits } from "./persistValidation";
+import { isRecord, isSessionKind, validatePersistedWindow, type LayoutValidationLimits } from "./persistValidation";
 
-const SESSION_KINDS = new Set<SessionKind>(["project", "command", "ssh", "aws", "rundeck", "bruno"]);
 const AGENT_TYPES = new Set<AgentType>(["claude", "codex", "hermes", "pi", "opencode", "omp", "grok"]);
 
 export const SESSION_BUNDLE_LIMITS = {
@@ -47,7 +46,7 @@ export function parseSessionBundle(raw: string): ValidSessionBundle {
 
     const name = requiredString(decoded.session.name, "name");
     const cwd = requiredString(decoded.session.cwd, "cwd", true);
-    if (!SESSION_KINDS.has(decoded.session.kind as SessionKind)) throw new Error("session kind is unsupported");
+    if (!isSessionKind(decoded.session.kind)) throw new Error("session kind is unsupported");
     const kind = decoded.session.kind as SessionKind;
 
     if (!Array.isArray(decoded.windows) || decoded.windows.length === 0) throw new Error("session bundle contains no windows");

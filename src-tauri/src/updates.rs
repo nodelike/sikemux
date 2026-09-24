@@ -1,7 +1,9 @@
 use std::time::{Duration, Instant};
 
+use futures::future::join_all;
+use semver::Version;
 use tauri::{ipc::Channel, AppHandle};
-use tauri_plugin_updater::{Updater, UpdaterExt};
+use tauri_plugin_updater::{Update, Updater, UpdaterExt};
 
 use crate::error::{AppError, AppResult};
 use crate::observability::{global_observability, Metadata, ScalarValue, SpanContext, SpanOutcome};
@@ -88,12 +90,64 @@ impl DownloadProgressReporter {
     }
 }
 
-fn updater(app: &AppHandle, channel: &str, timeout: Duration) -> AppResult<Updater> {
-    let endpoint = match channel {
-        "stable" => STABLE_ENDPOINT,
-        "nightly" => NIGHTLY_ENDPOINT,
-        _ => return Err(AppError::BadArg("update channel must be stable or nightly")),
-    };
+fn channel_feeds(channel: &str) -> AppResult<&'static [&'static str]> {
+    match channel {
+        "stable" => Ok(&[STABLE_ENDPOINT]),
+        // A stable release can overtake the newest nightly, so nightly follows both.
+        "nightly" => Ok(&[NIGHTLY_ENDPOINT, STABLE_ENDPOINT]),
+        _ => Err(AppError::BadArg("update channel must be stable or nightly")),
+    }
+}
+
+async fn newest_update(
+    app: &AppHandle,
+    channel: &str,
+    timeout: Duration,
+) -> AppResult<Option<Update>> {
+    if cfg!(debug_assertions) {
+        return Err(AppError::Other(
+            "development builds do not update themselves".into(),
+        ));
+    }
+    let checks = channel_feeds(channel)?.iter().map(|endpoint| async move {
+        feed_updater(app, endpoint, timeout)?
+            .check()
+            .await
+            .map_err(|error| AppError::Other(format!("update check: {error}")))
+    });
+    pick_newest(join_all(checks).await, |update| &update.version)
+}
+
+// One unreachable feed must not hide a release the other feed offers.
+fn pick_newest<T>(
+    results: Vec<AppResult<Option<T>>>,
+    version_of: impl Fn(&T) -> &str,
+) -> AppResult<Option<T>> {
+    let mut newest: Option<(Version, T)> = None;
+    let mut failure = None;
+    for result in results {
+        match result {
+            Ok(Some(update)) => {
+                let version = Version::parse(version_of(&update))
+                    .map_err(|error| AppError::Other(format!("update version: {error}")))?;
+                if newest.as_ref().is_none_or(|(best, _)| version > *best) {
+                    newest = Some((version, update));
+                }
+            }
+            Ok(None) => {}
+            Err(error) => {
+                failure.get_or_insert(error);
+            }
+        }
+    }
+    match (newest, failure) {
+        (Some((_, update)), _) => Ok(Some(update)),
+        (None, Some(error)) => Err(error),
+        (None, None) => Ok(None),
+    }
+}
+
+fn feed_updater(app: &AppHandle, endpoint: &str, timeout: Duration) -> AppResult<Updater> {
     let url = endpoint
         .parse()
         .map_err(|error| AppError::Other(format!("update endpoint: {error}")))?;
@@ -108,10 +162,8 @@ fn updater(app: &AppHandle, channel: &str, timeout: Duration) -> AppResult<Updat
 
 #[tauri::command]
 pub async fn update_check(app: AppHandle, channel: String) -> AppResult<Option<UpdateInfo>> {
-    Ok(updater(&app, &channel, UPDATE_CHECK_TIMEOUT)?
-        .check()
-        .await
-        .map_err(|error| AppError::Other(format!("update check: {error}")))?
+    Ok(newest_update(&app, &channel, UPDATE_CHECK_TIMEOUT)
+        .await?
         .map(|update| UpdateInfo {
             version: update.version,
             current_version: update.current_version,
@@ -150,10 +202,8 @@ async fn update_install_inner(
     on_progress: Channel<UpdateInstallProgress>,
     context: SpanContext,
 ) -> AppResult<UpdateInfo> {
-    let update = updater(app, channel, UPDATE_INSTALL_TIMEOUT)?
-        .check()
-        .await
-        .map_err(|error| AppError::Other(format!("update check: {error}")))?
+    let update = newest_update(app, channel, UPDATE_INSTALL_TIMEOUT)
+        .await?
         .ok_or_else(|| AppError::Other("no update is available".into()))?;
     let installed = UpdateInfo {
         version: update.version.clone(),
@@ -316,6 +366,51 @@ mod tests {
                     .all(|part| part.chars().next().is_some_and(|c| c.is_ascii_digit())),
             "feed version {version} is not a semver the updater can compare"
         );
+    }
+
+    fn pick(results: Vec<AppResult<Option<&'static str>>>) -> AppResult<Option<&'static str>> {
+        pick_newest(results, |version| version)
+    }
+
+    #[test]
+    fn nightly_follows_both_feeds() {
+        assert_eq!(channel_feeds("stable").unwrap(), &[STABLE_ENDPOINT]);
+        assert_eq!(
+            channel_feeds("nightly").unwrap(),
+            &[NIGHTLY_ENDPOINT, STABLE_ENDPOINT]
+        );
+        assert!(channel_feeds("beta").is_err());
+    }
+
+    #[test]
+    fn a_stable_release_overtakes_its_own_nightlies() {
+        let newest = pick(vec![Ok(Some("0.4.0-nightly.11")), Ok(Some("0.4.0"))]).unwrap();
+        assert_eq!(newest, Some("0.4.0"));
+    }
+
+    #[test]
+    fn a_nightly_ahead_of_stable_wins() {
+        let newest = pick(vec![Ok(Some("0.5.0-nightly.1")), Ok(Some("0.4.1"))]).unwrap();
+        assert_eq!(newest, Some("0.5.0-nightly.1"));
+    }
+
+    #[test]
+    fn one_feed_offering_nothing_defers_to_the_other() {
+        assert_eq!(
+            pick(vec![Ok(None), Ok(Some("0.4.0"))]).unwrap(),
+            Some("0.4.0")
+        );
+        assert_eq!(pick(vec![Ok(None), Ok(None)]).unwrap(), None);
+    }
+
+    #[test]
+    fn a_failed_feed_only_surfaces_when_nothing_was_found() {
+        let found = pick(vec![
+            Err(AppError::Other("offline".into())),
+            Ok(Some("0.4.0")),
+        ]);
+        assert_eq!(found.unwrap(), Some("0.4.0"));
+        assert!(pick(vec![Ok(None), Err(AppError::Other("offline".into()))]).is_err());
     }
 
     #[test]

@@ -1,0 +1,997 @@
+/* ───────────────────────── Bruno (API client) ───────────────────────── */
+.bruno-pane {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    width: 100%;
+    background: transparent;
+    color: var(--ink);
+    font-family: var(--mono);
+    font-size: 12.5px;
+    overflow: hidden;
+}
+.bruno-head {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    height: 38px;
+    padding: 0 10px;
+    background: transparent;
+    border-bottom: 1px solid var(--line);
+    flex: 0 0 auto;
+}
+.bruno-head-mark {
+    display: inline-flex;
+    align-items: center;
+    color: var(--acc);
+    flex: 0 0 auto;
+    filter: drop-shadow(0 0 6px rgba(162, 119, 255, 0.4));
+}
+.bruno-workspace-dd {
+    min-width: 0;
+}
+.bruno-coll-name {
+    font-weight: 600;
+    color: var(--ink);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.bruno-cols {
+    display: flex;
+    flex: 1 1 auto;
+    min-height: 0;
+}
+
+/* tree */
+.bruno-tree {
+    width: 248px;
+    flex: 0 0 auto;
+    display: flex;
+    flex-direction: column;
+    background: color-mix(in srgb, var(--rail) calc(var(--window-opacity, 1) * 100%), transparent);
+    border-right: 1px solid var(--line);
+    min-height: 0;
+}
+.bruno-tree-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 6px 10px;
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+    border-bottom: 1px solid var(--line-soft);
+}
+.bruno-tree-scroll {
+    flex: 1 1 auto;
+    overflow: auto;
+    padding: 4px 0 12px;
+}
+.bruno-tree-msg {
+    padding: 12px;
+    color: var(--ink-faint);
+    font-size: var(--text-xs);
+}
+.bruno-tree-err {
+    color: var(--danger);
+}
+.bruno-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    width: 100%;
+    padding: 3px 8px;
+    border: 0;
+    background: transparent;
+    color: var(--ink-dim);
+    cursor: pointer;
+    text-align: left;
+    font: inherit;
+    font-size: var(--text-xs);
+    line-height: 1.5;
+}
+.bruno-row:hover {
+    background: var(--rail-2);
+    color: var(--ink);
+}
+.bruno-req-row.active {
+    background: var(--acc-soft);
+    color: var(--ink);
+    box-shadow: inset 2px 0 0 var(--acc);
+}
+.bruno-chevron {
+    display: inline-flex;
+    width: 12px;
+    color: var(--ink-faint);
+    transition: transform 0.12s ease;
+}
+.bruno-chevron.open {
+    transform: rotate(90deg);
+}
+.bruno-folder-ic {
+    display: inline-flex;
+    color: var(--live);
+}
+.bruno-row-name {
+    flex: 1 1 auto;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.bruno-folder-row .bruno-row-name {
+    color: var(--ink);
+}
+.bruno-row-dirty {
+    flex: 0 0 auto;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--warn);
+}
+
+/* main column */
+.bruno-main {
+    flex: 1 1 auto;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    min-height: 0;
+}
+.bruno-empty {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--ink-faint);
+    font-size: 13px;
+}
+.bruno-empty-main {
+    flex: 1 1 auto;
+}
+.bruno-workbench {
+    flex: 1 1 auto;
+    display: grid;
+    grid-template-columns: minmax(220px, var(--bruno-req-pct, 50%)) 7px minmax(220px, 1fr);
+    grid-template-rows: auto auto auto minmax(0, 1fr);
+    min-width: 0;
+    min-height: 0;
+    overflow: hidden;
+}
+.bruno-workbench .bruno-request {
+    display: contents;
+}
+.bruno-workbench .bruno-urlbar {
+    grid-column: 1 / 4;
+    grid-row: 1;
+}
+.bruno-workbench .bruno-url-preview {
+    grid-column: 1 / 4;
+    grid-row: 2;
+}
+.bruno-workbench .bruno-tabs {
+    grid-column: 1;
+    grid-row: 3;
+    min-width: 0;
+}
+.bruno-workbench .bruno-tab-body {
+    grid-column: 1;
+    grid-row: 4;
+    min-width: 0;
+}
+.bruno-splitter {
+    grid-column: 2;
+    grid-row: 3 / 5;
+    cursor: col-resize;
+    border-left: 1px solid var(--line);
+    border-right: 1px solid var(--line-soft);
+    background: color-mix(in srgb, var(--rail) calc(var(--window-opacity, 1) * 55%), transparent);
+    transition:
+        background 0.12s,
+        border-color 0.12s;
+}
+.bruno-splitter:hover {
+    background: var(--acc-soft);
+    border-left-color: var(--acc-line);
+    border-right-color: var(--acc-line);
+}
+body.bruno-resizing {
+    cursor: col-resize;
+    user-select: none;
+}
+
+/* request */
+.bruno-request {
+    flex: 1 1 52%;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+}
+.bruno-urlbar {
+    display: flex;
+    align-items: stretch;
+    gap: 6px;
+    padding: 8px 10px;
+    flex: 0 0 auto;
+}
+.bruno-urlbar .dd-btn {
+    height: 29px;
+}
+/* Bruno's two flavours of the shared dropdown. */
+.bruno-method-dd {
+    min-width: 86px;
+}
+.bruno-method-dd .dd-val {
+    font-weight: 800;
+    letter-spacing: 0.04em;
+}
+.bruno-mode-dd .dd-val {
+    text-transform: lowercase;
+}
+.bruno-urlbar .bruno-url {
+    align-self: stretch;
+}
+.bruno-method-sel {
+    flex: 0 0 auto;
+    background: var(--rail-2);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-control);
+    padding: 4px 6px;
+    font: inherit;
+    font-weight: 800;
+    font-size: var(--text-2xs);
+    cursor: pointer;
+}
+.bruno-url {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+/* {{variable}} highlight overlay (mirrored backdrop under a transparent field) */
+.bruno-varwrap {
+    display: grid;
+    min-width: 0;
+    background: var(--void);
+    border: 1px solid var(--line);
+    border-radius: 0;
+    overflow: hidden;
+}
+.bruno-varwrap > * {
+    grid-area: 1 / 1;
+}
+.bruno-var-back,
+.bruno-var-field {
+    margin: 0;
+    border: 0;
+    padding: 4px 7px;
+    font-family: var(--mono);
+    font-size: var(--text-xs);
+    line-height: 1.5;
+}
+.bruno-var-back {
+    pointer-events: none;
+    user-select: none;
+    color: var(--ink);
+    overflow: hidden;
+}
+.bruno-var-back.oneline {
+    white-space: pre;
+}
+.bruno-varwrap.area .bruno-var-back {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    min-height: 180px;
+}
+.bruno-var-field {
+    width: 100%;
+    background: transparent;
+    color: transparent;
+    caret-color: var(--ink);
+    outline: none;
+    resize: none;
+}
+.bruno-var-field.area {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    min-height: 180px;
+    overflow: hidden;
+}
+.bruno-var-field::placeholder {
+    color: var(--ink-faint);
+}
+.bruno-var-field::selection {
+    background: var(--acc-soft);
+}
+.bruno-var {
+    color: var(--live);
+}
+.bruno-var.missing {
+    color: var(--danger);
+}
+.bruno-send {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    flex: 0 0 auto;
+    height: 29px;
+    min-width: 78px;
+    background: var(--acc);
+    color: var(--void);
+    border: 1px solid var(--acc);
+    padding: 0 13px;
+    font-family: var(--mono);
+    font-weight: 700;
+    font-size: var(--text-xs);
+    letter-spacing: 0.02em;
+    cursor: pointer;
+    transition: background 0.12s;
+}
+.bruno-send-kbd {
+    display: inline-flex;
+    align-items: center;
+    gap: 1px;
+    margin-left: 4px;
+    font-family: var(--mono);
+    font-weight: 700;
+    opacity: 0.8;
+}
+.bruno-send-kbd .bruno-kbd-cmd {
+    font-size: 14px;
+}
+.bruno-send-kbd .bruno-kbd-ret {
+    font-size: 16px;
+    /* the ↵ glyph sits low; nudge it up to optically center with ⌘ */
+    transform: translateY(-2px);
+}
+.bruno-send:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--acc) 88%, white);
+}
+.bruno-send svg {
+    flex: 0 0 auto;
+}
+.bruno-send .bruno-row-spin {
+    border-color: color-mix(in srgb, var(--void) 45%, transparent);
+    border-top-color: var(--void);
+}
+.bruno-send:disabled {
+    opacity: 0.55;
+    cursor: default;
+}
+.bruno-save {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 auto;
+    width: 29px;
+    height: 29px;
+    background: color-mix(in srgb, var(--rail-2) calc(var(--window-opacity, 1) * 100%), transparent);
+    color: var(--ink-dim);
+    border: 1px solid var(--line);
+    cursor: pointer;
+    transition:
+        color 0.12s,
+        border-color 0.12s;
+}
+.bruno-save:disabled {
+    opacity: 0.45;
+    cursor: default;
+}
+.bruno-save.dirty {
+    color: var(--warn);
+    border-color: var(--acc-line);
+}
+.bruno-save.dirty:hover {
+    color: var(--acc);
+    border-color: var(--acc);
+}
+.bruno-url-preview {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 0 12px 6px 12px;
+    font-family: var(--mono);
+    font-size: var(--text-2xs);
+    color: var(--ink-dim);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    flex: 0 0 auto;
+}
+.bruno-url-preview-tag {
+    color: var(--acc);
+    font-weight: 700;
+    flex: 0 0 auto;
+}
+.bruno-tabs {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    padding: 0 8px;
+    border-bottom: 1px solid var(--line);
+    flex: 0 0 auto;
+}
+.bruno-tab {
+    background: none;
+    border: 0;
+    border-bottom: 2px solid transparent;
+    color: var(--ink-dim);
+    padding: 6px 9px;
+    font: inherit;
+    font-size: var(--text-xs);
+    text-transform: capitalize;
+    cursor: pointer;
+}
+.bruno-tab:hover {
+    color: var(--ink);
+}
+.bruno-tab.active {
+    color: var(--ink);
+    border-bottom-color: var(--acc);
+}
+.bruno-tab-body {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: auto;
+    padding: 10px;
+    display: flex;
+    flex-direction: column;
+}
+.bruno-section {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+.bruno-section-fill {
+    flex: 1 1 auto;
+    min-height: 0;
+}
+.bruno-section-bar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: 0 0 auto;
+}
+.bruno-section > .panel-label {
+    margin-top: var(--space-0);
+}
+.bruno-muted {
+    color: var(--ink-faint);
+    font-size: var(--text-xs);
+    padding: 6px 2px;
+}
+
+/* key-value tables */
+.bruno-kv {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+.bruno-kv-row {
+    display: grid;
+    grid-template-columns: 18px 1fr 1.4fr 20px;
+    gap: 5px;
+    align-items: center;
+}
+.bruno-kv.readonly .bruno-kv-row {
+    grid-template-columns: minmax(120px, 1fr) 2fr;
+}
+.bruno-kv-row.add .bruno-input {
+    opacity: 0.7;
+}
+.bruno-kv-check {
+    display: inline-flex;
+    justify-content: center;
+}
+.bruno-input {
+    width: 100%;
+    background: var(--void);
+    border: 1px solid var(--line);
+    padding: 4px 7px;
+    color: var(--ink);
+    font-family: var(--mono);
+    font-size: var(--text-xs);
+}
+.bruno-input:focus {
+    outline: none;
+}
+.bruno-kv-del {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: none;
+    border: 0;
+    color: var(--ink-faint);
+    cursor: pointer;
+    line-height: 1;
+    padding: 0;
+    transition: color 0.12s;
+}
+.bruno-kv-del:hover {
+    color: var(--danger);
+}
+.bruno-kv-del.ghost {
+    color: var(--ink-faint);
+    opacity: 0.4;
+    cursor: default;
+}
+.bruno-h-name {
+    font-family: var(--mono);
+    font-size: var(--text-xs);
+    color: var(--ink-dim);
+    word-break: break-all;
+}
+.bruno-h-val {
+    font-family: var(--mono);
+    font-size: var(--text-xs);
+    color: var(--ink);
+    word-break: break-all;
+}
+
+.bruno-code {
+    width: 100%;
+    min-height: 180px;
+    background: var(--void);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-control);
+    padding: 8px;
+    color: var(--ink);
+    font-family: var(--mono);
+    font-size: 12.5px;
+    line-height: 1.5;
+    resize: vertical;
+    tab-size: 2;
+    white-space: pre;
+}
+.bruno-docs {
+    white-space: pre-wrap;
+}
+.bruno-body-mode,
+.bruno-env-select {
+    align-self: flex-start;
+    background: var(--rail-2);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-control);
+    padding: 4px 8px;
+    color: var(--ink);
+    font: inherit;
+    font-size: var(--text-xs);
+    cursor: pointer;
+}
+.bruno-field {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+.bruno-field > span {
+    flex: 0 0 84px;
+    color: var(--ink-dim);
+    font-size: var(--text-xs);
+}
+.bruno-field select {
+    background: var(--rail-2);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-control);
+    color: var(--ink);
+    padding: 3px 6px;
+    font: inherit;
+    font-size: var(--text-xs);
+}
+.bruno-field .bruno-input {
+    flex: 1 1 auto;
+}
+
+/* response */
+.bruno-response {
+    flex: 1 1 48%;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    border-top: 1px solid var(--line);
+}
+.bruno-workbench .bruno-response {
+    grid-column: 3;
+    grid-row: 3 / 5;
+    min-width: 0;
+    border-top: 0;
+}
+.bruno-resp-bar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 6px 10px;
+    border-bottom: 1px solid var(--line-soft);
+    flex: 0 0 auto;
+}
+.bruno-resp-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-weight: 700;
+    font-size: var(--text-xs);
+    padding: 2px 8px;
+}
+.bruno-resp-status.ok {
+    color: var(--live);
+    background: rgba(97, 255, 202, 0.1);
+}
+.bruno-resp-status.redir {
+    color: var(--warn);
+    background: rgba(255, 202, 133, 0.1);
+}
+.bruno-resp-status.clienterr,
+.bruno-resp-status.servererr {
+    color: var(--danger);
+    background: rgba(255, 103, 103, 0.1);
+}
+.bruno-resp-status.idle,
+.bruno-resp-status.running {
+    color: var(--ink-faint);
+    font-weight: 500;
+}
+.bruno-resp-meta {
+    color: var(--ink-dim);
+    font-size: var(--text-2xs);
+}
+.bruno-resp-tabs {
+    margin-left: auto;
+    border-bottom: 0;
+    padding: 0;
+}
+.bruno-resp-tabs .bruno-tab {
+    padding: 4px 8px;
+}
+.bruno-resp-body {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: auto;
+    display: flex;
+    flex-direction: column;
+}
+.bruno-pre {
+    margin: 0;
+    padding: 10px;
+    font-family: var(--mono);
+    font-size: var(--text-xs);
+    line-height: 1.5;
+    white-space: pre-wrap;
+    word-break: break-word;
+    color: var(--ink);
+}
+.bruno-resp-err {
+    padding: 10px;
+    color: var(--danger);
+    font-family: var(--mono);
+    font-size: var(--text-xs);
+    white-space: pre-wrap;
+}
+
+/* environment + secrets */
+.bruno-env {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-left: auto;
+}
+.bruno-secrets-btn,
+.bruno-icon-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    background: color-mix(in srgb, var(--rail-2) calc(var(--window-opacity, 1) * 100%), transparent);
+    border: 1px solid var(--line);
+    color: var(--ink-dim);
+    padding: 4px 8px;
+    font-family: var(--mono);
+    font-size: var(--text-2xs);
+    cursor: pointer;
+    transition:
+        color 0.12s,
+        border-color 0.12s;
+}
+.bruno-secrets-btn:hover,
+.bruno-icon-btn:hover {
+    color: var(--ink);
+    border-color: var(--acc-line);
+}
+.bruno-secrets-btn.active {
+    color: var(--acc);
+    border-color: var(--acc-line);
+    background: var(--acc-soft);
+}
+.bruno-icon-btn {
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    justify-content: center;
+}
+.bruno-secrets-pop {
+    position: absolute;
+    top: calc(100% + 6px);
+    right: 0;
+    z-index: 30;
+    width: 300px;
+    background: var(--rail-2);
+    border: 1px solid var(--line);
+    padding: 10px;
+}
+.bruno-secrets-head {
+    font-size: var(--text-2xs);
+    color: var(--ink-dim);
+    margin-bottom: 8px;
+}
+.bruno-secret-row {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    margin-bottom: 8px;
+}
+.bruno-secret-name {
+    font-family: var(--mono);
+    font-size: var(--text-2xs);
+    color: var(--ink-dim);
+}
+.bruno-secrets-foot {
+    font-size: 10px;
+    color: var(--ink-faint);
+    margin-top: 4px;
+}
+.bruno-link {
+    background: none;
+    border: 0;
+    color: var(--acc);
+    cursor: pointer;
+    font: inherit;
+    font-size: var(--text-xs);
+    margin-left: 6px;
+    text-decoration: underline;
+}
+
+.bruno-row-spin {
+    display: inline-block;
+    width: 11px;
+    height: 11px;
+    border: 2px solid var(--ink-faint);
+    border-top-color: var(--acc);
+    border-radius: 50%;
+    animation: bruno-spin 0.7s linear infinite;
+    flex: 0 0 auto;
+}
+@keyframes bruno-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+/* timeline / console / tests */
+.bruno-logs {
+    padding: 4px 10px 10px;
+}
+.bruno-log {
+    display: flex;
+    gap: 8px;
+    font-family: var(--mono);
+    font-size: 11.5px;
+    padding: 1px 0;
+    align-items: baseline;
+}
+.bruno-log-lvl {
+    flex: 0 0 44px;
+    text-transform: uppercase;
+    font-size: 9px;
+    color: var(--ink-faint);
+}
+.bruno-log.lvl-error .bruno-log-lvl,
+.bruno-log.lvl-error .bruno-log-text {
+    color: var(--danger);
+}
+.bruno-log.lvl-warn .bruno-log-lvl {
+    color: var(--warn);
+}
+.bruno-log-text {
+    white-space: pre-wrap;
+    word-break: break-word;
+    color: var(--ink);
+}
+.bruno-tests {
+    padding: 8px 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+.bruno-test {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    font-size: var(--text-xs);
+    font-family: var(--mono);
+}
+.bruno-test-dot {
+    flex: 0 0 auto;
+    font-weight: 800;
+}
+.bruno-test.pass .bruno-test-dot {
+    color: var(--live);
+}
+.bruno-test.fail .bruno-test-dot {
+    color: var(--danger);
+}
+.bruno-test-name {
+    color: var(--ink);
+    word-break: break-word;
+}
+.bruno-test-err {
+    color: var(--danger);
+    opacity: 0.85;
+}
+
+/* tree row hover actions */
+.bruno-row-actions {
+    display: inline-flex;
+    gap: 2px;
+    opacity: 0;
+    flex: 0 0 auto;
+}
+.bruno-row:hover .bruno-row-actions {
+    opacity: 1;
+}
+.bruno-row-act {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: none;
+    border: 0;
+    color: var(--ink-faint);
+    cursor: pointer;
+    line-height: 1;
+    padding: 0 2px;
+    transition: color 0.12s;
+}
+.bruno-row-act:hover {
+    color: var(--ink);
+}
+.bruno-row-act.del:hover {
+    color: var(--danger);
+}
+.bruno-tree-head-actions {
+    display: inline-flex;
+    gap: 2px;
+}
+
+/* ── custom checkbox ─────────────────────────────────── */
+.bruno-check {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 15px;
+    height: 15px;
+    flex: 0 0 auto;
+    border: 1px solid var(--line);
+    background: var(--void);
+    color: var(--void);
+    border-radius: 0;
+    cursor: pointer;
+    transition:
+        background 0.12s,
+        border-color 0.12s;
+}
+.bruno-check:hover {
+    border-color: var(--acc-line);
+}
+.bruno-check.on {
+    background: var(--acc);
+    border-color: var(--acc);
+    color: var(--void);
+}
+.bruno-check.ghost {
+    border-style: dashed;
+    opacity: 0.4;
+    background: transparent;
+    cursor: default;
+}
+
+/* ── codemirror surfaces (body / scripts / docs / response) ── */
+.bruno-cm {
+    border: 1px solid var(--line);
+    min-height: 150px;
+    overflow: hidden;
+}
+.bruno-cm .cm-editor {
+    height: 100%;
+}
+.bruno-cm.bruno-cm-fill {
+    flex: 1 1 auto;
+    min-height: 0;
+}
+.bruno-section-fill .bruno-cm {
+    flex: 1 1 0;
+    min-height: 120px;
+}
+.bruno-resp-body .bruno-cm {
+    border: 0;
+}
+/* {{variable}} chips inside CodeMirror (request body) */
+.cm-bruno-var {
+    background: rgba(97, 255, 202, 0.13);
+    border-radius: 3px;
+    color: var(--live);
+}
+.cm-bruno-var.missing {
+    background: rgba(255, 103, 103, 0.15);
+    color: var(--danger);
+}
+/* body editor (VarArea) fills its tab when it's the sole content */
+.bruno-section-fill > .bruno-varwrap.area {
+    flex: 1 1 auto;
+    min-height: 0;
+}
+.bruno-section-fill > .bruno-varwrap.area .bruno-var-back,
+.bruno-section-fill > .bruno-varwrap.area .bruno-var-field {
+    min-height: 0;
+}
+.bruno-section-fill > .bruno-varwrap.area .bruno-var-field {
+    overflow: auto;
+}
+
+/* ── request tab badges ──────────────────────────────── */
+.bruno-tab {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+}
+.bruno-tab-count {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 15px;
+    height: 14px;
+    padding: 0 4px;
+    background: var(--acc-soft);
+    border: 1px solid var(--acc-line);
+    color: var(--acc);
+    font-size: 9px;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+}
+.bruno-tab-dot {
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: var(--acc);
+}
+.bruno-tab-count.pass {
+    color: var(--live);
+    border-color: color-mix(in srgb, var(--live) 35%, transparent);
+    background: rgba(97, 255, 202, 0.1);
+}
+.bruno-tab-count.fail {
+    color: var(--danger);
+    border-color: color-mix(in srgb, var(--danger) 40%, transparent);
+    background: rgba(255, 103, 103, 0.1);
+}
+.bruno-test-dot {
+    display: inline-flex;
+    align-items: center;
+}
+
+/* ── window-opacity passthrough ──────────────────────── */
+html.is-transparent .bruno-head,
+html.is-transparent .bruno-tree,
+html.is-transparent .bruno-save,
+html.is-transparent .bruno-icon-btn,
+html.is-transparent .bruno-secrets-btn:not(.active) {
+    background: transparent;
+}
+
+.bruno-env-dot {
+    flex: 0 0 auto;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--acc);
+}
+.bruno-env-dot.none {
+    background: transparent;
+    box-shadow: inset 0 0 0 1.5px var(--text-tertiary);
+}

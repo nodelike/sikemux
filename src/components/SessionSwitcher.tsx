@@ -3,13 +3,13 @@ import { prettyPath } from "../lib/paths";
 import * as cmd from "../state/commands";
 import { useStore } from "../state/store";
 import type { KeyModifier, SessionKind } from "../state/types";
-import { IconAws, IconBruno, IconCommand, IconFolder, IconRundeck } from "./Icons";
+import { pluginSurface } from "../plugins/registry";
+import { IconCommand, IconFolder } from "./Icons";
 
 function kindIcon(kind: SessionKind): ReactNode {
     if (kind === "project") return <IconFolder size={16} />;
-    if (kind === "aws") return <IconAws />;
-    if (kind === "rundeck") return <IconRundeck size={16} />;
-    if (kind === "bruno") return <IconBruno size={16} />;
+    const surface = pluginSurface(kind);
+    if (surface) return surface.icon(16);
     return <IconCommand size={16} />;
 }
 

@@ -1,3 +1,5 @@
+import { ghosttyThemes, slugify, type ThemeColours } from "./ghostty";
+
 export interface ThemeChrome {
     bg: string;
     bgDim: string;
@@ -129,10 +131,11 @@ const theme = (
     editor: readonly string[],
     highlight: readonly string[],
     terminal: readonly string[],
+    dark = true,
 ): Theme => ({
     id,
     name,
-    dark: true,
+    dark,
     chrome: fromTuple(CHROME_KEYS, chrome),
     editor: fromTuple(EDITOR_KEYS, editor),
     highlight: fromTuple(HIGHLIGHT_KEYS, highlight),
@@ -726,9 +729,17 @@ const AURA_DAY: Theme = {
     dark: false,
 };
 
-export const THEMES: Theme[] = [
+export const CURATED_THEMES: Theme[] = [
     ...THEME_DATA.map(([id, name, chrome, editor, highlight, terminal]) => theme(id, name, chrome, editor, highlight, terminal)),
     AURA_DAY,
+];
+
+export const themeFromColours = ({ id, name, dark, chrome, editor, highlight, terminal }: ThemeColours): Theme =>
+    theme(id, name, chrome, editor, highlight, terminal, dark);
+
+export const THEMES: Theme[] = [
+    ...CURATED_THEMES,
+    ...ghosttyThemes(new Set(CURATED_THEMES.map((t) => slugify(t.name).replace(/-/g, "")))).map(themeFromColours),
 ];
 
 export const THEMES_BY_ID: Record<string, Theme> = Object.fromEntries(THEMES.map((t) => [t.id, t]));
@@ -737,10 +748,6 @@ export const DEFAULT_THEME_ID = "aura";
 
 export function themeById(id: string): Theme {
     return THEMES_BY_ID[id] ?? THEMES_BY_ID[DEFAULT_THEME_ID];
-}
-
-export function isBuiltinTheme(id: string): boolean {
-    return id in THEMES_BY_ID;
 }
 
 /** Deep-clone a theme so its colour maps can be mutated independently of the source. */

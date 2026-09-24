@@ -1,0 +1,148 @@
+.aws-auth-modal {
+    width: min(520px, calc(100vw - 80px));
+    background: color-mix(in srgb, var(--chrome-bg, var(--rail-2)) calc(var(--window-opacity, 1) * 100%), transparent);
+    border: 1px solid var(--line);
+    box-shadow: var(--shadow-4);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+.aws-auth-body {
+    padding: 18px 20px;
+}
+.aws-auth-row {
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+    margin-bottom: 10px;
+}
+.aws-auth-label {
+    font-size: 9.5px;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+    width: 80px;
+    flex: 0 0 auto;
+}
+.aws-auth-value {
+    color: var(--ink);
+    font-size: 13px;
+}
+.aws-auth-link {
+    color: var(--acc);
+    font-size: var(--text-xs);
+    word-break: break-all;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+}
+.aws-auth-steps {
+    margin-top: 14px;
+    padding-top: 14px;
+    border-top: 1px solid var(--line);
+}
+.aws-auth-steps ol {
+    list-style: decimal inside;
+    font-size: var(--text-xs);
+    color: var(--ink-dim);
+    line-height: 1.65;
+}
+.aws-auth-steps code {
+    background: var(--bg-dim, var(--void));
+    border: 1px solid var(--line);
+    padding: 0 5px;
+    color: var(--acc);
+    font-size: var(--text-2xs);
+}
+.aws-auth-status {
+    margin-top: 14px;
+    padding: 9px 12px;
+    border: 1px solid var(--line);
+    font-size: var(--text-xs);
+}
+.aws-auth-status.running {
+    border-color: var(--acc-line);
+    color: var(--acc);
+}
+.aws-auth-status.ok {
+    border-color: #61ffca;
+    color: #61ffca;
+}
+.aws-auth-status.fail {
+    border-color: var(--danger);
+    color: var(--danger);
+}
+.aws-auth-err {
+    margin-top: 8px;
+    padding: 6px 8px;
+    background: var(--bg-dim, var(--void));
+    border: 1px solid var(--line);
+    font-size: 10.5px;
+    color: var(--ink-dim);
+    white-space: pre-wrap;
+    max-height: 120px;
+    overflow-y: auto;
+}
+.aws-auth-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    padding: 14px 20px 16px;
+    border-top: 1px solid var(--line);
+}
+
+/* ---- Sign-in modal chrome -----------------------------------------------
+ * The scrim and title bar the AWS auth modal sits in. These lived in
+ * settings.css, which only loads once the settings pane is opened, so the
+ * modal rendered unstyled for anyone who had not been there yet.
+ */
+.settings-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 1000;
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    padding-top: 9vh;
+    background: color-mix(in oklab, var(--surface-sunken) 62%, transparent);
+}
+.settings-head {
+    display: flex;
+    flex: 0 0 auto;
+    align-items: center;
+    gap: var(--space-3);
+    height: 40px;
+    padding: 0 var(--space-4);
+    border-bottom: 1px solid var(--border);
+    background: color-mix(in srgb, var(--surface) calc(var(--window-opacity, 1) * 100%), transparent);
+}
+.settings-title {
+    flex: 1;
+    color: var(--text-primary);
+    font-size: var(--text-3xs);
+    font-weight: var(--weight-semibold);
+    letter-spacing: var(--tracking-label);
+    text-transform: uppercase;
+}
+.settings-title strong {
+    margin-right: var(--space-1h);
+    color: var(--acc);
+    font-weight: var(--weight-semibold);
+}
+.settings-close {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    border: none;
+    background: none;
+    color: var(--text-tertiary);
+    cursor: pointer;
+    transition:
+        background var(--dur-1),
+        color var(--dur-1);
+}
+.settings-close:hover {
+    background: color-mix(in oklab, var(--danger) 12%, transparent);
+    color: var(--danger);
+}

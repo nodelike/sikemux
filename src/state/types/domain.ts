@@ -1,3 +1,5 @@
+import type { PluginKind } from "../../plugins/kinds";
+
 /**
  * How a split arranges its children.
  *
@@ -6,7 +8,8 @@
  * are tabs, and the active pane decides which is on top.
  */
 export type SplitDir = "row" | "column" | "stack";
-export type PaneKind = "terminal" | "editor" | "git" | "diff" | "aws" | "search" | "rundeck" | "bruno" | "agent" | "browser";
+export type CorePaneKind = "terminal" | "editor" | "git" | "diff" | "search" | "agent" | "browser";
+export type PaneKind = CorePaneKind | PluginKind;
 
 export interface PaneNode {
     type: "pane";
@@ -31,9 +34,9 @@ export interface SplitNode {
 
 export type LayoutNode = PaneNode | SplitNode;
 
-export type SessionKind = "project" | "command" | "ssh" | "aws" | "rundeck" | "bruno";
+export type SessionKind = "project" | "command" | "ssh" | PluginKind;
 
-export type WindowRole = "term" | "files" | "git" | "diff" | "search" | "aws" | "rundeck" | "bruno" | "ssh-config" | "named" | "agent";
+export type WindowRole = "term" | "files" | "git" | "diff" | "search" | "ssh-config" | "named" | "agent" | PluginKind;
 
 export interface Window {
     id: string;
@@ -76,7 +79,7 @@ export type ProviderProfileSelection = Partial<Record<AgentType, string>>;
 
 export const DEFAULT_PROVIDER_PROFILES: readonly ProviderProfile[] = [
     { id: "builtin-claude", name: "Claude", provider: "claude", accent: "#d97757" },
-    { id: "builtin-codex", name: "Codex", provider: "codex", accent: "#10a37f" },
+    { id: "builtin-codex", name: "Codex", provider: "codex", accent: "#7a9dff" },
     { id: "builtin-gemini", name: "Gemini", provider: "gemini", accent: "#4285f4" },
 ];
 
@@ -138,6 +141,7 @@ export interface AgentRuntimeState {
     backendState: AgentBackendState;
     unread: boolean;
     updatedAt: number;
+    lastWorkedAt?: number;
     sequence: number;
     source: "screen" | "activity" | "process" | "fallback" | "acp";
     confidence: "high" | "medium" | "low";
@@ -167,33 +171,11 @@ export type DiffTarget = { kind: "worktree"; path: string } | { kind: "commit"; 
 
 /** Which panel the workspace rail is showing. */
 
-/** A resolved Rundeck deploy location for a service: a project plus an env subfolder. */
-export interface DeployRef {
-    project: string;
-    folder: string | null;
-}
-
-/**
- * Durable per-session state for a Bruno (API) workspace. Lives on the Session so
- * it persists with the existing `sessions` slice — no persist version bump.
- * Unsaved request text and typed secret values are not durable and live in
- * `state/brunoRuntime` instead.
- */
-export interface BrunoSessionState {
-    collectionPath: string;
-    /** selected environment id per collection root (workspaces hold many collections) */
-    selectedEnvs: Record<string, string>;
-}
-
 export interface Session {
     id: string;
     name: string;
     kind: SessionKind;
     cwd: string;
-    /** Selected Rundeck deploy location for this session's service, when picked. */
-    deploy?: DeployRef | null;
-    /** Bruno (API) workspace state — present only when kind === "bruno". */
-    bruno?: BrunoSessionState | null;
     pinned: boolean;
     activeWindowId: string;
 }
@@ -217,15 +199,6 @@ export interface RecentEntry {
     kind: SessionKind;
     name: string;
     cwd: string;
-}
-
-export type AwsService = "ecs" | "ec2" | "lambda" | "sqs" | "billing" | "s3";
-export const AWS_SERVICES: AwsService[] = ["ecs", "ec2", "lambda", "sqs", "billing", "s3"];
-
-export interface RundeckSettings {
-    activeProject: string;
-    activeEnvFolder: string | null;
-    prodEnvs: string[];
 }
 
 export interface ProjectRoot {
@@ -259,4 +232,4 @@ export interface Divider {
 
 export type FocusDir = "left" | "right" | "up" | "down";
 
-export type PickerMode = "all" | "projects" | "ssh" | "bruno";
+export type PickerMode = "all" | "projects" | "ssh";

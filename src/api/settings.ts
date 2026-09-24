@@ -7,7 +7,13 @@ export interface ProjectEntry {
     path: string;
 }
 
+export interface Wallpaper {
+    name: string;
+    dataUrl: string;
+}
+
 export const settingsApi = {
+    wallpaperImage: () => invoke<Wallpaper>("wallpaper_image"),
     scanProjectRoots: (roots: ProjectRoot[]) => invoke<ProjectEntry[]>("scan_project_roots", { roots }),
     expandPath: (path: string) => invoke<string>("expand_path", { path }),
     isDirectory: (path: string) => invoke<boolean>("is_directory", { path }),

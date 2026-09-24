@@ -2,7 +2,7 @@
   "comment": "Single source of truth for the agent tool surface. The sidecar compiles these in and serves them over MCP, scripts/generate-agent-tools.mjs emits the Rust method lists, and pnpm agent-tools:check proves every method still has a handler. Edit here, then run pnpm agent-tools:generate.",
   "guide": {
     "file": "SIKEMUX_GUIDE.md",
-    "name": "sikemux_guide",
+    "name": "guide",
     "description": "Read this before your first task launch or browser click: cursors, idempotency, UI opens, and the tab model.",
     "comment": "Served by the sidecar from its own bundle, so it has no harness method."
   },
@@ -10,7 +10,7 @@
     {
       "name": "browser_navigate",
       "method": "browser.navigate",
-      "description": "Open a URL in the current tab, or a new one with newTab, and wait for it to load. Returns page state.",
+      "description": "Open a URL in this tab, or a new one with newTab, and wait for the load.",
       "properties": {
         "url": {
           "type": "string",
@@ -27,28 +27,40 @@
     {
       "name": "browser_state",
       "method": "browser.state",
-      "description": "Read the current tab without changing it: url, title, numbered interactive elements, visible text, and open tabs. Numbers expire on the next read.",
+      "description": "Read the tab: url, title, numbered elements, text and tabs. Numbers expire on the next read.",
       "properties": {},
       "required": []
     },
     {
       "name": "browser_click",
       "method": "browser.click",
-      "description": "Click a numbered element from the latest state. Returns page state.",
+      "description": "Click a numbered element or an x,y point; double double-clicks, hover only moves there.",
       "properties": {
         "index": {
           "type": "integer",
           "minimum": 0
+        },
+        "x": {
+          "type": "number",
+          "minimum": 0
+        },
+        "y": {
+          "type": "number",
+          "minimum": 0
+        },
+        "double": {
+          "type": "boolean"
+        },
+        "hover": {
+          "type": "boolean"
         }
       },
-      "required": [
-        "index"
-      ]
+      "required": []
     },
     {
       "name": "browser_type",
       "method": "browser.type",
-      "description": "Type into a numbered element, or the focused one, replacing its value. submit=true presses Enter. Returns page state.",
+      "description": "Type into a numbered element, replacing its value, or at the caret. submit presses Enter.",
       "properties": {
         "index": {
           "type": "integer",
@@ -69,7 +81,7 @@
     {
       "name": "browser_press",
       "method": "browser.press",
-      "description": "Press one key on the focused element, such as Enter, Tab, Escape, or a single character. Returns page state.",
+      "description": "Press a key or chord, such as Enter, ArrowDown or Meta+a.",
       "properties": {
         "key": {
           "type": "string",
@@ -82,9 +94,90 @@
       ]
     },
     {
+      "name": "browser_drag",
+      "method": "browser.drag",
+      "description": "Drag from one element or point to another.",
+      "properties": {
+        "fromIndex": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "fromX": {
+          "type": "number",
+          "minimum": 0
+        },
+        "fromY": {
+          "type": "number",
+          "minimum": 0
+        },
+        "toIndex": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "toX": {
+          "type": "number",
+          "minimum": 0
+        },
+        "toY": {
+          "type": "number",
+          "minimum": 0
+        }
+      },
+      "required": []
+    },
+    {
+      "name": "browser_upload",
+      "method": "browser.upload",
+      "description": "Give files to a file input, as if picked in its chooser.",
+      "properties": {
+        "paths": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4096
+          },
+          "minItems": 1,
+          "maxItems": 20
+        },
+        "index": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "x": {
+          "type": "number",
+          "minimum": 0
+        },
+        "y": {
+          "type": "number",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "paths"
+      ]
+    },
+    {
+      "name": "browser_dialog",
+      "method": "browser.dialog",
+      "description": "Answer the page's open alert, confirm or prompt.",
+      "properties": {
+        "accept": {
+          "type": "boolean"
+        },
+        "text": {
+          "type": "string",
+          "maxLength": 2000
+        }
+      },
+      "required": [
+        "accept"
+      ]
+    },
+    {
       "name": "browser_scroll",
       "method": "browser.scroll",
-      "description": "Scroll the page, or a numbered scrollable element, by deltaY pixels; negative scrolls up.",
+      "description": "Scroll the page, or a numbered element, by deltaY pixels; negative is up.",
       "properties": {
         "deltaY": {
           "type": "number"
@@ -99,7 +192,7 @@
     {
       "name": "browser_extract",
       "method": "browser.extract",
-      "description": "Read the page's visible text, or only the parts matching a CSS selector.",
+      "description": "Read the page's visible text, or the parts matching a CSS selector.",
       "properties": {
         "selector": {
           "type": "string",
@@ -109,9 +202,24 @@
       "required": []
     },
     {
+      "name": "browser_evaluate",
+      "method": "browser.evaluate",
+      "description": "Run JavaScript in the page; the result comes back as JSON.",
+      "properties": {
+        "script": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 20000
+        }
+      },
+      "required": [
+        "script"
+      ]
+    },
+    {
       "name": "browser_network",
       "method": "browser.network",
-      "description": "List this page's fetch and XHR calls with status, timing and a truncated response body.",
+      "description": "List the page's fetch and XHR calls with status, timing and body.",
       "properties": {
         "limit": {
           "type": "integer",
@@ -126,16 +234,91 @@
       "required": []
     },
     {
+      "name": "browser_console",
+      "method": "browser.console",
+      "description": "List the page's console messages and uncaught errors.",
+      "properties": {
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 200
+        },
+        "errors": {
+          "type": "boolean"
+        }
+      },
+      "required": []
+    },
+    {
       "name": "browser_screenshot",
       "method": "browser.screenshot",
-      "description": "Capture the visible part of the current tab as a PNG image.",
-      "properties": {},
+      "description": "Capture the tab; fullPage for the whole page, annotate to number elements.",
+      "properties": {
+        "fullPage": {
+          "type": "boolean"
+        },
+        "annotate": {
+          "type": "boolean"
+        }
+      },
       "required": []
+    },
+    {
+      "name": "browser_annotate",
+      "method": "browser.annotate",
+      "description": "Draw a labelled box or a caption over the page.",
+      "properties": {
+        "index": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "x": {
+          "type": "number",
+          "minimum": 0
+        },
+        "y": {
+          "type": "number",
+          "minimum": 0
+        },
+        "text": {
+          "type": "string",
+          "maxLength": 300
+        },
+        "durationMs": {
+          "type": "integer",
+          "minimum": 100,
+          "maximum": 600000
+        },
+        "clear": {
+          "type": "boolean"
+        }
+      },
+      "required": []
+    },
+    {
+      "name": "browser_record",
+      "method": "browser.record",
+      "description": "Start or stop recording this tab to an MP4 video.",
+      "properties": {
+        "action": {
+          "enum": [
+            "start",
+            "stop"
+          ]
+        },
+        "path": {
+          "type": "string",
+          "maxLength": 4096
+        }
+      },
+      "required": [
+        "action"
+      ]
     },
     {
       "name": "browser_wait",
       "method": "browser.wait",
-      "description": "Wait ms milliseconds, then for any load to finish. Returns page state.",
+      "description": "Wait ms milliseconds, then for any load to finish.",
       "properties": {
         "ms": {
           "type": "integer",
@@ -148,14 +331,14 @@
     {
       "name": "browser_back",
       "method": "browser.back",
-      "description": "Go back in the current tab's history. Returns page state.",
+      "description": "Go back in this tab's history.",
       "properties": {},
       "required": []
     },
     {
       "name": "browser_forward",
       "method": "browser.forward",
-      "description": "Go forward in the current tab's history. Returns page state.",
+      "description": "Go forward in this tab's history.",
       "properties": {},
       "required": []
     },
@@ -195,14 +378,14 @@
       ]
     },
     {
-      "name": "sikemux_workspace_inspect",
+      "name": "workspace_inspect",
       "method": "workspace.inspect",
       "description": "Inspect this agent's open project, panes, configured tasks, runs, and event cursor.",
       "properties": {},
       "required": []
     },
     {
-      "name": "sikemux_task_start",
+      "name": "task_start",
       "method": "task.start",
       "description": "Start a configured project task in a managed terminal.",
       "properties": {
@@ -220,7 +403,7 @@
       ]
     },
     {
-      "name": "sikemux_task_read",
+      "name": "task_read",
       "method": "task.read",
       "description": "Read task status and new terminal output by byte cursor.",
       "properties": {
@@ -242,7 +425,7 @@
       ]
     },
     {
-      "name": "sikemux_task_stop",
+      "name": "task_stop",
       "method": "task.stop",
       "description": "Stop the exact managed task execution and its process tree.",
       "properties": {
@@ -255,7 +438,7 @@
       ]
     },
     {
-      "name": "sikemux_ui_open",
+      "name": "ui_open",
       "method": "ui.open",
       "description": "Open a project file, diff, task terminal, or the configured preview.",
       "properties": {
@@ -286,7 +469,7 @@
       ]
     },
     {
-      "name": "sikemux_events_wait",
+      "name": "events_wait",
       "method": "events.wait",
       "description": "Wait for project task or UI events after an event cursor.",
       "properties": {

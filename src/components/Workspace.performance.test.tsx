@@ -69,7 +69,6 @@ function fixture(projects: number): StoreState {
             name: id,
             kind: "project",
             cwd,
-            deploy: null,
             pinned: false,
             activeWindowId: state.windowsBySession[id][0],
         };

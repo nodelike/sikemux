@@ -102,16 +102,16 @@ sikemux tool ui.open '{"kind":"file","path":"src/App.tsx","line":42,"focus":true
 sikemux tool task.stop '{"executionId":"RETURNED_ID"}'
 ```
 
-| CLI method          | MCP tool                    | Behavior                                                                         |
-| ------------------- | --------------------------- | -------------------------------------------------------------------------------- |
-| `workspace.inspect` | `sikemux_workspace_inspect` | Project panes, configured tasks, harness runs, and the current event cursor      |
-| `task.start`        | `sikemux_task_start`        | Start a configured task in a managed terminal; requires an idempotency key       |
-| `task.read`         | `sikemux_task_read`         | Status, exit code, and output after a byte cursor                                |
-| `task.stop`         | `sikemux_task_stop`         | Stop one exact execution and its process tree                                    |
-| `ui.open`           | `sikemux_ui_open`           | Open a file, diff, task terminal, or the configured preview                      |
-| `events.wait`       | `sikemux_events_wait`       | Wait up to 30 seconds for project task output, task lifecycle, or UI-open events |
+| CLI method          | MCP tool            | Behavior                                                                         |
+| ------------------- | ------------------- | -------------------------------------------------------------------------------- |
+| `workspace.inspect` | `workspace_inspect` | Project panes, configured tasks, harness runs, and the current event cursor      |
+| `task.start`        | `task_start`        | Start a configured task in a managed terminal; requires an idempotency key       |
+| `task.read`         | `task_read`         | Status, exit code, and output after a byte cursor                                |
+| `task.stop`         | `task_stop`         | Stop one exact execution and its process tree                                    |
+| `ui.open`           | `ui_open`           | Open a file, diff, task terminal, or the configured preview                      |
+| `events.wait`       | `events_wait`       | Wait up to 30 seconds for project task output, task lifecycle, or UI-open events |
 
-A seventh tool, `sikemux_guide`, has no CLI pair. It returns `browser/SIKEMUX_GUIDE.md`, the operating guide agents read once instead of paying for long tool descriptions on every request. Tool schemas stay one line each and the guide carries the protocol: cursors, idempotency, retention, and the browser tab model. It is the agent-facing copy of the rest of this section, so changes here belong in both.
+A seventh tool, `guide`, has no CLI pair. It returns `browser/SIKEMUX_GUIDE.md`, the operating guide agents read once instead of paying for long tool descriptions on every request. Tool schemas stay one line each and the guide carries the protocol: cursors, idempotency, retention, and the browser tab model. It is the agent-facing copy of the rest of this section, so changes here belong in both.
 
 Task launches use `sikemux.json` and its existing project-trust dialog. A changed configuration is checked again before launch. Reusing an idempotency key returns the original execution, including after completion. Starting an already active harness task returns that execution. A task already running through the command deck must be stopped there before launching the same task through the harness.
 

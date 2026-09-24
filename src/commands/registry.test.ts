@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { KEYBINDING_ACTIONS, keybindingLabel } from "../keybindings";
+import { keybindingActions, keybindingLabel } from "../keybindings";
 import { buildCommandRegistry, customCommandAvailable, type CustomCommand } from "./registry";
 
 const custom: CustomCommand = {
@@ -19,7 +19,7 @@ describe("command registry", () => {
             executeBuiltin,
         });
 
-        expect(entries).toHaveLength(KEYBINDING_ACTIONS.length);
+        expect(entries).toHaveLength(keybindingActions().length);
         const project = entries.find((entry) => entry.id === "project.open");
         expect(project?.shortcut).toBe(keybindingLabel("Ctrl+Shift+KeyO"));
         project?.execute();

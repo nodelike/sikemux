@@ -133,3 +133,6 @@
     color: var(--ink-faint);
     font-size: 10.5px;
 }
+html.is-transparent .dd-btn {
+    background: transparent;
+}

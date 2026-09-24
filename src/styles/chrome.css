@@ -619,7 +619,7 @@
    screens have nothing to start below. */
 .window-area--strip {
     --window-strip-h: 34px;
-    --window-strip-gap: var(--space-1h);
+    --window-strip-gap: calc(var(--shell-gap) - var(--pane-gutter));
 }
 /* One session's screens laid end to end. The track slides sideways to bring a
    screen to the front, and owns the tab strip inset once for all of them. */

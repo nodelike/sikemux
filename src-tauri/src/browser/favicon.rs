@@ -373,6 +373,7 @@ mod tests {
     async fn serve(content_type: &str, body: Vec<u8>) -> Url {
         use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
+        crate::install_tls_crypto();
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let url = Url::parse(&format!("http://{}/icon", listener.local_addr().unwrap())).unwrap();
         let head = format!(

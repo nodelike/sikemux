@@ -4,22 +4,18 @@ import type { KeybindingOverrides } from "../../keybindings";
 import type {
     Agent,
     AgentPermissionMode,
-    AwsService,
     ProjectRoot,
     ProviderProfile,
     ProviderProfileSelection,
     RailDensity,
     RecentEntry,
-    RundeckSettings,
     Session,
     Window,
 } from "./domain";
 import type { EditorPaneView } from "./view";
 import type { PersistedWorkbenchItemEnvelope } from "../../workbench/registry";
 
-export type PersistedSession = Omit<Session, "bruno"> & {
-    bruno?: Pick<NonNullable<Session["bruno"]>, "collectionPath" | "selectedEnvs"> | null;
-};
+export type PersistedSession = Session;
 
 /** Safe restart record. Startup commands and runtime evidence are never serialized. */
 export type PersistedAgent = Pick<
@@ -58,24 +54,24 @@ export interface PersistedSnapshot {
 
 export interface PersistedPrefs {
     projectRoots: ProjectRoot[];
-    brunoWorkspaces?: string[];
     themeId: string;
-    themeMode?: "manual" | "system";
-    systemLightThemeId?: string;
-    systemDarkThemeId?: string;
     customThemes?: Theme[];
     uiTextScale?: number;
+    terminalFontSize?: number;
+    chatTextScale?: number;
+    editorTextScale?: number;
     windowOpacity: number;
     windowBlur: number;
     cloudBrowser: string;
     cloudBrowserShortcut: string;
     keybindingOverrides?: KeybindingOverrides;
-    awsProfile: string | null;
-    awsService: AwsService;
     sideRailOpen: boolean;
     agentRailOpen: boolean;
+    sideRailWidth?: number;
+    agentRailWidth?: number;
     zenMode: boolean;
-    rundeck?: RundeckSettings;
+    pluginSettings?: Record<string, unknown>;
+    disabledPlugins?: string[];
     restoreAgentTabs?: boolean;
     autoResumeAgents?: boolean;
     railDensity?: RailDensity;

@@ -56,7 +56,7 @@ interface Runtime {
     getShaderNoiseTexture: Shaders["getShaderNoiseTexture"];
 }
 
-export type ShaderFieldPreset = "ambient" | "onboarding";
+export type ShaderFieldPreset = "ambient" | "onboarding" | "release";
 
 /*
  * The panes on the screen being read, plus room for the tour.
@@ -324,6 +324,42 @@ interface Recipe {
 
 const TRANSPARENT: [number, number, number, number] = [0, 0, 0, 0];
 
+function lightDotColor(runtime: Runtime, theme: Theme): [number, number, number, number] {
+    const hairline = runtime.getShaderColorFromString(theme.chrome.line);
+    const ink = runtime.getShaderColorFromString(theme.chrome.inkMuted);
+    return [0, 1, 2].map((i) => hairline[i] * 0.9 + ink[i] * 0.1).concat(1) as [number, number, number, number];
+}
+
+/*
+ * The dithering shader lights solid wherever its noise peaks and draws in one
+ * colour. The release sky squeezes the noise into a band, so it neither fills
+ * solid nor empties out, and takes each dot's colour from a gradient running across the sky.
+ */
+const RELEASE_DENSITY = { floor: 0.12, peak: 0.42 };
+
+function patchShader(shader: string, edits: readonly [string, string][]): string {
+    return edits.reduce((source, [from, to]) => {
+        if (!source.includes(from)) throw new Error(`the dithering shader no longer contains "${from}"`);
+        return source.replace(from, to);
+    }, shader);
+}
+
+function releaseSkyShader(shader: string): string {
+    return patchShader(shader, [
+        ["uniform float u_shape;", "uniform float u_shape;\nuniform vec4 u_colors[3];"],
+        [
+            "float res = step(.5, shape + dithering);",
+            `float res = step(.5, mix(${RELEASE_DENSITY.floor.toFixed(2)}, ${RELEASE_DENSITY.peak.toFixed(2)}, shape) + dithering);`,
+        ],
+        [
+            "vec3 fgColor = u_colorFront.rgb * u_colorFront.a;",
+            `float hueAt = clamp(normalizedUV.x + .5 + .12 * sin(t + normalizedUV.y * 4.), 0., 1.);
+  vec3 hue = hueAt < .5 ? mix(u_colors[0].rgb, u_colors[1].rgb, hueAt * 2.) : mix(u_colors[1].rgb, u_colors[2].rgb, hueAt * 2. - 1.);
+  vec3 fgColor = hue * u_colorFront.a;`,
+        ],
+    ]);
+}
+
 const PRESETS: Record<ShaderFieldPreset, (runtime: Runtime, theme: Theme) => Recipe> = {
     /*
      * The screen's surface: a Bayer grid over simplex noise, so the card being
@@ -333,9 +369,10 @@ const PRESETS: Record<ShaderFieldPreset, (runtime: Runtime, theme: Theme) => Rec
      * already shows. It used to paint the theme's recess there too, and on a
      * see-through window — where the card paints nothing — that recess was the
      * only fill on the screen, so the mask turned it into a dark wash sliding
-     * down over the desktop. The dots are the raised panel tone, a surface tone
-     * rather than an ink, so however many of them there are the mean barely
-     * moves and a light theme is textured rather than greyed.
+     * down over the desktop. On a dark theme the dots are the raised surface
+     * tone. On a light one every surface tone is too close to the ground to
+     * show and the muted ink is too loud, so they are the hairline nudged a
+     * tenth of the way toward that ink.
      */
     ambient: (runtime, theme) => ({
         /*
@@ -355,7 +392,7 @@ const PRESETS: Record<ShaderFieldPreset, (runtime: Runtime, theme: Theme) => Rec
         continuous: true,
         uniforms: {
             u_colorBack: TRANSPARENT,
-            u_colorFront: runtime.getShaderColorFromString(theme.chrome.bgRaised),
+            u_colorFront: theme.dark ? runtime.getShaderColorFromString(theme.chrome.bgRaised) : lightDotColor(runtime, theme),
             u_shape: runtime.DitheringShapes.simplex,
             u_type: runtime.DitheringTypes["8x8"],
             // The dots are the texture, and their size is free: the shader
@@ -364,6 +401,25 @@ const PRESETS: Record<ShaderFieldPreset, (runtime: Runtime, theme: Theme) => Rec
             // 2 washed into haze, 4 read as blocks; this sits between them.
             u_pxSize: 3,
             ...sizing(runtime, "none", 2.4),
+        },
+    }),
+
+    /*
+     * The sky over the release notes' sidebar: the ambient grain running from
+     * the accent through the syntax pink to the syntax green. Its host fades it
+     * out down the sidebar.
+     */
+    release: (runtime, theme) => ({
+        fragmentShader: releaseSkyShader(runtime.ditheringFragmentShader),
+        speed: 0.35,
+        uniforms: {
+            u_colorBack: TRANSPARENT,
+            u_colorFront: runtime.getShaderColorFromString(theme.chrome.acc),
+            u_colors: [theme.chrome.acc, theme.highlight.function, theme.highlight.string].map((hue) => runtime.getShaderColorFromString(hue)),
+            u_shape: runtime.DitheringShapes.simplex,
+            u_type: runtime.DitheringTypes["8x8"],
+            u_pxSize: 3,
+            ...sizing(runtime, "none", 1.4),
         },
     }),
 

@@ -44,7 +44,8 @@ async function editorOfDocuments(): Promise<{ container: HTMLElement; paneId: st
     const paneId = state.windows[state.sessions[state.activeSessionId].activeWindowId].activePaneId;
     setState({ editorViews: { [paneId]: { openTabs: [FIRST, SECOND, THIRD], activePath: FIRST } } });
     const { container } = render(<Workspace />);
-    await waitFor(() => expect(container.querySelector(".cm-content")).toHaveTextContent("one"));
+    // The first editor in a file loads CodeMirror cold, which on CI can take over the default second.
+    await waitFor(() => expect(container.querySelector(".cm-content")).toHaveTextContent("one"), { timeout: 5_000 });
     return { container, paneId };
 }
 

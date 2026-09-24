@@ -1,9 +1,9 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "bundle": {
-    "externalBin": ["binaries/sikemux-editor", "binaries/sikemux-browser-mcp"],
+    "externalBin": ["binaries/sikemux-editor", "binaries/sikemux-tools-mcp"],
     "resources": {
-      "resources/sikemux_pi_browser.ts": "sikemux_pi_browser.ts"
+      "resources/sikemux_pi_tools.ts": "sikemux_pi_tools.ts"
     }
   }
 }

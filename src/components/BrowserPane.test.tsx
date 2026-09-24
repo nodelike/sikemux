@@ -37,6 +37,7 @@ function tab(overrides: Partial<BrowserTab> = {}): BrowserTab {
         canGoBack: false,
         canGoForward: false,
         favicon: null,
+        acting: false,
         ...overrides,
     };
 }
@@ -153,6 +154,21 @@ describe("BrowserPaneHost", () => {
         fireEvent.change(address, { target: { value: "openai.com" } });
         fireEvent.submit(address.closest("form")!);
         expect(browserApi.navigate).toHaveBeenCalledWith("agent-one", "openai.com");
+    });
+
+    it("marks the tab the agent is working in with its colour and icon, beside the site's", async () => {
+        renderPane();
+        await waitFor(() => expect(screen.getByRole("tab", { name: "Example" })).toBeInTheDocument());
+        expect(screen.queryByRole("img", { name: "codex is working in this tab" })).not.toBeInTheDocument();
+
+        await announceStrip({
+            tabs: [tab({ acting: true }), tab({ id: "tab-two", title: "Second", active: false })],
+            activeTabId: "tab-one",
+        });
+
+        const working = screen.getByRole("img", { name: "codex is working in this tab" });
+        expect(working.closest(".tab-wrap")).toHaveClass("acting");
+        expect(screen.getByRole("tab", { name: /Second/ }).closest(".tab-wrap")).not.toHaveClass("acting");
     });
 
     /* A web app moving between its own screens never loads a document, so the

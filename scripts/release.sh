@@ -263,6 +263,10 @@ DMG="${DMG_CANDIDATES[0]}"
 [[ -s "$DMG" ]] || fail "DMG is empty"
 /usr/bin/hdiutil verify "$DMG" >/dev/null || fail "DMG verification failed"
 node "$ROOT/scripts/verify-updater-signature.mjs" "$TAR" "$SIG"
+UPDATE_BUDGET_BYTES=$((16 * 1024 * 1024))
+TAR_BYTES="$(stat -f %z "$TAR")"
+echo "→ Updater archive is $TAR_BYTES bytes (budget $UPDATE_BUDGET_BYTES)"
+((TAR_BYTES <= UPDATE_BUDGET_BYTES)) || fail "updater archive is $TAR_BYTES bytes, over the $UPDATE_BUDGET_BYTES byte budget"
 
 EXTRACTED="$(mktemp -d)"
 /usr/bin/tar -xzf "$TAR" -C "$EXTRACTED"

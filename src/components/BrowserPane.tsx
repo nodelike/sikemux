@@ -3,7 +3,7 @@ import { browserApi, BLANK_URL, type BrowserBounds, type BrowserSnapshot } from 
 import { onStageFrame, useNativeViewsOccluded, useStageMoving } from "../state/nativeViews";
 import type { AgentType } from "../state/types";
 import { reportError } from "../state/toast";
-import { IconChevron, IconGlobe, IconPlus, IconRefresh } from "./Icons";
+import { AgentIcon, IconChevron, IconGlobe, IconPlus, IconRefresh } from "./Icons";
 import { TabBar } from "./TabBar";
 import { useStore } from "../state/store";
 import { EMPTY_STRIP, refreshBrowserStrip, takeBrowserRestore } from "../state/browserStrips";
@@ -235,7 +235,13 @@ function BrowserPane({
                     label: tab.title || (tab.url === BLANK_URL ? "New tab" : tab.url),
                     title: tab.url,
                     active: tab.id === snapshot.activeTabId,
+                    className: tab.acting ? "acting" : undefined,
                     icon: <SiteIcon src={tab.favicon} />,
+                    badge: tab.acting ? (
+                        <span className={`agent-glyph ${agentType}`} role="img" aria-label={`${agentType} is working in this tab`}>
+                            <AgentIcon type={agentType} size={16} />
+                        </span>
+                    ) : undefined,
                     accessory: tab.loading ? (
                         <span className="agent-activity state-working" role="img" aria-label="Loading">
                             <span className="agent-state-loader" aria-hidden="true" />

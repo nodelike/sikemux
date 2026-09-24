@@ -1,5 +1,7 @@
 import { lazy, Suspense, type ReactNode } from "react";
-import type { PaneKind, PaneNode, PtyContext, Session, Window as WindowT } from "../state/types";
+import type { CorePaneKind, PaneNode, PtyContext, Session, Window as WindowT } from "../state/types";
+import { isPluginKind } from "../plugins/kinds";
+import { pluginSurface } from "../plugins/registry";
 import * as cmd from "../state/commands";
 import { TerminalPane } from "../terminal/TerminalPane";
 import { AgentPane } from "../components/AgentPane";
@@ -18,9 +20,6 @@ export interface WorkbenchItemRendererProps {
 const EditorPane = lazy(() => import("../components/EditorPane").then((module) => ({ default: module.EditorPane })));
 const GitPane = lazy(() => import("../components/GitPane").then((module) => ({ default: module.GitPane })));
 const DiffPane = lazy(() => import("../components/DiffPane").then((module) => ({ default: module.DiffPane })));
-const AwsPane = lazy(() => import("../components/aws/AwsPane").then((module) => ({ default: module.AwsPane })));
-const RundeckPane = lazy(() => import("../components/rundeck/RundeckPane").then((module) => ({ default: module.RundeckPane })));
-const BrunoPane = lazy(() => import("../components/bruno/BrunoPane").then((module) => ({ default: module.BrunoPane })));
 const SearchPane = lazy(() => import("../components/SearchPane").then((module) => ({ default: module.SearchPane })));
 
 const paneCwd = (pane: PaneNode, session: Session) => pane.cwd || session.cwd;
@@ -38,7 +37,7 @@ function ItemFallback() {
     return <div style={{ width: "100%", height: "100%" }} />;
 }
 
-export const BUILTIN_ITEM_RENDERERS: Readonly<Record<PaneKind, (props: WorkbenchItemRendererProps) => ReactNode>> = {
+export const BUILTIN_ITEM_RENDERERS: Readonly<Record<CorePaneKind, (props: WorkbenchItemRendererProps) => ReactNode>> = {
     editor: ({ pane, session, win, active, visible }) => (
         <Suspense fallback={<ItemFallback />}>
             <EditorPane
@@ -60,21 +59,6 @@ export const BUILTIN_ITEM_RENDERERS: Readonly<Record<PaneKind, (props: Workbench
     diff: ({ pane, session, active }) => (
         <Suspense fallback={<ItemFallback />}>
             <DiffPane cwd={paneCwd(pane, session)} active={active} />
-        </Suspense>
-    ),
-    aws: ({ visible }) => (
-        <Suspense fallback={<ItemFallback />}>
-            <AwsPane active={visible} />
-        </Suspense>
-    ),
-    rundeck: ({ pane, visible }) => (
-        <Suspense fallback={<ItemFallback />}>
-            <RundeckPane paneId={pane.id} active={visible} />
-        </Suspense>
-    ),
-    bruno: ({ pane, session, visible }) => (
-        <Suspense fallback={<ItemFallback />}>
-            <BrunoPane paneId={pane.id} sessionId={session.id} active={visible} />
         </Suspense>
     ),
     search: ({ pane, session, active, visible }) => (
@@ -101,5 +85,9 @@ export const BUILTIN_ITEM_RENDERERS: Readonly<Record<PaneKind, (props: Workbench
 };
 
 export function renderWorkbenchItem(props: WorkbenchItemRendererProps): ReactNode {
-    return BUILTIN_ITEM_RENDERERS[props.pane.kind](props);
+    const kind = props.pane.kind;
+    if (!isPluginKind(kind)) return BUILTIN_ITEM_RENDERERS[kind](props);
+    const surface = pluginSurface(kind);
+    if (!surface) return <ItemFallback />;
+    return <Suspense fallback={<ItemFallback />}>{surface.render({ paneId: props.pane.id, visible: props.visible })}</Suspense>;
 }

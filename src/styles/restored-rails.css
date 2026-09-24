@@ -1,6 +1,5 @@
 .workspace-rail.agent-rail {
     flex-direction: column;
-    width: 288px;
     min-width: 240px;
 }
 .agent-rail > .rail-scroll {
@@ -94,7 +93,7 @@
     flex-shrink: 0;
     margin-left: auto;
     color: var(--ink-faint);
-    font-family: var(--mono);
+    font-family: var(--kbd);
     font-size: calc(10.5px * var(--ui-text-scale, 1));
     opacity: 0.5;
 }
@@ -110,6 +109,11 @@
     width: 20px;
     height: 20px;
     flex-shrink: 0;
+}
+
+/* Agent glyphs are drawn with room around them inside the 20px box; pull them together. */
+.proj-pip + .proj-pip {
+    margin-left: -6px;
 }
 
 .side-rail .proj-child:hover .proj-child-kbd {

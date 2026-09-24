@@ -1,8 +1,14 @@
+import type { PluginManifest } from "../api/plugins";
 import { create } from "zustand";
 import { enableMapSet, produce, type Draft } from "immer";
 import { DEFAULT_THEME_ID, type Theme } from "../themes";
+import { DEFAULT_TERMINAL_FONT_SIZE } from "../terminal/fontSize";
+import { DEFAULT_CHAT_TEXT_SCALE } from "../chat/textScale";
+import { DEFAULT_EDITOR_TEXT_SCALE } from "../editor/textScale";
 import type { KeybindingOverrides } from "../keybindings";
 import type { CustomCommand } from "../commands/registry";
+import type { SettingsPageId } from "../settingsIndex";
+import { RAIL_WIDTH } from "../lib/railWidths";
 import { DEFAULT_PROVIDER_PROFILES, DEFAULT_PROVIDER_PROFILE_SELECTION } from "./types";
 
 enableMapSet();
@@ -12,23 +18,18 @@ import type { BrowserSnapshot } from "../api/browser";
 import type {
     Agent,
     AgentPermissionMode,
-    AwsService,
     BrowserPaneView,
-    EcsLevel,
     EditorPaneView,
     CliPendingEditorOpen,
     GitPaneView,
-    BrunoView,
     GlobalSearchView,
     PickerMode,
     ProjectRoot,
     ProviderProfile,
     ProviderProfileSelection,
     RecentEntry,
-    RundeckSettings,
     RailDensity,
     DiffTarget,
-    RundeckView,
     Session,
     SessionSwitcherView,
     Window,
@@ -47,27 +48,28 @@ export interface DomainState {
     recent: RecentEntry[];
 
     projectRoots: ProjectRoot[];
-    /** Imported Bruno (API) workspace collection paths, most-recent-first. Survive session close so they stay reopenable. */
-    brunoWorkspaces: string[];
     themeId: string;
-    themeMode: "manual" | "system";
-    systemLightThemeId: string;
-    systemDarkThemeId: string;
     /** User-defined themes, derived from a built-in or another custom theme via the theme editor. */
     customThemes: Theme[];
     uiTextScale: number;
+    terminalFontSize: number;
+    chatTextScale: number;
+    editorTextScale: number;
     windowOpacity: number;
     windowBlur: number;
     cloudBrowser: string;
     cloudBrowserShortcut: string;
     keybindingOverrides: KeybindingOverrides;
-    awsProfile: string | null;
-    awsService: AwsService;
     sideRailOpen: boolean;
     agentRailOpen: boolean;
+    sideRailWidth: number;
+    agentRailWidth: number;
     diffTarget: Record<string, DiffTarget | null>;
     zenMode: boolean;
-    rundeck: RundeckSettings;
+    /** Each plugin's own settings, by plugin id, in whatever shape the plugin decodes. */
+    pluginSettings: Readonly<Record<string, unknown>>;
+    /** Plugins switched off in Settings; they are built in but act as if absent. */
+    disabledPlugins: readonly string[];
     restoreAgentTabs: boolean;
     railDensity: RailDensity;
     onboardingComplete: boolean;
@@ -105,17 +107,16 @@ export interface UpdateCheckOutcome {
 
 export interface ViewState {
     home: string;
+    /** Plugins compiled into this build, as the native host reports them. */
+    pluginManifests: readonly PluginManifest[];
 
     pickerOpen: boolean;
     pickerMode: PickerMode;
     agentPaletteOpen: boolean;
     filePaletteOpen: boolean;
     newTabPaletteOpen: boolean;
-    rundeckJobPaletteOpen: boolean;
-    brunoReqPaletteOpen: boolean;
-    brunoEnvPaletteOpen: boolean;
     settingsOpen: boolean;
-    awsAuthModal: { profile: string; ssoStartUrl: string | null } | null;
+    settingsPage: SettingsPageId;
     zoomedPaneId: string | null;
     sessionSwitcher: SessionSwitcherView | null;
 
@@ -131,10 +132,6 @@ export interface ViewState {
     pendingEditorOpens: Record<string, CliPendingEditorOpen[]>;
     dirtyEditorPaths: Record<string, string[]>;
     gitViews: Record<string, GitPaneView>;
-    ecsViews: Record<string, EcsLevel>;
-    rundeckViews: Record<string, RundeckView>;
-    brunoViews: Record<string, BrunoView>;
-    expandedBillingMonth: Record<string, string | null>;
 
     gitModal: GitModal | null;
     gitCmdLog: GitCmdEntry[];
@@ -146,6 +143,8 @@ export interface ViewState {
     agentActivity: Record<string, import("./types").AgentRuntimeState>;
     /** How many background shells, monitors and subagents each agent still has going. */
     agentBackgroundWork: Record<string, number>;
+    /** How many of those are subagents, counted on their own so a tab can show them. */
+    agentSubagents: Record<string, number>;
 
     commandPaletteOpen: boolean;
     onboardingOpen: boolean;
@@ -179,7 +178,6 @@ function initialSession(): {
         name: "main",
         kind: "command",
         cwd: "",
-        deploy: null,
         pinned: false,
         activeWindowId: win.id,
     };
@@ -197,29 +195,25 @@ export const useStore = create<StoreState>(() => {
         activeSessionId: session.id,
         recent: [],
         projectRoots: [],
-        brunoWorkspaces: [],
         themeId: DEFAULT_THEME_ID,
-        themeMode: "manual",
-        systemLightThemeId: "aura-day",
-        systemDarkThemeId: DEFAULT_THEME_ID,
         customThemes: [],
         uiTextScale: 1,
+        terminalFontSize: DEFAULT_TERMINAL_FONT_SIZE,
+        chatTextScale: DEFAULT_CHAT_TEXT_SCALE,
+        editorTextScale: DEFAULT_EDITOR_TEXT_SCALE,
         windowOpacity: 1,
         windowBlur: 0,
         cloudBrowser: "",
         cloudBrowserShortcut: "",
         keybindingOverrides: {},
-        awsProfile: null,
-        awsService: "ecs",
         sideRailOpen: true,
         agentRailOpen: true,
+        sideRailWidth: RAIL_WIDTH.start.initial,
+        agentRailWidth: RAIL_WIDTH.end.initial,
         diffTarget: {},
         zenMode: false,
-        rundeck: {
-            activeProject: "",
-            activeEnvFolder: null,
-            prodEnvs: ["prod", "production"],
-        },
+        pluginSettings: {},
+        disabledPlugins: [],
         restoreAgentTabs: true,
         railDensity: "comfortable",
         onboardingComplete: false,
@@ -233,16 +227,14 @@ export const useStore = create<StoreState>(() => {
         defaultAgentPermissionMode: "bypass",
 
         home: "",
+        pluginManifests: [],
         pickerOpen: false,
         pickerMode: "all",
         agentPaletteOpen: false,
         filePaletteOpen: false,
         newTabPaletteOpen: false,
-        rundeckJobPaletteOpen: false,
-        brunoReqPaletteOpen: false,
-        brunoEnvPaletteOpen: false,
         settingsOpen: false,
-        awsAuthModal: null,
+        settingsPage: "general",
         zoomedPaneId: null,
         sessionSwitcher: null,
         editorViews: {},
@@ -252,16 +244,13 @@ export const useStore = create<StoreState>(() => {
         pendingEditorOpens: {},
         dirtyEditorPaths: {},
         gitViews: {},
-        ecsViews: {},
-        rundeckViews: {},
-        brunoViews: {},
-        expandedBillingMonth: {},
         gitModal: null,
         gitCmdLog: [],
         gitCmdLogOpen: false,
         globalSearchBySession: {},
         agentActivity: {},
         agentBackgroundWork: {},
+        agentSubagents: {},
         commandPaletteOpen: false,
         onboardingOpen: false,
         diagnosticsOpen: false,

@@ -61,7 +61,7 @@
     padding: 0 10px;
     color: var(--ink-faint);
     font-family: var(--ui);
-    font-size: 10.5px;
+    font-size: calc(10.5px * var(--chat-text-em, 1));
     transition:
         color 100ms,
         background 100ms;
@@ -73,7 +73,7 @@
 
 .agent-view-switch button[aria-pressed="true"] {
     color: var(--ink);
-    background: var(--rail-2);
+    background: var(--surface-active);
 }
 
 .agent-view-switch button:disabled {
@@ -84,23 +84,30 @@
 .agent-browser-open {
     display: inline-flex;
     align-items: center;
-    gap: 5px;
+    justify-content: center;
+    width: var(--control-h);
     height: var(--control-h);
-    padding: 0 10px;
+    padding: 0;
     border: 1px solid var(--line);
     border-radius: var(--radius-control);
     background: color-mix(in srgb, var(--void) 46%, transparent);
     color: var(--ink-faint);
-    font-family: var(--ui);
-    font-size: 10.5px;
     transition:
         color 100ms,
-        border-color 100ms;
+        border-color 100ms,
+        background 100ms;
 }
 
 .agent-browser-open:hover {
-    border-color: var(--acc-line);
-    color: var(--ink);
+    border-color: var(--border-strong);
+    background: var(--surface-hover);
+    color: var(--text-primary);
+}
+
+.agent-browser-open[aria-pressed="true"] {
+    border-color: var(--border-selected);
+    background: var(--surface-selected);
+    color: var(--acc);
 }
 
 .yolo-toggle {
@@ -115,7 +122,7 @@
     background: color-mix(in srgb, var(--void) 46%, transparent);
     color: var(--ink-faint);
     font-family: var(--ui);
-    font-size: 10.5px;
+    font-size: calc(10.5px * var(--chat-text-em, 1));
     font-weight: 560;
     line-height: 1;
     letter-spacing: 0.08em;
@@ -125,8 +132,13 @@
         border-color 100ms;
 }
 
-.yolo-toggle:hover {
+.yolo-toggle:hover:not(:disabled) {
     color: var(--ink);
+}
+
+.yolo-toggle:disabled {
+    cursor: default;
+    opacity: 0.42;
 }
 
 .yolo-glyph {
@@ -138,9 +150,13 @@
     border-left: 1px solid var(--line);
     color: var(--ink-faint);
     font-family: var(--kbd);
-    font-size: 9px;
+    font-size: calc(9px * var(--chat-text-em, 1));
     font-weight: 600;
     letter-spacing: 0.02em;
+}
+
+.yolo-hint kbd {
+    font: inherit;
 }
 
 .yolo-toggle.on {
@@ -234,6 +250,12 @@
 }
 
 .agent-chat-pane {
+    /* Not multiplied by the app-wide text scale, so ⌘0 always returns the
+       transcript to exactly its designed size. */
+    --chat-text-em: var(--chat-text-scale, 1);
+    --text-3xs: calc(10px * var(--chat-text-em));
+    --text-2xs: calc(11px * var(--chat-text-em));
+    --text-xs: calc(12px * var(--chat-text-em));
     position: relative;
     display: grid;
     /* Without a column of its own the grid widens to the longest unbreakable
@@ -266,11 +288,13 @@
     width: 100%;
 }
 
+/* Size stays uncontained: the virtualizer measures each row's real height. */
 .chat-virtual-row {
     position: absolute;
     top: 0;
     left: 0;
     width: 100%;
+    contain: layout style;
 }
 
 .chat-message {
@@ -297,14 +321,14 @@
     border: 1px solid color-mix(in srgb, var(--line) 80%, transparent);
     border-radius: var(--radius-3);
     background: color-mix(in srgb, var(--rail-2) 72%, transparent);
-    font-size: 13.5px;
+    font-size: calc(13.5px * var(--chat-text-em, 1));
 }
 
 .chat-message-content {
     flex: 1 1 auto;
     min-width: 0;
     color: var(--ink);
-    font-size: 14px;
+    font-size: calc(14px * var(--chat-text-em, 1));
     line-height: 1.65;
     user-select: text;
 }
@@ -342,7 +366,7 @@
 .chat-message-rate {
     margin-left: auto;
     font-family: var(--mono);
-    font-size: 10.5px;
+    font-size: calc(10.5px * var(--chat-text-em, 1));
     font-style: italic;
     letter-spacing: 0.02em;
     color: var(--ink-dim);
@@ -408,7 +432,7 @@
     background: color-mix(in srgb, var(--void) 72%, transparent);
     color: var(--ink-dim);
     font-family: var(--mono);
-    font-size: 12px;
+    font-size: calc(12px * var(--chat-text-em, 1));
     line-height: 1.55;
     white-space: pre-wrap;
 }
@@ -466,7 +490,7 @@
 .chat-table table {
     border-collapse: collapse;
     width: 100%;
-    font-size: 13.5px;
+    font-size: calc(13.5px * var(--chat-text-em, 1));
     font-variant-numeric: tabular-nums;
 }
 
@@ -572,7 +596,7 @@
 .chat-thought {
     margin: 9px 0;
     color: var(--ink-faint);
-    font-size: 12.5px;
+    font-size: calc(12.5px * var(--chat-text-em, 1));
     font-style: italic;
 }
 
@@ -911,13 +935,13 @@ button.chat-tool:hover,
 /* ── a subagent's own thread ──────────────────────────────────────── */
 
 /* The card is the record of what a subagent did, so it keeps to itself until
-   it is opened: a rail in the colour of how it ended, and one line saying so.
-   What it is doing right now lives over the composer instead. */
+   it is opened: one line, and a chip saying how it ended. Opened, what it said
+   hangs off the card on a quieter tray. What it is doing right now lives over
+   the composer instead. */
 .chat-subagent {
     --chat-agent: color-mix(in srgb, var(--acc) 62%, var(--ink-faint));
+    --chat-dock-step: 12px;
     margin: 6px 0;
-    border-left: 2px solid color-mix(in srgb, var(--chat-agent) 55%, transparent);
-    border-radius: 0 var(--radius-2) var(--radius-2) 0;
 }
 
 .chat-subagent.state-completed {
@@ -938,8 +962,10 @@ button.chat-tool:hover,
     align-items: center;
     gap: 7px;
     min-height: 24px;
-    padding: 3px 9px 3px 8px;
-    border-radius: 0 var(--radius-2) var(--radius-2) 0;
+    padding: 4px 12px 4px 11px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-2);
+    background: var(--s-raised);
     font-size: var(--text-2xs);
     list-style: none;
     cursor: pointer;
@@ -950,7 +976,7 @@ button.chat-tool:hover,
 }
 
 .chat-subagent summary:hover {
-    background: color-mix(in srgb, var(--ink) 5%, transparent);
+    background: color-mix(in srgb, var(--ink) 5%, var(--s-raised));
 }
 
 .chat-subagent-chevron {
@@ -975,14 +1001,14 @@ button.chat-tool:hover,
     flex: none;
     color: var(--ink);
     font-family: var(--mono);
-    font-size: 10.5px;
+    font-size: calc(10.5px * var(--chat-text-em, 1));
 }
 
 .chat-subagent-task {
     min-width: 0;
     overflow: hidden;
     color: var(--ink-faint);
-    font-size: 10.5px;
+    font-size: calc(10.5px * var(--chat-text-em, 1));
     text-overflow: ellipsis;
     white-space: nowrap;
 }
@@ -994,7 +1020,7 @@ button.chat-tool:hover,
     gap: 7px;
     margin-left: auto;
     font-family: var(--mono);
-    font-size: 9.5px;
+    font-size: calc(9.5px * var(--chat-text-em, 1));
 }
 
 .chat-subagent-calls {
@@ -1002,19 +1028,37 @@ button.chat-tool:hover,
 }
 
 .chat-subagent-state {
-    padding: 1px 5px;
-    border-radius: var(--radius-chip);
-    background: color-mix(in srgb, var(--chat-agent) 14%, transparent);
+    display: grid;
+    width: 14px;
+    height: 14px;
+    flex: none;
+    place-items: center;
     color: var(--chat-agent);
 }
 
+.chat-subagent-spinner {
+    box-sizing: border-box;
+    width: 10px;
+    height: 10px;
+    border: 1.4px solid color-mix(in oklab, currentcolor 26%, transparent);
+    border-top-color: currentcolor;
+    border-right-color: currentcolor;
+    border-radius: 50%;
+    animation: chat-activity-spin 0.72s linear infinite;
+}
+
 .chat-subagent-body {
-    padding: 2px 10px 8px 22px;
+    margin: 0 var(--chat-dock-step);
+    padding: 4px 10px 8px calc(25px - var(--chat-dock-step));
+    border: 1px solid var(--border);
+    border-top: 0;
+    border-radius: 0 0 var(--radius-2) var(--radius-2);
+    background: color-mix(in srgb, var(--s-raised) 45%, transparent);
 }
 
 .chat-subagent-empty {
     color: var(--ink-faint);
-    font-size: 10.5px;
+    font-size: calc(10.5px * var(--chat-text-em, 1));
 }
 
 /*
@@ -1107,7 +1151,7 @@ button.chat-tool:hover,
     overflow: hidden;
     color: var(--ink);
     font-family: var(--mono);
-    font-size: 10.5px;
+    font-size: calc(10.5px * var(--chat-text-em, 1));
     text-overflow: ellipsis;
     white-space: nowrap;
 }
@@ -1116,7 +1160,7 @@ button.chat-tool:hover,
     min-width: 0;
     overflow: hidden;
     color: var(--ink-faint);
-    font-size: 10.5px;
+    font-size: calc(10.5px * var(--chat-text-em, 1));
     text-overflow: ellipsis;
     white-space: nowrap;
 }
@@ -1158,16 +1202,36 @@ button.chat-tool:hover,
 }
 
 .chat-queued-steer {
+    display: inline-flex;
     flex: none;
-    padding: 2px 7px;
+    align-items: center;
+    gap: 6px;
+    height: 20px;
+    padding: 0 7px;
+    border: 1px solid var(--line);
     border-radius: var(--radius-xs);
-    color: var(--ink-dim);
-    font-size: 10.5px;
+    background: color-mix(in srgb, var(--live) 8%, transparent);
+    color: var(--ink);
+    font-size: calc(10.5px * var(--chat-text-em, 1));
+    line-height: 1;
+    transition:
+        background 100ms,
+        border-color 100ms;
 }
 
 .chat-queued-steer:hover {
+    border-color: color-mix(in srgb, var(--live) 45%, var(--line));
     background: color-mix(in srgb, var(--live) 18%, transparent);
-    color: var(--ink);
+}
+
+.chat-queued-steer-key {
+    padding-left: 6px;
+    border-left: 1px solid var(--line);
+    color: var(--ink-faint);
+    font-family: var(--kbd);
+    font-size: calc(9px * var(--chat-text-em, 1));
+    font-weight: 600;
+    letter-spacing: 0.02em;
 }
 
 .chat-queued-message > button:last-child {
@@ -1202,12 +1266,12 @@ button.chat-tool:hover,
     flex: none;
     color: var(--ink);
     font-family: var(--mono);
-    font-size: 10.5px;
+    font-size: calc(10.5px * var(--chat-text-em, 1));
 }
 
 .chat-notice-state {
     flex: none;
-    font-size: 10.5px;
+    font-size: calc(10.5px * var(--chat-text-em, 1));
 }
 
 .chat-notice.state-failed .chat-notice-state {
@@ -1217,7 +1281,7 @@ button.chat-tool:hover,
 .chat-notice-summary {
     min-width: 0;
     overflow: hidden;
-    font-size: 10.5px;
+    font-size: calc(10.5px * var(--chat-text-em, 1));
     text-overflow: ellipsis;
     white-space: nowrap;
 }
@@ -1286,7 +1350,7 @@ button.chat-tool:hover,
     border-radius: var(--radius-control);
     color: var(--ink-dim);
     font-family: var(--mono);
-    font-size: 10px;
+    font-size: calc(10px * var(--chat-text-em, 1));
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -1329,21 +1393,21 @@ button.chat-tool:hover,
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    animation: chat-activity-breathe 1.9s ease-in-out infinite;
+    background: linear-gradient(90deg, var(--ink-faint) 40%, var(--ink) 50%, var(--ink-faint) 60%) 100% 0 / 300% 100%;
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    animation: chat-activity-shimmer 2.2s linear infinite;
 }
 
 .chat-activity-elapsed {
     color: color-mix(in srgb, var(--ink-faint) 68%, transparent);
     font-family: var(--mono);
-    font-size: 9.5px;
+    font-size: calc(9.5px * var(--chat-text-em, 1));
 }
 
-.chat-activity-dot {
+.chat-activity-mark {
     flex: none;
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    background: var(--live);
     animation: chat-activity-breathe 1.5s ease-in-out infinite;
 }
 
@@ -1370,6 +1434,12 @@ button.chat-tool:hover,
     }
 }
 
+@keyframes chat-activity-shimmer {
+    to {
+        background-position: 0 0;
+    }
+}
+
 @keyframes chat-activity-breathe {
     50% {
         opacity: 0.5;
@@ -1389,7 +1459,7 @@ button.chat-tool:hover,
     border-radius: var(--radius-control);
     background: var(--rail-2);
     color: var(--ink-dim);
-    font-size: 10.5px;
+    font-size: calc(10.5px * var(--chat-text-em, 1));
 }
 
 .chat-connection-state button:hover,
@@ -1469,7 +1539,7 @@ button.chat-tool:hover,
     border-radius: var(--radius-control);
     background: var(--rail-2);
     color: var(--ink-dim);
-    font-size: 10.5px;
+    font-size: calc(10.5px * var(--chat-text-em, 1));
 }
 
 .chat-permission-actions button.allow {
@@ -1507,7 +1577,7 @@ button.chat-tool:hover,
 .chat-composer-wrap {
     /* The composer and the jump button float over the same transcript, so they
        share one fill and fade together with the window. */
-    --chat-composer-fill: var(--s-sunken);
+    --chat-composer-fill: color-mix(in srgb, var(--s-raised) 55%, var(--s-sunken));
     /* The gap the field keeps from the box, and how far the stack above tucks
        behind the composer's top edge. */
     --chat-inset: 8px;
@@ -1533,28 +1603,23 @@ button.chat-tool:hover,
     background: var(--chat-composer-fill);
 }
 
-.chat-field {
-    border: 1px solid var(--border);
-    border-radius: var(--radius-2);
-    background: var(--s-raised);
-}
-
-.chat-composer:focus-within .chat-field {
+.chat-composer:focus-within {
     border-color: var(--border-selected);
 }
 
 .chat-composer textarea {
     display: block;
     width: 100%;
-    min-height: 66px;
+    max-height: min(320px, 40vh);
+    overflow-y: auto;
     resize: none;
-    padding: 13px 14px;
+    padding: 10px 12px;
     border: 0;
     outline: 0;
     background: transparent;
     color: var(--ink);
     font-family: var(--ui);
-    font-size: 14.5px;
+    font-size: calc(14.5px * var(--chat-text-em, 1));
     line-height: 1.5;
     user-select: text;
 }
@@ -1571,7 +1636,7 @@ button.chat-tool:hover,
     display: flex;
     flex-wrap: wrap;
     gap: 7px;
-    padding: 11px 11px 0;
+    padding: 6px 6px 0;
 }
 
 .chat-attachments > span {
@@ -1590,7 +1655,7 @@ button.chat-tool:hover,
 
 .chat-attachments > span > span {
     overflow: hidden;
-    font-size: 10.5px;
+    font-size: calc(10.5px * var(--chat-text-em, 1));
     text-overflow: ellipsis;
     white-space: nowrap;
 }
@@ -1627,6 +1692,7 @@ button.chat-tool:hover,
 }
 
 .chat-composer-bar {
+    --control-h: 31px;
     display: flex;
     align-items: center;
     gap: 5px;
@@ -1652,28 +1718,81 @@ button.chat-tool:hover,
     color: var(--ink);
 }
 
-.chat-permission-mode {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
+/* Beside the borderless pickers the toggle is text too: the rainbow word
+   carries YOLO, and the ring and key hint stay in the pane header. */
+.chat-composer-bar .yolo-toggle {
+    padding: 0 8px;
+    border-color: transparent;
+    background: none;
+}
+
+.chat-composer-bar .yolo-toggle:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--ink) 7%, transparent);
+}
+
+.chat-composer-bar .yolo-ring,
+.chat-composer-bar .yolo-hint {
+    display: none;
+}
+
+.chat-context {
+    --usage-signal: var(--acc);
+    display: grid;
+    place-items: center;
+    width: 31px;
     height: 31px;
-    padding: 0 7px;
-    border-radius: var(--radius-control);
-    color: var(--ink-dim);
-    font-size: 10.5px;
+    border-radius: 50%;
 }
 
-.chat-permission-mode.tone-danger {
-    color: var(--warn);
+.chat-context.claude {
+    --usage-signal: var(--brand-claude);
 }
 
-.chat-permission-mode:hover {
-    background: color-mix(in srgb, currentColor 8%, transparent);
+.chat-context.codex {
+    --usage-signal: var(--brand-codex);
 }
 
-.chat-permission-mode:disabled {
-    cursor: default;
-    opacity: 0.42;
+.chat-context[data-tone="warm"] {
+    --usage-signal: var(--warn);
+}
+
+.chat-context[data-tone="hot"] {
+    --usage-signal: var(--danger);
+}
+
+.chat-context:hover {
+    background: color-mix(in srgb, var(--ink) 7%, transparent);
+}
+
+.chat-context svg {
+    width: 18px;
+    height: 18px;
+    transform: rotate(-90deg);
+}
+
+.chat-context circle {
+    fill: none;
+    stroke-width: 2.2;
+}
+
+.chat-context-track {
+    stroke: var(--line);
+}
+
+.chat-context-fill {
+    stroke: var(--usage-signal);
+    stroke-linecap: round;
+    transition: stroke-dasharray 240ms ease-out;
+}
+
+.chat-context-tip {
+    display: grid;
+    gap: 2px;
+}
+
+.chat-context-tip span {
+    color: var(--text-secondary);
+    font-variant-numeric: tabular-nums;
 }
 
 .chat-composer-spacer {
@@ -1681,8 +1800,8 @@ button.chat-tool:hover,
 }
 
 .chat-send {
-    width: 37px;
-    height: 37px;
+    width: 30px;
+    height: 30px;
     margin-left: 3px;
     background: var(--ink);
     color: var(--void);
@@ -1698,8 +1817,8 @@ button.chat-tool:hover,
 }
 
 .chat-send.stop span {
-    width: 11px;
-    height: 11px;
+    width: 9px;
+    height: 9px;
     border-radius: 2px;
     background: currentColor;
 }
@@ -1707,7 +1826,7 @@ button.chat-tool:hover,
 .chat-composer-error {
     padding: 0 16px 5px;
     color: var(--danger);
-    font-size: 10.5px;
+    font-size: calc(10.5px * var(--chat-text-em, 1));
 }
 
 .chat-slash-menu {
@@ -1727,7 +1846,7 @@ button.chat-tool:hover,
     padding: 0 10px;
     border-bottom: 1px solid var(--line-soft);
     color: var(--ink-faint);
-    font-size: 9.5px;
+    font-size: calc(9.5px * var(--chat-text-em, 1));
 }
 
 .chat-slash-menu button {
@@ -1748,13 +1867,13 @@ button.chat-tool:hover,
 
 .chat-slash-menu code {
     color: var(--ink);
-    font-size: 10.5px;
+    font-size: calc(10.5px * var(--chat-text-em, 1));
 }
 
 .chat-slash-menu button > span {
     overflow: hidden;
     color: var(--ink-dim);
-    font-size: 10.5px;
+    font-size: calc(10.5px * var(--chat-text-em, 1));
     text-overflow: ellipsis;
     white-space: nowrap;
 }
@@ -1762,7 +1881,7 @@ button.chat-tool:hover,
 .chat-slash-menu em {
     color: var(--ink-faint);
     font-family: var(--mono);
-    font-size: 9.5px;
+    font-size: calc(9.5px * var(--chat-text-em, 1));
     font-style: normal;
 }
 
@@ -1817,8 +1936,9 @@ button.chat-tool:hover,
     /* The elapsed seconds keep saying the turn is alive without any motion. */
     .chat-activity-label,
     .chat-activity-loader,
-    .chat-activity-dot,
-    .chat-tool-spinner {
+    .chat-activity-mark,
+    .chat-tool-spinner,
+    .chat-subagent-spinner {
         animation: none;
     }
 
@@ -1826,7 +1946,11 @@ button.chat-tool:hover,
         border-color: var(--live);
     }
 
-    .yolo-toggle.on::before,
+    .chat-context-fill {
+        transition: none;
+    }
+
+    .yolo-toggle.on .yolo-ring::before,
     .yolo-toggle.on .yolo-label,
     .yolo-toggle.on .yolo-glyph {
         animation: none;
@@ -1872,7 +1996,7 @@ button.chat-tool:hover,
     opacity: 0.6;
 }
 
-.chat-picker:nth-child(2) .chat-picker-trigger {
+.chat-picker:first-child .chat-picker-trigger {
     color: var(--acc);
 }
 
@@ -1923,6 +2047,50 @@ button.chat-tool:hover,
     color: var(--ink);
     font: inherit;
     font-size: var(--text-xs);
+}
+
+.chat-picker-agents {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    padding: 6px;
+    border-bottom: 1px solid var(--line);
+}
+
+.chat-picker-agents > button {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    height: 26px;
+    padding: 0 8px;
+    color: var(--ink-dim);
+    font-size: var(--text-2xs);
+}
+
+.chat-picker-agents > button > span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.chat-picker-agents > button > svg {
+    flex-shrink: 0;
+}
+
+.chat-picker-agents > button:hover {
+    background: color-mix(in srgb, var(--ink) 7%, transparent);
+    color: var(--ink);
+}
+
+.chat-picker-agents > button[aria-pressed="true"] {
+    background: color-mix(in srgb, var(--acc) 14%, transparent);
+    color: var(--ink);
+}
+
+.chat-picker-agents > button:focus-visible {
+    outline: 1px solid var(--acc);
+    outline-offset: -1px;
 }
 
 .chat-picker-hint {
@@ -1988,7 +2156,7 @@ button.chat-tool:hover,
 .chat-picker-options small {
     margin-top: 3px;
     color: var(--ink-faint);
-    font-size: 10.5px;
+    font-size: calc(10.5px * var(--chat-text-em, 1));
 }
 
 @media (max-width: 650px) {
@@ -2012,4 +2180,24 @@ button.chat-tool:hover,
         bottom: 120px;
         width: auto;
     }
+}
+
+.chat-show-rest {
+    display: block;
+    margin-top: 8px;
+    padding: 4px 10px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-control);
+    background: transparent;
+    color: var(--ink-faint);
+    font-family: var(--ui);
+    font-size: var(--text-2xs);
+    cursor: pointer;
+    transition:
+        color 100ms,
+        border-color 100ms;
+}
+.chat-show-rest:hover {
+    border-color: var(--acc-line);
+    color: var(--ink);
 }
