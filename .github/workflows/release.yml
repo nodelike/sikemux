@@ -52,6 +52,11 @@ jobs:
           workspaces: src-tauri
           shared-key: release
 
+      # release.sh refreshes Cargo.lock offline, which needs every crate already
+      # on disk; a fresh runner has none.
+      - name: Fetch Rust dependencies
+        run: cargo fetch --manifest-path src-tauri/Cargo.toml --locked
+
       - name: Resolve version, channel, and notes
         id: plan
         run: |
