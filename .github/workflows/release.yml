@@ -1,9 +1,10 @@
 name: Release
+run-name: Release ${{ github.ref_name }}
 
+# A release only ever starts from a v* tag, and only the owner may push one.
 on:
   push:
     tags: ["v*"]
-  workflow_dispatch:
 
 permissions:
   contents: read
@@ -61,7 +62,7 @@ jobs:
         id: plan
         run: |
           version="$(node -p "require('./package.json').version")"
-          if [[ "$GITHUB_REF_TYPE" == "tag" && "$GITHUB_REF_NAME" != "v$version" ]]; then
+          if [[ "$GITHUB_REF_NAME" != "v$version" ]]; then
             echo "::error::Tag $GITHUB_REF_NAME does not match package version $version"
             exit 1
           fi
