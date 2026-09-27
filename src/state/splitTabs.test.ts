@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { separatePane, splitWithTab, unsplitTab } from "./commands";
+import { openGitWorkbench, separatePane, splitWithTab, unsplitTab } from "./commands";
 import { collectPanes } from "./layout";
 import { paneToSeparate, tabSplitAllowed } from "./selectors";
 import { getState, setState } from "./store";
 import type { LayoutNode, Window } from "./types";
 
 const initial = getState();
-const pane = (id: string, kind: "terminal" | "agent" | "git" | "editor" = "terminal"): LayoutNode => ({
+const pane = (id: string, kind: "terminal" | "agent" | "git" | "search" | "editor" = "terminal"): LayoutNode => ({
     type: "pane",
     id,
     cwd: "/p",
@@ -58,10 +58,10 @@ describe("splitting two tabs into one", () => {
         expect(collectPanes(shown().root).map((p) => p.id)).toEqual(["p1", "a1"]);
     });
 
-    it("refuses two agents, tool tabs, pinned tabs and a tab onto itself", () => {
-        place("a", win("a", "agent", pane("a1", "agent")), win("b", "agent", pane("b1", "agent")), win("git", "git", pane("g", "git")));
+    it("refuses two agents, the diff, pinned tabs and a tab onto itself", () => {
+        place("a", win("a", "agent", pane("a1", "agent")), win("b", "agent", pane("b1", "agent")), win("diff", "diff", pane("d")));
         expect(tabSplitAllowed(getState(), sessionId(), { id: "b" })).toBe(false);
-        expect(tabSplitAllowed(getState(), sessionId(), { id: "git" })).toBe(false);
+        expect(tabSplitAllowed(getState(), sessionId(), { id: "diff" })).toBe(false);
         expect(tabSplitAllowed(getState(), sessionId(), { id: "a" })).toBe(false);
 
         place("one", win("one", "term", pane("p1")), win("pinned", "term", pane("p2"), { fixed: true }));
@@ -234,5 +234,42 @@ describe("splitting a file beside the tab on screen", () => {
         expect(getState().windows.term.root).toMatchObject({ id: "p1" });
         expect(getState().editorViews[filePane.id]).toBeUndefined();
         expect(shown().id).toBe("files");
+    });
+});
+
+describe("splitting Git and search", () => {
+    it("puts Git beside an agent, and its rail button still finds it there", () => {
+        place("agent", win("agent", "agent", pane("a1", "agent")), win("git", "git", pane("g1", "git")), win("t", "term", pane("p1")));
+
+        splitWithTab(sessionId(), { id: "git" }, "right");
+        expect(tabs()).toEqual(["agent", "t"]);
+
+        setState((state) => ({ sessions: { ...state.sessions, [sessionId()]: { ...state.sessions[sessionId()], activeWindowId: "t" } } }));
+        openGitWorkbench();
+
+        expect(tabs()).toEqual(["agent", "t"]);
+        expect(shown().id).toBe("agent");
+        expect(shown().activePaneId).toBe("g1");
+    });
+
+    it("gives Git its own tab back, as a Git tab", () => {
+        place("agent", win("agent", "agent", pane("a1", "agent")), win("git", "git", pane("g1", "git")));
+        splitWithTab(sessionId(), { id: "git" }, "right");
+
+        separatePane("agent", "g1");
+
+        expect(tabs()).toEqual(["agent", "git"]);
+        expect(getState().windows.git).toMatchObject({ role: "git", root: { id: "g1" } });
+    });
+
+    it("turns a search tab left holding a terminal into a terminal tab", () => {
+        place("search", win("search", "search", pane("s1", "search")), win("t", "term", pane("p1")));
+        splitWithTab(sessionId(), { id: "t" }, "right");
+
+        separatePane("search", "s1");
+
+        const remaining = getState().windows.search;
+        expect(remaining).toMatchObject({ role: "term", root: { id: "p1" } });
+        expect(getState().windows[tabs()[1]]).toMatchObject({ role: "search", root: { id: "s1" } });
     });
 });

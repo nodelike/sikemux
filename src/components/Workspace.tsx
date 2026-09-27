@@ -444,7 +444,7 @@ const WorkspaceTabsBar = memo(function WorkspaceTabsBar({ session, areaRef }: { 
     const withSeparate = (win: WindowT, items: CtxItem[]): CtxItem[] => {
         const pane = paneToSeparate(win, getState().dirtyEditorPaths);
         if (!pane) return items;
-        const label = pane.kind === "editor" ? "Move Focused File Back to Editor" : "Move Focused Terminal Back to Tab Bar";
+        const label = pane.kind === "editor" ? "Move Focused File Back to Editor" : "Move Focused Pane Back to Tab Bar";
         return [...items, { sep: true }, { label, run: () => cmd.separatePane(win.id) }];
     };
 

@@ -175,9 +175,20 @@ function ensureRoleWindow(role: WindowRole, kind: PaneKind, name: string, seedEd
     const st = getState();
     const session = st.sessions[st.activeSessionId];
     if (!session || session.kind !== "project") return;
-    const existing = (st.windowsBySession[session.id] ?? []).find((id) => st.windows[id]?.role === role);
+    const ids = st.windowsBySession[session.id] ?? [];
+    const existing = ids.find((id) => st.windows[id]?.role === role);
     if (existing) {
         selectWindowId(existing);
+        return;
+    }
+    // Git or search split into another tab is still the one to go to.
+    const holder = SPLITTABLE_TOOLS.has(kind)
+        ? ids.find((id) => st.windows[id] && collectPanes(st.windows[id].root).some((pane) => pane.kind === kind))
+        : undefined;
+    if (holder) {
+        const pane = collectPanes(st.windows[holder].root).find((candidate) => candidate.kind === kind)!;
+        selectWindowId(holder);
+        focusPane(pane.id);
         return;
     }
     mutate((d) => {
@@ -718,6 +729,16 @@ export function splitActivePane(dir: SplitDir): void {
  * pane moves into it, still running. A file moves out of the editor into a
  * pane of its own.
  */
+/** Tool panes that can be split into another tab and still be found there by their rail button and shortcut. */
+const SPLITTABLE_TOOLS: ReadonlySet<PaneKind> = new Set(["git", "search"]);
+
+/** The kind of tab a lone pane is, when the tab it was split into has to become what is left of it. */
+function roleOfPane(pane: PaneNode): WindowRole {
+    if (pane.kind === "agent") return "agent";
+    if (pane.kind === "git" || pane.kind === "search") return pane.kind;
+    return pane.startup ? "named" : "term";
+}
+
 /** Where each pane's tab was in the strip before it was split into another, so moving it out puts it back. */
 const splitOrigins = new Map<string, { windowId: string; name: string; role: WindowRole; previous: string | null; next: string | null }>();
 
@@ -777,6 +798,11 @@ export function separatePane(windowId: string, paneId?: string): void {
         if (!rest) return;
         host.root = rest;
         if (!collectPanes(rest).some((candidate) => candidate.id === host.activePaneId)) host.activePaneId = collectPanes(rest)[0].id;
+        // A Git or search tab left holding something else is that thing's tab now.
+        if (rest.type === "pane" && (host.role === "git" || host.role === "search") && rest.kind !== host.role) {
+            host.role = roleOfPane(rest);
+            host.name = rest.title;
+        }
         d.zoomedPaneId = null;
         if (pane.kind === "editor") {
             delete d.editorViews[pane.id];
@@ -786,7 +812,7 @@ export function separatePane(windowId: string, paneId?: string): void {
         const separated: Window = {
             id: origin && !d.windows[origin.windowId] ? origin.windowId : newId("win"),
             name: origin?.name ?? pane.title,
-            role: origin?.role ?? (pane.startup ? "named" : "term"),
+            role: origin?.role ?? roleOfPane(pane),
             root: pane,
             activePaneId: pane.id,
         };

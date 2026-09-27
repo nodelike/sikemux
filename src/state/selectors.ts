@@ -297,8 +297,8 @@ export function selectItemState(state: StoreState, kind: PaneKind, itemId: strin
 
 const EMPTY_IDS: readonly string[] = Object.freeze([]);
 
-/** Tabs that can share the screen. Git, search and plugin tabs each stay whole, since their shortcuts find them by their own tab. */
-const SPLITTABLE_ROLES: ReadonlySet<WindowRole> = new Set(["term", "named", "agent"]);
+/** Tabs that can share the screen. Plugin tabs and the diff each stay whole. */
+const SPLITTABLE_ROLES: ReadonlySet<WindowRole> = new Set(["term", "named", "agent", "git", "search"]);
 
 export type SplitSide = "left" | "right" | "top" | "bottom";
 
@@ -327,14 +327,14 @@ export function tabSplitAllowed(state: SplitState, sessionId: string, source: Ta
 
 /**
  * Whether the pane `paneId` (the focused one when unnamed) can be moved out of
- * its split tab: a terminal, or a file with no unsaved changes, while the tab
- * holds more than one pane.
+ * its split tab: a terminal, Git, search, or a file with no unsaved changes,
+ * while the tab holds more than one pane.
  */
 export function paneToSeparate(win: Window, dirtyEditorPaths: StoreState["dirtyEditorPaths"], paneId = win.activePaneId): PaneNode | null {
     const panes = collectPanes(win.root);
     if (panes.length < 2 || !SPLITTABLE_ROLES.has(win.role)) return null;
     const pane = panes.find((candidate) => candidate.id === paneId);
-    if (pane?.kind === "terminal" && !pane.externalPty) return pane;
+    if ((pane?.kind === "terminal" && !pane.externalPty) || pane?.kind === "git" || pane?.kind === "search") return pane;
     if (pane?.kind === "editor" && (dirtyEditorPaths[pane.id] ?? []).length === 0) return pane;
     return null;
 }
