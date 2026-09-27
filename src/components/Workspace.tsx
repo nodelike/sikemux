@@ -624,6 +624,9 @@ function DividerHandle({ d, windowId, areaRef }: { d: Divider; windowId: string;
         const split = winNode ? findSplit(winNode.root, d.splitId) : null;
         if (!split) return;
         handle.setPointerCapture(e.pointerId);
+        // Stopping the press's default also stops it focusing, and focus is what lets the arrow keys carry on.
+        handle.focus({ preventScroll: true });
+        handle.classList.add("dragging");
 
         const startSizes = split.sizes.slice();
         const i = d.index;
@@ -650,6 +653,7 @@ function DividerHandle({ d, windowId, areaRef }: { d: Divider; windowId: string;
         const up = () => {
             if (frame != null) window.cancelAnimationFrame(frame);
             commitPending();
+            handle.classList.remove("dragging");
             handle.removeEventListener("pointermove", move);
             handle.removeEventListener("pointerup", up);
             handle.removeEventListener("pointercancel", up);
@@ -684,6 +688,17 @@ function DividerHandle({ d, windowId, areaRef }: { d: Divider; windowId: string;
         cmd.setSplitSizes(windowId, d.splitId, sizes);
     };
 
+    const evenOut = () => {
+        const winNode = getState().windows[windowId];
+        const split = winNode ? findSplit(winNode.root, d.splitId) : null;
+        if (split)
+            cmd.setSplitSizes(
+                windowId,
+                d.splitId,
+                split.children.map(() => 1 / split.children.length),
+            );
+    };
+
     return (
         <div
             className={`divider divider-${d.dir}`}
@@ -691,9 +706,10 @@ function DividerHandle({ d, windowId, areaRef }: { d: Divider; windowId: string;
             role="separator"
             tabIndex={0}
             aria-orientation={horizontal ? "vertical" : "horizontal"}
-            title="Drag or use arrow keys to resize"
+            title="Drag or use arrow keys to resize, double-click to even out"
             onPointerDown={onPointerDown}
             onKeyDown={onKeyDown}
+            onDoubleClick={evenOut}
         />
     );
 }

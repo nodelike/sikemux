@@ -47,3 +47,39 @@ describe("dragging a tab onto the screen", () => {
         expect(first in getState().windows).toBe(false);
     });
 });
+
+describe("the divider between split panes", () => {
+    const sizes = () => {
+        const root = shown().root;
+        return root.type === "split" ? root.sizes : [];
+    };
+    const divider = () => screen.getByRole("separator");
+
+    beforeEach(() => {
+        HTMLElement.prototype.setPointerCapture = vi.fn();
+        cmd.splitActivePane("row");
+    });
+
+    it("takes focus when grabbed, so the arrow keys carry on moving it", () => {
+        render(<Workspace />);
+
+        fireEvent.pointerDown(divider(), { button: 0, pointerId: 1, clientX: 500, clientY: 100 });
+        expect(divider()).toHaveFocus();
+        expect(divider()).toHaveClass("dragging");
+        fireEvent.pointerUp(divider(), { pointerId: 1 });
+        expect(divider()).not.toHaveClass("dragging");
+
+        fireEvent.keyDown(divider(), { key: "ArrowRight" });
+        expect(sizes()[0]).toBeCloseTo(0.52);
+    });
+
+    it("evens the panes out on a double-click", () => {
+        render(<Workspace />);
+        const split = shown().root;
+        if (split.type === "split") cmd.setSplitSizes(shown().id, split.id, [0.8, 0.2]);
+
+        fireEvent.doubleClick(divider());
+
+        expect(sizes()).toEqual([0.5, 0.5]);
+    });
+});
