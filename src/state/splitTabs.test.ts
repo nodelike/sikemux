@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { separatePane, splitWithTab } from "./commands";
+import { separatePane, splitWithTab, unsplitTab } from "./commands";
 import { collectPanes } from "./layout";
 import { paneToSeparate, tabSplitAllowed } from "./selectors";
 import { getState, setState } from "./store";
@@ -130,19 +130,54 @@ describe("splitting in every direction", () => {
 });
 
 describe("moving a terminal back to its own tab", () => {
-    it("takes the focused terminal out, just after the tab it was in", () => {
-        place("one", win("one", "term", pane("p1")), win("two", "term", pane("p2")), win("three", "term", pane("p4")));
+    it("puts a terminal back where its tab was, under its old name", () => {
+        place("one", win("one", "term", pane("p1")), win("two", "named", pane("p2")), win("three", "term", pane("p3")));
         splitWithTab(sessionId(), { id: "two" }, "right");
+        expect(tabs()).toEqual(["one", "three"]);
+
+        separatePane("one", "p2");
+
+        expect(tabs()).toEqual(["one", "two", "three"]);
+        expect(getState().windows.two).toMatchObject({ name: "two", role: "named", root: { id: "p2" }, activePaneId: "p2" });
+        expect(getState().windows.one.root).toMatchObject({ id: "p1" });
+        expect(shown().id).toBe("two");
+    });
+
+    it("gives a terminal its own tab back from an agent's tab too", () => {
+        place("one", win("one", "term", pane("p1")), win("agent", "agent", pane("a1", "agent")));
+        splitWithTab(sessionId(), { id: "agent" }, "left");
+        expect(tabs()).toEqual(["agent"]);
+
+        separatePane("agent", "p1");
+
+        expect(tabs()).toEqual(["one", "agent"]);
+        expect(getState().windows.agent.root).toMatchObject({ id: "a1" });
+    });
+
+    it("moves the focused pane out when none is named, just after a tab it never had", () => {
+        const split: LayoutNode = { type: "split", id: "s", dir: "row", children: [pane("p1"), pane("p2")], sizes: [0.5, 0.5] };
+        place("one", win("one", "term", split, { activePaneId: "p2" }), win("other", "term", pane("p3")));
 
         separatePane("one");
 
         const ids = tabs();
-        expect(ids).toHaveLength(3);
         expect(ids[0]).toBe("one");
-        expect(getState().windows.one.root).toMatchObject({ id: "p1" });
-        const separated = getState().windows[ids[1]];
-        expect(separated).toMatchObject({ role: "term", root: { id: "p2" }, activePaneId: "p2" });
-        expect(shown().id).toBe(separated.id);
+        expect(getState().windows[ids[1]]).toMatchObject({ role: "term", root: { id: "p2" } });
+        expect(ids[2]).toBe("other");
+    });
+
+    it("takes an agent's split tab apart, everything back where it came from", () => {
+        place("one", win("one", "term", pane("p1")), win("agent", "agent", pane("a1", "agent")), win("two", "term", pane("p2")));
+        setState((state) => ({ sessions: { ...state.sessions, [sessionId()]: { ...state.sessions[sessionId()], activeWindowId: "agent" } } }));
+        splitWithTab(sessionId(), { id: "one" }, "left");
+        splitWithTab(sessionId(), { id: "two" }, "right", "a1");
+        expect(tabs()).toEqual(["agent"]);
+
+        unsplitTab("agent");
+
+        expect(tabs()).toEqual(["one", "agent", "two"]);
+        expect(getState().windows.agent.root).toMatchObject({ type: "pane", id: "a1" });
+        expect(shown().id).toBe("agent");
     });
 
     it("never offers an agent or a tab with nothing split", () => {

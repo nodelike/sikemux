@@ -648,6 +648,40 @@
     inset: calc(var(--window-strip-h) + var(--window-strip-gap)) 0 0;
     --pan: 0%;
 }
+/* On a pane in a split tab: puts it back as a tab of its own. Top centre,
+   since the pane's own controls sit in its corners, and out of the way until
+   the pointer is over the pane. */
+.pane-unsplit {
+    position: absolute;
+    z-index: 6;
+    top: var(--space-2);
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
+    gap: var(--space-1);
+    height: 22px;
+    padding: 0 var(--space-2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-2);
+    background: var(--surface);
+    color: var(--text-secondary);
+    font: inherit;
+    font-size: 11px;
+    white-space: nowrap;
+    cursor: pointer;
+    opacity: 0;
+    transition:
+        opacity var(--dur-1) linear,
+        color var(--dur-1) linear;
+}
+.pane:hover > .pane-unsplit,
+.pane-unsplit:focus-visible {
+    opacity: 1;
+}
+.pane-unsplit:hover {
+    color: var(--acc);
+}
 /* The half of a pane a tab pulled down out of the strip will split into. */
 .split-preview {
     position: absolute;

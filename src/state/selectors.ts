@@ -325,14 +325,15 @@ export function tabSplitAllowed(state: SplitState, sessionId: string, source: Ta
 }
 
 /**
- * The pane that can be moved out of a split tab: its focused terminal, or its
- * focused file when that has no unsaved changes, while the tab holds more than one pane.
+ * Whether the pane `paneId` (the focused one when unnamed) can be moved out of
+ * its split tab: a terminal, or a file with no unsaved changes, while the tab
+ * holds more than one pane.
  */
-export function paneToSeparate(win: Window, dirtyEditorPaths: StoreState["dirtyEditorPaths"]): PaneNode | null {
+export function paneToSeparate(win: Window, dirtyEditorPaths: StoreState["dirtyEditorPaths"], paneId = win.activePaneId): PaneNode | null {
     const panes = collectPanes(win.root);
     if (panes.length < 2 || !SPLITTABLE_ROLES.has(win.role)) return null;
-    const active = panes.find((pane) => pane.id === win.activePaneId);
-    if (active?.kind === "terminal" && !active.externalPty) return active;
-    if (active?.kind === "editor" && (dirtyEditorPaths[active.id] ?? []).length === 0) return active;
+    const pane = panes.find((candidate) => candidate.id === paneId);
+    if (pane?.kind === "terminal" && !pane.externalPty) return pane;
+    if (pane?.kind === "editor" && (dirtyEditorPaths[pane.id] ?? []).length === 0) return pane;
     return null;
 }

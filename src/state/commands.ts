@@ -718,6 +718,9 @@ export function splitActivePane(dir: SplitDir): void {
  * pane moves into it, still running. A file moves out of the editor into a
  * pane of its own.
  */
+/** Where each pane's tab was in the strip before it was split into another, so moving it out puts it back. */
+const splitOrigins = new Map<string, { windowId: string; name: string; role: WindowRole; previous: string | null; next: string | null }>();
+
 export function splitWithTab(sessionId: string, source: TabRef, side: SplitSide, besidePaneId?: string): void {
     if (!tabSplitAllowed(getState(), sessionId, source)) return;
     const editor = getState().windows[source.id];
@@ -734,6 +737,15 @@ export function splitWithTab(sessionId: string, source: TabRef, side: SplitSide,
         } else {
             const leaving = host === from ? shown : from;
             const ids = d.windowsBySession[sessionId] ?? [];
+            const index = ids.indexOf(leaving.id);
+            const origin = {
+                windowId: leaving.id,
+                name: leaving.name,
+                role: leaving.role,
+                previous: ids[index - 1] ?? null,
+                next: ids[index + 1] ?? null,
+            };
+            for (const pane of collectPanes(leaving.root)) splitOrigins.set(pane.id, origin);
             delete d.windows[leaving.id];
             d.windowsBySession[sessionId] = ids.filter((id) => id !== leaving.id);
         }
@@ -746,35 +758,61 @@ export function splitWithTab(sessionId: string, source: TabRef, side: SplitSide,
 }
 
 /**
- * Moves a split tab's focused pane out: a terminal into a tab of its own just
- * after, still running, and a file back into the editor.
+ * Moves a pane out of a split tab (the focused one when unnamed): a terminal
+ * back to its own tab, in the place and under the name it had before it was
+ * split in, still running, and a file back into the editor.
  */
-export function separatePane(windowId: string): void {
+export function separatePane(windowId: string, paneId?: string): void {
     const st = getState();
     const win = st.windows[windowId];
-    const pane = win ? paneToSeparate(win, st.dirtyEditorPaths) : null;
+    const pane = win ? paneToSeparate(win, st.dirtyEditorPaths, paneId) : null;
     const sessionId = win ? ownerSessionId(st, windowId) : null;
     if (!win || !pane || !sessionId) return;
     const path = pane.kind === "editor" ? st.editorViews[pane.id]?.activePath : null;
+    const origin = splitOrigins.get(pane.id);
+    splitOrigins.delete(pane.id);
     mutate((d) => {
         const host = d.windows[windowId];
         const rest = removePane(host.root, pane.id);
         if (!rest) return;
         host.root = rest;
-        host.activePaneId = collectPanes(rest)[0].id;
+        if (!collectPanes(rest).some((candidate) => candidate.id === host.activePaneId)) host.activePaneId = collectPanes(rest)[0].id;
         d.zoomedPaneId = null;
         if (pane.kind === "editor") {
             delete d.editorViews[pane.id];
             return;
         }
-        const separated: Window = { id: newId("win"), name: pane.title, role: pane.startup ? "named" : "term", root: pane, activePaneId: pane.id };
-        d.windows[separated.id] = separated;
         const ids = d.windowsBySession[sessionId] ?? [];
-        const index = ids.indexOf(windowId);
-        d.windowsBySession[sessionId] = [...ids.slice(0, index + 1), separated.id, ...ids.slice(index + 1)];
+        const separated: Window = {
+            id: origin && !d.windows[origin.windowId] ? origin.windowId : newId("win"),
+            name: origin?.name ?? pane.title,
+            role: origin?.role ?? (pane.startup ? "named" : "term"),
+            root: pane,
+            activePaneId: pane.id,
+        };
+        // Beside the tab it sat after, or the one it sat before, whichever is still there.
+        const at =
+            origin?.previous && ids.includes(origin.previous)
+                ? ids.indexOf(origin.previous) + 1
+                : origin?.next && ids.includes(origin.next)
+                  ? ids.indexOf(origin.next)
+                  : origin && origin.previous === null
+                    ? 0
+                    : ids.indexOf(windowId) + 1;
+        d.windows[separated.id] = separated;
+        d.windowsBySession[sessionId] = [...ids.slice(0, at), separated.id, ...ids.slice(at)];
         d.sessions[sessionId].activeWindowId = separated.id;
     });
     if (path) requestOpenFile(path);
+}
+
+/** Takes a split tab apart: every pane that can leave goes back where it came from, and the agent, if any, keeps the tab. */
+export function unsplitTab(windowId: string): void {
+    const win = getState().windows[windowId];
+    if (!win) return;
+    for (const pane of collectPanes(win.root)) if (pane.kind !== "agent") separatePane(windowId, pane.id);
+    const sessionId = ownerSessionId(getState(), windowId);
+    if (sessionId && getState().windows[windowId]) mutate((d) => void (d.sessions[sessionId].activeWindowId = windowId));
 }
 
 export async function runBackgroundCommand(

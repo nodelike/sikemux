@@ -98,3 +98,19 @@ describe("the divider between split panes", () => {
         expect(sizes()).toEqual([0.5, 0.5]);
     });
 });
+
+describe("moving a pane back to the tab bar", () => {
+    it("offers a button on each terminal of a split tab that puts it back where its tab was", () => {
+        cmd.newWindow();
+        const [first, second] = getState().windowsBySession[getState().activeSessionId];
+        cmd.splitWithTab(getState().activeSessionId, { id: first }, "left");
+        render(<Workspace />);
+
+        const buttons = screen.getAllByRole("button", { name: "Move back to the tab bar" });
+        expect(buttons).toHaveLength(2);
+        fireEvent.click(buttons[0]);
+
+        expect(getState().windowsBySession[getState().activeSessionId]).toEqual([first, second]);
+        expect(screen.queryByRole("button", { name: "Move back to the tab bar" })).toBeNull();
+    });
+});

@@ -26,7 +26,7 @@ import { ErrorBoundary } from "./ErrorBoundary";
 import { ShaderField } from "./ShaderField";
 import { TabBar, type TabDescriptor } from "./TabBar";
 import type { TabDragOut, TabPoint } from "./useTabReorder";
-import { AgentIcon, IconPlus, WindowIcon } from "./Icons";
+import { AgentIcon, IconArrowUp, IconPlus, WindowIcon } from "./Icons";
 import { AgentStateIndicator, SubagentCount } from "./AgentStateIndicator";
 import { renderWorkbenchItem } from "../workbench/renderers";
 import { FileIcon } from "./FileIcon";
@@ -444,7 +444,7 @@ const WorkspaceTabsBar = memo(function WorkspaceTabsBar({ session, areaRef }: { 
     const withSeparate = (win: WindowT, items: CtxItem[]): CtxItem[] => {
         const pane = paneToSeparate(win, getState().dirtyEditorPaths);
         if (!pane) return items;
-        const label = pane.kind === "editor" ? "Move Focused File Back to Editor" : "Move Focused Terminal to New Tab";
+        const label = pane.kind === "editor" ? "Move Focused File Back to Editor" : "Move Focused Terminal Back to Tab Bar";
         return [...items, { sep: true }, { label, run: () => cmd.separatePane(win.id) }];
     };
 
@@ -534,6 +534,7 @@ const WindowLayer = memo(function WindowLayer({
     areaRef: RefObject<HTMLDivElement | null>;
 }) {
     const editorView = useStore((s) => s.editorViews[win.activePaneId]);
+    const dirtyEditorPaths = useStore((s) => s.dirtyEditorPaths);
     usePluginDocumentsVersion();
     const editorViews = editorView ? { [win.activePaneId]: editorView } : {};
     const active = activeTabRef(session, { [win.id]: win }, editorViews);
@@ -599,6 +600,18 @@ const WindowLayer = memo(function WindowLayer({
                             <ErrorBoundary label={`${p.kind} pane`}>
                                 {renderWorkbenchItem({ pane: p, session, win, active: paneActive, visible: paneVisible, painted: panePainted })}
                             </ErrorBoundary>
+                            {live && (paneToSeparate(win, dirtyEditorPaths, p.id) || (p.kind === "agent" && collectPanes(win.root).length > 1)) && (
+                                <button
+                                    type="button"
+                                    className="pane-unsplit"
+                                    aria-label={p.kind === "editor" ? "Move file back to the editor" : "Move back to the tab bar"}
+                                    title={p.kind === "editor" ? "Move file back to the editor" : "Move back to the tab bar"}
+                                    onMouseDown={(event) => event.stopPropagation()}
+                                    onClick={() => (p.kind === "agent" ? cmd.unsplitTab(win.id) : cmd.separatePane(win.id, p.id))}>
+                                    <IconArrowUp size={12} />
+                                    <span>{p.kind === "editor" ? "Back to editor" : "Move to tab bar"}</span>
+                                </button>
+                            )}
                         </div>
                     </div>
                 );
