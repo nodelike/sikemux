@@ -21,6 +21,7 @@ Sikemux 0.4.2 lets you talk to your agents, brings four more agents into the bui
 ## Look and motion
 
 - Tabs, rails, menus, palettes and toasts open and close with motion. New messages rise in, tool calls unfold in place, and working agents twinkle instead of spinning.
+- Umbra, a near-black theme with a pink accent.
 - First run is a single welcome screen.
 - AWS and Rundeck are redesigned around a list and a side panel.
 - The terminal colours shell output and spaces its rows the way Ghostty does.
