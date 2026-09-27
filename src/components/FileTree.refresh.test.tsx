@@ -20,7 +20,7 @@ const requestedPaths = () => readDirs.mock.calls.map((call) => call[0] as string
 
 it("refreshes only affected expanded directories and retains a full-refresh fallback", async () => {
     readDirs.mockImplementation(async (paths: string[]) => paths.map((path) => ({ path, entries: entriesFor(path), error: null })));
-    const { findByText } = render(<FileTree cwd="/repo" active activePath={null} onOpenFile={vi.fn()} />);
+    const { findByText } = render(<FileTree cwd="/repo" active activePath={null} onOpenFile={vi.fn()} onKeepFile={vi.fn()} />);
     fireEvent.click(await findByText("one"));
     fireEvent.click(await findByText("two"));
     await waitFor(() => expect(readDirs).toHaveBeenCalledTimes(3));
@@ -40,7 +40,7 @@ it("refreshes only affected expanded directories and retains a full-refresh fall
 
 it("keeps a directory that failed to read instead of blanking it", async () => {
     readDirs.mockImplementation(async (paths: string[]) => paths.map((path) => ({ path, entries: entriesFor(path), error: null })));
-    const { findByText, queryByText } = render(<FileTree cwd="/repo" active activePath={null} onOpenFile={vi.fn()} />);
+    const { findByText, queryByText } = render(<FileTree cwd="/repo" active activePath={null} onOpenFile={vi.fn()} onKeepFile={vi.fn()} />);
     await findByText("one");
 
     readDirs.mockImplementation(async (paths: string[]) => paths.map((path) => ({ path, entries: [], error: "gone" })));

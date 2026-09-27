@@ -5,7 +5,8 @@ import { getState, setState } from "./store";
 import type { TabRef, Window } from "./types";
 
 const initial = getState();
-const win = (id: string, role: Window["role"], pane: string) => ({ id, name: id, role, activePaneId: pane }) as unknown as Window;
+const win = (id: string, role: Window["role"], pane: string) =>
+    ({ id, name: id, role, activePaneId: pane, root: { type: "pane", id: pane, kind: "terminal" } }) as unknown as Window;
 
 beforeEach(() => {
     setState(initial, true);

@@ -2,64 +2,13 @@ import { Fragment, useEffect, useMemo, useRef, useState, useSyncExternalStore, t
 import { currentTheme, subscribeTheme } from "../themes/bus";
 import { codeThemeName } from "../themes/codeTheme";
 import { swallow } from "../state/toast";
+import { grammarFor } from "../languages";
 import type { CodeLine, CodeToken } from "./types";
 import type { DiffLine } from "./diff";
 
-/* The grammars the app carries, by the word an agent puts after the backticks
-   or the extension of the file it names. Anything else stays plain text rather
-   than loading a grammar we do not have. */
-const GRAMMARS: Record<string, string> = {
-    c: "c",
-    h: "c",
-    css: "css",
-    scss: "css",
-    sass: "css",
-    less: "css",
-    go: "go",
-    html: "html",
-    htm: "html",
-    svelte: "html",
-    vue: "html",
-    java: "java",
-    cjs: "typescript",
-    js: "typescript",
-    javascript: "typescript",
-    jsx: "typescript",
-    mjs: "typescript",
-    ts: "typescript",
-    tsx: "typescript",
-    typescript: "typescript",
-    json: "json",
-    jsonl: "json",
-    json5: "jsonc",
-    jsonc: "jsonc",
-    markdown: "markdown",
-    md: "markdown",
-    mdx: "markdown",
-    py: "python",
-    pyi: "python",
-    python: "python",
-    rs: "rust",
-    rust: "rust",
-    bash: "shellscript",
-    console: "shellscript",
-    sh: "shellscript",
-    shell: "shellscript",
-    shellscript: "shellscript",
-    zsh: "shellscript",
-    sql: "sql",
-    yaml: "yaml",
-    yml: "yaml",
-};
-
 /** The grammar a fence asks for, whether it names a language or a file. */
 export function fenceLanguage(info: string | undefined): string | null {
-    if (!info) return null;
-    const name = (info.toLowerCase().split(/[\\/]/).pop() ?? "").replace(/:\d+(?::\d+)?$/, "");
-    const named = GRAMMARS[name];
-    if (named) return named;
-    const extension = name.includes(".") ? name.slice(name.lastIndexOf(".") + 1) : "";
-    return GRAMMARS[extension] ?? null;
+    return info ? grammarFor(info) : null;
 }
 
 /*

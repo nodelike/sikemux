@@ -1,7 +1,5 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import Markdown from "react-markdown";
-import remarkGfm from "remark-gfm";
 
 const mocks = vi.hoisted(() => ({
     pathKinds: vi.fn(),
@@ -17,29 +15,15 @@ vi.mock("../state/commands", () => ({ requestOpenFile: mocks.requestOpenFile }))
 vi.mock("../lib/clipboard", () => ({ copyText: mocks.copyText }));
 
 const { ChatFileRef, PathRootsProvider, useFileRef } = await import("./FileRef");
-const { chatUrlTransform, remarkFilePaths, PATH_CLASS, PATH_CODE_CLASS } = await import("./remarkFilePaths");
+const { pathComponents } = await import("./markdownPaths");
+const { Markdown } = await import("../markdown/Markdown");
 const { forgetPathState } = await import("./pathExistence");
 
 const CWD = "/work/demo";
 const EXISTING = new Set(["/work/demo/src/a.ts", "/work/demo/README.md", "/work/demo/src"]);
 const DIRS = new Set(["/work/demo/src"]);
 
-/* A transcript the app draws the way the pane does: the same plugin, the same
-   link component, the same project root. */
-function Body({ text }: { text: string }) {
-    return (
-        <PathRootsProvider cwd={CWD}>
-            <div className="chat-markdown">
-                <Markdown remarkPlugins={[remarkGfm, remarkFilePaths]} urlTransform={chatUrlTransform} skipHtml components={{ a: Link }}>
-                    {text}
-                </Markdown>
-            </div>
-        </PathRootsProvider>
-    );
-}
-
-function Link({ href, className, children }: { href?: string; className?: string; children?: React.ReactNode }) {
-    const classes = className?.split(/\s+/) ?? [];
+function Link({ href, guess, children }: { href: string; guess?: "text" | "code"; children?: React.ReactNode }) {
     const file = useFileRef(href);
     if (file)
         return (
@@ -47,12 +31,27 @@ function Link({ href, className, children }: { href?: string; className?: string
                 refers={file.ref}
                 state={file.state}
                 label={children}
-                className={classes.includes(PATH_CODE_CLASS) ? "chat-file-ref code" : "chat-file-ref link"}
+                className={guess === "code" ? "chat-file-ref code" : "chat-file-ref link"}
             />
         );
-    if (classes.includes(PATH_CODE_CLASS)) return <code>{children}</code>;
-    if (classes.includes(PATH_CLASS)) return <>{children}</>;
+    if (guess === "code") return <code>{children}</code>;
+    if (guess === "text") return <>{children}</>;
     return <a href={href}>{children}</a>;
+}
+
+const components = { link: Link, ...pathComponents(Link) };
+const OPTIONS = { gfm: true, htmlAsText: false, fileLinks: true };
+
+/* A transcript the app draws the way the pane does: the same path links, the
+   same link component, the same project root. */
+function Body({ text }: { text: string }) {
+    return (
+        <PathRootsProvider cwd={CWD}>
+            <div className="chat-markdown">
+                <Markdown text={text} options={OPTIONS} components={components} />
+            </div>
+        </PathRootsProvider>
+    );
 }
 
 beforeEach(() => {

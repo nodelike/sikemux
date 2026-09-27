@@ -1,6 +1,7 @@
 import type { Theme } from "../../themes";
 import type { CustomCommand } from "../../commands/registry";
 import type { KeybindingOverrides } from "../../keybindings";
+import type { HeldRelease } from "../../api/releases";
 import type {
     Agent,
     AgentPermissionMode,
@@ -57,6 +58,7 @@ export interface PersistedPrefs {
     themeId: string;
     customThemes?: Theme[];
     uiTextScale?: number;
+    paneShader?: boolean;
     terminalFontSize?: number;
     chatTextScale?: number;
     editorTextScale?: number;
@@ -73,16 +75,22 @@ export interface PersistedPrefs {
     pluginSettings?: Record<string, unknown>;
     disabledPlugins?: string[];
     restoreAgentTabs?: boolean;
+    agentNotifications?: boolean;
+    voiceDictation?: boolean;
+    voiceWords?: string[];
+    notificationsIntroduced?: boolean;
     autoResumeAgents?: boolean;
     railDensity?: RailDensity;
     onboardingComplete?: boolean;
     lastSeenVersion?: string;
     customCommands?: CustomCommand[];
     updateChannel?: "stable" | "nightly";
-    lastReleaseNotes?: { version: string; notes: string | null; date: string | null } | null;
+    shareUsageData?: boolean;
+    lastReleaseNotes?: HeldRelease | null;
     recentCommandKeys?: string[];
     /** Non-secret provider launch profiles. Credential values are never part of this shape. */
     providerProfiles?: ProviderProfile[];
     selectedProviderProfileIds?: ProviderProfileSelection;
     defaultAgentPermissionMode?: AgentPermissionMode;
+    languageServerTrust?: Record<string, boolean>;
 }

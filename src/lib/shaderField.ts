@@ -42,21 +42,18 @@ type Shaders = typeof import("@paper-design/shaders");
  * string literal. Holding the whole module namespace and reaching into it
  * dynamically leaves Rollup no choice but to keep every one of them — it cost
  * 212 kB when this was written that way. Naming the members means the import is
- * destructured statically and the other twenty-six shake out.
+ * destructured statically and the other twenty-seven shake out.
  */
 interface Runtime {
     ShaderMount: Shaders["ShaderMount"];
     ditheringFragmentShader: string;
     DitheringShapes: Shaders["DitheringShapes"];
     DitheringTypes: Shaders["DitheringTypes"];
-    grainGradientFragmentShader: string;
-    GrainGradientShapes: Shaders["GrainGradientShapes"];
     ShaderFitOptions: Shaders["ShaderFitOptions"];
     getShaderColorFromString: Shaders["getShaderColorFromString"];
-    getShaderNoiseTexture: Shaders["getShaderNoiseTexture"];
 }
 
-export type ShaderFieldPreset = "ambient" | "onboarding" | "release";
+export type ShaderFieldPreset = "ambient" | "release";
 
 /*
  * The panes on the screen being read, plus room for the tour.
@@ -96,7 +93,6 @@ interface Surface {
 
 const surfaces = new Map<HTMLElement, Surface>();
 let runtimePromise: Promise<Runtime | null> | null = null;
-let noisePromise: Promise<HTMLImageElement> | null = null;
 let webglSupported: boolean | null = null;
 /*
  * Why the last mount did not happen. Every refusal here is deliberate and
@@ -247,53 +243,19 @@ function syncTicker(): void {
 
 function loadRuntime(): Promise<Runtime | null> {
     runtimePromise ??= import("@paper-design/shaders")
-        .then(
-            ({
-                ShaderMount,
-                ditheringFragmentShader,
-                DitheringShapes,
-                DitheringTypes,
-                grainGradientFragmentShader,
-                GrainGradientShapes,
-                ShaderFitOptions,
-                getShaderColorFromString,
-                getShaderNoiseTexture,
-            }): Runtime => ({
-                ShaderMount,
-                ditheringFragmentShader,
-                DitheringShapes,
-                DitheringTypes,
-                grainGradientFragmentShader,
-                GrainGradientShapes,
-                ShaderFitOptions,
-                getShaderColorFromString,
-                getShaderNoiseTexture,
-            }),
-        )
+        .then(({ ShaderMount, ditheringFragmentShader, DitheringShapes, DitheringTypes, ShaderFitOptions, getShaderColorFromString }): Runtime => ({
+            ShaderMount,
+            ditheringFragmentShader,
+            DitheringShapes,
+            DitheringTypes,
+            ShaderFitOptions,
+            getShaderColorFromString,
+        }))
         .catch((error: unknown) => {
             console.warn("Paper Shaders unavailable:", error instanceof Error ? error.message : error);
             return null;
         });
     return runtimePromise;
-}
-
-// The grain gradient samples a noise texture, which has to be decoded before it
-// can be handed to WebGL.
-function loadNoise(runtime: Runtime): Promise<HTMLImageElement> {
-    noisePromise ??= new Promise((resolve, reject) => {
-        const image = runtime.getShaderNoiseTexture();
-        if (!image) {
-            reject(new Error("noise texture is unavailable"));
-            return;
-        }
-        if (image.complete && image.naturalWidth) {
-            resolve(image);
-            return;
-        }
-        image.addEventListener("load", () => resolve(image), { once: true });
-        image.addEventListener("error", () => reject(new Error("noise texture failed to decode")), { once: true });
-    });
-    return noisePromise;
 }
 
 function sizing(runtime: Runtime, fit: "none" | "contain" | "cover", scale: number) {
@@ -319,7 +281,6 @@ interface Recipe {
      */
     continuous?: boolean;
     uniforms: ShaderMountUniforms;
-    needsNoise?: boolean;
 }
 
 const TRANSPARENT: [number, number, number, number] = [0, 0, 0, 0];
@@ -422,34 +383,6 @@ const PRESETS: Record<ShaderFieldPreset, (runtime: Runtime, theme: Theme) => Rec
             ...sizing(runtime, "none", 1.4),
         },
     }),
-
-    /*
-     * The first-run tour. The one place in the app with nothing to do and no
-     * data on screen, so it gets the richer shader at real strength.
-     *
-     * The four hues are syntax-highlighting colours rather than chrome ones,
-     * which is what makes this themeable at all: chrome is a single accent plus
-     * greys, so a four-colour gradient built from it collapses into one hue,
-     * while keyword/string/type/tag are perceptually distinct in any theme
-     * worth shipping.
-     */
-    onboarding: (runtime, theme) => ({
-        fragmentShader: runtime.grainGradientFragmentShader,
-        speed: 0.16,
-        uniforms: {
-            u_colorBack: runtime.getShaderColorFromString(theme.chrome.bgDim),
-            u_colors: [theme.highlight.keyword, theme.highlight.string, theme.highlight.type, theme.highlight.tag].map((hue) =>
-                runtime.getShaderColorFromString(hue),
-            ),
-            u_colorsCount: 4,
-            u_softness: 0.85,
-            u_intensity: 0.3,
-            u_noise: 0.5,
-            u_shape: runtime.GrainGradientShapes.corners,
-            ...sizing(runtime, "cover", 1.1),
-        },
-        needsNoise: true,
-    }),
 };
 
 /*
@@ -494,8 +427,7 @@ export function mountShaderField(host: HTMLElement, preset: ShaderFieldPreset): 
         }
         try {
             const recipe = PRESETS[preset](runtime, currentTheme());
-            if (recipe.needsNoise) recipe.uniforms.u_noiseTexture = await loadNoise(runtime);
-            // Unmounted while the runtime or the texture was loading.
+            // Unmounted while the runtime was loading.
             if (!surfaces.has(host) || !host.isConnected) {
                 surfaces.delete(host);
                 return;

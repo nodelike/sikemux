@@ -5,5 +5,7 @@
   <!-- Merged by Tauri before bundle signing. Never patch the signed .app. -->
   <key>CFBundleIconName</key>
   <string>sikemux</string>
+  <key>NSMicrophoneUsageDescription</key>
+  <string>Sikemux listens while you hold right Option, so you can dictate to your agents. Speech is transcribed on this Mac.</string>
 </dict>
 </plist>

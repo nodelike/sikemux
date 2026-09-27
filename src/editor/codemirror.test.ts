@@ -2,8 +2,17 @@ import { toggleComment } from "@codemirror/commands";
 import { ensureSyntaxTree, highlightingFor } from "@codemirror/language";
 import { EditorState } from "@codemirror/state";
 import { classHighlighter, highlightTree, tags } from "@lezer/highlight";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { auraExtensions, languageFor, loadLanguage } from "./codemirror";
+
+const invokeCommand = vi.hoisted(() => vi.fn());
+vi.mock("../api/invoke", () => ({ invokeCommand }));
+
+/** Answers the way the native side does: the grammar's own JSON. */
+async function nativeGrammar(_command: string, args: { id: string }): Promise<string> {
+    const module = (await import(/* @vite-ignore */ `@shikijs/langs/${args.id}`)) as { default: Array<{ name: string }> };
+    return JSON.stringify(module.default.find((grammar) => grammar.name === args.id));
+}
 
 describe("editor languages", () => {
     it("highlights dotenv keys, values, and comments", async () => {
@@ -80,6 +89,33 @@ describe("editor languages", () => {
                 { text: "HostName", classes: expect.stringContaining("tok-propertyName") },
             ]),
         );
+    });
+
+    it("highlights a file it has no language for with the grammar diffs and chat use", async () => {
+        invokeCommand.mockImplementation(nativeGrammar);
+        const doc = '---\nconst title = "Home";\n---\n<h1 class="big">{title}</h1>\n';
+        const state = EditorState.create({ doc, extensions: await loadLanguage("src/pages/index.astro") });
+        const tree = ensureSyntaxTree(state, state.doc.length, 1000);
+        const spans: Array<{ text: string; classes: string }> = [];
+
+        expect(tree).not.toBeNull();
+        highlightTree(tree!, classHighlighter, (from, to, classes) => spans.push({ text: state.sliceDoc(from, to), classes }));
+
+        expect(spans).toEqual(
+            expect.arrayContaining([
+                { text: "const", classes: expect.stringContaining("tok-keyword") },
+                { text: '"Home"', classes: expect.stringContaining("tok-string") },
+                { text: "h1", classes: expect.stringContaining("tok-typeName") },
+                { text: "class", classes: expect.stringContaining("tok-propertyName") },
+            ]),
+        );
+    });
+
+    it("tries a downloaded grammar again after it failed to arrive", async () => {
+        invokeCommand.mockReset().mockRejectedValueOnce(new Error("offline")).mockImplementation(nativeGrammar);
+
+        await expect(loadLanguage("/repo/build.zig")).rejects.toThrow("offline");
+        expect((await loadLanguage("/repo/build.zig")).length).toBeGreaterThan(0);
     });
 
     it("maps SSH tokens to the active editor theme", async () => {

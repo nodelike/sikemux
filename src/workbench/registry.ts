@@ -1,7 +1,7 @@
 import { isPluginKind } from "../plugins/kinds";
 import { pluginSurface } from "../plugins/registry";
 import type { CorePaneKind, PaneKind, PaneNode } from "../state/types/domain";
-import type { BrowserPaneTab, BrowserPaneView, EditorPaneView } from "../state/types/view";
+import type { DeskBrowserTab, DeskView, EditorPaneView } from "../state/types/view";
 
 declare const ITEM_ID_BRAND: unique symbol;
 
@@ -42,9 +42,9 @@ export interface BuiltinWorkbenchItemState {
     diff: null;
     search: null;
     agent: null;
-    /* The agent it belongs to is held in `browserPanes`, keyed by pane id,
+    /* The agent it belongs to is held in `deskPanes`, keyed by pane id,
        the same way an editor keeps its view. */
-    browser: BrowserPaneView;
+    desk: DeskView;
 }
 
 /**
@@ -58,12 +58,13 @@ export const EDITOR_PERSISTENCE_LIMITS = Object.freeze({
 });
 
 /**
- * Saved browser tabs are bounded the same way, and only ordinary web pages
- * come back: a page reopens itself on restore, so a scheme read off disk must
- * not be one that can reach the machine or run on its own.
+ * A saved desk is bounded the same way, and only ordinary web pages come back:
+ * a page reopens itself on restore, so a scheme read off disk must not be one
+ * that can reach the machine or run on its own.
  */
-export const BROWSER_PERSISTENCE_LIMITS = Object.freeze({
+export const DESK_PERSISTENCE_LIMITS = Object.freeze({
     maxTabs: 24,
+    maxFiles: 24,
     maxUrlLength: 4_096,
     maxTitleLength: 200,
 });
@@ -183,7 +184,7 @@ function isValidPersistedEditorPath(value: unknown): value is string {
 
 function decodeEditorView(encoded: unknown): PersistedCodecResult<EditorPaneView> {
     if (!isRecord(encoded)) return CODEC_FAILURE;
-    const { openTabs, activePath } = encoded;
+    const { openTabs, activePath, single, preview } = encoded;
     if (!Array.isArray(openTabs) || openTabs.length > EDITOR_PERSISTENCE_LIMITS.maxOpenTabs) return CODEC_FAILURE;
     const uniquePaths = new Set<string>();
     for (const path of openTabs) {
@@ -191,43 +192,54 @@ function decodeEditorView(encoded: unknown): PersistedCodecResult<EditorPaneView
         uniquePaths.add(path);
     }
     if (activePath !== null && (!isValidPersistedEditorPath(activePath) || !uniquePaths.has(activePath))) return CODEC_FAILURE;
-    return { ok: true, value: { openTabs: openTabs.slice(), activePath } };
+    if (single !== undefined && single !== true) return CODEC_FAILURE;
+    if (preview !== undefined && typeof preview !== "string") return CODEC_FAILURE;
+    const keepsPreview = preview !== undefined && uniquePaths.has(preview);
+    return { ok: true, value: { openTabs: openTabs.slice(), activePath, ...(single ? { single } : {}), ...(keepsPreview ? { preview } : {}) } };
 }
 
 function isValidPersistedBrowserUrl(value: unknown): value is string {
     return (
         typeof value === "string" &&
-        value.length <= BROWSER_PERSISTENCE_LIMITS.maxUrlLength &&
+        value.length <= DESK_PERSISTENCE_LIMITS.maxUrlLength &&
         !containsControlCharacter(value) &&
         /^https?:\/\/./i.test(value)
     );
 }
 
-function decodeBrowserView(encoded: unknown): PersistedCodecResult<BrowserPaneView> {
+function decodeDeskView(encoded: unknown): PersistedCodecResult<DeskView> {
     if (!isRecord(encoded)) return CODEC_FAILURE;
-    const { agentId, tabs, activeIndex } = encoded;
+    const { agentId, tabs, activeIndex, files } = encoded;
     if (!isValidWorkbenchItemId(agentId)) return CODEC_FAILURE;
-    if (!Array.isArray(tabs) || tabs.length === 0 || tabs.length > BROWSER_PERSISTENCE_LIMITS.maxTabs) return CODEC_FAILURE;
-    const restored: BrowserPaneTab[] = [];
+    if (!Array.isArray(tabs) || tabs.length > DESK_PERSISTENCE_LIMITS.maxTabs) return CODEC_FAILURE;
+    if (!Array.isArray(files) || files.length > DESK_PERSISTENCE_LIMITS.maxFiles) return CODEC_FAILURE;
+    if (tabs.length === 0 && files.length === 0) return CODEC_FAILURE;
+    const restored: DeskBrowserTab[] = [];
     for (const tab of tabs) {
         if (!isRecord(tab)) return CODEC_FAILURE;
         if (!isValidPersistedBrowserUrl(tab.url)) return CODEC_FAILURE;
-        if (typeof tab.title !== "string" || tab.title.length > BROWSER_PERSISTENCE_LIMITS.maxTitleLength || containsControlCharacter(tab.title))
+        if (typeof tab.title !== "string" || tab.title.length > DESK_PERSISTENCE_LIMITS.maxTitleLength || containsControlCharacter(tab.title))
             return CODEC_FAILURE;
         restored.push({ url: tab.url, title: tab.title });
     }
-    if (!Number.isInteger(activeIndex) || (activeIndex as number) < 0 || (activeIndex as number) >= restored.length) return CODEC_FAILURE;
-    return { ok: true, value: { agentId, tabs: restored, activeIndex: activeIndex as number } };
+    if (!Number.isInteger(activeIndex) || (activeIndex as number) < 0 || (activeIndex as number) >= Math.max(1, restored.length))
+        return CODEC_FAILURE;
+    const uniqueFiles = new Set<string>();
+    for (const path of files) {
+        if (!isValidPersistedEditorPath(path) || uniqueFiles.has(path)) return CODEC_FAILURE;
+        uniqueFiles.add(path);
+    }
+    return { ok: true, value: { agentId, tabs: restored, activeIndex: activeIndex as number, files: [...uniqueFiles] } };
 }
 
-const BROWSER_CODEC: VersionedPersistedCodec<BrowserPaneView> = Object.freeze({
+const DESK_CODEC: VersionedPersistedCodec<DeskView> = Object.freeze({
     version: 1,
-    encode: (state: BrowserPaneView) => {
-        const decoded = decodeBrowserView(state);
-        if (!decoded.ok) throw new TypeError("Invalid browser workbench state");
+    encode: (state: DeskView) => {
+        const decoded = decodeDeskView(state);
+        if (!decoded.ok) throw new TypeError("Invalid desk workbench state");
         return decoded.value;
     },
-    decode: decodeBrowserView,
+    decode: decodeDeskView,
 });
 
 const EDITOR_CODEC: VersionedPersistedCodec<EditorPaneView> = Object.freeze({
@@ -268,7 +280,7 @@ export const BUILTIN_WORKBENCH_ITEM_MANIFEST = Object.freeze({
     diff: builtinDefinition("diff", "diff", NULL_CODEC),
     search: builtinDefinition("search", "search", NULL_CODEC),
     agent: builtinDefinition("agent", "agent", NULL_CODEC),
-    browser: builtinDefinition("browser", "browser", BROWSER_CODEC),
+    desk: builtinDefinition("desk", "desk", DESK_CODEC),
 }) satisfies BuiltinDefinitionMap;
 
 export function defaultWorkbenchItemTitle(kind: PaneKind, startup?: string): string {

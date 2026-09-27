@@ -77,7 +77,7 @@ describe("EditorPane CLI queue", () => {
         expect(previewButton.querySelector("svg")).toBeInTheDocument();
         fireEvent.click(previewButton);
 
-        expect(editor.getByRole("heading", { name: "Preview heading" })).toBeInTheDocument();
+        expect(await editor.findByRole("heading", { name: "Preview heading" })).toBeInTheDocument();
         expect(editor.getByText("locked", { selector: "strong" })).toBeInTheDocument();
         expect(editor.getByRole("table")).toBeInTheDocument();
         expect(editor.getByRole("columnheader", { name: "Key" })).toBeInTheDocument();
@@ -94,5 +94,25 @@ describe("EditorPane CLI queue", () => {
         expect(container.querySelector(".ed-source-host")).not.toHaveAttribute("hidden");
         expect(container.querySelector(".ed-source-host")).toHaveAttribute("aria-hidden", "false");
         expect(container.querySelector(".cm-content")).toHaveAttribute("contenteditable", "true");
+    });
+
+    it("opens preview links outside the app window, and relative ones as files in the editor", async () => {
+        const readme = "[site](https://example.com/docs) [guide](./docs/My%20Guide.md#setup) [top](#top)";
+        const fallback = invoke.getMockImplementation()!;
+        invoke.mockImplementation(async (command: string, args?: unknown) => {
+            if (command === "read_file_versioned") return { content: readme, version: "version-1" };
+            return fallback(command, args);
+        });
+        const { container } = render(<EditorPane paneId="pane" cwd="/repo" active visible showInsights={false} />);
+        const editor = within(container);
+        fireEvent.click(await editor.findByRole("button", { name: "Preview README.md" }));
+
+        expect(fireEvent.click(await editor.findByRole("link", { name: "site" }))).toBe(false);
+        expect(invoke).toHaveBeenCalledWith("open_url", { url: "https://example.com/docs", app: null, shortcut: null });
+
+        expect(fireEvent.click(editor.getByRole("link", { name: "top" }))).toBe(false);
+
+        expect(fireEvent.click(editor.getByRole("link", { name: "guide" }))).toBe(false);
+        await waitFor(() => expect(getState().editorViews.pane.activePath).toBe("/repo/docs/My Guide.md"));
     });
 });

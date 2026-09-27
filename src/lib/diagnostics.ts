@@ -1,6 +1,7 @@
 import { invokeCommand as invoke } from "../api/invoke";
 import { getIpcTransport } from "../api/transport";
 import { save } from "@tauri-apps/plugin-dialog";
+import { appCacheDir } from "@tauri-apps/api/path";
 import { fsapi } from "../api/fs";
 import { busStats } from "../state/bus";
 import { resourceStats } from "../state/resources";
@@ -9,6 +10,7 @@ import type { LayoutNode } from "../state/types";
 import { workbenchRuntime } from "../workbench/runtime";
 import { uiActivity, UI_ACTIVITY_LIMITS, type UiActivityRejection } from "./activity";
 import { installInteractionTiming, startEventLoopMonitor, startNativeUiHeartbeat } from "./instrumentation";
+import { joinPath } from "./paths";
 import { performanceTelemetry } from "./performance";
 import { shaderFieldDiagnostics } from "./shaderField";
 
@@ -162,13 +164,13 @@ async function reportRuntimeErrorCounts(): Promise<void> {
             .slice(0, 24),
     };
     try {
-        await fsapi.writeFile(RUNTIME_ERROR_REPORT_PATH, JSON.stringify(report, null, 2));
+        await fsapi.writeFile(joinPath(await appCacheDir(), RUNTIME_ERROR_REPORT_NAME), JSON.stringify(report, null, 2));
     } catch {
         // The report is a debugging aid; losing it must never add to the noise.
     }
 }
 
-const RUNTIME_ERROR_REPORT_PATH = "/tmp/sikemux-runtime-errors.json";
+const RUNTIME_ERROR_REPORT_NAME = "runtime-errors.json";
 
 /** The loudest rejection messages seen so far, worst first. */
 export function topRuntimeErrorCounts(limit = UI_ACTIVITY_LIMITS.maxEntries): UiActivityRejection[] {

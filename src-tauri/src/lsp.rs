@@ -2,7 +2,7 @@
 // frame JSON-RPC over stdio (Content-Length headers), correlate request/
 // response pairs.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 #[cfg(unix)]
 use std::fs;
 use std::io::{BufRead, BufReader, Read, Write};
@@ -946,7 +946,12 @@ fn request_with_timeout_inner(
         Ok(v) => Ok(v),
         Err(e) => {
             take_pending_request(&server.pending, &PENDING_REQUEST_COUNT, id);
-            Err(AppError::Lsp(format!("{method} timeout: {e}")))
+            Err(AppError::Lsp(match e {
+                mpsc::RecvTimeoutError::Timeout => format!("{method} timed out"),
+                mpsc::RecvTimeoutError::Disconnected => {
+                    format!("{method} failed: the language server exited")
+                }
+            }))
         }
     }
 }
@@ -1096,30 +1101,7 @@ fn spawn_server(project: &str, language: &str, app: AppHandle) -> AppResult<Serv
         shutdown_server(reader_server);
     });
 
-    // Drain stderr on its own thread. rust-analyzer / pyright emit a LOT of
-    // log noise on stderr; without draining, the OS pipe fills and write()
-    // calls inside the server start to block, freezing hover / definition
-    // with no obvious cause.
-    if let Some(stderr) = stderr {
-        let drain_server = server.clone();
-        thread::spawn(move || {
-            let mut reader = BufReader::new(stderr);
-            let mut sink = String::new();
-            loop {
-                if drain_server
-                    .shutdown
-                    .load(std::sync::atomic::Ordering::Relaxed)
-                {
-                    break;
-                }
-                sink.clear();
-                match reader.read_line(&mut sink) {
-                    Ok(0) | Err(_) => break,
-                    Ok(_) => continue,
-                }
-            }
-        });
-    }
+    let stderr_tail = stderr.map(drain_stderr);
 
     let init = json!({
         "processId": std::process::id(),
@@ -1154,9 +1136,59 @@ fn spawn_server(project: &str, language: &str, app: AppHandle) -> AppResult<Serv
         .and_then(|_| notify(&server, "initialized", json!({})))
     {
         shutdown_server(server.clone());
-        return Err(error);
+        let tail = stderr_tail
+            .and_then(|tail| tail.recv_timeout(Duration::from_secs(1)).ok())
+            .unwrap_or_default();
+        return Err(with_stderr_tail(error, &tail));
     }
     Ok(server)
+}
+
+const STDERR_TAIL_LINES: usize = 8;
+const STDERR_TAIL_LINE_CHARS: usize = 300;
+
+// rust-analyzer and pyright log heavily to stderr; an undrained pipe fills up
+// and blocks the server. The last few lines come back once the pipe closes, so
+// a server that dies on startup can say why.
+fn drain_stderr(stderr: impl Read + Send + 'static) -> mpsc::Receiver<Vec<String>> {
+    let (tx, rx) = mpsc::channel();
+    thread::spawn(move || {
+        let mut reader = BufReader::new(stderr);
+        let mut line = String::new();
+        let mut tail = VecDeque::with_capacity(STDERR_TAIL_LINES);
+        loop {
+            line.clear();
+            match reader.read_line(&mut line) {
+                Ok(0) | Err(_) => break,
+                Ok(_) => {
+                    let trimmed = line.trim();
+                    if trimmed.is_empty() {
+                        continue;
+                    }
+                    if tail.len() == STDERR_TAIL_LINES {
+                        tail.pop_front();
+                    }
+                    tail.push_back(trimmed.chars().take(STDERR_TAIL_LINE_CHARS).collect());
+                }
+            }
+        }
+        let _ = tx.send(tail.into());
+    });
+    rx
+}
+
+fn with_stderr_tail(error: AppError, tail: &[String]) -> AppError {
+    if tail.is_empty() {
+        return error;
+    }
+    AppError::Lsp(format!("{}\n{}", lsp_error_message(error), tail.join("\n")))
+}
+
+fn lsp_error_message(error: AppError) -> String {
+    match error {
+        AppError::Lsp(message) => message,
+        other => other.to_string(),
+    }
 }
 
 const LSP_IDLE_GRACE: Duration = Duration::from_secs(5 * 60);
@@ -1913,6 +1945,33 @@ mod tests {
     use super::*;
     use serde_json::json;
     use std::io::{BufReader, Cursor};
+
+    #[test]
+    fn stderr_tail_keeps_the_last_lines_and_explains_a_startup_failure() {
+        let mut log = String::new();
+        for n in 0..20 {
+            log.push_str(&format!("noise {n}\n"));
+        }
+        log.push_str("\nerror: Unknown binary 'rust-analyzer'\n");
+        let tail = drain_stderr(Cursor::new(log.into_bytes()))
+            .recv_timeout(Duration::from_secs(1))
+            .expect("tail arrives once stderr closes");
+
+        assert_eq!(tail.len(), STDERR_TAIL_LINES);
+        assert_eq!(
+            tail.last().unwrap(),
+            "error: Unknown binary 'rust-analyzer'"
+        );
+
+        let error = with_stderr_tail(
+            AppError::Lsp("initialize failed: the language server exited".into()),
+            &tail[tail.len() - 1..],
+        );
+        assert_eq!(
+            error.to_string(),
+            "lsp: initialize failed: the language server exited\nerror: Unknown binary 'rust-analyzer'"
+        );
+    }
 
     fn admission_entry(
         project: &str,

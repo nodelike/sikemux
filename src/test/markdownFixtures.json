@@ -1,0 +1,695 @@
+{
+  "cases": [
+    {
+      "text": "Look at the styles",
+      "options": {
+        "gfm": true,
+        "htmlAsText": true,
+        "fileLinks": true
+      },
+      "blocks": [
+        {
+          "t": "p",
+          "c": [
+            "Look at the styles"
+          ]
+        }
+      ]
+    },
+    {
+      "text": "One two three",
+      "options": {
+        "gfm": true,
+        "htmlAsText": false,
+        "fileLinks": true
+      },
+      "blocks": [
+        {
+          "t": "p",
+          "c": [
+            "One two three"
+          ]
+        }
+      ]
+    },
+    {
+      "text": "The pane paints no background",
+      "options": {
+        "gfm": true,
+        "htmlAsText": false,
+        "fileLinks": true
+      },
+      "blocks": [
+        {
+          "t": "p",
+          "c": [
+            "The pane paints no background"
+          ]
+        }
+      ]
+    },
+    {
+      "text": "Weighing the two options",
+      "options": {
+        "gfm": true,
+        "htmlAsText": false,
+        "fileLinks": true
+      },
+      "blocks": [
+        {
+          "t": "p",
+          "c": [
+            "Weighing the two options"
+          ]
+        }
+      ]
+    },
+    {
+      "text": "Found the pane",
+      "options": {
+        "gfm": true,
+        "htmlAsText": false,
+        "fileLinks": true
+      },
+      "blocks": [
+        {
+          "t": "p",
+          "c": [
+            "Found the pane"
+          ]
+        }
+      ]
+    },
+    {
+      "text": "| approach | cpu |\n| --- | --- |\n| ack every frame | 90.6% |\n",
+      "options": {
+        "gfm": true,
+        "htmlAsText": false,
+        "fileLinks": true
+      },
+      "blocks": [
+        {
+          "t": "table",
+          "align": [
+            null,
+            null
+          ],
+          "head": [
+            [
+              "approach"
+            ],
+            [
+              "cpu"
+            ]
+          ],
+          "rows": [
+            [
+              [
+                "ack every frame"
+              ],
+              [
+                "90.6%"
+              ]
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "text": "Use this: “<svg viewBox=\"0 0 16 16\"><path d=\"M0 0h16\"/></svg>”\n\n<div>own line</div>",
+      "options": {
+        "gfm": true,
+        "htmlAsText": true,
+        "fileLinks": true
+      },
+      "blocks": [
+        {
+          "t": "p",
+          "c": [
+            "Use this: “",
+            "<svg viewBox=\"0 0 16 16\">",
+            "<path d=\"M0 0h16\"/>",
+            "</svg>",
+            "”"
+          ]
+        },
+        {
+          "t": "p",
+          "c": [
+            "<div>own line</div>"
+          ]
+        }
+      ]
+    },
+    {
+      "text": "Done <b>quietly</b>",
+      "options": {
+        "gfm": true,
+        "htmlAsText": false,
+        "fileLinks": true
+      },
+      "blocks": [
+        {
+          "t": "p",
+          "c": [
+            "Done quietly"
+          ]
+        }
+      ]
+    },
+    {
+      "text": "|  |  |\n| --- | --- |\n| Image write path | live row |\n",
+      "options": {
+        "gfm": true,
+        "htmlAsText": false,
+        "fileLinks": true
+      },
+      "blocks": [
+        {
+          "t": "table",
+          "align": [
+            null,
+            null
+          ],
+          "rows": [
+            [
+              [
+                "Image write path"
+              ],
+              [
+                "live row"
+              ]
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "text": "```\n .stage {\n-    background: var(--pane);\n+    background: transparent;\n }\n```\n\n```\n900x600 ok\n1024x600 FLOOD\n```\n",
+      "options": {
+        "gfm": true,
+        "htmlAsText": false,
+        "fileLinks": true
+      },
+      "blocks": [
+        {
+          "t": "pre",
+          "v": " .stage {\n-    background: var(--pane);\n+    background: transparent;\n }\n"
+        },
+        {
+          "t": "pre",
+          "v": "900x600 ok\n1024x600 FLOOD\n"
+        }
+      ]
+    },
+    {
+      "text": "Run `ls` first.\n\n```sh\nmkdir -p out\n```\n\n```\nplain\n```\n",
+      "options": {
+        "gfm": true,
+        "htmlAsText": false,
+        "fileLinks": true
+      },
+      "blocks": [
+        {
+          "t": "p",
+          "c": [
+            "Run ",
+            {
+              "t": "code",
+              "v": "ls"
+            },
+            " first."
+          ]
+        },
+        {
+          "t": "pre",
+          "lang": "sh",
+          "v": "mkdir -p out\n"
+        },
+        {
+          "t": "pre",
+          "v": "plain\n"
+        }
+      ]
+    },
+    {
+      "text": "```100%\nfull\n```\n",
+      "options": {
+        "gfm": true,
+        "htmlAsText": false,
+        "fileLinks": true
+      },
+      "blocks": [
+        {
+          "t": "pre",
+          "lang": "100%",
+          "v": "full\n"
+        }
+      ]
+    },
+    {
+      "text": "I edited src/a.ts to fix it.",
+      "options": {
+        "gfm": true,
+        "htmlAsText": false,
+        "fileLinks": true
+      },
+      "blocks": [
+        {
+          "t": "p",
+          "c": [
+            "I edited src/a.ts to fix it."
+          ]
+        }
+      ]
+    },
+    {
+      "text": "see src/a.ts:42 for the cause",
+      "options": {
+        "gfm": true,
+        "htmlAsText": false,
+        "fileLinks": true
+      },
+      "blocks": [
+        {
+          "t": "p",
+          "c": [
+            "see src/a.ts:42 for the cause"
+          ]
+        }
+      ]
+    },
+    {
+      "text": "I edited src/a.ts.",
+      "options": {
+        "gfm": true,
+        "htmlAsText": false,
+        "fileLinks": true
+      },
+      "blocks": [
+        {
+          "t": "p",
+          "c": [
+            "I edited src/a.ts."
+          ]
+        }
+      ]
+    },
+    {
+      "text": "I would put it in src/gone.ts next.",
+      "options": {
+        "gfm": true,
+        "htmlAsText": false,
+        "fileLinks": true
+      },
+      "blocks": [
+        {
+          "t": "p",
+          "c": [
+            "I would put it in src/gone.ts next."
+          ]
+        }
+      ]
+    },
+    {
+      "text": "Look at `src/a.ts` again.",
+      "options": {
+        "gfm": true,
+        "htmlAsText": false,
+        "fileLinks": true
+      },
+      "blocks": [
+        {
+          "t": "p",
+          "c": [
+            "Look at ",
+            {
+              "t": "code",
+              "v": "src/a.ts"
+            },
+            " again."
+          ]
+        }
+      ]
+    },
+    {
+      "text": "Run `npm/nope` first.",
+      "options": {
+        "gfm": true,
+        "htmlAsText": false,
+        "fileLinks": true
+      },
+      "blocks": [
+        {
+          "t": "p",
+          "c": [
+            "Run ",
+            {
+              "t": "code",
+              "v": "npm/nope"
+            },
+            " first."
+          ]
+        }
+      ]
+    },
+    {
+      "text": "[the file I changed](src/a.ts)",
+      "options": {
+        "gfm": true,
+        "htmlAsText": false,
+        "fileLinks": true
+      },
+      "blocks": [
+        {
+          "t": "p",
+          "c": [
+            {
+              "t": "a",
+              "href": "src/a.ts",
+              "c": [
+                "the file I changed"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "text": "see https://example.com/a for more",
+      "options": {
+        "gfm": true,
+        "htmlAsText": false,
+        "fileLinks": true
+      },
+      "blocks": [
+        {
+          "t": "p",
+          "c": [
+            "see ",
+            {
+              "t": "a",
+              "href": "https://example.com/a",
+              "c": [
+                "https://example.com/a"
+              ]
+            },
+            " for more"
+          ]
+        }
+      ]
+    },
+    {
+      "text": "everything lives under src/ now",
+      "options": {
+        "gfm": true,
+        "htmlAsText": false,
+        "fileLinks": true
+      },
+      "blocks": [
+        {
+          "t": "p",
+          "c": [
+            "everything lives under src/ now"
+          ]
+        }
+      ]
+    },
+    {
+      "text": "src/a.ts and README.md and src/gone.ts",
+      "options": {
+        "gfm": true,
+        "htmlAsText": false,
+        "fileLinks": true
+      },
+      "blocks": [
+        {
+          "t": "p",
+          "c": [
+            "src/a.ts and README.md and src/gone.ts"
+          ]
+        }
+      ]
+    },
+    {
+      "text": "# Sikemux v0.4.0\n\nThe browser is a real one.\n\n## Agents\n\n- A structured view\n- Steering\n\n## The browser\n\n- Native tabs",
+      "options": {
+        "gfm": false,
+        "htmlAsText": false,
+        "fileLinks": false
+      },
+      "blocks": [
+        {
+          "t": "h",
+          "l": 1,
+          "c": [
+            "Sikemux v0.4.0"
+          ]
+        },
+        {
+          "t": "p",
+          "c": [
+            "The browser is a real one."
+          ]
+        },
+        {
+          "t": "h",
+          "l": 2,
+          "c": [
+            "Agents"
+          ]
+        },
+        {
+          "t": "ul",
+          "c": [
+            {
+              "t": "li",
+              "c": [
+                "A structured view"
+              ]
+            },
+            {
+              "t": "li",
+              "c": [
+                "Steering"
+              ]
+            }
+          ]
+        },
+        {
+          "t": "h",
+          "l": 2,
+          "c": [
+            "The browser"
+          ]
+        },
+        {
+          "t": "ul",
+          "c": [
+            {
+              "t": "li",
+              "c": [
+                "Native tabs"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "text": "Saved offline.\n",
+      "options": {
+        "gfm": false,
+        "htmlAsText": false,
+        "fileLinks": false
+      },
+      "blocks": [
+        {
+          "t": "p",
+          "c": [
+            "Saved offline."
+          ]
+        }
+      ]
+    },
+    {
+      "text": "- Faster What’s new",
+      "options": {
+        "gfm": false,
+        "htmlAsText": false,
+        "fileLinks": false
+      },
+      "blocks": [
+        {
+          "t": "ul",
+          "c": [
+            {
+              "t": "li",
+              "c": [
+                "Faster What’s new"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "text": "# Preview heading\n\n**locked**\n\n| Key | Action |\n| --- | --- |\n| ⌘P | Open project |",
+      "options": {
+        "gfm": true,
+        "htmlAsText": false,
+        "fileLinks": false
+      },
+      "blocks": [
+        {
+          "t": "h",
+          "l": 1,
+          "c": [
+            "Preview heading"
+          ]
+        },
+        {
+          "t": "p",
+          "c": [
+            {
+              "t": "strong",
+              "c": [
+                "locked"
+              ]
+            }
+          ]
+        },
+        {
+          "t": "table",
+          "align": [
+            null,
+            null
+          ],
+          "head": [
+            [
+              "Key"
+            ],
+            [
+              "Action"
+            ]
+          ],
+          "rows": [
+            [
+              [
+                "⌘P"
+              ],
+              [
+                "Open project"
+              ]
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "text": "[site](https://example.com/docs) [guide](./docs/My%20Guide.md#setup) [top](#top)",
+      "options": {
+        "gfm": true,
+        "htmlAsText": false,
+        "fileLinks": false
+      },
+      "blocks": [
+        {
+          "t": "p",
+          "c": [
+            {
+              "t": "a",
+              "href": "https://example.com/docs",
+              "c": [
+                "site"
+              ]
+            },
+            " ",
+            {
+              "t": "a",
+              "href": "./docs/My%20Guide.md#setup",
+              "c": [
+                "guide"
+              ]
+            },
+            " ",
+            {
+              "t": "a",
+              "href": "#top",
+              "c": [
+                "top"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "text": "Here is the fix:\n\n```ts\nconst a = 1;\n",
+      "options": {
+        "gfm": true,
+        "htmlAsText": false,
+        "fileLinks": true
+      },
+      "blocks": [
+        {
+          "t": "p",
+          "c": [
+            "Here is the fix:"
+          ]
+        },
+        {
+          "t": "pre",
+          "lang": "ts",
+          "v": "const a = 1;\n"
+        }
+      ]
+    },
+    {
+      "text": "Here is the fix:\n\n```ts\nconst a = 1;\n```\n\n| approach | cpu |\n| --- | --- |\n| batch | 12% |\n",
+      "options": {
+        "gfm": true,
+        "htmlAsText": false,
+        "fileLinks": true
+      },
+      "blocks": [
+        {
+          "t": "p",
+          "c": [
+            "Here is the fix:"
+          ]
+        },
+        {
+          "t": "pre",
+          "lang": "ts",
+          "v": "const a = 1;\n"
+        },
+        {
+          "t": "table",
+          "align": [
+            null,
+            null
+          ],
+          "head": [
+            [
+              "approach"
+            ],
+            [
+              "cpu"
+            ]
+          ],
+          "rows": [
+            [
+              [
+                "batch"
+              ],
+              [
+                "12%"
+              ]
+            ]
+          ]
+        }
+      ]
+    }
+  ]
+}

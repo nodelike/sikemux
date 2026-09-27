@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-pub const CLI_PROTOCOL_VERSION: u16 = 1;
+pub const CLI_PROTOCOL_VERSION: u16 = 2;
 pub const MAX_CLI_FRAME_BYTES: u64 = 64 * 1024;
 /// Harness answers carry page text and screenshots, so they get more room
 /// than a request frame.
@@ -46,6 +46,13 @@ pub struct CliOpenRequest {
     pub targets: Vec<CliOpenTarget>,
 }
 
+/// The first frame on every connection; see `cli_auth`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(tag = "command", rename_all = "camelCase")]
+pub enum CliClientHello {
+    Hello { protocol: u16, nonce: String },
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(tag = "command", rename_all = "camelCase")]
 pub enum CliClientCommand {
@@ -75,6 +82,9 @@ pub struct CliOpenFailure {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(tag = "status", rename_all = "camelCase")]
 pub enum CliServerResponse {
+    Hello {
+        proof: String,
+    },
     Result {
         value: serde_json::Value,
     },

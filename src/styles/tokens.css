@@ -89,7 +89,7 @@
     --surface-sunken: var(--bg-dim, var(--void));
     --surface: var(--gray-base);
     --surface-raised: var(--gray-200);
-    --surface-overlay: var(--gray-300);
+    --surface-overlay: var(--gray-100);
 
     /* The same three surfaces, faded together with the window so the backdrop
        still reads through at low opacity. Anything that paints inside the
@@ -208,7 +208,7 @@
     --text-md: calc(14px * var(--ui-text-scale, 1)); /* panel titles */
     --text-lg: calc(16px * var(--ui-text-scale, 1)); /* dialog titles */
     --text-xl: calc(20px * var(--ui-text-scale, 1)); /* empty-state headings */
-    --text-2xl: calc(28px * var(--ui-text-scale, 1)); /* onboarding only */
+    --text-2xl: calc(28px * var(--ui-text-scale, 1));
 
     --tracking-label: 0.08em;
     --tracking-normal: -0.005em;

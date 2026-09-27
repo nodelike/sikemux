@@ -70,7 +70,11 @@ describe("WhatsNewOverlay", () => {
                 throw new Error("offline");
             },
         });
-        setState({ whatsNewOpen: true, pendingUpdate: null, lastReleaseNotes: { version: "0.4.0", notes: "Saved offline.\n", date: null } });
+        setState({
+            whatsNewOpen: true,
+            pendingUpdate: null,
+            lastReleaseNotes: { version: "0.4.0", notes: "Saved offline.\n", date: null, credits: null },
+        });
 
         render(<WhatsNewOverlay />);
 
@@ -105,6 +109,40 @@ describe("WhatsNewOverlay", () => {
         expect(await screen.findByText(/could not be loaded/)).toHaveTextContent("404 Not Found");
     });
 
+    it("shows the credits an update shipped with, without asking GitHub", async () => {
+        answer({});
+        setState({
+            whatsNewOpen: true,
+            lastReleaseNotes: null,
+            pendingUpdate: {
+                version: "0.4.1",
+                currentVersion: "0.4.0",
+                notes: "- Faster What’s new",
+                date: null,
+                credits: {
+                    commits: 12,
+                    compare: "https://github.com/nodelike/sikemux/compare/v0.4.0...v0.4.1",
+                    contributors: [person("nodelike", 10), person("octocat", 2)],
+                    avatars: { "https://avatars.githubusercontent.com/nodelike": "data:image/png;base64,AA==" },
+                },
+                state: "available",
+                error: null,
+                downloadedBytes: 0,
+                totalBytes: null,
+            },
+        });
+
+        const { container } = render(<WhatsNewOverlay />);
+
+        expect(screen.getByText("12")).toBeInTheDocument();
+        expect(container.querySelector("img.wn-avatar")).toHaveAttribute("src", "data:image/png;base64,AA==");
+        await waitFor(() => expect(invoke.mock.calls.some(([command]) => command === "release_avatars")).toBe(true));
+        expect(invoke.mock.calls.some(([command]) => command === "release_notes")).toBe(false);
+        expect(invoke.mock.calls.find(([command]) => command === "release_avatars")?.[1]).toEqual({
+            urls: ["https://avatars.githubusercontent.com/octocat"],
+        });
+    });
+
     it("credits the contributors of the update waiting to install and opens their GitHub profiles", async () => {
         const user = userEvent.setup();
         const opened = vi.fn();
@@ -122,6 +160,7 @@ describe("WhatsNewOverlay", () => {
                 currentVersion: "0.4.0",
                 notes: null,
                 date: null,
+                credits: null,
                 state: "available",
                 error: null,
                 downloadedBytes: 0,

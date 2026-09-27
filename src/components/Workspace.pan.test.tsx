@@ -607,14 +607,6 @@ describe("workspace wheel pan", () => {
         expect(track).not.toHaveClass("panning");
     });
 
-    it("keeps the strip's own scrolling to itself", () => {
-        const { container, track } = stageOfScreens();
-        const strip = container.querySelector(".tabbar")!;
-
-        expect(swipe(strip, 300)).toBe(false);
-        expect(track).not.toHaveClass("panning");
-    });
-
     /*
      * A switch from the keyboard mid-swipe takes the session off the screens the
      * gesture was dragging between, so the gesture has nothing left to hold and

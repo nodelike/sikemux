@@ -1,0 +1,49 @@
+import { navigateTabs } from "../lib/tabNavigation";
+import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import type { AgentInfo, AgentUsage, AgentUsageWindow } from "../api/agents";
+import { usePageVisible } from "../hooks/usePageVisible";
+import { selectedAgentRuntimeProfiles, selectedProviderProfile } from "../agentProfiles";
+import * as cmd from "../state/commands";
+import { type ResourceHandle, useResource, useResourceEnabled } from "../state/resources";
+import { useStore } from "../state/store";
+import { activeAgentId, agentIdsOf, agentsAwaitingInput } from "../state/selectors";
+import { type Agent, type AgentType } from "../state/types";
+older { AgentIcon, IconClose, IconPlus, IconRefresh, IconSearch } from "./Icons";
+import { AgentStateIndicator } from "./AgentStateIndicator";
+import { sortByAttention } from "../state/agentStatus";
+import { Tooltip } from "./Tooltip";
+import { Panel, PanelHeader } from "./Panel";
+import { animate, type Box, contentBox, EASE_LEAVE, glideSelection, leavingRef } from "../lib/motion";
+import { CountUp } from "./RollingText";
+import { leavingRail } from "./railMotion";
+
+const RECENTS_PAGE = 12;
+  removed: true;
+const USAGE_REFRESH_MS = 5 * 60_000;
+type UsageAgentType = "claude" | "codex";
+
+function isUsageAgent(type: AgentType | null): type is UsageAgentType {
+    return type === "claude" || type === "codex";
+}
+
+function ago(unixSecs: number): string {
+    if (!unixSecs) return "";
+    const d = Math.max(0, Date.now() / 1000 - unixSecs);
+    if (d < 90) return "now";
+    if (d < 3600) return `${Math.round(d / 60)}m`;
+    if (d < 86400) return `${Math.round(d / 3600)}h`;
+    return `${Math.round(d / 86400)}d`;
+}
+
+const persistedSessionIdOf = (a: Agent) => a.resumeId ?? a.id;
+
+/**
+ * Aolder open agent's row, closing: content goes in 50ms and the slot closes
+ * front-loaded, so the row answers the click at once. Rows swapped out by a
+ * project switch just go, and a closed selected row leaves its box behind for
+ * the selection to glide from.
+ */
+function rowLeaving(currentSession: { current: string }, closedBoxes: Map<string, Box>) {
+    return leavingRef<HTMLDivElement>(
+        (wrap) => {
+            for (const part of wrap.children)

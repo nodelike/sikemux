@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { subscribeTheme } from "../../themes/bus";
 import type { GitCommit } from "../../api/git";
 import { EmptyState } from "../Panel";
@@ -138,6 +138,13 @@ function readVar(el: HTMLElement, name: string): string {
 }
 const FALLBACK_PALETTE = ["#a277ff", "#61ffca", "#ff6ac1", "#ffca85", "#7cc5ff", "#ff6767"];
 const FALLBACK_WARN = "#ffca85";
+const FALLBACK_VOID = "#100e16";
+
+interface GraphColors {
+    palette: string[];
+    unpushed: string;
+    void: string;
+}
 
 function readPalette(el: HTMLElement): string[] {
     const themed = ["--acc", "--live", "--cmd", "--warn", "--danger"].map((n) => readVar(el, n)).filter(Boolean);
@@ -149,10 +156,15 @@ function sizeCanvas(canvas: HTMLCanvasElement, rows: RowLayout[], maxLanes: numb
     const dpr = window.devicePixelRatio || 1;
     const w = gutterWidth(maxLanes);
     const h = Math.max(1, rows.length * ROW_H);
-    canvas.width = Math.round(w * dpr);
-    canvas.height = Math.round(h * dpr);
-    canvas.style.width = `${w}px`;
-    canvas.style.height = `${h}px`;
+    const width = Math.round(w * dpr);
+    const height = Math.round(h * dpr);
+    // Assigning a canvas's size throws its bitmap away even when the size is unchanged.
+    if (canvas.width !== width || canvas.height !== height) {
+        canvas.width = width;
+        canvas.height = height;
+        canvas.style.width = `${w}px`;
+        canvas.style.height = `${h}px`;
+    }
 
     const ctx = canvas.getContext("2d");
     if (!ctx) return null;
@@ -173,14 +185,12 @@ function drawSelection(canvas: HTMLCanvasElement, rows: RowLayout[], maxLanes: n
     ctx.stroke();
 }
 
-function draw(canvas: HTMLCanvasElement, rows: RowLayout[], maxLanes: number) {
+function draw(canvas: HTMLCanvasElement, rows: RowLayout[], maxLanes: number, colors: GraphColors) {
     const ctx = sizeCanvas(canvas, rows, maxLanes);
     if (!ctx) return;
     ctx.lineCap = "round";
 
-    const palette = readPalette(canvas);
-    const voidColor = readVar(canvas, "--void") || "#100e16";
-    const unpushedColor = readVar(canvas, "--warn") || "#ffca85";
+    const { palette, void: voidColor, unpushed: unpushedColor } = colors;
     const col = (i: number) => palette[i % palette.length];
     const edgeColor = (e: { color: number; unpushed: boolean }) => (e.unpushed ? unpushedColor : col(e.color));
     const cp = ROW_H * 0.42;
@@ -261,7 +271,7 @@ function RefBadge({ label }: { label: string }) {
     return <span className={`gg-ref ${kind}`}>{text}</span>;
 }
 
-export function GitGraph({
+export const GitGraph = memo(function GitGraph({
     commits,
     selectedIndex,
     focused,
@@ -283,22 +293,26 @@ export function GitGraph({
     const { rows, maxLanes } = useMemo(() => computeGraph(commits), [commits]);
     const gutter = gutterWidth(maxLanes);
     const [themeRevision, setThemeRevision] = useState(0);
-    // Reading a CSS variable forces a style resolve, so the row palette is read
-    // once per theme rather than five times per row per render.
-    const [colors, setColors] = useState({ palette: FALLBACK_PALETTE, unpushed: FALLBACK_WARN });
+    // Reading a CSS variable forces a style resolve, so the palette is read
+    // once per theme rather than on every redraw. Until it is read nothing is drawn.
+    const [colors, setColors] = useState<GraphColors | null>(null);
 
     useEffect(() => subscribeTheme(() => setThemeRevision((n) => n + 1)), []);
 
     useLayoutEffect(() => {
         const el = wrapRef.current;
         if (!el) return;
-        setColors({ palette: readPalette(el), unpushed: readVar(el, "--warn") || FALLBACK_WARN });
+        setColors({
+            palette: readPalette(el),
+            unpushed: readVar(el, "--warn") || FALLBACK_WARN,
+            void: readVar(el, "--void") || FALLBACK_VOID,
+        });
     }, [themeRevision]);
 
     useLayoutEffect(() => {
         const canvas = canvasRef.current;
-        if (canvas) draw(canvas, rows, maxLanes);
-    }, [rows, maxLanes, themeRevision]);
+        if (canvas && colors) draw(canvas, rows, maxLanes, colors);
+    }, [rows, maxLanes, colors]);
 
     useLayoutEffect(() => {
         const canvas = selectionCanvasRef.current;
@@ -319,7 +333,8 @@ export function GitGraph({
                 const sel = focused && selectedIndex === i;
                 const inRange = range !== null && i >= range[0] && i <= range[1];
                 const row = rows[i];
-                const hashColor = row?.unpushed ? colors.unpushed : colors.palette[(row?.colorIdx ?? 0) % colors.palette.length];
+                const palette = colors?.palette ?? FALLBACK_PALETTE;
+                const hashColor = row?.unpushed ? (colors?.unpushed ?? FALLBACK_WARN) : palette[(row?.colorIdx ?? 0) % palette.length];
                 return (
                     <div
                         key={c.full_hash || c.hash}
@@ -377,4 +392,4 @@ export function GitGraph({
             })}
         </div>
     );
-}
+});

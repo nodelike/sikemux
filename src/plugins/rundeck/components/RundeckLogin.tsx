@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { errorMessage, rundeckApi } from "../api";
-import { Checkbox } from "../../../plugin-api/ui";
+import { Checkbox, IconRundeck } from "../../../plugin-api/ui";
 
 interface Props {
     initialUrl?: string;
@@ -51,19 +51,20 @@ export function RundeckLogin({ initialUrl = "", initialUser = "", initialAllowIn
     };
 
     return (
-        <div className="rnd-login">
+        <div className="rnd-main rnd-login">
             <form
                 className="rnd-login-card"
                 onSubmit={(e) => {
                     e.preventDefault();
                     void submit();
                 }}>
-                <div className="rnd-login-title">
-                    <span>connect to rundeck</span>
-                </div>
+                <span className="rnd-login-logo">
+                    <IconRundeck size={24} />
+                </span>
+                <h2 className="rnd-login-title">Connect to Rundeck</h2>
                 <div className="rnd-login-modes" role="radiogroup" aria-label="Sign-in method">
                     <ModeChip mode="password" current={mode} onPick={setMode}>
-                        password
+                        Password
                     </ModeChip>
                     <ModeChip mode="token" current={mode} onPick={setMode}>
                         API token
@@ -124,8 +125,8 @@ export function RundeckLogin({ initialUrl = "", initialUser = "", initialAllowIn
 
                 {error && <div className="rnd-login-error">{error}</div>}
 
-                <button type="submit" className="rnd-btn rnd-btn-primary" disabled={!canSubmit}>
-                    {busy ? "signing in…" : "sign in"}
+                <button type="submit" className="rnd-btn lg primary" disabled={!canSubmit}>
+                    {busy ? "Signing in…" : "Sign in"}
                 </button>
             </form>
         </div>

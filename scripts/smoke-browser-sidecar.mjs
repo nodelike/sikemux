@@ -4,6 +4,7 @@
 
 import { spawn } from "node:child_process";
 import { createInterface } from "node:readline";
+import { createHmac } from "node:crypto";
 import { createServer } from "node:net";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -25,14 +26,26 @@ const EXPECTED_TOOLS = [
   "guide",
 ];
 
+const TOKEN = "smoke-token";
+
 function fakeSikemux(received) {
   const server = createServer((socket) => {
     let frame = "";
+    let greeted = false;
     socket.on("data", (chunk) => {
       frame += chunk;
       const newline = frame.indexOf("\n");
       if (newline < 0) return;
       const call = JSON.parse(frame.slice(0, newline));
+      frame = frame.slice(newline + 1);
+      if (!greeted) {
+        greeted = true;
+        const proof = createHmac("sha256", TOKEN)
+          .update(`sikemux-cli-server\n${server.address().port}\n${call.nonce}`)
+          .digest("hex");
+        socket.write(`${JSON.stringify({ status: "hello", proof })}\n`);
+        return;
+      }
       received.push(call);
       const value = call.request?.method === "plugins.tools" ? [] : STATE;
       socket.end(`${JSON.stringify({ status: "result", value })}\n`);
@@ -125,7 +138,7 @@ async function exercise(sidecar, environment, received) {
     if (
       call?.request?.method !== "browser.navigate" ||
       call?.request?.agentId !== "agent-smoke" ||
-      call?.token !== "smoke-token"
+      call?.token !== TOKEN
     )
       throw new Error(
         `the app did not receive the browser call: ${JSON.stringify(received)}`,
@@ -145,10 +158,10 @@ export async function smokeBrowserSidecar(sidecar) {
     writeFileSync(
       endpoint,
       JSON.stringify({
-        protocol: 1,
+        protocol: 2,
         pid: process.pid,
         port: server.address().port,
-        token: "smoke-token",
+        token: TOKEN,
         version: "smoke",
       }),
     );

@@ -74,4 +74,11 @@ describe("chat overflow", () => {
         expect(name).toMatch(/text-overflow:\s*ellipsis/);
         expect(name).toMatch(/min-width:\s*0/);
     });
+    it("lets a finished task's command give way rather than its state", () => {
+        const name = block(".chat-notice-name");
+        expect(name).not.toMatch(/flex:\s*none/);
+        expect(name).toMatch(/text-overflow:\s*ellipsis/);
+        expect(name).toMatch(/min-width:\s*0/);
+        expect(block(".chat-notice > svg")).toMatch(/flex:\s*none/);
+    });
 });

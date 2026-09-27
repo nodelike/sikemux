@@ -1,15 +1,11 @@
 import { useMemo, useState } from "react";
 import { openUrl, swallow } from "../../../plugin-api/host";
-import { Dropdown, EmptyState, Switch, VirtualLogList } from "../../../plugin-api/ui";
+import { Switch, VirtualLogList } from "../../../plugin-api/ui";
 import { AnsiText } from "./AnsiText";
 import type { LogRow, LogState } from "./useExecutionStreams";
+import { Seg } from "./parts";
 
-type LevelFilter = "all" | "no-debug";
-
-const LEVEL_OPTIONS = [
-    { value: "all", label: "all levels" },
-    { value: "no-debug", label: "hide debug" },
-];
+type LevelFilter = "all" | "no-debug" | "errors";
 
 export function matchesStep(stepctx: string | null, key: string): boolean {
     const ctx = stepctx ?? "";
@@ -30,10 +26,16 @@ export function RundeckLogView({ logs, stepFilter, stepLabel, terminal, permalin
 
     const rows = useMemo(() => {
         if (!stepFilter && levelFilter === "all") return logs.rows;
-        return logs.rows.filter(
-            (row) => (!stepFilter || matchesStep(row.stepctx, stepFilter)) && (levelFilter === "all" || (row.level ?? "").toUpperCase() !== "DEBUG"),
-        );
+        return logs.rows.filter((row) => {
+            if (stepFilter && !matchesStep(row.stepctx, stepFilter)) return false;
+            const level = (row.level ?? "").toUpperCase();
+            if (levelFilter === "no-debug") return level !== "DEBUG" && level !== "VERBOSE";
+            if (levelFilter === "errors") return level === "ERROR" || level === "WARN";
+            return true;
+        });
     }, [logs.rows, stepFilter, levelFilter]);
+
+    const errors = useMemo(() => logs.rows.filter((row) => (row.level ?? "").toUpperCase() === "ERROR").length, [logs.rows]);
 
     const multiNode = useMemo(() => {
         let first: string | null = null;
@@ -45,32 +47,37 @@ export function RundeckLogView({ logs, stepFilter, stepLabel, terminal, permalin
         return false;
     }, [logs.rows]);
 
-    const streamState = logs.completed ? "ended" : logs.failed ? "stopped" : terminal ? "ending…" : "live";
+    const streamState = logs.completed ? "Ended" : logs.failed ? "Stopped" : terminal ? "Ending…" : "Live";
 
     return (
         <section className="rnd-logs">
-            <div className="rnd-logs-toolbar">
-                <span className="rnd-logs-title">
-                    output · {stepLabel ?? "all steps"} · {streamState}
-                </span>
-                <Dropdown
-                    className="rnd-logs-level"
+            <div className="rnd-logs-bar">
+                <span className="rnd-logs-title">{stepLabel ?? "All steps"}</span>
+                <span className="rnd-grow" />
+                <Seg
+                    label="Log level"
                     value={levelFilter}
-                    options={LEVEL_OPTIONS}
-                    onChange={(v) => setLevelFilter(v as LevelFilter)}
-                    label="Log level filter"
+                    onChange={setLevelFilter}
+                    options={[
+                        { value: "all", label: "All" },
+                        { value: "no-debug", label: "Hide debug" },
+                        { value: "errors", label: "Problems", count: errors || undefined },
+                    ]}
                 />
-                <label className="rnd-toggle">
-                    <span>follow</span>
-                    <Switch checked={followTail} onChange={setFollowTail} label="Follow log tail" />
+                <label className="rnd-follow">
+                    <span>Follow</span>
+                    <Switch checked={followTail} onChange={setFollowTail} label="Follow the newest output" />
                 </label>
-                <span className="rnd-logs-count">{rows.length} lines</span>
+                <span className={`rnd-live${streamState === "Live" ? "" : " ended"}`}>
+                    <i />
+                    {streamState}
+                </span>
             </div>
-            {logs.failed && <div className="rnd-banner danger">log stream stopped: {logs.error ?? "too many errors"}</div>}
-            {!logs.failed && logs.error && <div className="rnd-banner warn">log stream: {logs.error}</div>}
+            {logs.failed && <div className="rnd-banner danger rnd-inset">The log stream stopped: {logs.error ?? "too many errors"}</div>}
+            {!logs.failed && logs.error && <div className="rnd-banner warn rnd-inset">Log stream: {logs.error}</div>}
             {logs.dropped > 0 && (
-                <div className="rnd-banner muted rnd-logs-dropped">
-                    {logs.dropped.toLocaleString()} earlier lines not shown
+                <div className="rnd-banner muted rnd-inset">
+                    {logs.dropped.toLocaleString()} earlier lines aren't shown
                     {permalink && (
                         <>
                             {" · "}
@@ -87,16 +94,24 @@ export function RundeckLogView({ logs, stepFilter, stepLabel, terminal, permalin
                 rowClassName={(row) => `rnd-log-line${row.level ? ` lvl-${row.level.toLowerCase()}` : ""}`}
                 estimateSize={20}
                 follow={followTail}
-                empty={<EmptyState message={`no output${stepFilter ? " for this step" : ""} yet`} />}
+                empty={<div className="rnd-logs-empty">{`No output${stepFilter ? " for this step" : ""} yet.`}</div>}
                 getItemKey={(row) => row.seq}
                 renderRow={(row: LogRow) => (
                     <>
-                        <span className="rnd-log-step">{row.stepctx ? `[${row.stepctx}]` : ""}</span>
+                        <span className="rnd-log-time">{row.time ?? ""}</span>
+                        <span className="rnd-log-step">{row.stepctx ? row.stepctx.split(/[/@]/)[0] : ""}</span>
                         {multiNode && <span className="rnd-log-node">{row.node ?? ""}</span>}
                         <AnsiText className="rnd-log-text" text={row.log ?? ""} />
                     </>
                 )}
             />
+            <div className="rnd-logs-foot">
+                <span>
+                    {rows.length === logs.rows.length ? `${logs.rows.length} lines` : `${rows.length} of ${logs.rows.length} lines`} · {errors}{" "}
+                    {errors === 1 ? "error" : "errors"}
+                </span>
+                <span>{followTail ? "Following the newest output" : "Paused"}</span>
+            </div>
         </section>
     );
 }

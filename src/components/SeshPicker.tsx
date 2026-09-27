@@ -16,6 +16,7 @@ import { isPluginKind } from "../plugins/kinds";
 import { enabledFrontendPlugins } from "../plugins/enabled";
 import { pluginSurface } from "../plugins/registry";
 import { IconClose, IconCommand, IconFolder, IconSearch } from "./Icons";
+import { leavingOverlay } from "../lib/motion";
 
 type Item =
     | { kind: "session"; id: string; name: string; sub: string; sk: SessionKind }
@@ -198,7 +199,7 @@ export function SeshPicker() {
               : "jump to a session, project, or ssh host…";
 
     return (
-        <div className="picker-backdrop" onMouseDown={cmd.closePicker}>
+        <div ref={leavingOverlay} className="picker-backdrop" onMouseDown={cmd.closePicker}>
             <div
                 ref={modalRef}
                 tabIndex={-1}

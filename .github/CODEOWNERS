@@ -1,0 +1,14 @@
+# The updater signing key is loaded for the whole release build, so anything
+# that runs during it can reach the key, and tauri.conf.json decides which
+# updates installed apps trust. A change to any of these waits for the owner.
+/.github/ @nodelike
+/scripts/ @nodelike
+/src-tauri/tauri*.conf.json @nodelike
+/src-tauri/Entitlements.plist @nodelike
+/src-tauri/Info.plist @nodelike
+**/build.rs @nodelike
+**/Cargo.toml @nodelike
+/src-tauri/Cargo.lock @nodelike
+/vite.config.ts @nodelike
+/package.json @nodelike
+/pnpm-lock.yaml @nodelike

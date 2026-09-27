@@ -27,11 +27,17 @@ done
 
 BUILD_ARGS=("$@")
 BUILD_ARGS+=(--config "$ROOT/src-tauri/tauri.sidecar.conf.json")
+BUILD_ARGS+=(--config "$ROOT/src-tauri/tauri.voice.conf.json")
 # Normal developer builds do not have the updater private key, so avoid asking
 # Tauri to create an updater archive it cannot sign.
 if [[ -z "${TAURI_SIGNING_PRIVATE_KEY:-}" ]]; then
   BUILD_ARGS+=(--config '{"bundle":{"createUpdaterArtifacts":false}}')
 fi
+# Only the bundling step signs the updater archive, so the compilers, build
+# scripts and frontend tooling never see the key in their environment.
+UPDATER_KEY="${TAURI_SIGNING_PRIVATE_KEY:-}"
+UPDATER_KEY_PASSWORD="${TAURI_SIGNING_PRIVATE_KEY_PASSWORD:-}"
+unset TAURI_SIGNING_PRIVATE_KEY TAURI_SIGNING_PRIVATE_KEY_PASSWORD
 # Community releases and local builds use a complete ad-hoc bundle signature.
 # RELEASE_NOTARIZED=1 supplies a real Developer ID identity instead.
 if [[ "${REQUIRE_SIGNED_APP:-0}" != "1" && -z "${APPLE_SIGNING_IDENTITY:-}" ]]; then
@@ -41,17 +47,23 @@ fi
 "$ROOT/scripts/icons.sh"
 if [[ -n "$TARGET" ]]; then
   node "$ROOT/scripts/build-cli-sidecar.mjs" --target "$TARGET"
+  node "$ROOT/scripts/build-voice-helper.mjs" --target "$TARGET"
 else
   node "$ROOT/scripts/build-cli-sidecar.mjs"
+  node "$ROOT/scripts/build-voice-helper.mjs"
 fi
-printf '→ pnpm tauri build'
-if ((${#BUILD_ARGS[@]})); then
-  printf ' %q' "${BUILD_ARGS[@]}"
-  echo
-  pnpm tauri build "${BUILD_ARGS[@]}"
+printf '→ pnpm tauri build --no-bundle'
+printf ' %q' "${BUILD_ARGS[@]}"
+echo
+pnpm tauri build --no-bundle "${BUILD_ARGS[@]}"
+printf '→ pnpm tauri bundle'
+printf ' %q' "${BUILD_ARGS[@]}"
+echo
+if [[ -n "$UPDATER_KEY" ]]; then
+  TAURI_SIGNING_PRIVATE_KEY="$UPDATER_KEY" TAURI_SIGNING_PRIVATE_KEY_PASSWORD="$UPDATER_KEY_PASSWORD" \
+    pnpm tauri bundle "${BUILD_ARGS[@]}"
 else
-  echo
-  pnpm tauri build
+  pnpm tauri bundle "${BUILD_ARGS[@]}"
 fi
 
 TARGET_ROOT="$ROOT/src-tauri/target"
@@ -65,6 +77,10 @@ fail() {
   exit 1
 }
 
+# The README and sikemux.com promise a small download, so a release that grows
+# past this fails here instead of shipping.
+DMG_BUDGET_BYTES=11200000
+
 # Tauri packs the DMG with zlib; LZMA makes it about a fifth smaller. The
 # conversion drops the DMG's signature, so a real identity signs it again.
 shopt -s nullglob
@@ -75,6 +91,8 @@ for DMG in "$BUNDLE"/dmg/*.dmg; do
   if [[ -n "${APPLE_SIGNING_IDENTITY:-}" && "$APPLE_SIGNING_IDENTITY" != "-" ]]; then
     /usr/bin/codesign --force --timestamp --sign "$APPLE_SIGNING_IDENTITY" "$DMG" || fail "could not sign $DMG"
   fi
+  DMG_BYTES="$(stat -f%z "$DMG")"
+  ((DMG_BYTES <= DMG_BUDGET_BYTES)) || fail "$DMG is $DMG_BYTES bytes, over the $DMG_BUDGET_BYTES byte budget"
 done
 shopt -u nullglob
 
@@ -107,6 +125,11 @@ BROWSER_EXECUTABLE="$APP_PATH/Contents/MacOS/sikemux-tools-mcp"
 BROWSER_ARCHS="$(/usr/bin/lipo -archs "$BROWSER_EXECUTABLE")"
 [[ "$BROWSER_ARCHS" == "$ARCHS" ]] || fail "browser sidecar architecture ($BROWSER_ARCHS) differs from app ($ARCHS)"
 [[ -s "$APP_PATH/Contents/Resources/sikemux_pi_tools.ts" ]] || fail "bundled Pi browser extension is missing"
+VOICE_EXECUTABLE="$APP_PATH/Contents/MacOS/sikemux-voice"
+[[ -x "$VOICE_EXECUTABLE" ]] || fail "bundled voice helper is missing or not executable"
+VOICE_ARCHS="$(/usr/bin/lipo -archs "$VOICE_EXECUTABLE")"
+sorted_archs() { tr ' ' '\n' <<<"$1" | sort | tr '\n' ' '; }
+[[ "$(sorted_archs "$VOICE_ARCHS")" == "$(sorted_archs "$ARCHS")" ]] || fail "voice helper architecture ($VOICE_ARCHS) differs from app ($ARCHS)"
 
 # Packaged apps must never depend on libraries from the build machine's
 # Homebrew/MacPorts installation. Such binaries pass codesign verification but
@@ -120,6 +143,11 @@ CLI_DYNAMIC_LIBS="$(/usr/bin/otool -L "$CLI_EXECUTABLE")"
 if grep -Eq '^[[:space:]]+(/opt/homebrew|/usr/local|/opt/local)/' <<<"$CLI_DYNAMIC_LIBS"; then
   echo "$CLI_DYNAMIC_LIBS" >&2
   fail "CLI sidecar links to a package-manager library"
+fi
+VOICE_DYNAMIC_LIBS="$(/usr/bin/otool -L "$VOICE_EXECUTABLE")"
+if grep -Eq '^[[:space:]]+(/opt/homebrew|/usr/local|/opt/local)/' <<<"$VOICE_DYNAMIC_LIBS"; then
+  echo "$VOICE_DYNAMIC_LIBS" >&2
+  fail "voice helper links to a package-manager library"
 fi
 BROWSER_DYNAMIC_LIBS="$(/usr/bin/otool -L "$BROWSER_EXECUTABLE")"
 if grep -Eq '^[[:space:]]+(/opt/homebrew|/usr/local|/opt/local)/' <<<"$BROWSER_DYNAMIC_LIBS"; then
@@ -135,6 +163,11 @@ BROWSER_START="$(SIKEMUX_TOOLS_AGENT_ID='' "$BROWSER_EXECUTABLE" 2>&1 || true)"
 if ! grep -Fq "Missing SIKEMUX_TOOLS_AGENT_ID" <<<"$BROWSER_START"; then
   echo "$BROWSER_START" >&2
   fail "bundled browser sidecar does not start"
+fi
+
+# The same proof for the voice helper: the signed copy must still start.
+if [[ "$VOICE_ARCHS" == *"$(uname -m)"* ]]; then
+  "$VOICE_EXECUTABLE" --version | grep -Fq "sikemux-voice" || fail "bundled voice helper does not start"
 fi
 
 # Every normal build is ad-hoc signed when no Apple identity is configured.

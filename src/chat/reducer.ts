@@ -1,4 +1,5 @@
 import { toolDiff, toolFailure } from "./diff";
+import { toolOutput } from "./toolOutput";
 import type {
     AcpAsyncTask,
     AcpAvailableCommand,
@@ -50,8 +51,35 @@ const recordOf = (value: unknown): Record<string, unknown> | undefined =>
 function isMarkupOnly(text: string): boolean {
     const trimmed = text.trim();
     if (!trimmed) return true;
+    if (isHarnessMarkup(trimmed)) return true;
     if (!trimmed.startsWith("<") || /\n\s*\n/.test(trimmed)) return false;
     return /^<([a-z][\w-]*)\b[^>]*>[\s\S]*<\/\1>$/i.test(trimmed);
+}
+
+/* Tags Claude Code writes to itself. A finished background agent's notice
+   carries its whole report, paragraphs and all, so these are recognised by
+   name rather than by looking like a single short block. */
+const HARNESS_TAGS = new Set([
+    "task-notification",
+    "system-reminder",
+    "local-command-caveat",
+    "local-command-stdout",
+    "local-command-stderr",
+    "command-name",
+    "command-message",
+    "command-args",
+]);
+
+function isHarnessMarkup(text: string): boolean {
+    let rest = text;
+    while (rest) {
+        const name = /^<([a-z][\w-]*)>/.exec(rest)?.[1];
+        if (!name || !HARNESS_TAGS.has(name)) return false;
+        const end = rest.indexOf(`</${name}>`);
+        if (end < 0) return false;
+        rest = rest.slice(end + name.length + 3).trimStart();
+    }
+    return true;
 }
 
 /* Claude records a stop as a user message, so replaying a session would show
@@ -157,16 +185,18 @@ function withoutPayload(tool: AcpToolCall): AcpToolCall {
 }
 
 /* A call that has ended has said everything it is going to say. The change it
-   made and the message it failed with are worked out here, once, and what they
-   were worked out from is let go of rather than carried for the rest of the
-   session and read again on every redraw. */
+   made, what it printed and the message it failed with are worked out here,
+   once, and what they were worked out from is let go of rather than carried
+   for the rest of the session and read again on every redraw. */
 function settleTool(part: ToolPart): ToolPart {
     const diff = toolDiff(part.tool);
-    const failure = toolFailure(part.tool);
+    const output = toolOutput(part.tool);
+    const failure = output ? null : toolFailure(part.tool);
     return {
         ...part,
         tool: withoutPayload(part.tool),
         ...(diff ? { diff } : {}),
+        ...(output ? { output } : {}),
         ...(failure ? { failure } : {}),
     };
 }

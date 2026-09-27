@@ -39,6 +39,33 @@
   const finish = (entry) => {
     entry.durationMs = at() - entry.startedAt;
   };
+  const headerOf = (headers, name) => {
+    if (!headers) return null;
+    try {
+      if (typeof headers.get === "function") return headers.get(name);
+      const pairs = Array.isArray(headers) ? headers : Object.entries(headers);
+      const pair = pairs.find(([key]) => String(key).toLowerCase() === name);
+      return pair ? String(pair[1]) : null;
+    } catch {
+      return null;
+    }
+  };
+  // Framework data requests look like any other fetch, so name the common ones.
+  const frameworkOf = (url, headers) => {
+    if (headerOf(headers, "next-action")) return "next server action";
+    if (/[?&]_rsc=/.test(url) || headerOf(headers, "rsc") === "1")
+      return "next rsc";
+    if (/\/_next\/data\//.test(url)) return "next data";
+    return null;
+  };
+  const label = (entry, headers) => {
+    const framework = frameworkOf(entry.url, headers);
+    if (framework) entry.framework = framework;
+  };
+  const failure = (error) =>
+    error && error.name && error.message
+      ? `${error.name}: ${error.message}`
+      : String((error && error.message) || error);
   const describeRequest = (body) => {
     if (body == null) return null;
     if (typeof body === "string") return clip(body);
@@ -59,6 +86,7 @@
         (request && request.url) || input,
       );
       entry.requestBody = describeRequest(init && init.body);
+      label(entry, (init && init.headers) || (request && request.headers));
       return nativeFetch.apply(this, arguments).then(
         (response) => {
           finish(entry);
@@ -81,7 +109,7 @@
         },
         (error) => {
           finish(entry);
-          entry.error = String((error && error.message) || error);
+          entry.error = failure(error);
           throw error;
         },
       );
@@ -90,15 +118,31 @@
 
   const open = XMLHttpRequest.prototype.open;
   const send = XMLHttpRequest.prototype.send;
+  const setRequestHeader = XMLHttpRequest.prototype.setRequestHeader;
   XMLHttpRequest.prototype.open = function (method, url) {
-    this.__sikemuxCall = { method, url };
+    this.__sikemuxCall = { method, url, headers: {} };
     return open.apply(this, arguments);
+  };
+  XMLHttpRequest.prototype.setRequestHeader = function (name, value) {
+    if (this.__sikemuxCall) this.__sikemuxCall.headers[name] = value;
+    return setRequestHeader.apply(this, arguments);
   };
   XMLHttpRequest.prototype.send = function (body) {
     const call = this.__sikemuxCall;
     if (call) {
       const entry = begin("xhr", call.method, call.url);
       entry.requestBody = describeRequest(body);
+      label(entry, call.headers);
+      let ended = "the request did not complete";
+      this.addEventListener("error", () => {
+        ended = "network error";
+      });
+      this.addEventListener("abort", () => {
+        ended = "aborted";
+      });
+      this.addEventListener("timeout", () => {
+        ended = "timed out";
+      });
       this.addEventListener("loadend", () => {
         finish(entry);
         entry.status = this.status;
@@ -108,7 +152,7 @@
         } catch {
           entry.contentType = "";
         }
-        if (this.status === 0) entry.error = "the request did not complete";
+        if (this.status === 0) entry.error = ended;
         try {
           if (this.responseType === "" || this.responseType === "text")
             entry.body = clip(String(this.responseText));

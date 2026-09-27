@@ -146,3 +146,77 @@ describe("dragging a tab to a new place", () => {
         vi.unstubAllGlobals();
     });
 });
+
+describe("pulling a tab down out of the strip", () => {
+    beforeEach(() => vi.useFakeTimers());
+    afterEach(() => {
+        cleanup();
+        vi.useRealTimers();
+        vi.restoreAllMocks();
+        document.body.classList.remove("is-sorting-tabs");
+    });
+
+    const dragOut = (allowed = true) => ({ allows: vi.fn(() => allowed), hover: vi.fn(), drop: vi.fn() });
+
+    it("hands the tab to the stage instead of reordering it", () => {
+        const out = dragOut();
+        const { onReorder, tab } = renderStrip({ dragOut: out });
+
+        fireEvent.pointerDown(tab("a"), { button: 0, clientX: 10, clientY: 10 });
+        fireEvent.pointerMove(window, { clientX: 220, clientY: 10 });
+        fireEvent.pointerMove(window, { clientX: 300, clientY: 200 });
+
+        expect(out.hover).toHaveBeenLastCalledWith("a", { x: 300, y: 200 });
+        // Its neighbours close the gap it left, since it is going elsewhere.
+        expect(pill("b").style.transform).toBe("");
+
+        fireEvent.pointerUp(window, { clientX: 300, clientY: 200 });
+        act(() => vi.advanceTimersByTime(TAB_SLIDE_MS));
+
+        expect(out.drop).toHaveBeenCalledWith("a", { x: 300, y: 200 });
+        expect(out.hover).toHaveBeenLastCalledWith("a", null);
+        expect(onReorder).not.toHaveBeenCalled();
+        expect(pill("a")).not.toHaveClass("tab-lifted");
+    });
+
+    it("goes back to reordering once the tab returns to the strip", () => {
+        const out = dragOut();
+        const { onReorder, tab } = renderStrip({ dragOut: out });
+
+        fireEvent.pointerDown(tab("a"), { button: 0, clientX: 10, clientY: 10 });
+        fireEvent.pointerMove(window, { clientX: 220, clientY: 200 });
+        fireEvent.pointerMove(window, { clientX: 220, clientY: 10 });
+
+        expect(out.hover).toHaveBeenLastCalledWith("a", null);
+        fireEvent.pointerUp(window, { clientX: 220, clientY: 10 });
+        act(() => vi.advanceTimersByTime(TAB_SLIDE_MS));
+        expect(onReorder).toHaveBeenCalledWith("a", "c", "after");
+        expect(out.drop).not.toHaveBeenCalled();
+    });
+
+    it("stays in the strip for a tab the stage cannot take", () => {
+        const out = dragOut(false);
+        const { tab } = renderStrip({ dragOut: out });
+
+        fireEvent.pointerDown(tab("a"), { button: 0, clientX: 10, clientY: 10 });
+        fireEvent.pointerMove(window, { clientX: 300, clientY: 200 });
+        fireEvent.pointerUp(window, { clientX: 300, clientY: 200 });
+        act(() => vi.advanceTimersByTime(TAB_SLIDE_MS));
+
+        expect(out.hover).not.toHaveBeenCalled();
+        expect(out.drop).not.toHaveBeenCalled();
+    });
+
+    it("puts everything back on Escape", () => {
+        const out = dragOut();
+        const { tab } = renderStrip({ dragOut: out });
+
+        fireEvent.pointerDown(tab("a"), { button: 0, clientX: 10, clientY: 10 });
+        fireEvent.pointerMove(window, { clientX: 300, clientY: 200 });
+        fireEvent.keyDown(window, { key: "Escape" });
+        act(() => vi.advanceTimersByTime(TAB_SLIDE_MS));
+
+        expect(out.hover).toHaveBeenLastCalledWith("a", null);
+        expect(out.drop).not.toHaveBeenCalled();
+    });
+});

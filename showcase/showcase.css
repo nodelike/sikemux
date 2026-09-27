@@ -1,0 +1,24 @@
+html {
+  background:
+    radial-gradient(90% 70% at 18% 8%, #1b1d5c 0%, transparent 60%),
+    radial-gradient(70% 60% at 85% 90%, #2a0f4a 0%, transparent 65%), #03041a;
+}
+
+.tb-left {
+  position: relative;
+}
+
+.tb-left::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 16px;
+  width: 12px;
+  height: 12px;
+  margin-top: -6px;
+  border-radius: 50%;
+  background: #ff5f57;
+  box-shadow:
+    20px 0 0 #febc2e,
+    40px 0 0 #28c840;
+}

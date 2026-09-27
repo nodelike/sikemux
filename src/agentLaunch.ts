@@ -29,6 +29,15 @@ export function supportedPermissionModes(type: AgentType): readonly AgentPermiss
         : ["workspace-write"];
 }
 
+/** Agents the built-in chat can drive over ACP. Pi has no ACP mode of its own. */
+export type ChatAgentType = Exclude<AgentType, "pi">;
+
+export const CHAT_AGENT_TYPES: readonly ChatAgentType[] = ["codex", "claude", "opencode", "omp", "grok", "hermes"];
+
+export function agentSupportsChat(type: AgentType): type is ChatAgentType {
+    return (CHAT_AGENT_TYPES as readonly AgentType[]).includes(type);
+}
+
 export function normalizePermissionMode(type: AgentType, mode: AgentPermissionMode): AgentPermissionMode {
     return supportedPermissionModes(type).includes(mode) ? mode : "workspace-write";
 }

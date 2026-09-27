@@ -1,5 +1,5 @@
 import { bundledLanguages, createHighlighter, createJavaScriptRegexEngine } from "../vendor/shiki";
-import type { HighlighterCore } from "shiki/core";
+import type { Grammar, GrammarState, HighlighterCore, TokensResult } from "shiki/core";
 import { createCodeTheme } from "../themes/codeTheme";
 import type { Theme } from "../themes";
 import type { CodeLine, CodeToken } from "./types";
@@ -25,22 +25,38 @@ const FONT_ITALIC = 1;
 const FONT_BOLD = 2;
 const FONT_UNDERLINE = 4;
 
-export async function tokenizeCode(text: string, lang: string, theme: Theme, themeName: string): Promise<CodeLine[]> {
-    const grammar = bundledLanguages[lang as keyof typeof bundledLanguages];
-    if (!grammar) return [];
+/** Loads a grammar into the shared highlighter; false when there is no such grammar. */
+async function loadGrammar(shiki: HighlighterCore, lang: string): Promise<boolean> {
+    const grammar = Object.hasOwn(bundledLanguages, lang) ? bundledLanguages[lang] : undefined;
+    if (!grammar) return false;
+    let loading = grammars.get(lang);
+    if (!loading) {
+        loading = grammar().then((module) => shiki.loadLanguage(module.default));
+        grammars.set(lang, loading);
+        loading.catch(() => grammars.delete(lang));
+    }
+    await loading;
+    return true;
+}
+
+/** The grammar itself, for reading a file one line at a time. */
+export async function textMateGrammar(lang: string): Promise<Grammar | null> {
+    const shiki = await highlighter();
+    return (await loadGrammar(shiki, lang)) ? shiki.getLanguage(lang) : null;
+}
+
+async function prepare(lang: string, theme: Theme, themeName: string): Promise<HighlighterCore | null> {
     const shiki = await highlighter();
     let loadingTheme = themes.get(themeName);
     if (!loadingTheme) {
         loadingTheme = shiki.loadTheme(createCodeTheme(theme, themeName));
         themes.set(themeName, loadingTheme);
     }
-    let loadingGrammar = grammars.get(lang);
-    if (!loadingGrammar) {
-        loadingGrammar = grammar().then((module) => shiki.loadLanguage(module.default));
-        grammars.set(lang, loadingGrammar);
-    }
-    await Promise.all([loadingTheme, loadingGrammar]);
-    const highlighted = shiki.codeToTokens(text, { lang, theme: themeName });
+    const [, found] = await Promise.all([loadingTheme, loadGrammar(shiki, lang)]);
+    return found ? shiki : null;
+}
+
+function codeLines(highlighted: TokensResult): CodeLine[] {
     const plain = highlighted.fg?.toLowerCase();
     return highlighted.tokens.map((line) => {
         const merged: CodeToken[] = [];
@@ -62,6 +78,41 @@ export async function tokenizeCode(text: string, lang: string, theme: Theme, the
         }
         return merged;
     });
+}
+
+export async function tokenizeCode(text: string, lang: string, theme: Theme, themeName: string): Promise<CodeLine[]> {
+    const shiki = await prepare(lang, theme, themeName);
+    return shiki ? codeLines(shiki.codeToTokens(text, { lang, theme: themeName })) : [];
+}
+
+const LINES_PER_SLICE = 200;
+
+/**
+ * Colours a long run of lines a slice at a time, handing the main thread back
+ * between slices so a big diff never holds up a frame for long. Null when
+ * there is no grammar for the language or `stale` says the answer is no
+ * longer wanted.
+ */
+export async function tokenizeLines(
+    lines: readonly string[],
+    lang: string,
+    theme: Theme,
+    themeName: string,
+    { maxLineLength, stale }: { maxLineLength: number; stale: () => boolean },
+): Promise<CodeLine[] | null> {
+    const shiki = await prepare(lang, theme, themeName);
+    if (!shiki) return null;
+    const out: CodeLine[] = [];
+    let grammarState: GrammarState | undefined;
+    for (let from = 0; from < lines.length; from += LINES_PER_SLICE) {
+        if (stale()) return null;
+        const slice = lines.slice(from, from + LINES_PER_SLICE).join("\n");
+        const highlighted = shiki.codeToTokens(slice, { lang, theme: themeName, grammarState, tokenizeMaxLineLength: maxLineLength });
+        grammarState = highlighted.grammarState;
+        out.push(...codeLines(highlighted));
+        if (from + LINES_PER_SLICE < lines.length) await new Promise((resume) => setTimeout(resume));
+    }
+    return stale() ? null : out;
 }
 
 function sameStyle(a: CodeToken, b: CodeToken): boolean {

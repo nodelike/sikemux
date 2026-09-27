@@ -33,7 +33,7 @@ describe("task terminal presentation", () => {
         const session = state.sessions[state.activeSessionId];
         const window = state.windows[session.activeWindowId];
 
-        expect(window).toMatchObject({ name: "Test", role: "named", transient: true, activePaneId: paneId });
+        expect(window).toMatchObject({ name: "Test", role: "term", transient: true, activePaneId: paneId });
         expect(window.root).toMatchObject({
             type: "pane",
             id: paneId,

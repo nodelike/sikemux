@@ -1,5 +1,5 @@
 import { useModalFocus } from "../hooks/useModalFocus";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
     buildCommandRegistry,
     type BuiltinCommandExecutor,
@@ -14,6 +14,7 @@ import { rankBy } from "../lib/fuzzy";
 import type { KeybindingOverrides } from "../keybindings";
 import { IconCommand, IconSearch } from "./Icons";
 import { runMeasuredAction } from "../lib/instrumentation";
+import { contentBox, glideSelection, leavingOverlay } from "../lib/motion";
 
 const MAX_RESULTS = 200;
 
@@ -72,6 +73,23 @@ export function CommandPalette({
         setSelected((current) => Math.min(current, Math.max(0, entries.length - 1)));
     }, [entries.length]);
 
+    /* Moving by keyboard slides the highlight to the next row. Moving by
+       pointer does not: a highlight trailing the pointer reads as lag. */
+    const keyed = useRef(false);
+    const lastSelected = useRef(selected);
+    useLayoutEffect(() => {
+        const from = lastSelected.current;
+        lastSelected.current = selected;
+        const byKey = keyed.current;
+        keyed.current = false;
+        const list = listRef.current;
+        if (!byKey || from === selected || !list) return;
+        const rows = list.querySelectorAll<HTMLElement>(".command-palette-item");
+        const previous = rows[from];
+        const next = rows[selected];
+        if (previous && next) glideSelection(list, contentBox(previous.getBoundingClientRect(), list), next, previous);
+    }, [selected]);
+
     useEffect(() => {
         const row = listRef.current?.querySelector<HTMLElement>(`.command-palette-item:nth-child(${selected + 1})`);
         row?.scrollIntoView?.({ block: "nearest" });
@@ -90,9 +108,11 @@ export function CommandPalette({
             onClose();
         } else if (event.key === "ArrowDown" || (event.key === "Tab" && !event.shiftKey)) {
             event.preventDefault();
+            keyed.current = true;
             setSelected((current) => (entries.length ? (current + 1) % entries.length : 0));
         } else if (event.key === "ArrowUp" || (event.key === "Tab" && event.shiftKey)) {
             event.preventDefault();
+            keyed.current = true;
             setSelected((current) => (entries.length ? (current - 1 + entries.length) % entries.length : 0));
         } else if (event.key === "Enter") {
             event.preventDefault();
@@ -101,7 +121,7 @@ export function CommandPalette({
     };
 
     return (
-        <div className="picker-backdrop command-palette-backdrop" onMouseDown={onClose}>
+        <div ref={leavingOverlay} className="picker-backdrop command-palette-backdrop" onMouseDown={onClose}>
             <div
                 ref={modalRef}
                 tabIndex={-1}

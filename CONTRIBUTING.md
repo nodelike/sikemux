@@ -52,6 +52,10 @@ Agent tools are declared once in `browser/tools.json`. Add or change one there, 
 - **Scope** — keep PRs focused. One feature or fix per PR is much easier to review.
 - **No regressions** — keep things efficient and performant; if a change touches the editor, terminal, or git panes, verify the affected views still behave.
 
+## Screenshots
+
+`pnpm showcase` renders the app in headless Chrome on demo data and writes every scene to `showcase/out/` as a full window, a framed window, and 2x crops. It needs Google Chrome installed. Add `--publish` to refresh the README images, or `--site <dir>` to copy every capture somewhere else. Scenes live in `showcase/scenes.mjs` and the demo data in `showcase/world/`.
+
 ## Commit messages
 
 Follow [Conventional Commits](https://www.conventionalcommits.org/) — the format already used in this repo:
@@ -72,6 +76,8 @@ Open an [issue](https://github.com/nodelike/sikemux/issues) with:
 - What you expected vs. what happened, and steps to reproduce.
 - Your operating-system version and the Sikemux version (shown in the side rail).
 - Logs or screenshots where relevant.
+
+For questions, or to talk an idea through before opening an issue, ask in the [Sikemux Discord](https://discord.gg/UKfmHpF9kX).
 
 ## License
 

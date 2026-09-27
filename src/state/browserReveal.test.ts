@@ -15,8 +15,8 @@ afterEach(() => {
 });
 
 describe("revealing the browser", () => {
-    it("shows the browser of each agent that starts acting in it, and stops listening once unmounted", async () => {
-        const reveal = vi.spyOn(cmd, "revealBrowserPane").mockImplementation(() => {});
+    it("brings the page forward on the desk of each agent that starts acting in it, and stops listening once unmounted", async () => {
+        const reveal = vi.spyOn(cmd, "showDeskBrowser").mockImplementation(() => {});
         let deliver: (agentId: string) => void = () => {};
         let aborted = false;
         vi.mocked(browserApi.subscribeActing).mockImplementation(async (listener, signal) => {

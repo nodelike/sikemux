@@ -74,25 +74,20 @@ async function computeEagerJsSet() {
 }
 
 // Grammar chunks load one at a time, on demand, keyed by the language of
-// the file being diffed or of the code fence being coloured in a chat
-// (src/vendor/shiki.ts's bundledLanguages map). This
-// list mirrors those keys (minus "zsh", which shares the "shellscript"
-// loader) so a regression that re-folds them into one big chunk shows up as
-// a missing-chunk failure below instead of silently vanishing into the
-// "default-path JavaScript" catch-all.
+// the file being diffed or of the code fence being coloured in a chat. This
+// list mirrors the grammars src/vendor/shiki.ts ships (every other grammar is
+// downloaded, not bundled) so a regression that re-folds them into one big
+// chunk shows up as a missing-chunk failure below instead of silently
+// vanishing into the "default-path JavaScript" catch-all.
 const diffLanguageChunkNames = [
-  "c",
   "css",
-  "go",
   "html",
-  "java",
   "json",
   "jsonc",
   "markdown",
   "python",
   "rust",
   "shellscript",
-  "sql",
   "typescript",
   "yaml",
 ];
@@ -134,10 +129,12 @@ const budgets = [
     // colours are: the grammar table, the token cache, the tokens' own markup
     // and the splitting a diff line's changed span needs. Shiki itself is a
     // chunk of its own, fetched only once a block that can use it settles.
+    // Tool calls also carry what they printed now, opened under the row, and
+    // the transcript animates new messages and tool runs opening and closing.
     label: "ACP chat lazy chunk",
     pattern: /^AgentSurface-.*\.js$/,
-    raw: 82_000,
-    gzip: 26_700,
+    raw: 93_000,
+    gzip: 29_700,
   },
   {
     // Shiki, its JavaScript regex engine and vscode-textmate, with no
@@ -146,14 +143,8 @@ const budgets = [
     // shared by both from then on.
     label: "Highlighter lazy chunk (shiki core + JS engine, no grammars)",
     pattern: /^highlighter-.*\.js$/,
-    raw: 680_000,
-    gzip: 190_000,
-  },
-  {
-    label: "Diffs lazy chunk (pierre/diffs, no highlighter)",
-    pattern: /^diffs-.*\.js$/,
-    raw: 60_000,
-    gzip: 20_000,
+    raw: 150_000,
+    gzip: 47_000,
   },
   {
     label: "Diffs language grammar chunks (one per language, loaded on demand)",
@@ -162,18 +153,16 @@ const budgets = [
     gzip: 130_000,
   },
   {
-    label: "Diffs worker chunks",
-    pattern: /^(?:worker|wasm)-.*\.js$/,
-    raw: 930_000,
-    gzip: 335_000,
-  },
-  {
-    label: "default-path JavaScript except Diffs and its grammar chunks",
+    // Rolldown reaches CommonJS exports such as React's jsx through
+    // `(0, ns.jsx)(...)` at every call site, which Rollup did not. The app's
+    // motion (glides, rows opening and closing, overlays fading) lives here too.
+    label:
+      "default-path JavaScript except the highlighter and its grammar chunks",
     pattern: new RegExp(
-      `^(?!(?:diffs|highlighter|worker|wasm|paper-shaders|xterm-webgl|${diffLanguageChunkNames.join("|")})-).*\\.js$`,
+      `^(?!(?:highlighter|paper-shaders|xterm-webgl|${diffLanguageChunkNames.join("|")})-).*\\.js$`,
     ),
-    raw: 3_120_000,
-    gzip: 1_000_000,
+    raw: 3_260_000,
+    gzip: 1_050_000,
   },
   {
     label: "opt-in shader renderer",
@@ -189,13 +178,15 @@ const budgets = [
   },
   {
     // The chat pane has since grown rows the budget predates: subagent
-    // transcripts, background tasks, queued messages and the reconnect
-    // states. It is one lazily loaded sheet behind an agent pane, so this
-    // buys those rows room without touching what the app loads at startup.
+    // transcripts, background tasks, queued messages, the reconnect states,
+    // code block copy buttons, the composer microphone, and a tool call's
+    // output. It is one lazily loaded sheet behind an agent pane, so this buys
+    // those rows room without touching what the app loads at startup.
+    // Lightning CSS, Vite's minifier, keeps the spaces inside color-mix().
     label: "ACP chat CSS",
     pattern: /^AgentSurface-.*\.css$/,
-    raw: 39_000,
-    gzip: 7_300,
+    raw: 42_800,
+    gzip: 7_980,
   },
   {
     // Includes the JetBrainsMono Nerd Font @font-face rules: a base face per

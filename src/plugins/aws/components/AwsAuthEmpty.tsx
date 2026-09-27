@@ -1,7 +1,25 @@
 import { useResource, useResourceEnabled } from "../../../plugin-api/resources";
+import { IconAws } from "../../../plugin-api/ui";
+import type { AwsProfile } from "../api";
 import { deriveAuthState } from "../auth";
 import { awsIdentityR, awsProfilesR } from "../resources";
 import { openAwsAuthModal, setAwsProfile } from "../state";
+
+function ProfileList({ profiles, current }: { profiles: AwsProfile[]; current?: string }) {
+    return (
+        <div className="aws-profiles">
+            {profiles.map((p) => (
+                <button key={p.name} className={`aws-profile${p.name === current ? " sel" : ""}`} onClick={() => setAwsProfile(p.name)}>
+                    <span className="aws-account-logo small">
+                        <IconAws size={14} />
+                    </span>
+                    <span className="aws-profile-name">{p.name}</span>
+                    <span className="aws-profile-meta">{[p.kind === "sso" ? "SSO" : p.kind, p.region].filter(Boolean).join(" · ")}</span>
+                </button>
+            ))}
+        </div>
+    );
+}
 
 export function AwsAuthEmpty({ mode, profile }: { mode: "no-profile" | "unauthed"; profile?: string }) {
     const profilesR = useResource(awsProfilesR);
@@ -11,37 +29,24 @@ export function AwsAuthEmpty({ mode, profile }: { mode: "no-profile" | "unauthed
 
     if (mode === "no-profile") {
         return (
-            <div className="aws-empty-stage">
-                <div className="aws-empty-card">
-                    <div className="aws-empty-label">AWS</div>
-                    <div className="aws-empty-title">Pick a profile</div>
-                    <div className="aws-empty-sub">
-                        Profiles come from <code>~/.aws/config</code>. Run <code>aws configure sso</code> first if you don't have any.
+            <div className="aws-pane">
+                <div className="aws-signin">
+                    <div className="aws-signin-card">
+                        <span className="aws-account-logo large">
+                            <IconAws size={26} />
+                        </span>
+                        <h2>Pick a profile</h2>
+                        <p>
+                            Profiles come from <code>~/.aws/config</code>. Run <code>aws configure sso</code> first if you don't have any.
+                        </p>
+                        {profiles === null && <div className="aws-insp-note">Looking for profiles…</div>}
+                        {profiles !== null && profiles.length === 0 && (
+                            <div className="aws-insp-note">
+                                No profiles found. Run <code>aws configure sso</code> to add one.
+                            </div>
+                        )}
+                        {profiles && profiles.length > 0 && <ProfileList profiles={profiles} />}
                     </div>
-                    {profiles === null && <div className="aws-empty-loading">scanning…</div>}
-                    {profiles !== null && profiles.length === 0 && (
-                        <div className="aws-empty-loading">
-                            no profiles found — run <code>aws configure sso</code> to add one
-                        </div>
-                    )}
-                    {profiles && profiles.length > 0 && (
-                        <div className="aws-profile-list">
-                            {profiles.map((p) => (
-                                <button
-                                    key={p.name}
-                                    className="aws-profile-row"
-                                    onClick={() => {
-                                        setAwsProfile(p.name);
-                                    }}>
-                                    <span className="aws-profile-name">{p.name}</span>
-                                    <span className="aws-profile-meta">
-                                        {p.kind === "sso" ? "SSO" : p.kind}
-                                        {p.region ? ` · ${p.region}` : ""}
-                                    </span>
-                                </button>
-                            ))}
-                        </div>
-                    )}
                 </div>
             </div>
         );
@@ -62,26 +67,32 @@ export function AwsAuthEmpty({ mode, profile }: { mode: "no-profile" | "unauthed
               : auth.kind === "cli-missing"
                 ? "AWS CLI missing"
                 : "Not signed in";
+    const others = (profiles ?? []).filter((p) => p.name !== profile);
     return (
-        <div className="aws-empty-stage">
-            <div className="aws-empty-card">
-                <div className="aws-empty-label">AWS</div>
-                <div className="aws-empty-title">{title}</div>
-                <div className="aws-empty-sub">
-                    Profile <code>{profile}</code> needs a fresh SSO token.
-                </div>
-                {message && <pre className="aws-empty-err">{message.length > 320 ? message.slice(0, 320) + "…" : message}</pre>}
-                <div className="aws-empty-actions">
-                    <button className="aws-empty-btn primary" onClick={() => openAwsAuthModal(profile ?? "", ssoUrl)}>
+        <div className="aws-signin">
+            <div className="aws-signin-card">
+                <span className="aws-account-logo large">
+                    <IconAws size={26} />
+                </span>
+                <h2>{title}</h2>
+                <p>
+                    Profile <code>{profile}</code> needs a fresh SSO token. Sign in again to keep browsing.
+                </p>
+                {message && <pre className="aws-signin-err">{message.length > 320 ? message.slice(0, 320) + "…" : message}</pre>}
+                <div className="aws-signin-actions">
+                    <button className="aws-btn primary" onClick={() => openAwsAuthModal(profile ?? "", ssoUrl)}>
                         Sign in with SSO
                     </button>
-                    <button className="aws-empty-btn" onClick={() => void identity.refresh()}>
+                    <button className="aws-btn" onClick={() => void identity.refresh()}>
                         Retry
                     </button>
-                    <button className="aws-empty-btn ghost" onClick={() => setAwsProfile(null)}>
-                        Switch profile
-                    </button>
                 </div>
+                {others.length > 0 && (
+                    <>
+                        <div className="aws-signin-or">Or use another profile</div>
+                        <ProfileList profiles={others} />
+                    </>
+                )}
             </div>
         </div>
     );

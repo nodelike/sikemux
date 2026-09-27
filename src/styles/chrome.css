@@ -98,60 +98,13 @@
 }
 
 .tb-center {
-    /* Basis auto (not 0) so a narrow window shrinks the crumb and the right
-       cluster proportionally, instead of starving the crumb. */
-    flex: 1 1 auto;
+    flex: 1 1 0;
+    padding-right: var(--space-3);
     display: flex;
     justify-content: flex-start;
     align-items: center;
     min-width: 0;
     padding-left: 16px;
-}
-
-.crumb {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    height: 24px;
-    max-width: 340px;
-    min-width: 0;
-    padding: 0;
-    border: 0;
-    background: transparent;
-}
-.crumb-kind {
-    color: var(--text-tertiary);
-    display: flex;
-    flex: 0 0 auto;
-}
-.crumb-session {
-    color: var(--text-primary);
-    font-weight: 600;
-    flex: 0 1 auto;
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-.crumb-sep {
-    color: var(--text-tertiary);
-    flex: 0 0 auto;
-}
-.crumb-win {
-    display: flex;
-    align-items: center;
-    gap: 5px;
-    color: var(--acc);
-    flex: 0 1 auto;
-    min-width: 0;
-}
-.crumb-win > svg {
-    flex: 0 0 auto;
-}
-.crumb-name {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
 }
 
 .tb-right {
@@ -180,6 +133,57 @@
     color: var(--warn);
     border: 1px solid rgba(255, 202, 133, 0.3);
     padding: 2px 7px;
+}
+
+.voice-pill {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--danger);
+    border: 1px solid color-mix(in srgb, var(--danger) 45%, transparent);
+    padding: 2px 7px;
+}
+.voice-pill-listening {
+    animation: tb-update-pulse 1.4s ease-in-out infinite;
+}
+.voice-pill-transcribing {
+    color: var(--ink-dim);
+    border-color: var(--line);
+}
+.voice-caption {
+    position: fixed;
+    z-index: var(--layer-menu);
+    transform: translateX(-50%);
+    width: max-content;
+    max-width: 560px;
+    padding: 8px 12px;
+    background: var(--surface-overlay);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-3);
+    box-shadow: var(--shadow-2);
+    color: var(--ink);
+    font-size: var(--text-sm);
+    line-height: 1.4;
+    pointer-events: none;
+}
+/* Anchored to the bottom so the newest words stay in view as the text grows. */
+.voice-caption-lines {
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    max-height: 2lh;
+    overflow: hidden;
+}
+.voice-caption p {
+    margin: 0;
+    overflow-wrap: anywhere;
+}
+.voice-caption.settling {
+    color: var(--ink-dim);
 }
 
 .tb-clock {
@@ -601,8 +605,6 @@
     position: absolute;
     inset: 0;
     z-index: 1;
-    --window-strip-h: 0px;
-    --window-strip-gap: 0px;
     /* Empty track between one screen and the next, so a swipe shows a channel of
        shell between two cards instead of their two edges meeting as one line.
        Twice the gutter above the card, so it reads as a choice next to it. */
@@ -615,18 +617,55 @@
        and nothing would ever put it back. */
     overflow: clip;
 }
-/* A session whose surfaces all come from the rails shows no strip, and then the
-   screens have nothing to start below. */
-.window-area--strip {
-    --window-strip-h: 34px;
-    --window-strip-gap: calc(var(--shell-gap) - var(--pane-gutter));
-}
 /* One session's screens laid end to end. The track slides sideways to bring a
-   screen to the front, and owns the tab strip inset once for all of them. */
+   screen to the front. */
 .window-track {
     position: absolute;
-    inset: calc(var(--window-strip-h) + var(--window-strip-gap)) 0 0;
+    inset: 0;
     --pan: 0%;
+}
+/* On a pane in a split tab: puts it back as a tab of its own. Top centre,
+   since the pane's own controls sit in its corners, and out of the way until
+   the pointer is over the pane. */
+.pane-unsplit {
+    position: absolute;
+    z-index: 6;
+    top: var(--space-2);
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
+    gap: var(--space-1);
+    height: 22px;
+    padding: 0 var(--space-2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-2);
+    background: var(--surface);
+    color: var(--text-secondary);
+    font: inherit;
+    font-size: 11px;
+    white-space: nowrap;
+    cursor: pointer;
+    opacity: 0;
+    transition:
+        opacity var(--dur-1) linear,
+        color var(--dur-1) linear;
+}
+.pane:hover > .pane-unsplit,
+.pane-unsplit:focus-visible {
+    opacity: 1;
+}
+.pane-unsplit:hover {
+    color: var(--acc);
+}
+/* The half of a pane a tab pulled down out of the strip will split into. */
+.split-preview {
+    position: fixed;
+    z-index: 20;
+    pointer-events: none;
+    border-radius: var(--radius-panel);
+    background: color-mix(in oklab, var(--acc) 14%, transparent);
+    box-shadow: inset 0 0 0 2px color-mix(in oklab, var(--acc) 55%, transparent);
 }
 /* A transform here would trap the `position: fixed` overlays panes put on
    screen, so the screens are only offset for the length of a slide. */
@@ -870,12 +909,16 @@
     height: 1px;
     transform: translateY(-50%);
 }
-.divider-row:hover::after {
+.divider-row:hover::after,
+.divider-row.dragging::after,
+.divider-row:focus-visible::after {
     width: 2px;
     background: var(--acc);
     opacity: 1;
 }
-.divider-column:hover::after {
+.divider-column:hover::after,
+.divider-column.dragging::after,
+.divider-column:focus-visible::after {
     height: 2px;
     background: var(--acc);
     opacity: 1;

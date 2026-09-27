@@ -16,6 +16,7 @@ function showChip(overrides: Partial<NonNullable<ReturnType<typeof getState>["pe
             currentVersion: "0.3.5",
             notes: null,
             date: null,
+            credits: null,
             state: "downloading",
             error: null,
             downloadedBytes: 0,

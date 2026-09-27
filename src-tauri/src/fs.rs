@@ -78,7 +78,7 @@ fn write_lock_for(path: &Path) -> AppResult<FileWriteLock> {
 }
 
 fn content_version(bytes: &[u8]) -> String {
-    format!("{:x}", Sha256::digest(bytes))
+    hex::encode(Sha256::digest(bytes))
 }
 
 /// List a directory, directories first then files, both alphabetical.
@@ -213,9 +213,25 @@ const INLINE_TEXT_MAX_BYTES: u64 = 1024 * 1024;
 const EDITOR_TEXT_MAX_BYTES: u64 = 16 * 1024 * 1024;
 const MEDIA_MAX_BYTES: u64 = 64 * 1024 * 1024;
 
-fn read_bounded(path: &Path, max_bytes: u64) -> AppResult<Vec<u8>> {
-    let file = fs::File::open(path)?;
-    let mut bytes = Vec::with_capacity(file.metadata()?.len().min(max_bytes) as usize);
+/// Refuses anything but a regular file. Opening without blocking means a named
+/// pipe is turned away instead of hanging until something writes to it.
+pub(crate) fn read_bounded(path: &Path, max_bytes: u64) -> AppResult<Vec<u8>> {
+    let mut options = fs::OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.custom_flags(libc::O_NONBLOCK);
+    }
+    let file = options.open(path)?;
+    let metadata = file.metadata()?;
+    if !metadata.is_file() {
+        return Err(AppError::Fs(format!(
+            "{} is not a regular file",
+            path.display()
+        )));
+    }
+    let mut bytes = Vec::with_capacity(metadata.len().min(max_bytes) as usize);
     file.take(max_bytes + 1).read_to_end(&mut bytes)?;
     if bytes.len() as u64 > max_bytes {
         return Err(AppError::Fs(format!(
@@ -788,6 +804,26 @@ fn delete_path_sync(path: String) -> AppResult<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn reads_refuse_pipes_and_devices_without_blocking() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let pipe = dir.path().join("pipe");
+        let name = std::ffi::CString::new(pipe.to_string_lossy().as_bytes()).unwrap();
+        assert_eq!(unsafe { libc::mkfifo(name.as_ptr(), 0o600) }, 0);
+        assert!(matches!(read_bounded(&pipe, 1024), Err(AppError::Fs(_))));
+        assert!(matches!(
+            read_bounded(Path::new("/dev/zero"), 1024),
+            Err(AppError::Fs(_))
+        ));
+        assert!(read_bounded(dir.path(), 1024).is_err());
+
+        let file = dir.path().join("big");
+        fs::write(&file, vec![b'a'; 2048]).unwrap();
+        assert!(matches!(read_bounded(&file, 1024), Err(AppError::Fs(_))));
+        assert_eq!(read_bounded(&file, 4096).unwrap().len(), 2048);
+    }
 
     #[test]
     fn a_saved_picture_never_lands_on_one_already_there() {

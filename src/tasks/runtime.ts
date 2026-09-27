@@ -72,6 +72,8 @@ export interface TaskTerminalOpenRequest {
     readonly project: string;
     readonly source: TaskSource;
     readonly cwd: string;
+    /** The agent that started the task, whose desk shows its terminal. */
+    readonly agentId?: string;
     /** Cancels pending presentation on stop/failure; it never requests closing an opened terminal. */
     readonly signal: AbortSignal;
 }

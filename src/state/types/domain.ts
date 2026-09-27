@@ -8,7 +8,7 @@ import type { PluginKind } from "../../plugins/kinds";
  * are tabs, and the active pane decides which is on top.
  */
 export type SplitDir = "row" | "column" | "stack";
-export type CorePaneKind = "terminal" | "editor" | "git" | "diff" | "search" | "agent" | "browser";
+export type CorePaneKind = "terminal" | "editor" | "git" | "diff" | "search" | "agent" | "desk";
 export type PaneKind = CorePaneKind | PluginKind;
 
 export interface PaneNode {

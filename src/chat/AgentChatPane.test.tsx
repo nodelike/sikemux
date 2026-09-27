@@ -24,10 +24,12 @@ const mocks = vi.hoisted(() => ({
     pathKinds: vi.fn(async (paths: string[]): Promise<(string | null)[]> => paths.map(() => null)),
     revealInFinder: vi.fn(async () => {}),
     requestOpenFile: vi.fn(),
+    openUrlOnDesk: vi.fn(),
+    openFileOnDesk: vi.fn(),
     sessionContext: vi.fn(async (): Promise<{ used: number; size: number | null } | null> => null),
 }));
 
-vi.mock("../api/agents", () => ({ agentApi: { sessionContext: mocks.sessionContext } }));
+vi.mock("../api/agents", () => ({ agentApi: { sessionContext: mocks.sessionContext, available: async () => [] } }));
 
 vi.mock("../api/fs", () => ({
     fsapi: {
@@ -61,10 +63,13 @@ vi.mock("../api/acp", () => ({
 
 vi.mock("../state/commands", () => ({
     requestOpenFile: mocks.requestOpenFile,
+    openUrlOnDesk: mocks.openUrlOnDesk,
+    openFileOnDesk: mocks.openFileOnDesk,
     attachAgentSession: mocks.attachAgentSession,
     setAgentPermissionMode: mocks.setAgentPermissionMode,
     setAgentModelPreferences: mocks.setAgentModelPreferences,
     setAgentTitle: vi.fn(),
+    titleAgentFromPrompt: vi.fn(),
     noteAcpAgentState: mocks.noteAcpAgentState,
     noteAgentBackgroundWork: mocks.noteAgentBackgroundWork,
     toggleAgentSkipPermissions: vi.fn(),
@@ -244,6 +249,34 @@ describe("AgentChatPane", () => {
         expect(screen.getByRole("group", { name: "Agent" })).toBeInTheDocument();
     });
 
+    it("keeps the model menu's focus from a refocus queued before it opened", async () => {
+        const frames = new Map<number, FrameRequestCallback>();
+        let nextFrame = 0;
+        const request = vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
+            frames.set(++nextFrame, callback);
+            return nextFrame;
+        });
+        const cancel = vi.spyOn(window, "cancelAnimationFrame").mockImplementation((id) => void frames.delete(id));
+        try {
+            render(<AgentChatPane agent={agent} cwd="/repo" active visible onBusyChange={() => {}} />);
+            await waitFor(() => expect(screen.getByRole("button", { name: "Model" })).toBeEnabled());
+            fireEvent.click(screen.getByRole("button", { name: "Model" }));
+            const search = screen.getByRole("combobox", { name: "Search model" });
+            expect(search).toHaveFocus();
+
+            act(() => {
+                const queued = [...frames.values()];
+                frames.clear();
+                queued.forEach((callback) => callback(performance.now()));
+            });
+
+            expect(search).toHaveFocus();
+        } finally {
+            request.mockRestore();
+            cancel.mockRestore();
+        }
+    });
+
     it("changes the model live and persists only the confirmed configuration", async () => {
         const configs = (model: string) => [
             {
@@ -402,6 +435,44 @@ describe("AgentChatPane", () => {
 
         await waitFor(() => expect(mocks.prompt).toHaveBeenCalledWith(agent.id, "Then look at the tests", []));
         expect(screen.queryByLabelText("1 queued")).not.toBeInTheDocument();
+    });
+
+    it("brings back sent messages with the arrow keys, then what was being typed", async () => {
+        render(<AgentChatPane agent={agent} cwd="/repo" active onBusyChange={() => {}} />);
+        const editor = screen.getByRole("textbox", { name: "Message agent" }) as HTMLTextAreaElement;
+        await waitFor(() => expect(editor).toBeEnabled());
+        fireEvent.change(editor, { target: { value: "First" } });
+        fireEvent.keyDown(editor, { key: "Enter" });
+        fireEvent.change(editor, { target: { value: "Then look at the tests" } });
+        fireEvent.keyDown(editor, { key: "Enter" });
+        fireEvent.change(editor, { target: { value: "half typed" } });
+
+        fireEvent.keyDown(editor, { key: "ArrowUp" });
+        expect(editor.value).toBe("Then look at the tests");
+        fireEvent.keyDown(editor, { key: "ArrowUp" });
+        expect(editor.value).toBe("First");
+        fireEvent.keyDown(editor, { key: "ArrowUp" });
+        expect(editor.value).toBe("First");
+
+        editor.setSelectionRange(editor.value.length, editor.value.length);
+        fireEvent.keyDown(editor, { key: "ArrowDown" });
+        expect(editor.value).toBe("Then look at the tests");
+        editor.setSelectionRange(editor.value.length, editor.value.length);
+        fireEvent.keyDown(editor, { key: "ArrowDown" });
+        expect(editor.value).toBe("half typed");
+    });
+
+    it("keeps the arrows moving between lines inside a message", async () => {
+        render(<AgentChatPane agent={agent} cwd="/repo" active onBusyChange={() => {}} />);
+        const editor = screen.getByRole("textbox", { name: "Message agent" }) as HTMLTextAreaElement;
+        await waitFor(() => expect(editor).toBeEnabled());
+        fireEvent.change(editor, { target: { value: "First" } });
+        fireEvent.keyDown(editor, { key: "Enter" });
+        fireEvent.change(editor, { target: { value: "one\ntwo" } });
+        editor.setSelectionRange(6, 6);
+
+        fireEvent.keyDown(editor, { key: "ArrowUp" });
+        expect(editor.value).toBe("one\ntwo");
     });
 
     it("offers no steering for an agent that cannot take a message mid-turn", async () => {
@@ -611,6 +682,24 @@ describe("AgentChatPane", () => {
         expect(document.querySelectorAll(".chat-tool")).toHaveLength(2);
     });
 
+    it("opens the page a fetch names from its row", async () => {
+        await openTranscript();
+        emit("session_update", {
+            sessionId: "session-1",
+            update: {
+                sessionUpdate: "tool_call",
+                toolCallId: "tool-1",
+                kind: "fetch",
+                title: "Fetch https://docs.livekit.io/home/self-hosting/deployment/",
+                status: "in_progress",
+            },
+        });
+
+        const link = await screen.findByRole("link", { name: "https://docs.livekit.io/home/self-hosting/deployment/" });
+        fireEvent.click(link);
+        expect(mocks.openUrlOnDesk).toHaveBeenCalledWith(agent.id, "https://docs.livekit.io/home/self-hosting/deployment/");
+    });
+
     it("builds a subagent's transcript only once it is opened", async () => {
         await openTranscript();
         emit("session_update", {
@@ -682,7 +771,7 @@ describe("AgentChatPane", () => {
         expect(rows[1]).toHaveAttribute("title", "src/components/browser/BrowserPane.tsx");
     });
 
-    it("opens the file a call touched, and still opens what the call did", async () => {
+    it("puts the file a call touched on the desk, opens it in the editor on a double click, and still opens what the call did", async () => {
         mocks.pathKinds.mockImplementation(async (paths: string[]) => paths.map(() => "file"));
         await openTranscript();
         emit("session_update", {
@@ -712,6 +801,9 @@ describe("AgentChatPane", () => {
         });
         expect(file).toHaveTextContent("stage.css");
         fireEvent.click(file);
+        expect(mocks.openFileOnDesk).toHaveBeenCalledWith(agent.id, "/repo/src/styles/stage.css", 1, undefined);
+        expect(mocks.requestOpenFile).not.toHaveBeenCalled();
+        fireEvent.doubleClick(file);
         expect(mocks.requestOpenFile).toHaveBeenCalledWith("/repo/src/styles/stage.css", 1, undefined);
 
         fireEvent.click(screen.getByRole("button", { name: /Show what the call did/ }));
@@ -764,6 +856,83 @@ describe("AgentChatPane", () => {
 
         fireEvent.click(screen.getByTitle("pnpm vitest run"));
         expect(await screen.findByText(/1 failed/)).toBeInTheDocument();
+    });
+
+    it("says what a running command is for while it runs, and counts the run again once it ends", async () => {
+        await openTranscript();
+        emit("session_update", {
+            sessionId: "session-1",
+            update: {
+                sessionUpdate: "tool_call",
+                toolCallId: "tool-1",
+                kind: "execute",
+                title: "pnpm build",
+                status: "in_progress",
+                rawInput: { command: "pnpm build", description: "Build the site" },
+            },
+        });
+
+        const header = await screen.findByRole("button", { name: /Build the site/ });
+        expect(header).toHaveClass("live");
+        expect(document.querySelector(".chat-tool.live")).toHaveAttribute("title", "pnpm build");
+
+        emit("session_update", {
+            sessionId: "session-1",
+            update: { sessionUpdate: "tool_call_update", toolCallId: "tool-1", status: "completed", rawOutput: "built in 2.9s" },
+        });
+        const finished = await screen.findByRole("button", { name: /1 tool call/ });
+        expect(finished).not.toHaveClass("live");
+        expect(document.querySelector(".chat-tool.live")).toBeNull();
+    });
+
+    it("opens a command onto the whole of it and what it printed, folding a long output", async () => {
+        await openTranscript();
+        const printed = Array.from({ length: 20 }, (_, index) => `line ${index + 1}`).join("\n");
+        emit("session_update", {
+            sessionId: "session-1",
+            update: {
+                sessionUpdate: "tool_call",
+                toolCallId: "tool-1",
+                kind: "execute",
+                title: "python3 - <<'EOF'\nprint('hi')\nEOF",
+                status: "completed",
+                rawOutput: printed,
+            },
+        });
+
+        const row = await screen.findByTitle(/python3 - <<'EOF'/);
+        expect(row).toHaveTextContent("python3 - <<'EOF'");
+        expect(row).not.toHaveTextContent("print('hi')");
+
+        fireEvent.click(row);
+        const terminal = await waitFor(() => document.querySelector(".chat-tool-terminal") as HTMLElement);
+        expect(terminal.querySelector(".chat-tool-command pre")).toHaveTextContent("print('hi')");
+        expect(screen.getByRole("button", { name: "Copy command" })).toBeInTheDocument();
+        expect(screen.getByRole("button", { name: "Copy output" })).toBeInTheDocument();
+        expect(terminal.querySelector(".chat-tool-output pre")).toHaveTextContent("line 12");
+        expect(terminal.querySelector(".chat-tool-output pre")).not.toHaveTextContent("line 13");
+
+        fireEvent.click(screen.getByRole("button", { name: "Show all 20 lines" }));
+        expect(terminal.querySelector(".chat-tool-output pre")).toHaveTextContent("line 20");
+    });
+
+    it("ends a failed Codex command's output with the code it exited with", async () => {
+        await openTranscript();
+        emit("session_update", {
+            sessionId: "session-1",
+            update: {
+                sessionUpdate: "tool_call",
+                toolCallId: "tool-1",
+                kind: "execute",
+                title: "cargo test",
+                status: "failed",
+                rawOutput: { formatted_output: "test result: FAILED. 1 failed", exit_code: 101 },
+            },
+        });
+
+        fireEvent.click(await screen.findByTitle("cargo test"));
+        expect(await screen.findByText("test result: FAILED. 1 failed")).toBeInTheDocument();
+        expect(screen.getByText("exit 101")).toBeInTheDocument();
     });
 
     it("opens a picture an agent sent, with a name to save it under", async () => {
@@ -827,6 +996,30 @@ describe("AgentChatPane", () => {
         expect(await screen.findByText(/Done/)).toHaveTextContent(/^Done quietly$/);
     });
 
+    it("draws an answer as it streams: a fence still open, then the table after it", async () => {
+        await openTranscript();
+        const chunk = (text: string) =>
+            emit("session_update", { sessionId: "session-1", update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text } } });
+
+        chunk("Here is the fix:\n\n```ts\nconst a = 1;\n");
+        const code = await waitFor(() => {
+            const found = document.querySelector(".chat-markdown pre code.language-ts");
+            expect(found).toHaveTextContent("const a = 1;");
+            return found as HTMLElement;
+        });
+        expect(code.closest("pre")!.querySelector(".chat-code-title")).not.toBeNull();
+        const intro = screen.getByText("Here is the fix:");
+
+        chunk("```\n\n| approach | cpu |\n| --- | --- |\n| batch | 12% |\n");
+        expect((await screen.findByText("batch")).tagName).toBe("TD");
+        expect(screen.getByText("Here is the fix:")).toBe(intro);
+
+        emit("turn_completed", { stopReason: "end_turn" });
+        await waitFor(() => expect(screen.queryByRole("status")).not.toBeInTheDocument());
+        expect(screen.getByText("Here is the fix:")).toBe(intro);
+        expect(document.querySelectorAll(".chat-markdown pre")).toHaveLength(1);
+    });
+
     it("leaves out the header band when the table has no column labels", async () => {
         await openTranscript();
         emit("session_update", {
@@ -861,6 +1054,41 @@ describe("AgentChatPane", () => {
         expect(document.querySelector(".chat-code-diff .chat-diff-line.add mark")).toHaveTextContent("transparent");
         // The block of measurements beside it is not a patch and keeps its own shape.
         expect(document.querySelectorAll(".chat-code-diff")).toHaveLength(1);
+    });
+
+    it("heads a fence with its language's icon and a copy button, and leaves inline code bare", async () => {
+        await openTranscript();
+        emit("session_update", {
+            sessionId: "session-1",
+            update: {
+                sessionUpdate: "agent_message_chunk",
+                content: { type: "text", text: "Run `ls` first.\n\n```sh\nmkdir -p out\n```\n\n```\nplain\n```\n" },
+            },
+        });
+
+        const titles = await waitFor(() => {
+            const found = document.querySelectorAll(".chat-code-title");
+            expect(found).toHaveLength(2);
+            return found;
+        });
+        expect(titles[0].querySelector(".file-glyph")).toHaveStyle({ color: "#89e051" });
+        expect(titles[0]).toHaveTextContent("sh");
+        expect(titles[1].querySelector(".file-glyph")).toBeNull();
+        expect(screen.getAllByRole("button", { name: "Copy code" })).toHaveLength(2);
+        expect(screen.getByText("ls").closest("pre")).toBeNull();
+    });
+
+    it("titles a fence whose name is not valid percent-encoding with the name as written", async () => {
+        await openTranscript();
+        emit("session_update", {
+            sessionId: "session-1",
+            update: {
+                sessionUpdate: "agent_message_chunk",
+                content: { type: "text", text: "```100%\nfull\n```\n" },
+            },
+        });
+
+        await waitFor(() => expect(document.querySelector(".chat-code-title")).toHaveTextContent("100%"));
     });
 
     it("watches a working subagent over the composer and settles its card when the turn ends", async () => {

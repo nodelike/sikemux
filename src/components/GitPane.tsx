@@ -1,18 +1,19 @@
-import { lazy, memo, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, memo, Suspense, useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { git, hasUnstaged, isStaged } from "../api/git";
 import * as cmd from "../state/commands";
 import { openGitCheatsheet, openGitConfirm, openGitMenu, openGitPrompt, toggleGitCmdLog } from "../state/git";
 import { invalidate, useCachedResourceEnabled } from "../state/resources";
 import { gitDiscoveredReposR, gitOverviewR, gitRemoteBranchesR, gitRemotesR, gitStashesR } from "../state/resources.defs";
 import { useStore } from "../state/store";
-import { commitGitDraft, generateGitDraft, runRepositoryGit, setGitDraft, setGitProvider, useGitWorkbench } from "../state/gitWorkbench";
+import { commitGitDraft, generateGitDraft, runRepositoryGit, setGitProvider, useGitWorkbench } from "../state/gitWorkbench";
+import { whenStageStill } from "../state/nativeViews";
 import { errMessage, reportError } from "../state/toast";
 import { DEFAULT_GIT_VIEW, type GitPanel } from "../state/types";
-import { PRIMARY_SHORTCUT } from "../lib/platform";
 import { FileIcon } from "./FileIcon";
 import { CopyButton } from "./CopyButton";
-import { IconCommit, IconFetch, IconGit, IconPull, IconPullRequest, IconPush, IconRefresh, IconSparkle, IconWarning, IconChevron } from "./Icons";
+import { IconFetch, IconGit, IconPull, IconPullRequest, IconPush, IconRefresh, IconSparkle, IconWarning, IconChevron } from "./Icons";
 import { GitCmdLogBar } from "./git/GitCmdLogBar";
+import { GitCommitBox } from "./git/GitCommitBox";
 import { GitGraph } from "./git/GitGraph";
 import { GitModalRenderer } from "./git/GitModalRenderer";
 import { GitPanelBlock } from "./git/GitPanelBlock";
@@ -22,15 +23,28 @@ import { VirtualPanelRows } from "./git/VirtualPanelRows";
 import { SkeletonRows } from "./Skeleton";
 import { EmptyState } from "./Panel";
 import { DEFAULT_AI_PROVIDER, AI_MODELS, AI_PROVIDER_LABEL, GIT_HELP, GIT_PANEL_BY_KEY, defaultAiModel } from "./git/gitPaneConstants";
-import { filterByQuery, isGitAiProvider, isInRange, rangeBadge } from "./git/gitPaneLogic";
+import { filterByQuery, isGitAiProvider, isInRange, rangeBadge, sameRightView } from "./git/gitPaneLogic";
 import type { GitAiProvider, RightView } from "./git/gitPaneTypes";
 import { basename as basenameOf } from "../lib/paths";
 
 const CommitReview = lazy(() => import("./CommitReview").then((module) => ({ default: memo(module.CommitReview) })));
 const MergeReview = lazy(() => import("./MergeReview").then((module) => ({ default: memo(module.MergeReview) })));
-const DiffWorkerProvider = lazy(() => import("./DiffWorkerProvider").then((module) => ({ default: module.DiffWorkerProvider })));
 
-function GitWorkbench({ paneId, repo, active, onLeaveRepo }: { paneId: string; repo: string; active: boolean; onLeaveRepo: (() => void) | null }) {
+const keepSameRight = (current: RightView, next: RightView): RightView => (sameRightView(current, next) ? current : next);
+
+function GitWorkbench({
+    paneId,
+    repo,
+    active,
+    fetching,
+    onLeaveRepo,
+}: {
+    paneId: string;
+    repo: string;
+    active: boolean;
+    fetching: boolean;
+    onLeaveRepo: (() => void) | null;
+}) {
     const paneRootRef = useRef<HTMLDivElement>(null);
     const storedView = useStore((s) => s.gitViews[paneId]);
     const view = {
@@ -46,10 +60,10 @@ function GitWorkbench({ paneId, repo, active, onLeaveRepo }: { paneId: string; r
     const remoteBranchSelected = view.remoteBranchSelected ?? {};
     const modalOpen = useStore((s) => s.gitModal !== null);
 
-    const overview = useCachedResourceEnabled(active && !!repo, gitOverviewR, repo || "");
-    const remotesRes = useCachedResourceEnabled(active && !!repo, gitRemotesR, repo || "");
-    const stashesRes = useCachedResourceEnabled(active && !!repo, gitStashesR, repo || "");
-    const remoteBranchesRes = useCachedResourceEnabled(active && !!repo && !!remoteDrill, gitRemoteBranchesR, repo || "", remoteDrill ?? "");
+    const overview = useCachedResourceEnabled(fetching && !!repo, gitOverviewR, repo || "");
+    const remotesRes = useCachedResourceEnabled(fetching && !!repo, gitRemotesR, repo || "");
+    const stashesRes = useCachedResourceEnabled(fetching && !!repo, gitStashesR, repo || "");
+    const remoteBranchesRes = useCachedResourceEnabled(fetching && !!repo && !!remoteDrill, gitRemoteBranchesR, repo || "", remoteDrill ?? "");
     const overviewLoading = !!repo && overview.status === "loading" && !overview.data;
     const overviewError = !!repo && overview.status === "error" && !overview.data ? (overview.error ?? "failed to load git state") : null;
     const status = repo ? (overview.data?.status ?? null) : null;
@@ -62,10 +76,8 @@ function GitWorkbench({ paneId, repo, active, onLeaveRepo }: { paneId: string; r
     const onReviewSaved = useCallback(() => invalidate((kind, args) => kind === "git.overview" && args[0] === repo), [repo]);
     const currentBranch = branches.find((b) => b.current)?.name ?? status?.branch ?? "";
 
-    const [right, setRight] = useState<RightView>({ mode: "output", text: "" });
+    const [right, setRight] = useReducer(keepSameRight, { mode: "output", text: "" });
     const [localBusy, setBusy] = useState<string | null>(null);
-    const commitText = useGitWorkbench((state) => state.drafts[repo] ?? "");
-    const setCommitText = (value: string | ((current: string) => string)) => setGitDraft(repo, value);
     const commitInputRef = useRef<HTMLTextAreaElement>(null);
     const aiProvider = useGitWorkbench((state) => state.provider);
     const aiModel = useGitWorkbench((state) => state.model);
@@ -319,7 +331,7 @@ function GitWorkbench({ paneId, repo, active, onLeaveRepo }: { paneId: string; r
         });
     };
 
-    const doCommit = (_message: string) => {
+    const doCommit = () => {
         void commitGitDraft(repo).then(() => overview.refresh().catch(reportError("git refresh")));
     };
     const generateCommitMessage = () => {
@@ -973,7 +985,7 @@ function GitWorkbench({ paneId, repo, active, onLeaveRepo }: { paneId: string; r
             const anyUnstaged = filteredFiles.some(hasUnstaged);
             void run("", () => (anyUnstaged ? git.stageAll(repo) : git.unstageAll(repo)));
         } else if (panel === "files" && k === "c") commitInputRef.current?.focus();
-        else if (panel === "files" && k === "C") doCommit(commitText);
+        else if (panel === "files" && k === "C") doCommit();
         else if (panel === "files" && k === "g") void generateCommitMessage();
         else if (panel === "files" && k === "d") openFilesDiscardMenu();
         else if (panel === "files" && k === "s") openFilesStashMenu();
@@ -1088,7 +1100,23 @@ function GitWorkbench({ paneId, repo, active, onLeaveRepo }: { paneId: string; r
     const filesRange = rangeFor("files");
     const branchesRange = rangeFor("branches");
     const remotesRange = rangeFor("remotes");
-    const commitsRange = rangeFor("commits");
+    const commitsAnchor = rangeByPanel.commits;
+    const commitsRange = useMemo<[number, number] | null>(
+        () => (commitsAnchor === null ? null : [Math.min(commitsAnchor, sel.commits), Math.max(commitsAnchor, sel.commits)]),
+        [commitsAnchor, sel.commits],
+    );
+    // The graph is the heaviest thing in the left column, so it gets handlers
+    // that keep their identity and only redraws when its own inputs change.
+    const graphHandlers = useRef({ select: (_i: number) => {}, activate: () => {} });
+    graphHandlers.current = {
+        select: (i) => {
+            setPanel("commits");
+            setSel({ ...sel, commits: i });
+        },
+        activate: openCommitRowMenu,
+    };
+    const onGraphSelect = useCallback((i: number) => graphHandlers.current.select(i), []);
+    const onGraphActivate = useCallback(() => graphHandlers.current.activate(), []);
     const stashesRange = rangeFor("stashes");
     const stagedCount = filteredFiles.filter(isStaged).length;
     const unstagedCount = filteredFiles.filter(hasUnstaged).length;
@@ -1222,38 +1250,7 @@ function GitWorkbench({ paneId, repo, active, onLeaveRepo }: { paneId: string; r
                                 </button>
                             </div>
                         </div>
-                        <div className="git-cp-body">
-                            <textarea
-                                ref={commitInputRef}
-                                className="git-cp-input"
-                                placeholder="commit message…"
-                                value={commitText}
-                                spellCheck={false}
-                                readOnly={!!busy}
-                                rows={3}
-                                onChange={(e) => setCommitText(e.target.value)}
-                                onKeyDown={(e) => {
-                                    if (busy) e.preventDefault();
-                                    else if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) doCommit(commitText);
-                                    else if (e.key === "Escape") {
-                                        setCommitText("");
-                                        commitInputRef.current?.blur();
-                                    }
-                                    e.stopPropagation();
-                                }}
-                            />
-                            <div className="git-cp-actions">
-                                <button
-                                    className="git-cp-commit"
-                                    type="button"
-                                    disabled={!!busy || !commitText.trim()}
-                                    onClick={() => doCommit(commitText)}
-                                    title={`Commit staged (${PRIMARY_SHORTCUT}⏎)`}>
-                                    <IconCommit size={13} />
-                                    commit
-                                </button>
-                            </div>
-                        </div>
+                        <GitCommitBox repo={repo} busy={!!busy} inputRef={commitInputRef} onCommit={doCommit} />
                     </div>
                     {branchInput && (
                         <div className="git-commit-bar">
@@ -1445,11 +1442,8 @@ function GitWorkbench({ paneId, repo, active, onLeaveRepo }: { paneId: string; r
                                 selectedIndex={Math.min(sel.commits, filteredCommits.length - 1)}
                                 focused={panel === "commits"}
                                 range={commitsRange}
-                                onSelect={(i) => {
-                                    setPanel("commits");
-                                    setSel({ ...sel, commits: i });
-                                }}
-                                onActivate={openCommitRowMenu}
+                                onSelect={onGraphSelect}
+                                onActivate={onGraphActivate}
                             />
                         )}
                     </GitPanelBlock>
@@ -1634,28 +1628,26 @@ function GitWorkbench({ paneId, repo, active, onLeaveRepo }: { paneId: string; r
                 <div className="git-right" ref={rightRef}>
                     <div className="git-right-review">
                         <Suspense fallback={<SkeletonRows rows={6} label="Loading diff preview" />}>
-                            <DiffWorkerProvider>
-                                {right.mode === "merge" ? (
-                                    <MergeReview
-                                        repo={repo}
-                                        files={right.files}
-                                        focusPath={filteredFiles[Math.min(sel.files, filteredFiles.length - 1)]?.path}
-                                        onOpenFile={cmd.requestOpenFile}
-                                        onSaved={onReviewSaved}
-                                    />
-                                ) : right.mode === "commit" ? (
-                                    <CommitReview
-                                        key={right.rev}
-                                        repo={repo}
-                                        rev={right.rev}
-                                        title={right.title}
-                                        subtitle={right.subtitle}
-                                        onOpenFile={cmd.requestOpenFile}
-                                    />
-                                ) : (
-                                    <pre className="git-output">{right.text || "—"}</pre>
-                                )}
-                            </DiffWorkerProvider>
+                            {right.mode === "merge" ? (
+                                <MergeReview
+                                    repo={repo}
+                                    files={right.files}
+                                    focusPath={filteredFiles[Math.min(sel.files, filteredFiles.length - 1)]?.path}
+                                    onOpenFile={cmd.requestOpenFile}
+                                    onSaved={onReviewSaved}
+                                />
+                            ) : right.mode === "commit" ? (
+                                <CommitReview
+                                    key={right.rev}
+                                    repo={repo}
+                                    rev={right.rev}
+                                    title={right.title}
+                                    subtitle={right.subtitle}
+                                    onOpenFile={cmd.requestOpenFile}
+                                />
+                            ) : (
+                                <pre className="git-output">{right.text || "—"}</pre>
+                            )}
                         </Suspense>
                         {busy && (
                             <div className="git-busy-overlay">
@@ -1734,17 +1726,42 @@ function GitRepoPicker({ paneId, root, active }: { paneId: string; root: string;
     );
 }
 
-export function GitPane({ paneId, cwd, active }: { paneId: string; cwd: string; active: boolean }) {
-    const selectedRepo = useStore((s) => s.gitViews[paneId]?.repo ?? null);
-    const rootOverview = useCachedResourceEnabled(active && !!cwd && !selectedRepo, gitOverviewR, cwd || "");
-    const rootMissing = rootOverview.status === "error" && !rootOverview.data && isMissingRepository(rootOverview.error);
+/**
+ * Whether the pane has come to rest on screen. A switch slides the screen in,
+ * and fetching, re-rendering and repainting during that slide is what drops
+ * its frames, so the refresh waits for the stage to stop.
+ */
+function useSettled(active: boolean): boolean {
+    const [settled, setSettled] = useState(active);
+    const [wasActive, setWasActive] = useState(active);
+    if (active !== wasActive) {
+        setWasActive(active);
+        if (!active) setSettled(false);
+    }
+    useEffect(() => {
+        if (!active || settled) return;
+        return whenStageStill(() => setSettled(true));
+    }, [active, settled]);
+    return active && settled;
+}
 
-    if (!selectedRepo && rootMissing) return <GitRepoPicker paneId={paneId} root={cwd} active={active} />;
+export function GitPane({ paneId, cwd, active }: { paneId: string; cwd: string; active: boolean }) {
+    const fetching = useSettled(active);
+    const selectedRepo = useStore((s) => s.gitViews[paneId]?.repo ?? null);
+    const rootOverview = useCachedResourceEnabled(fetching && !!cwd && !selectedRepo, gitOverviewR, cwd || "");
+    const settledRoot = useRef<{ cwd: string; missing: boolean } | null>(null);
+    if (rootOverview.status !== "loading") {
+        settledRoot.current = { cwd, missing: rootOverview.status === "error" && !rootOverview.data && isMissingRepository(rootOverview.error) };
+    }
+    const rootMissing = settledRoot.current?.cwd === cwd && settledRoot.current.missing;
+
+    if (!selectedRepo && rootMissing) return <GitRepoPicker paneId={paneId} root={cwd} active={fetching} />;
     return (
         <GitWorkbench
             paneId={paneId}
             repo={selectedRepo ?? cwd}
             active={active}
+            fetching={fetching}
             onLeaveRepo={selectedRepo ? () => cmd.setGitView(paneId, { repo: null }) : null}
         />
     );

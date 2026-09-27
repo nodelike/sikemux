@@ -6,10 +6,10 @@ import { AgentStateIndicator } from "./AgentStateIndicator";
 afterEach(cleanup);
 
 describe("AgentStateIndicator", () => {
-    it("renders working as a dedicated circular CSS loader", () => {
+    it("renders working as a 3×3 grid of twinkling cells", () => {
         const { container } = render(<AgentStateIndicator state="working" />);
         expect(screen.getByRole("img", { name: "Working" })).toBeInTheDocument();
-        expect(container.querySelector(".agent-state-loader")).toBeInTheDocument();
+        expect(container.querySelectorAll(".agent-state-loader i")).toHaveLength(9);
         expect(container.querySelector("svg")).not.toBeInTheDocument();
     });
 

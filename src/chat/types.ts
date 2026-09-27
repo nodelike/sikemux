@@ -1,4 +1,5 @@
 import type { ToolDiff } from "./diff";
+import type { ToolOutput } from "./toolOutput";
 
 export interface AcpContentBlock {
     type: string;
@@ -85,8 +86,8 @@ export type ChatPart =
     | { id: string; kind: "thought"; text: string }
     | { id: string; kind: "content"; content: AcpContentBlock }
     /* A finished call is read once and kept as what the transcript shows: the
-       change it made, and what it left behind when it failed. */
-    | { id: string; kind: "tool"; tool: AcpToolCall; diff?: ToolDiff; failure?: string; startedAt?: number; endedAt?: number }
+       change it made, what it printed, and what it left behind when it failed. */
+    | { id: string; kind: "tool"; tool: AcpToolCall; diff?: ToolDiff; output?: ToolOutput; failure?: string; startedAt?: number; endedAt?: number }
     | { id: string; kind: "subagent"; subagent: AcpSubagent }
     | { id: string; kind: "notice"; notice: AcpTaskNotice };
 

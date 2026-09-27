@@ -1,5 +1,5 @@
-import { useModalFocus } from "../hooks/useModalFocus";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { sendTestNotification } from "../agentNotifications";
 import type { KeyboardEvent as ReactKeyboardEvent, ReactNode } from "react";
 import { invokeCommand as invoke } from "../api/invoke";
 import {
@@ -62,6 +62,8 @@ import { useBuiltPlugins } from "../plugins/enabled";
 import { frontendPlugin, pluginSurface } from "../plugins/registry";
 import { ActivityPage } from "./ActivityPage";
 import { SettingsPage, SettingsSection } from "./SettingsLayout";
+import { useVoice, type VoiceState } from "../voice/dictation";
+import { parseVoiceWords } from "../voice/vocabulary";
 import "../styles/settings.css";
 
 const PAGE_ICONS: Record<SettingsPageId, ReactNode> = {
@@ -94,8 +96,6 @@ function isFindShortcut(event: KeyboardEvent): boolean {
 }
 
 export function SettingsPanel() {
-    const modalRef = useRef<HTMLDivElement>(null);
-    useModalFocus(modalRef);
     const projectRoots = useStore((s) => s.projectRoots);
     const themeId = useStore((s) => s.themeId);
     const windowOpacity = useStore((s) => s.windowOpacity);
@@ -208,7 +208,7 @@ export function SettingsPanel() {
     const pretty = (p: string) => prettyPath(p, home);
 
     return (
-        <div ref={modalRef} tabIndex={-1} className="settings-pane" role="dialog" aria-modal="true" aria-label="Settings">
+        <div tabIndex={-1} className="settings-pane" role="dialog" aria-label="Settings">
             <div className="settings-frame">
                 <aside className="settings-rail">
                     <label className="settings-search">
@@ -481,6 +481,7 @@ function ActionsPage() {
 
 function AgentsPage() {
     const restore = useStore((s) => s.restoreAgentTabs);
+    const notifications = useStore((s) => s.agentNotifications);
     const density = useStore((s) => s.railDensity);
     const profiles = useStore((s) => s.providerProfiles);
     const selectedProfiles = useStore((s) => s.selectedProviderProfileIds);
@@ -650,6 +651,21 @@ function AgentsPage() {
                         asLabel
                         control={<Switch checked={restore} onChange={cmd.setRestoreAgentTabs} label="Restore agent tabs" />}
                     />
+                    <SettingsRow
+                        label="Notify when an agent needs you"
+                        desc="While Sikemux is in the background, a notification says when an agent asks for input or finishes."
+                        asLabel
+                        control={<Switch checked={notifications} onChange={cmd.setAgentNotifications} label="Notify when an agent needs you" />}
+                    />
+                    <SettingsRow
+                        label="Test notification"
+                        desc="Sends one now, with its sound. The first one also has macOS ask whether Sikemux may notify you."
+                        control={
+                            <button className="settings-btn" type="button" onClick={sendTestNotification}>
+                                Send test
+                            </button>
+                        }
+                    />
                     <SettingsRow label="Rail density" desc="Compact fits more sessions while keeping every state symbol visible." wide>
                         <Dropdown
                             className="settings-dd"
@@ -672,6 +688,8 @@ function AgentsPage() {
                     Only confirmed native session IDs are written to disk. Startup commands and terminal output never are.
                 </p>
             </SettingsSection>
+
+            {IS_MACOS && <VoiceSection />}
         </SettingsPage>
     );
 }
@@ -769,6 +787,7 @@ function AboutPage() {
     const updateChannel = useStore((s) => s.updateChannel);
     const lastUpdateCheck = useStore((s) => s.lastUpdateCheck);
     const pendingUpdate = useStore((s) => s.pendingUpdate);
+    const shareUsageData = useStore((s) => s.shareUsageData);
     return (
         <SettingsPage>
             <SettingsSection title="Updates">
@@ -796,6 +815,17 @@ function AboutPage() {
                 </SettingsRows>
             </SettingsSection>
 
+            <SettingsSection title="Privacy">
+                <SettingsRows>
+                    <SettingsRow
+                        label="Share anonymous usage"
+                        desc="Once a day, sends a random install ID with the app version, update channel and macOS version. Never your files, commands or projects."
+                        asLabel
+                        control={<Switch checked={shareUsageData} onChange={cmd.setShareUsageData} label="Share anonymous usage" />}
+                    />
+                </SettingsRows>
+            </SettingsSection>
+
             <SettingsSection title="Help" sub="All three are also searchable from the command deck.">
                 <div className="settings-actions start">
                     <button
@@ -820,7 +850,7 @@ function AboutPage() {
                             cmd.closeSettings();
                             cmd.openOnboarding();
                         }}>
-                        Replay onboarding
+                        Show welcome
                     </button>
                 </div>
             </SettingsSection>
@@ -1160,6 +1190,7 @@ interface ThemeEdit {
 
 function AppearancePage({ themeId, windowOpacity, windowBlur }: AppearancePageProps) {
     const uiTextScale = useStore((state) => state.uiTextScale);
+    const paneShader = useStore((state) => state.paneShader);
     const customThemes = useStore((s) => s.customThemes);
     const [edit, setEdit] = useState<ThemeEdit | null>(null);
     const editorRef = useRef<HTMLDivElement>(null);
@@ -1265,6 +1296,12 @@ function AppearancePage({ themeId, windowOpacity, windowBlur }: AppearancePagePr
                             onChange={(value) => cmd.setUiTextScale(Number(value))}
                         />
                     </SettingsRow>
+                    <SettingsRow
+                        label="Pane texture"
+                        desc="The dithered grain behind each pane."
+                        asLabel
+                        control={<Switch checked={paneShader} onChange={cmd.setPaneShader} label="Pane texture" />}
+                    />
                 </SettingsRows>
             </SettingsSection>
 
@@ -1543,6 +1580,71 @@ function CloudPage({ cloudBrowser, cloudBrowserShortcut }: CloudPageProps) {
                 </SettingsRows>
             </SettingsSection>
         </SettingsPage>
+    );
+}
+
+function voiceModelStatus(voice: VoiceState, enabled: boolean): string {
+    if (voice.phase === "unsupported") return voice.reason ?? "Not available on this Mac.";
+    if (voice.reason) return voice.reason;
+    if (!enabled) return "Parakeet by NVIDIA, run on the Neural Engine. About 600 MB, downloaded when you turn dictation on.";
+    switch (voice.phase) {
+        case "preparing":
+            if (voice.stage === "download") return `Downloading… ${Math.round(voice.fraction * 100)}%`;
+            if (voice.stage === "vocabulary") return "Loading the word list model…";
+            return "Preparing for the Neural Engine. The first time takes about half a minute.";
+        case "off":
+            return "Not loaded.";
+        default:
+            return "Ready. Speech never leaves this Mac.";
+    }
+}
+
+function VoiceSection() {
+    const enabled = useStore((s) => s.voiceDictation);
+    const words = useStore((s) => s.voiceWords);
+    const voice = useVoice();
+    const [draft, setDraft] = useState(() => words.join(", "));
+    useEffect(() => setDraft(words.join(", ")), [words]);
+    const commit = () => cmd.setVoiceWords(parseVoiceWords(draft));
+    return (
+        <SettingsSection title="Voice">
+            <SettingsRows>
+                <SettingsRow
+                    label="Dictate with right Option"
+                    desc="Hold right ⌥ and speak. Letting go types what you said into the focused agent or terminal."
+                    asLabel
+                    control={
+                        <Switch
+                            checked={enabled}
+                            onChange={cmd.setVoiceDictation}
+                            label="Dictate with right Option"
+                            disabled={voice.phase === "unsupported"}
+                        />
+                    }
+                />
+                <SettingsRow label="Speech model" desc={voiceModelStatus(voice, enabled)} />
+                <SettingsRow
+                    label="Words to recognise"
+                    desc="Names to spell your way, separated by commas. The project, its open files and agent names are included already."
+                    wide>
+                    <input
+                        className="settings-input mono"
+                        aria-label="Words to recognise"
+                        placeholder="pnpm, Tauri, worktree"
+                        value={draft}
+                        onChange={(event) => setDraft(event.target.value)}
+                        onBlur={commit}
+                        onKeyDown={(event) => {
+                            if (event.key === "Enter") {
+                                event.preventDefault();
+                                commit();
+                            }
+                        }}
+                        spellCheck={false}
+                    />
+                </SettingsRow>
+            </SettingsRows>
+        </SettingsSection>
     );
 }
 

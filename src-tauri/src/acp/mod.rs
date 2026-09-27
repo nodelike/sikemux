@@ -1,4 +1,5 @@
 mod air;
+mod native;
 
 use agent_client_protocol::schema::v1::{
     CancelNotification, ContentBlock, Implementation, InitializeRequest, LoadSessionRequest,
@@ -14,7 +15,7 @@ use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -398,6 +399,19 @@ fn adapter_config(
         };
         config = config.env(key, path);
     }
+    Ok(forward_environment(config, environment_keys))
+}
+
+fn native_config(
+    executable: &Path,
+    arguments: &[&str],
+    environment_keys: &[String],
+) -> AcpAgentConfig {
+    let config = AcpAgentConfig::new(executable).args(arguments.iter().copied());
+    forward_environment(config, environment_keys)
+}
+
+fn forward_environment(mut config: AcpAgentConfig, environment_keys: &[String]) -> AcpAgentConfig {
     let mut seen = HashSet::new();
     for key in environment_keys.iter().take(64) {
         if !seen.insert(key) || !valid_environment_key(key) {
@@ -407,7 +421,7 @@ fn adapter_config(
             config = config.env(key, value);
         }
     }
-    Ok(config)
+    config
 }
 
 fn expand_config_path(value: &str) -> PathBuf {
@@ -479,12 +493,23 @@ fn prompt_blocks(text: String, paths: Vec<String>) -> Result<Vec<ContentBlock>, 
     Ok(blocks)
 }
 
-fn permission_mode_id(provider: &str, mode: &str, setup: &Value) -> Result<&'static str, String> {
+/// The session mode that carries a permission mode. Agents whose modes are not
+/// about permissions get none, and Sikemux answers their requests itself.
+fn permission_mode_id(
+    provider: &str,
+    mode: &str,
+    setup: &Value,
+) -> Result<Option<&'static str>, String> {
     let expected = match (provider, mode) {
         ("codex", "bypass") => "agent-full-access",
         ("codex", "workspace-write") => "read-only",
         ("claude", "bypass") => "bypassPermissions",
         ("claude", "workspace-write") => "acceptEdits",
+        ("hermes", "bypass") => "dont_ask",
+        ("hermes", "workspace-write") => "accept_edits",
+        (_, "bypass" | "workspace-write") if native::arguments(provider).is_some() => {
+            return Ok(None)
+        }
         _ => return Err(format!("Unsupported permission mode: {mode}")),
     };
     setup
@@ -496,8 +521,81 @@ fn permission_mode_id(provider: &str, mode: &str, setup: &Value) -> Result<&'sta
                 .filter_map(|mode| mode.get("id").and_then(Value::as_str))
                 .find(|id| *id == expected)
         })
-        .map(|_| expected)
+        .map(|_| Some(expected))
         .ok_or_else(|| format!("The {provider} adapter does not offer permission mode {expected}"))
+}
+
+/// Native agents still ask before some actions in their most open mode, and
+/// some have no such mode at all, so under bypass the host says yes for the user.
+fn approves_for_user(provider: &str, mode: &str) -> bool {
+    mode == "bypass" && native::arguments(provider).is_some()
+}
+
+/// Carries the chat's saved model and effort into a native agent's session.
+/// A choice the agent no longer offers is skipped, since model lists change
+/// between launches and a stale one should not stop the chat from starting.
+async fn apply_saved_choices(
+    connection: &ConnectionTo<Agent>,
+    session_id: &str,
+    setup: &mut Value,
+    model_outside_config: bool,
+    model: Option<&str>,
+    effort: Option<&str>,
+) {
+    if let Some(model) = model.filter(|model| native::offers(setup, "model", model)) {
+        let applied = if model_outside_config {
+            connection
+                .send_request(native::SetSessionModel {
+                    session_id: session_id.to_owned(),
+                    model_id: model.to_owned(),
+                })
+                .block_task()
+                .await
+                .map(|_| native::select_model(setup, model))
+        } else {
+            connection
+                .send_request(SetSessionConfigOptionRequest::new(
+                    session_id.to_owned(),
+                    "model",
+                    model,
+                ))
+                .block_task()
+                .await
+                .map(|response| {
+                    if let Ok(options) = serde_json::to_value(response.config_options) {
+                        setup["configOptions"] = options;
+                    }
+                })
+        };
+        if let Err(error) = applied {
+            eprintln!("The agent did not take the saved model {model}: {error}");
+        }
+    }
+    let Some(effort) = effort else {
+        return;
+    };
+    let Some(config_id) = native::effort_config_id(setup)
+        .filter(|id| native::offers(setup, id, effort))
+        .map(str::to_owned)
+    else {
+        return;
+    };
+    match connection
+        .send_request(SetSessionConfigOptionRequest::new(
+            session_id.to_owned(),
+            config_id,
+            effort,
+        ))
+        .block_task()
+        .await
+    {
+        Ok(response) => {
+            if let Ok(options) = serde_json::to_value(response.config_options) {
+                setup["configOptions"] = options;
+            }
+        }
+        Err(error) => eprintln!("The agent did not take the saved effort {effort}: {error}"),
+    }
 }
 
 #[tauri::command]
@@ -573,17 +671,30 @@ async fn run_connection(
 ) -> Result<(), String> {
     let agent_executable =
         crate::agents::resolve_agent_executable(&provider, executable_path.as_deref()).await?;
-    let executable =
-        ensure_adapter(&app, &manager, &agent_id, &provider, install_cancellation).await?;
-    emit(&app, &agent_id, "status", json!({ "state": "starting" }));
-    let config = adapter_config(
-        &provider,
-        &executable,
-        config_path.as_deref(),
-        Some(&agent_executable.to_string_lossy()),
-        &environment_keys,
-    )?;
+    let config = match native::arguments(&provider) {
+        Some(arguments) => {
+            emit(&app, &agent_id, "status", json!({ "state": "starting" }));
+            native_config(&agent_executable, arguments, &environment_keys)
+        }
+        None => {
+            let executable =
+                ensure_adapter(&app, &manager, &agent_id, &provider, install_cancellation).await?;
+            emit(&app, &agent_id, "status", json!({ "state": "starting" }));
+            adapter_config(
+                &provider,
+                &executable,
+                config_path.as_deref(),
+                Some(&agent_executable.to_string_lossy()),
+                &environment_keys,
+            )?
+        }
+    };
     let agent = AcpAgent::new(config);
+    let approving = Arc::new(AtomicBool::new(approves_for_user(
+        &provider,
+        &permission_mode,
+    )));
+    let permission_approving = approving.clone();
     let event_app = app.clone();
     let event_agent_id = agent_id.clone();
     let permission_app = app.clone();
@@ -606,6 +717,15 @@ async fn run_connection(
         )
         .on_receive_request(
             async move |request: RequestPermissionRequest, responder, _connection| {
+                if permission_approving.load(Ordering::Acquire) {
+                    if let Some(option) = native::approval(&request.options) {
+                        return responder.respond(RequestPermissionResponse::new(
+                            RequestPermissionOutcome::Selected(SelectedPermissionOutcome::new(
+                                option.option_id.clone(),
+                            )),
+                        ));
+                    }
+                }
                 let request_id = Uuid::new_v4().to_string();
                 let option_ids = request
                     .options
@@ -682,32 +802,58 @@ async fn run_connection(
                             .data("This agent cannot load existing sessions"));
                     }
                     let response = connection
-                        .send_request(
+                        .send_request(native::LoadSession(
                             LoadSessionRequest::new(existing.clone(), &cwd)
                                 .mcp_servers(browser_servers),
-                        )
+                        ))
                         .block_task()
                         .await?;
-                    (existing, serde_json::to_value(response)?)
+                    (existing, response.0)
                 } else {
                     let response = connection
-                        .send_request(NewSessionRequest::new(&cwd).mcp_servers(browser_servers))
+                        .send_request(native::NewSession(
+                            NewSessionRequest::new(&cwd).mcp_servers(browser_servers),
+                        ))
                         .block_task()
                         .await?;
-                    let session_id = response.session_id.to_string();
-                    (session_id, serde_json::to_value(response)?)
+                    let session_id = response
+                        .0
+                        .get("sessionId")
+                        .and_then(Value::as_str)
+                        .ok_or_else(|| {
+                            agent_client_protocol::Error::invalid_params()
+                                .data("The agent opened a session without an id")
+                        })?
+                        .to_owned();
+                    (session_id, response.0)
                 };
+
+                let model_outside_config = native::models_outside_config(&setup);
+                setup = native::with_model_config(setup);
 
                 let mode_id = permission_mode_id(&provider, &permission_mode, &setup)
                     .map_err(|error| agent_client_protocol::Error::invalid_params().data(error))?;
-                connection
-                    .send_request(SetSessionModeRequest::new(session_id.clone(), mode_id))
-                    .block_task()
-                    .await?;
-                if let Some(modes) = setup.get_mut("modes").and_then(Value::as_object_mut) {
-                    modes.insert("currentModeId".into(), json!(mode_id));
+                if let Some(mode_id) = mode_id {
+                    connection
+                        .send_request(SetSessionModeRequest::new(session_id.clone(), mode_id))
+                        .block_task()
+                        .await?;
+                    if let Some(modes) = setup.get_mut("modes").and_then(Value::as_object_mut) {
+                        modes.insert("currentModeId".into(), json!(mode_id));
+                    }
                 }
 
+                if native::arguments(&provider).is_some() {
+                    apply_saved_choices(
+                        &connection,
+                        &session_id,
+                        &mut setup,
+                        model_outside_config,
+                        model.as_deref(),
+                        effort.as_deref(),
+                    )
+                    .await;
+                } else {
                 for (config_id, value) in [
                     ("model", model.as_deref()),
                     (
@@ -731,6 +877,7 @@ async fn run_connection(
                         setup["configOptions"] = serde_json::to_value(response.config_options)?;
                     }
                 }
+                }
 
                 {
                     let provider = provider.clone();
@@ -751,7 +898,7 @@ async fn run_connection(
                 let start = AcpStartResponse {
                     session_id: session_id.clone(),
                     capabilities,
-                    setup,
+                    setup: setup.clone(),
                 };
                 if let Ok(mut sender) = ready.lock() {
                     if let Some(sender) = sender.take() {
@@ -776,12 +923,23 @@ async fn run_connection(
                 let running = Arc::new(AtomicBool::new(false));
                 let mut turn: u64 = 0;
                 let (stalled_tx, mut stalled_rx) = mpsc::unbounded_channel::<u64>();
+                let cancelled_turn = Arc::new(AtomicU64::new(0));
+                let (broken_tx, mut broken_rx) = mpsc::unbounded_channel::<()>();
                 loop {
                     let command = tokio::select! {
                         command = commands.recv() => match command {
                             Some(command) => command,
                             None => break,
                         },
+                        Some(()) = broken_rx.recv() => {
+                            emit(
+                                &app,
+                                &agent_id,
+                                "error",
+                                json!({ "message": "The agent failed while stopping, so its session was restarted" }),
+                            );
+                            break;
+                        }
                         Some(stalled) = stalled_rx.recv() => {
                             if running.load(Ordering::Acquire)
                                 && turn == stalled
@@ -824,6 +982,9 @@ async fn run_connection(
                             let response_running = running.clone();
                             let response_manager = manager.clone();
                             let response_stream = stream.clone();
+                            let response_turn = turn;
+                            let response_cancelled = cancelled_turn.clone();
+                            let response_broken = broken_tx.clone();
                             let sent = connection
                                 .send_request(PromptRequest::new(session_id.clone(), blocks))
                                 .on_receiving_result(async move |result| {
@@ -838,6 +999,14 @@ async fn run_connection(
                                             serde_json::to_value(response)
                                                 .unwrap_or_else(|_| json!({})),
                                         ),
+                                        // Hermes can crash out of a stopped turn and
+                                        // leave its session refusing every prompt after.
+                                        Err(_)
+                                            if response_cancelled.load(Ordering::Acquire)
+                                                == response_turn =>
+                                        {
+                                            let _ = response_broken.send(());
+                                        }
                                         Err(error) => emit(
                                             &response_app,
                                             &response_agent_id,
@@ -862,8 +1031,8 @@ async fn run_connection(
                             let result = if running.load(Ordering::Acquire) {
                                 Err("Stop the current turn before changing permissions".into())
                             } else {
-                                match permission_mode_id(&provider, &mode, &start.setup) {
-                                    Ok(mode_id) => connection
+                                match permission_mode_id(&provider, &mode, &setup) {
+                                    Ok(Some(mode_id)) => connection
                                         .send_request(SetSessionModeRequest::new(
                                             session_id.clone(),
                                             mode_id,
@@ -872,9 +1041,16 @@ async fn run_connection(
                                         .await
                                         .map(|_| ())
                                         .map_err(|error| error.to_string()),
+                                    Ok(None) => Ok(()),
                                     Err(error) => Err(error),
                                 }
                             };
+                            if result.is_ok() {
+                                approving.store(
+                                    approves_for_user(&provider, &mode),
+                                    Ordering::Release,
+                                );
+                            }
                             let _ = reply.send(result);
                         }
                         AcpCommand::SetConfig {
@@ -884,6 +1060,19 @@ async fn run_connection(
                         } => {
                             let result = if running.load(Ordering::Acquire) {
                                 Err("Stop the current turn before changing the model".into())
+                            } else if config_id == "model" && model_outside_config {
+                                connection
+                                    .send_request(native::SetSessionModel {
+                                        session_id: session_id.clone(),
+                                        model_id: value.clone(),
+                                    })
+                                    .block_task()
+                                    .await
+                                    .map_err(|error| error.to_string())
+                                    .map(|_| {
+                                        native::select_model(&mut setup, &value);
+                                        json!({ "configOptions": setup["configOptions"] })
+                                    })
                             } else {
                                 connection
                                     .send_request(SetSessionConfigOptionRequest::new(
@@ -897,6 +1086,9 @@ async fn run_connection(
                                     .and_then(|response| {
                                         serde_json::to_value(response)
                                             .map_err(|error| error.to_string())
+                                    })
+                                    .inspect(|response| {
+                                        setup["configOptions"] = response["configOptions"].clone();
                                     })
                             };
                             let _ = reply.send(result);
@@ -965,6 +1157,7 @@ async fn run_connection(
                             connection
                                 .send_notification(CancelNotification::new(session_id.clone()))?;
                             if running.load(Ordering::Acquire) {
+                                cancelled_turn.store(turn, Ordering::Release);
                                 let cancelled = turn;
                                 let stalled = stalled_tx.clone();
                                 tauri::async_runtime::spawn(async move {
@@ -1269,20 +1462,50 @@ mod tests {
         for (provider, normal, bypass) in [
             ("codex", "read-only", "agent-full-access"),
             ("claude", "acceptEdits", "bypassPermissions"),
+            ("hermes", "accept_edits", "dont_ask"),
         ] {
             let setup =
                 json!({ "modes": { "availableModes": [{ "id": normal }, { "id": bypass }] } });
             assert_eq!(
                 permission_mode_id(provider, "workspace-write", &setup).unwrap(),
-                normal
+                Some(normal)
             );
             assert_eq!(
                 permission_mode_id(provider, "bypass", &setup).unwrap(),
-                bypass
+                Some(bypass)
             );
             assert!(permission_mode_id(provider, "invalid", &setup).is_err());
             assert!(permission_mode_id(provider, "bypass", &json!({})).is_err());
         }
+    }
+
+    #[test]
+    fn agents_without_permission_modes_are_answered_by_the_host() {
+        for provider in ["opencode", "omp", "grok"] {
+            assert_eq!(
+                permission_mode_id(provider, "bypass", &json!({})).unwrap(),
+                None
+            );
+            assert_eq!(
+                permission_mode_id(provider, "workspace-write", &json!({})).unwrap(),
+                None
+            );
+            assert!(approves_for_user(provider, "bypass"));
+            assert!(!approves_for_user(provider, "workspace-write"));
+        }
+        assert!(approves_for_user("hermes", "bypass"));
+        assert!(!approves_for_user("claude", "bypass"));
+        assert!(!approves_for_user("codex", "bypass"));
+    }
+
+    #[test]
+    fn native_agents_run_their_own_binary() {
+        let config = native_config(Path::new("/bin/grok"), &["agent", "stdio"], &[]);
+        assert_eq!(config.command(), Path::new("/bin/grok"));
+        assert_eq!(
+            config.arguments(),
+            &["agent".to_string(), "stdio".to_string()]
+        );
     }
 
     #[test]

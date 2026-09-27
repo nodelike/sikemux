@@ -1,5 +1,4 @@
-import { useEffect, useState } from "react";
-import Markdown, { type Components } from "react-markdown";
+import { createElement, useEffect, useState } from "react";
 import { getVersion } from "@tauri-apps/api/app";
 import { installPendingUpdate, isUpdateBusy, updateStatusLabel } from "../api/updater";
 import { openInBrowser, releasesApi, type ReleaseContributor, type ReleaseNotes } from "../api/releases";
@@ -9,6 +8,7 @@ import { errMessage, swallow } from "../state/toast";
 import { useOccludeNativeViews } from "../state/nativeViews";
 import { ExperienceBackdrop } from "./ExperienceOverlays";
 import { ShaderField } from "./ShaderField";
+import { Markdown, MARKDOWN_PLAIN, type MarkdownComponents } from "../markdown/Markdown";
 
 const FEATURED = 3;
 const WALL = 13;
@@ -31,7 +31,7 @@ function notesFor(version: string): Promise<ReleaseNotes> {
     return notes;
 }
 
-/** The update waiting to install, else the build that is running. Notes the app already holds show until GitHub answers. */
+/** The update waiting to install, else the build that is running. A release that shipped its credits needs nothing from GitHub. */
 function useShownRelease(open: boolean) {
     const pending = useStore((s) => s.pendingUpdate);
     const installed = useStore((s) => s.lastReleaseNotes);
@@ -42,8 +42,10 @@ function useShownRelease(open: boolean) {
         if (open) void getVersion().then(setRunning);
     }, [open]);
     const version = pending?.version ?? running;
+    const held = pending ?? (installed?.version === version ? installed : null);
+    const credits = held?.credits ?? null;
     useEffect(() => {
-        if (!open || !version) return;
+        if (!open || !version || credits) return;
         let live = true;
         setError("");
         notesFor(version)
@@ -52,17 +54,19 @@ function useShownRelease(open: boolean) {
         return () => {
             live = false;
         };
-    }, [open, version]);
-    const held = pending ?? (installed?.version === version ? installed : null);
+    }, [open, version, credits]);
     const release: ReleaseNotes | null =
-        fetched?.version === version
-            ? fetched
-            : held && { version, notes: held.notes, date: held.date, commits: null, compare: null, contributors: [] };
-    return { release, version, error };
+        held && credits
+            ? { version, notes: held.notes, date: held.date, commits: credits.commits, compare: credits.compare, contributors: credits.contributors }
+            : fetched?.version === version
+              ? fetched
+              : held && { version, notes: held.notes, date: held.date, commits: null, compare: null, contributors: [] };
+    return { release, version, error, avatars: credits?.avatars };
 }
 
-function useAvatars(contributors: readonly ReleaseContributor[]): ReadonlyMap<string, string> {
+function useAvatars(contributors: readonly ReleaseContributor[], bundled: Record<string, string> | undefined): ReadonlyMap<string, string> {
     const [, setLoaded] = useState(0);
+    for (const [url, data] of Object.entries(bundled ?? {})) if (!fetchedAvatars.has(url)) fetchedAvatars.set(url, data);
     const key = contributors.map((person) => person.avatar).join(" ");
     useEffect(() => {
         const missing = contributors.map((person) => person.avatar).filter((url) => !fetchedAvatars.has(url));
@@ -114,8 +118,8 @@ function Avatar({ person, src }: { person: ReleaseContributor; src: string | und
     );
 }
 
-function Contributors({ people }: { people: readonly ReleaseContributor[] }) {
-    const avatars = useAvatars(people);
+function Contributors({ people, bundled }: { people: readonly ReleaseContributor[]; bundled: Record<string, string> | undefined }) {
+    const avatars = useAvatars(people, bundled);
     const [everyone, setEveryone] = useState(false);
     const featured = people.slice(0, FEATURED);
     const rest = people.slice(FEATURED);
@@ -160,9 +164,9 @@ function Contributors({ people }: { people: readonly ReleaseContributor[] }) {
     );
 }
 
-const markdown: Components = {
-    h1: () => null,
-    a: ({ href, children }) => (
+const markdown: MarkdownComponents = {
+    heading: ({ level, children }) => (level === 1 ? null : createElement(`h${level}`, null, children)),
+    link: ({ href, children }) => (
         <a
             href={href}
             onClick={(event) => {
@@ -178,7 +182,7 @@ export function WhatsNewOverlay() {
     const open = useStore((s) => s.whatsNewOpen);
     useOccludeNativeViews(open);
     const pending = useStore((s) => s.pendingUpdate);
-    const { release, version, error } = useShownRelease(open);
+    const { release, version, error, avatars } = useShownRelease(open);
     if (!open) return null;
     const [core, build] = splitVersion(version);
     const date = releaseDate(release?.date ?? null);
@@ -216,7 +220,7 @@ export function WhatsNewOverlay() {
                         </div>
                     )}
                 </dl>
-                {people.length > 0 && <Contributors people={people} />}
+                {people.length > 0 && <Contributors people={people} bundled={avatars} />}
             </aside>
             <div className="wn-main">
                 <header>
@@ -227,9 +231,7 @@ export function WhatsNewOverlay() {
                 </header>
                 <div className="wn-notes">
                     {release?.notes ? (
-                        <Markdown skipHtml components={markdown}>
-                            {release.notes}
-                        </Markdown>
+                        <Markdown text={release.notes} options={MARKDOWN_PLAIN} components={markdown} />
                     ) : error ? (
                         <p className="wn-status">
                             The notes for v{version} could not be loaded. {error}

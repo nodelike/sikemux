@@ -2,12 +2,6 @@
   "reviewBy": "2026-11-01",
   "allowedRustWarnings": {
     "RUSTSEC-2024-0370": "Build-time macro dependency reached only through Tauri's Linux GTK3 graph; no supported bundle includes it.",
-    "RUSTSEC-2024-0429": "Unsound GLib iterator is in Tauri's Linux-only GTK3 graph; no supported macOS or Windows bundle links GLib.",
-    "RUSTSEC-2025-0075": "Unmaintained UNIC component is transitive through current Tauri urlpattern; no patched Tauri release is available.",
-    "RUSTSEC-2025-0080": "Unmaintained UNIC component is transitive through current Tauri urlpattern; no patched Tauri release is available.",
-    "RUSTSEC-2025-0081": "Unmaintained UNIC component is transitive through current Tauri urlpattern; no patched Tauri release is available.",
-    "RUSTSEC-2025-0098": "Unmaintained UNIC component is transitive through current Tauri urlpattern; no patched Tauri release is available.",
-    "RUSTSEC-2025-0100": "Unmaintained UNIC component is transitive through current Tauri urlpattern; no patched Tauri release is available.",
-    "cargo:yanked:chacha20@0.10.1": "Yanked optional dependency in reqwest's HTTP/3 graph; Sikemux does not enable reqwest HTTP/3 and no replacement release is available in the locked graph."
+    "RUSTSEC-2024-0429": "Unsound GLib iterator is in Tauri's Linux-only GTK3 graph; no supported macOS or Windows bundle links GLib."
   }
 }

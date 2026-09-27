@@ -4,13 +4,15 @@
 
 **A desktop workspace for terminals, code, Git, coding agents, cloud tools, deployments, and API collections. Built with Tauri, Rust, and React.**
 
-![Sikemux editor](public/screenshots/project-editor-view.png)
+![Sikemux with a Claude Code agent and its browser tab](public/screenshots/sikemux-hero.png)
 
 [![macOS](https://img.shields.io/badge/macOS-11%2B%20Apple%20Silicon-000?logo=apple&logoColor=white)](#installation)
 [![Tauri 2](https://img.shields.io/badge/Tauri-2-24C8DB?logo=tauri&logoColor=white)](https://tauri.app)
 [![React 19](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black)](https://react.dev)
 [![Rust](https://img.shields.io/badge/Rust-backend-000?logo=rust&logoColor=white)](https://www.rust-lang.org)
 [![Latest release](https://img.shields.io/github/v/release/nodelike/sikemux?display_name=tag)](https://github.com/nodelike/sikemux/releases/latest)
+[![Discord](https://img.shields.io/badge/Discord-join-5865F2?logo=discord&logoColor=white)](https://discord.gg/UKfmHpF9kX)
+[![Website](https://img.shields.io/badge/website-sikemux.com-a277ff)](https://sikemux.com)
 
 </div>
 
@@ -20,6 +22,8 @@
 
 Sikemux puts the tools tied to a terminal project in one window. Open a project once. Its files, shells, Git state, agents, cloud resources, deployments, and API collections stay attached to that project.
 
+The download is about 10 MB. Sikemux draws its interface with the WebView that macOS already ships, so it carries no browser engine of its own.
+
 ### Projects
 
 Each project has five views named `Files`, `Term`, `Git`, `Agents`, and `Search`. They all use the same working directory.
@@ -27,6 +31,8 @@ Each project has five views named `Files`, `Term`, `Git`, `Agents`, and `Search`
 The editor uses CodeMirror 6 and supports JavaScript, TypeScript, JSX, Python, Rust, Go, HTML, CSS, JSON, YAML, Markdown, and legacy modes. LSP support covers hover, go to definition, and peek. The editor also has project-wide Problems and Outline panels, a Git gutter, find and replace, indentation guides, and virtualized rendering for large files.
 
 Sikemux includes a side-by-side diff editor and a three-way merge view for resolving conflicts. The file tree watches the filesystem for changes. You can create, rename, delete, and move files, or drop files in from Finder.
+
+![Files view](public/screenshots/project-editor-view.png)
 
 <table>
 <tr>
@@ -148,7 +154,13 @@ The Rundeck panel lets you browse projects, start jobs from a palette, and follo
 
 Sikemux uses HTTPS by default. You can allow HTTP when signing in to a Rundeck installation on a private subnet. Sikemux accepts it only if every resolved address is private, loopback, or link-local. It pins those verified addresses in the credential and token client to block DNS rebinding. Sikemux stores the acknowledgement beside the token configuration and saves that file with mode `600`.
 
-![Rundeck](public/screenshots/cicd-rundeck-projects-view.png)
+![Rundeck](public/screenshots/cicd-rundeck-deploy-view.png)
+
+### SigNoz
+
+The SigNoz panel shows service health, logs, traces, and dashboards from a SigNoz instance. Sign in with your SigNoz account or an API key.
+
+![SigNoz](public/screenshots/observability-signoz-view.png)
 
 ### Bruno
 
@@ -212,7 +224,7 @@ On Windows, use `Ctrl` for shortcuts marked `⌘` and `Alt` for shortcuts marked
 
 ### Download
 
-Download the latest `.dmg` from [Releases](https://github.com/nodelike/sikemux/releases/latest). Published releases support Apple Silicon and require macOS 11 or later. The updater keeps an installed copy current. The published updater feed does not cover Intel Macs.
+Download the latest `.dmg` from [sikemux.com](https://sikemux.com) or [Releases](https://github.com/nodelike/sikemux/releases/latest). Published releases support Apple Silicon and require macOS 11 or later. The updater keeps an installed copy current. The published updater feed does not cover Intel Macs.
 
 ### Build from source
 
@@ -259,14 +271,19 @@ It runs Prettier, ESLint, TypeScript checks, deterministic frontend tests, Rust 
 
 ### Publishing a release
 
-Releases publish from the **Release** GitHub Actions workflow, never from a laptop. Commit the version bump and a `RELEASE_NOTES.md` headed `# Sikemux v<version>`, then either push the matching tag or run the workflow by hand on the branch:
+Releases publish from the **Release** GitHub Actions workflow, never from a laptop. Commit the version bump and a `RELEASE_NOTES.md` headed `# Sikemux v<version>`, then push the matching tag. Tag a commit already on `main` for a nightly, or on its `release/<major.minor>` branch for stable. Only the owner can push a `v*` tag, so only the owner can start a release:
 
 ```bash
 git tag v0.4.1 && git push origin v0.4.1
-gh workflow run release.yml --ref release/0.4
 ```
 
-The workflow reads the version from `package.json`, runs the full CI suite, then builds, verifies, and publishes with `scripts/release.sh`. A prerelease version goes to the nightly channel and any other version to stable. Only one release runs at a time, and each run keeps its built artifacts.
+A run is titled with its tag, so the approval names what it will publish, and it stops if the tag disagrees with `package.json`. The workflow reads the version from `package.json`, runs the full CI suite, then builds, verifies, and publishes with `scripts/release.sh`. A prerelease version goes to the nightly channel and any other version to stable. Only one release runs at a time, and each run keeps its built artifacts.
+
+If a release fails before it publishes, fix it and move the tag onto the fix. Only the owner can move a release tag, and moving it starts a fresh run:
+
+```bash
+git tag -f v0.4.1 && git push -f origin v0.4.1
+```
 
 The workflow takes its signing material from the `release` environment:
 
@@ -288,7 +305,9 @@ Existing community installations can receive in-app updates. Fresh downloads are
 
 Both channels create a versioned GitHub release holding the build. A stable cut also attaches `latest.json`, which the default channel follows. A nightly cut requires a prerelease semantic version, publishes its release as a prerelease, and repoints the moving `nightly` release that the opt-in Nightly channel follows.
 
-Stable is cut from a `release/<major.minor>` branch and nightly from `main`, so a patch can ship while `main` runs ahead on the next minor. Nightly versions target that next minor, leaving the patch numbers free for hotfixes.
+Stable is cut from a `release/<major.minor>` branch and nightly from `main`. A nightly targets whichever version comes next, whether that is a patch, a minor or a major, and a stable release of that version overtakes its nightlies for nightly users too.
+
+A hotfix cut from a release branch claims a version as well. When it claims the one the nightlies are building toward, the Nightly channel moves onto the hotfix, because the updater takes the newest version across both feeds, and loses whatever `main` had that the hotfix did not until a later nightly passes it. Before cutting such a hotfix, publish a nightly at the version after it, so the hotfix lands below the nightlies instead of over them.
 
 ```bash
 ./scripts/release.sh 0.3.5 "Release notes"
@@ -296,6 +315,10 @@ Stable is cut from a `release/<major.minor>` branch and nightly from `main`, so 
 ```
 
 If you have an Apple Developer membership, set `RELEASE_NOTARIZED=1` with the Developer ID and notarization environment variables. The release script then requires a successful Gatekeeper assessment and stapled notarization tickets before it publishes anything.
+
+## Community
+
+Join the [Sikemux Discord](https://discord.gg/UKfmHpF9kX) to ask for help, share your setup, and follow releases and nightlies.
 
 ## Contributing
 

@@ -5,7 +5,7 @@ import * as cmd from "./commands";
 export function useBrowserReveal(): void {
     useEffect(() => {
         const controller = new AbortController();
-        void browserApi.subscribeActing((agentId) => cmd.revealBrowserPane(agentId), controller.signal).catch(() => {});
+        void browserApi.subscribeActing((agentId) => cmd.showDeskBrowser(agentId), controller.signal).catch(() => {});
         return () => controller.abort();
     }, []);
 }

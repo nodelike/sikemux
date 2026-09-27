@@ -30,4 +30,16 @@ describe("window pan transform", () => {
         );
         expect(offenders, "put the transform under `.window-track.panning` instead").toEqual([]);
     });
+
+    // A hidden box can still be scrolled by focus, and the stage and its screens
+    // have nothing that would ever scroll them back.
+    it("the stage and its screens clip instead of hiding their overflow", () => {
+        const offenders = stylesheets(ROOT).flatMap((path) =>
+            rules(readFileSync(path, "utf8"))
+                .filter((rule) => rule.selector.split(",").some((part) => /(\.stage|\.window-area|\.window-layer)\s*$/.test(part.trim())))
+                .filter((rule) => /(^|[\s;])overflow(-x)?:\s*(hidden|auto|scroll)/.test(rule.body))
+                .map((rule) => `${path}: ${rule.selector}`),
+        );
+        expect(offenders, "use `overflow: clip`").toEqual([]);
+    });
 });

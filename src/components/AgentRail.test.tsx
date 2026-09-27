@@ -85,6 +85,13 @@ describe("agent rail", () => {
         expect(agent).toMatchObject({ resumeId: "older", title: "Fix terminal focus", cwd: "/code/sikemux" });
     });
 
+    it("names the selected provider and its plan in the header", async () => {
+        const { container } = render(<AgentRailBody />);
+
+        await waitFor(() => expect(container.querySelector(".agent-header-plan")).toHaveTextContent("Pro"));
+        expect(container.querySelector(".agent-header-name .agent-header-label")).toHaveTextContent("Codex");
+    });
+
     it("shows live plan windows only for detected Codex and Claude providers", async () => {
         const resetBase = Math.floor(Date.now() / 1000);
         mocks.available.mockResolvedValue([

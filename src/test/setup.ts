@@ -1,4 +1,6 @@
 import "@testing-library/jest-dom/vitest";
+import { vi } from "vitest";
+import type { MarkdownRequest } from "../api/markdown";
 
 // jsdom implements no scrolling, so components that keep a selection in view
 // would throw here rather than in a browser.
@@ -15,3 +17,8 @@ if (!("ResizeObserver" in globalThis)) {
         disconnect() {}
     } as unknown as typeof ResizeObserver;
 }
+
+vi.mock("../api/markdown", async () => {
+    const { parseWithFixtures } = await import("./markdownDouble");
+    return { markdownApi: { parse: async (request: MarkdownRequest) => parseWithFixtures(request) } };
+});

@@ -25,18 +25,19 @@ export function RundeckAdvanced({
     return (
         <div className="rnd-advanced">
             <button type="button" className="rnd-advanced-toggle" aria-expanded={open} aria-controls={id} onClick={() => setOpen((v) => !v)}>
-                <IconChevron size={9} className={`rnd-tree-chev-ic${open ? " open" : ""}`} />
-                advanced
+                <IconChevron size={10} className={`rnd-advanced-chev${open ? " open" : ""}`} />
+                Advanced
+                {!open && <span className="rnd-advanced-hint">debug output, nodes, schedule, run as</span>}
                 {changed && !open && <span className="rnd-tag">changed</span>}
             </button>
             {open && (
                 <div className="rnd-advanced-body" id={id}>
                     <label className="rnd-toggle">
                         <Switch checked={value.debug} onChange={(debug) => set({ debug })} label="Debug log level" />
-                        <span>debug output</span>
+                        <span>Debug output</span>
                     </label>
                     <label className="rnd-field">
-                        <span>node filter</span>
+                        <span>Node filter</span>
                         <input
                             type="text"
                             value={value.nodeFilter}
@@ -48,11 +49,11 @@ export function RundeckAdvanced({
                         />
                     </label>
                     <label className="rnd-field">
-                        <span>run later</span>
+                        <span>Run later</span>
                         <input type="datetime-local" value={value.runAt} onChange={(e) => set({ runAt: e.target.value })} />
                     </label>
                     <label className="rnd-field">
-                        <span>run as user</span>
+                        <span>Run as user</span>
                         <input
                             type="text"
                             value={value.asUser}

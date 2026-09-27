@@ -1,7 +1,8 @@
 import { renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { browserApi, type BrowserSnapshot, type BrowserTab } from "../api/browser";
-import { browserPaneView, refreshBrowserStrip, takeBrowserRestore, useBrowserStrips } from "./browserStrips";
+import { refreshBrowserStrip, useBrowserStrips } from "./browserStrips";
+import { deskEditorId, deskView, takeDeskRestore } from "./desks";
 import { getState, setState } from "./store";
 
 vi.mock("../api/browser", async () => {
@@ -40,7 +41,7 @@ afterEach(() => {
 
 describe("the app's reader of the browser strips", () => {
     it("reads for every agent with a pane, whether or not anyone is looking at it", async () => {
-        setState({ browserPanes: { "pane-a": "agent-one", "pane-b": "agent-two" } } as never);
+        setState({ deskPanes: { "pane-a": "agent-one", "pane-b": "agent-two" } } as never);
         let announce = () => {};
         vi.mocked(browserApi.subscribeTabs).mockImplementation(async (listener) => {
             announce = listener;
@@ -73,11 +74,28 @@ describe("the app's reader of the browser strips", () => {
 
         expect(browserApi.snapshot).toHaveBeenCalledTimes(2);
     });
+
+    it("adds new pages to the end of the desk and brings the page the agent moved to forward", async () => {
+        setState({
+            browserStrips: { "agent-one": strip([], null) },
+            desks: { "agent-one": { order: ["file:/repo/a.ts"], active: "file:/repo/a.ts", terminals: [], reveal: null } },
+        } as never);
+        await refreshBrowserStrip("agent-one");
+        expect(getState().desks["agent-one"]).toMatchObject({ order: ["file:/repo/a.ts", "browser:tab-one"], active: "browser" });
+
+        setState({ desks: { "agent-one": { ...getState().desks["agent-one"], active: "file:/repo/a.ts" } } } as never);
+        await refreshBrowserStrip("agent-one");
+        expect(getState().desks["agent-one"].active).toBe("file:/repo/a.ts");
+
+        vi.mocked(browserApi.snapshot).mockResolvedValue(strip([tab(), tab({ id: "tab-two" })], "tab-two"));
+        await refreshBrowserStrip("agent-one");
+        expect(getState().desks["agent-one"]).toMatchObject({ order: ["file:/repo/a.ts", "browser:tab-one", "browser:tab-two"], active: "browser" });
+    });
 });
 
-describe("what a browser pane saves", () => {
+describe("what a desk saves", () => {
     beforeEach(() => {
-        setState({ browserPanes: { "pane-browser": "agent-one" } } as never);
+        setState({ deskPanes: { "pane-desk": "agent-one" } } as never);
     });
 
     it("keeps the pages, drops the blank tab, and remembers which was in front", () => {
@@ -94,34 +112,41 @@ describe("what a browser pane saves", () => {
             },
         } as never);
 
-        expect(browserPaneView("pane-browser")).toEqual({
+        expect(deskView("pane-desk")).toEqual({
             agentId: "agent-one",
             tabs: [
                 { url: "https://example.com/docs", title: "Docs" },
                 { url: "https://news.test", title: "News" },
             ],
             activeIndex: 1,
+            files: [],
         });
     });
 
-    it("saves nothing for a pane with no agent, no strip, or only a blank tab", () => {
-        expect(browserPaneView("pane-browser")).toBeNull();
-        setState({ browserStrips: { "agent-one": strip([tab({ url: "about:blank", title: "" })], "tab-one") } } as never);
-        expect(browserPaneView("pane-browser")).toBeNull();
-        setState({ browserPanes: {} } as never);
-        expect(browserPaneView("pane-browser")).toBeNull();
+    it("keeps the files that are open on the desk, with or without pages", () => {
+        setState({ editorViews: { [deskEditorId("agent-one")]: { openTabs: ["/repo/a.ts"], activePath: "/repo/a.ts" } } } as never);
+
+        expect(deskView("pane-desk")).toEqual({ agentId: "agent-one", tabs: [], activeIndex: 0, files: ["/repo/a.ts"] });
     });
 
-    /* A restored pane nobody opened has no strip of its own yet, and losing
-       the tabs it is holding would mean a second restart threw them away. */
-    it("keeps holding the tabs a restored pane has not opened yet", () => {
-        const pending = { agentId: "agent-one", tabs: [{ url: "https://held.test", title: "Held" }], activeIndex: 0 };
-        setState({ browserRestores: { "pane-browser": pending }, browserStrips: { "agent-one": strip([], null) } } as never);
+    it("saves nothing for a desk with no agent, no strip, or only a blank tab", () => {
+        expect(deskView("pane-desk")).toBeNull();
+        setState({ browserStrips: { "agent-one": strip([tab({ url: "about:blank", title: "" })], "tab-one") } } as never);
+        expect(deskView("pane-desk")).toBeNull();
+        setState({ deskPanes: {} } as never);
+        expect(deskView("pane-desk")).toBeNull();
+    });
 
-        expect(browserPaneView("pane-browser")).toEqual(pending);
+    /* A restored desk nobody opened has no strip of its own yet, and losing
+       the pages it is holding would mean a second restart threw them away. */
+    it("keeps holding the pages a restored desk has not opened yet", () => {
+        const pending = { agentId: "agent-one", tabs: [{ url: "https://held.test", title: "Held" }], activeIndex: 0, files: [] };
+        setState({ deskRestores: { "pane-desk": pending }, browserStrips: { "agent-one": strip([], null) } } as never);
 
-        expect(takeBrowserRestore("pane-browser")).toEqual(pending);
-        expect(takeBrowserRestore("pane-browser")).toBeNull();
-        expect(browserPaneView("pane-browser")).toBeNull();
+        expect(deskView("pane-desk")).toEqual(pending);
+
+        expect(takeDeskRestore("pane-desk")).toEqual(pending);
+        expect(takeDeskRestore("pane-desk")).toBeNull();
+        expect(deskView("pane-desk")).toBeNull();
     });
 });

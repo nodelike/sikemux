@@ -3,23 +3,25 @@ use std::fs;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{Ipv4Addr, SocketAddrV4, TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use tauri::{AppHandle, Emitter, Manager};
 use uuid::Uuid;
 
 use crate::cli_protocol::{
-    CliClientCommand, CliCloseReason, CliEndpointDescriptor, CliFrontendRequest, CliOpenFailure,
-    CliOpenRequest, CliOpenResult, CliServerResponse, CliTargetKind, CLI_PROTOCOL_VERSION,
-    MAX_CLI_FRAME_BYTES, MAX_CLI_RESPONSE_BYTES, MAX_CLI_TARGETS,
+    CliClientCommand, CliClientHello, CliCloseReason, CliEndpointDescriptor, CliFrontendRequest,
+    CliOpenFailure, CliOpenRequest, CliOpenResult, CliServerResponse, CliTargetKind,
+    CLI_PROTOCOL_VERSION, MAX_CLI_FRAME_BYTES, MAX_CLI_RESPONSE_BYTES, MAX_CLI_TARGETS,
 };
 use crate::error::{AppError, AppResult};
 
 const CLI_EVENT: &str = "cli-open-available";
 const FRONTEND_ACCEPT_TIMEOUT: Duration = Duration::from_secs(60);
+const REQUEST_READ_DEADLINE: Duration = Duration::from_secs(10);
+const MAX_CONNECTIONS: usize = 128;
 
 #[derive(Clone)]
 pub struct CliBroker {
@@ -38,6 +40,7 @@ struct CliBrokerInner {
     requests: Mutex<HashMap<String, RequestEntry>>,
     harness: crate::harness::HarnessBroker,
     stopping: AtomicBool,
+    connections: AtomicUsize,
 }
 
 struct RequestEntry {
@@ -81,6 +84,7 @@ impl CliBroker {
                 requests: Mutex::new(HashMap::new()),
                 harness: crate::harness::HarnessBroker::default(),
                 stopping: AtomicBool::new(false),
+                connections: AtomicUsize::new(0),
             }),
         };
         let serving = broker.clone();
@@ -112,10 +116,16 @@ impl CliBroker {
                     if self.inner.stopping.load(Ordering::Acquire) {
                         return;
                     }
+                    let Some(slot) = ConnectionSlot::claim(&self.inner) else {
+                        continue;
+                    };
                     let broker = self.clone();
                     let _ = thread::Builder::new()
                         .name("sikemux-cli-client".into())
-                        .spawn(move || broker.serve(stream));
+                        .spawn(move || {
+                            broker.serve(stream);
+                            drop(slot);
+                        });
                 }
                 Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
                 Err(_) => thread::sleep(Duration::from_millis(100)),
@@ -131,35 +141,45 @@ impl CliBroker {
             Ok(value) => value,
             Err(_) => return,
         };
-        let mut reader = BufReader::new(cloned).take(MAX_CLI_FRAME_BYTES + 1);
-        let mut frame = Vec::new();
-        if reader.read_until(b'\n', &mut frame).is_err() {
-            let _ = write_response(
-                &mut stream,
-                &CliServerResponse::Error {
-                    message: "could not read the CLI request".into(),
-                },
-            );
-            return;
+        let mut reader = BufReader::new(DeadlineReader {
+            stream: cloned,
+            deadline: Instant::now() + REQUEST_READ_DEADLINE,
+        });
+        let hello = match read_frame::<CliClientHello>(&mut reader) {
+            Ok(CliClientHello::Hello { protocol, nonce }) => {
+                if protocol != CLI_PROTOCOL_VERSION {
+                    Err(format!(
+                        "CLI protocol mismatch (client {protocol}, app {CLI_PROTOCOL_VERSION}); update or restart Sikemux"
+                    ))
+                } else if nonce.is_empty() || nonce.len() > 256 {
+                    Err("invalid CLI hello".into())
+                } else {
+                    Ok(CliServerResponse::Hello {
+                        proof: crate::cli_auth::server_proof(
+                            &self.inner.descriptor.token,
+                            self.inner.descriptor.port,
+                            &nonce,
+                        ),
+                    })
+                }
+            }
+            Err(message) => Err(message),
+        };
+        match hello {
+            Ok(response) => {
+                if write_response(&mut stream, &response).is_err() {
+                    return;
+                }
+            }
+            Err(message) => {
+                let _ = write_response(&mut stream, &CliServerResponse::Error { message });
+                return;
+            }
         }
-        if frame.len() as u64 > MAX_CLI_FRAME_BYTES {
-            let _ = write_response(
-                &mut stream,
-                &CliServerResponse::Error {
-                    message: "CLI request is too large".into(),
-                },
-            );
-            return;
-        }
-        let command = match serde_json::from_slice::<CliClientCommand>(&frame) {
+        let command = match read_frame::<CliClientCommand>(&mut reader) {
             Ok(value) => value,
-            Err(_) => {
-                let _ = write_response(
-                    &mut stream,
-                    &CliServerResponse::Error {
-                        message: "invalid CLI request".into(),
-                    },
-                );
+            Err(message) => {
+                let _ = write_response(&mut stream, &CliServerResponse::Error { message });
                 return;
             }
         };
@@ -283,7 +303,7 @@ impl CliBroker {
                 "CLI protocol mismatch (client {protocol}, app {CLI_PROTOCOL_VERSION}); update or restart Sikemux"
             ));
         }
-        if token != self.inner.descriptor.token {
+        if !crate::cli_auth::same_secret(token, &self.inner.descriptor.token) {
             return Err("CLI authentication failed".into());
         }
         Ok(())
@@ -509,6 +529,59 @@ impl CliBroker {
     }
 }
 
+fn read_frame<T: serde::de::DeserializeOwned>(
+    reader: &mut BufReader<DeadlineReader>,
+) -> Result<T, String> {
+    let mut frame = Vec::new();
+    reader
+        .by_ref()
+        .take(MAX_CLI_FRAME_BYTES + 1)
+        .read_until(b'\n', &mut frame)
+        .map_err(|_| "could not read the CLI request")?;
+    if frame.len() as u64 > MAX_CLI_FRAME_BYTES {
+        return Err("CLI request is too large".into());
+    }
+    serde_json::from_slice(&frame).map_err(|_| "invalid CLI request".into())
+}
+
+struct ConnectionSlot(Arc<CliBrokerInner>);
+
+impl ConnectionSlot {
+    fn claim(inner: &Arc<CliBrokerInner>) -> Option<Self> {
+        inner
+            .connections
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |open| {
+                (open < MAX_CONNECTIONS).then_some(open + 1)
+            })
+            .ok()
+            .map(|_| Self(inner.clone()))
+    }
+}
+
+impl Drop for ConnectionSlot {
+    fn drop(&mut self) {
+        self.0.connections.fetch_sub(1, Ordering::AcqRel);
+    }
+}
+
+/// Reads until one deadline for the whole request, so a client sending a byte
+/// every few seconds cannot keep its thread forever.
+struct DeadlineReader {
+    stream: TcpStream,
+    deadline: Instant,
+}
+
+impl Read for DeadlineReader {
+    fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
+        let left = self.deadline.saturating_duration_since(Instant::now());
+        if left.is_zero() {
+            return Err(std::io::ErrorKind::TimedOut.into());
+        }
+        self.stream.set_read_timeout(Some(left))?;
+        self.stream.read(buffer)
+    }
+}
+
 fn configure_client_stream(stream: &TcpStream) -> std::io::Result<()> {
     // The listening socket is nonblocking so the broker thread can observe
     // shutdown promptly. Accepted sockets can inherit that flag on supported
@@ -581,9 +654,11 @@ fn write_endpoint(path: &Path, descriptor: &CliEndpointDescriptor) -> AppResult<
     let parent = path
         .parent()
         .ok_or_else(|| AppError::State("invalid CLI endpoint path".into()))?;
+    let ours = !parent.exists()
+        || default_cli_endpoint_path().is_some_and(|default| default.parent() == Some(parent));
     fs::create_dir_all(parent)?;
     #[cfg(unix)]
-    {
+    if ours {
         use std::os::unix::fs::PermissionsExt;
         fs::set_permissions(parent, fs::Permissions::from_mode(0o700))?;
     }
@@ -620,6 +695,10 @@ pub fn cli_endpoint_path() -> Option<PathBuf> {
     if let Some(path) = std::env::var_os("SIKEMUX_CLI_ENDPOINT_PUBLISH") {
         return Some(PathBuf::from(path));
     }
+    default_cli_endpoint_path()
+}
+
+fn default_cli_endpoint_path() -> Option<PathBuf> {
     let parent = crate::state::state_path()?.parent()?.to_path_buf();
     Some(parent.join(if cfg!(debug_assertions) {
         "cli.dev.json"
@@ -643,6 +722,63 @@ pub fn cli_executable_path() -> Option<PathBuf> {
     };
     let sibling = current.parent()?.join(filename);
     sibling.is_file().then_some(sibling)
+}
+
+static CLI_ON_PATH: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+
+/// Agents shell out to `sikemux`, but the packaged CLI is named
+/// `sikemux-editor`, so a `sikemux` link to it goes first on PATH for every
+/// process this app launches. Call once at startup, before threads spawn.
+pub fn put_cli_on_path() {
+    let Some(executable) = cli_executable_path() else {
+        return;
+    };
+    let Some(directory) = crate::state::state_path().and_then(|path| {
+        Some(path.parent()?.join(if cfg!(debug_assertions) {
+            "bin-dev"
+        } else {
+            "bin"
+        }))
+    }) else {
+        return;
+    };
+    let Ok(link) = link_cli(&executable, &directory) else {
+        return;
+    };
+    let existing = std::env::var_os("PATH").unwrap_or_default();
+    let paths = std::iter::once(directory.clone())
+        .chain(std::env::split_paths(&existing).filter(|path| *path != directory));
+    if let Ok(joined) = std::env::join_paths(paths) {
+        // SAFETY: called once at startup before any threads spawn.
+        unsafe { std::env::set_var("PATH", joined) };
+        let _ = CLI_ON_PATH.set(link);
+    }
+}
+
+pub fn cli_command_path() -> Option<PathBuf> {
+    CLI_ON_PATH.get().cloned().or_else(cli_executable_path)
+}
+
+fn link_cli(executable: &Path, directory: &Path) -> std::io::Result<PathBuf> {
+    fs::create_dir_all(directory)?;
+    let link = directory.join(if cfg!(windows) {
+        "sikemux.exe"
+    } else {
+        "sikemux"
+    });
+    #[cfg(unix)]
+    {
+        if fs::read_link(&link).is_ok_and(|target| target == executable) {
+            return Ok(link);
+        }
+        let staging = directory.join(format!(".sikemux-{}", std::process::id()));
+        let _ = fs::remove_file(&staging);
+        std::os::unix::fs::symlink(executable, &staging)?;
+        fs::rename(&staging, &link)?;
+    }
+    #[cfg(windows)]
+    fs::copy(executable, &link)?;
+    Ok(link)
 }
 
 #[tauri::command]
@@ -768,6 +904,71 @@ mod tests {
             fs::metadata(path).unwrap().permissions().mode() & 0o777,
             0o600
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn an_existing_endpoint_directory_keeps_its_permissions() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::set_permissions(dir.path(), fs::Permissions::from_mode(0o755)).unwrap();
+        let descriptor = CliEndpointDescriptor {
+            protocol: 1,
+            pid: 1,
+            port: 42,
+            token: "token".into(),
+            version: "test".into(),
+        };
+        write_endpoint(&dir.path().join("cli.json"), &descriptor).unwrap();
+        assert_eq!(
+            fs::metadata(dir.path()).unwrap().permissions().mode() & 0o777,
+            0o755
+        );
+    }
+
+    #[test]
+    fn a_dripping_client_runs_out_of_time_for_the_whole_request() {
+        let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+        let address = listener.local_addr().unwrap();
+        let writer = std::thread::spawn(move || {
+            let mut client = TcpStream::connect(address).unwrap();
+            for _ in 0..20 {
+                if client.write_all(b" ").is_err() {
+                    return;
+                }
+                std::thread::sleep(Duration::from_millis(30));
+            }
+        });
+        let (stream, _) = listener.accept().unwrap();
+        let mut reader = BufReader::new(DeadlineReader {
+            stream,
+            deadline: Instant::now() + Duration::from_millis(150),
+        });
+        let started = Instant::now();
+        let mut frame = Vec::new();
+        let error = reader.read_until(b'\n', &mut frame).unwrap_err();
+        assert!(matches!(
+            error.kind(),
+            std::io::ErrorKind::TimedOut | std::io::ErrorKind::WouldBlock
+        ));
+        assert!(started.elapsed() < Duration::from_millis(400));
+        drop(reader);
+        writer.join().unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn the_cli_is_linked_as_sikemux_and_relinked_when_it_moves() {
+        let root = tempfile::tempdir().unwrap();
+        let first = root.path().join("first/sikemux-editor");
+        let second = root.path().join("second/sikemux-editor");
+        let directory = root.path().join("bin");
+        let link = link_cli(&first, &directory).unwrap();
+        assert_eq!(link, directory.join("sikemux"));
+        assert_eq!(fs::read_link(&link).unwrap(), first);
+        assert_eq!(link_cli(&first, &directory).unwrap(), link);
+        link_cli(&second, &directory).unwrap();
+        assert_eq!(fs::read_link(&link).unwrap(), second);
+        assert_eq!(fs::read_dir(&directory).unwrap().count(), 1);
     }
 
     #[test]

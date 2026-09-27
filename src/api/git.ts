@@ -107,6 +107,11 @@ export interface BlameCommit {
     uncommitted: boolean;
 }
 
+/** A unified diff row: added, deleted or unchanged text with the line number it shows, or a count of unchanged lines left out. */
+export type DiffRow = [kind: 0 | 1 | 2, line: number, text: string] | [kind: 3, hidden: number, text: ""];
+
+export const DIFF_ROW = { context: 0, added: 1, deleted: 2, hidden: 3 } as const;
+
 /** Compact per-file blame: unique `commits` + a per-line index into them. */
 export interface GitBlame {
     commits: BlameCommit[];
@@ -224,6 +229,9 @@ export const git = {
         fileAtInflight.set(key, request);
         return request;
     },
+    /** Without `headRev` the diff runs to the working tree. `full` keeps every unchanged line. */
+    fileDiff: (repo: string, path: string, baseRev: string, headRev: string | null, full: boolean) =>
+        invoke<DiffRow[]>("git_file_diff", { repo, path, baseRev, headRev, full }),
     commitFiles: (repo: string, rev: string) => invoke<string[]>("git_commit_files", { repo, rev }),
     blame: (repo: string, path: string, contents?: string | null) => invoke<GitBlame>("git_blame", { repo, path, contents: contents ?? null }),
     commit: (repo: string, message: string) => invoke<string>("git_commit", { repo, message }),

@@ -1,65 +1,16 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent } from "react";
-import { preloadHighlighter, type FileContents, type FileDiffOptions } from "@pierre/diffs";
-import { Editor, type EditorOptions } from "@pierre/diffs/edit";
-import { EditProvider, MultiFileDiff } from "@pierre/diffs/react";
-import { git } from "../api/git";
+import { lazy, Suspense, useCallback, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
+import { git, type DiffRow } from "../api/git";
 import { fsapi } from "../api/fs";
-import type { Theme } from "../themes";
 import { currentTheme, subscribeTheme } from "../themes/bus";
-import { diffsThemeName } from "../themes/diffs";
 import { errMessage, swallow } from "../state/toast";
 import { joinPath } from "../lib/paths";
 import { subscribe } from "../state/bus";
+import { DiffView } from "./DiffView";
 
-/*
- * The renderer paints no ground of its own. The window already lays one down
- * on `body`, so repeating it here composited the same fill twice and the diff
- * came out a solid slab beside panes the wallpaper shows through. Everything
- * the diff still needs to mark — context, gutter, separator — is a tint of
- * ink over whatever is behind, which also follows the theme. The changed rows
- * fall out of this: the renderer mixes them against this background, so at
- * `transparent` they land as their own colour at low alpha.
- */
-const DIFF_SURFACE_STYLE = {
-    "--diffs-bg": "transparent",
-    "--diffs-fg": "var(--ink)",
-    "--diffs-fg-number-override": "var(--ink-faint)",
-    "--diffs-addition-color-override": "var(--live)",
-    "--diffs-deletion-color-override": "var(--danger)",
-    "--diffs-modified-color-override": "var(--acc)",
-    "--diffs-bg-context-override": "color-mix(in oklab, var(--ink) 5%, transparent)",
-    "--diffs-bg-context-gutter-override": "color-mix(in oklab, var(--ink) 3%, transparent)",
-    "--diffs-bg-separator-override": "color-mix(in oklab, var(--ink) 7%, transparent)",
-    "--diffs-bg-buffer-override": "color-mix(in oklab, var(--ink) 10%, transparent)",
-    "--diffs-font-family": "var(--mono)",
-    "--diffs-header-font-family": "var(--mono)",
-    "--diffs-font-size": "12px",
-    "--diffs-line-height": "19px",
-    width: "100%",
-    minHeight: "100%",
-    userSelect: "text",
-} as CSSProperties;
-
-const DIFF_UNSAFE_CSS = `
-:host { background: transparent; }
-[data-code] { scrollbar-color: var(--ink-faint) transparent; }
-[data-code]::-webkit-scrollbar { width: 12px; height: 12px; }
-[data-code]::-webkit-scrollbar-track, [data-code]::-webkit-scrollbar-corner { background: transparent; }
-[data-code]::-webkit-scrollbar-thumb { background: var(--ink-faint); border: 3px solid transparent; background-clip: padding-box; }
-[data-code]::-webkit-scrollbar-thumb:hover { background: var(--ink-dim); background-clip: padding-box; }
-[contenteditable="true"] { caret-color: var(--acc); outline: none; }
-::selection { background: var(--acc-soft); }
-`;
-
-export const DIFF_TOKENIZE_MAX_LINES = 4000;
-export const DIFF_WORD_MAX_LENGTH = 512;
-
-function createEditor(options: EditorOptions<undefined>) {
-    return new Editor(options);
-}
+const DiffMergeEditor = lazy(() => import("./DiffMergeEditor"));
 
 interface CachedDiffRead {
-    promise: Promise<string>;
+    promise: Promise<unknown>;
     settled: boolean;
     chars: number;
 }
@@ -79,21 +30,21 @@ function pruneRevisionReads(): void {
     }
 }
 
-function cachedRead(key: string, load: () => Promise<string>): Promise<string> {
+function cachedRead<T>(key: string, load: () => Promise<T>, charsOf: (value: T) => number): Promise<T> {
     const existing = revisionReads.get(key);
     if (existing) {
         revisionReads.delete(key);
         revisionReads.set(key, existing);
-        return existing.promise;
+        return existing.promise as Promise<T>;
     }
 
-    const entry: CachedDiffRead = { promise: Promise.resolve(""), settled: false, chars: 0 };
+    const entry: CachedDiffRead = { promise: Promise.resolve(), settled: false, chars: 0 };
     const pending = load().then(
         (value) => {
             if (revisionReads.get(key) === entry) {
                 entry.settled = true;
-                entry.chars = value.length;
-                revisionReadChars += value.length;
+                entry.chars = charsOf(value);
+                revisionReadChars += entry.chars;
                 pruneRevisionReads();
             }
             return value;
@@ -109,9 +60,16 @@ function cachedRead(key: string, load: () => Promise<string>): Promise<string> {
     return pending;
 }
 
+const textLength = (text: string) => text.length;
+const rowsLength = (rows: DiffRow[]) => rows.reduce((total, row) => total + row[2].length + 8, 0);
+
 function readRevision(repo: string, rev: string, path: string): Promise<string> {
-    const key = `${repo}\0${rev}\0${path}`;
-    return cachedRead(key, () => git.fileAt(repo, rev, path));
+    return cachedRead(`${repo}\0${rev}\0${path}`, () => git.fileAt(repo, rev, path), textLength);
+}
+
+function readDiff(repo: string, path: string, baseRev: string, headRev: string | undefined, full: boolean): Promise<DiffRow[]> {
+    const key = `${repo}\0diff\0${baseRev}\0${headRev ?? ":worktree"}\0${path}\0${full ? "full" : "hunks"}`;
+    return cachedRead(key, () => git.fileDiff(repo, path, baseRev, headRev ?? null, full), rowsLength);
 }
 
 export function invalidateDiffContentCache(repo?: string): void {
@@ -149,25 +107,45 @@ export function DiffEditor({
     autoHeight?: boolean;
     onSaved?: () => void;
 }) {
-    const [content, setContent] = useState<{ base: string; head: string } | null>(null);
+    const [rows, setRows] = useState<DiffRow[] | null>(null);
+    const [files, setFiles] = useState<{ base: string; head: string } | null>(null);
+    const [expanded, setExpanded] = useState<string | null>(null);
     const [error, setError] = useState<string | null>(null);
-    const [diffTheme, setDiffTheme] = useState(() => resolveDiffTheme(currentTheme()));
+    const [dark, setDark] = useState(() => currentTheme().dark);
     const latestHeadRef = useRef("");
     const onSavedRef = useRef(onSaved);
     onSavedRef.current = onSaved;
     const absPath = joinPath(repo, path);
+    const diffKey = `${repo}\0${path}\0${baseRev}\0${headRev ?? ""}`;
+    const full = expanded === diffKey;
 
-    useEffect(() => subscribeTheme((theme) => setDiffTheme(resolveDiffTheme(theme))), []);
-
-    useEffect(() => {
-        void preloadHighlighter({ themes: [diffTheme.name], langs: [diffLanguage(path)] }).catch(swallow("diff renderer preload"));
-    }, [diffTheme.name, path]);
+    useEffect(() => subscribeTheme((theme) => setDark(theme.dark)), []);
 
     useEffect(() => {
+        setRows(null);
+        setFiles(null);
+    }, [diffKey]);
+
+    useEffect(() => {
+        if (editable) return;
         let cancelled = false;
-        setContent(null);
         setError(null);
+        readDiff(repo, path, baseRev, headRev, full)
+            .then((next) => {
+                if (!cancelled) setRows(next);
+            })
+            .catch((err: unknown) => {
+                if (!cancelled) setError(errMessage(err));
+            });
+        return () => {
+            cancelled = true;
+        };
+    }, [repo, path, baseRev, headRev, full, editable]);
 
+    useEffect(() => {
+        if (!editable) return;
+        let cancelled = false;
+        setError(null);
         void Promise.all([readRevision(repo, baseRev, path), headRev ? readRevision(repo, headRev, path) : readWorkingFile(repo, path, absPath)])
             .then(([base, head]) => {
                 if (cancelled) return;
@@ -177,55 +155,15 @@ export function DiffEditor({
                     return;
                 }
                 latestHeadRef.current = head;
-                setContent({ base, head });
+                setFiles((current) => (current?.base === base && current.head === head ? current : { base, head }));
             })
-            .catch((err) => {
+            .catch((err: unknown) => {
                 if (!cancelled) setError(errMessage(err));
             });
-
         return () => {
             cancelled = true;
         };
-    }, [repo, path, baseRev, headRev, absPath]);
-
-    const files = useMemo(() => {
-        if (!content) return null;
-        const baseKey = `${repo}:${baseRev}:${path}:${diffTheme.name}:${contentHash(content.base)}`;
-        const headKey = `${repo}:${headRev ?? "worktree"}:${path}:${diffTheme.name}:${contentHash(content.head)}`;
-        const lang = diffLanguage(path);
-        return {
-            oldFile: { name: path, contents: content.base, cacheKey: baseKey, lang } satisfies FileContents,
-            newFile: { name: path, contents: content.head, cacheKey: headKey, lang } satisfies FileContents,
-        };
-    }, [content, repo, path, baseRev, headRev, diffTheme.name]);
-
-    const options = useMemo<FileDiffOptions<undefined>>(
-        () => ({
-            theme: diffTheme.name,
-            themeType: diffTheme.dark ? "dark" : "light",
-            diffStyle: "unified",
-            diffIndicators: "bars",
-            disableBackground: !diffTheme.dark,
-            hunkSeparators: "simple",
-            lineDiffType: editable ? "word-alt" : "none",
-            maxLineDiffLength: DIFF_WORD_MAX_LENGTH,
-            tokenizeMaxLength: DIFF_TOKENIZE_MAX_LINES,
-            collapsedContextThreshold: 3,
-            overflow: "scroll",
-            disableFileHeader: true,
-            unsafeCSS: DIFF_UNSAFE_CSS,
-        }),
-        [diffTheme, editable],
-    );
-
-    const editorOptions = useMemo<EditorOptions<undefined>>(
-        () => ({
-            onChange(file) {
-                latestHeadRef.current = file.contents;
-            },
-        }),
-        [],
-    );
+    }, [repo, path, baseRev, headRev, absPath, editable]);
 
     const save = useCallback(() => {
         void fsapi
@@ -241,32 +179,30 @@ export function DiffEditor({
         save();
     };
 
+    const loading = <div className="diff-editor-loading">loading diff...</div>;
+    let body = loading;
+    if (error) body = <div className="diff-editor-error">x {error}</div>;
+    else if (editable && files)
+        body = (
+            <Suspense fallback={loading}>
+                <DiffMergeEditor
+                    base={files.base}
+                    head={files.head}
+                    path={path}
+                    tinted={dark}
+                    onChange={(text) => {
+                        latestHeadRef.current = text;
+                    }}
+                />
+            </Suspense>
+        );
+    else if (!editable && rows) body = <DiffView rows={rows} path={path} tinted={dark} onShowHidden={() => setExpanded(diffKey)} />;
+
     return (
         <div className={`diff-editor${autoHeight ? " auto" : ""}`} onKeyDownCapture={onKeyDownCapture}>
-            {error ? (
-                <div className="diff-editor-error">x {error}</div>
-            ) : files ? (
-                <EditProvider createEditor={createEditor}>
-                    <MultiFileDiff
-                        key={diffTheme.name}
-                        oldFile={files.oldFile}
-                        newFile={files.newFile}
-                        options={options}
-                        edit={editable}
-                        disableWorkerPool={editable}
-                        editorOptions={editable ? editorOptions : undefined}
-                        style={{ ...DIFF_SURFACE_STYLE, colorScheme: diffTheme.dark ? "dark" : "light" }}
-                    />
-                </EditProvider>
-            ) : (
-                <div className="diff-editor-loading">loading diff...</div>
-            )}
+            {body}
         </div>
     );
-}
-
-function resolveDiffTheme(theme: Theme) {
-    return { name: diffsThemeName(theme), dark: theme.dark };
 }
 
 const MAX_INLINE_DIFF_CHARS = 1024 * 1024;
@@ -290,45 +226,19 @@ function humanChars(value: number): string {
     return value > 1024 * 1024 ? `${(value / 1024 / 1024).toFixed(1)} MB` : `${(value / 1024).toFixed(1)} KB`;
 }
 
-function contentHash(value: string): string {
-    let result = 2166136261;
-    for (let i = 0; i < value.length; i++) {
-        result ^= value.charCodeAt(i);
-        result = Math.imul(result, 16777619);
-    }
-    return (result >>> 0).toString(36);
-}
-
-function diffLanguage(path: string): NonNullable<FileContents["lang"]> {
-    const name = path.split(/[\\/]/).pop()?.toLowerCase() ?? "";
-    if (name === "dockerfile") return "shellscript";
-    if (name === "makefile") return "shellscript";
-    const extension = name.includes(".") ? name.slice(name.lastIndexOf(".") + 1) : "";
-    if (["js", "jsx", "mjs", "cjs", "ts", "tsx", "mts", "cts"].includes(extension)) return "typescript";
-    if (["css", "scss", "sass", "less"].includes(extension)) return "css";
-    if (["html", "htm", "vue", "svelte"].includes(extension)) return "html";
-    if (["json", "json5", "jsonc", "jsonl"].includes(extension)) return "jsonc";
-    if (["md", "mdx", "markdown"].includes(extension)) return "markdown";
-    if (["sh", "bash", "zsh", "fish"].includes(extension)) return "shellscript";
-    if (["yaml", "yml"].includes(extension)) return "yaml";
-    if (["py", "pyi", "pyw"].includes(extension)) return "python";
-    if (["c", "h"].includes(extension)) return "c";
-    if (extension === "rs") return "rust";
-    if (extension === "go") return "go";
-    if (extension === "java") return "java";
-    if (extension === "sql") return "sql";
-    return "text";
-}
-
 async function readWorkingFile(repo: string, path: string, absPath: string): Promise<string> {
-    return cachedRead(`${repo}\0:worktree\0${path}`, async () => {
-        try {
-            return await fsapi.readTextFileLimited(absPath);
-        } catch (err) {
-            if (isMissingFileError(err)) return "";
-            throw err;
-        }
-    });
+    return cachedRead(
+        `${repo}\0:worktree\0${path}`,
+        async () => {
+            try {
+                return await fsapi.readTextFileLimited(absPath);
+            } catch (err) {
+                if (isMissingFileError(err)) return "";
+                throw err;
+            }
+        },
+        textLength,
+    );
 }
 
 function isMissingFileError(err: unknown): boolean {

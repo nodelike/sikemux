@@ -28,7 +28,7 @@ afterEach(cleanup);
 
 beforeEach(() => {
     awsSettings.update(() => ({ profile: null, service: "ecs" }));
-    useAws.setState({ authModal: null, ecsViews: {}, expandedBillingMonth: {} });
+    useAws.setState({ authModal: null, ecsViews: {}, selection: {}, lambdaLogs: {}, counts: {} });
     profiles.mockReset().mockResolvedValue([prod]);
     identity.mockReset().mockResolvedValue(expired);
 });

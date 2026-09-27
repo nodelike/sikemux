@@ -5,6 +5,7 @@ import { clampTerminalFontSize } from "../terminal/fontSize";
 import { clampChatTextScale } from "../chat/textScale";
 import { clampEditorTextScale } from "../editor/textScale";
 import { isTheme } from "../themes";
+import { parseReleaseCredits } from "../api/releases";
 import { normaliseKeybindingOverrides } from "../keybindings";
 import type { CommandContext, CustomCommand, CustomCommandPlacement } from "../commands/registry";
 import { registerCustomThemes } from "../themes/bus";
@@ -13,7 +14,7 @@ import { clampRailWidth } from "../lib/railWidths";
 import { mergePinnedIntoRoots, normaliseProjectRoots, pruneOnDemandWindows } from "./commands";
 import { agentPaneId } from "./selectors";
 import { collectPanes, removePane } from "./layout";
-import { browserPaneView } from "./browserStrips";
+import { BROWSER_ACTIVE, deskEditorId, deskView, fileKey } from "./desks";
 import { agentDirectCommand, agentStartup } from "./commands";
 import { agentWindow } from "./agentWindow";
 import { getState, setState, useStore, type StoreState } from "./store";
@@ -26,8 +27,9 @@ import type {
     AgentPermissionMode,
     AgentProvider,
     AgentType,
-    BrowserPaneView,
     CorePaneKind,
+    Desk,
+    DeskView,
     EditorPaneView,
     LayoutNode,
     PersistedAgent,
@@ -50,7 +52,7 @@ function deriveRole(w: Window): WindowRole {
     return "named";
 }
 
-export const VERSION = 15;
+export const VERSION = 16;
 const MIN_SUPPORTED_VERSION = 3;
 const ONBOARDING_MIGRATION_VERSION = 6;
 const AGENT_PERMISSION_DEFAULT_MIGRATION_VERSION = 9;
@@ -60,6 +62,7 @@ const ONE_BRUNO_SESSION_MIGRATION_VERSION = 12;
 const AWS_PLUGIN_MIGRATION_VERSION = 13;
 const BRUNO_PLUGIN_MIGRATION_VERSION = 14;
 const RUNDECK_GROUPS_MIGRATION_VERSION = 15;
+const DESK_MIGRATION_VERSION = 16;
 const RETRY_MS = 1500;
 let lastSaved = "";
 let activeSnapshot: string | null = null;
@@ -78,13 +81,14 @@ const PERSISTED_KEYS = [
     "activeSessionId",
     "recent",
     "editorViews",
-    "browserPanes",
+    "deskPanes",
     "browserStrips",
-    "browserRestores",
+    "deskRestores",
     "projectRoots",
     "themeId",
     "customThemes",
     "uiTextScale",
+    "paneShader",
     "terminalFontSize",
     "chatTextScale",
     "editorTextScale",
@@ -101,16 +105,22 @@ const PERSISTED_KEYS = [
     "pluginSettings",
     "disabledPlugins",
     "restoreAgentTabs",
+    "agentNotifications",
+    "voiceDictation",
+    "voiceWords",
+    "notificationsIntroduced",
     "railDensity",
     "onboardingComplete",
     "lastSeenVersion",
     "customCommands",
     "updateChannel",
+    "shareUsageData",
     "lastReleaseNotes",
     "recentCommandKeys",
     "providerProfiles",
     "selectedProviderProfileIds",
     "defaultAgentPermissionMode",
+    "languageServerTrust",
 ] as const satisfies readonly (keyof StoreState)[];
 type PersistedKey = (typeof PERSISTED_KEYS)[number];
 type SliceShot = { [K in PersistedKey]: StoreState[K] };
@@ -134,6 +144,7 @@ function packPrefs(s: StoreState): PersistedPrefs {
         themeId: s.themeId,
         customThemes: s.customThemes,
         uiTextScale: s.uiTextScale,
+        paneShader: s.paneShader,
         terminalFontSize: s.terminalFontSize,
         chatTextScale: s.chatTextScale,
         editorTextScale: s.editorTextScale,
@@ -150,16 +161,22 @@ function packPrefs(s: StoreState): PersistedPrefs {
         pluginSettings: s.pluginSettings,
         disabledPlugins: [...s.disabledPlugins],
         restoreAgentTabs: s.restoreAgentTabs,
+        agentNotifications: s.agentNotifications,
+        voiceDictation: s.voiceDictation,
+        voiceWords: [...s.voiceWords],
+        notificationsIntroduced: s.notificationsIntroduced,
         railDensity: s.railDensity,
         onboardingComplete: s.onboardingComplete,
         lastSeenVersion: s.lastSeenVersion,
         customCommands: s.customCommands,
         updateChannel: s.updateChannel,
+        shareUsageData: s.shareUsageData,
         lastReleaseNotes: s.lastReleaseNotes,
         recentCommandKeys: s.recentCommandKeys,
         providerProfiles,
         selectedProviderProfileIds: normaliseProviderProfileSelection(s.selectedProviderProfileIds, providerProfiles, {}),
         defaultAgentPermissionMode: s.defaultAgentPermissionMode === "bypass" ? "bypass" : "workspace-write",
+        languageServerTrust: s.languageServerTrust,
     };
 }
 
@@ -374,12 +391,12 @@ function persistedAgent(agent: Agent): PersistedAgent {
 }
 
 /**
- * A browser pane comes back from its saved tabs, so one with no tabs left to
- * open would restore as a blank half and is dropped instead.
+ * A desk comes back from its saved pages and files, so one with nothing left
+ * to open would restore as a blank half and is dropped instead.
  */
-function withoutEmptyBrowserPanes(window: Window): Window | null {
+function withoutEmptyDesks(window: Window): Window | null {
     const emptyPaneIds = collectPanes(window.root)
-        .filter((pane) => pane.kind === "browser" && !browserPaneView(pane.id))
+        .filter((pane) => pane.kind === "desk" && !deskView(pane.id))
         .map((pane) => pane.id);
     if (emptyPaneIds.length === 0) return window;
     let root: LayoutNode | null = window.root;
@@ -400,7 +417,7 @@ function durableWindow(s: StoreState, id: string): Window | null {
     if (!window || window.transient) return null;
     const agentPane = window.role === "agent" ? agentPaneId(window) : null;
     if (window.role === "agent" && !s.agents[agentPane ?? ""]?.resumeId) return null;
-    return withoutEmptyBrowserPanes(window);
+    return withoutEmptyDesks(window);
 }
 
 /** One malformed item must not cost every other item, or the layout, its save. */
@@ -449,9 +466,9 @@ function snapshot(): string {
                 }
                 if (node.kind === "editor")
                     encodeItemState(itemStates, node.id, "editor", s.editorViews[node.id] ?? { openTabs: [], activePath: null });
-                if (node.kind === "browser") {
-                    const view = browserPaneView(node.id);
-                    if (view) encodeItemState(itemStates, node.id, "browser", view);
+                if (node.kind === "desk") {
+                    const view = deskView(node.id);
+                    if (view) encodeItemState(itemStates, node.id, "desk", view);
                 }
             }
         }
@@ -533,6 +550,27 @@ export function flushPersist(): Promise<boolean> {
     lastSlices = takeSlices(getState());
     queueSnapshot(snapshot());
     return startSaveLoop();
+}
+
+/** Before v16 an agent's side pane held only its browser, as a "browser" pane whose saved state had no files. */
+function moveBrowserPanesOntoDesks(decoded: Record<string, unknown>): void {
+    const windowsBySession = isRecord(decoded.windowsBySession) ? decoded.windowsBySession : {};
+    for (const rows of Object.values(windowsBySession)) {
+        for (const row of Array.isArray(rows) ? rows : []) {
+            const pending: unknown[] = isRecord(row) ? [row.root] : [];
+            for (let node = pending.pop(); node !== undefined; node = pending.pop()) {
+                if (!isRecord(node)) continue;
+                if (node.type === "pane" && node.kind === "browser") node.kind = "desk";
+                else if (Array.isArray(node.children)) pending.push(...node.children);
+            }
+        }
+    }
+    const itemStates = isRecord(decoded.itemStates) ? decoded.itemStates : {};
+    for (const envelope of Object.values(itemStates)) {
+        if (!isRecord(envelope) || envelope.kind !== "browser") continue;
+        envelope.kind = "desk";
+        if (isRecord(envelope.state)) envelope.state.files = [];
+    }
 }
 
 /** Before v10 Rundeck was built in, and its sessions, windows, panes and command contexts were plain "rundeck". */
@@ -685,6 +723,11 @@ function mergeBrunoSessions(decoded: Record<string, unknown>): void {
     if (closed.has(decoded.activeSessionId)) decoded.activeSessionId = kept.id;
 }
 
+function normaliseLanguageServerTrust(value: unknown): Record<string, boolean> {
+    if (!isRecord(value)) return {};
+    return Object.fromEntries(Object.entries(value).filter((entry): entry is [string, boolean] => typeof entry[1] === "boolean"));
+}
+
 function normalisePluginSettings(value: unknown): Record<string, unknown> {
     if (!isRecord(value)) return {};
     return Object.fromEntries(Object.entries(value).filter(([id]) => isPluginId(id)));
@@ -714,6 +757,7 @@ export function applyHydrate(raw: string): HydrationResult {
     if (decoded.version < AWS_PLUGIN_MIGRATION_VERSION) moveAwsIntoItsPlugin(decoded);
     if (decoded.version < BRUNO_PLUGIN_MIGRATION_VERSION) moveBrunoIntoItsPlugin(decoded);
     if (decoded.version < RUNDECK_GROUPS_MIGRATION_VERSION) reshapeRundeckSettings(decoded);
+    if (decoded.version < DESK_MIGRATION_VERSION) moveBrowserPanesOntoDesks(decoded);
 
     const sessions: Record<string, Session> = {};
     for (const row of decoded.sessions) {
@@ -730,7 +774,6 @@ export function applyHydrate(raw: string): HydrationResult {
     for (const sid of Object.keys(sessions)) {
         const rows = Array.isArray(rawWindows[sid]) ? rawWindows[sid] : [];
         windowsBySession[sid] = [];
-        let projectTerminalNumber = 0;
         for (const row of rows) {
             if (!isWindow(row) || windows[row.id]) continue;
             const ids = layoutIds(row.root);
@@ -743,7 +786,7 @@ export function applyHydrate(raw: string): HydrationResult {
                 activePaneId: ids.panes.includes(row.activePaneId) ? row.activePaneId : ids.panes[0],
             };
             if (sessions[sid].kind === "project" && restored.role === "term") {
-                restored.name = String(++projectTerminalNumber);
+                restored.name = "Terminal";
                 delete restored.fixed;
             }
             windows[row.id] = restored;
@@ -838,21 +881,29 @@ export function applyHydrate(raw: string): HydrationResult {
         walk(w.root);
     }
     const editorViews: Record<string, EditorPaneView> = {};
-    const browserPanes: Record<string, string> = {};
-    const browserRestores: Record<string, BrowserPaneView> = {};
+    const deskPanes: Record<string, string> = {};
+    const deskRestores: Record<string, DeskView> = {};
+    const desks: Record<string, Desk> = {};
     if (decoded.version >= 7) {
         const rawItemStates = isRecord(decoded.itemStates) ? decoded.itemStates : {};
         for (const [itemId, ref] of panesById) {
             const result = workbenchItemRegistry.decodePersisted(ref, rawItemStates[itemId]);
             if (!result.ok) continue;
             if (result.ref.kind === "editor") editorViews[itemId] = result.state as EditorPaneView;
-            if (result.ref.kind === "browser") {
-                const view = result.state as BrowserPaneView;
+            if (result.ref.kind === "desk") {
+                const view = result.state as DeskView;
                 // Without its agent the pane has nothing to be, and the pane
                 // itself takes the empty leaf back out of the layout.
                 if (!agents[view.agentId]) continue;
-                browserPanes[itemId] = view.agentId;
-                browserRestores[itemId] = view;
+                deskPanes[itemId] = view.agentId;
+                deskRestores[itemId] = view;
+                editorViews[deskEditorId(view.agentId)] = { openTabs: view.files, activePath: view.files[0] ?? null };
+                desks[view.agentId] = {
+                    order: view.files.map(fileKey),
+                    active: view.tabs.length > 0 ? BROWSER_ACTIVE : view.files[0] ? fileKey(view.files[0]) : null,
+                    terminals: [],
+                    reveal: null,
+                };
             }
         }
     } else {
@@ -887,8 +938,9 @@ export function applyHydrate(raw: string): HydrationResult {
         activeSessionId,
         recent: Array.isArray(decoded.recent) ? decoded.recent.filter(isRecent) : [],
         editorViews,
-        browserPanes,
-        browserRestores,
+        deskPanes,
+        deskRestores,
+        desks,
         browserStrips: {},
         // Pinned projects used to be their own list; they are self-indexed
         // roots now, folded in here so existing setups carry over untouched.
@@ -899,6 +951,7 @@ export function applyHydrate(raw: string): HydrationResult {
         themeId: typeof prefs.themeId === "string" ? prefs.themeId : cur.themeId,
         customThemes: Array.isArray(prefs.customThemes) ? prefs.customThemes.filter(isTheme) : cur.customThemes,
         uiTextScale: typeof prefs.uiTextScale === "number" && [1, 1.1, 1.25].includes(prefs.uiTextScale) ? prefs.uiTextScale : cur.uiTextScale,
+        paneShader: typeof prefs.paneShader === "boolean" ? prefs.paneShader : cur.paneShader,
         terminalFontSize: typeof prefs.terminalFontSize === "number" ? clampTerminalFontSize(prefs.terminalFontSize) : cur.terminalFontSize,
         chatTextScale: typeof prefs.chatTextScale === "number" ? clampChatTextScale(prefs.chatTextScale) : cur.chatTextScale,
         editorTextScale: typeof prefs.editorTextScale === "number" ? clampEditorTextScale(prefs.editorTextScale) : cur.editorTextScale,
@@ -921,6 +974,10 @@ export function applyHydrate(raw: string): HydrationResult {
         pluginSettings: normalisePluginSettings(prefs.pluginSettings),
         disabledPlugins: Array.isArray(prefs.disabledPlugins) ? [...new Set(prefs.disabledPlugins.filter(isPluginId))] : [],
         restoreAgentTabs,
+        agentNotifications: typeof prefs.agentNotifications === "boolean" ? prefs.agentNotifications : cur.agentNotifications,
+        voiceDictation: prefs.voiceDictation === true,
+        voiceWords: Array.isArray(prefs.voiceWords) ? prefs.voiceWords.filter((word): word is string => typeof word === "string") : [],
+        notificationsIntroduced: prefs.notificationsIntroduced === true,
         railDensity: prefs.railDensity === "compact" || prefs.railDensity === "comfortable" ? prefs.railDensity : cur.railDensity,
         onboardingComplete:
             typeof prefs.onboardingComplete === "boolean"
@@ -931,12 +988,14 @@ export function applyHydrate(raw: string): HydrationResult {
         lastSeenVersion: typeof prefs.lastSeenVersion === "string" ? prefs.lastSeenVersion : cur.lastSeenVersion,
         customCommands: normaliseCustomCommands(prefs.customCommands),
         updateChannel: prefs.updateChannel === "nightly" || prefs.updateChannel === "stable" ? prefs.updateChannel : cur.updateChannel,
+        shareUsageData: typeof prefs.shareUsageData === "boolean" ? prefs.shareUsageData : cur.shareUsageData,
         lastReleaseNotes:
             isRecord(prefs.lastReleaseNotes) && typeof prefs.lastReleaseNotes.version === "string"
                 ? {
                       version: prefs.lastReleaseNotes.version,
                       notes: typeof prefs.lastReleaseNotes.notes === "string" ? prefs.lastReleaseNotes.notes : null,
                       date: typeof prefs.lastReleaseNotes.date === "string" ? prefs.lastReleaseNotes.date : null,
+                      credits: parseReleaseCredits(prefs.lastReleaseNotes.credits),
                   }
                 : null,
         recentCommandKeys: Array.isArray(prefs.recentCommandKeys)
@@ -956,6 +1015,7 @@ export function applyHydrate(raw: string): HydrationResult {
                 : prefs.defaultAgentPermissionMode === "bypass"
                   ? "bypass"
                   : "workspace-write",
+        languageServerTrust: normaliseLanguageServerTrust(prefs.languageServerTrust),
     });
     pruneOnDemandWindows();
     registerCustomThemes(getState().customThemes);

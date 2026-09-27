@@ -1,10 +1,8 @@
 import { useEffect } from "react";
-import { browserApi, BLANK_URL, type BrowserSnapshot } from "../api/browser";
-import { BROWSER_PERSISTENCE_LIMITS } from "../workbench/registry";
-import type { BrowserPaneView } from "./types";
-import { getState, setState } from "./store";
-
-export const EMPTY_STRIP: BrowserSnapshot = { tabs: [], activeTabId: null };
+import { browserApi, type BrowserSnapshot } from "../api/browser";
+import { BROWSER_ACTIVE, browserKey, EMPTY_DESK } from "./desks";
+import type { Draft } from "immer";
+import { getState, mutate, type StoreState } from "./store";
 
 /*
  * How long a lost tab report can go unnoticed. Tabs push their own changes, so
@@ -26,16 +24,31 @@ export async function refreshBrowserStrip(agentId: string): Promise<void> {
         do {
             rereadWanted.set(agentId, false);
             const strip = await browserApi.snapshot(agentId);
-            setState((s) => ({ browserStrips: { ...s.browserStrips, [agentId]: strip } }));
+            mutate((d) => placeBrowserStrip(d, agentId, strip));
         } while (rereadWanted.get(agentId));
     } finally {
         rereadWanted.delete(agentId);
     }
 }
 
+/**
+ * New pages join the end of the desk, and a page the agent moved to comes
+ * forward, so the desk follows the agent the way its browser does.
+ */
+function placeBrowserStrip(d: Draft<StoreState>, agentId: string, strip: BrowserSnapshot): void {
+    const previous = d.browserStrips[agentId];
+    d.browserStrips[agentId] = strip;
+    const desk = (d.desks[agentId] ??= structuredClone(EMPTY_DESK));
+    const live = new Set(strip.tabs.map((tab) => browserKey(tab.id)));
+    desk.order = desk.order.filter((key) => !key.startsWith("browser:") || live.has(key));
+    for (const key of live) if (!desk.order.includes(key)) desk.order.push(key);
+    const moved = previous ? strip.activeTabId !== previous.activeTabId : desk.active === null;
+    if (strip.activeTabId && moved) desk.active = BROWSER_ACTIVE;
+}
+
 /** Whose browsers are on screen, and so worth keeping a strip for. */
 function browsingAgentIds(): string[] {
-    return [...new Set(Object.values(getState().browserPanes))];
+    return [...new Set(Object.values(getState().deskPanes))];
 }
 
 /**
@@ -58,41 +71,4 @@ export function useBrowserStrips(): void {
             window.clearInterval(timer);
         };
     }, []);
-}
-
-/**
- * What to save for a browser pane, or null when there is nothing to come back
- * to. A pane restored but never opened still holds the tabs it was going to
- * open, and those are what carry across a second restart.
- */
-export function browserPaneView(paneId: string): BrowserPaneView | null {
-    const state = getState();
-    const agentId = state.browserPanes[paneId];
-    if (!agentId) return null;
-    const pending = state.browserRestores[paneId];
-    if (pending) return pending;
-    const strip = state.browserStrips[agentId] ?? EMPTY_STRIP;
-    const saved = strip.tabs.filter((tab) => tab.url && tab.url !== BLANK_URL).slice(0, BROWSER_PERSISTENCE_LIMITS.maxTabs);
-    if (saved.length === 0) return null;
-    const active = saved.findIndex((tab) => tab.id === strip.activeTabId);
-    return {
-        agentId,
-        tabs: saved.map((tab) => ({ url: tab.url, title: tab.title.slice(0, BROWSER_PERSISTENCE_LIMITS.maxTitleLength) })),
-        activeIndex: active < 0 ? 0 : active,
-    };
-}
-
-/**
- * The tabs a restored pane owes the browser, handed over once. Clearing them
- * as they are taken is what keeps two renders from opening them twice.
- */
-export function takeBrowserRestore(paneId: string): BrowserPaneView | null {
-    const pending = getState().browserRestores[paneId];
-    if (!pending) return null;
-    setState((s) => {
-        const browserRestores = { ...s.browserRestores };
-        delete browserRestores[paneId];
-        return { browserRestores };
-    });
-    return pending;
 }

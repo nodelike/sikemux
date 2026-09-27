@@ -1,18 +1,18 @@
 import { useMemo, useState } from "react";
 import { confirmDialog, openUrl, swallow } from "../../../plugin-api/host";
 import { useResourceEnabled } from "../../../plugin-api/resources";
-import { EmptyState, IconClock, IconGit, IconRun, IconTimer, IconUser } from "../../../plugin-api/ui";
+import { IconCheck, IconClock, IconClose, IconExternal, IconFetch, IconGit, IconStop, IconTimer, IconUser } from "../../../plugin-api/ui";
 import { errorMessage, rundeckApi, type RundeckStep } from "../api";
 import * as cmd from "../state";
 import type { JobRef } from "../state";
 import { rndJobDetailR } from "../resources";
 import { branchOf, displayStatus, duration, formatTime, isLiveStatus } from "../shape";
-import { statusKind } from "./branchStyle";
 import { executionProgress } from "./executionProgress";
 import { useNow } from "./hooks";
 import { reusableOptions } from "./options";
 import { RundeckLogView } from "./RundeckLogView";
 import { useExecutionStreams } from "./useExecutionStreams";
+import { FolderChip, Header, Status, levelCrumbs } from "./parts";
 
 interface Props {
     paneId: string;
@@ -20,15 +20,15 @@ interface Props {
     active: boolean;
 }
 
-const STEP_STATE: Record<string, { label: string; cls: "pending" | "running" | "ok" | "fail" | "skip" }> = {
-    NOT_STARTED: { label: "·", cls: "pending" },
-    WAITING: { label: "·", cls: "pending" },
-    RUNNING: { label: "▶", cls: "running" },
-    RUNNING_HANDLER: { label: "▶", cls: "running" },
-    SUCCEEDED: { label: "✓", cls: "ok" },
-    FAILED: { label: "✕", cls: "fail" },
-    ABORTED: { label: "⊘", cls: "fail" },
-    NOT_ELIGIBLE: { label: "—", cls: "skip" },
+const STEP_STATE: Record<string, { cls: "pending" | "running" | "ok" | "fail" | "skip" }> = {
+    NOT_STARTED: { cls: "pending" },
+    WAITING: { cls: "pending" },
+    RUNNING: { cls: "running" },
+    RUNNING_HANDLER: { cls: "running" },
+    SUCCEEDED: { cls: "ok" },
+    FAILED: { cls: "fail" },
+    ABORTED: { cls: "fail" },
+    NOT_ELIGIBLE: { cls: "skip" },
 };
 
 export function RundeckExecution({ paneId, level, active }: Props) {
@@ -82,109 +82,131 @@ export function RundeckExecution({ paneId, level, active }: Props) {
         cmd.rundeckPush(paneId, { kind: "deploy", ...job, branch: branch ?? undefined, options: reusableOptions(options, secureNames) });
     };
 
+    const runWord = branch ? "Deploy" : "Run";
+    const doneSteps = progress?.completed ?? 0;
+
     return (
-        <div className="rnd-exec">
-            <header className="rnd-exec-head">
-                <div className="rnd-exec-head-l">
-                    <span className={`rnd-exec-pill rnd-status-${statusKind(rawStatus)}`}>{status}</span>
-                    {live && (
-                        <span className="rnd-head-progress">
-                            <span
-                                className={`rnd-progress-track${progress ? "" : " indeterminate"}`}
-                                role="progressbar"
-                                aria-label={`Execution ${level.executionId} progress`}
-                                aria-valuemin={0}
-                                aria-valuemax={100}
-                                aria-valuenow={progress?.percent}>
-                                <span className="rnd-progress-fill" style={progress ? { width: `${progress.percent}%` } : undefined} />
-                            </span>
-                            <span className="rnd-progress-copy">
-                                {progress ? `${progress.completed} / ${progress.total} steps · ${progress.percent}%` : "syncing steps"}
-                            </span>
-                        </span>
-                    )}
-                </div>
-                <div className="rnd-exec-head-r">
-                    <div className="rnd-exec-meta-row">
-                        {branch && (
-                            <span className="rnd-exec-meta" title="branch">
-                                <IconGit size={12} className="rnd-meta-ic branch" />
-                                <span className="rnd-meta-v">{branch}</span>
-                            </span>
-                        )}
-                        <span className="rnd-exec-meta dim" title="triggered by">
-                            <IconUser size={12} className="rnd-meta-ic" />
-                            <span className="rnd-meta-v">{execution?.user ?? "—"}</span>
-                        </span>
-                        <span className="rnd-exec-meta dim" title="started">
-                            <IconClock size={12} className="rnd-meta-ic" />
-                            <span className="rnd-meta-v">{started ? formatTime(started, true) : "—"}</span>
-                        </span>
-                        <span className="rnd-exec-meta dim" title="duration">
-                            <IconTimer size={12} className="rnd-meta-ic" />
-                            <span className="rnd-meta-v">{duration(started, ended, now) || "—"}</span>
-                        </span>
-                    </div>
-                    <button
-                        className="rnd-btn-sm rnd-btn-primary"
-                        disabled={!canRunAgain}
-                        onClick={runAgain}
-                        title={canRunAgain ? "Open the run form with this execution's options" : "Run again unavailable for this execution"}>
-                        <IconRun size={11} />
-                        run again
-                    </button>
-                    {execution?.permalink && (
+        <div className="rnd-main">
+            <Header
+                paneId={paneId}
+                crumbs={levelCrumbs(paneId, level, level.project, level.group)}
+                title={`#${level.executionId}`}
+                aside={
+                    <span className="rnd-head-meta">
+                        <FolderChip project={level.project} group={level.group} />
+                        <Status
+                            status={rawStatus}
+                            label={
+                                live && progress
+                                    ? `${status[0].toUpperCase()}${status.slice(1)} · step ${Math.min(progress.total, doneSteps + 1)} of ${progress.total}`
+                                    : undefined
+                            }
+                        />
+                    </span>
+                }
+                tools={
+                    <>
                         <button
-                            type="button"
-                            className="rnd-btn-sm"
-                            onClick={() => void openUrl(execution.permalink!).catch(swallow("open Rundeck URL"))}>
-                            open ↗
+                            className="rnd-btn"
+                            disabled={!canRunAgain}
+                            onClick={runAgain}
+                            title={canRunAgain ? "Open the run form with this run's options" : "This run can't be repeated from here"}>
+                            <IconFetch size={13} />
+                            {runWord} again
                         </button>
-                    )}
-                    {live && (
-                        <button className="rnd-btn-sm rnd-btn-danger" disabled={aborting} onClick={() => void abort()}>
-                            {aborting ? "aborting…" : "abort"}
-                        </button>
-                    )}
-                </div>
-            </header>
-
-            {watchErr && <div className="rnd-banner warn">{watchErr}</div>}
-            {abortErr && <div className="rnd-banner danger">{abortErr}</div>}
-
-            <div className="rnd-exec-body">
-                <aside className="rnd-steps">
-                    <div className="rnd-steps-head">
-                        <span>steps</span>
-                        {stepFilter && (
-                            <button className="rnd-pill-x" onClick={() => setStepFilter(null)}>
-                                clear filter
+                        {live && (
+                            <button className="rnd-btn danger" disabled={aborting} onClick={() => void abort()}>
+                                <IconStop size={11} />
+                                {aborting ? "Aborting…" : "Abort"}
                             </button>
                         )}
+                        {execution?.permalink && (
+                            <button
+                                type="button"
+                                className="rnd-btn rnd-icon-btn"
+                                aria-label="Open in Rundeck"
+                                title="Open in Rundeck"
+                                onClick={() => void openUrl(execution.permalink!).catch(swallow("open Rundeck URL"))}>
+                                <IconExternal size={13} />
+                            </button>
+                        )}
+                    </>
+                }
+            />
+
+            <div className="rnd-exec-top">
+                {steps.length > 0 && (
+                    <div className="rnd-progress">
+                        <div
+                            className="rnd-progress-track"
+                            role="progressbar"
+                            aria-label={`Run ${level.executionId} progress`}
+                            aria-valuemin={0}
+                            aria-valuemax={100}
+                            aria-valuenow={progress?.percent}>
+                            {steps.map((step, i) => (
+                                <i key={stepKey(step, i)} className={stepUi(step).cls} />
+                            ))}
+                        </div>
+                        <span className="rnd-progress-copy">{progress ? `${progress.completed} of ${progress.total} steps` : "Syncing steps"}</span>
                     </div>
-                    <div className="rnd-steps-list">
-                        {steps.length === 0 && <EmptyState message="waiting for steps…" />}
-                        {steps.map((s, i) => {
-                            const key = stepKey(s, i);
-                            return (
-                                <StepRow
-                                    key={key}
-                                    idx={i}
-                                    label={stepLabel(i)}
-                                    step={s}
-                                    now={now}
-                                    selected={stepFilter === key}
-                                    onClick={() => setStepFilter(stepFilter === key ? null : key)}
-                                />
-                            );
-                        })}
-                    </div>
+                )}
+                <div className="rnd-metas">
+                    {branch && (
+                        <span className="rnd-meta" title="Branch">
+                            <IconGit size={12} />
+                            {branch}
+                        </span>
+                    )}
+                    <span className="rnd-meta" title="Started by">
+                        <IconUser size={12} />
+                        {execution?.user ?? "—"}
+                    </span>
+                    <span className="rnd-meta" title="Started">
+                        <IconClock size={12} />
+                        {started ? formatTime(started, true) : "—"}
+                    </span>
+                    <span className="rnd-meta" title="Duration">
+                        <IconTimer size={12} />
+                        {duration(started, ended, now) || "—"}
+                    </span>
+                </div>
+            </div>
+
+            {watchErr && <div className="rnd-banner warn rnd-inset">{watchErr}</div>}
+            {abortErr && <div className="rnd-banner danger rnd-inset">{abortErr}</div>}
+
+            <div className="rnd-exec-body">
+                <aside className="rnd-steps" aria-label="Steps">
+                    <div className="rnd-steps-head">Steps</div>
+                    <button
+                        className={`rnd-step${stepFilter === null ? " on" : ""}`}
+                        onClick={() => setStepFilter(null)}
+                        aria-pressed={stepFilter === null}>
+                        <span className="rnd-step-icon all" />
+                        <span className="rnd-step-label">All output</span>
+                        <span className="rnd-step-dur">{logs.rows.length}</span>
+                    </button>
+                    {steps.length === 0 && <div className="rnd-insp-note">Waiting for steps…</div>}
+                    {steps.map((s, i) => {
+                        const key = stepKey(s, i);
+                        return (
+                            <StepRow
+                                key={key}
+                                label={stepLabel(i)}
+                                step={s}
+                                now={now}
+                                selected={stepFilter === key}
+                                onClick={() => setStepFilter(stepFilter === key ? null : key)}
+                            />
+                        );
+                    })}
                 </aside>
 
                 <RundeckLogView
                     logs={logs}
                     stepFilter={stepFilter}
-                    stepLabel={filterIndex >= 0 ? stepLabel(filterIndex) : null}
+                    stepLabel={filterIndex >= 0 ? `Step ${filterIndex + 1} · ${stepLabel(filterIndex)}` : null}
                     terminal={terminal}
                     permalink={execution?.permalink ?? null}
                 />
@@ -197,31 +219,23 @@ function stepKey(step: RundeckStep, idx: number): string {
     return step.stepctx ?? String(idx + 1);
 }
 
-function StepRow({
-    idx,
-    label,
-    step,
-    now,
-    selected,
-    onClick,
-}: {
-    idx: number;
-    label: string;
-    step: RundeckStep;
-    now: number;
-    selected: boolean;
-    onClick: () => void;
-}) {
+function stepUi(step: RundeckStep) {
     const stateName = step.executionState ?? "NOT_STARTED";
-    const ui = STEP_STATE[stateName] ?? { label: "?", cls: "pending" as const };
+    return { name: stateName, ...(STEP_STATE[stateName] ?? { cls: "pending" as const }) };
+}
+
+function StepRow({ label, step, now, selected, onClick }: { label: string; step: RundeckStep; now: number; selected: boolean; onClick: () => void }) {
+    const ui = stepUi(step);
     return (
         <button
-            className={`rnd-step${selected ? " selected" : ""} step-${ui.cls}`}
+            className={`rnd-step${selected ? " on" : ""}`}
             onClick={onClick}
-            title={`${label} · ${stateName.toLowerCase()}`}
+            title={`${label} · ${ui.name.toLowerCase().replace(/_/g, " ")}`}
             aria-pressed={selected}>
-            <span className="rnd-step-num">{idx + 1}</span>
-            <span className={`rnd-step-glyph step-${ui.cls}`}>{ui.label}</span>
+            <span className={`rnd-step-icon ${ui.cls}`}>
+                {ui.cls === "ok" && <IconCheck size={9} />}
+                {ui.cls === "fail" && <IconClose size={9} />}
+            </span>
             <span className="rnd-step-label">{label}</span>
             <span className="rnd-step-dur">{duration(step.startTime, step.endTime, now)}</span>
         </button>

@@ -15,7 +15,10 @@ const mocks = vi.hoisted(() => ({
     acquire: vi.fn(),
     noteServerStarted: vi.fn(),
     release: vi.fn(),
+    languageServersAllowed: vi.fn(),
 }));
+
+vi.mock("../languageServerTrust", () => ({ languageServersAllowed: mocks.languageServersAllowed }));
 
 vi.mock("../api/lsp", async (importOriginal) => {
     const actual = await importOriginal<typeof import("../api/lsp")>();
@@ -64,6 +67,7 @@ function deferred<T>() {
 describe("useLspBridge diagnostics lifecycle", () => {
     beforeEach(() => {
         vi.clearAllMocks();
+        mocks.languageServersAllowed.mockResolvedValue(true);
         mocks.start.mockResolvedValue(undefined);
         mocks.open.mockResolvedValue(undefined);
         mocks.change.mockResolvedValue(undefined);
@@ -93,6 +97,18 @@ describe("useLspBridge diagnostics lifecycle", () => {
         unmount();
         expect(mocks.release).toHaveBeenCalledOnce();
         await waitFor(() => expect(mocks.close).toHaveBeenCalledWith("/repo", "typescript", "/repo/src/app.ts"));
+    });
+
+    it("starts no language server for a project the user has not allowed", async () => {
+        mocks.languageServersAllowed.mockResolvedValue(false);
+        const { result } = renderHook(() => useLspBridge("/repo"));
+        await waitFor(() => expect(result.current.diagnostics).not.toBeNull());
+
+        await act(() => result.current.openDoc("/repo/src/app.ts", "export {};"));
+
+        expect(mocks.languageServersAllowed).toHaveBeenCalledWith("/repo");
+        expect(mocks.start).not.toHaveBeenCalled();
+        expect(mocks.open).not.toHaveBeenCalled();
     });
 
     it("does not activate diagnostics when native server startup fails", async () => {

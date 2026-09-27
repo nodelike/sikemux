@@ -14,8 +14,10 @@ fi
 
 bash -n scripts/build-mac.sh scripts/release.sh scripts/icons.sh scripts/check-release.sh
 node --check scripts/verify-updater-signature.mjs
+node --check scripts/release-credits.mjs
 node --check scripts/build-cli-sidecar.mjs
 node --check scripts/smoke-browser-sidecar.mjs
+node --check scripts/build-voice-helper.mjs
 /usr/bin/plutil -lint src-tauri/Info.plist >/dev/null
 
 if RELEASE_CHANNEL=preview scripts/release.sh 0.2.0-beta.1 fixture >/dev/null 2>&1; then
@@ -38,6 +40,7 @@ const config = JSON.parse(fs.readFileSync("src-tauri/tauri.conf.json", "utf8"));
 const macConfig = JSON.parse(fs.readFileSync("src-tauri/tauri.macos.conf.json", "utf8"));
 const windowsConfig = JSON.parse(fs.readFileSync("src-tauri/tauri.windows.conf.json", "utf8"));
 const sidecarConfig = JSON.parse(fs.readFileSync("src-tauri/tauri.sidecar.conf.json", "utf8"));
+const voiceConfig = JSON.parse(fs.readFileSync("src-tauri/tauri.voice.conf.json", "utf8"));
 const macBuild = fs.readFileSync("scripts/build-mac.sh", "utf8");
 const sidecarBuild = fs.readFileSync("scripts/build-cli-sidecar.mjs", "utf8");
 const fail = (message) => { throw new Error(message); };
@@ -49,12 +52,14 @@ if (JSON.stringify(macConfig.bundle?.targets) !== JSON.stringify(["app", "dmg"])
 if (macConfig.bundle?.resources?.["icons/build/Assets.car"] !== "Assets.car") fail("Assets.car resource mapping is missing");
 if (macConfig.bundle?.macOS?.infoPlist !== "Info.plist") fail("pre-signing Info.plist merge is not configured");
 if (macConfig.bundle?.macOS?.minimumSystemVersion !== "11.0") fail("unexpected minimum macOS version");
-if (macConfig.bundle?.macOS?.entitlements !== "Entitlements.plist") fail("sidecar entitlements are not configured");
+if (macConfig.bundle?.macOS?.entitlements !== "Entitlements.plist") fail("microphone entitlement is not configured");
 if (JSON.stringify(windowsConfig.bundle?.targets) !== JSON.stringify(["nsis"])) fail("Windows bundle target must be NSIS");
 if (windowsConfig.bundle?.createUpdaterArtifacts !== false) fail("unsigned Windows builds must not require updater credentials");
 if (!windowsConfig.bundle?.icon?.includes("icons/icon.ico")) fail("Windows icon is not configured");
 if (windowsConfig.bundle?.windows?.nsis?.installMode !== "currentUser") fail("unexpected Windows install mode");
 if (JSON.stringify(sidecarConfig.bundle?.externalBin) !== JSON.stringify(["binaries/sikemux-editor", "binaries/sikemux-tools-mcp"])) fail("sidecar bundle mapping is incomplete");
+if (JSON.stringify(voiceConfig.bundle?.externalBin) !== JSON.stringify([...sidecarConfig.bundle.externalBin, "binaries/sikemux-voice"])) fail("voice helper bundle mapping must extend the sidecar list");
+if (!macBuild.includes("tauri.voice.conf.json") || !macBuild.includes("build-voice-helper.mjs")) fail("macOS build does not bundle the voice helper");
 if (sidecarConfig.bundle?.resources?.["resources/sikemux_pi_tools.ts"] !== "sikemux_pi_tools.ts") fail("Pi browser extension resource mapping is missing");
 if (!pkg.scripts?.["build:windows"]?.includes("build:sidecar")) fail("Windows build does not build sidecars");
 if (!pkg.scripts?.["build:windows"]?.includes("tauri.sidecar.conf.json")) fail("Windows build does not bundle the CLI sidecar");

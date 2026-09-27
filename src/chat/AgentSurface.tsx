@@ -1,10 +1,11 @@
 import { useCallback, useState } from "react";
 import type { Agent, ProviderProfile, Session } from "../state/types";
 import { acpApi } from "../api/acp";
+import { agentSupportsChat } from "../agentLaunch";
 import { TerminalPane } from "../terminal/TerminalPane";
-import { IconAgent, IconCommand, IconGlobe } from "../components/Icons";
+import { IconAgent, IconCommand, IconPanelRight } from "../components/Icons";
 import { useStore } from "../state/store";
-import { shownBrowserPaneId } from "../state/selectors";
+import { shownDeskPaneId } from "../state/selectors";
 import * as cmd from "../state/commands";
 import { AgentChatPane } from "./AgentChatPane";
 import { YoloToggle } from "./YoloToggle";
@@ -12,24 +13,24 @@ import "../styles/chat.css";
 
 type AgentView = "gui" | "tui";
 
-function BrowserButton({ agent }: { agent: Agent }) {
-    const open = useStore((state) => shownBrowserPaneId(state, agent.id) !== null);
-    const label = open ? "Hide browser" : "Show browser";
+function DeskButton({ agent }: { agent: Agent }) {
+    const open = useStore((state) => shownDeskPaneId(state, agent.id) !== null);
+    const label = open ? "Hide desk" : "Show desk";
     return (
         <button
             type="button"
-            className="agent-browser-open"
+            className="agent-desk-open"
             aria-pressed={open}
             aria-label={label}
             title={label}
-            onClick={() => cmd.toggleBrowserPane(agent.id)}>
-            <IconGlobe size={13} />
+            onClick={() => cmd.toggleDesk(agent.id)}>
+            <IconPanelRight size={13} />
         </button>
     );
 }
 
 export function AgentSurface({ agent, session, profile, visible }: { agent: Agent; session: Session; profile?: ProviderProfile; visible: boolean }) {
-    const supportsGui = agent.type === "claude" || agent.type === "codex";
+    const supportsGui = agentSupportsChat(agent.type);
     const [view, setView] = useState<AgentView>(supportsGui ? "gui" : "tui");
     const [switching, setSwitching] = useState(false);
     const [chatBusy, setChatBusy] = useState(false);
@@ -78,7 +79,7 @@ export function AgentSurface({ agent, session, profile, visible }: { agent: Agen
                         <span>TUI</span>
                     </button>
                 </div>
-                <BrowserButton agent={agent} />
+                <DeskButton agent={agent} />
             </header>
 
             <div className="agent-surface-body">

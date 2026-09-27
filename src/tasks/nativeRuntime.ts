@@ -48,6 +48,7 @@ export interface TaskTerminalPresentationRequest {
     readonly project: string;
     readonly source: TaskTerminalOpenRequest["source"];
     readonly cwd: string;
+    readonly agentId?: string;
     readonly signal: AbortSignal;
 }
 
@@ -260,6 +261,7 @@ export class WorkbenchTaskTerminalSurface implements TaskTerminalSurface {
             project: request.project,
             source: request.source,
             cwd: request.cwd,
+            agentId: request.agentId,
             signal: request.signal,
         });
         const paneId = await this.present(presentation);

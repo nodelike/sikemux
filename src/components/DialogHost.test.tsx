@@ -28,6 +28,14 @@ describe("DialogHost", () => {
         await expect(dismissed).resolves.toBe(false);
     });
 
+    it("shows the commands a confirm would allow", async () => {
+        render(<DialogHost />);
+        void confirmDialog({ title: "Trust this sikemux.json?", commands: [{ label: "Task · Web", command: "pnpm dev" }] });
+
+        expect(await screen.findByText("Task · Web")).toBeInTheDocument();
+        expect(screen.getByText("pnpm dev", { selector: "code" })).toBeInTheDocument();
+    });
+
     it("focuses cancel first on a destructive confirm", async () => {
         render(<DialogHost />);
         void confirmDialog({ title: "Move to Trash?", destructive: true, confirmLabel: "Delete" });

@@ -1,7 +1,12 @@
-import { useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import { AgentIcon, IconCheck, IconChevron } from "../components/Icons";
+import { agentSupportsChat, CHAT_AGENT_TYPES, type ChatAgentType } from "../agentLaunch";
+import { selectedAgentRuntimeProfiles } from "../agentProfiles";
+import { useResource } from "../state/resources";
+import { agentCatalogR } from "../state/resources.defs";
 import { useStore } from "../state/store";
 import { DEFAULT_PROVIDER_PROFILE_SELECTION, type Agent, type ProviderProfile } from "../state/types";
+import { leavingMenu } from "../lib/motion";
 
 interface Choice {
     value: string;
@@ -13,6 +18,7 @@ interface Choice {
 export interface SessionConfig {
     id: string;
     name: string;
+    category?: string;
     currentValue: string;
     options: Choice[];
 }
@@ -21,10 +27,27 @@ function record(value: unknown): Record<string, unknown> | null {
     return value !== null && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
 }
 
-const HARNESSES = [
-    { type: "codex", label: "Codex" },
-    { type: "claude", label: "Claude" },
-] as const;
+const HARNESS_LABELS: Record<ChatAgentType, string> = {
+    codex: "Codex",
+    claude: "Claude",
+    opencode: "OpenCode",
+    omp: "OMP",
+    grok: "Grok",
+    hermes: "Hermes",
+};
+
+/* Claude and Codex install their adapter on first use, so they are offered
+   whether or not their CLI is found yet. The rest need their own CLI. */
+const ALWAYS_OFFERED = new Set<ChatAgentType>(["codex", "claude"]);
+
+const LEGACY_EFFORT_ID: Partial<Record<ChatAgentType, string>> = { claude: "effort", codex: "reasoning_effort" };
+
+/** The option that sets how hard the model thinks. Agents name it differently
+    but tag it with the same category. */
+export function effortConfig(configs: SessionConfig[], type: Agent["type"]): SessionConfig | undefined {
+    const legacy = agentSupportsChat(type) ? LEGACY_EFFORT_ID[type] : undefined;
+    return configs.find((config) => config.category === "thought_level") ?? configs.find((config) => config.id === legacy);
+}
 
 const NAMED_VERSION = /^(\p{L}+)\s+(\d+(?:\.\d+)?)\b/u;
 
@@ -56,7 +79,13 @@ export function sessionConfigs(setup: Record<string, unknown>): SessionConfig[] 
         const row = record(value);
         if (!row || row.type !== "select" || typeof row.id !== "string" || typeof row.currentValue !== "string") return [];
         return [
-            { id: row.id, name: typeof row.name === "string" ? row.name : row.id, currentValue: row.currentValue, options: choices(row.options) },
+            {
+                id: row.id,
+                name: typeof row.name === "string" ? row.name : row.id,
+                ...(typeof row.category === "string" ? { category: row.category } : {}),
+                currentValue: row.currentValue,
+                options: choices(row.options),
+            },
         ];
     });
 }
@@ -144,6 +173,7 @@ function Picker({
             </button>
             {shown && (
                 <div
+                    ref={leavingMenu}
                     className={`chat-picker-menu${compact ? " compact" : ""}`}
                     style={{
                         bottom: window.innerWidth <= 650 ? window.innerHeight - (trigger.current?.getBoundingClientRect().top ?? 0) + 12 : undefined,
@@ -215,6 +245,17 @@ function Picker({
     );
 }
 
+/* Claude and Codex always show both pickers, disabled until the session
+   fills them. The other agents only offer effort for some models, so theirs
+   comes and goes with the model. */
+function pickerSlots(configs: SessionConfig[], type: Agent["type"]): { id: string; config?: SessionConfig }[] {
+    const slots: { id: string; config?: SessionConfig }[] = [{ id: "model", config: configs.find((item) => item.id === "model") }];
+    const effort = effortConfig(configs, type);
+    const legacy = agentSupportsChat(type) ? LEGACY_EFFORT_ID[type] : undefined;
+    if (effort || legacy) slots.push({ id: effort?.id ?? legacy ?? "effort", config: effort });
+    return slots;
+}
+
 export function ComposerPickers({
     agent,
     profile,
@@ -229,12 +270,18 @@ export function ComposerPickers({
     setup: Record<string, unknown>;
     disabled: boolean;
     agentLocked?: boolean;
-    onAgent: (type: "codex" | "claude", profileId?: string) => void;
+    onAgent: (type: ChatAgentType, profileId?: string) => void;
     onConfig: (config: SessionConfig, value: string) => void;
 }) {
     const profiles = useStore((state) => state.providerProfiles);
+    const profileSelections = useStore((state) => state.selectedProviderProfileIds);
+    const runtimeProfiles = useMemo(() => selectedAgentRuntimeProfiles(profiles, profileSelections), [profiles, profileSelections]);
+    const catalog = useResource(agentCatalogR, runtimeProfiles);
+    const installed = new Set((catalog.data ?? []).filter((item) => item.available !== false).map((item) => item.type));
     const configs = sessionConfigs(setup);
-    const agentOptions = HARNESSES.flatMap(({ type, label }) => {
+    const harnesses = CHAT_AGENT_TYPES.filter((type) => ALWAYS_OFFERED.has(type) || type === agent.type || installed.has(type));
+    const agentOptions = harnesses.flatMap((type) => {
+        const label = HARNESS_LABELS[type];
         const icon = <AgentIcon type={type} size={15} className={`agent-glyph ${type}`} />;
         const owned = profiles.filter((item) => item.provider === type);
         if (owned.length === 0) return [{ value: type, label, icon }];
@@ -262,9 +309,9 @@ export function ComposerPickers({
                         if (option.value === agentValue) return;
                         const next = profiles.find((item) => item.id === option.value);
                         const type = next?.provider ?? option.value;
-                        if (type !== "claude" && type !== "codex") return;
+                        if (!agentSupportsChat(type as Agent["type"])) return;
                         setSwitching(setup);
-                        onAgent(type, next?.id);
+                        onAgent(type as ChatAgentType, next?.id);
                     }}>
                     {option.icon}
                     <span>{option.label}</span>
@@ -274,8 +321,7 @@ export function ComposerPickers({
     );
     return (
         <div className="chat-pickers">
-            {["model", agent.type === "claude" ? "effort" : "reasoning_effort"].map((id) => {
-                const config = configs.find((item) => item.id === id);
+            {pickerSlots(configs, agent.type).map(({ id, config }) => {
                 const model = id === "model";
                 const name = model ? "Model" : "Reasoning effort";
                 const label =

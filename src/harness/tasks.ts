@@ -15,6 +15,7 @@ export interface HarnessRun {
 
 interface Entry {
     run: HarnessRun;
+    agentId?: string;
     started: Promise<HarnessRun>;
     abort: AbortController;
     stop?: Promise<HarnessRun>;
@@ -38,6 +39,11 @@ export class HarnessTasks {
         return { ...this.entry(project, executionId).run };
     }
 
+    latest(project: string, taskId: string): HarnessRun | undefined {
+        const runs = this.list(project).filter((run) => run.taskId === taskId);
+        return runs.at(-1);
+    }
+
     existing(project: string, taskId: string, key: string): Promise<HarnessRun> | undefined {
         const previous = this.keys.get(JSON.stringify([project, key]));
         if (previous) {
@@ -48,7 +54,12 @@ export class HarnessTasks {
         return undefined;
     }
 
-    start(request: Omit<TaskExecutionRequest, "executionId" | "terminalKey">, key: string, previewUrl?: string): Promise<HarnessRun> {
+    start(
+        request: Omit<TaskExecutionRequest, "executionId" | "terminalKey">,
+        key: string,
+        previewUrl?: string,
+        agentId?: string,
+    ): Promise<HarnessRun> {
         const previous = this.existing(request.project, request.taskId, key);
         if (previous) return previous;
         const active = [...this.entries.values()].find(
@@ -63,7 +74,7 @@ export class HarnessTasks {
         const executionId = crypto.randomUUID();
         const run: HarnessRun = { executionId, taskId: request.taskId, project: request.project, status: "starting", previewUrl };
         const abort = new AbortController();
-        const entry: Entry = { run, abort, started: Promise.resolve(run) };
+        const entry: Entry = { run, agentId, abort, started: Promise.resolve(run) };
         this.entries.set(executionId, entry);
         this.keys.set(JSON.stringify([request.project, key]), { taskId: request.taskId, executionId });
         this.publish(run);
@@ -92,7 +103,7 @@ export class HarnessTasks {
                     this.publish(run);
                 },
             );
-            await this.surface.open({ ...request, ptyId: started.ptyId, signal: entry.abort.signal });
+            await this.surface.open({ ...request, ptyId: started.ptyId, agentId: entry.agentId, signal: entry.abort.signal });
             return { ...run };
         } catch (error) {
             if (run.ptyId !== undefined)
@@ -141,6 +152,11 @@ export class HarnessTasks {
 
     closeProject(project: string): void {
         for (const run of this.list(project)) void this.stop(project, run.executionId).catch(() => {});
+    }
+
+    closeAgent(agentId: string): void {
+        for (const { run, agentId: owner } of this.entries.values())
+            if (owner === agentId) void this.stop(run.project, run.executionId).catch(() => {});
     }
 
     private entry(project: string, executionId: string): Entry {

@@ -17,6 +17,8 @@ export interface ConfirmRequest {
     cancelLabel?: string;
     /** Styles the confirm button as destructive and focuses cancel first. */
     destructive?: boolean;
+    /** Shell commands the answer would let run, shown under the body. */
+    commands?: { label: string; command: string }[];
 }
 
 export interface PromptRequest {

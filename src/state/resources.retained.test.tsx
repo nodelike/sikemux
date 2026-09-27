@@ -16,7 +16,7 @@ it("retains cached data while paused without fetching until reactivated", async 
     expect(fetch).toHaveBeenCalledTimes(1);
     rerender({ active: true });
     expect(result.current.data).toBe(first);
-    await waitFor(() => expect(result.current.data).toBe(second));
+    await waitFor(() => expect(result.current.data).toEqual(second));
     expect(fetch).toHaveBeenCalledTimes(2);
 });
 it("never returns another repository's cached data", async () => {
@@ -29,4 +29,24 @@ it("never returns another repository's cached data", async () => {
     rerender({ repo: "two", active: false });
     expect(result.current.data).toBeUndefined();
     expect(fetch).toHaveBeenCalledTimes(1);
+});
+
+it("keeps the parts of a refetch that did not change", async () => {
+    const log = [{ hash: "a" }, { hash: "b" }];
+    const first = { status: { files: ["a.ts"] }, log };
+    const second = { status: { files: ["b.ts"] }, log: log.map((commit) => ({ ...commit })) };
+    const fetch = vi
+        .fn<() => Promise<typeof first>>()
+        .mockResolvedValueOnce(first)
+        .mockResolvedValueOnce(second)
+        .mockResolvedValueOnce(structuredClone(second));
+    const definition = resource({ kind: "test.retained.shared", fetch, staleAfterMs: 0 });
+    const { result } = renderHook(() => useCachedResourceEnabled(true, definition));
+    await waitFor(() => expect(result.current.data).toBe(first));
+    await act(() => result.current.refresh());
+    const refreshed = result.current.data!;
+    expect(refreshed.status).toEqual(second.status);
+    expect(refreshed.log).toBe(log);
+    await act(() => result.current.refresh());
+    expect(result.current.data).toBe(refreshed);
 });

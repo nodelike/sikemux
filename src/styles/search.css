@@ -568,7 +568,6 @@
 
 .cm-sp-hit-line {
     background: var(--surface-selected);
-    box-shadow: inset 2px 0 0 var(--acc);
 }
 .cm-sp-hit-match {
     background: rgba(255, 220, 90, 0.22);

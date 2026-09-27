@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Ask on Discord
+    url: https://discord.gg/UKfmHpF9kX
+    about: Questions, setup help and ideas. Open an issue here for bugs and feature requests.

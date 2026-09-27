@@ -1,6 +1,6 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ComposerPickers, sessionConfigs } from "./ComposerPickers";
+import { ComposerPickers, effortConfig, sessionConfigs } from "./ComposerPickers";
 import { getState, setState } from "../state/store";
 
 const mocks = vi.hoisted(() => ({ onAgent: vi.fn() }));
@@ -87,6 +87,34 @@ describe("composer pickers", () => {
         expect(screen.queryByText("Loading models…")).not.toBeInTheDocument();
         expect(screen.getByRole("option", { name: /Opus/ })).toBeInTheDocument();
         expect(screen.getByRole("button", { name: /Claude/ })).toHaveAttribute("aria-pressed", "true");
+    });
+
+    it("finds effort by its category whatever the agent calls it", () => {
+        const configs = sessionConfigs({
+            configOptions: [
+                { id: "model", category: "model", type: "select", currentValue: "m", options: [] },
+                { id: "thinking", category: "thought_level", type: "select", currentValue: "auto", options: [{ value: "auto", name: "Auto" }] },
+            ],
+        });
+        expect(effortConfig(configs, "omp")?.id).toBe("thinking");
+        expect(effortConfig(configs, "claude")?.id).toBe("thinking");
+        expect(
+            effortConfig(sessionConfigs({ configOptions: [{ id: "effort", type: "select", currentValue: "high", options: [] }] }), "claude")?.id,
+        ).toBe("effort");
+    });
+
+    it("offers no effort picker to an agent whose model has none", () => {
+        render(
+            <ComposerPickers
+                agent={{ id: "a", type: "hermes", title: "Hermes", startup: "hermes" }}
+                onAgent={mocks.onAgent}
+                disabled={false}
+                onConfig={() => {}}
+                setup={{ configOptions: [{ id: "model", type: "select", currentValue: "m", options: [{ value: "m", name: "M" }] }] }}
+            />,
+        );
+        expect(screen.getByRole("button", { name: "Model" })).toBeInTheDocument();
+        expect(screen.queryByRole("button", { name: "Reasoning effort" })).not.toBeInTheDocument();
     });
 
     it("lists a harness once when its built-in profile is the default", () => {

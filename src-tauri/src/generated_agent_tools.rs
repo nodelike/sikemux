@@ -2,12 +2,14 @@
 pub const BROWSER_METHODS: &[&str] = &[
     "browser.navigate",
     "browser.state",
+    "browser.find",
     "browser.click",
     "browser.type",
     "browser.press",
     "browser.drag",
     "browser.upload",
     "browser.dialog",
+    "browser.viewport",
     "browser.scroll",
     "browser.extract",
     "browser.evaluate",
@@ -27,6 +29,7 @@ pub const BROWSER_METHODS: &[&str] = &[
 pub const HARNESS_METHODS: &[&str] = &[
     "workspace.inspect",
     "task.start",
+    "task.restart",
     "task.read",
     "task.stop",
     "ui.open",

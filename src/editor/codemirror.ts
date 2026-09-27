@@ -2,6 +2,7 @@ import { StreamLanguage, type StreamParser } from "@codemirror/language";
 import { Compartment, type Extension } from "@codemirror/state";
 import { themeCompartmentExtension } from "./themeBridge";
 import { hcl, makefile, sshConfig } from "./langs";
+import { grammarFor } from "../languages";
 import { tags as t } from "@lezer/highlight";
 
 export type EditorLanguageHint = "ssh-config";
@@ -138,24 +139,45 @@ export function languageIdFor(path: string, hint?: EditorLanguageHint): string |
 }
 
 /** The grammar for a path if its pack is already in memory; otherwise nothing, until {@link loadLanguage} settles. */
-export function languageFor(path: string, hint?: EditorLanguageHint): Extension[] {
+const TEXTMATE = "textmate:";
+
+/** The editor's own language for a path, else the grammar diffs and chat colour it with. */
+function editorLanguageFor(path: string, hint?: EditorLanguageHint): string | null {
     const id = languageIdFor(path, hint);
+    if (id) return id;
+    const grammar = grammarFor(path);
+    return grammar ? `${TEXTMATE}${grammar}` : null;
+}
+
+function loaderFor(id: string): Promise<Extension[]> {
+    if (!id.startsWith(TEXTMATE)) return LANGUAGE_LOADERS[id]();
+    return import("./textmate").then((module) => module.textMateLanguage(id.slice(TEXTMATE.length)));
+}
+
+export function languageFor(path: string, hint?: EditorLanguageHint): Extension[] {
+    const id = editorLanguageFor(path, hint);
     return (id && loadedLanguages.get(id)) || NO_LANGUAGE;
 }
 
 /** Download a path's grammar once and keep it for every later document in that language. */
 export function loadLanguage(path: string, hint?: EditorLanguageHint): Promise<Extension[]> {
-    const id = languageIdFor(path, hint);
+    const id = editorLanguageFor(path, hint);
     if (!id) return Promise.resolve(NO_LANGUAGE);
     const ready = loadedLanguages.get(id);
     if (ready) return Promise.resolve(ready);
     let pending = loadingLanguages.get(id);
     if (!pending) {
-        pending = LANGUAGE_LOADERS[id]().then((extensions) => {
-            loadedLanguages.set(id, extensions);
-            loadingLanguages.delete(id);
-            return extensions;
-        });
+        pending = loaderFor(id).then(
+            (extensions) => {
+                loadedLanguages.set(id, extensions);
+                loadingLanguages.delete(id);
+                return extensions;
+            },
+            (err: unknown) => {
+                loadingLanguages.delete(id);
+                throw err;
+            },
+        );
         loadingLanguages.set(id, pending);
     }
     return pending;

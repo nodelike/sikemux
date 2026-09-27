@@ -2,17 +2,20 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
   "description": "Generated explicit capability for the main application window",
-  "windows": [
+  "webviews": [
     "main"
   ],
   "permissions": [
     "core:default",
     "core:window:allow-start-dragging",
     "dialog:default",
+    "notification:default",
     "process:allow-restart",
     "core:window:allow-show",
     "core:window:allow-unminimize",
     "core:window:allow-set-focus",
+    "core:window:allow-set-badge-count",
+    "core:window:allow-request-user-attention",
     "allow-acp-start",
     "allow-acp-prompt",
     "allow-acp-set-permission-mode",
@@ -56,8 +59,10 @@
     "allow-hang-reports",
     "allow-update-check",
     "allow-update-install",
+    "allow-usage-report-active",
     "allow-release-avatars",
     "allow-release-notes",
+    "allow-grammar-load",
     "allow-state-load",
     "allow-state-save",
     "allow-available-agents",
@@ -119,6 +124,7 @@
     "allow-git-overview",
     "allow-git-show",
     "allow-git-file-at",
+    "allow-git-file-diff",
     "allow-git-commit-files",
     "allow-git-blame",
     "allow-git-commit",
@@ -157,6 +163,7 @@
     "allow-lsp-locations",
     "allow-lsp-document-symbols",
     "allow-diff-hunks",
+    "allow-markdown-parse",
     "allow-list-project-files",
     "allow-list-project-files-snapshot",
     "allow-scan-project-roots",
@@ -188,6 +195,12 @@
     "allow-cli-editor-tabs-closed",
     "allow-cli-runtime-info",
     "allow-cli-install-status",
-    "allow-cli-install"
+    "allow-cli-install",
+    "allow-voice-status",
+    "allow-voice-prepare",
+    "allow-voice-start",
+    "allow-voice-stop",
+    "allow-voice-cancel",
+    "allow-voice-shutdown"
   ]
 }

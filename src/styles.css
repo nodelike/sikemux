@@ -6,7 +6,7 @@
 @import "./styles/editor-insights.css";
 @import "./styles/git.css";
 @import "./styles/agents.css";
-@import "./styles/browser.css";
+@import "./styles/desk.css";
 @import "./styles/codemirror.css";
 @import "./styles/feedback.css";
 @import "./styles/search.css";
@@ -18,3 +18,4 @@
 @import "./styles/dialog.css";
 @import "./styles/panel.css";
 @import "./styles/shaders.css";
+@import "./styles/motion.css";

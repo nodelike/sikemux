@@ -10,8 +10,8 @@ use std::time::{Duration, Instant};
 use uuid::Uuid;
 
 use crate::cli_protocol::{
-    CliClientCommand, CliCloseReason, CliEndpointDescriptor, CliOpenRequest, CliOpenTarget,
-    CliServerResponse, CliTargetKind, CLI_PROTOCOL_VERSION, MAX_CLI_RESPONSE_BYTES,
+    CliClientCommand, CliClientHello, CliCloseReason, CliEndpointDescriptor, CliOpenRequest,
+    CliOpenTarget, CliServerResponse, CliTargetKind, CLI_PROTOCOL_VERSION, MAX_CLI_RESPONSE_BYTES,
 };
 
 const APP_START_TIMEOUT: Duration = Duration::from_secs(15);
@@ -169,12 +169,12 @@ fn execute_open(args: OpenArgs) -> Result<i32, String> {
         token: descriptor.token.clone(),
         request,
     };
-    let mut stream = connect(&descriptor)?;
-    stream
+    let mut reader = session(&descriptor)?;
+    reader
+        .get_ref()
         .set_read_timeout(Some(ACCEPT_TIMEOUT))
         .map_err(|error| format!("cannot configure CLI connection: {error}"))?;
-    write_command(&mut stream, &command)?;
-    let mut reader = BufReader::new(stream);
+    write_command(reader.get_mut(), &command)?;
     let accepted = read_response(&mut reader)?;
     let mut failed = false;
     match accepted {
@@ -214,18 +214,14 @@ fn execute_open(args: OpenArgs) -> Result<i32, String> {
 fn status() -> Result<i32, String> {
     let endpoint_path = endpoint_path()?;
     let descriptor = read_endpoint(&endpoint_path)?;
-    let mut stream = connect(&descriptor)?;
-    stream
-        .set_read_timeout(Some(PROBE_TIMEOUT))
-        .map_err(|error| format!("cannot configure CLI connection: {error}"))?;
+    let mut reader = session(&descriptor)?;
     write_command(
-        &mut stream,
+        reader.get_mut(),
         &CliClientCommand::Ping {
             protocol: CLI_PROTOCOL_VERSION,
             token: descriptor.token,
         },
     )?;
-    let mut reader = BufReader::new(stream);
     match read_response(&mut reader)? {
         CliServerResponse::Pong { version, .. } => {
             println!("Sikemux {version} is running");
@@ -423,18 +419,14 @@ fn connect_or_launch(endpoint_path: &Path) -> Result<CliEndpointDescriptor, Stri
 }
 
 fn probe(descriptor: &CliEndpointDescriptor) -> Result<(), String> {
-    let mut stream = connect(descriptor)?;
-    stream
-        .set_read_timeout(Some(PROBE_TIMEOUT))
-        .map_err(|error| format!("cannot configure CLI probe: {error}"))?;
+    let mut reader = session(descriptor)?;
     write_command(
-        &mut stream,
+        reader.get_mut(),
         &CliClientCommand::Ping {
             protocol: CLI_PROTOCOL_VERSION,
             token: descriptor.token.clone(),
         },
     )?;
-    let mut reader = BufReader::new(stream);
     match read_response(&mut reader)? {
         CliServerResponse::Pong { protocol, .. } if protocol == CLI_PROTOCOL_VERSION => Ok(()),
         CliServerResponse::Error { message } => Err(message),
@@ -467,7 +459,37 @@ fn connect(descriptor: &CliEndpointDescriptor) -> Result<TcpStream, String> {
     Ok(stream)
 }
 
-fn write_command(stream: &mut TcpStream, command: &CliClientCommand) -> Result<(), String> {
+/// Connects and makes the app prove it holds the endpoint token before
+/// anything is sent that a program squatting on a stale port should not see.
+fn session(descriptor: &CliEndpointDescriptor) -> Result<BufReader<TcpStream>, String> {
+    let stream = connect(descriptor)?;
+    stream
+        .set_read_timeout(Some(PROBE_TIMEOUT))
+        .map_err(|error| format!("cannot configure CLI connection: {error}"))?;
+    let mut reader = BufReader::new(stream);
+    let nonce = crate::cli_auth::new_nonce();
+    write_command(
+        reader.get_mut(),
+        &CliClientHello::Hello {
+            protocol: CLI_PROTOCOL_VERSION,
+            nonce: nonce.clone(),
+        },
+    )?;
+    let expected = crate::cli_auth::server_proof(&descriptor.token, descriptor.port, &nonce);
+    match read_response(&mut reader) {
+        Ok(CliServerResponse::Hello { proof })
+            if crate::cli_auth::same_secret(&proof, &expected) =>
+        {
+            Ok(reader)
+        }
+        _ => Err(STALE_ENDPOINT.into()),
+    }
+}
+
+const STALE_ENDPOINT: &str =
+    "the program on Sikemux's CLI port is not Sikemux; the endpoint file may be stale";
+
+fn write_command(stream: &mut TcpStream, command: &impl serde::Serialize) -> Result<(), String> {
     serde_json::to_writer(&mut *stream, command).map_err(|error| error.to_string())?;
     stream.write_all(b"\n").map_err(|error| error.to_string())?;
     stream.flush().map_err(|error| error.to_string())
@@ -581,8 +603,9 @@ fn execute_tool(args: &[String]) -> Result<i32, String> {
     };
     request.validate()?;
     let descriptor = read_endpoint(&endpoint_path()?)?;
-    let mut stream = connect(&descriptor)?;
-    stream
+    let mut reader = session(&descriptor)?;
+    reader
+        .get_ref()
         .set_read_timeout(Some(Duration::from_secs(70)))
         .map_err(|error| error.to_string())?;
     let command = CliClientCommand::Harness {
@@ -590,9 +613,8 @@ fn execute_tool(args: &[String]) -> Result<i32, String> {
         token: descriptor.token,
         request,
     };
-    serde_json::to_writer(&mut stream, &command).map_err(|error| error.to_string())?;
-    stream.write_all(b"\n").map_err(|error| error.to_string())?;
-    match read_response(&mut BufReader::new(stream))? {
+    write_command(reader.get_mut(), &command)?;
+    match read_response(&mut reader)? {
         CliServerResponse::Result { value } => {
             println!("{}", value);
             Ok(0)
@@ -605,6 +627,41 @@ fn execute_tool(args: &[String]) -> Result<i32, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn answer_hello_with(token: &'static str) -> CliEndpointDescriptor {
+        let listener = std::net::TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+        let port = listener.local_addr().unwrap().port();
+        thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            let mut hello = String::new();
+            BufReader::new(&stream).read_line(&mut hello).unwrap();
+            let Ok(CliClientHello::Hello { nonce, .. }) = serde_json::from_str(&hello) else {
+                panic!("the client did not open with a hello: {hello}");
+            };
+            let proof = crate::cli_auth::server_proof(token, port, &nonce);
+            let mut reply = serde_json::to_vec(&CliServerResponse::Hello { proof }).unwrap();
+            reply.push(b'\n');
+            (&stream).write_all(&reply).unwrap();
+        });
+        CliEndpointDescriptor {
+            protocol: CLI_PROTOCOL_VERSION,
+            pid: 1,
+            port,
+            token: "endpoint-token".into(),
+            version: "test".into(),
+        }
+    }
+
+    #[test]
+    fn only_a_server_holding_the_endpoint_token_gets_a_session() {
+        assert!(session(&answer_hello_with("endpoint-token")).is_ok());
+        assert_eq!(
+            session(&answer_hello_with("squatter-token"))
+                .err()
+                .as_deref(),
+            Some(STALE_ENDPOINT)
+        );
+    }
 
     #[test]
     fn nested_open_help_is_a_successful_control_path() {

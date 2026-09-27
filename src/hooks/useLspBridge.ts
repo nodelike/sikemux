@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { documentLanguageIdFromPath, languageFromPath, lsp, type LspTextChange } from "../api/lsp";
+import { languageServersAllowed } from "../languageServerTrust";
 import { dismissToast, errCategory, errMessage, notify, swallow } from "../state/toast";
 import { projectDiagnosticsRuntime, type ProjectDiagnosticsLease } from "../workbench/projectDiagnostics";
 
@@ -60,6 +61,7 @@ export function useLspBridge(cwd: string) {
     const startServer = useCallback(
         async (lang: string): Promise<boolean> => {
             const epoch = startedServers.current.epoch;
+            if (!(await languageServersAllowed(cwd))) return false;
             await lsp.start(cwd, lang);
             if (startedServers.current.project !== cwd || startedServers.current.epoch !== epoch) return false;
             startedServers.current.languages.add(lang);

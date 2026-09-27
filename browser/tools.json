@@ -18,6 +18,13 @@
         },
         "newTab": {
           "type": "boolean"
+        },
+        "report": {
+          "enum": [
+            "outcome",
+            "changes",
+            "full"
+          ]
         }
       },
       "required": [
@@ -27,18 +34,57 @@
     {
       "name": "browser_state",
       "method": "browser.state",
-      "description": "Read the tab: url, title, numbered elements, text and tabs. Numbers expire on the next read.",
-      "properties": {},
+      "description": "Read the tab: url, title, numbered elements, text and tabs.",
+      "properties": {
+        "fullText": {
+          "type": "boolean"
+        }
+      },
       "required": []
+    },
+    {
+      "name": "browser_find",
+      "method": "browser.find",
+      "description": "Find elements by visible text or accessible name.",
+      "properties": {
+        "query": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500
+        },
+        "role": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 40
+        }
+      },
+      "required": [
+        "query"
+      ]
     },
     {
       "name": "browser_click",
       "method": "browser.click",
-      "description": "Click a numbered element or an x,y point; double double-clicks, hover only moves there.",
+      "description": "Click a numbered element, a labelled one by text, or an x,y point.",
       "properties": {
         "index": {
           "type": "integer",
           "minimum": 0
+        },
+        "expectLabel": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500
+        },
+        "text": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500
+        },
+        "role": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 40
         },
         "x": {
           "type": "number",
@@ -53,6 +99,13 @@
         },
         "hover": {
           "type": "boolean"
+        },
+        "report": {
+          "enum": [
+            "outcome",
+            "changes",
+            "full"
+          ]
         }
       },
       "required": []
@@ -60,7 +113,7 @@
     {
       "name": "browser_type",
       "method": "browser.type",
-      "description": "Type into a numbered element, replacing its value, or at the caret. submit presses Enter.",
+      "description": "Type into a numbered element, replacing its value, or at the caret.",
       "properties": {
         "index": {
           "type": "integer",
@@ -72,6 +125,13 @@
         },
         "submit": {
           "type": "boolean"
+        },
+        "report": {
+          "enum": [
+            "outcome",
+            "changes",
+            "full"
+          ]
         }
       },
       "required": [
@@ -87,6 +147,13 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 24
+        },
+        "report": {
+          "enum": [
+            "outcome",
+            "changes",
+            "full"
+          ]
         }
       },
       "required": [
@@ -121,6 +188,13 @@
         "toY": {
           "type": "number",
           "minimum": 0
+        },
+        "report": {
+          "enum": [
+            "outcome",
+            "changes",
+            "full"
+          ]
         }
       },
       "required": []
@@ -151,6 +225,13 @@
         "y": {
           "type": "number",
           "minimum": 0
+        },
+        "report": {
+          "enum": [
+            "outcome",
+            "changes",
+            "full"
+          ]
         }
       },
       "required": [
@@ -168,6 +249,13 @@
         "text": {
           "type": "string",
           "maxLength": 2000
+        },
+        "report": {
+          "enum": [
+            "outcome",
+            "changes",
+            "full"
+          ]
         }
       },
       "required": [
@@ -175,9 +263,31 @@
       ]
     },
     {
+      "name": "browser_viewport",
+      "method": "browser.viewport",
+      "description": "Hold this tab at a set viewport size or preset.",
+      "properties": {
+        "width": {
+          "type": "integer",
+          "minimum": 200,
+          "maximum": 4000
+        },
+        "height": {
+          "type": "integer",
+          "minimum": 200,
+          "maximum": 4000
+        },
+        "preset": {
+          "type": "string",
+          "enum": ["desktop", "tablet", "mobile", "fit"]
+        }
+      },
+      "required": []
+    },
+    {
       "name": "browser_scroll",
       "method": "browser.scroll",
-      "description": "Scroll the page, or a numbered element, by deltaY pixels; negative is up.",
+      "description": "Scroll the page, or a numbered element, by deltaY pixels.",
       "properties": {
         "deltaY": {
           "type": "number"
@@ -192,7 +302,7 @@
     {
       "name": "browser_extract",
       "method": "browser.extract",
-      "description": "Read the page's visible text, or the parts matching a CSS selector.",
+      "description": "Read the page's text, or the parts matching a CSS selector.",
       "properties": {
         "selector": {
           "type": "string",
@@ -219,7 +329,7 @@
     {
       "name": "browser_network",
       "method": "browser.network",
-      "description": "List the page's fetch and XHR calls with status, timing and body.",
+      "description": "List page loads and fetch/XHR calls with status, timing and body.",
       "properties": {
         "limit": {
           "type": "integer",
@@ -229,6 +339,10 @@
         "filter": {
           "type": "string",
           "maxLength": 200
+        },
+        "since": {
+          "type": "string",
+          "enum": ["navigation"]
         }
       },
       "required": []
@@ -324,6 +438,13 @@
           "type": "integer",
           "minimum": 0,
           "maximum": 30000
+        },
+        "report": {
+          "enum": [
+            "outcome",
+            "changes",
+            "full"
+          ]
         }
       },
       "required": []
@@ -332,14 +453,30 @@
       "name": "browser_back",
       "method": "browser.back",
       "description": "Go back in this tab's history.",
-      "properties": {},
+      "properties": {
+        "report": {
+          "enum": [
+            "outcome",
+            "changes",
+            "full"
+          ]
+        }
+      },
       "required": []
     },
     {
       "name": "browser_forward",
       "method": "browser.forward",
       "description": "Go forward in this tab's history.",
-      "properties": {},
+      "properties": {
+        "report": {
+          "enum": [
+            "outcome",
+            "changes",
+            "full"
+          ]
+        }
+      },
       "required": []
     },
     {
@@ -352,7 +489,7 @@
     {
       "name": "browser_switch_tab",
       "method": "browser.tab.switch",
-      "description": "Make one of this agent's tabs the current one. Returns page state.",
+      "description": "Make one of this agent's tabs the current one.",
       "properties": {
         "tabId": {
           "type": "string",
@@ -395,6 +532,11 @@
         "idempotencyKey": {
           "type": "string",
           "maxLength": 128
+        },
+        "readyWhen": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
         }
       },
       "required": [
@@ -403,11 +545,27 @@
       ]
     },
     {
+      "name": "task_restart",
+      "method": "task.restart",
+      "description": "Stop a task's latest execution and start a new one.",
+      "properties": {
+        "taskId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "taskId"
+      ]
+    },
+    {
       "name": "task_read",
       "method": "task.read",
-      "description": "Read task status and new terminal output by byte cursor.",
+      "description": "Read task status and output by byte cursor, tail, or search.",
       "properties": {
         "executionId": {
+          "type": "string"
+        },
+        "taskId": {
           "type": "string"
         },
         "cursor": {
@@ -418,24 +576,41 @@
           "type": "integer",
           "minimum": 4,
           "maximum": 8192
+        },
+        "tail": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10000
+        },
+        "search": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "context": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 20
+        },
+        "plain": {
+          "type": "boolean"
         }
       },
-      "required": [
-        "executionId"
-      ]
+      "required": []
     },
     {
       "name": "task_stop",
       "method": "task.stop",
-      "description": "Stop the exact managed task execution and its process tree.",
+      "description": "Stop a managed task execution and its process tree.",
       "properties": {
         "executionId": {
           "type": "string"
+        },
+        "taskId": {
+          "type": "string"
         }
       },
-      "required": [
-        "executionId"
-      ]
+      "required": []
     },
     {
       "name": "ui_open",

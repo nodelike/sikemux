@@ -10,6 +10,7 @@ import { agentCatalogR, agentSessionsR } from "../state/resources.defs";
 import { useStore } from "../state/store";
 import type { AgentPermissionMode, AgentType } from "../state/types";
 import { AgentIcon, IconSearch, IconShield, IconShieldBolt } from "./Icons";
+import { leavingOverlay } from "../lib/motion";
 
 type Row = AgentSession & { type: AgentType };
 type NewAgentItem = { kind: "new"; type: AgentType };
@@ -207,7 +208,7 @@ export function AgentPalette() {
               : "no agent matches";
 
     return (
-        <div className="picker-backdrop" onMouseDown={cmd.closeAgentPalette}>
+        <div ref={leavingOverlay} className="picker-backdrop" onMouseDown={cmd.closeAgentPalette}>
             <div
                 ref={modalRef}
                 tabIndex={-1}

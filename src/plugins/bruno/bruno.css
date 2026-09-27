@@ -99,7 +99,7 @@
 .bruno-req-row.active {
     background: var(--acc-soft);
     color: var(--ink);
-    box-shadow: inset 2px 0 0 var(--acc);
+    box-shadow: inset 0 0 0 1px var(--acc-line);
 }
 .bruno-chevron {
     display: inline-flex;

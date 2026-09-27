@@ -8,7 +8,12 @@ vi.mock("@tauri-apps/api/core", () => ({ invoke }));
 vi.mock("@tauri-apps/api/app", () => ({ getVersion: vi.fn(async () => "test") }));
 vi.mock("../state/resources", () => ({
     useResourceEnabled: (enabled: boolean) => ({
-        data: enabled ? [{ label: "Codex" }, { label: "Claude" }] : undefined,
+        data: enabled
+            ? [
+                  { type: "codex", label: "Codex", available: false },
+                  { type: "claude", label: "Claude" },
+              ]
+            : undefined,
         status: enabled ? ("ok" as const) : ("idle" as const),
         error: undefined,
         refresh: async () => {},
@@ -24,7 +29,7 @@ import { uiActivity } from "../lib/activity";
 import { DiagnosticsOverlay, Onboarding } from "./ExperienceOverlays";
 
 const initial = getState();
-const health = { shell: "/bin/zsh", git: true, aws: false, rnd: true };
+const health = { git: true };
 
 function openOnboarding(overrides = {}) {
     setState({ onboardingOpen: true, onboardingComplete: false, keybindingOverrides: overrides });
@@ -52,59 +57,42 @@ afterEach(() => {
 });
 
 describe("Onboarding", () => {
-    it("opens on the first scene, focuses the dialog, and renders canonical custom shortcuts", async () => {
+    it("focuses the first move and shows custom shortcuts", async () => {
+        openOnboarding({ "project.open": "Ctrl+Shift+KeyO" });
+
+        expect(screen.getByRole("dialog", { name: "Welcome to Sikemux" })).toBeInTheDocument();
+        await waitFor(() => expect(screen.getByRole("button", { name: /Open a project/ })).toHaveFocus());
+        expect(screen.getByText(keybindingLabel("Ctrl+Shift+KeyO"))).toBeInTheDocument();
+    });
+
+    it("moves between first moves with the arrow keys and keeps Tab inside", async () => {
         const user = userEvent.setup();
-        openOnboarding({ "session.open": "Ctrl+Shift+KeyO" });
+        openOnboarding();
+        const project = screen.getByRole("button", { name: /Open a project/ });
+        await waitFor(() => expect(project).toHaveFocus());
 
-        const dialog = screen.getByRole("dialog", { name: "Everything you ship, one signal away" });
-        expect(screen.getByLabelText("Onboarding step 1 of 4")).toBeInTheDocument();
-        await waitFor(() => expect(dialog).toHaveFocus());
+        fireEvent.keyDown(project, { key: "ArrowDown" });
+        expect(screen.getByRole("button", { name: /Connect to a host/ })).toHaveFocus();
+        fireEvent.keyDown(document.activeElement!, { key: "ArrowUp" });
+        fireEvent.keyDown(document.activeElement!, { key: "ArrowUp" });
+        expect(screen.getByRole("button", { name: /Browse commands/ })).toHaveFocus();
 
-        await user.tab({ shift: true });
-        expect(screen.getByRole("button", { name: "Continue" })).toHaveFocus();
         await user.tab();
-        expect(screen.getByRole("button", { name: "Skip onboarding tour" })).toHaveFocus();
-
-        await user.click(screen.getByRole("button", { name: "Continue" }));
-        expect(screen.getByRole("heading", { name: "Open anything without breaking flow" })).toBeInTheDocument();
-        expect(screen.getByText(keybindingLabel("Ctrl+Shift+KeyO"), { selector: "kbd" })).toBeInTheDocument();
+        expect(screen.getByRole("button", { name: "Close welcome" })).toHaveFocus();
     });
 
-    it("supports click, arrow, progress, and Back navigation", async () => {
-        const user = userEvent.setup();
-        openOnboarding();
-        const dialog = screen.getByRole("dialog");
-
-        await user.click(screen.getByRole("button", { name: "Continue" }));
-        expect(screen.getByLabelText("Onboarding step 2 of 4")).toBeInTheDocument();
-        expect(screen.getByRole("button", { name: "Go to step 2: Muscle memory" })).toHaveAttribute("aria-current", "step");
-
-        fireEvent.keyDown(dialog, { key: "ArrowRight" });
-        expect(screen.getByRole("heading", { name: "Know when to watch, help, or move on" })).toBeInTheDocument();
-
-        await user.click(screen.getByRole("button", { name: "Go to step 4: Launch ready" }));
-        expect(screen.getByLabelText("Onboarding step 4 of 4")).toBeInTheDocument();
-
-        await user.click(screen.getByRole("button", { name: "Back" }));
-        expect(screen.getByLabelText("Onboarding step 3 of 4")).toBeInTheDocument();
-
-        fireEvent.keyDown(dialog, { key: "ArrowLeft" });
-        expect(screen.getByLabelText("Onboarding step 2 of 4")).toBeInTheDocument();
-    });
-
-    it("marks onboarding complete and persists it when the final scene finishes", async () => {
+    it("runs a first move, closes, and persists completion", async () => {
         const user = userEvent.setup();
         openOnboarding();
 
-        await user.click(screen.getByRole("button", { name: "Go to step 4: Launch ready" }));
-        await user.click(screen.getByRole("button", { name: "Enter Sikemux" }));
+        await user.click(screen.getByRole("button", { name: /Open a project/ }));
 
-        expect(getState()).toMatchObject({ onboardingOpen: false, onboardingComplete: true });
+        expect(getState()).toMatchObject({ onboardingOpen: false, onboardingComplete: true, pickerOpen: true, pickerMode: "projects" });
         expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
         await expectPersistedComplete();
     });
 
-    it("treats both Escape and Skip as persisted completion", async () => {
+    it("treats both Escape and the close button as persisted completion", async () => {
         const user = userEvent.setup();
         openOnboarding();
 
@@ -112,106 +100,53 @@ describe("Onboarding", () => {
         expect(getState()).toMatchObject({ onboardingOpen: false, onboardingComplete: true });
 
         act(() => setState({ onboardingOpen: true, onboardingComplete: false }));
-        await user.click(await screen.findByRole("button", { name: "Skip onboarding tour" }));
+        await user.click(await screen.findByRole("button", { name: "Close welcome" }));
         expect(getState()).toMatchObject({ onboardingOpen: false, onboardingComplete: true });
         await expectPersistedComplete();
     });
 
-    it("resets replay to step one and restores the previously focused control", async () => {
+    it("restores the previously focused control when it closes", async () => {
         const user = userEvent.setup();
-        const { rerender } = render(
+        render(
             <>
-                <button type="button">Replay trigger</button>
+                <button type="button">Reopen trigger</button>
                 <Onboarding />
             </>,
         );
-        const trigger = screen.getByRole("button", { name: "Replay trigger" });
+        const trigger = screen.getByRole("button", { name: "Reopen trigger" });
         trigger.focus();
 
         act(() => setState({ onboardingOpen: true, onboardingComplete: true }));
-        await waitFor(() => expect(screen.getByRole("dialog")).toHaveFocus());
-        await user.click(screen.getByRole("button", { name: "Go to step 3: Agent signals" }));
-        expect(screen.getByLabelText("Onboarding step 3 of 4")).toBeInTheDocument();
-
-        await user.click(screen.getByRole("button", { name: "Skip onboarding tour" }));
+        await waitFor(() => expect(screen.getByRole("button", { name: /Open a project/ })).toHaveFocus());
+        await user.click(screen.getByRole("button", { name: "Close welcome" }));
         await waitFor(() => expect(trigger).toHaveFocus());
-
-        act(() => setState({ onboardingOpen: true }));
-        rerender(
-            <>
-                <button type="button">Replay trigger</button>
-                <Onboarding />
-            </>,
-        );
-        expect(await screen.findByLabelText("Onboarding step 1 of 4")).toBeInTheDocument();
-        await waitFor(() => expect(screen.getByRole("dialog")).toHaveFocus());
     });
 
-    it("falls back cleanly when integration health rejects", async () => {
-        const user = userEvent.setup();
-        invoke.mockRejectedValueOnce(new Error("health unavailable"));
+    it("lists detected agents", () => {
         openOnboarding();
 
-        await user.click(screen.getByRole("button", { name: "Go to step 4: Launch ready" }));
-        expect(await screen.findByText("Local tool check unavailable — setup can continue")).toBeInTheDocument();
-        expect(invoke).toHaveBeenCalledWith("integration_health");
+        expect(screen.getByText("Claude")).toBeInTheDocument();
+        expect(screen.getByText("Codex").closest("li")).toHaveClass("is-missing");
     });
 
-    it("serializes global experience overlays and exposes textual health states", async () => {
-        const user = userEvent.setup();
+    it("warns only when git is missing", async () => {
+        openOnboarding();
+        await waitFor(() => expect(invoke).toHaveBeenCalledWith("integration_health"));
+        expect(screen.queryByText(/git not found/)).not.toBeInTheDocument();
+
+        cleanup();
+        invoke.mockImplementation(async (command: string) => (command === "integration_health" ? { git: false } : undefined));
+        openOnboarding();
+        expect(await screen.findByText("git not found: the Git view needs it")).toBeInTheDocument();
+    });
+
+    it("serializes global experience overlays", () => {
         setState({ onboardingOpen: false, diagnosticsOpen: true, whatsNewOpen: true });
         act(() => cmd.openOnboarding());
         expect(getState()).toMatchObject({ onboardingOpen: true, diagnosticsOpen: false, whatsNewOpen: false });
 
-        render(<Onboarding />);
-        await user.click(screen.getByRole("button", { name: "Go to step 4: Launch ready" }));
-        expect(await screen.findByText("git ready")).toBeInTheDocument();
-        expect(screen.getByText("aws missing")).toBeInTheDocument();
-
         act(() => cmd.openWhatsNew());
         expect(getState()).toMatchObject({ onboardingOpen: false, diagnosticsOpen: false, whatsNewOpen: true });
-    });
-
-    it("answers a real binding press by opening the matching overlay in the miniature", async () => {
-        const user = userEvent.setup();
-        const { container } = openOnboarding();
-
-        await user.click(screen.getByRole("button", { name: "Go to step 2: Muscle memory" }));
-        expect(screen.queryByText("open session")).not.toBeInTheDocument();
-        expect(screen.getAllByText("press it")).toHaveLength(2);
-
-        fireEvent.keyDown(window, { code: "KeyS", key: "s", altKey: true });
-        expect(screen.getByText("open session")).toBeInTheDocument();
-        expect(screen.getByText("✓ tried")).toBeInTheDocument();
-
-        // Clicking a card is the mouse equivalent of pressing its binding.
-        await user.click(screen.getByRole("button", { name: /Open command deck/ }));
-        expect(screen.getByText("command deck")).toBeInTheDocument();
-        expect(container.querySelectorAll(".onboarding-key.is-done")).toHaveLength(2);
-    });
-
-    it("points the miniature at the region the copy column describes", async () => {
-        const user = userEvent.setup();
-        const { container } = openOnboarding();
-        const stage = container.querySelector(".onb-stage")!;
-        expect(stage).toHaveAttribute("data-region", "none");
-
-        await user.hover(screen.getByRole("button", { name: /Agent rail/ }));
-        expect(stage).toHaveAttribute("data-region", "agents");
-
-        await user.hover(screen.getByRole("button", { name: /Sessions rail/ }));
-        expect(stage).toHaveAttribute("data-region", "rail");
-    });
-
-    it("runs the first move the final scene offers and closes the tour", async () => {
-        const user = userEvent.setup();
-        openOnboarding();
-
-        await user.click(screen.getByRole("button", { name: "Go to step 4: Launch ready" }));
-        await user.click(screen.getByRole("button", { name: /Open a project/ }));
-
-        expect(getState()).toMatchObject({ onboardingOpen: false, onboardingComplete: true, pickerOpen: true, pickerMode: "projects" });
-        await expectPersistedComplete();
     });
 });
 

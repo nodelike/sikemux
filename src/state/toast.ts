@@ -18,6 +18,7 @@ export interface Toast {
     kind: ToastKind;
     text: string;
     action?: ToastAction;
+    persistent: boolean;
 }
 
 interface ToastStore {
@@ -45,9 +46,10 @@ export const useToasts = create<ToastStore>((set) => ({
             const last = st.toasts[st.toasts.length - 1];
             if (last && last.kind === kind && last.text === text && (last.action?.label ?? "") === (action?.label ?? "")) return {};
             const id = counter++;
-            const toast: Toast = action ? { id, kind, text, action } : { id, kind, text };
             const timeoutMs = options?.timeoutMs === undefined ? (action || kind === "error" ? null : 5000) : options.timeoutMs;
-            if (timeoutMs != null && timeoutMs > 0) {
+            const persistent = timeoutMs == null || timeoutMs <= 0;
+            const toast: Toast = action ? { id, kind, text, action, persistent } : { id, kind, text, persistent };
+            if (!persistent) {
                 timers.set(id, { timer: null, remaining: timeoutMs, started: Date.now(), pauses: new Set() });
                 schedule(id);
             }

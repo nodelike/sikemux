@@ -1,6 +1,6 @@
 import { HighlightStyle, syntaxHighlighting } from "@codemirror/language";
 import type { Extension } from "@codemirror/state";
-import { EditorView } from "@codemirror/view";
+import { EditorView, ViewPlugin } from "@codemirror/view";
 import { indentationMarkers } from "@replit/codemirror-indentation-markers";
 import { tags as t } from "@lezer/highlight";
 import type { Theme } from "../themes";
@@ -16,18 +16,16 @@ export function buildEditorThemeExtensions(theme: Theme): Extension {
                 caretColor: theme.editor.caret,
                 fontFamily: '"JetBrainsMono Nerd Font", "JetBrains Mono", monospace',
                 fontSize: EDITOR_FONT_SIZE,
+                paddingLeft: "6px",
             },
             ".cm-cursor, .cm-dropCursor": { borderLeftColor: theme.editor.caret },
             "&.cm-focused .cm-selectionBackground, .cm-selectionBackground, .cm-content ::selection": { backgroundColor: theme.editor.selection },
             ".cm-activeLine": { backgroundColor: theme.editor.activeLine },
-            /* The gutter stays put while the code scrolls sideways under it, so
-               it needs a solid ground or the code shows through the numbers. A
-               theme whose editor is transparent falls back to its chrome, as
-               the code-block theme does. */
             ".cm-gutters": {
-                backgroundColor: theme.editor.bg === "transparent" ? theme.chrome.bg : theme.editor.bg,
+                backgroundColor: "transparent",
                 color: theme.editor.gutter,
                 border: "none",
+                borderRight: "1px solid var(--border)",
             },
             ".cm-activeLineGutter": {
                 backgroundColor: "transparent",
@@ -94,8 +92,48 @@ export function buildEditorThemeExtensions(theme: Theme): Extension {
         },
     ]);
 
-    return [editorTheme, syntaxHighlighting(highlight)];
+    return [editorTheme, syntaxHighlighting(highlight), clipCodeUnderGutter];
 }
+
+const FAR = "99999999px";
+
+function clipFrom(left: string): string {
+    return `polygon(${left} 0, ${FAR} 0, ${FAR} ${FAR}, ${left} ${FAR})`;
+}
+
+/* The gutter has no ground, so code scrolled sideways would show through the
+   line numbers. Instead, cut the code and its selection off at the gutter's edge. */
+const clipCodeUnderGutter = ViewPlugin.fromClass(
+    class {
+        private readonly onScroll = () => this.clip();
+
+        constructor(private readonly view: EditorView) {
+            view.scrollDOM.addEventListener("scroll", this.onScroll, { passive: true });
+        }
+
+        update() {
+            this.clip();
+        }
+
+        private clip() {
+            const { contentDOM, scrollDOM } = this.view;
+            const scrolled = scrollDOM.scrollLeft;
+            const layers = scrollDOM.querySelectorAll<HTMLElement>(".cm-layer");
+            if (scrolled <= 0) {
+                contentDOM.style.clipPath = "";
+                layers.forEach((layer) => (layer.style.clipPath = ""));
+                return;
+            }
+            const gutterWidth = scrollDOM.querySelector<HTMLElement>(".cm-gutters")?.offsetWidth ?? 0;
+            contentDOM.style.clipPath = clipFrom(`${scrolled}px`);
+            layers.forEach((layer) => (layer.style.clipPath = clipFrom(`${scrolled + gutterWidth}px`)));
+        }
+
+        destroy() {
+            this.view.scrollDOM.removeEventListener("scroll", this.onScroll);
+        }
+    },
+);
 
 export function buildIndentMarkerExtensions(theme: Theme): Extension {
     return indentationMarkers({

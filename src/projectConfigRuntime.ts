@@ -1,5 +1,5 @@
 import type { CustomCommand } from "./commands/registry";
-import type { ProjectAction, ProjectConfigLoadResult, ProjectWorktreeCreateHook } from "./projectConfig";
+import type { ProjectAction, ProjectConfigLoadResult, ProjectTask, ProjectWorktreeCreateHook, SikemuxProjectConfig } from "./projectConfig";
 import { confirmDialog, type ConfirmRequest } from "./state/dialog";
 
 const trustedConfigs = new Set<string>();
@@ -30,6 +30,21 @@ export function worktreeHookCommand(hook: ProjectWorktreeCreateHook): CustomComm
     };
 }
 
+function taskCommandLine(task: ProjectTask): string {
+    const cd = task.cwd === "." ? [] : [`cd ${task.cwd} &&`];
+    const env = Object.entries(task.env).map(([name, value]) => `${name}=${value}`);
+    return [...cd, ...env, task.command].join(" ");
+}
+
+function configCommands(config: SikemuxProjectConfig): { label: string; command: string }[] {
+    return [
+        ...config.actions.map((action) => ({ label: `Action · ${action.label}`, command: action.command })),
+        ...config.tasks.map((task) => ({ label: `Task · ${task.label}`, command: taskCommandLine(task) })),
+        ...(config.preview?.command ? [{ label: "Preview", command: config.preview.command }] : []),
+        ...(config.worktree?.onCreate ?? []).map((hook) => ({ label: `New worktree · ${hook.label}`, command: hook.command })),
+    ];
+}
+
 /**
  * Already-trusted configs resolve synchronously on the microtask queue; only a
  * first-time approval reaches the dialog.
@@ -40,12 +55,10 @@ export async function trustProjectConfig(
 ): Promise<boolean> {
     const key = trustKey(result);
     if (!result.trust.requiresApproval || trustedConfigs.has(key)) return true;
-    const detail = result.trust.reasons.join(", ");
     const approved = await ask({
         title: "Trust this sikemux.json?",
-        body:
-            `It can run ${detail || `${result.trust.executableEntries} commands`} from this project. Review the file before approving.\n` +
-            "Trust lasts until Sikemux closes or the file changes.",
+        body: "It lets Sikemux run these commands in this project. Trust lasts until Sikemux closes or the file changes.",
+        commands: configCommands(result.config),
         confirmLabel: "Trust project",
     });
     if (approved) trustedConfigs.add(key);

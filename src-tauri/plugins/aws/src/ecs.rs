@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::{AwsError, AwsResult};
 
-use crate::common::{aws_json, describe_in_chunks};
+use crate::common::{aws_json, cli_value, describe_in_chunks};
 
 // AWS describe-services / describe-tasks accept at most this many ARNs.
 const ECS_DESCRIBE_CHUNK: usize = 10;
@@ -91,6 +91,7 @@ pub struct EcsService {
 }
 
 pub(crate) async fn services(profile: String, cluster: String) -> AwsResult<Vec<EcsService>> {
+    cli_value(&cluster)?;
     #[derive(Deserialize)]
     struct ArnList {
         #[serde(rename = "serviceArns")]
@@ -191,6 +192,8 @@ pub struct EcsTask {
     memory: Option<String>,
     started_at: Option<String>,
     last_status_change: Option<String>,
+    availability_zone: Option<String>,
+    private_ip: Option<String>,
 }
 
 pub(crate) async fn tasks(
@@ -198,6 +201,8 @@ pub(crate) async fn tasks(
     cluster: String,
     service: String,
 ) -> AwsResult<Vec<EcsTask>> {
+    cli_value(&cluster)?;
+    cli_value(&service)?;
     #[derive(Deserialize)]
     struct ArnList {
         #[serde(rename = "taskArns")]
@@ -241,6 +246,20 @@ pub(crate) async fn tasks(
         started_at: Option<String>,
         #[serde(rename = "executionStoppedAt")]
         execution_stopped_at: Option<String>,
+        #[serde(rename = "availabilityZone")]
+        availability_zone: Option<String>,
+        #[serde(default)]
+        attachments: Vec<Attachment>,
+    }
+    #[derive(Deserialize)]
+    struct Attachment {
+        #[serde(default)]
+        details: Vec<AttachmentDetail>,
+    }
+    #[derive(Deserialize)]
+    struct AttachmentDetail {
+        name: String,
+        value: Option<String>,
     }
 
     let chunks: Vec<Resp> = describe_in_chunks(
@@ -262,6 +281,13 @@ pub(crate) async fn tasks(
         .into_iter()
         .flat_map(|r| r.tasks)
         .map(|t| EcsTask {
+            private_ip: t
+                .attachments
+                .iter()
+                .flat_map(|a| &a.details)
+                .find(|d| d.name == "privateIPv4Address")
+                .and_then(|d| d.value.clone()),
+            availability_zone: t.availability_zone,
             task_id: t
                 .task_arn
                 .rsplit('/')
@@ -308,6 +334,8 @@ pub(crate) async fn service_log_config(
     cluster: String,
     service: String,
 ) -> AwsResult<EcsServiceLog> {
+    cli_value(&cluster)?;
+    cli_value(&service)?;
     let svc_v: serde_json::Value = aws_json(
         &profile,
         &[
@@ -384,6 +412,8 @@ pub(crate) async fn task_log_config(
     cluster: String,
     task_arn: String,
 ) -> AwsResult<EcsTaskLog> {
+    cli_value(&cluster)?;
+    cli_value(&task_arn)?;
     let task_v: serde_json::Value = aws_json(
         &profile,
         &[

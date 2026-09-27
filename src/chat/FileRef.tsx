@@ -12,11 +12,16 @@ import { parsePathRef, type PathRef, type PathRoots } from "./filePath";
 import { usePathState, type PathState } from "./pathExistence";
 
 const PathRootsContext = createContext<PathRoots>({ cwd: "" });
+const DeskOwnerContext = createContext<string | null>(null);
 
-/** Where a transcript's relative paths are relative to. */
-export function PathRootsProvider({ cwd, home, children }: PathRoots & { children: ReactNode }) {
+/** Where a transcript's relative paths are relative to, and whose desk its files open on. */
+export function PathRootsProvider({ cwd, home, agentId, children }: PathRoots & { agentId?: string; children: ReactNode }) {
     const roots = useMemo(() => ({ cwd, home }), [cwd, home]);
-    return <PathRootsContext.Provider value={roots}>{children}</PathRootsContext.Provider>;
+    return (
+        <PathRootsContext.Provider value={roots}>
+            <DeskOwnerContext.Provider value={agentId ?? null}>{children}</DeskOwnerContext.Provider>
+        </PathRootsContext.Provider>
+    );
 }
 
 export function usePathRoots(): PathRoots {
@@ -42,15 +47,19 @@ function copy(value: string, label: string) {
         .catch(reportError("copy"));
 }
 
-export function openFileRef(ref: PathRef, state: PathState): void {
+/** Opens a file on the agent's desk when there is one to open it on, and in the workspace editor otherwise. */
+export function openFileRef(ref: PathRef, state: PathState, deskAgentId: string | null = null): void {
     if (state === "dir") {
         void fsapi.revealInFinder(ref.path).catch(reportError("reveal"));
         return;
     }
-    cmd.requestOpenFile(ref.path, ref.line === undefined ? undefined : ref.line - 1, ref.column === undefined ? undefined : ref.column - 1);
+    const line = ref.line === undefined ? undefined : ref.line - 1;
+    const column = ref.column === undefined ? undefined : ref.column - 1;
+    if (deskAgentId) cmd.openFileOnDesk(deskAgentId, ref.path, line, column);
+    else cmd.requestOpenFile(ref.path, line, column);
 }
 
-function menuItems(ref: PathRef, state: PathState, cwd: string): CtxItem[] {
+function menuItems(ref: PathRef, state: PathState, cwd: string, deskAgentId: string | null): CtxItem[] {
     const relative = relativePath(ref.path, cwd) ?? basename(ref.path);
     const reveal: CtxItem = {
         label: `Reveal in ${FILE_MANAGER_NAME}`,
@@ -63,7 +72,8 @@ function menuItems(ref: PathRef, state: PathState, cwd: string): CtxItem[] {
     ];
     if (state === "dir") return [reveal, { sep: true }, ...copies];
     return [
-        { label: "Open", run: () => openFileRef(ref, state) },
+        ...(deskAgentId ? [{ label: "Open on Desk", run: () => openFileRef(ref, state, deskAgentId) }] : []),
+        { label: deskAgentId ? "Open in Editor" : "Open", run: () => openFileRef(ref, state) },
         { label: "Open Containing Folder", run: () => void fsapi.revealInFinder(dirname(ref.path)).catch(reportError("reveal")) },
         { sep: true },
         reveal,
@@ -74,8 +84,9 @@ function menuItems(ref: PathRef, state: PathState, cwd: string): CtxItem[] {
 
 /**
  * A file the transcript names: its icon, what the agent called it, and the
- * line when one was given. It opens where the rest of the app opens files, and
- * its menu is the one the file tree offers.
+ * line when one was given. A click puts it on the agent's desk and a double
+ * click opens it in the workspace editor; its menu is the one the file tree
+ * offers.
  */
 export function ChatFileRef({
     refers,
@@ -91,6 +102,7 @@ export function ChatFileRef({
     className?: string;
 }) {
     const { cwd } = usePathRoots();
+    const deskAgentId = useContext(DeskOwnerContext);
     const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
     const openMenu = (event: MouseEvent) => {
         event.preventDefault();
@@ -107,7 +119,12 @@ export function ChatFileRef({
                 onClick={(event) => {
                     event.preventDefault();
                     event.stopPropagation();
-                    openFileRef(refers, state);
+                    if (event.detail < 2) openFileRef(refers, state, deskAgentId);
+                }}
+                onDoubleClick={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    if (state !== "dir") openFileRef(refers, state);
                 }}
                 onContextMenu={openMenu}>
                 {state === "dir" ? (
@@ -119,7 +136,7 @@ export function ChatFileRef({
                 )}
                 <span className="chat-file-ref-name">{label}</span>
             </button>
-            {menu && <TreeContextMenu x={menu.x} y={menu.y} items={menuItems(refers, state, cwd)} onClose={() => setMenu(null)} />}
+            {menu && <TreeContextMenu x={menu.x} y={menu.y} items={menuItems(refers, state, cwd, deskAgentId)} onClose={() => setMenu(null)} />}
         </>
     );
 }

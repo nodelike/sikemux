@@ -44,14 +44,21 @@ export function setAwsService(service: AwsService): void {
     awsSettings.update((settings) => ({ ...settings, service }));
 }
 
+/** The row each list has picked out for the side panel, keyed by list. */
+export type AwsSelection = Partial<Record<"cluster" | "service" | "ec2" | "lambda" | "sqs" | "s3" | "month", string>>;
+
 interface AwsView {
     authModal: { profile: string; ssoStartUrl: string | null } | null;
     /** How far into ECS each profile has drilled. */
     ecsViews: Record<string, EcsLevel>;
-    expandedBillingMonth: Record<string, string | null>;
+    selection: Record<string, AwsSelection>;
+    /** The Lambda function whose logs are open, per profile. */
+    lambdaLogs: Record<string, string | null>;
+    /** How many things each service listed the last time it loaded, per profile. */
+    counts: Record<string, Partial<Record<AwsService, string>>>;
 }
 
-export const useAws = create<AwsView>()(() => ({ authModal: null, ecsViews: {}, expandedBillingMonth: {} }));
+export const useAws = create<AwsView>()(() => ({ authModal: null, ecsViews: {}, selection: {}, lambdaLogs: {}, counts: {} }));
 
 export function openAwsAuthModal(profile: string, ssoStartUrl: string | null): void {
     useAws.setState({ authModal: { profile, ssoStartUrl } });
@@ -65,8 +72,17 @@ export function setEcsLevel(profile: string, level: EcsLevel): void {
     useAws.setState((state) => ({ ecsViews: { ...state.ecsViews, [profile]: level } }));
 }
 
-export function setBillingExpandedMonth(profile: string, month: string | null): void {
-    useAws.setState((state) => ({ expandedBillingMonth: { ...state.expandedBillingMonth, [profile]: month } }));
+export function selectAws(profile: string, list: keyof AwsSelection, value: string): void {
+    useAws.setState((state) => ({ selection: { ...state.selection, [profile]: { ...state.selection[profile], [list]: value } } }));
+}
+
+export function setLambdaLogs(profile: string, fn: string | null): void {
+    useAws.setState((state) => ({ lambdaLogs: { ...state.lambdaLogs, [profile]: fn } }));
+}
+
+export function setAwsCount(profile: string, service: AwsService, count: string): void {
+    if (useAws.getState().counts[profile]?.[service] === count) return;
+    useAws.setState((state) => ({ counts: { ...state.counts, [profile]: { ...state.counts[profile], [service]: count } } }));
 }
 
 export function openAwsSession(): void {

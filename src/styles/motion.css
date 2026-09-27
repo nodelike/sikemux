@@ -1,0 +1,29 @@
+/* A copy of a selected item's surface, sliding from the old item to the new one. */
+.selection-glide {
+    position: absolute;
+    z-index: 2;
+    box-sizing: border-box;
+    pointer-events: none;
+}
+
+/* Something React has removed, kept on screen while it animates away. */
+.is-leaving {
+    pointer-events: none;
+}
+
+/* A ring leaving an agent's mark when it starts waiting on you. */
+.agent-activity:has(> .agent-state-ping) {
+    position: relative;
+}
+.agent-state-ping {
+    position: absolute;
+    inset: 2px;
+    border-radius: 50%;
+    box-shadow: 0 0 0 1.5px currentColor;
+    pointer-events: none;
+}
+
+/* Each character can roll on its own. */
+.rolling-text > span {
+    display: inline-block;
+}

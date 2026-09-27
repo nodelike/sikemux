@@ -3,11 +3,14 @@
 //! rather than passed along as an address the window could not draw.
 
 use std::collections::HashMap;
+use std::net::{IpAddr, SocketAddr};
 use std::sync::OnceLock;
 use std::time::Duration;
 
 use base64::Engine;
 use futures::StreamExt;
+use reqwest::dns::{Addrs, Name, Resolve, Resolving};
+use reqwest::redirect::{Attempt, Policy};
 use reqwest::{Client, Response};
 use serde::Deserialize;
 use serde_json::Value;
@@ -20,6 +23,7 @@ const FETCH_TIMEOUT: Duration = Duration::from_secs(6);
 /// them still crosses to the window cheaply.
 const MAX_BYTES: usize = 64 * 1024;
 const CACHE_LIMIT: usize = 64;
+const MAX_REDIRECTS: usize = 5;
 /// The strip draws the icon at 13 points, so 32 pixels is the first size that
 /// still looks sharp on a retina screen.
 const WANTED: u32 = 32;
@@ -61,12 +65,16 @@ pub(super) async fn refresh(app: AppHandle, agent_id: String, tab_id: String, vi
         return;
     };
 
-    let key = icon.to_string();
+    let key = if same_host(&icon, &page_url) {
+        format!("own {icon}")
+    } else {
+        icon.to_string()
+    };
     let manager = app.state::<BrowserManager>();
     let data = match manager.cached_icon(&key) {
         Some(known) => known,
         None => {
-            let fetched = fetch(&icon).await;
+            let fetched = fetch(&icon, &page_url).await;
             manager.remember_icon(key, fetched.clone());
             fetched
         }
@@ -165,7 +173,9 @@ fn widest(sizes: &str) -> Option<u32> {
         .max()
 }
 
-async fn fetch(url: &Url) -> Option<String> {
+/// A page may only have its icon fetched from its own host or from the public
+/// internet, so a page cannot use the app to reach this machine or its network.
+async fn fetch(url: &Url, page: &Url) -> Option<String> {
     if url.scheme() == "data" {
         let inline = url.to_string();
         return (inline.starts_with("data:image/") && inline.len() <= MAX_BYTES).then_some(inline);
@@ -173,7 +183,14 @@ async fn fetch(url: &Url) -> Option<String> {
     if !matches!(url.scheme(), "http" | "https") {
         return None;
     }
-    let response = client().get(url.clone()).send().await.ok()?;
+    let client = if same_host(url, page) {
+        own_host_client()
+    } else if names_private_address(url) {
+        return None;
+    } else {
+        public_client()
+    };
+    let response = client.get(url.clone()).send().await.ok()?;
     if !response.status().is_success() {
         return None;
     }
@@ -234,15 +251,114 @@ fn sniff(bytes: &[u8]) -> Option<&'static str> {
     None
 }
 
-fn client() -> &'static Client {
+fn same_host(a: &Url, b: &Url) -> bool {
+    a.host_str().is_some() && a.host_str() == b.host_str()
+}
+
+/// For an icon on the page's own host, which the page can already reach, as
+/// long as every redirect stays there too.
+fn own_host_client() -> &'static Client {
     static CLIENT: OnceLock<Client> = OnceLock::new();
     CLIENT.get_or_init(|| {
         Client::builder()
             .timeout(FETCH_TIMEOUT)
             .user_agent(USER_AGENT)
+            .no_proxy()
+            .redirect(Policy::custom(|attempt| {
+                let home = attempt.previous().first().and_then(Url::host_str);
+                let stays = home.is_some() && attempt.url().host_str() == home;
+                follow_if(attempt, stays)
+            }))
             .build()
             .unwrap_or_default()
     })
+}
+
+/// For an icon anywhere else. Names resolve only to public addresses and the
+/// connection goes to the address that was checked, so a name cannot be
+/// pointed at this machine between the check and the request.
+fn public_client() -> &'static Client {
+    static CLIENT: OnceLock<Client> = OnceLock::new();
+    CLIENT.get_or_init(|| {
+        Client::builder()
+            .timeout(FETCH_TIMEOUT)
+            .user_agent(USER_AGENT)
+            .no_proxy()
+            .dns_resolver(PublicOnly)
+            .redirect(Policy::custom(|attempt| {
+                let allowed = !names_private_address(attempt.url());
+                follow_if(attempt, allowed)
+            }))
+            .build()
+            .unwrap_or_default()
+    })
+}
+
+fn follow_if(attempt: Attempt<'_>, allowed: bool) -> reqwest::redirect::Action {
+    if allowed && attempt.previous().len() <= MAX_REDIRECTS {
+        attempt.follow()
+    } else {
+        attempt.stop()
+    }
+}
+
+/// An address written straight into the URL, which skips name lookup.
+fn names_private_address(url: &Url) -> bool {
+    match url.host() {
+        Some(url::Host::Ipv4(ip)) => !is_public(IpAddr::V4(ip)),
+        Some(url::Host::Ipv6(ip)) => !is_public(IpAddr::V6(ip)),
+        Some(url::Host::Domain(_)) => false,
+        None => true,
+    }
+}
+
+struct PublicOnly;
+
+impl Resolve for PublicOnly {
+    fn resolve(&self, name: Name) -> Resolving {
+        let host = name.as_str().to_owned();
+        Box::pin(async move {
+            let public: Vec<SocketAddr> = tokio::net::lookup_host((host.as_str(), 0))
+                .await?
+                .filter(|address| is_public(address.ip()))
+                .collect();
+            if public.is_empty() {
+                return Err(format!("{host} is not on the public internet").into());
+            }
+            Ok(Box::new(public.into_iter()) as Addrs)
+        })
+    }
+}
+
+fn is_public(ip: IpAddr) -> bool {
+    match ip {
+        IpAddr::V4(ip) => {
+            let [first, second, ..] = ip.octets();
+            let shared = first == 100 && (64..128).contains(&second);
+            let benchmarking = first == 198 && (second & 0xfe) == 18;
+            !(ip.is_private()
+                || ip.is_loopback()
+                || ip.is_link_local()
+                || ip.is_unspecified()
+                || ip.is_broadcast()
+                || ip.is_multicast()
+                || ip.is_documentation()
+                || first == 0
+                || first >= 240
+                || shared
+                || benchmarking)
+        }
+        IpAddr::V6(ip) => {
+            if let Some(embedded) = ip.to_ipv4() {
+                return is_public(IpAddr::V4(embedded));
+            }
+            let first = ip.segments()[0];
+            let unique_local = (first & 0xfe00) == 0xfc00;
+            let link_local = (first & 0xffc0) == 0xfe80;
+            let site_local = (first & 0xffc0) == 0xfec0;
+            !(ip.is_loopback() || ip.is_multicast() || unique_local || link_local || site_local)
+        }
+    }
 }
 
 impl BrowserManager {
@@ -371,15 +487,19 @@ mod tests {
 
     /// Answers one request with the given body and hangs up.
     async fn serve(content_type: &str, body: Vec<u8>) -> Url {
+        let head = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+            body.len()
+        );
+        answer_once(head, body).await
+    }
+
+    async fn answer_once(head: String, body: Vec<u8>) -> Url {
         use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
         crate::install_tls_crypto();
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let url = Url::parse(&format!("http://{}/icon", listener.local_addr().unwrap())).unwrap();
-        let head = format!(
-            "HTTP/1.1 200 OK\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
-            body.len()
-        );
         tokio::spawn(async move {
             let (mut stream, _) = listener.accept().await.unwrap();
             let mut scratch = [0_u8; 1024];
@@ -396,7 +516,7 @@ mod tests {
         let png = b"\x89PNG\r\n\x1a\nbody".to_vec();
         let url = serve("application/octet-stream", png.clone()).await;
         assert_eq!(
-            fetch(&url).await,
+            fetch(&url, &url).await,
             Some(format!(
                 "data:image/png;base64,{}",
                 base64::engine::general_purpose::STANDARD.encode(&png)
@@ -407,9 +527,61 @@ mod tests {
     #[tokio::test]
     async fn a_page_of_html_and_an_oversized_file_are_both_refused() {
         let html = serve("image/x-icon", b"<!doctype html><html>gone</html>".to_vec()).await;
-        assert_eq!(fetch(&html).await, None);
+        assert_eq!(fetch(&html, &html).await, None);
         let huge = serve("image/png", vec![b'x'; MAX_BYTES + 1]).await;
-        assert_eq!(fetch(&huge).await, None);
+        assert_eq!(fetch(&huge, &huge).await, None);
+    }
+
+    #[tokio::test]
+    async fn a_page_elsewhere_cannot_have_this_machine_fetched() {
+        let png = b"\x89PNG\r\n\x1a\nbody".to_vec();
+        let local = serve("image/png", png.clone()).await;
+        assert_eq!(fetch(&local, &page()).await, None);
+        let mut by_name = serve("image/png", png).await;
+        by_name.set_host(Some("localhost")).unwrap();
+        assert_eq!(fetch(&by_name, &page()).await, None);
+        for address in [
+            "http://169.254.169.254/icon",
+            "http://[::1]/icon",
+            "http://10.0.0.1/icon",
+        ] {
+            assert_eq!(fetch(&Url::parse(address).unwrap(), &page()).await, None);
+        }
+    }
+
+    #[tokio::test]
+    async fn an_icon_on_the_pages_own_host_may_not_redirect_off_it() {
+        let png = b"\x89PNG\r\n\x1a\nbody".to_vec();
+        let mut elsewhere = serve("image/png", png).await;
+        elsewhere.set_host(Some("localhost")).unwrap();
+        let head = format!(
+            "HTTP/1.1 302 Found\r\nLocation: {elsewhere}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+        );
+        let icon = answer_once(head, Vec::new()).await;
+        assert_eq!(fetch(&icon, &icon).await, None);
+    }
+
+    #[test]
+    fn only_public_addresses_count_as_the_internet() {
+        for private in [
+            "127.0.0.1",
+            "10.1.2.3",
+            "172.16.0.1",
+            "192.168.1.1",
+            "169.254.169.254",
+            "100.64.0.1",
+            "0.0.0.0",
+            "::1",
+            "::",
+            "::ffff:127.0.0.1",
+            "fe80::1",
+            "fd00::1",
+        ] {
+            assert!(!is_public(private.parse().unwrap()), "{private}");
+        }
+        for public in ["93.184.216.34", "1.1.1.1", "2606:4700:4700::1111"] {
+            assert!(is_public(public.parse().unwrap()), "{public}");
+        }
     }
 
     #[test]

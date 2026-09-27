@@ -45,6 +45,46 @@ export function useOccludeNativeViews(active: boolean): void {
     }, [active]);
 }
 
+/* A toast is too small and too brief to send a page away for, so the page
+   leaves a hole where it sits instead. Rects are in the window's CSS pixels. */
+export interface NativeViewHole {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    radius: number;
+}
+
+const NO_HOLES: NativeViewHole[] = [];
+let holes = NO_HOLES;
+const holeListeners = new Set<() => void>();
+
+function subscribeHoles(listener: () => void) {
+    holeListeners.add(listener);
+    return () => {
+        holeListeners.delete(listener);
+    };
+}
+
+function currentHoles(): NativeViewHole[] {
+    return holes;
+}
+
+export function setNativeViewHoles(next: NativeViewHole[]): void {
+    const same = next.length === holes.length && next.every((hole, i) => sameHole(hole, holes[i]));
+    if (same) return;
+    holes = next.length ? next : NO_HOLES;
+    for (const listener of holeListeners) listener();
+}
+
+function sameHole(a: NativeViewHole, b: NativeViewHole): boolean {
+    return a.x === b.x && a.y === b.y && a.width === b.width && a.height === b.height && a.radius === b.radius;
+}
+
+export function useNativeViewHoles(): NativeViewHole[] {
+    return useSyncExternalStore(subscribeHoles, currentHoles, currentHoles);
+}
+
 /* A swipe slides the stage sideways by transform, which carries every pane on
    it somewhere else without a scroll or a resize to say so. A native view is
    placed by measuring the DOM, so while the stage moves it has to measure every
@@ -83,6 +123,26 @@ function setStageMoving(next: boolean) {
 
 export function useStageMoving(): boolean {
     return useSyncExternalStore(watch, stageMoving, stageMoving);
+}
+
+/**
+ * Run `still` once the stage is not travelling. It waits a frame first, because
+ * a slide is only announced after the effects of the screen it brings in.
+ */
+export function whenStageStill(still: () => void): () => void {
+    let stop = () => {};
+    const frame = requestAnimationFrame(() => {
+        if (!moving) return still();
+        stop = watch(() => {
+            if (moving) return;
+            stop();
+            still();
+        });
+    });
+    return () => {
+        cancelAnimationFrame(frame);
+        stop();
+    };
 }
 
 /** Say that the stage is travelling for as long as `active` stays true. */

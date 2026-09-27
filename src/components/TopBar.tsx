@@ -9,11 +9,13 @@ import { swallow } from "../state/toast";
 import { gitOverviewR } from "../state/resources.defs";
 import { useInstalledPlugins } from "../plugins/installed";
 import { useStore } from "../state/store";
-import { activeAgentId } from "../state/selectors";
-import { IconAgent, IconBattery, IconChevron, IconCommand, IconFocus, IconFolder, IconGit, IconPanelLeft, IconZoom, WindowIcon } from "./Icons";
+import { IconAgent, IconBattery, IconFocus, IconGit, IconMic, IconPanelLeft, IconZoom } from "./Icons";
+import { WorkspaceTabs } from "./Workspace";
+import { useVoice } from "../voice/dictation";
 import { PRIMARY_SHORTCUT } from "../lib/platform";
 import { Tooltip } from "./Tooltip";
 import { isUpdateBusy, updateDownloadPercent, updateStatusLabel } from "../api/updater";
+import { RollingText } from "./RollingText";
 
 const time2 = (n: number) => String(n).padStart(2, "0");
 
@@ -71,8 +73,16 @@ function GitChip({ repo }: { repo: string }) {
                         <span className="tb-git-branch">{st.branch}</span>
                         {(ahead > 0 || behind > 0) && (
                             <span className="tb-git-track">
-                                {ahead > 0 && <span className="tb-git-ahead">↑{ahead}</span>}
-                                {behind > 0 && <span className="tb-git-behind">↓{behind}</span>}
+                                {ahead > 0 && (
+                                    <span className="tb-git-ahead">
+                                        ↑<RollingText text={String(ahead)} />
+                                    </span>
+                                )}
+                                {behind > 0 && (
+                                    <span className="tb-git-behind">
+                                        ↓<RollingText text={String(behind)} />
+                                    </span>
+                                )}
                             </span>
                         )}
                     </button>
@@ -163,6 +173,17 @@ function UpdateArrow({ size = 12 }: { size?: number }) {
     );
 }
 
+function VoicePill() {
+    const phase = useVoice((s) => s.phase);
+    if (phase !== "listening" && phase !== "transcribing") return null;
+    return (
+        <span className={`voice-pill voice-pill-${phase}`} role="status">
+            <IconMic size={11} />
+            {phase === "listening" ? "listening" : "writing"}
+        </span>
+    );
+}
+
 function BatteryChip() {
     const batt = useBattery();
     if (!batt || batt.percent == null) return null;
@@ -183,7 +204,7 @@ function ClockChip() {
     const t = twelveHour(now);
     return (
         <span className="tb-clock">
-            {t.h}:{time2(t.m)}
+            <RollingText text={`${t.h}:${time2(t.m)}`} />
             <span className="tb-ampm">{t.ap}</span>
         </span>
     );
@@ -191,11 +212,6 @@ function ClockChip() {
 
 export const TopBar = memo(function TopBar() {
     const session = useStore((s) => s.sessions[s.activeSessionId]);
-    const win = useStore((s) => (session ? s.windows[session.activeWindowId] : undefined));
-    const agent = useStore((s) => {
-        const id = activeAgentId(s, session);
-        return id ? s.agents[id] : undefined;
-    });
     const zoomed = useStore((s) => s.zoomedPaneId != null);
     const zen = useStore((s) => s.zenMode);
     const sideRailVisible = useStore((s) => s.sideRailOpen && !s.zenMode);
@@ -204,35 +220,18 @@ export const TopBar = memo(function TopBar() {
     const plugins = useInstalledPlugins();
 
     const isProject = !!session && session.kind === "project";
-    if (!session || !win) return null;
+    if (!session) return null;
 
     return (
         <header className="top-bar" onMouseDown={startWindowDragFromTopBar}>
             <div className="tb-left" />
 
             <div className="tb-center">
-                <div className="crumb">
-                    <span className="crumb-kind">{isProject ? <IconFolder size={12} /> : <IconCommand size={12} />}</span>
-                    <span className="crumb-session">{session.name}</span>
-                    {isProject && (
-                        <>
-                            <IconChevron size={11} className="crumb-sep" />
-                            <span className="crumb-win">
-                                {win.role === "agent" ? (
-                                    <span className="crumb-name">{agent?.title ?? "agent"}</span>
-                                ) : (
-                                    <>
-                                        <WindowIcon role={win.role} size={12} />
-                                        <span className="crumb-name">{win.name}</span>
-                                    </>
-                                )}
-                            </span>
-                        </>
-                    )}
-                </div>
+                <WorkspaceTabs />
             </div>
 
             <div className="tb-right" onPointerEnter={() => setStripHovered(true)}>
+                <VoicePill />
                 {zoomed && (
                     <span className="zoom-pill">
                         <IconZoom size={11} />

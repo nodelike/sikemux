@@ -120,22 +120,47 @@ describe("chat reducer", () => {
         const created = update(initialChatState, {
             sessionUpdate: "tool_call",
             toolCallId: "tool-2",
-            title: "Run tests",
-            kind: "execute",
+            title: "Write notes.md",
+            kind: "edit",
             status: "in_progress",
         });
         const failed = update(created, {
             sessionUpdate: "tool_call_update",
             toolCallId: "tool-2",
             status: "failed",
-            rawOutput: { stderr: "  2 tests failed  " },
+            rawOutput: { stderr: "  permission denied  " },
         });
         const part = failed.messages[0].parts[0];
 
         expect(part.kind).toBe("tool");
         if (part.kind !== "tool") throw new Error("expected tool part");
-        expect(part.failure).toBe("2 tests failed");
+        expect(part.failure).toBe("permission denied");
         expect(part.tool).not.toHaveProperty("rawOutput");
+    });
+
+    it("keeps what a finished command printed, and Codex's exit code with it", () => {
+        const created = update(initialChatState, {
+            sessionUpdate: "tool_call",
+            toolCallId: "tool-3",
+            title: "pnpm vitest run",
+            kind: "execute",
+            status: "in_progress",
+            rawInput: { command: "pnpm vitest run", description: "Run the tests" },
+        });
+        const failed = update(created, {
+            sessionUpdate: "tool_call_update",
+            toolCallId: "tool-3",
+            status: "failed",
+            rawOutput: { formatted_output: " Tests  2 failed | 40 passed\n", exit_code: 1 },
+        });
+        const part = failed.messages[0].parts[0];
+
+        expect(part.kind).toBe("tool");
+        if (part.kind !== "tool") throw new Error("expected tool part");
+        expect(part.output).toEqual({ text: " Tests  2 failed | 40 passed", cut: false, exitCode: 1 });
+        expect(part.failure).toBeUndefined();
+        expect(part.tool).not.toHaveProperty("rawOutput");
+        expect(part.tool).not.toHaveProperty("rawInput");
     });
 
     it("keeps a picture too big to hold by name rather than by its bytes", () => {
@@ -262,6 +287,31 @@ describe("chat reducer", () => {
         });
 
         expect(notified.messages).toEqual([]);
+    });
+
+    it("keeps a background agent's notice out even when its report has paragraphs", () => {
+        const notified = update(initialChatState, {
+            sessionUpdate: "user_message_chunk",
+            content: {
+                type: "text",
+                text: [
+                    "<task-notification>\n<task-id>a41</task-id>\n<status>completed</status>",
+                    "<result>Research is done.\n\n## Blocking bugs\n\n- one\n- two</result>\n</task-notification>",
+                    "<system-reminder>\nNot user input.\n\nIgnore.\n</system-reminder>",
+                ].join("\n"),
+            },
+        });
+
+        expect(notified.messages).toEqual([]);
+    });
+
+    it("keeps pasted markup with paragraphs that the harness did not write", () => {
+        const pasted = update(initialChatState, {
+            sessionUpdate: "user_message_chunk",
+            content: { type: "text", text: "<div>\n\nwhy is this blank\n</div>" },
+        });
+
+        expect(pasted.messages).toHaveLength(1);
     });
 
     it("keeps Claude's interrupt marker out of the transcript", () => {

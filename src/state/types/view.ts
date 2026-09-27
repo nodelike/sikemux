@@ -1,19 +1,52 @@
 export interface EditorPaneView {
     openTabs: string[];
     activePath: string | null;
+    /** A view split beside other work that shows one file, rather than an editor holding the tab's files. */
+    single?: true;
+    /** The tab a single click in the file tree opened. The next such click reuses it, until it is kept. */
+    preview?: string;
 }
 
-/** A page a browser pane can open again, with the title to label it until it loads. */
-export interface BrowserPaneTab {
+/** A page the desk can open again, with the title to label it until it loads. */
+export interface DeskBrowserTab {
     url: string;
     title: string;
 }
 
-/** What a browser pane needs to come back: whose browser it is, and what was in it. */
-export interface BrowserPaneView {
+/** What a desk needs to come back: whose desk it is, and the pages and files that were on it. */
+export interface DeskView {
     agentId: string;
-    tabs: BrowserPaneTab[];
+    tabs: DeskBrowserTab[];
     activeIndex: number;
+    files: string[];
+}
+
+/** A task terminal an agent started, shown on its desk and bound to the task's process by `id`. */
+export interface DeskTerminal {
+    id: string;
+    terminalKey: string;
+    label: string;
+    cwd: string;
+}
+
+/**
+ * Keys in `order` and `active` name what they point at: `browser:<tab id>`,
+ * `file:<path>` or `terminal:<id>`. The browser has one page on screen at a
+ * time, so `active` is just `browser` when a page is showing.
+ */
+export interface Desk {
+    order: string[];
+    active: string | null;
+    terminals: DeskTerminal[];
+    /** The latest file the agent or the person asked to see, and where in it. */
+    reveal: DeskReveal | null;
+}
+
+export interface DeskReveal {
+    path: string;
+    line?: number;
+    character?: number;
+    seq: number;
 }
 
 /** A path handed to the running app by the `sikemux` command-line client. */

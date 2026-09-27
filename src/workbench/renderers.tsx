@@ -5,7 +5,7 @@ import { pluginSurface } from "../plugins/registry";
 import * as cmd from "../state/commands";
 import { TerminalPane } from "../terminal/TerminalPane";
 import { AgentPane } from "../components/AgentPane";
-import { BrowserPaneHost } from "../components/BrowserPane";
+import { DeskHost } from "../components/Desk";
 
 export interface WorkbenchItemRendererProps {
     pane: PaneNode;
@@ -67,8 +67,16 @@ export const BUILTIN_ITEM_RENDERERS: Readonly<Record<CorePaneKind, (props: Workb
         </Suspense>
     ),
     agent: ({ pane, session, visible }) => <AgentPane paneId={pane.id} session={session} visible={visible} />,
-    browser: ({ pane, visible, painted }) => (
-        <BrowserPaneHost paneId={pane.id} visible={visible} painted={painted} onEmpty={() => cmd.closeBrowserPane(pane.id)} />
+    desk: ({ pane, session, win, active, visible, painted }) => (
+        <DeskHost
+            paneId={pane.id}
+            session={session}
+            win={win}
+            active={active}
+            visible={visible}
+            painted={painted}
+            onEmpty={() => cmd.removeDeskPane(pane.id)}
+        />
     ),
     terminal: ({ pane, session, win, active, visible }) => (
         <TerminalPane

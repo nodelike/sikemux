@@ -15,6 +15,7 @@ export async function renameEditorPath(src: string, dest: string): Promise<void>
         for (const view of Object.values(state.editorViews)) {
             view.openTabs = view.openTabs.map((path) => relocatedPath(path, src, dest));
             if (view.activePath) view.activePath = relocatedPath(view.activePath, src, dest);
+            if (view.preview) view.preview = relocatedPath(view.preview, src, dest);
         }
         for (const [paneId, paths] of Object.entries(state.dirtyEditorPaths))
             state.dirtyEditorPaths[paneId] = paths.map((path) => relocatedPath(path, src, dest));

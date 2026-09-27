@@ -48,8 +48,10 @@ pub fn relay(
         .and_then(Value::as_u64)
         .and_then(|port| u16::try_from(port).ok())
         .ok_or("Sikemux CLI endpoint is invalid")?;
-    let (Some(protocol), Some(token)) = (descriptor.get("protocol"), descriptor.get("token"))
-    else {
+    let (Some(protocol), Some(token)) = (
+        descriptor.get("protocol"),
+        descriptor.get("token").and_then(Value::as_str),
+    ) else {
         return Err("Sikemux CLI endpoint is invalid".into());
     };
 
@@ -80,22 +82,25 @@ pub fn relay(
         .set_write_timeout(Some(CONNECT_TIMEOUT))
         .and_then(|()| stream.set_read_timeout(Some(REPLY_TIMEOUT)))
         .map_err(|error| format!("cannot configure the Sikemux connection: {error}"))?;
-    let mut writer = &stream;
-    writer
-        .write_all(&frame)
-        .and_then(|()| writer.flush())
-        .map_err(|error| format!("Sikemux did not accept the request: {error}"))?;
-
-    let mut answer = Vec::new();
-    BufReader::new(&stream)
-        .take(MAX_RESPONSE_BYTES + 1)
-        .read_until(b'\n', &mut answer)
-        .map_err(|error| format!("Sikemux did not answer: {error}"))?;
-    if answer.len() as u64 > MAX_RESPONSE_BYTES || !answer.ends_with(b"\n") {
-        return Err("Invalid or oversized harness response".into());
+    let mut reader = BufReader::new(&stream);
+    let nonce = crate::cli_auth::new_nonce();
+    let mut hello = json!({ "command": "hello", "protocol": protocol, "nonce": nonce }).to_string();
+    hello.push('\n');
+    send(&stream, hello.as_bytes())?;
+    let expected = crate::cli_auth::server_proof(token, port, &nonce);
+    let proven = receive(&mut reader).ok().is_some_and(|reply| {
+        reply.get("status").and_then(Value::as_str) == Some("hello")
+            && reply
+                .get("proof")
+                .and_then(Value::as_str)
+                .is_some_and(|proof| crate::cli_auth::same_secret(proof, &expected))
+    });
+    if !proven {
+        return Err("The program on Sikemux's CLI port is not Sikemux; restart Sikemux".into());
     }
-    let response: Value =
-        serde_json::from_slice(&answer).map_err(|_| "Invalid or oversized harness response")?;
+
+    send(&stream, &frame)?;
+    let response = receive(&mut reader)?;
     match response.get("status").and_then(Value::as_str) {
         Some("result") => response
             .get("value")
@@ -108,4 +113,24 @@ pub fn relay(
             .to_owned()),
         _ => Err("Unexpected harness response".into()),
     }
+}
+
+fn send(mut stream: &TcpStream, frame: &[u8]) -> Result<(), String> {
+    stream
+        .write_all(frame)
+        .and_then(|()| stream.flush())
+        .map_err(|error| format!("Sikemux did not accept the request: {error}"))
+}
+
+fn receive(reader: &mut BufReader<&TcpStream>) -> Result<Value, String> {
+    let mut answer = Vec::new();
+    reader
+        .by_ref()
+        .take(MAX_RESPONSE_BYTES + 1)
+        .read_until(b'\n', &mut answer)
+        .map_err(|error| format!("Sikemux did not answer: {error}"))?;
+    if answer.len() as u64 > MAX_RESPONSE_BYTES || !answer.ends_with(b"\n") {
+        return Err("Invalid or oversized harness response".into());
+    }
+    serde_json::from_slice(&answer).map_err(|_| "Invalid or oversized harness response".into())
 }

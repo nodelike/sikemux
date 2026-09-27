@@ -18,6 +18,7 @@ interface Entry {
     requestBody: string | null;
     body: string | null;
     error: string | null;
+    framework?: string;
 }
 
 function response(status: number, contentType: string, text: string) {
@@ -48,6 +49,9 @@ class FakeXhr {
     }
     getResponseHeader(name: string) {
         return name.toLowerCase() === "content-type" ? this.contentType : null;
+    }
+    fail(type: "error" | "abort" | "timeout") {
+        for (const listener of [...(this.listeners[type] ?? []), ...(this.listeners.loadend ?? [])]) listener();
     }
     settle(status: number, contentType: string, text: string) {
         this.status = status;
@@ -112,7 +116,28 @@ describe("browser network recorder", () => {
         answer = () => Promise.reject(new Error("Load failed"));
         await expect(window.fetch("https://api.test/plan")).rejects.toThrow("Load failed");
 
-        expect(net().entries()[0]).toMatchObject({ url: "https://api.test/plan", status: null, error: "Load failed" });
+        expect(net().entries()[0]).toMatchObject({ url: "https://api.test/plan", status: null, error: "Error: Load failed" });
+    });
+
+    it("says why an xhr never got an answer", () => {
+        const request = new (window as unknown as { XMLHttpRequest: typeof FakeXhr }).XMLHttpRequest();
+        request.open("get", "https://api.test/build");
+        request.send();
+        request.fail("error");
+        expect(net().entries()[0]).toMatchObject({ status: 0, error: "network error" });
+    });
+
+    it("names the data requests frameworks make behind a navigation", async () => {
+        await window.fetch("https://app.test/orders?_rsc=1x2y", { headers: { RSC: "1" } });
+        await window.fetch("https://app.test/orders", { method: "POST", headers: new Headers({ "Next-Action": "abc" }) });
+        await window.fetch("https://app.test/_next/data/build/orders.json");
+        await window.fetch("https://app.test/api/orders");
+
+        expect(
+            net()
+                .entries()
+                .map((entry) => entry.framework),
+        ).toEqual(["next rsc", "next server action", "next data", undefined]);
     });
 
     it("records an xhr once it settles", () => {

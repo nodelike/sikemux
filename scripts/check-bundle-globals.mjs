@@ -14,8 +14,10 @@ if (files.length === 0) {
 const linter = new Linter({ configType: "flat" });
 const languageGlobals = {
   ...globals.browser,
-  // React and xterm use guarded references to these optional host globals.
+  // React, xterm and UMD wrappers use guarded references to these optional
+  // host globals.
   __REACT_DEVTOOLS_GLOBAL_HOOK__: "readonly",
+  define: "readonly",
   process: "readonly",
   setImmediate: "readonly",
 };

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { CorePaneKind, PaneKind, PaneNode } from "../state/types/domain";
 import {
-    BROWSER_PERSISTENCE_LIMITS,
+    DESK_PERSISTENCE_LIMITS,
     BUILTIN_WORKBENCH_ITEM_MANIFEST,
     DuplicateWorkbenchItemKindError,
     EDITOR_PERSISTENCE_LIMITS,
@@ -15,7 +15,7 @@ import {
     type WorkbenchItemDefinition,
 } from "./registry";
 
-const BUILTIN_KINDS = ["terminal", "editor", "git", "diff", "search", "agent", "browser"] as const satisfies readonly CorePaneKind[];
+const BUILTIN_KINDS = ["terminal", "editor", "git", "diff", "search", "agent", "desk"] as const satisfies readonly CorePaneKind[];
 
 function nullEnvelope(itemId: string, kind: PaneKind, overrides: Record<string, unknown> = {}): Record<string, unknown> {
     return { itemId, kind, version: 1, state: null, ...overrides };
@@ -157,6 +157,28 @@ describe("workbench item persistence", () => {
         expect(registry.decodePersisted(ref, editorEnvelope(state))).toEqual({ ok: true, ref, state });
     });
 
+    it("keeps a view split beside other work as showing one file, and nothing else in that field", () => {
+        const registry = new WorkbenchItemRegistry();
+        const ref = createWorkbenchItemRef("pane-editor", "editor");
+        const state = { openTabs: ["/project/a.ts"], activePath: "/project/a.ts", single: true };
+
+        expect(registry.decodePersisted(ref, editorEnvelope(state))).toEqual({ ok: true, ref, state });
+        expect(registry.decodePersisted(ref, editorEnvelope({ ...state, single: false }))).toMatchObject({ ok: false });
+    });
+
+    it("keeps the preview tab, and drops one that is no longer open", () => {
+        const registry = new WorkbenchItemRegistry();
+        const ref = createWorkbenchItemRef("pane-editor", "editor");
+        const state = { openTabs: ["/project/a.ts", "/project/b.ts"], activePath: "/project/b.ts", preview: "/project/b.ts" };
+
+        expect(registry.decodePersisted(ref, editorEnvelope(state))).toEqual({ ok: true, ref, state });
+        expect(registry.decodePersisted(ref, editorEnvelope({ ...state, preview: "/project/gone.ts" }))).toEqual({
+            ok: true,
+            ref,
+            state: { openTabs: state.openTabs, activePath: state.activePath },
+        });
+    });
+
     it("accepts the tab-count boundary and rejects one tab beyond it", () => {
         const registry = new WorkbenchItemRegistry();
         const ref = createWorkbenchItemRef("pane-editor", "editor");
@@ -201,19 +223,21 @@ describe("workbench item persistence", () => {
 
     it("round-trips null state for every kind that keeps no state of its own", () => {
         const registry = new WorkbenchItemRegistry();
-        for (const kind of BUILTIN_KINDS.filter((candidate) => candidate !== "editor" && candidate !== "browser")) {
+        for (const kind of BUILTIN_KINDS.filter((candidate) => candidate !== "editor" && candidate !== "desk")) {
             const ref = createWorkbenchItemRef(`pane-${kind}`, kind);
             const encoded = registry.encodePersisted(ref, null);
             expect(registry.decodePersisted(ref, encoded)).toEqual({ ok: true, ref, state: null });
         }
     });
 
-    it("round-trips the tabs a browser pane can open again", () => {
+    it("round-trips the pages and files a desk can open again", () => {
         const registry = new WorkbenchItemRegistry();
-        const ref = createWorkbenchItemRef("pane-browser", "browser");
-        const state = { agentId: "agent-one", tabs: [{ url: "https://example.com/docs", title: "Docs" }], activeIndex: 0 };
+        const ref = createWorkbenchItemRef("pane-desk", "desk");
+        const state = { agentId: "agent-one", tabs: [{ url: "https://example.com/docs", title: "Docs" }], activeIndex: 0, files: ["/repo/a.ts"] };
+        const filesOnly = { agentId: "agent-one", tabs: [], activeIndex: 0, files: ["/repo/a.ts"] };
 
         expect(registry.decodePersisted(ref, registry.encodePersisted(ref, state))).toEqual({ ok: true, ref, state });
+        expect(registry.decodePersisted(ref, registry.encodePersisted(ref, filesOnly))).toEqual({ ok: true, ref, state: filesOnly });
     });
 
     /* These come back off disk and a restored tab loads itself, so a scheme
@@ -224,16 +248,16 @@ describe("workbench item persistence", () => {
         ["an inline document", { url: "data:text/html,<b>hi</b>", title: "" }],
         ["a url that is only a scheme", { url: "https://", title: "" }],
         ["a title carrying control characters", { url: "https://example.com", title: "one\u0000two" }],
-    ])("refuses %s in a saved browser tab", (_label, tab) => {
+    ])("refuses %s in a saved desk page", (_label, tab) => {
         const registry = new WorkbenchItemRegistry();
-        const ref = createWorkbenchItemRef("pane-browser", "browser");
+        const ref = createWorkbenchItemRef("pane-desk", "desk");
 
         expect(
             registry.decodePersisted(ref, {
-                itemId: "pane-browser",
-                kind: "browser",
+                itemId: "pane-desk",
+                kind: "desk",
                 version: 1,
-                state: { agentId: "agent-one", tabs: [tab], activeIndex: 0 },
+                state: { agentId: "agent-one", tabs: [tab], activeIndex: 0, files: [] },
             }),
         ).toEqual({
             ok: false,
@@ -241,21 +265,28 @@ describe("workbench item persistence", () => {
         });
     });
 
-    it("refuses a saved browser pane with no tabs, too many, or an active tab that is not there", () => {
+    it("refuses a saved desk with nothing on it, too much, an active page that is not there, or a file twice", () => {
         const registry = new WorkbenchItemRegistry();
-        const ref = createWorkbenchItemRef("pane-browser", "browser");
+        const ref = createWorkbenchItemRef("pane-desk", "desk");
         const page = { url: "https://example.com", title: "Example" };
-        const envelope = (state: unknown) => ({ itemId: "pane-browser", kind: "browser", version: 1, state });
+        const envelope = (state: unknown) => ({ itemId: "pane-desk", kind: "desk", version: 1, state });
 
-        expect(registry.decodePersisted(ref, envelope({ agentId: "agent-one", tabs: [], activeIndex: 0 })).ok).toBe(false);
+        expect(registry.decodePersisted(ref, envelope({ agentId: "agent-one", tabs: [], activeIndex: 0, files: [] })).ok).toBe(false);
         expect(
             registry.decodePersisted(
                 ref,
-                envelope({ agentId: "agent-one", tabs: Array.from({ length: BROWSER_PERSISTENCE_LIMITS.maxTabs + 1 }, () => page), activeIndex: 0 }),
+                envelope({
+                    agentId: "agent-one",
+                    tabs: Array.from({ length: DESK_PERSISTENCE_LIMITS.maxTabs + 1 }, () => page),
+                    activeIndex: 0,
+                    files: [],
+                }),
             ).ok,
         ).toBe(false);
-        expect(registry.decodePersisted(ref, envelope({ agentId: "agent-one", tabs: [page], activeIndex: 1 })).ok).toBe(false);
-        expect(registry.decodePersisted(ref, envelope({ agentId: " ", tabs: [page], activeIndex: 0 })).ok).toBe(false);
+        expect(registry.decodePersisted(ref, envelope({ agentId: "agent-one", tabs: [page], activeIndex: 1, files: [] })).ok).toBe(false);
+        expect(registry.decodePersisted(ref, envelope({ agentId: " ", tabs: [page], activeIndex: 0, files: [] })).ok).toBe(false);
+        expect(registry.decodePersisted(ref, envelope({ agentId: "agent-one", tabs: [], activeIndex: 0, files: ["/a", "/a"] })).ok).toBe(false);
+        expect(registry.decodePersisted(ref, envelope({ agentId: "agent-one", tabs: [page], activeIndex: 0 })).ok).toBe(false);
     });
 
     it.each([

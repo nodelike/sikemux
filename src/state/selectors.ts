@@ -1,7 +1,7 @@
 import { pluginDocuments } from "../plugins/documents";
-import type { PaneKind, Session, TabRef, Window } from "./types";
+import type { PaneKind, PaneNode, Session, TabRef, Window, WindowRole } from "./types";
 import type { StoreState } from "./store";
-import { collectPanes } from "./layout";
+import { collectPanes, openSides } from "./layout";
 
 export const selectSessionIds = (state: StoreState): readonly string[] => state.sessionOrder;
 export const selectActiveSessionId = (state: StoreState): string => state.activeSessionId;
@@ -81,11 +81,10 @@ export function agentWindowId(state: Pick<StoreState, "windows">, agentId: strin
 }
 
 /** The agent a session is looking at, if its active window is one. */
-/** The agent's browser pane, when one is in a window's layout right now. */
-export function shownBrowserPaneId(state: Pick<StoreState, "browserPanes" | "windows">, agentId: string): string | null {
-    const paneId = Object.keys(state.browserPanes).find(
-        (id) =>
-            state.browserPanes[id] === agentId && Object.values(state.windows).some((win) => collectPanes(win.root).some((pane) => pane.id === id)),
+/** The agent's desk pane, when one is in a window's layout right now. */
+export function shownDeskPaneId(state: Pick<StoreState, "deskPanes" | "windows">, agentId: string): string | null {
+    const paneId = Object.keys(state.deskPanes).find(
+        (id) => state.deskPanes[id] === agentId && Object.values(state.windows).some((win) => collectPanes(win.root).some((pane) => pane.id === id)),
     );
     return paneId ?? null;
 }
@@ -103,16 +102,16 @@ export function ownerSessionId(state: Pick<StoreState, "sessionOrder" | "windows
 /**
  * Roles the workspace rail drives, which therefore have no tab of their own.
  *
- * The rail is how you reach these and the stage is where they render, so a tab
- * for them was a second handle on one surface: "Git" in the rail and "Git" in
- * the strip both meant the same screen. Every other role keeps its tab, since
- * nothing else offers a way back to it.
+ * A diff is opened from a change in the rail and read in place, so a tab for
+ * it would be a second handle on one surface. Git and search keep a tab, so
+ * they can be picked from the strip and split beside the work they are about.
  *
  * `files` is absent here because an editor is not one surface: the rail browses
  * the tree, but each open document is its own thing to switch between, so an
- * editor contributes a tab per document instead of none.
+ * editor contributes a tab per document instead, and one for itself while it
+ * holds none.
  */
-const RAIL_DRIVEN_ROLES: ReadonlySet<string> = new Set(["diff", "search", "git"]);
+const RAIL_DRIVEN_ROLES: ReadonlySet<string> = new Set(["diff"]);
 
 /** Whether `role` contributes a window entry to the session tab strip. */
 export function roleHasTab(role: string): boolean {
@@ -126,9 +125,16 @@ export function roleHasTab(role: string): boolean {
  * document and where each keeps its list, so a new document-holding kind is
  * a case here and nowhere else.
  */
+/** The pane an editor tab keeps its files in; a view split beside it shows one file and is not it. Other tabs answer with their focused pane. */
+export function editorPaneOf(win: Window, editorViews: StoreState["editorViews"]): string {
+    if (win.role !== "files" || win.root.type === "pane") return win.activePaneId;
+    const editors = collectPanes(win.root).filter((pane) => pane.kind === "editor");
+    return (editors.find((pane) => !editorViews[pane.id]?.single) ?? editors[0])?.id ?? win.activePaneId;
+}
+
 export function documentsOf(win: Window, editorViews: StoreState["editorViews"]): { ids: readonly string[]; activeId: string | null } | null {
     if (win.role === "files") {
-        const view = editorViews[win.activePaneId];
+        const view = editorViews[editorPaneOf(win, editorViews)];
         return { ids: view?.openTabs ?? EMPTY_IDS, activeId: view?.activePath ?? null };
     }
     return pluginDocuments(win.role)?.list(win.activePaneId) ?? null;
@@ -141,16 +147,17 @@ export function documentsOf(win: Window, editorViews: StoreState["editorViews"])
  * renders them, so a tab would be a second handle on one surface. An editor,
  * and any plugin surface that holds documents, contributes one entry per open
  * document, which is what puts them in this strip rather than a second bar
- * inside the pane; with nothing open they contribute nothing, because an empty
- * one is not worth a tab. Everything else gets exactly one entry, and the list
- * is derived rather than stored, so a window can never exist without its tab.
+ * inside the pane. With nothing open a plugin surface contributes nothing, and
+ * an editor one entry for itself. Everything else gets exactly one entry, and
+ * the list is derived rather than stored, so a window can never exist without
+ * its tab.
  */
 export function expandTabRefs(windowIds: readonly string[], windows: StoreState["windows"], editorViews: StoreState["editorViews"] = {}): TabRef[] {
     return windowIds.flatMap((id): TabRef[] => {
         const win = windows[id];
         if (!win) return [];
         const documents = documentsOf(win, editorViews);
-        if (documents) return documents.ids.map((doc): TabRef => ({ id, doc }));
+        if (documents && (documents.ids.length > 0 || win.role !== "files")) return documents.ids.map((doc): TabRef => ({ id, doc }));
         return roleHasTab(win.role) ? [{ id }] : [];
     });
 }
@@ -296,3 +303,53 @@ export function selectItemState(state: StoreState, kind: PaneKind, itemId: strin
 }
 
 const EMPTY_IDS: readonly string[] = Object.freeze([]);
+
+/** Tabs that can share the screen. Plugin tabs and the diff each stay whole. */
+const SPLITTABLE_ROLES: ReadonlySet<WindowRole> = new Set(["term", "named", "agent", "git", "search", "files"]);
+
+export type SplitSide = "left" | "right" | "top" | "bottom";
+
+type SplitState = Pick<StoreState, "sessions" | "windows" | "windowsBySession" | "dirtyEditorPaths" | "editorViews">;
+
+/**
+ * Whether the tab `source` can be split beside the one its session is
+ * showing, which has room while it holds fewer than three panes across or a
+ * single one. Two agents cannot share a tab, because an agent is found by the
+ * tab it lives in, and a tab already split stays whole. A file with unsaved
+ * changes stays in the editor that holds them.
+ */
+export function tabSplitAllowed(state: SplitState, sessionId: string, source: TabRef): boolean {
+    const session = state.sessions[sessionId];
+    const shown = session ? state.windows[session.activeWindowId] : undefined;
+    const from = state.windows[source.id];
+    if (!shown || !from || shown.transient || from.transient) return false;
+    if (shown.id === from.id && !(source.doc !== undefined && shown.role === "files")) return false;
+    if (!(state.windowsBySession[sessionId] ?? []).includes(from.id) || !SPLITTABLE_ROLES.has(shown.role)) return false;
+    if (openSides(shown.root).length === 0) return false;
+    if (source.doc !== undefined) {
+        return from.role === "files" && !(state.dirtyEditorPaths[editorPaneOf(from, state.editorViews)] ?? []).includes(source.doc);
+    }
+    if (from.role === "files" || (shown.role === "agent" && from.role === "agent") || from.root.type !== "pane") return false;
+    if (!SPLITTABLE_ROLES.has(from.role)) return false;
+    return !(from.role === "agent" ? shown : from).fixed;
+}
+
+/**
+ * Whether the pane `paneId` (the focused one when unnamed) can be moved out of
+ * its split tab: a terminal, Git, search, or a file's single view with no
+ * unsaved changes, while the tab holds more than one pane. The editor holding
+ * an editor tab's files stays; anywhere else an editor was split in.
+ */
+export function paneToSeparate(
+    win: Window,
+    { dirtyEditorPaths, editorViews }: Pick<StoreState, "dirtyEditorPaths" | "editorViews">,
+    paneId = win.activePaneId,
+): PaneNode | null {
+    const panes = collectPanes(win.root);
+    if (panes.length < 2 || !SPLITTABLE_ROLES.has(win.role)) return null;
+    const pane = panes.find((candidate) => candidate.id === paneId);
+    if ((pane?.kind === "terminal" && !pane.externalPty) || pane?.kind === "git" || pane?.kind === "search") return pane;
+    const splitIn = win.role !== "files" || editorViews[pane?.id ?? ""]?.single;
+    if (pane?.kind === "editor" && splitIn && (dirtyEditorPaths[pane.id] ?? []).length === 0) return pane;
+    return null;
+}

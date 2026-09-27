@@ -1,11 +1,12 @@
-import type { ComponentType } from "react";
+import type { ComponentType, KeyboardEvent } from "react";
 import { useResourceEnabled } from "../../../plugin-api/resources";
 import { deriveAuthState, needsAuth } from "../auth";
 import { awsIdentityR } from "../resources";
-import { awsSettings, type AwsService } from "../state";
+import { AWS_SERVICES, awsSettings, setAwsService, setEcsLevel, setLambdaLogs, useAws, type AwsService } from "../state";
 import { AwsServiceNav } from "./AwsServiceNav";
 import { AwsEcsView } from "./AwsEcsView";
-import { AwsBillingView, AwsEc2View, AwsLambdaView, AwsS3View, AwsSqsView } from "./AwsListViews";
+import { AwsBillingView } from "./AwsBillingView";
+import { AwsEc2View, AwsLambdaView, AwsS3View, AwsSqsView } from "./AwsListViews";
 import { AwsAuthEmpty } from "./AwsAuthEmpty";
 import "../aws.css";
 
@@ -20,6 +21,23 @@ const AWS_VIEW: Record<AwsService, ComponentType<AwsViewProps>> = {
     s3: AwsS3View,
 };
 
+function typing(target: EventTarget): boolean {
+    return target instanceof HTMLElement && (target.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName));
+}
+
+/** Esc climbs back out of whatever the current service has drilled into. */
+function goBack(profile: string, service: AwsService): boolean {
+    const state = useAws.getState();
+    if (service === "lambda" && state.lambdaLogs[profile]) {
+        setLambdaLogs(profile, null);
+        return true;
+    }
+    const level = state.ecsViews[profile];
+    if (service !== "ecs" || !level || level.kind === "clusters") return false;
+    setEcsLevel(profile, level.kind === "service" ? { kind: "services", cluster: level.cluster } : { kind: "clusters" });
+    return true;
+}
+
 export function AwsPane({ active }: { active: boolean }) {
     const profile = awsSettings.useSelect((s) => s.profile);
     const service = awsSettings.useSelect((s) => s.service);
@@ -27,17 +45,34 @@ export function AwsPane({ active }: { active: boolean }) {
     const auth = deriveAuthState(profile, identity);
 
     if (auth.kind === "no-profile") return <AwsAuthEmpty mode="no-profile" />;
-    if (needsAuth(auth)) {
-        return <AwsAuthEmpty mode="unauthed" profile={auth.profile} />;
-    }
-    const p = auth.profile;
+    const signedOut = needsAuth(auth);
     const ServiceView = AWS_VIEW[service];
+
+    const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+        if (event.metaKey || event.ctrlKey || event.altKey) return;
+        if (event.key === "Escape" && !typing(event.target) && goBack(auth.profile, service)) {
+            event.preventDefault();
+            return;
+        }
+        if (typing(event.target) || signedOut) return;
+        const index = "123456".indexOf(event.key);
+        if (index >= 0 && event.key.length === 1) {
+            event.preventDefault();
+            setAwsService(AWS_SERVICES[index]);
+        } else if (event.key === "/") {
+            const filter = event.currentTarget.querySelector<HTMLInputElement>(".aws-filter input");
+            if (filter) {
+                event.preventDefault();
+                filter.focus();
+                filter.select();
+            }
+        }
+    };
+
     return (
-        <div className="aws-pane">
-            <AwsServiceNav />
-            <div className="aws-main">
-                <ServiceView profile={p} active={active} />
-            </div>
+        <div className="aws-pane" onKeyDown={onKeyDown}>
+            <AwsServiceNav profile={auth.profile} signedIn={!signedOut} />
+            {signedOut ? <AwsAuthEmpty mode="unauthed" profile={auth.profile} /> : <ServiceView profile={auth.profile} active={active} />}
         </div>
     );
 }

@@ -5,7 +5,7 @@ import type { TerminalPane } from "../terminal/TerminalPane";
 import * as cmd from "../state/commands";
 import { getState, setState } from "../state/store";
 import { acpApi } from "../api/acp";
-import { Workspace } from "./Workspace";
+import { Workspace, WorkspaceTabs } from "./Workspace";
 import { agentIdsOf, agentWindowId } from "../state/selectors";
 import { withAgents } from "../test/agents";
 
@@ -28,6 +28,13 @@ vi.mock("../terminal/TerminalPane", () => ({
 }));
 
 const initial = getState();
+
+const Stage = () => (
+    <>
+        <WorkspaceTabs />
+        <Workspace />
+    </>
+);
 
 beforeEach(() => {
     vi.clearAllMocks();
@@ -66,22 +73,20 @@ function projectWithAgent(resumable = true): string {
 
 describe("workspace tab bars", () => {
     it("keeps the terminal tab bar and new-tab action visible with one terminal", () => {
-        const { container } = render(<Workspace />);
+        render(<Stage />);
 
         expect(screen.getByRole("tablist")).toBeInTheDocument();
         expect(screen.getByRole("button", { name: "New tab" })).toBeInTheDocument();
-        expect(container.querySelector(".window-area")).toHaveClass("window-area--strip");
     });
 
     it("keeps the agent tab bar and new-tab action visible with one agent", () => {
         projectWithAgent();
 
-        const { container } = render(<Workspace />);
+        render(<Stage />);
 
         expect(screen.getByRole("tablist")).toBeInTheDocument();
         const addTab = screen.getByRole("button", { name: "New tab" });
         expect(addTab).toBeInTheDocument();
-        expect(container.querySelector(".window-area")).toHaveClass("window-area--strip");
 
         fireEvent.click(addTab);
         expect(getState().newTabPaletteOpen).toBe(true);
@@ -89,29 +94,29 @@ describe("workspace tab bars", () => {
 
     it("names the strip the variant its see-through rule is written against", () => {
         projectWithAgent();
-        const { container } = render(<Workspace />);
+        render(<Stage />);
 
         // base.css strengthens `.tabbar.v-agent` when the window is transparent,
         // where the strip's rule is drawn on the wallpaper with no ground of its
         // own. Renaming the variant would drop that edge without failing a test.
-        expect(container.querySelector(".tabbar.v-agent")).toBeInTheDocument();
+        expect(document.querySelector(".tabbar.v-agent")).toBeInTheDocument();
     });
 
-    it("keeps the agent's tab in the strip once its browser takes focus", () => {
+    it("keeps the agent's tab in the strip once its desk takes focus", () => {
         projectWithAgent();
-        render(<Workspace />);
+        render(<Stage />);
         expect(screen.getByRole("tab", { name: /only agent/ })).toBeInTheDocument();
 
-        act(() => cmd.openBrowserPane("agent-only"));
+        act(() => cmd.openDesk("agent-only"));
 
-        // The browser is the focused pane now. Reading the agent off the focused
+        // The desk is the focused pane now. Reading the agent off the focused
         // pane finds nothing and drops the tab, stranding the agent.
         expect(screen.getByRole("tab", { name: /only agent/ })).toBeInTheDocument();
     });
 
     it("updates permission mode from the session composer", async () => {
         projectWithAgent(false);
-        render(<Workspace />);
+        render(<Stage />);
 
         const toggle = await screen.findByRole("button", { name: /safe/i });
         await waitFor(() => expect(toggle).not.toBeDisabled());
@@ -128,7 +133,7 @@ describe("workspace tab bars", () => {
 
     it("flips YOLO from the TUI view and relaunches the CLI", async () => {
         projectWithAgent(false);
-        render(<Workspace />);
+        render(<Stage />);
 
         await act(async () => {
             fireEvent.click(await screen.findByRole("button", { name: "TUI" }));
@@ -153,7 +158,7 @@ describe("workspace tab bars", () => {
 
     it("keeps the ACP session alive while its tab is hidden", async () => {
         const sessionId = projectWithAgent(false);
-        render(<Workspace />);
+        render(<Stage />);
         await waitFor(() => expect(acpApi.start).toHaveBeenCalledTimes(1));
         await act(async () => {
             setState((state) => ({
@@ -171,7 +176,7 @@ describe("workspace tab bars", () => {
 
     it("changes the harness in place before the first message and preserves the draft", async () => {
         const sessionId = projectWithAgent(false);
-        render(<Workspace />);
+        render(<Stage />);
         const editor = await screen.findByRole("textbox", { name: "Message agent" });
         await waitFor(() => expect(editor).toBeEnabled());
         fireEvent.change(editor, { target: { value: "Keep this draft" } });
@@ -194,7 +199,7 @@ describe("workspace tab bars", () => {
             agents: { ...state.agents, "agent-only": { ...state.agents["agent-only"], permissionMode: "bypass", skipPermissions: true } },
         }));
 
-        render(<Workspace />);
+        render(<Stage />);
 
         expect(await screen.findByRole("button", { name: /yolo/i })).toHaveAttribute("aria-pressed", "true");
     });
@@ -202,7 +207,7 @@ describe("workspace tab bars", () => {
     it("puts windows and agents in one tab strip", () => {
         projectWithAgent();
 
-        render(<Workspace />);
+        render(<Stage />);
 
         const tabs = screen.getAllByRole("tab").map((tab) => tab.textContent);
         expect(tabs).toContain("only agent");
@@ -211,7 +216,7 @@ describe("workspace tab bars", () => {
 
     it("switches from an agent tab to a window tab through the same strip", () => {
         projectWithAgent();
-        render(<Workspace />);
+        render(<Stage />);
 
         const sessionId = getState().activeSessionId;
         const windowId = getState().windowsBySession[sessionId][0];
@@ -238,16 +243,16 @@ describe("stage layers", () => {
         addAgentTo(sessionId);
         cmd.requestOpenFile("/repo/a.ts");
 
-        const { container } = render(<Workspace />);
+        render(<Stage />);
 
-        expect(container.querySelectorAll(".window-layer.live")).toHaveLength(1);
+        expect(document.querySelectorAll(".window-layer.live")).toHaveLength(1);
     });
 
     it("still renders the editor layer when it holds no document", () => {
         cmd.openEditorPane();
 
-        const { container } = render(<Workspace />);
+        render(<Stage />);
 
-        expect(container.querySelectorAll(".window-layer.live")).toHaveLength(1);
+        expect(document.querySelectorAll(".window-layer.live")).toHaveLength(1);
     });
 });

@@ -242,3 +242,19 @@ describe("SettingsPanel navigation", () => {
         expect(screen.getByRole("button", { name: "Check now" })).toBeInTheDocument();
     });
 });
+
+describe("SettingsPanel beside the rest of the window", () => {
+    it("leaves the sidebar next to it clickable", () => {
+        render(
+            <div>
+                <aside>
+                    <button type="button">Project</button>
+                </aside>
+                <main>
+                    <SettingsPanel />
+                </main>
+            </div>,
+        );
+        expect(screen.getByRole("button", { name: "Project" }).closest("[inert]")).toBeNull();
+    });
+});

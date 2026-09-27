@@ -14,22 +14,40 @@ struct FakeSikemux {
 /// Answers one harness frame the way the app's CLI broker does, and hands back
 /// the frame it was asked.
 fn fake_sikemux(answer: Value) -> FakeSikemux {
+    fake_app("test-token", answer)
+}
+
+fn fake_app(proving_token: &'static str, answer: Value) -> FakeSikemux {
     let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).expect("a loopback port");
     let port = listener.local_addr().expect("a bound address").port();
     let directory = tempfile::tempdir().expect("a temporary directory");
     let endpoint = directory.path().join("endpoint.json");
     std::fs::write(
         &endpoint,
-        json!({ "protocol": 1, "pid": 1, "port": port, "token": "test-token", "version": "test" })
+        json!({ "protocol": 2, "pid": 1, "port": port, "token": "test-token", "version": "test" })
             .to_string(),
     )
     .expect("the endpoint is written");
     let served = std::thread::spawn(move || {
         let (stream, _) = listener.accept().expect("a client");
+        let mut reader = BufReader::new(&stream);
+        let mut hello = String::new();
+        reader.read_line(&mut hello).expect("a hello frame");
+        let hello: Value = serde_json::from_str(&hello).expect("the hello is JSON");
+        assert_eq!(hello["command"], json!("hello"));
+        let proof = cli_auth::server_proof(
+            proving_token,
+            port,
+            hello["nonce"].as_str().expect("a nonce"),
+        );
+        (&stream)
+            .write_all(format!("{}\n", json!({ "status": "hello", "proof": proof })).as_bytes())
+            .expect("the proof is sent");
         let mut frame = String::new();
-        BufReader::new(&stream)
-            .read_line(&mut frame)
-            .expect("a request frame");
+        reader.read_line(&mut frame).expect("a request frame");
+        if frame.is_empty() {
+            return Value::Null;
+        }
         (&stream)
             .write_all(format!("{answer}\n").as_bytes())
             .expect("the answer is sent");
@@ -183,7 +201,7 @@ fn browser_tools_are_answered_by_sikemux_for_this_agent() {
     );
     let received = app.received();
     assert_eq!(received["token"], json!("test-token"));
-    assert_eq!(received["protocol"], json!(1));
+    assert_eq!(received["protocol"], json!(2));
     assert_eq!(received["command"], json!("harness"));
     assert_eq!(received["request"]["method"], json!("browser.navigate"));
     assert_eq!(
@@ -195,6 +213,19 @@ fn browser_tools_are_answered_by_sikemux_for_this_agent() {
     assert!(received["request"]["id"]
         .as_str()
         .is_some_and(|id| id.len() == 36));
+}
+
+#[test]
+fn a_program_that_cannot_prove_the_token_never_sees_the_request() {
+    let squatter = fake_app(
+        "some-other-token",
+        json!({ "status": "result", "value": 1 }),
+    );
+    assert!(squatter
+        .relay("browser.navigate", json!({ "url": "example.com" }))
+        .unwrap_err()
+        .contains("not Sikemux"));
+    assert_eq!(squatter.received(), Value::Null);
 }
 
 #[test]

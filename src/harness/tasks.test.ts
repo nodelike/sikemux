@@ -61,6 +61,15 @@ describe("managed harness tasks", () => {
         expect(tasks.get("/one", second.executionId).status).toBe("stopped");
         expect(() => tasks.get("/two", second.executionId)).toThrow("does not belong");
     });
+    it("stops the tasks a closed agent started and leaves other agents' running", async () => {
+        const { tasks, backend } = fixture();
+        const mine = await tasks.start(request, "mine", undefined, "agent-1");
+        const theirs = await tasks.start({ ...request, taskId: "test" }, "theirs", undefined, "agent-2");
+        tasks.closeAgent("agent-1");
+        await vi.waitFor(() => expect(tasks.get("/one", mine.executionId).status).toBe("stopped"));
+        expect(backend.stop).toHaveBeenCalledExactlyOnceWith(mine.ptyId);
+        expect(tasks.get("/one", theirs.executionId).status).toBe("running");
+    });
     it("preserves failure exit codes and produces output/lifecycle events", async () => {
         const { tasks, events, exits } = fixture();
         const cursor = events.cursor;

@@ -2222,13 +2222,19 @@ struct ClaudeTitles {
     custom: Option<String>,
     ai: Option<String>,
     first_user: Option<String>,
+    /// Text Claude Code wrote into the conversation itself, such as a message
+    /// relayed from another session. It names a session only when nothing was typed.
+    first_harness: Option<String>,
 }
 
 impl ClaudeTitles {
     /// `custom-title` is what `/rename` and the Claude desktop app write, so it
     /// outranks the title Claude generates for itself.
     fn resolve(self) -> Option<String> {
-        self.custom.or(self.ai).or(self.first_user)
+        self.custom
+            .or(self.ai)
+            .or(self.first_user)
+            .or(self.first_harness)
     }
 }
 
@@ -2260,11 +2266,16 @@ fn scan_claude_line(line: &str, titles: &mut ClaudeTitles) {
     if titles.first_user.is_none() && line.contains("\"type\":\"user\"") {
         if let Ok(v) = serde_json::from_str::<Value>(line) {
             if v.get("type").and_then(|t| t.as_str()) == Some("user") {
-                titles.first_user = v
+                let text = v
                     .get("message")
                     .and_then(|m| m.get("content"))
                     .and_then(text_from_content)
                     .and_then(|text| condense(&text));
+                if v.get("isMeta").and_then(Value::as_bool) == Some(true) {
+                    titles.first_harness = titles.first_harness.take().or(text);
+                } else {
+                    titles.first_user = text;
+                }
             }
         }
     }
@@ -4011,6 +4022,39 @@ mod executable_tests {
         assert_eq!(sessions.len(), 1);
         assert_eq!(sessions[0].id, "conversation");
         assert_eq!(sessions[0].title, "Fix top bar overlaps");
+    }
+
+    #[test]
+    fn claude_titles_skip_text_the_harness_wrote_before_the_first_prompt() {
+        let root = tempfile::tempdir().unwrap();
+        let sessions_dir = root.path().join("projects").join("-repo");
+        std::fs::create_dir_all(&sessions_dir).unwrap();
+        let skill = "{\"type\":\"user\",\"isMeta\":true,\"message\":{\"content\":\"Base directory for this skill: /skills/x\"}}\n";
+        std::fs::write(
+            sessions_dir.join("typed.jsonl"),
+            format!(
+                "{skill}{{\"type\":\"user\",\"message\":{{\"content\":\"Polish the rail\"}}}}\n"
+            ),
+        )
+        .unwrap();
+        std::fs::write(
+            sessions_dir.join("relayed.jsonl"),
+            "{\"type\":\"user\",\"isMeta\":true,\"message\":{\"content\":\"Another Claude session sent a message\"}}\n",
+        )
+        .unwrap();
+
+        let sessions = claude_sessions("/repo", root.path().to_str());
+        let title = |id: &str| {
+            sessions
+                .iter()
+                .find(|s| s.id == id)
+                .map(|s| s.title.as_str())
+        };
+        assert_eq!(title("typed"), Some("Polish the rail"));
+        assert_eq!(
+            title("relayed"),
+            Some("Another Claude session sent a message")
+        );
     }
 
     #[test]

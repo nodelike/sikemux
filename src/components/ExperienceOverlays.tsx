@@ -8,71 +8,36 @@ import { useStore } from "../state/store";
 import * as cmd from "../state/commands";
 import { agentDetectionApi, type ManifestReport } from "../api/agentDetection";
 import { selectedAgentRuntimeProfiles } from "../agentProfiles";
-import {
-    getKeybindingAction,
-    keybindingLabelForAction,
-    matchesKeybinding,
-    resolvedKeybinding,
-    type CoreKeybindingActionId,
-    type KeybindingActionId,
-    type KeybindingOverrides,
-} from "../keybindings";
-import { OnboardingStage, type OnboardingOverlay, type OnboardingRegion } from "./OnboardingStage";
-import { useShaderField } from "../hooks/useShaderField";
-import { Logo } from "./Icons";
-import type { AgentPresentationState } from "../state/types";
+import { keybindingLabelForAction, type CoreKeybindingActionId } from "../keybindings";
+import { AgentIcon, IconCommand, IconFolder, IconSearch, Logo } from "./Icons";
+import { Kbd } from "./Kbd";
+import { ShaderField } from "./ShaderField";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useOccludeNativeViews } from "../state/nativeViews";
 import { copyText } from "../lib/clipboard";
 
 interface IntegrationHealth {
-    shell: string;
     git: boolean;
-    aws: boolean;
-    rnd: boolean;
 }
 
-const ONBOARDING_STEPS = [
-    { kicker: "One cockpit", title: "Everything you ship, one signal away" },
-    { kicker: "Muscle memory", title: "Open anything without breaking flow" },
-    { kicker: "Agent signals", title: "Know when to watch, help, or move on" },
-    { kicker: "Launch ready", title: "Your first move is already mapped" },
-] as const;
-
-/** Scene one: each entry points the miniature at the region it describes. */
-const ONBOARDING_REGIONS = [
-    { id: "rail", label: "Sessions rail", detail: "Every project, host, and cloud you have open" },
-    { id: "stage", label: "Work stage", detail: "Terminals, editors, diffs, and requests in split panes" },
-    { id: "agents", label: "Agent rail", detail: "Coding agents parked beside the code they touch" },
-] as const satisfies readonly { id: OnboardingRegion; label: string; detail: string }[];
-
-/** Scene two: the bindings the tour asks you to actually press. */
-const ONBOARDING_KEYS = [
-    { id: "session.open", overlay: "sessions" },
-    { id: "palette.commands", overlay: "commands" },
-] as const satisfies readonly { id: KeybindingActionId; overlay: OnboardingOverlay }[];
-
-/** Scene three: the three states worth reacting to, in the order they usually happen. */
-const ONBOARDING_SIGNALS = [
-    { state: "working", label: "Working", detail: "Let it cook" },
-    { state: "blocked", label: "Needs input", detail: "Unblock it" },
-    { state: "done", label: "Ready", detail: "Review the result" },
-] as const satisfies readonly { state: AgentPresentationState; label: string; detail: string }[];
-
-/** Scene four: real first moves. Picking one ends the tour and runs the action. */
-const ONBOARDING_LAUNCHES = [
-    { id: "project.open", label: "Open a project", overlay: null, region: "rail", run: () => cmd.openPicker("projects") },
-    { id: "session.open", label: "Open any session", overlay: "sessions", region: null, run: () => cmd.openPicker("all") },
-    { id: "palette.commands", label: "Open the command deck", overlay: "commands", region: null, run: cmd.openCommandPalette },
+/** Real first moves. Picking one closes the welcome and runs the action. */
+const WELCOME_MOVES = [
+    {
+        id: "project.open",
+        label: "Open a project",
+        detail: "Pick a folder or repository to work in",
+        Icon: IconFolder,
+        run: () => cmd.openPicker("projects"),
+    },
+    { id: "ssh.open", label: "Connect to a host", detail: "Hosts from your SSH config", Icon: IconCommand, run: () => cmd.openPicker("ssh") },
+    { id: "palette.commands", label: "Browse commands", detail: "Every action and its shortcut", Icon: IconSearch, run: cmd.openCommandPalette },
 ] as const satisfies readonly {
     id: CoreKeybindingActionId;
     label: string;
-    overlay: OnboardingOverlay | null;
-    region: OnboardingRegion | null;
+    detail: string;
+    Icon: typeof IconFolder;
     run: () => void;
 }[];
-
-const SIGNAL_CYCLE_MS = 2400;
-const KEY_DEMO_MS = 4200;
 
 export function ExperienceBackdrop({
     label,
@@ -117,14 +82,6 @@ function Frame({ label, onClose, children }: { label: string; onClose: () => voi
     );
 }
 
-function pressedOnboardingKey(event: KeyboardEvent, overrides: KeybindingOverrides): KeybindingActionId | null {
-    for (const entry of ONBOARDING_KEYS) {
-        const binding = resolvedKeybinding(overrides, entry.id);
-        if (binding && matchesKeybinding(event, binding)) return entry.id;
-    }
-    return null;
-}
-
 export function Onboarding() {
     const open = useStore((s) => s.onboardingOpen);
     const overrides = useStore((s) => s.keybindingOverrides);
@@ -132,32 +89,20 @@ export function Onboarding() {
     const profileSelections = useStore((s) => s.selectedProviderProfileIds);
     const runtimeProfiles = useMemo(() => selectedAgentRuntimeProfiles(profiles, profileSelections), [profiles, profileSelections]);
     const catalog = useResourceEnabled(open, agentCatalogR, runtimeProfiles);
-    const [health, setHealth] = useState<IntegrationHealth | null>(null);
-    const [healthUnavailable, setHealthUnavailable] = useState(false);
-    const [step, setStep] = useState(0);
-    const [direction, setDirection] = useState<"forward" | "back">("forward");
-    const onboardingFieldRef = useShaderField<HTMLSpanElement>("onboarding", open);
-    const [region, setRegion] = useState<OnboardingRegion | null>(null);
-    const [tried, setTried] = useState<KeybindingActionId[]>([]);
-    const [demo, setDemo] = useState<KeybindingActionId | null>(null);
-    const [signal, setSignal] = useState<AgentPresentationState>("working");
-    const [signalPinned, setSignalPinned] = useState(false);
-    const [launch, setLaunch] = useState<number | null>(null);
+    const [gitMissing, setGitMissing] = useState(false);
     const dialogRef = useRef<HTMLElement>(null);
+    const movesRef = useRef<HTMLDivElement>(null);
     const returnFocusRef = useRef<HTMLElement | null>(null);
 
     useEffect(() => {
         if (!open) return;
         let disposed = false;
-        setHealth(null);
-        setHealthUnavailable(false);
+        setGitMissing(false);
         void invoke<IntegrationHealth>("integration_health")
             .then((value) => {
-                if (!disposed) setHealth(value);
+                if (!disposed) setGitMissing(!value.git);
             })
-            .catch(() => {
-                if (!disposed) setHealthUnavailable(true);
-            });
+            .catch(() => {});
         return () => {
             disposed = true;
         };
@@ -166,83 +111,16 @@ export function Onboarding() {
     useEffect(() => {
         if (!open) return;
         returnFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-        setStep(0);
-        setDirection("forward");
-        setTried([]);
+        const frame = window.requestAnimationFrame(() => movesRef.current?.querySelector<HTMLElement>("button")?.focus());
         return () => {
+            window.cancelAnimationFrame(frame);
             returnFocusRef.current?.focus();
         };
     }, [open]);
 
-    useEffect(() => {
-        if (!open) return;
-        const frame = window.requestAnimationFrame(() => dialogRef.current?.focus());
-        return () => window.cancelAnimationFrame(frame);
-    }, [open]);
-
-    // Each scene starts from a clean pointer so the miniature never carries a
-    // highlight that the new copy does not explain.
-    useEffect(() => {
-        setRegion(null);
-        setDemo(null);
-        setLaunch(null);
-        setSignal("working");
-        setSignalPinned(false);
-    }, [step]);
-
-    // Scene three narrates the rail by running it: the states advance on their
-    // own until the reader takes over by pointing at one.
-    useEffect(() => {
-        if (!open || step !== 2 || signalPinned) return;
-        const timer = window.setInterval(() => {
-            setSignal((current) => {
-                const index = ONBOARDING_SIGNALS.findIndex((entry) => entry.state === current);
-                return ONBOARDING_SIGNALS[(index + 1) % ONBOARDING_SIGNALS.length].state;
-            });
-        }, SIGNAL_CYCLE_MS);
-        return () => window.clearInterval(timer);
-    }, [open, step, signalPinned]);
-
-    // The demo overlay is a preview, not a mode — it always retracts by itself.
-    useEffect(() => {
-        if (!demo) return;
-        const timer = window.setTimeout(() => setDemo(null), KEY_DEMO_MS);
-        return () => window.clearTimeout(timer);
-    }, [demo]);
-
-    const tryKey = (id: KeybindingActionId) => {
-        setDemo(id);
-        setTried((current) => (current.includes(id) ? current : [...current, id]));
-    };
-
-    // Scene two only works if the real binding does something here. The keymap
-    // suppresses every action while onboarding is open, so the tour is free to
-    // claim these presses.
-    useEffect(() => {
-        if (!open || step !== 1) return;
-        const onKey = (event: KeyboardEvent) => {
-            const id = pressedOnboardingKey(event, overrides);
-            if (!id) return;
-            event.preventDefault();
-            tryKey(id);
-        };
-        window.addEventListener("keydown", onKey);
-        return () => window.removeEventListener("keydown", onKey);
-    }, [open, step, overrides]);
-
     if (!open) return null;
 
-    const goTo = (next: number) => {
-        const bounded = Math.max(0, Math.min(ONBOARDING_STEPS.length - 1, next));
-        if (bounded === step) return;
-        setDirection(bounded < step ? "back" : "forward");
-        setStep(bounded);
-    };
-    const next = () => {
-        if (step === ONBOARDING_STEPS.length - 1) cmd.closeOnboarding();
-        else goTo(step + 1);
-    };
-    const runLaunch = (run: () => void) => {
+    const runMove = (run: () => void) => {
         cmd.closeOnboarding();
         run();
     };
@@ -253,268 +131,102 @@ export function Onboarding() {
             cmd.closeOnboarding();
             return;
         }
-        if (event.key === "ArrowRight") {
+        if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+            const moves = [...(movesRef.current?.querySelectorAll<HTMLElement>("button") ?? [])];
+            const index = moves.indexOf(document.activeElement as HTMLElement);
+            if (index === -1) return;
             event.preventDefault();
-            next();
-            return;
-        }
-        if (event.key === "ArrowLeft") {
-            event.preventDefault();
-            goTo(step - 1);
+            moves[(index + (event.key === "ArrowDown" ? 1 : moves.length - 1)) % moves.length].focus();
             return;
         }
         if (event.key !== "Tab") return;
-        const focusable = [
-            ...(dialogRef.current?.querySelectorAll<HTMLElement>("button:not([disabled]), [href], [tabindex]:not([tabindex='-1'])") ?? []),
-        ];
-        if (focusable.length === 0) {
-            event.preventDefault();
-            dialogRef.current?.focus();
-            return;
-        }
+        const focusable = [...(dialogRef.current?.querySelectorAll<HTMLElement>("button:not([disabled])") ?? [])];
         const first = focusable[0];
-        const last = focusable.at(-1)!;
+        const last = focusable.at(-1);
+        if (!first || !last) return;
         const active = document.activeElement;
         if (event.shiftKey && (active === first || active === dialogRef.current)) {
             event.preventDefault();
             last.focus();
-        } else if (!event.shiftKey && active === last) {
-            event.preventDefault();
-            first.focus();
-        } else if (!event.shiftKey && active === dialogRef.current) {
+        } else if (!event.shiftKey && (active === last || active === dialogRef.current)) {
             event.preventDefault();
             first.focus();
         }
     };
-    const shortcut = (id: CoreKeybindingActionId) => ({
-        action: getKeybindingAction(id),
-        label: keybindingLabelForAction(overrides, id),
-    });
-    const detectedAgents = catalog.data?.filter((agent) => agent.available !== false).map((agent) => agent.label) ?? [];
-    const healthSignals = health
-        ? [
-              { label: `shell ${health.shell || "unknown"}`, ready: !!health.shell },
-              { label: "git", ready: health.git },
-              { label: "aws", ready: health.aws },
-              { label: "rundeck", ready: health.rnd },
-          ]
-        : [];
-    const commandRows = (["pane.splitRow", "pane.zoom", "settings.toggle"] as const).map((id) => ({
-        label: getKeybindingAction(id).label,
-        kbd: keybindingLabelForAction(overrides, id),
-    }));
-    const hoveredLaunch = launch === null ? null : ONBOARDING_LAUNCHES[launch];
-    const stageRegion = step === 0 ? region : step === 2 ? "agents" : (hoveredLaunch?.region ?? null);
-    const stageOverlay = step === 1 ? (ONBOARDING_KEYS.find((entry) => entry.id === demo)?.overlay ?? null) : (hoveredLaunch?.overlay ?? null);
+    const agents = [...(catalog.data ?? [])].sort((a, b) => Number(b.available !== false) - Number(a.available !== false));
+    const dragWindow = (event: React.MouseEvent<HTMLElement>) => {
+        if (event.button !== 0 || event.target !== event.currentTarget) return;
+        event.preventDefault();
+        void getCurrentWindow()
+            .startDragging()
+            .catch(() => {});
+    };
 
     return (
-        <div className="experience-backdrop onboarding-backdrop" role="presentation">
-            <section
-                ref={dialogRef}
-                className="experience-frame onboarding-frame"
-                role="dialog"
-                aria-modal="true"
-                aria-labelledby="onboarding-title"
-                aria-describedby="onboarding-description"
-                tabIndex={-1}
-                onKeyDown={onKeyDown}>
-                <span className="onb-field" aria-hidden="true" ref={onboardingFieldRef} />
-                <header className="onboarding-header">
-                    <div>
-                        <Logo size={13} className="onboarding-mark" />
-                        <span className="experience-kicker">Sikemux · first run</span>
-                        <span className="onboarding-step-count">
-                            {String(step + 1).padStart(2, "0")} / {String(ONBOARDING_STEPS.length).padStart(2, "0")}
-                        </span>
-                    </div>
-                    <button className="onboarding-skip" onClick={() => cmd.closeOnboarding()} aria-label="Skip onboarding tour">
-                        Skip tour <span aria-hidden="true">esc</span>
-                    </button>
-                </header>
+        <section
+            ref={dialogRef}
+            className="welcome"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="welcome-title"
+            aria-describedby="welcome-description"
+            tabIndex={-1}
+            onKeyDown={onKeyDown}
+            onMouseDown={dragWindow}>
+            <ShaderField preset="release" className="welcome-sky" />
+            <div className="welcome-body" onMouseDown={dragWindow}>
+                <Logo size={64} className="welcome-mark" />
+                <h1 id="welcome-title">
+                    Welcome to <span>Sikemux</span>
+                </h1>
+                <p id="welcome-description" className="welcome-lede">
+                    Projects, terminals and coding agents in one keyboard-first window.
+                </p>
 
-                <div className="onboarding-progress" aria-label={`Onboarding step ${step + 1} of ${ONBOARDING_STEPS.length}`}>
-                    {ONBOARDING_STEPS.map((item, index) => (
-                        <button
-                            key={item.kicker}
-                            className={index === step ? "is-current" : index < step ? "is-complete" : ""}
-                            onClick={() => goTo(index)}
-                            aria-label={`Go to step ${index + 1}: ${item.kicker}`}
-                            aria-current={index === step ? "step" : undefined}>
-                            <span />
+                <div className="welcome-moves" ref={movesRef}>
+                    {WELCOME_MOVES.map(({ id, label, detail, Icon, run }) => (
+                        <button key={id} type="button" onClick={() => runMove(run)}>
+                            <Icon size={16} />
+                            <span>
+                                <b>{label}</b>
+                                <small>{detail}</small>
+                            </span>
+                            <Kbd>{keybindingLabelForAction(overrides, id)}</Kbd>
                         </button>
                     ))}
                 </div>
 
-                <div className="onboarding-scene">
-                    <div key={step} className="onboarding-copy" data-direction={direction}>
-                        <span className="experience-kicker">{ONBOARDING_STEPS[step].kicker}</span>
-                        <h1 id="onboarding-title">{ONBOARDING_STEPS[step].title}</h1>
-
-                        {step === 0 && (
-                            <>
-                                <p id="onboarding-description">
-                                    Projects, terminals, cloud consoles, API work, and coding agents share one keyboard-first window. Point at a
-                                    region to find it.
-                                </p>
-                                <div className="onboarding-regions" onMouseLeave={() => setRegion(null)}>
-                                    {ONBOARDING_REGIONS.map((item) => (
-                                        <button
-                                            key={item.id}
-                                            type="button"
-                                            className={region === item.id ? "is-on" : ""}
-                                            onMouseEnter={() => setRegion(item.id)}
-                                            onFocus={() => setRegion(item.id)}
-                                            onBlur={() => setRegion((current) => (current === item.id ? null : current))}
-                                            onClick={() => setRegion(item.id)}>
-                                            <b>{item.label}</b>
-                                            <small>{item.detail}</small>
-                                        </button>
-                                    ))}
-                                </div>
-                            </>
-                        )}
-
-                        {step === 1 && (
-                            <>
-                                <p id="onboarding-description">
-                                    Two bindings carry most of the navigation. Press them now — the tour is listening, and nothing behind it will
-                                    move.
-                                </p>
-                                <div className="onboarding-keys">
-                                    {ONBOARDING_KEYS.map((entry) => {
-                                        const { action, label } = shortcut(entry.id);
-                                        const done = tried.includes(entry.id);
-                                        return (
-                                            <button
-                                                key={entry.id}
-                                                type="button"
-                                                className={`onboarding-key${done ? " is-done" : ""}${demo === entry.id ? " is-live" : ""}`}
-                                                onClick={() => tryKey(entry.id)}>
-                                                <kbd>{label}</kbd>
-                                                <span>
-                                                    <b>{action.label}</b>
-                                                    <small>{action.detail}</small>
-                                                </span>
-                                                <em>{done ? "✓ tried" : "press it"}</em>
-                                            </button>
-                                        );
-                                    })}
-                                </div>
-                                <p className="onboarding-aside" aria-live="polite">
-                                    {tried.length === ONBOARDING_KEYS.length
-                                        ? "That is the whole navigation model. Every binding is remappable in Settings › Keybindings."
-                                        : "Prefer the mouse? Click a card to watch the same thing happen."}
-                                </p>
-                            </>
-                        )}
-
-                        {step === 2 && (
-                            <>
-                                <p id="onboarding-description">
-                                    The agent rail stays quiet until something needs you. Colour tells you what kind of attention to give.
-                                </p>
-                                <div className="onboarding-signals">
-                                    {ONBOARDING_SIGNALS.map((item) => (
-                                        <button
-                                            key={item.state}
-                                            type="button"
-                                            className={`state-${item.state}${signal === item.state ? " is-on" : ""}`}
-                                            onMouseEnter={() => {
-                                                setSignal(item.state);
-                                                setSignalPinned(true);
-                                            }}
-                                            onFocus={() => {
-                                                setSignal(item.state);
-                                                setSignalPinned(true);
-                                            }}
-                                            onClick={() => {
-                                                setSignal(item.state);
-                                                setSignalPinned(true);
-                                            }}>
-                                            <i />
-                                            <b>{item.label}</b>
-                                            <span>{item.detail}</span>
-                                        </button>
-                                    ))}
-                                </div>
-                                <div className="onboarding-detected">
-                                    <span>Detected here</span>
-                                    <b>
-                                        {catalog.status === "loading"
-                                            ? "Checking PATH…"
-                                            : detectedAgents.length
-                                              ? detectedAgents.join(" · ")
-                                              : "Add a supported agent whenever you’re ready"}
-                                    </b>
-                                </div>
-                            </>
-                        )}
-
-                        {step === 3 && (
-                            <>
-                                <p id="onboarding-description">
-                                    Pick a first move and the tour gets out of the way. Replay it any time from the command deck or Settings.
-                                </p>
-                                <div className="onboarding-launch" onMouseLeave={() => setLaunch(null)}>
-                                    {ONBOARDING_LAUNCHES.map((item, index) => (
-                                        <button
-                                            key={item.label}
-                                            type="button"
-                                            className={launch === index ? "is-on" : ""}
-                                            onMouseEnter={() => setLaunch(index)}
-                                            onFocus={() => setLaunch(index)}
-                                            onBlur={() => setLaunch((current) => (current === index ? null : current))}
-                                            onClick={() => runLaunch(item.run)}>
-                                            <b>{item.label}</b>
-                                            <kbd>{keybindingLabelForAction(overrides, item.id)}</kbd>
-                                        </button>
-                                    ))}
-                                </div>
-                                <div className="onboarding-health" aria-live="polite">
-                                    {healthSignals.length ? (
-                                        healthSignals.map((item) => (
-                                            <span key={item.label} className={item.ready ? "is-ready" : "is-muted"}>
-                                                {item.label} {item.ready ? "ready" : "missing"}
-                                            </span>
-                                        ))
-                                    ) : (
-                                        <span className={healthUnavailable ? "is-muted" : "is-checking"}>
-                                            {healthUnavailable ? "Local tool check unavailable — setup can continue" : "Checking local tools…"}
-                                        </span>
-                                    )}
-                                </div>
-                            </>
-                        )}
-                    </div>
-
-                    <OnboardingStage
-                        scene={step}
-                        region={stageRegion}
-                        overlay={stageOverlay}
-                        agentState={step === 2 ? signal : step === 3 ? "done" : "working"}
-                        commandRows={commandRows}
-                    />
+                <div className="welcome-found" aria-live="polite">
+                    <span className="welcome-label">Agents on this machine</span>
+                    {catalog.status === "loading" && agents.length === 0 ? (
+                        <p className="welcome-muted">Looking on your PATH…</p>
+                    ) : agents.length === 0 ? (
+                        <p className="welcome-muted">None found. Install Claude Code, Codex or another supported CLI.</p>
+                    ) : (
+                        <ul className="welcome-agents">
+                            {agents.map((agent) => (
+                                <li
+                                    key={agent.profileId ?? agent.type}
+                                    className={agent.available === false ? "is-missing" : ""}
+                                    title={agent.available === false ? `${agent.command} is not installed` : agent.command}>
+                                    <span className={`agent-glyph ${agent.type}`}>
+                                        <AgentIcon type={agent.type} size={18} />
+                                    </span>
+                                    <span>{agent.label}</span>
+                                </li>
+                            ))}
+                        </ul>
+                    )}
                 </div>
+            </div>
 
-                <span className="onboarding-sr-only" role="status" aria-live="polite">
-                    Step {step + 1} of {ONBOARDING_STEPS.length}: {ONBOARDING_STEPS[step].title}
-                </span>
-
-                <footer className="onboarding-footer">
-                    <span className="onboarding-key-hint">
-                        <kbd>←</kbd>
-                        <kbd>→</kbd> to move between steps
-                    </span>
-                    <div>
-                        {step > 0 && <button onClick={() => goTo(step - 1)}>Back</button>}
-                        <button className="primary" onClick={next}>
-                            {step === ONBOARDING_STEPS.length - 1 ? "Enter Sikemux" : "Continue"}
-                            <span aria-hidden="true"> {step === ONBOARDING_STEPS.length - 1 ? "↵" : "→"}</span>
-                        </button>
-                    </div>
-                </footer>
-            </section>
-        </div>
+            <footer className="welcome-foot" onMouseDown={dragWindow}>
+                {gitMissing && <span className="welcome-warn">git not found: the Git view needs it</span>}
+                <button type="button" onClick={() => cmd.closeOnboarding()} aria-label="Close welcome">
+                    <Kbd>esc</Kbd> skip
+                </button>
+            </footer>
+        </section>
     );
 }
 

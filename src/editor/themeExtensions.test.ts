@@ -30,19 +30,21 @@ function gutterBackground(theme: Theme): string {
 }
 
 describe("the editor gutter", () => {
-    it("is solid, so code scrolled sideways goes behind the line numbers", () => {
-        const theme = themeById("aura");
-        const background = gutterBackground(theme);
-
-        expect(background).not.toBe("");
-        expect(background).not.toBe("transparent");
+    it("paints no ground, so the window shows through behind the line numbers", () => {
+        expect(gutterBackground(themeById("aura"))).toBe("transparent");
     });
 
-    it("falls back to the chrome colour when the editor itself is transparent", () => {
-        const aura = themeById("aura");
-        const glassy: Theme = { ...aura, editor: { ...aura.editor, bg: "transparent" } };
+    it("cuts code scrolled sideways off at the gutter's edge", () => {
+        gutterBackground(themeById("aura"));
+        const scroller = view!.scrollDOM;
+        Object.defineProperty(scroller, "scrollLeft", { configurable: true, value: 40 });
+        scroller.dispatchEvent(new Event("scroll"));
 
-        expect(gutterBackground(glassy)).not.toBe("transparent");
-        expect(gutterBackground(glassy)).not.toBe("");
+        expect(view!.contentDOM.style.clipPath).toContain("polygon(40px 0");
+
+        Object.defineProperty(scroller, "scrollLeft", { configurable: true, value: 0 });
+        scroller.dispatchEvent(new Event("scroll"));
+
+        expect(view!.contentDOM.style.clipPath).toBe("");
     });
 });

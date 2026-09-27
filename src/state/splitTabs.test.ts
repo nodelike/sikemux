@@ -1,0 +1,331 @@
+import { describe, expect, it } from "vitest";
+import { openGitWorkbench, separatePane, splitWithTab, unsplitTab } from "./commands";
+import { collectPanes } from "./layout";
+import { editorPaneOf, expandTabRefs, paneToSeparate, tabRefKey, tabSplitAllowed } from "./selectors";
+import { getState, setState } from "./store";
+import type { LayoutNode, Window } from "./types";
+
+const initial = getState();
+const pane = (id: string, kind: "terminal" | "agent" | "git" | "search" | "editor" = "terminal"): LayoutNode => ({
+    type: "pane",
+    id,
+    cwd: "/p",
+    kind,
+    title: id,
+});
+const win = (id: string, role: Window["role"], root: LayoutNode, extra: Partial<Window> = {}): Window => ({
+    id,
+    name: id,
+    role,
+    root,
+    activePaneId: collectPanes(root)[0].id,
+    ...extra,
+});
+
+function place(showing: string, ...windows: Window[]): void {
+    setState(initial, true);
+    const session = getState().sessions[getState().activeSessionId];
+    setState({
+        windows: Object.fromEntries(windows.map((w) => [w.id, w])),
+        windowsBySession: { [session.id]: windows.map((w) => w.id) },
+        sessions: { [session.id]: { ...session, kind: "project", cwd: "/p", activeWindowId: showing } },
+        agents: {},
+    });
+}
+
+const sessionId = () => getState().activeSessionId;
+const shown = () => getState().windows[getState().sessions[sessionId()].activeWindowId];
+const tabs = () => getState().windowsBySession[sessionId()];
+
+describe("splitting two tabs into one", () => {
+    it("puts the dragged terminal on the side it was dropped, both still running", () => {
+        place("one", win("one", "term", pane("p1")), win("two", "term", pane("p2")));
+
+        splitWithTab(sessionId(), { id: "two" }, "left");
+
+        expect(tabs()).toEqual(["one"]);
+        expect(shown().root).toMatchObject({ type: "split", dir: "row", sizes: [0.5, 0.5], children: [{ id: "p2" }, { id: "p1" }] });
+        expect(shown().activePaneId).toBe("p2");
+    });
+
+    it("keeps an agent's tab, so the agent is still found by it", () => {
+        place("term", win("term", "term", pane("p1")), win("agent", "agent", pane("a1", "agent")));
+
+        splitWithTab(sessionId(), { id: "agent" }, "right");
+
+        expect(tabs()).toEqual(["agent"]);
+        expect(shown()).toMatchObject({ id: "agent", role: "agent" });
+        expect(collectPanes(shown().root).map((p) => p.id)).toEqual(["p1", "a1"]);
+    });
+
+    it("refuses two agents, the diff, pinned tabs and a tab onto itself", () => {
+        place("a", win("a", "agent", pane("a1", "agent")), win("b", "agent", pane("b1", "agent")), win("diff", "diff", pane("d")));
+        expect(tabSplitAllowed(getState(), sessionId(), { id: "b" })).toBe(false);
+        expect(tabSplitAllowed(getState(), sessionId(), { id: "diff" })).toBe(false);
+        expect(tabSplitAllowed(getState(), sessionId(), { id: "a" })).toBe(false);
+
+        place("one", win("one", "term", pane("p1")), win("pinned", "term", pane("p2"), { fixed: true }));
+        expect(tabSplitAllowed(getState(), sessionId(), { id: "pinned" })).toBe(false);
+
+        splitWithTab(sessionId(), { id: "pinned" }, "left");
+        expect(tabs()).toEqual(["one", "pinned"]);
+    });
+
+    it("leaves a tab alone once it is two stacked, and keeps a split tab from being dragged in", () => {
+        const stacked: LayoutNode = { type: "split", id: "s", dir: "column", children: [pane("p1"), pane("p2")], sizes: [0.5, 0.5] };
+        place("one", win("one", "term", stacked), win("two", "named", pane("p3")));
+        expect(tabSplitAllowed(getState(), sessionId(), { id: "two" })).toBe(false);
+
+        place("one", win("one", "term", pane("p1")), win("two", "term", stacked));
+        expect(tabSplitAllowed(getState(), sessionId(), { id: "two" })).toBe(false);
+    });
+});
+
+describe("splitting in every direction", () => {
+    it("stacks a tab above or below the one on screen", () => {
+        place("one", win("one", "term", pane("p1")), win("two", "term", pane("p2")));
+
+        splitWithTab(sessionId(), { id: "two" }, "bottom");
+
+        expect(shown().root).toMatchObject({ type: "split", dir: "column", children: [{ id: "p1" }, { id: "p2" }] });
+    });
+
+    it("fits three across, in the order they were dropped, sharing the space evenly", () => {
+        place(
+            "one",
+            win("one", "term", pane("p1")),
+            win("two", "term", pane("p2")),
+            win("three", "term", pane("p3")),
+            win("four", "term", pane("p4")),
+        );
+
+        splitWithTab(sessionId(), { id: "two" }, "right", "p1");
+        splitWithTab(sessionId(), { id: "three" }, "left", "p2");
+
+        expect(tabs()).toEqual(["one", "four"]);
+        expect(shown().root).toMatchObject({ dir: "row", children: [{ id: "p1" }, { id: "p3" }, { id: "p2" }] });
+        const root = shown().root;
+        const sizes = root.type === "split" ? root.sizes : [];
+        expect(sizes.map((size) => size.toFixed(3))).toEqual(["0.333", "0.333", "0.333"]);
+        expect(tabSplitAllowed(getState(), sessionId(), { id: "four" })).toBe(false);
+    });
+
+    it("stacks only two, and a row takes no pane above or below", () => {
+        place("one", win("one", "term", pane("p1")), win("two", "term", pane("p2")), win("three", "term", pane("p3")));
+        splitWithTab(sessionId(), { id: "two" }, "right", "p1");
+
+        splitWithTab(sessionId(), { id: "three" }, "bottom", "p1");
+
+        expect(tabs()).toEqual(["one", "three"]);
+        expect(shown().root).toMatchObject({ dir: "row", children: [{ id: "p1" }, { id: "p2" }] });
+    });
+
+    it("splits beside the whole tab when the pane named is not in it", () => {
+        place("one", win("one", "term", pane("p1")), win("two", "term", pane("p2")));
+
+        splitWithTab(sessionId(), { id: "two" }, "left", "somewhere-else");
+
+        expect(shown().root).toMatchObject({ dir: "row", children: [{ id: "p2" }, { id: "p1" }] });
+    });
+});
+
+describe("moving a terminal back to its own tab", () => {
+    it("puts a terminal back where its tab was, under its old name", () => {
+        place("one", win("one", "term", pane("p1")), win("two", "named", pane("p2")), win("three", "term", pane("p3")));
+        splitWithTab(sessionId(), { id: "two" }, "right");
+        expect(tabs()).toEqual(["one", "three"]);
+
+        separatePane("one", "p2");
+
+        expect(tabs()).toEqual(["one", "two", "three"]);
+        expect(getState().windows.two).toMatchObject({ name: "two", role: "named", root: { id: "p2" }, activePaneId: "p2" });
+        expect(getState().windows.one.root).toMatchObject({ id: "p1" });
+        expect(shown().id).toBe("two");
+    });
+
+    it("gives a terminal its own tab back from an agent's tab too", () => {
+        place("one", win("one", "term", pane("p1")), win("agent", "agent", pane("a1", "agent")));
+        splitWithTab(sessionId(), { id: "agent" }, "left");
+        expect(tabs()).toEqual(["agent"]);
+
+        separatePane("agent", "p1");
+
+        expect(tabs()).toEqual(["one", "agent"]);
+        expect(getState().windows.agent.root).toMatchObject({ id: "a1" });
+    });
+
+    it("moves the focused pane out when none is named, just after a tab it never had", () => {
+        const split: LayoutNode = { type: "split", id: "s", dir: "row", children: [pane("p1"), pane("p2")], sizes: [0.5, 0.5] };
+        place("one", win("one", "term", split, { activePaneId: "p2" }), win("other", "term", pane("p3")));
+
+        separatePane("one");
+
+        const ids = tabs();
+        expect(ids[0]).toBe("one");
+        expect(getState().windows[ids[1]]).toMatchObject({ role: "term", root: { id: "p2" } });
+        expect(ids[2]).toBe("other");
+    });
+
+    it("takes an agent's split tab apart, everything back where it came from", () => {
+        place("one", win("one", "term", pane("p1")), win("agent", "agent", pane("a1", "agent")), win("two", "term", pane("p2")));
+        setState((state) => ({ sessions: { ...state.sessions, [sessionId()]: { ...state.sessions[sessionId()], activeWindowId: "agent" } } }));
+        splitWithTab(sessionId(), { id: "one" }, "left");
+        splitWithTab(sessionId(), { id: "two" }, "right", "a1");
+        expect(tabs()).toEqual(["agent"]);
+
+        unsplitTab("agent");
+
+        expect(tabs()).toEqual(["one", "agent", "two"]);
+        expect(getState().windows.agent.root).toMatchObject({ type: "pane", id: "a1" });
+        expect(shown().id).toBe("agent");
+    });
+
+    it("never offers an agent or a tab with nothing split", () => {
+        const agentTab = win("agent", "agent", {
+            type: "split",
+            id: "s",
+            dir: "row",
+            children: [pane("p1"), pane("a1", "agent")],
+            sizes: [0.5, 0.5],
+        });
+        expect(paneToSeparate({ ...agentTab, activePaneId: "a1" }, { dirtyEditorPaths: {}, editorViews: {} })).toBeNull();
+        expect(paneToSeparate({ ...agentTab, activePaneId: "p1" }, { dirtyEditorPaths: {}, editorViews: {} })?.id).toBe("p1");
+        expect(paneToSeparate(win("one", "term", pane("p1")), { dirtyEditorPaths: {}, editorViews: {} })).toBeNull();
+    });
+});
+
+describe("splitting a file beside the tab on screen", () => {
+    function editorWith(...paths: string[]): Window {
+        const editor = win("files", "files", pane("ed", "editor"));
+        setState({ editorViews: { ed: { openTabs: paths, activePath: paths[0] } } });
+        return editor;
+    }
+
+    it("moves the file out of the editor into a pane of its own beside the agent", () => {
+        place("agent", win("agent", "agent", pane("a1", "agent")), win("files", "files", pane("ed", "editor")));
+        editorWith("/p/a.ts", "/p/b.ts");
+
+        splitWithTab(sessionId(), { id: "files", doc: "/p/a.ts" }, "right");
+
+        expect(tabs()).toEqual(["agent", "files"]);
+        const [agentPane, filePane] = collectPanes(shown().root);
+        expect(agentPane.id).toBe("a1");
+        expect(filePane).toMatchObject({ kind: "editor" });
+        expect(getState().editorViews[filePane.id]).toEqual({ openTabs: ["/p/a.ts"], activePath: "/p/a.ts", single: true });
+        expect(shown().activePaneId).toBe(filePane.id);
+    });
+
+    it("keeps a file with unsaved changes in its editor", () => {
+        place("term", win("term", "term", pane("p1")), win("files", "files", pane("ed", "editor")));
+        editorWith("/p/a.ts");
+        setState({ dirtyEditorPaths: { ed: ["/p/a.ts"] } });
+
+        expect(tabSplitAllowed(getState(), sessionId(), { id: "files", doc: "/p/a.ts" })).toBe(false);
+    });
+
+    it("sends the file back to the editor when it is moved out", () => {
+        place("term", win("term", "term", pane("p1")), win("files", "files", pane("ed", "editor")));
+        editorWith("/p/a.ts", "/p/b.ts");
+        splitWithTab(sessionId(), { id: "files", doc: "/p/a.ts" }, "left");
+        const filePane = collectPanes(shown().root)[0];
+
+        separatePane("term");
+
+        expect(getState().windows.term.root).toMatchObject({ id: "p1" });
+        expect(getState().editorViews[filePane.id]).toBeUndefined();
+        expect(shown().id).toBe("files");
+    });
+});
+
+describe("splitting Git and search", () => {
+    it("puts Git beside an agent, and its rail button still finds it there", () => {
+        place("agent", win("agent", "agent", pane("a1", "agent")), win("git", "git", pane("g1", "git")), win("t", "term", pane("p1")));
+
+        splitWithTab(sessionId(), { id: "git" }, "right");
+        expect(tabs()).toEqual(["agent", "t"]);
+
+        setState((state) => ({ sessions: { ...state.sessions, [sessionId()]: { ...state.sessions[sessionId()], activeWindowId: "t" } } }));
+        openGitWorkbench();
+
+        expect(tabs()).toEqual(["agent", "t"]);
+        expect(shown().id).toBe("agent");
+        expect(shown().activePaneId).toBe("g1");
+    });
+
+    it("gives Git its own tab back, as a Git tab", () => {
+        place("agent", win("agent", "agent", pane("a1", "agent")), win("git", "git", pane("g1", "git")));
+        splitWithTab(sessionId(), { id: "git" }, "right");
+
+        separatePane("agent", "g1");
+
+        expect(tabs()).toEqual(["agent", "git"]);
+        expect(getState().windows.git).toMatchObject({ role: "git", root: { id: "g1" } });
+    });
+
+    it("turns a search tab left holding a terminal into a terminal tab", () => {
+        place("search", win("search", "search", pane("s1", "search")), win("t", "term", pane("p1")));
+        splitWithTab(sessionId(), { id: "t" }, "right");
+
+        separatePane("search", "s1");
+
+        const remaining = getState().windows.search;
+        expect(remaining).toMatchObject({ role: "term", root: { id: "p1" } });
+        expect(getState().windows[tabs()[1]]).toMatchObject({ role: "search", root: { id: "s1" } });
+    });
+});
+
+describe("an editor split in without being marked a single view", () => {
+    it("still moves back out of an agent's tab, with every file it held", () => {
+        const layout: LayoutNode = { type: "split", id: "s", dir: "row", children: [pane("a1", "agent"), pane("ed2", "editor")], sizes: [0.5, 0.5] };
+        place("agent", win("agent", "agent", layout), win("files", "files", pane("ed", "editor")));
+        setState({ editorViews: { ed: { openTabs: [], activePath: null }, ed2: { openTabs: ["/p/a.ts", "/p/b.ts"], activePath: "/p/a.ts" } } });
+
+        expect(paneToSeparate(shown(), getState(), "ed2")?.id).toBe("ed2");
+        unsplitTab("agent");
+
+        expect(getState().windows.agent.root).toMatchObject({ type: "pane", id: "a1" });
+        expect(getState().editorViews.ed2).toBeUndefined();
+    });
+});
+
+describe("the same file twice in the editor", () => {
+    function editorTab(...paths: string[]): void {
+        place("files", win("files", "files", pane("ed", "editor")));
+        setState({ editorViews: { ed: { openTabs: paths, activePath: paths[0] } } });
+    }
+
+    it("opens a second view of a file beside it, and the editor keeps it open", () => {
+        editorTab("/p/a.ts", "/p/b.ts");
+
+        splitWithTab(sessionId(), { id: "files", doc: "/p/a.ts" }, "right");
+
+        expect(tabs()).toEqual(["files"]);
+        const [main, view] = collectPanes(shown().root);
+        expect(main.id).toBe("ed");
+        expect(getState().editorViews[view.id]).toEqual({ openTabs: ["/p/a.ts"], activePath: "/p/a.ts", single: true });
+        expect(getState().editorViews.ed.openTabs).toEqual(["/p/a.ts", "/p/b.ts"]);
+    });
+
+    it("keeps the file tabs on the editor, whichever view has focus", () => {
+        editorTab("/p/a.ts", "/p/b.ts");
+        splitWithTab(sessionId(), { id: "files", doc: "/p/a.ts" }, "right");
+
+        expect(shown().activePaneId).not.toBe("ed");
+        expect(editorPaneOf(shown(), getState().editorViews)).toBe("ed");
+        expect(expandTabRefs(tabs(), getState().windows, getState().editorViews).map(tabRefKey)).toEqual(["files:/p/a.ts", "files:/p/b.ts"]);
+    });
+
+    it("moves the second view out but never the editor itself", () => {
+        editorTab("/p/a.ts");
+        splitWithTab(sessionId(), { id: "files", doc: "/p/a.ts" }, "right");
+        const view = collectPanes(shown().root)[1];
+
+        expect(paneToSeparate(shown(), getState(), "ed")).toBeNull();
+        expect(paneToSeparate(shown(), getState(), view.id)?.id).toBe(view.id);
+
+        separatePane("files", view.id);
+
+        expect(shown().root).toMatchObject({ type: "pane", id: "ed" });
+        expect(getState().editorViews.ed.openTabs).toEqual(["/p/a.ts"]);
+    });
+});

@@ -10,7 +10,11 @@ const mocks = vi.hoisted(() => ({
     searchDispose: vi.fn(),
     titleDispose: vi.fn(),
     webglDispose: vi.fn(),
+    terminalOptions: [] as Array<Record<string, unknown>>,
+    invoke: vi.fn(async () => undefined),
 }));
+
+vi.mock("../api/invoke", () => ({ invokeCommand: mocks.invoke }));
 
 vi.mock("@xterm/xterm", () => ({
     Terminal: class {
@@ -22,8 +26,9 @@ vi.mock("@xterm/xterm", () => ({
         readonly modes = { mouseTrackingMode: "none", applicationCursorKeysMode: false };
         readonly dispose = vi.fn();
 
-        constructor() {
+        constructor(options: Record<string, unknown>) {
             mocks.terminals.push(this);
+            mocks.terminalOptions.push(options);
         }
 
         write(_data: unknown, done?: () => void) {
@@ -107,6 +112,8 @@ function Harness({ controller, onExit }: { controller: NativePtyController; onEx
 beforeEach(() => {
     vi.useFakeTimers();
     mocks.terminals.length = 0;
+    mocks.terminalOptions.length = 0;
+    mocks.invoke.mockClear();
     mocks.unregisterTheme.mockClear();
     mocks.searchDispose.mockClear();
     mocks.titleDispose.mockClear();
@@ -201,5 +208,36 @@ describe("useXterm renderer boot", () => {
         act(() => deliver(new Uint8Array(64)));
         await act(async () => vi.advanceTimersByTimeAsync(50));
         expect(ack).toHaveBeenCalledWith(64);
+    });
+
+    it("opens a program's web hyperlinks in the browser and ignores other schemes", async () => {
+        const controller = {
+            start: vi.fn().mockResolvedValue(7),
+            resize: vi.fn().mockResolvedValue(undefined),
+            attach: vi.fn().mockResolvedValue({
+                snapshot: new Uint8Array(),
+                alternateScreen: false,
+                shell: null,
+                activate: vi.fn(),
+                detach: vi.fn().mockResolvedValue(undefined),
+            }),
+            write: vi.fn().mockResolvedValue(undefined),
+        } as unknown as NativePtyController;
+
+        render(<Harness controller={controller} onExit={vi.fn()} />);
+        await act(async () => vi.advanceTimersByTimeAsync(0));
+
+        const linkHandler = mocks.terminalOptions[0].linkHandler as { activate: (event: MouseEvent, text: string) => void };
+        const click = () => new MouseEvent("click", { cancelable: true });
+        const web = click();
+        linkHandler.activate(web, "https://example.com/a");
+        expect(web.defaultPrevented).toBe(true);
+        expect(mocks.invoke).toHaveBeenCalledWith("open_url", { url: "https://example.com/a", app: null, shortcut: null });
+
+        mocks.invoke.mockClear();
+        const other = click();
+        linkHandler.activate(other, "file:///etc/passwd");
+        expect(other.defaultPrevented).toBe(true);
+        expect(mocks.invoke).not.toHaveBeenCalledWith("open_url", expect.anything());
     });
 });

@@ -1,0 +1,210 @@
+.desk {
+    display: grid;
+    grid-template-rows: 31px minmax(0, 1fr);
+    min-width: 0;
+    min-height: 0;
+    height: 100%;
+    overflow: hidden;
+    color: var(--ink);
+}
+
+.desk-body {
+    position: relative;
+    min-width: 0;
+    min-height: 0;
+}
+
+.desk-body > * {
+    position: absolute;
+    inset: 0;
+}
+
+.desk-body > [hidden] {
+    display: none;
+}
+
+.desk-page {
+    display: grid;
+    grid-template-rows: 34px minmax(0, 1fr);
+    min-width: 0;
+    min-height: 0;
+}
+
+.desk.claude {
+    --desk-agent: var(--brand-claude);
+}
+
+.desk.codex {
+    --desk-agent: var(--brand-codex);
+}
+
+.desk.hermes {
+    --desk-agent: var(--brand-hermes);
+}
+
+.desk.pi {
+    --desk-agent: var(--brand-pi);
+}
+
+.desk.opencode {
+    --desk-agent: var(--brand-opencode);
+}
+
+.desk.omp {
+    --desk-agent: var(--brand-omp);
+}
+
+.desk.grok {
+    --desk-agent: var(--brand-grok);
+}
+
+/* The pill, its three states and its close come from the shared strip rule in
+   modern-shell.css. What is left here is the two things a desk tab does not
+   share with a workspace tab: it sits over a pane of its own, and a page title
+   is long enough to need a cap on how much room it may take. */
+.tabbar.v-desk {
+    min-width: 0;
+    height: 32px;
+    border-bottom: 1px solid var(--border);
+    background: transparent;
+}
+
+.tabbar.v-desk .tab-wrap {
+    width: min(180px, 30%);
+    min-width: 120px;
+}
+
+.tabbar.v-desk .tab {
+    flex: 1;
+    min-width: 0;
+    height: 100%;
+}
+
+.tabbar.v-desk .tab-label {
+    flex: 1 1 auto;
+    min-width: 0;
+    max-width: none;
+    text-align: left;
+}
+
+.desk .tabbar.v-desk .tab-wrap.acting {
+    background: color-mix(in srgb, var(--desk-agent) 14%, transparent);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--desk-agent) 70%, transparent);
+    color: var(--text-primary);
+}
+
+/* Site icons arrive at whatever shape the site chose, so the box holds them
+   rather than the other way round. */
+.tabbar.v-desk .tab-favicon {
+    width: 13px;
+    height: 13px;
+    object-fit: contain;
+}
+
+.tabbar.v-desk .tab-add,
+.browser-toolbar button {
+    display: grid;
+    place-items: center;
+    flex: none;
+    padding: 0;
+    border: 0;
+    border-radius: var(--radius-control);
+    background: transparent;
+    color: var(--ink-faint);
+    cursor: pointer;
+}
+
+.tabbar.v-desk .tab-add {
+    width: 24px;
+    height: 24px;
+}
+
+.tabbar.v-desk .tab-add:hover,
+.browser-toolbar button:hover {
+    background: var(--surface-hover);
+    color: var(--ink);
+}
+
+/* The strip and the bar under it sit inside a pane that is already the
+   surface, so like the editor's strip they paint nothing. A second fill here
+   stacked on the pane's and left the top of the desk more solid than the
+   rest of the window. */
+.browser-toolbar {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 3px;
+    min-width: 0;
+    padding: 4px 7px;
+    border-bottom: 1px solid var(--line);
+    background: transparent;
+}
+
+.browser-toolbar button {
+    width: 24px;
+    height: 24px;
+}
+
+.browser-back-icon {
+    transform: rotate(180deg);
+}
+
+.browser-address {
+    min-width: 0;
+    height: 25px;
+    flex: 1;
+    padding: 0 9px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-control);
+    outline: 0;
+    background: color-mix(in srgb, var(--void) calc(var(--window-opacity, 1) * 48%), transparent);
+    color: var(--ink-dim);
+    font-family: var(--mono);
+    font-size: 10.5px;
+}
+
+.browser-address:focus {
+    color: var(--ink);
+}
+
+.browser-viewport {
+    position: relative;
+    min-width: 0;
+    min-height: 0;
+    overflow: hidden;
+    outline: 0;
+    background: transparent;
+    cursor: default;
+}
+
+.browser-toolbar.loading::after {
+    content: "";
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: -1px;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, var(--desk-agent), transparent);
+    animation: browser-progress 900ms ease-in-out infinite;
+}
+
+@keyframes browser-progress {
+    from {
+        transform: translateX(-100%);
+    }
+    to {
+        transform: translateX(100%);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .browser-toolbar.loading::after {
+        animation: none;
+    }
+}
+
+.browser-blank {
+    position: absolute;
+    inset: 0;
+    background: color-mix(in srgb, var(--pane) calc(var(--window-opacity, 1) * 100%), transparent);
+}

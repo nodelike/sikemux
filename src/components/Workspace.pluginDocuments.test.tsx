@@ -4,7 +4,7 @@ import { create } from "zustand";
 import { registerFrontendPlugin } from "../plugins/registry";
 import * as cmd from "../state/commands";
 import { getState, setState } from "../state/store";
-import { Workspace } from "./Workspace";
+import { WorkspaceTabs } from "./Workspace";
 
 const PAD = "test.strip:pad";
 const pads = create<{ open: string[]; active: string | null }>(() => ({ open: [], active: null }));
@@ -41,7 +41,7 @@ afterEach(cleanup);
 
 describe("the workspace strip", () => {
     it("shows a plugin's documents as tabs and follows them as they change", () => {
-        render(<Workspace />);
+        render(<WorkspaceTabs />);
         expect(screen.getByRole("tab", { name: "Doc a" })).toHaveAttribute("aria-selected", "true");
         expect(screen.getByRole("tab", { name: "Doc b, unsaved changes" })).toHaveAttribute("aria-selected", "false");
 

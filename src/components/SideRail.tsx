@@ -9,12 +9,13 @@ import {
     useState,
     type PointerEvent as ReactPointerEvent,
     type ReactNode,
+    type RefObject,
 } from "react";
 import { createPortal, flushSync } from "react-dom";
 import { keybindingLabelForAction, type KeybindingActionId } from "../keybindings";
 import type { Agent, AgentRuntimeState, Session, SessionKind, Window, WindowRole } from "../state/types";
 import * as cmd from "../state/commands";
-import { prefersReducedMotion } from "../lib/motion";
+import { animate, EASE_IN, EASE_SWAP, foldedFrames, leavingRef, prefersReducedMotion } from "../lib/motion";
 import { rollupAgentStates } from "../state/agentStatus";
 import { getState, useStore } from "../state/store";
 import { AgentIcon, IconAgent, IconClose, IconCommand, IconFolder, IconPencil, IconPlus, Logo, WindowIcon } from "./Icons";
@@ -27,6 +28,7 @@ import { pluginSurface, type FrontendPlugin } from "../plugins/registry";
 import { useInstalledPlugins } from "../plugins/installed";
 import { railGroupOf, type RailGroup } from "../state/railGroups";
 import { isPluginKind, pluginIdOf } from "../plugins/kinds";
+import { leavingRail } from "./railMotion";
 
 function kindIcon(kind: SessionKind): ReactNode {
     if (kind === "project") return <IconFolder size={13} />;
@@ -149,10 +151,65 @@ function SimpleRow({ s }: { s: Session }) {
     );
 }
 
+/* One project's tree folds while the next opens, on the same curve, so what sits below them does not move. */
+const PROJECT_SWAP_MS = 200;
+
+const foldChildren = leavingRef<HTMLDivElement>((children) => {
+    const [open, closed] = foldedFrames(children);
+    children.style.overflow = "hidden";
+    animate(children, [{ opacity: 1 }, { opacity: 0 }], { duration: 120, easing: EASE_IN, fill: "forwards" });
+    return animate(children, [open, closed], { duration: PROJECT_SWAP_MS, easing: EASE_SWAP });
+});
+
+function useProjectUnfold(tree: RefObject<HTMLDivElement | null>, active: boolean): void {
+    const was = useRef(active);
+    const openPadding = useRef("0px");
+    useLayoutEffect(() => {
+        const el = tree.current;
+        if (!el) return;
+        const before = was.current;
+        was.current = active;
+        if (active) openPadding.current = getComputedStyle(el).paddingBottom;
+        if (before === active) return;
+        const options = { duration: PROJECT_SWAP_MS, easing: EASE_SWAP };
+        const padding = openPadding.current;
+        if (!active) {
+            animate(el, [{ paddingBottom: padding }, { paddingBottom: "0px" }], options);
+            return;
+        }
+        animate(el, [{ paddingBottom: "0px" }, { paddingBottom: padding }], options);
+        const children = el.querySelector<HTMLElement>(":scope > .proj-children");
+        if (!children) return;
+        const [open, closed] = foldedFrames(children);
+        children.style.overflow = "hidden";
+        const run = animate(children, [closed, open], options);
+        const settle = () => (children.style.overflow = "");
+        if (run) run.finished.then(settle, settle);
+        else settle();
+        [...children.children].forEach((child, i) =>
+            animate(
+                child,
+                [
+                    { opacity: 0, transform: "translateY(-3px)" },
+                    { opacity: 1, transform: "none" },
+                ],
+                {
+                    duration: 170,
+                    delay: 40 + i * 16,
+                    fill: "backwards",
+                },
+            ),
+        );
+    }, [active, tree]);
+}
+
 function ProjectBlock({ s }: { s: Session }) {
     const rail = useRail();
     const { activeSessionId, agentsById, activityById, backgroundById, windowsById, windowsBySession, draggingProjectId, kb } = rail;
     const active = s.id === activeSessionId;
+    // Active or not, a project is one tree root holding its row, so the row survives the switch and its tint cross-fades.
+    const treeRef = useRef<HTMLDivElement>(null);
+    useProjectUnfold(treeRef, active);
     const winIds = windowsBySession[s.id] ?? [];
     const sessionWindows = winIds.map((id) => windowsById[id]).filter(Boolean) as Window[];
     const agents = agentIdsOf({ windowsBySession, windows: windowsById }, s.id)
@@ -166,38 +223,40 @@ function ProjectBlock({ s }: { s: Session }) {
         const visible = agents.slice(0, MAX_BADGE_ICONS);
         const overflow = agents.length - visible.length;
         return (
-            <div className={`session-row-shell project-row-shell${rail.projectDragClass(s.id)}`} data-project-id={s.id}>
-                <Tooltip label={s.cwd || s.name} side="right">
-                    <button
-                        className="proj-row collapsed"
-                        data-project-drop-row
-                        aria-grabbed={draggingProjectId === s.id}
-                        onPointerDown={(event) => rail.onProjectPointerDown(event, s.id)}
-                        onClick={() => rail.selectProject(s.id)}>
-                        <span className="proj-folder">
-                            <IconFolder size={12} />
-                        </span>
-                        <span className="proj-name">{s.name}</span>
-                        {visible.length > 0 && (
-                            <span className="proj-child-icons">
-                                {visible.map((a) => (
-                                    <span
-                                        key={a.id}
-                                        className={`proj-pip proj-pip-${a.type}${activityById[a.id] ? ` state-${activityById[a.id].state}` : ""}`}>
-                                        <AgentIcon type={a.type} size={20} />
-                                    </span>
-                                ))}
-                                {overflow > 0 && <span className="proj-child-icons-more">+{overflow}</span>}
+            <div ref={treeRef} className={`proj-tree${rail.projectDragClass(s.id)}`} data-project-id={s.id}>
+                <div className="session-row-shell project-row-shell">
+                    <Tooltip label={s.cwd || s.name} side="right">
+                        <button
+                            className="proj-row collapsed"
+                            data-project-drop-row
+                            aria-grabbed={draggingProjectId === s.id}
+                            onPointerDown={(event) => rail.onProjectPointerDown(event, s.id)}
+                            onClick={() => rail.selectProject(s.id)}>
+                            <span className="proj-folder">
+                                <IconFolder size={12} />
                             </span>
-                        )}
-                        {showsAgentState(rollup ?? "idle", rollupBackground) && (
-                            <span className="proj-row-status">
-                                <AgentStateIndicator state={rollup ?? "idle"} background={rollupBackground} />
-                            </span>
-                        )}
-                    </button>
-                </Tooltip>
-                <SessionCloseButton session={s} />
+                            <span className="proj-name">{s.name}</span>
+                            {visible.length > 0 && (
+                                <span className="proj-child-icons">
+                                    {visible.map((a) => (
+                                        <span
+                                            key={a.id}
+                                            className={`proj-pip proj-pip-${a.type}${activityById[a.id] ? ` state-${activityById[a.id].state}` : ""}`}>
+                                            <AgentIcon type={a.type} size={20} />
+                                        </span>
+                                    ))}
+                                    {overflow > 0 && <span className="proj-child-icons-more">+{overflow}</span>}
+                                </span>
+                            )}
+                            {showsAgentState(rollup ?? "idle", rollupBackground) && (
+                                <span className="proj-row-status">
+                                    <AgentStateIndicator state={rollup ?? "idle"} background={rollupBackground} />
+                                </span>
+                            )}
+                        </button>
+                    </Tooltip>
+                    <SessionCloseButton session={s} />
+                </div>
             </div>
         );
     }
@@ -266,7 +325,7 @@ function ProjectBlock({ s }: { s: Session }) {
         { role: "search", label: "Search", kbd: kb("window.search"), title: `Search — ${kb("window.search")}`, icons: [] },
     ];
     return (
-        <div className={`proj-tree active${rail.projectDragClass(s.id)}`} data-project-id={s.id}>
+        <div ref={treeRef} className={`proj-tree active${rail.projectDragClass(s.id)}`} data-project-id={s.id}>
             <div className="session-row-shell project-row-shell">
                 <Tooltip label={s.cwd || s.name} side="right">
                     <button
@@ -279,12 +338,11 @@ function ProjectBlock({ s }: { s: Session }) {
                             <IconFolder size={12} />
                         </span>
                         <span className="proj-name">{s.name}</span>
-                        {(rollup || rollupBackground) && <AgentStateIndicator state={rollup ?? "idle"} background={rollupBackground} />}
                     </button>
                 </Tooltip>
                 <SessionCloseButton session={s} />
             </div>
-            <div className="proj-children">
+            <div className="proj-children" ref={foldChildren}>
                 {children.map((c) => {
                     const subActive = isSubActive(c.role);
                     const node = c.role === "agents" ? <IconAgent size={13} /> : <WindowIcon role={c.role} size={13} />;
@@ -658,7 +716,7 @@ export const SideRail = memo(function SideRail() {
 
     return (
         <RailContext.Provider value={rail}>
-            <aside className="side-rail">
+            <aside ref={leavingRail} className="side-rail" onClickCapture={settingsOpen ? cmd.closeSettings : undefined}>
                 <div className="rail-scroll">
                     <Group
                         label="Projects"

@@ -89,19 +89,42 @@ interface RundeckRuntime {
     /** Folder open/closed choices per pane, keyed by `treeKey`. Absent means "follow the selection". */
     treeOpen: Record<string, Record<string, boolean>>;
     treeWidth: number;
+    /** The job each pane's list has picked out for the side panel. */
+    selectedJob: Record<string, string>;
+    /** Whether each pane lists its jobs or lines up the folders beside each other. */
+    layout: Record<string, "list" | "compare">;
 }
 
-export const useRundeck = create<RundeckRuntime>()(() => ({ views: {}, jobPaletteOpen: false, treeOpen: {}, treeWidth: 196 }));
+export const useRundeck = create<RundeckRuntime>()(() => ({
+    views: {},
+    jobPaletteOpen: false,
+    treeOpen: {},
+    treeWidth: 220,
+    selectedJob: {},
+    layout: {},
+}));
+
+export function selectRundeckJob(paneId: string, jobId: string): void {
+    useRundeck.setState((state) => ({ selectedJob: { ...state.selectedJob, [paneId]: jobId } }));
+}
+
+export function setRundeckLayout(paneId: string, layout: "list" | "compare"): void {
+    useRundeck.setState((state) => ({ layout: { ...state.layout, [paneId]: layout } }));
+}
 
 onPaneClosed((paneId) => {
     const state = useRundeck.getState();
-    if (!(paneId in state.views) && !(paneId in state.treeOpen)) return;
+    if (!(paneId in state.views) && !(paneId in state.treeOpen) && !(paneId in state.selectedJob) && !(paneId in state.layout)) return;
     useRundeck.setState((current) => {
         const views = { ...current.views };
         const treeOpen = { ...current.treeOpen };
+        const selectedJob = { ...current.selectedJob };
+        const layout = { ...current.layout };
         delete views[paneId];
         delete treeOpen[paneId];
-        return { views, treeOpen };
+        delete selectedJob[paneId];
+        delete layout[paneId];
+        return { views, treeOpen, selectedJob, layout };
     });
 });
 
@@ -181,7 +204,8 @@ export function openRundeckJob(job: JobRef, options: { paneId?: string | null; b
     const paneId = options.paneId ?? openSurface(RUNDECK_DEPLOY);
     if (!paneId) return;
     const settings = rundeckSettings.get();
-    if (settings.activeProject !== job.project) updateRundeckSettings({ activeProject: job.project, activeGroup: null });
+    if (settings.activeProject !== job.project || settings.activeGroup !== job.group)
+        updateRundeckSettings({ activeProject: job.project, activeGroup: job.group });
     const service: RundeckLevel = { kind: "service", ...job };
     const deploy: RundeckLevel[] = options.branch !== undefined ? [{ kind: "deploy", ...job, branch: options.branch }] : [];
     const base = options.push ? rundeckView(paneId).stack : HOME.stack;

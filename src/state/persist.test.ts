@@ -16,6 +16,7 @@ import { BRUNO_CLIENT } from "../plugins/bruno/kinds";
 import { getState, setState } from "./store";
 import { activeAgentId, agentIdsOf, agentWindowId } from "./selectors";
 import { collectPanes } from "./layout";
+import { deskEditorId } from "./desks";
 import { agentWindow } from "./agentWindow";
 import { withAgents } from "../test/agents";
 import type { Agent } from "./types";
@@ -104,7 +105,7 @@ describe("frontend persistence", () => {
         expect(
             applyHydrate(
                 JSON.stringify({
-                    version: 16,
+                    version: 17,
                     sessions: [],
                     itemStates: {},
                 }),
@@ -190,6 +191,20 @@ describe("frontend persistence", () => {
         expect(getState()).toMatchObject({ sideRailOpen: false, agentRailOpen: true });
     });
 
+    it("remembers which projects may start language servers", async () => {
+        setState({ languageServerTrust: { "/trusted": true, "/refused": false } });
+        invoke.mockResolvedValue(undefined);
+
+        await expect(flushPersist()).resolves.toBe(true);
+        const saved = JSON.parse(invoke.mock.calls[0][1].data as string);
+        expect(saved.prefs.languageServerTrust).toEqual({ "/trusted": true, "/refused": false });
+
+        setState({ languageServerTrust: {} });
+        saved.prefs.languageServerTrust["/odd"] = "yes";
+        applyHydrate(JSON.stringify(saved));
+        expect(getState().languageServerTrust).toEqual({ "/trusted": true, "/refused": false });
+    });
+
     it("persists rail widths and pulls stored ones back inside their bounds", async () => {
         setState({ sideRailWidth: 320, agentRailWidth: 400 });
         invoke.mockResolvedValue(undefined);
@@ -273,9 +288,9 @@ describe("frontend persistence", () => {
         expect(activeAgentId(getState(), getState().sessions[sid])).toBe(agent.id);
     });
 
-    /* A browser pane is a leaf like any other, but the browser behind it dies
-       with the app, so what comes back is the pane plus the pages it held. */
-    it("saves an agent's browser tabs and hands them back to the pane that was showing them", async () => {
+    /* A desk is a leaf like any other, but the browser behind it dies with the
+       app, so what comes back is the pane plus the pages and files it held. */
+    it("saves an agent's pages and files and hands them back to the desk that was showing them", async () => {
         const sid = getState().activeSessionId;
         const agent: Agent = { id: "agent-browsing", type: "claude", title: "reading docs", startup: "claude", resumeId: "session-7" };
         setState((s) => {
@@ -285,9 +300,9 @@ describe("frontend persistence", () => {
                 sessions: { ...s.sessions, [sid]: { ...s.sessions[sid], kind: "project", activeWindowId: agentWindowId(slices, agent.id)! } },
             };
         });
-        cmd.openBrowserPane(agent.id);
+        cmd.openDesk(agent.id);
         const windowId = agentWindowId(getState(), agent.id)!;
-        const paneId = collectPanes(getState().windows[windowId].root).find((pane) => pane.kind === "browser")!.id;
+        const paneId = collectPanes(getState().windows[windowId].root).find((pane) => pane.kind === "desk")!.id;
         setState({
             browserStrips: {
                 [agent.id]: {
@@ -295,6 +310,7 @@ describe("frontend persistence", () => {
                     activeTabId: "tab-docs",
                 },
             },
+            editorViews: { ...getState().editorViews, [deskEditorId(agent.id)]: { openTabs: ["/repo/src/a.ts"], activePath: "/repo/src/a.ts" } },
         } as never);
         invoke.mockResolvedValue(undefined);
 
@@ -302,22 +318,23 @@ describe("frontend persistence", () => {
         const saved = JSON.parse(invoke.mock.calls[0][1].data as string);
         const savedWindow = saved.windowsBySession[sid].find((w: { id: string }) => w.id === windowId);
 
-        expect(collectPanes(savedWindow.root).map((pane) => pane.kind)).toEqual(["agent", "browser"]);
+        expect(collectPanes(savedWindow.root).map((pane) => pane.kind)).toEqual(["agent", "desk"]);
         expect(saved.itemStates[paneId]).toEqual({
             itemId: paneId,
-            kind: "browser",
+            kind: "desk",
             version: 1,
-            state: { agentId: agent.id, tabs: [{ url: "https://example.com/docs", title: "Docs" }], activeIndex: 0 },
+            state: { agentId: agent.id, tabs: [{ url: "https://example.com/docs", title: "Docs" }], activeIndex: 0, files: ["/repo/src/a.ts"] },
         });
 
         applyHydrate(JSON.stringify(saved));
 
-        expect(getState().browserPanes[paneId]).toBe(agent.id);
-        expect(getState().browserRestores[paneId].tabs).toEqual([{ url: "https://example.com/docs", title: "Docs" }]);
+        expect(getState().deskPanes[paneId]).toBe(agent.id);
+        expect(getState().deskRestores[paneId].tabs).toEqual([{ url: "https://example.com/docs", title: "Docs" }]);
+        expect(getState().editorViews[deskEditorId(agent.id)].openTabs).toEqual(["/repo/src/a.ts"]);
         expect(getState().browserStrips).toEqual({});
     });
 
-    it("drops a browser pane with no page left to open, and one whose agent did not come back", async () => {
+    it("drops a desk with nothing left to open, and one whose agent did not come back", async () => {
         const sid = getState().activeSessionId;
         const agent: Agent = { id: "agent-browsing", type: "claude", title: "reading docs", startup: "claude", resumeId: "session-7" };
         setState((s) => {
@@ -327,7 +344,7 @@ describe("frontend persistence", () => {
                 sessions: { ...s.sessions, [sid]: { ...s.sessions[sid], kind: "project", activeWindowId: agentWindowId(slices, agent.id)! } },
             };
         });
-        cmd.openBrowserPane(agent.id);
+        cmd.openDesk(agent.id);
         const windowId = agentWindowId(getState(), agent.id)!;
         invoke.mockResolvedValue(undefined);
 
@@ -338,7 +355,46 @@ describe("frontend persistence", () => {
         expect(savedWindow.activePaneId).toBe(agent.id);
 
         // The same window, saved with its tabs, but read back without the agent.
-        const paneId = "pane-browser-orphan";
+        const paneId = "pane-desk-orphan";
+        savedWindow.root = {
+            type: "split",
+            id: "split-restored",
+            dir: "row",
+            sizes: [0.5, 0.5],
+            children: [
+                { type: "pane", id: agent.id, cwd: "/repo", kind: "agent", title: agent.title },
+                { type: "pane", id: paneId, cwd: "/repo", kind: "desk", title: "desk" },
+            ],
+        };
+        saved.itemStates[paneId] = {
+            itemId: paneId,
+            kind: "desk",
+            version: 1,
+            state: { agentId: "agent-that-is-gone", tabs: [{ url: "https://example.com", title: "Example" }], activeIndex: 0, files: [] },
+        };
+        applyHydrate(JSON.stringify(saved));
+
+        expect(getState().deskPanes).toEqual({});
+        expect(getState().deskRestores).toEqual({});
+    });
+
+    it("moves a v15 browser pane onto a desk with the pages it held", async () => {
+        const sid = getState().activeSessionId;
+        const agent: Agent = { id: "agent-browsing", type: "claude", title: "reading docs", startup: "claude", resumeId: "session-7" };
+        setState((s) => {
+            const slices = withAgents(s, sid, [agent]);
+            return {
+                ...slices,
+                sessions: { ...s.sessions, [sid]: { ...s.sessions[sid], kind: "project", activeWindowId: agentWindowId(slices, agent.id)! } },
+            };
+        });
+        const windowId = agentWindowId(getState(), agent.id)!;
+        invoke.mockResolvedValue(undefined);
+        expect(await flushPersist()).toBe(true);
+        const saved = JSON.parse(invoke.mock.calls[0][1].data as string);
+        const savedWindow = saved.windowsBySession[sid].find((w: { id: string }) => w.id === windowId);
+        const paneId = "pane-browser-v15";
+        saved.version = 15;
         savedWindow.root = {
             type: "split",
             id: "split-restored",
@@ -353,12 +409,19 @@ describe("frontend persistence", () => {
             itemId: paneId,
             kind: "browser",
             version: 1,
-            state: { agentId: "agent-that-is-gone", tabs: [{ url: "https://example.com", title: "Example" }], activeIndex: 0 },
+            state: { agentId: agent.id, tabs: [{ url: "https://example.com", title: "Example" }], activeIndex: 0 },
         };
-        applyHydrate(JSON.stringify(saved));
 
-        expect(getState().browserPanes).toEqual({});
-        expect(getState().browserRestores).toEqual({});
+        expect(applyHydrate(JSON.stringify(saved))).toBe("applied");
+
+        expect(collectPanes(getState().windows[windowId].root).map((pane) => pane.kind)).toEqual(["agent", "desk"]);
+        expect(getState().deskPanes[paneId]).toBe(agent.id);
+        expect(getState().deskRestores[paneId]).toEqual({
+            agentId: agent.id,
+            tabs: [{ url: "https://example.com", title: "Example" }],
+            activeIndex: 0,
+            files: [],
+        });
     });
 
     it("preserves OMP and Grok reasoning levels across sleep", async () => {
@@ -534,7 +597,7 @@ describe("frontend persistence", () => {
 
         await expect(flushPersist()).resolves.toBe(true);
         const saved = JSON.parse(invoke.mock.calls[0][1].data as string);
-        expect(saved.version).toBe(15);
+        expect(saved.version).toBe(16);
         expect(saved.editorViews).toBeUndefined();
         expect(saved.itemStates).toEqual({
             [editorPane.id]: {
@@ -674,7 +737,7 @@ describe("frontend persistence", () => {
         const migrated = invoke.mock.calls[0][1].data as string;
         expect(migrated).not.toContain("legacy-secret");
         expect(migrated).not.toContain("agentBookmarks");
-        expect(JSON.parse(migrated).version).toBe(15);
+        expect(JSON.parse(migrated).version).toBe(16);
     });
 
     /*
@@ -707,7 +770,7 @@ describe("frontend persistence", () => {
         invoke.mockResolvedValue(undefined);
         expect(await flushPersist()).toBe(true);
         const saved = JSON.parse(invoke.mock.calls[0][1].data as string);
-        expect(saved.version).toBe(15);
+        expect(saved.version).toBe(16);
         expect(saved.agents.map((agent: { id: string }) => agent.id)).toEqual(["a1", "a2"]);
         expect(saved).not.toHaveProperty("agentsBySession");
         expect(saved.sessions[0]).not.toHaveProperty("view");
@@ -1007,7 +1070,7 @@ describe("frontend persistence", () => {
         );
 
         const restored = getState().windows[window.id];
-        expect(restored).toMatchObject({ name: "1", role: "term" });
+        expect(restored).toMatchObject({ name: "Terminal", role: "term" });
         expect(restored.fixed).toBeUndefined();
     });
 });

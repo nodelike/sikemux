@@ -1,9 +1,9 @@
 import type { ThemeRegistration } from "shiki/core";
 import type { Theme } from ".";
 
-/* The palette every tokenised surface reads from: the diff panes through
-   @pierre/diffs, and the code fences in a chat through Shiki directly. Both
-   name the theme the same way, so the same colours reach both. */
+/* The palette every surface Shiki colours reads from: the diff panes and the
+   code fences in a chat. Both name the theme the same way, so the same
+   colours reach both. */
 
 export function codeThemeName(theme: Theme): string {
     return `sikemux-${theme.id.replace(/[^a-z0-9_-]/gi, "-")}-${hash(JSON.stringify(theme))}`;

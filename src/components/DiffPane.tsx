@@ -7,17 +7,8 @@ import { reportError } from "../state/toast";
 import { CommitReview } from "./CommitReview";
 import { MergeReview } from "./MergeReview";
 import { invalidateDiffContentCache } from "./DiffEditor";
-import { DiffWorkerProvider } from "./DiffWorkerProvider";
 
 export function DiffPane({ cwd, active }: { cwd: string; active: boolean }) {
-    return (
-        <DiffWorkerProvider>
-            <DiffPaneContent cwd={cwd} active={active} />
-        </DiffWorkerProvider>
-    );
-}
-
-function DiffPaneContent({ cwd, active }: { cwd: string; active: boolean }) {
     const overview = useResourceEnabled(active && !!cwd, gitOverviewR, cwd || "");
     const target = useStore((s) => s.diffTarget[cwd] ?? null);
     const files = useMemo(() => overview.data?.status.files ?? [], [overview.data]);

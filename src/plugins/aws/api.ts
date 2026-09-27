@@ -77,6 +77,8 @@ export interface EcsTask {
     memory: string | null;
     started_at: string | null;
     last_status_change: string | null;
+    availability_zone: string | null;
+    private_ip: string | null;
 }
 
 export interface Ec2Instance {

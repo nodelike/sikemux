@@ -15,10 +15,12 @@ enableMapSet();
 import { makePane, newId } from "./layout";
 import type { GitCmdEntry, GitModal } from "./gitTypes";
 import type { BrowserSnapshot } from "../api/browser";
+import type { HeldRelease, ReleaseCredits } from "../api/releases";
 import type {
     Agent,
     AgentPermissionMode,
-    BrowserPaneView,
+    Desk,
+    DeskView,
     EditorPaneView,
     CliPendingEditorOpen,
     GitPaneView,
@@ -52,6 +54,7 @@ export interface DomainState {
     /** User-defined themes, derived from a built-in or another custom theme via the theme editor. */
     customThemes: Theme[];
     uiTextScale: number;
+    paneShader: boolean;
     terminalFontSize: number;
     chatTextScale: number;
     editorTextScale: number;
@@ -71,17 +74,24 @@ export interface DomainState {
     /** Plugins switched off in Settings; they are built in but act as if absent. */
     disabledPlugins: readonly string[];
     restoreAgentTabs: boolean;
+    agentNotifications: boolean;
+    voiceDictation: boolean;
+    voiceWords: readonly string[];
+    notificationsIntroduced: boolean;
     railDensity: RailDensity;
     onboardingComplete: boolean;
     lastSeenVersion: string;
     customCommands: CustomCommand[];
     updateChannel: "stable" | "nightly";
-    lastReleaseNotes: { version: string; notes: string | null; date: string | null } | null;
+    shareUsageData: boolean;
+    lastReleaseNotes: HeldRelease | null;
     recentCommandKeys: string[];
     /** Non-secret launch profiles and the per-agent defaults that reference them. */
     providerProfiles: ProviderProfile[];
     selectedProviderProfileIds: ProviderProfileSelection;
     defaultAgentPermissionMode: AgentPermissionMode;
+    /** Whether each project, by root path, may start its language servers. A project absent here has not been asked. */
+    languageServerTrust: Record<string, boolean>;
 }
 
 export type UpdateOperationState = "available" | "preparing" | "downloading" | "installing" | "restarting" | "error";
@@ -91,6 +101,7 @@ export interface PendingUpdate {
     currentVersion: string;
     notes: string | null;
     date: string | null;
+    credits: ReleaseCredits | null;
     state: UpdateOperationState;
     error: string | null;
     downloadedBytes: number;
@@ -121,13 +132,15 @@ export interface ViewState {
     sessionSwitcher: SessionSwitcherView | null;
 
     editorViews: Record<string, EditorPaneView>;
-    /* Which agent a browser pane is showing, by pane id. The pane is an
+    /* Which agent a desk pane is showing, by pane id. The pane is an
        ordinary leaf in the layout; this is the only thing tying it back. */
-    browserPanes: Record<string, string>;
+    deskPanes: Record<string, string>;
+    /** Each agent's desk, by agent id. It outlives the pane, so hiding a desk keeps what is on it. */
+    desks: Record<string, Desk>;
     /** Each browsing agent's tab strip as the app last heard it, by agent id. */
     browserStrips: Record<string, BrowserSnapshot>;
-    /** Tabs a restored pane is holding until someone looks at it, by pane id. */
-    browserRestores: Record<string, BrowserPaneView>;
+    /** Pages a restored desk is holding until someone looks at it, by pane id. */
+    deskRestores: Record<string, DeskView>;
     /** Runtime-only file opens claimed from the CLI broker, keyed by editor pane. */
     pendingEditorOpens: Record<string, CliPendingEditorOpen[]>;
     dirtyEditorPaths: Record<string, string[]>;
@@ -168,7 +181,7 @@ function initialSession(): {
     const pane = makePane("", { kind: "terminal" });
     const win: Window = {
         id: newId("win"),
-        name: "1",
+        name: "Terminal",
         role: "term",
         root: pane,
         activePaneId: pane.id,
@@ -198,6 +211,7 @@ export const useStore = create<StoreState>(() => {
         themeId: DEFAULT_THEME_ID,
         customThemes: [],
         uiTextScale: 1,
+        paneShader: true,
         terminalFontSize: DEFAULT_TERMINAL_FONT_SIZE,
         chatTextScale: DEFAULT_CHAT_TEXT_SCALE,
         editorTextScale: DEFAULT_EDITOR_TEXT_SCALE,
@@ -215,16 +229,22 @@ export const useStore = create<StoreState>(() => {
         pluginSettings: {},
         disabledPlugins: [],
         restoreAgentTabs: true,
+        agentNotifications: true,
+        voiceDictation: false,
+        voiceWords: [],
+        notificationsIntroduced: false,
         railDensity: "comfortable",
         onboardingComplete: false,
         lastSeenVersion: "",
         customCommands: [],
         updateChannel: "stable",
+        shareUsageData: true,
         lastReleaseNotes: null,
         recentCommandKeys: [],
         providerProfiles: DEFAULT_PROVIDER_PROFILES.map((profile) => ({ ...profile })),
         selectedProviderProfileIds: { ...DEFAULT_PROVIDER_PROFILE_SELECTION },
         defaultAgentPermissionMode: "bypass",
+        languageServerTrust: {},
 
         home: "",
         pluginManifests: [],
@@ -238,9 +258,10 @@ export const useStore = create<StoreState>(() => {
         zoomedPaneId: null,
         sessionSwitcher: null,
         editorViews: {},
-        browserPanes: {},
+        deskPanes: {},
+        desks: {},
         browserStrips: {},
-        browserRestores: {},
+        deskRestores: {},
         pendingEditorOpens: {},
         dirtyEditorPaths: {},
         gitViews: {},

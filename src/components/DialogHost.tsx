@@ -74,6 +74,16 @@ function DialogSheet({ dialog }: { dialog: PendingDialog }) {
                         ))}
                     </div>
                 )}
+                {dialog.kind === "confirm" && dialog.commands && dialog.commands.length > 0 && (
+                    <ul className="dlg-commands">
+                        {dialog.commands.map((entry, i) => (
+                            <li key={i}>
+                                <span className="dlg-command-label">{entry.label}</span>
+                                <code className="dlg-command">{entry.command}</code>
+                            </li>
+                        ))}
+                    </ul>
+                )}
                 {dialog.kind === "prompt" && (
                     <form
                         className="dlg-field"

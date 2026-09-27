@@ -6,10 +6,12 @@ use std::time::{Duration, Instant};
 use serde_json::{json, Value};
 use tauri::{AppHandle, Manager, Webview};
 
+use super::viewport::Viewport;
 use super::{BrowserManager, BLANK_URL};
 use crate::harness::HarnessRequest;
 
 const PAGE_SCRIPT: &str = include_str!("page.js");
+const RECORDS_SCRIPT: &str = include_str!("records.js");
 const EVAL_TIMEOUT: Duration = Duration::from_secs(10);
 const LOAD_TIMEOUT: Duration = Duration::from_secs(20);
 const SETTLE: Duration = Duration::from_millis(250);
@@ -22,6 +24,7 @@ const UPLOAD_TIMEOUT: Duration = Duration::from_secs(3);
 const MAX_UPLOAD_FILES: usize = 20;
 const DRAG_STEPS: u32 = 12;
 const DRAG_STEP_DELAY: Duration = Duration::from_millis(16);
+const VIEWPORT_SETTLE: Duration = Duration::from_millis(150);
 
 use crate::generated_agent_tools::BROWSER_METHODS as METHODS;
 use native::Mouse;
@@ -107,12 +110,26 @@ async fn run(
             let _ = manager
                 .wait_until_loaded(agent_id, &tab_id, LOAD_TIMEOUT)
                 .await;
-            state(&manager, agent_id).await
+            report(&manager, agent_id, params).await
         }
-        "browser.state" => state(&manager, agent_id).await,
+        "browser.state" => {
+            let full_text = params.get("fullText").and_then(Value::as_bool) == Some(true);
+            read_state(&manager, agent_id, "full", full_text).await
+        }
+        "browser.find" => {
+            let query = text("query").ok_or("query is required")?;
+            let (_, view) = active(&manager, agent_id)?;
+            call(&view, "find", &[json!(query), json!(text("role"))]).await
+        }
         "browser.click" => {
             let (tab_id, view) = active(&manager, agent_id)?;
-            let (x, y, mut result) = target(&view, params, "index", "x", "y").await?;
+            let (x, y, mut result) = match text("text") {
+                Some(label) => {
+                    let index = call(&view, "locate", &[json!(label), json!(text("role"))]).await?;
+                    point(&view, index, Value::Null).await?
+                }
+                None => target(&view, params, "index", "x", "y").await?,
+            };
             let hover = params.get("hover").and_then(Value::as_bool) == Some(true);
             let clicks = if params.get("double").and_then(Value::as_bool) == Some(true) {
                 2
@@ -138,7 +155,7 @@ async fn run(
                 "clicked"
             });
             settle(&manager, agent_id, &tab_id).await;
-            merge(result, state(&manager, agent_id).await?)
+            merge(result, report(&manager, agent_id, params).await?)
         }
         "browser.upload" => {
             let paths = params
@@ -182,7 +199,7 @@ async fn run(
             }
             result["uploaded"] = json!(names);
             settle(&manager, agent_id, &tab_id).await;
-            merge(result, state(&manager, agent_id).await?)
+            merge(result, report(&manager, agent_id, params).await?)
         }
         "browser.drag" => {
             let (tab_id, view) = active(&manager, agent_id)?;
@@ -217,7 +234,7 @@ async fn run(
             settle(&manager, agent_id, &tab_id).await;
             merge(
                 json!({ "from": from, "to": to, "dragged": dragged }),
-                state(&manager, agent_id).await?,
+                report(&manager, agent_id, params).await?,
             )
         }
         "browser.type" => {
@@ -253,7 +270,7 @@ async fn run(
             if submit {
                 native::key(&view, "Enter").await?;
                 settle(&manager, agent_id, &tab_id).await;
-                return merge(typed, state(&manager, agent_id).await?);
+                return merge(typed, report(&manager, agent_id, params).await?);
             }
             Ok(typed)
         }
@@ -262,7 +279,10 @@ async fn run(
             let (tab_id, view) = active(&manager, agent_id)?;
             native::key(&view, &key).await?;
             settle(&manager, agent_id, &tab_id).await;
-            merge(json!({ "pressed": key }), state(&manager, agent_id).await?)
+            merge(
+                json!({ "pressed": key }),
+                report(&manager, agent_id, params).await?,
+            )
         }
         "browser.dialog" => {
             let accept = params
@@ -275,7 +295,7 @@ async fn run(
             }
             native::answer_dialog(&view, &tab_id, accept, text("text")).await?;
             settle(&manager, agent_id, &tab_id).await;
-            state(&manager, agent_id).await
+            report(&manager, agent_id, params).await
         }
         "browser.scroll" => {
             let delta = params
@@ -297,8 +317,13 @@ async fn run(
             .await
         }
         "browser.network" => {
-            let (_, view) = active(&manager, agent_id)?;
-            call(
+            let since_current = match text("since").as_deref() {
+                None => false,
+                Some("navigation") => true,
+                Some(_) => return Err("since must be \"navigation\"".into()),
+            };
+            let (tab_id, view) = active(&manager, agent_id)?;
+            let mut result = read_records(
                 &view,
                 "network",
                 &[
@@ -313,6 +338,21 @@ async fn run(
                 ],
             )
             .await
+            .unwrap_or_else(|error| json!({ "recording": false, "note": error }));
+            let needle = text("filter").map(|filter| filter.to_lowercase());
+            let documents: Vec<_> = manager
+                .documents(&tab_id, since_current)
+                .into_iter()
+                .filter(|load| {
+                    needle
+                        .as_ref()
+                        .is_none_or(|needle| load.url.to_lowercase().contains(needle))
+                })
+                .collect();
+            if let Value::Object(map) = &mut result {
+                map.insert("documents".into(), json!(documents));
+            }
+            Ok(result)
         }
         "browser.evaluate" => {
             let script = text("script").ok_or("script is required")?;
@@ -339,7 +379,7 @@ async fn run(
         }
         "browser.console" => {
             let (_, view) = active(&manager, agent_id)?;
-            call(
+            read_records(
                 &view,
                 "console",
                 &[
@@ -370,8 +410,8 @@ async fn run(
             let full_page = params.get("fullPage").and_then(Value::as_bool) == Some(true);
             let marked = if annotate {
                 let page = state(&manager, agent_id).await?;
-                call(&view, "showMarks", &[json!(true)]).await?;
-                page.get("elements").cloned()
+                let shown = call(&view, "showMarks", &[json!(true)]).await?;
+                Some(marked_elements(&page, &shown))
             } else {
                 let _ = call(&view, "pointerVisible", &[json!(false)]).await;
                 None
@@ -454,6 +494,35 @@ async fn run(
             let _ = manager
                 .wait_until_loaded(agent_id, &tab_id, LOAD_TIMEOUT)
                 .await;
+            report(&manager, agent_id, params).await
+        }
+        "browser.viewport" => {
+            let (tab_id, _) = active_tab(&manager, agent_id)?;
+            let size = |key: &str| {
+                params
+                    .get(key)
+                    .and_then(Value::as_u64)
+                    .map(|value| u32::try_from(value).unwrap_or(u32::MAX))
+            };
+            let fixed = match (text("preset").as_deref(), size("width"), size("height")) {
+                (Some(_), Some(_), _) | (Some(_), _, Some(_)) => {
+                    return Err("pass a preset, or width and height, not both".into())
+                }
+                (Some("fit"), None, None) => Some(None),
+                (Some(name), None, None) => Some(Some(
+                    Viewport::preset(name)
+                        .ok_or("preset must be desktop, tablet, mobile or fit")?,
+                )),
+                (None, Some(width), Some(height)) => Some(Some(Viewport::sized(width, height)?)),
+                (None, None, None) => None,
+                (None, _, _) => return Err("pass both width and height".into()),
+            };
+            if let Some(fixed) = fixed {
+                manager
+                    .set_viewport(agent_id, &tab_id, fixed)
+                    .map_err(|error| error.to_string())?;
+                tokio::time::sleep(VIEWPORT_SETTLE).await;
+            }
             state(&manager, agent_id).await
         }
         "browser.back" | "browser.forward" => {
@@ -462,7 +531,7 @@ async fn run(
                 .history(agent_id, if method == "browser.back" { -1 } else { 1 })
                 .map_err(|error| error.to_string())?;
             settle(&manager, agent_id, &tab_id).await;
-            state(&manager, agent_id).await
+            report(&manager, agent_id, params).await
         }
         _ => Err("unknown browser method".into()),
     }
@@ -508,14 +577,8 @@ async fn target(
     y_key: &str,
 ) -> Result<(f64, f64, Value), String> {
     if let Some(index) = params.get(index_key).and_then(Value::as_u64) {
-        let point = call(view, "point", &[json!(index)]).await?;
-        let coordinate = |key: &str| {
-            point
-                .get(key)
-                .and_then(Value::as_f64)
-                .ok_or_else(|| "the page returned no position".to_string())
-        };
-        return Ok((coordinate("x")?, coordinate("y")?, point));
+        let expected = params.get("expectLabel").cloned().unwrap_or(Value::Null);
+        return point(view, json!(index), expected).await;
     }
     match (
         params.get(x_key).and_then(Value::as_f64),
@@ -524,6 +587,19 @@ async fn target(
         (Some(x), Some(y)) => Ok((x, y, json!({ "x": x, "y": y }))),
         _ => Err(format!("pass {index_key}, or both {x_key} and {y_key}")),
     }
+}
+
+/// The centre of a numbered element, refused when `expected` no longer
+/// matches its label.
+async fn point(view: &Webview, index: Value, expected: Value) -> Result<(f64, f64, Value), String> {
+    let point = call(view, "point", &[index, expected]).await?;
+    let coordinate = |key: &str| {
+        point
+            .get(key)
+            .and_then(Value::as_f64)
+            .ok_or_else(|| "the page returned no position".to_string())
+    };
+    Ok((coordinate("x")?, coordinate("y")?, point))
 }
 
 /// Input that reaches the page the way a person's does, as trusted events.
@@ -541,6 +617,7 @@ mod native {
     #[cfg(target_os = "macos")]
     mod platform {
         use super::super::super::input;
+        use super::super::super::macos::World;
         use super::super::on_tab;
         use super::Mouse;
         use tauri::Webview;
@@ -587,22 +664,43 @@ mod native {
         }
 
         pub async fn run_script(view: &Webview, body: &str) -> Result<String, String> {
+            match run_in(view, body, World::Page, super::super::SCRIPT_TIMEOUT).await {
+                Err(None) => Err("the script did not finish within 30 seconds".into()),
+                other => other.map_err(Option::unwrap_or_default),
+            }
+        }
+
+        pub async fn run_helper(view: &Webview, body: &str) -> Result<String, String> {
+            match run_in(view, body, World::Helper, super::super::EVAL_TIMEOUT).await {
+                Err(None) => Err("the page took too long to answer".into()),
+                other => other.map_err(Option::unwrap_or_default),
+            }
+        }
+
+        /// `Err(None)` when the script ran out of time.
+        async fn run_in(
+            view: &Webview,
+            body: &str,
+            world: World,
+            limit: std::time::Duration,
+        ) -> Result<String, Option<String>> {
             let (sender, receiver) = tokio::sync::oneshot::channel();
             let body = body.to_owned();
             view.with_webview(move |platform| {
                 super::super::super::macos::call_async(
                     platform.inner(),
                     &body,
+                    world,
                     Box::new(move |result| {
                         let _ = sender.send(result);
                     }),
                 );
             })
-            .map_err(|error| error.to_string())?;
-            match tokio::time::timeout(super::super::SCRIPT_TIMEOUT, receiver).await {
-                Ok(Ok(result)) => result,
-                Ok(Err(_)) => Err("the tab went away".into()),
-                Err(_) => Err("the script did not finish within 30 seconds".into()),
+            .map_err(|error| Some(error.to_string()))?;
+            match tokio::time::timeout(limit, receiver).await {
+                Ok(Ok(result)) => result.map_err(Some),
+                Ok(Err(_)) => Err(Some("the tab went away".into())),
+                Err(_) => Err(None),
             }
         }
 
@@ -640,6 +738,10 @@ mod native {
         }
 
         pub async fn run_script(_: &Webview, _: &str) -> Result<String, String> {
+            Err(UNSUPPORTED.into())
+        }
+
+        pub async fn run_helper(_: &Webview, _: &str) -> Result<String, String> {
             Err(UNSUPPORTED.into())
         }
 
@@ -688,6 +790,11 @@ mod native {
 
     pub async fn run_script(view: &Webview, body: &str) -> Result<String, String> {
         platform::run_script(view, body).await
+    }
+
+    /// Runs `body` where the page's scripts cannot reach it.
+    pub async fn run_helper(view: &Webview, body: &str) -> Result<String, String> {
+        platform::run_helper(view, body).await
     }
 
     pub async fn start_recording(
@@ -772,6 +879,64 @@ fn tabs(manager: &BrowserManager, agent_id: &str) -> Value {
 }
 
 async fn state(manager: &BrowserManager, agent_id: &str) -> Result<Value, String> {
+    read_state(manager, agent_id, "full", false).await
+}
+
+/// What an action hands back about the page, chosen by its `report`: only the
+/// outcome, what changed since the last read (the default), or the full state.
+async fn report(manager: &BrowserManager, agent_id: &str, params: &Value) -> Result<Value, String> {
+    match params.get("report").and_then(Value::as_str) {
+        Some("outcome") => outcome(manager, agent_id),
+        Some("full") => state(manager, agent_id).await,
+        _ => read_state(manager, agent_id, "changes", false).await,
+    }
+}
+
+fn outcome(manager: &BrowserManager, agent_id: &str) -> Result<Value, String> {
+    let (tab_id, _) = active_tab(manager, agent_id)?;
+    let page = manager.page(agent_id, &tab_id).unwrap_or_default();
+    let mut result = json!({
+        "tabId": tab_id,
+        "url": page.url,
+        "title": page.title,
+        "loading": page.loading,
+    });
+    if let Some(dialog) = manager.dialog(&tab_id) {
+        result["dialog"] = json!(dialog);
+    }
+    Ok(result)
+}
+
+/// The element lines that got a box on the picture, in the page's order.
+fn marked_elements(page: &Value, shown: &Value) -> Value {
+    let marked: Vec<String> = shown
+        .get("marked")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_u64)
+        .map(|id| format!("[{id}] "))
+        .collect();
+    let lines = page
+        .get("elements")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .lines()
+        .filter(|line| {
+            marked
+                .iter()
+                .any(|prefix| line.starts_with(prefix.as_str()))
+        })
+        .collect::<Vec<_>>();
+    json!(lines.join("\n"))
+}
+
+async fn read_state(
+    manager: &BrowserManager,
+    agent_id: &str,
+    mode: &str,
+    full_text: bool,
+) -> Result<Value, String> {
     let (tab_id, view) = active_tab(manager, agent_id)?;
     let page = manager.page(agent_id, &tab_id).unwrap_or_default();
     let mut result = if let Some(dialog) = manager.dialog(&tab_id) {
@@ -784,8 +949,15 @@ async fn state(manager: &BrowserManager, agent_id: &str) -> Result<Value, String
     } else if page.url == BLANK_URL {
         json!({ "url": BLANK_URL, "title": "", "elements": "", "text": "" })
     } else {
-        call(&view, "state", &[]).await?
+        call(&view, "state", &[json!(mode), json!(full_text)]).await?
     };
+    if let Some(viewport) = result.get_mut("viewport").and_then(Value::as_object_mut) {
+        let fixed = manager.viewport(agent_id, &tab_id);
+        viewport.insert(
+            "fixed".into(),
+            fixed.map_or(json!(false), |fixed| json!(fixed)),
+        );
+    }
     if let Value::Object(map) = &mut result {
         map.insert("tabId".into(), json!(tab_id));
         map.insert("loading".into(), json!(page.loading));
@@ -816,15 +988,16 @@ async fn settle(manager: &BrowserManager, agent_id: &str, tab_id: &str) {
 /// script always answers with a JSON string, because WebKit refuses to hand
 /// back anything it cannot serialize.
 async fn call(view: &Webview, function: &str, args: &[Value]) -> Result<Value, String> {
-    let args = args
-        .iter()
-        .map(|arg| serde_json::to_string(arg).unwrap_or_else(|_| "null".into()))
-        .collect::<Vec<_>>()
-        .join(", ");
-    let script = format!(
-        "{PAGE_SCRIPT}\nJSON.stringify((() => {{ try {{ return {{ ok: window.__sikemux.{function}({args}) }}; }} catch (error) {{ return {{ error: String((error && error.message) || error) }}; }} }})())"
-    );
-    let raw = eval(view, &script).await?;
+    let answer = answer_of("window.__sikemux", function, args);
+    let raw = native::run_helper(view, &format!("{PAGE_SCRIPT}\nreturn {answer};")).await?;
+    let inner = serde_json::from_str::<Value>(&raw)
+        .map_err(|_| "the page returned an unreadable answer".to_string())?;
+    unwrap_answer(inner)
+}
+
+/// Read what the recorder kept for `function` ("network" or "console").
+async fn read_records(view: &Webview, function: &str, args: &[Value]) -> Result<Value, String> {
+    let raw = eval(view, &answer_of(RECORDS_SCRIPT.trim(), function, args)).await?;
     let outer: Value =
         serde_json::from_str(&raw).map_err(|_| "the page returned no answer".to_string())?;
     let inner = match outer {
@@ -832,6 +1005,21 @@ async fn call(view: &Webview, function: &str, args: &[Value]) -> Result<Value, S
             .map_err(|_| "the page returned an unreadable answer".to_string())?,
         other => other,
     };
+    unwrap_answer(inner)
+}
+
+fn answer_of(target: &str, function: &str, args: &[Value]) -> String {
+    let args = args
+        .iter()
+        .map(|arg| serde_json::to_string(arg).unwrap_or_else(|_| "null".into()))
+        .collect::<Vec<_>>()
+        .join(", ");
+    format!(
+        "JSON.stringify((() => {{ try {{ return {{ ok: ({target}).{function}({args}) }}; }} catch (error) {{ return {{ error: String((error && error.message) || error) }}; }} }})())"
+    )
+}
+
+fn unwrap_answer(inner: Value) -> Result<Value, String> {
     if let Some(error) = inner.get("error").and_then(Value::as_str) {
         return Err(error.to_owned());
     }
@@ -943,6 +1131,14 @@ mod tests {
         assert_eq!(merged["title"], "Next");
     }
 
+    #[test]
+    fn an_annotated_picture_lists_only_the_elements_it_boxed() {
+        let page =
+            json!({ "elements": "[1] <a> Home (/)\n[12] <button> Save\n[2] <button> Hidden" });
+        let listed = marked_elements(&page, &json!({ "marked": [12, 1] }));
+        assert_eq!(listed, json!("[1] <a> Home (/)\n[12] <button> Save"));
+    }
+
     /// A dispatched click is untrusted, and pages that check refuse it.
     #[test]
     fn clicks_and_keys_are_never_played_by_the_page_script() {
@@ -952,6 +1148,22 @@ mod tests {
                 "page.js dispatches {synthetic}"
             );
         }
+    }
+
+    /// The page script runs in a world of its own, which cannot see the
+    /// globals the recorder leaves among the page's scripts.
+    #[test]
+    fn only_the_records_script_reads_the_recorder() {
+        for global in ["__sikemuxNet", "__sikemuxConsole"] {
+            assert!(!PAGE_SCRIPT.contains(global), "page.js reads {global}");
+            assert!(
+                RECORDS_SCRIPT.contains(global),
+                "records.js misses {global}"
+            );
+        }
+        assert!(
+            answer_of(RECORDS_SCRIPT.trim(), "network", &[json!(5)]).contains("})).network(5) }")
+        );
     }
 
     #[test]

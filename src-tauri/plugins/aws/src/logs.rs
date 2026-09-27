@@ -9,7 +9,7 @@ use sikemux_plugin_api::{PluginResult, StreamSink};
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
 
-use crate::common::aws_bin;
+use crate::common::{aws_bin, cli_value};
 use crate::error::AwsError;
 
 pub(crate) async fn tail(
@@ -19,6 +19,13 @@ pub(crate) async fn tail(
     since: Option<String>,
     sink: StreamSink,
 ) -> PluginResult<()> {
+    cli_value(&log_group)?;
+    if let Some(stream) = &log_stream {
+        cli_value(stream)?;
+    }
+    if let Some(since) = &since {
+        cli_value(since)?;
+    }
     let bin = aws_bin();
     let mut cmd = Command::new(&bin);
     cmd.env("AWS_PROFILE", &profile)

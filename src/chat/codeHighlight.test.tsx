@@ -42,6 +42,7 @@ describe("fenceLanguage", () => {
         expect(fenceLanguage("src/styles/chat.css")).toBe("css");
         expect(fenceLanguage("src/chat/AgentChatPane.tsx:412")).toBe("typescript");
         expect(fenceLanguage("bash")).toBe("shellscript");
+        expect(fenceLanguage("src/pages/index.astro")).toBe("astro");
     });
 
     it("leaves a fence alone when the grammar is not one we carry", () => {

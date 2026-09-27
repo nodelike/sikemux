@@ -1,4 +1,4 @@
-import { useEffect, useRef, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useRef, useSyncExternalStore } from "react";
 
 export interface ResourceDef<Args extends unknown[], T> {
     kind: string;
@@ -132,6 +132,30 @@ function stringifyError(err: unknown): string {
     return String(err);
 }
 
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+    if (typeof value !== "object" || value === null) return false;
+    const proto = Object.getPrototypeOf(value);
+    return proto === Object.prototype || proto === null;
+}
+
+/** A refetch hands back fresh objects even when nothing changed; keep every part that did not change. */
+export function shareUnchanged<T>(prev: unknown, next: T): T {
+    if (Object.is(prev, next)) return prev as T;
+    const arrays = Array.isArray(prev) && Array.isArray(next);
+    if (!arrays && !(isPlainObject(prev) && isPlainObject(next))) return next;
+    const before = prev as Record<string, unknown>;
+    const after = next as Record<string, unknown>;
+    const keys = Object.keys(after);
+    const out: Record<string, unknown> = arrays ? ([] as unknown as Record<string, unknown>) : {};
+    let same = keys.length === Object.keys(before).length;
+    for (const key of keys) {
+        const value = shareUnchanged(before[key], after[key]);
+        out[key] = value;
+        if (value !== before[key] || !(key in before)) same = false;
+    }
+    return (same ? prev : out) as T;
+}
+
 function notify(key: string): void {
     subs.get(key)?.forEach((fn) => fn());
 }
@@ -160,7 +184,8 @@ function trigger<Args extends unknown[], T>(def: ResourceDef<Args, T>, key: stri
     });
     const p = def
         .fetch(...args)
-        .then((data) => {
+        .then((fetched) => {
+            const data = shareUnchanged(cache.get(key)?.data, fetched);
             if ((generations.get(key) ?? 0) === generation) {
                 setEntry(key, {
                     kind: def.kind,
@@ -221,8 +246,8 @@ function useResourceHandle<Args extends unknown[], T>(
 ): ResourceHandle<T> {
     const key = enabled || retainCached ? keyOf(def.kind, args as unknown[], def as unknown as AnyDef) : "";
 
-    const retained = useRef<{ key: string; data: T | undefined }>({ key, data: undefined });
-    if (retained.current.key !== key) retained.current = { key, data: undefined };
+    const retained = useRef<{ key: string; seen: T | undefined; data: T | undefined }>({ key, seen: undefined, data: undefined });
+    if (retained.current.key !== key) retained.current = { key, seen: undefined, data: undefined };
 
     useEffect(() => {
         if (!enabled) return;
@@ -234,8 +259,8 @@ function useResourceHandle<Args extends unknown[], T>(
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [enabled, key]);
 
-    const entry = useSyncExternalStore(
-        (cb) => {
+    const subscribe = useCallback(
+        (cb: () => void) => {
             if (!enabled) return () => {};
             let set = subs.get(key);
             if (!set) {
@@ -251,14 +276,23 @@ function useResourceHandle<Args extends unknown[], T>(
                 }
             };
         },
+        [enabled, key],
+    );
+    const entry = useSyncExternalStore(
+        subscribe,
         () => (enabled || retainCached ? (cache.get(key) as Entry<T> | undefined) : undefined),
         () => undefined,
     );
 
-    if (retainCached && entry?.data !== undefined) retained.current.data = entry.data;
+    // An invalidated entry is dropped from the cache, so its refetch cannot share
+    // with what came before. The copy held here still can.
+    if (retainCached && entry?.data !== undefined && entry.data !== retained.current.seen) {
+        retained.current.seen = entry.data;
+        retained.current.data = shareUnchanged(retained.current.data, entry.data);
+    }
 
     return {
-        data: entry?.data ?? (retainCached ? retained.current.data : undefined),
+        data: retainCached ? retained.current.data : entry?.data,
         status: entry?.status ?? "loading",
         error: entry?.error,
         refresh: () => (enabled ? trigger(def, key, args).then(() => {}) : Promise.resolve()),

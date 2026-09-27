@@ -45,16 +45,29 @@ fn config_path(data_dir: &Path) -> PathBuf {
 }
 
 pub fn load(data_dir: &Path) -> SignozConfig {
-    let mut config: SignozConfig = std::fs::read(config_path(data_dir))
+    let config: SignozConfig = std::fs::read(config_path(data_dir))
         .ok()
         .and_then(|bytes| serde_json::from_slice(&bytes).ok())
         .unwrap_or_default();
-    if let Ok(url) = std::env::var("SIGNOZ_URL") {
-        if !url.trim().is_empty() {
-            config.url = url.trim().trim_end_matches('/').to_string();
-        }
+    match std::env::var("SIGNOZ_URL") {
+        Ok(url) if !url.trim().is_empty() => with_url_override(config, &url),
+        _ => config,
     }
-    config
+}
+
+/// A saved credential belongs to the address it was saved for, so pointing
+/// SigNoz somewhere else leaves it behind.
+fn with_url_override(config: SignozConfig, raw: &str) -> SignozConfig {
+    let url = validate_url(raw).unwrap_or_default();
+    if url == config.url {
+        return config;
+    }
+    SignozConfig {
+        url,
+        account: String::new(),
+        owns_key: false,
+        ..config
+    }
 }
 
 fn io_error(error: std::io::Error) -> SignozError {
@@ -210,6 +223,26 @@ mod tests {
         assert!(validate_secret("abc def").is_err());
         assert!(validate_secret("abc\n-a other").is_err());
         assert!(validate_secret("a\"b").is_err());
+    }
+
+    #[test]
+    fn keeps_a_saved_credential_to_its_own_address() {
+        let saved = SignozConfig {
+            url: "https://logs.example.com".into(),
+            auth: AuthMode::Session,
+            account: "logs.example.com".into(),
+            email: "me@example.com".into(),
+            owns_key: true,
+        };
+        assert_eq!(
+            with_url_override(saved.clone(), "https://logs.example.com/"),
+            saved
+        );
+        let moved = with_url_override(saved.clone(), "https://other.example.com");
+        assert_eq!(moved.url, "https://other.example.com");
+        assert_eq!((moved.account.as_str(), moved.owns_key), ("", false));
+        let refused = with_url_override(saved, "http://other.example.com");
+        assert_eq!((refused.url.as_str(), refused.account.as_str()), ("", ""));
     }
 
     #[test]

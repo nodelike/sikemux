@@ -1,31 +1,22 @@
 import { act, cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { DiffRow } from "../api/git";
 import { themeById } from "../themes";
 
 const mocks = vi.hoisted(() => ({
     fileAt: vi.fn(),
+    fileDiff: vi.fn(),
     readTextFileLimited: vi.fn(),
     writeFile: vi.fn(),
     currentTheme: vi.fn(),
-    preloadHighlighter: vi.fn(),
-    themeListener: null as ((theme: ReturnType<typeof themeById>) => void) | null,
-    diffProps: null as Record<string, any> | null,
-    registeredThemes: [] as Array<{ name: string; loader: () => Promise<unknown> }>,
+    themeListeners: new Set<(theme: ReturnType<typeof themeById>) => void>(),
+    mergeProps: null as Record<string, any> | null,
 }));
 
-vi.mock("@pierre/diffs", () => ({
-    registerCustomTheme: (name: string, loader: () => Promise<unknown>) => mocks.registeredThemes.push({ name, loader }),
-    preloadHighlighter: mocks.preloadHighlighter,
+vi.mock("../api/git", async (importOriginal) => ({
+    ...(await importOriginal<typeof import("../api/git")>()),
+    git: { fileAt: mocks.fileAt, fileDiff: mocks.fileDiff },
 }));
-vi.mock("@pierre/diffs/edit", () => ({ Editor: class {} }));
-vi.mock("@pierre/diffs/react", () => ({
-    EditProvider: ({ children }: { children: React.ReactNode }) => children,
-    MultiFileDiff: (props: Record<string, any>) => {
-        mocks.diffProps = props;
-        return <div data-testid="pierre-diff" />;
-    },
-}));
-vi.mock("../api/git", () => ({ git: { fileAt: mocks.fileAt } }));
 vi.mock("../api/fs", () => ({
     fsapi: {
         readTextFileLimited: mocks.readTextFileLimited,
@@ -35,86 +26,116 @@ vi.mock("../api/fs", () => ({
 vi.mock("../themes/bus", () => ({
     currentTheme: mocks.currentTheme,
     subscribeTheme: (listener: (theme: ReturnType<typeof themeById>) => void) => {
-        mocks.themeListener = listener;
-        return () => {
-            mocks.themeListener = null;
-        };
+        mocks.themeListeners.add(listener);
+        return () => mocks.themeListeners.delete(listener);
+    },
+}));
+vi.mock("./DiffMergeEditor", () => ({
+    default: (props: Record<string, any>) => {
+        mocks.mergeProps = props;
+        return <div data-testid="merge-editor" />;
     },
 }));
 
 import { DiffEditor, invalidateDiffContentCache } from "./DiffEditor";
 
+const ROWS: DiffRow[] = [
+    [0, 1, "import { a } from './a';"],
+    [2, 2, "const value = 1;"],
+    [1, 2, "const value = 2;"],
+    [3, 12, ""],
+    [0, 20, "export default value;"],
+];
+
 beforeEach(() => {
     invalidateDiffContentCache();
     mocks.fileAt.mockReset().mockResolvedValue("const value = 1;\n");
+    mocks.fileDiff.mockReset().mockResolvedValue(ROWS);
     mocks.readTextFileLimited.mockReset().mockResolvedValue("const value = 2;\n");
     mocks.writeFile.mockReset().mockResolvedValue(undefined);
     mocks.currentTheme.mockReset().mockReturnValue(themeById("aura"));
-    mocks.preloadHighlighter.mockReset().mockResolvedValue(undefined);
-    mocks.themeListener = null;
-    mocks.diffProps = null;
+    mocks.themeListeners.clear();
+    mocks.mergeProps = null;
 });
 
 afterEach(cleanup);
 
 describe("DiffEditor", () => {
-    it("renders with Pierre Diffs, paints no ground of its own, and saves edits", async () => {
+    it("draws the rows the native side worked out, numbered and marked by kind", async () => {
+        const { container } = render(<DiffEditor repo="/repo" path="src/app.ts" baseRev="HEAD" headRev=":index" editable={false} />);
+
+        await waitFor(() => expect(container.querySelectorAll(".diff-row")).toHaveLength(5));
+        expect(mocks.fileDiff).toHaveBeenCalledWith("/repo", "src/app.ts", "HEAD", ":index", false);
+        const rows = [...container.querySelectorAll(".diff-row")];
+        expect(rows.map((row) => row.getAttribute("data-kind"))).toEqual(["context", "deleted", "added", "hidden", "context"]);
+        expect(rows[1].querySelector(".diff-num")?.textContent).toBe("2");
+        expect(rows[2].querySelector(".diff-code")?.textContent).toBe("const value = 2;");
+        expect(container.querySelector(".diff-view")?.classList.contains("tinted")).toBe(true);
+    });
+
+    it("runs to the working tree when there is no head revision", async () => {
+        const { container } = render(<DiffEditor repo="/repo" path="src/app.ts" baseRev="HEAD" editable={false} />);
+        await waitFor(() => expect(container.querySelector(".diff-view")).toBeInTheDocument());
+        expect(mocks.fileDiff).toHaveBeenCalledWith("/repo", "src/app.ts", "HEAD", null, false);
+    });
+
+    it("shows the lines a hidden row stands for when it is clicked", async () => {
+        const { container, getByRole } = render(<DiffEditor repo="/repo" path="src/app.ts" baseRev="HEAD" headRev=":index" editable={false} />);
+        await waitFor(() => expect(getByRole("button", { name: "Show 12 unchanged lines" })).toBeInTheDocument());
+
+        mocks.fileDiff.mockResolvedValue(ROWS.filter((row) => row[0] !== 3));
+        fireEvent.click(getByRole("button", { name: "Show 12 unchanged lines" }));
+
+        await waitFor(() => expect(mocks.fileDiff).toHaveBeenLastCalledWith("/repo", "src/app.ts", "HEAD", ":index", true));
+        await waitFor(() => expect(container.querySelectorAll(".diff-row")).toHaveLength(4));
+    });
+
+    it("tints changed rows only on a dark theme", async () => {
+        const { container } = render(<DiffEditor repo="/repo" path="src/app.ts" baseRev="HEAD" headRev="main" editable={false} />);
+        await waitFor(() => expect(container.querySelector(".diff-view.tinted")).toBeInTheDocument());
+
+        const day = themeById("aura-day");
+        mocks.currentTheme.mockReturnValue(day);
+        act(() => mocks.themeListeners.forEach((listener) => listener(day)));
+
+        expect(container.querySelector(".diff-view")?.classList.contains("tinted")).toBe(false);
+    });
+
+    it("draws nothing for a file that did not change", async () => {
+        mocks.fileDiff.mockResolvedValue([]);
+        const { container } = render(<DiffEditor repo="/repo" path="src/same.ts" baseRev="HEAD" headRev=":index" editable={false} />);
+        await waitFor(() => expect(container.querySelector(".diff-editor-loading")).not.toBeInTheDocument());
+        expect(container.querySelector(".diff-view")).not.toBeInTheDocument();
+    });
+
+    it("says why a diff cannot be shown", async () => {
+        mocks.fileDiff.mockRejectedValue(new Error("src/logo.png is binary; inline diff is disabled."));
+        const { findByText } = render(<DiffEditor repo="/repo" path="src/logo.png" baseRev="HEAD" headRev=":index" editable={false} />);
+        expect(await findByText("x src/logo.png is binary; inline diff is disabled.")).toBeInTheDocument();
+    });
+
+    it("edits the working file against its base and saves it with Cmd+S", async () => {
         const onSaved = vi.fn();
-        const { container, getByTestId } = render(<DiffEditor repo="/repo" path="src/app.ts" baseRev="HEAD" editable onSaved={onSaved} />);
+        const { container, findByTestId } = render(<DiffEditor repo="/repo" path="src/app.ts" baseRev="HEAD" editable onSaved={onSaved} />);
 
-        await waitFor(() => expect(getByTestId("pierre-diff")).toBeInTheDocument());
-        expect(mocks.diffProps?.oldFile).toMatchObject({ name: "src/app.ts", contents: "const value = 1;\n" });
-        expect(mocks.diffProps?.newFile).toMatchObject({ name: "src/app.ts", contents: "const value = 2;\n" });
-        expect(mocks.diffProps?.options).toMatchObject({
-            diffStyle: "unified",
-            themeType: "dark",
-            disableBackground: false,
-            disableFileHeader: true,
-            lineDiffType: "word-alt",
-            maxLineDiffLength: 512,
-            tokenizeMaxLength: 4000,
-        });
-        expect(mocks.diffProps?.disableWorkerPool).toBe(true);
-        // The window paints the ground on `body`; a second fill here reads as a
-        // slab beside panes the wallpaper shows through.
-        expect(mocks.diffProps?.style["--diffs-bg"]).toBe("transparent");
-        for (const [name, value] of Object.entries(mocks.diffProps?.style ?? {})) {
-            expect(`${name}: ${String(value)}`).not.toContain("--window-opacity");
-        }
-        expect(mocks.diffProps?.style["--diffs-addition-color-override"]).toBe("var(--live)");
-        expect(mocks.diffProps?.style["--diffs-deletion-color-override"]).toBe("var(--danger)");
+        await findByTestId("merge-editor");
+        expect(mocks.fileDiff).not.toHaveBeenCalled();
+        expect(mocks.mergeProps).toMatchObject({ base: "const value = 1;\n", head: "const value = 2;\n", path: "src/app.ts", tinted: true });
 
-        act(() => mocks.diffProps?.editorOptions.onChange({ name: "src/app.ts", contents: "const value = 3;\n" }));
+        act(() => mocks.mergeProps?.onChange("const value = 3;\n"));
         fireEvent.keyDown(container.querySelector(".diff-editor")!, { key: "s", metaKey: true });
 
         await waitFor(() => expect(mocks.writeFile).toHaveBeenCalledWith("/repo/src/app.ts", "const value = 3;\n"));
         expect(onSaved).toHaveBeenCalledOnce();
     });
 
-    it("updates the renderer and Shiki palette when the app theme changes", async () => {
-        const { getByTestId } = render(<DiffEditor repo="/repo" path="src/app.ts" baseRev="HEAD" headRev="main" editable={false} />);
-        await waitFor(() => expect(getByTestId("pierre-diff")).toBeInTheDocument());
-
-        act(() => mocks.themeListener?.(themeById("aura-day")));
-
-        expect(mocks.diffProps?.options.themeType).toBe("light");
-        expect(mocks.diffProps?.options.disableBackground).toBe(true);
-        expect(mocks.diffProps?.style.colorScheme).toBe("light");
-        expect(mocks.diffProps?.options.theme).toMatch(/^sikemux-aura-day-/);
-
-        const registered = mocks.registeredThemes.find((entry) => entry.name === mocks.diffProps?.options.theme);
-        const shikiTheme = (await registered?.loader()) as { type: string; colors: Record<string, string>; tokenColors: unknown[] };
-        expect(shikiTheme).toMatchObject({
-            type: "light",
-            colors: {
-                "editor.background": themeById("aura-day").chrome.bg,
-                "editor.foreground": themeById("aura-day").editor.fg,
-            },
-        });
-        expect(shikiTheme.tokenColors.length).toBeGreaterThan(10);
+    it("refuses to edit a file that looks binary", async () => {
+        mocks.readTextFileLimited.mockResolvedValue("PNG\0\0\0");
+        const { findByText } = render(<DiffEditor repo="/repo" path="logo.png" baseRev="HEAD" editable />);
+        expect(await findByText("x logo.png looks binary; inline diff is disabled.")).toBeInTheDocument();
     });
 
-    it("deduplicates simultaneous revision reads", async () => {
+    it("deduplicates simultaneous reads", async () => {
         render(
             <>
                 <DiffEditor repo="/repo" path="src/shared.ts" baseRev="HEAD" headRev=":index" editable={false} />
@@ -122,45 +143,23 @@ describe("DiffEditor", () => {
             </>,
         );
 
-        await waitFor(() => expect(document.querySelectorAll('[data-testid="pierre-diff"]')).toHaveLength(2));
-        expect(mocks.fileAt).toHaveBeenCalledTimes(2);
-        expect(mocks.fileAt).toHaveBeenCalledWith("/repo", "HEAD", "src/shared.ts");
-        expect(mocks.fileAt).toHaveBeenCalledWith("/repo", ":index", "src/shared.ts");
-    });
-
-    it("starts renderer preparation alongside content reads and skips word diffing for read-only views", async () => {
-        const resolveReads: Array<(value: string) => void> = [];
-        mocks.fileAt.mockImplementation(() => new Promise<string>((resolve) => resolveReads.push(resolve)));
-
-        const { queryByTestId } = render(<DiffEditor repo="/repo" path="src/app.ts" baseRev="HEAD" headRev=":index" editable={false} />);
-
-        expect(mocks.fileAt).toHaveBeenCalledTimes(2);
-        expect(mocks.preloadHighlighter).toHaveBeenCalledWith({
-            themes: [expect.stringMatching(/^sikemux-aura-/)],
-            langs: ["typescript"],
-        });
-        expect(queryByTestId("pierre-diff")).not.toBeInTheDocument();
-
-        resolveReads.forEach((resolve) => resolve("const value = 1;\n"));
-        await waitFor(() => {
-            expect(mocks.diffProps?.options.lineDiffType).toBe("none");
-            expect(mocks.diffProps?.disableWorkerPool).toBe(false);
-        });
+        await waitFor(() => expect(document.querySelectorAll(".diff-view")).toHaveLength(2));
+        expect(mocks.fileDiff).toHaveBeenCalledTimes(1);
     });
 
     it("reuses completed reads across virtualized remounts and invalidates them by repository", async () => {
         const first = render(<DiffEditor repo="/repo" path="src/revisit.ts" baseRev="HEAD" headRev=":index" editable={false} />);
-        await waitFor(() => expect(first.getByTestId("pierre-diff")).toBeInTheDocument());
+        await waitFor(() => expect(first.container.querySelector(".diff-view")).toBeInTheDocument());
         first.unmount();
 
         const second = render(<DiffEditor repo="/repo" path="src/revisit.ts" baseRev="HEAD" headRev=":index" editable={false} />);
-        await waitFor(() => expect(second.getByTestId("pierre-diff")).toBeInTheDocument());
-        expect(mocks.fileAt).toHaveBeenCalledTimes(2);
+        await waitFor(() => expect(second.container.querySelector(".diff-view")).toBeInTheDocument());
+        expect(mocks.fileDiff).toHaveBeenCalledTimes(1);
         second.unmount();
 
         invalidateDiffContentCache("/repo");
         const third = render(<DiffEditor repo="/repo" path="src/revisit.ts" baseRev="HEAD" headRev=":index" editable={false} />);
-        await waitFor(() => expect(third.getByTestId("pierre-diff")).toBeInTheDocument());
-        expect(mocks.fileAt).toHaveBeenCalledTimes(4);
+        await waitFor(() => expect(third.container.querySelector(".diff-view")).toBeInTheDocument());
+        expect(mocks.fileDiff).toHaveBeenCalledTimes(2);
     });
 });

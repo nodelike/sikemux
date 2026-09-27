@@ -3,6 +3,8 @@
 //! tabs the person sees in the agent's pane. The one exception is the guide,
 //! which this binary carries and serves on its own.
 
+#[path = "../../cli_auth.rs"]
+mod cli_auth;
 mod harness;
 mod manifest;
 

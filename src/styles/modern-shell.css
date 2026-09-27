@@ -70,32 +70,6 @@ textarea:focus,
     padding-left: 20px;
 }
 
-.crumb {
-    gap: var(--space-2);
-    max-width: min(420px, 42vw);
-    height: 26px;
-    padding: 0 var(--space-2);
-    border-radius: var(--radius-2);
-}
-
-.crumb-session,
-.crumb-name {
-    font-family: var(--ui);
-    font-size: var(--text-xs);
-}
-
-/* The session is the subject and the path is context, so they differ by
- * colour rather than by weight — 650 next to 400 at 12px was two different
- * typefaces' worth of contrast for one breadcrumb. */
-.crumb-session {
-    font-weight: var(--weight-medium);
-    color: var(--text-primary);
-}
-
-.crumb-name {
-    color: var(--text-tertiary);
-}
-
 .tb-right {
     gap: 8px;
     padding-right: 16px;
@@ -104,6 +78,7 @@ textarea:focus,
 .tb-btn,
 .env-dd-btn,
 .zoom-pill,
+.voice-pill,
 .tb-git-chip,
 .tb-deploy-chip,
 .tb-deploy-checkout {
@@ -422,6 +397,7 @@ textarea:focus,
 .proj-child-label {
     font-family: var(--ui);
     font-size: var(--text-sm);
+    font-weight: var(--weight-medium);
     line-height: 1.2;
 }
 
@@ -454,7 +430,7 @@ textarea:focus,
     align-items: stretch;
     min-height: 0;
     padding: var(--space-2) var(--gutter-rail);
-    gap: var(--space-2);
+    gap: var(--space-3);
     border-bottom-color: var(--line-soft);
 }
 
@@ -600,14 +576,6 @@ textarea:focus,
     border-radius: 999px;
 }
 
-/* The workspace strip is a surface of its own now (the fill is set with the
- * other panels, below), so it takes an edge the whole way round like the
- * screen under it. A border on the bottom only would read as a lid again. */
-.tabbar.v-agent {
-    border: 1px solid var(--border);
-    border-radius: var(--radius-panel);
-}
-
 /* The editor's strip sits inside a pane that already is the surface, and a
  * second near-identical tint on top of it drew a seam across the window. */
 .tabbar.v-editor {
@@ -619,11 +587,27 @@ textarea:focus,
  * 2px bar under a rounded corner reads as a rendering fault, not a selection. */
 .tabbar.v-agent,
 .tabbar.v-editor,
-.tabbar.v-browser,
+.tabbar.v-desk,
 .tabbar.v-stack {
     gap: var(--space-1);
     padding-inline: var(--space-1);
     align-items: center;
+}
+
+/* The panes of one split, outlined together. Each keeps its own pill inside. */
+.tabbar .tab-group {
+    display: flex;
+    flex: 0 0 auto;
+    align-items: center;
+    gap: var(--space-1);
+    padding: 2px;
+    border-radius: calc(var(--radius-2) + 2px);
+    box-shadow: inset 0 0 0 1px var(--border);
+    transition: box-shadow var(--dur-1) linear;
+}
+
+.tabbar .tab-group.active {
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--acc) 28%, var(--border));
 }
 
 /*
@@ -637,7 +621,7 @@ textarea:focus,
  */
 .tabbar.v-agent .tab-wrap,
 .tabbar.v-editor .tab-wrap,
-.tabbar.v-browser .tab-wrap,
+.tabbar.v-desk .tab-wrap,
 .tabbar.v-stack .tab-wrap {
     height: 26px;
     border-right: 0;
@@ -657,7 +641,7 @@ textarea:focus,
 
 .tabbar.v-agent .tab-wrap:hover,
 .tabbar.v-editor .tab-wrap:hover,
-.tabbar.v-browser .tab-wrap:hover,
+.tabbar.v-desk .tab-wrap:hover,
 .tabbar.v-stack .tab-wrap:hover {
     background: var(--surface-hover);
     box-shadow: inset 0 0 0 1px var(--border);
@@ -666,7 +650,7 @@ textarea:focus,
 
 .tabbar.v-agent .tab-wrap.active,
 .tabbar.v-editor .tab-wrap.active,
-.tabbar.v-browser .tab-wrap.active,
+.tabbar.v-desk .tab-wrap.active,
 .tabbar.v-stack .tab-wrap.active {
     background: var(--surface-selected);
     box-shadow: inset 0 0 0 1px var(--border-selected);
@@ -678,7 +662,7 @@ textarea:focus,
  * gains 100 weight on selection reflows the strip by a pixel or two. */
 .tabbar.v-agent .tab-label,
 .tabbar.v-editor .tab-label,
-.tabbar.v-browser .tab-label,
+.tabbar.v-desk .tab-label,
 .tabbar.v-stack .tab-label {
     font-size: var(--text-xs);
     font-weight: var(--weight-medium);
@@ -802,7 +786,7 @@ textarea:focus,
     gap: var(--shell-gap);
     /* Half gutter under the bar: it is window chrome, not another panel, so it
        sits closer than the panels do to each other. The bar's own slack under
-       the crumb is most of it; this tops it up to match the gap above. */
+       its tabs is most of it; this tops it up to match the gap above. */
     padding: var(--space-1) var(--shell-gap) var(--shell-gap);
 }
 
@@ -822,7 +806,7 @@ textarea:focus,
 /* Panes hold a gutter back from their cell, so the window area reaches out by
    that much to put the outer panes flush with the stage's edges. */
 .window-area {
-    inset: 0 calc(-1 * var(--pane-gutter)) calc(-1 * var(--pane-gutter));
+    inset: calc(-1 * var(--pane-gutter));
 }
 
 .rail-peek {
@@ -887,6 +871,13 @@ textarea:focus,
     animation: none;
 }
 
+/* A docked rail lets the wallpaper through a transparent window. A peeked one
+   floats over the stage, where the same tint would let the panes show through. */
+html.is-transparent .rail-peek-panel > .side-rail,
+html.is-transparent .rail-peek-panel > .workspace-rail {
+    background: var(--surface);
+}
+
 .rail-peek-panel--open {
     animation: railPeekIn 180ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
 }
@@ -933,9 +924,12 @@ textarea:focus,
 }
 
 /* The stage draws no edge and no corner of its own — the strip and the screen
-   each carry theirs — so this only clips the screens waiting off to the side. */
+   each carry theirs — so this only clips the screens waiting off to the side.
+   Clipped rather than hidden: the window area reaches a gutter past the stage,
+   and a hidden box would scroll by that much whenever something inside it
+   takes focus, leaving the screen shifted left until a restart. */
 .stage {
-    overflow: hidden;
+    overflow: clip;
 }
 
 .pane {
@@ -977,7 +971,6 @@ textarea,
 .shell
     :where(
         .top-bar,
-        .crumb,
         .tb-btn,
         .env-dd-btn,
         .env-dd-item,
@@ -1000,8 +993,6 @@ textarea,
         .cbx-box,
         .picker-item,
         .rnd-btn,
-        .rnd-input,
-        .rnd-cell,
         .bruno-send,
         .bruno-save,
         .bruno-input,
@@ -1048,9 +1039,11 @@ textarea,
         .workspace-rail,
         .agent-usage,
         .agent-empty,
-        .aws-empty-card,
+        .aws-signin-card,
+        .aws-account,
         .git-busy-card,
         .rnd-login-card,
+        .rnd-conn,
         .settings-list,
         .settings-empty,
         .theme-pick-current,
@@ -1122,7 +1115,6 @@ textarea,
  * smaller corner to nest inside the one around it. */
 .shell
     :where(
-        .rnd-btn-sm,
         .git-kbd,
         .git-menu-key,
         .panel-akbd,
@@ -1131,8 +1123,8 @@ textarea,
         .command-palette-shortcut,
         .tb-git-chip,
         .tb-deploy-chip,
-        .tb-aws-chip,
         .zoom-pill,
+        .voice-pill,
         .agent-view-switch button
     ) {
     border-radius: var(--radius-1) !important;
@@ -1148,10 +1140,10 @@ textarea,
         .sld input[type="range"],
         .sld input[type="range"]::-webkit-slider-runnable-track,
         .sld input[type="range"]::-webkit-slider-thumb,
-        .aws-logs-pill,
-        .aws-logs-pill-dot,
-        .rnd-exec-pill,
-        .rnd-pill-x,
+        .aws-live,
+        .aws-live i,
+        .rnd-live,
+        .rnd-live i,
         .chat-send
     ) {
     border-radius: var(--radius-full) !important;
@@ -1163,9 +1155,8 @@ textarea,
  * the bottom edge — it collided with the button's rounded corner.
  */
 .agent-header-btn {
-    /* Each provider keeps its own mark colour — muted while unselected so the
-     * active one still reads, but recognisable at a glance either way. */
-    color: color-mix(in srgb, var(--agent-provider) 55%, var(--ink-faint));
+    /* Each provider keeps its full mark colour; the tile's border and tint mark the selected one. */
+    color: var(--agent-provider);
     background: color-mix(in srgb, var(--rail-2) calc(var(--window-opacity, 1) * 55%), transparent);
     box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--line) 66%, transparent);
 }
@@ -1180,6 +1171,63 @@ textarea,
     box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--agent-provider) 34%, transparent);
 }
 
+.agent-header-name {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    min-width: 0;
+}
+
+.agent-header-name .agent-header-label {
+    overflow: hidden;
+    font-size: var(--text-sm);
+    font-weight: var(--weight-semibold);
+    letter-spacing: var(--tracking-tight);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.agent-header-plan {
+    flex: 0 0 auto;
+    padding: 1px 5px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-chip);
+    color: var(--text-tertiary);
+    font-family: var(--mono);
+    font-size: var(--text-3xs);
+}
+
+.agent-header-actions {
+    gap: 2px;
+}
+
+.agent-header-action {
+    display: grid;
+    place-items: center;
+    width: var(--control-hit);
+    height: var(--control-hit);
+    color: var(--gray-700);
+    transition:
+        color var(--dur-1),
+        background var(--dur-1);
+}
+
+.agent-header-action:hover:not(:disabled) {
+    color: var(--text-primary);
+    background: var(--surface-hover);
+}
+
+.agent-header-action[aria-pressed="true"] {
+    color: var(--text-primary);
+    background: var(--surface-selected);
+    box-shadow: inset 0 0 0 1px var(--border-selected);
+}
+
+.agent-header-action:disabled {
+    opacity: 0.35;
+    cursor: default;
+}
+
 /* ---- Top bar -------------------------------------------------------------
  * The bar shares the shell's ground with the gutter around the frame, so
  * there is no bar — just window chrome sitting above the surfaces. The gutter
@@ -1188,14 +1236,6 @@ textarea,
 .top-bar {
     border-bottom: 0;
     background: transparent;
-}
-
-/* The breadcrumb is the one thing on the bar that needs a surface: it names
- * what the window is looking at, and without one it reads as text drifting
- * past the traffic lights. */
-.crumb {
-    background: var(--surface-hover);
-    box-shadow: inset 0 0 0 1px var(--border);
 }
 
 /* ---- Surface vs gutter ---------------------------------------------------
@@ -1239,8 +1279,7 @@ textarea,
 }
 
 .side-rail,
-.workspace-rail,
-.tabbar.v-agent {
+.workspace-rail {
     background: color-mix(in srgb, var(--surface) var(--panel-solidity), transparent);
 }
 

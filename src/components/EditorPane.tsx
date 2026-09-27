@@ -1,8 +1,6 @@
 import { FileTree } from "./FileTree";
 import { relocatedPath } from "../state/editorPaths";
-import { useCallback, useEffect, useRef, useState } from "react";
-import Markdown from "react-markdown";
-import remarkGfm from "remark-gfm";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invokeCommand as invoke } from "../api/invoke";
 import { Compartment, EditorState, Prec, type Text } from "@codemirror/state";
 import { EditorView, keymap, type ViewUpdate } from "@codemirror/view";
@@ -21,7 +19,7 @@ import {
     type EditorLanguageHint,
 } from "../editor/codemirror";
 import { isImagePath } from "../editor/media";
-import { MarkdownTableHead } from "../lib/markdownTable";
+import { Markdown, MARKDOWN_GFM, type MarkdownComponents } from "../markdown/Markdown";
 import { gitDiffGutter } from "../editor/gitGutter";
 import { gitInlineBlame } from "../editor/gitBlame";
 import { DocumentIO } from "../editor/documentIO";
@@ -34,6 +32,7 @@ import { subscribe } from "../state/bus";
 import * as cmd from "../state/commands";
 import { invalidate } from "../state/resources";
 import { useStore } from "../state/store";
+import { collectPanes } from "../state/layout";
 import { errCategory, errMessage, notify, reportError, swallow } from "../state/toast";
 import { confirmDialog } from "../state/dialog";
 import { refreshViewTheme, registerView } from "../themes/bus";
@@ -42,13 +41,16 @@ import { useNavHistory, type NavEntry } from "../hooks/useNavHistory";
 import { useGitBaseline } from "../hooks/useGitBaseline";
 import { useGitBlame } from "../hooks/useGitBlame";
 import { refreshBlame } from "../editor/gitBlame";
-import type { CliPendingEditorOpen } from "../state/types";
+import type { CliPendingEditorOpen, DeskReveal } from "../state/types";
 import { IconClose, IconEditor, IconEye, IconFile } from "./Icons";
 import { FileIcon } from "./FileIcon";
 import { TabBar } from "./TabBar";
 import { EditorFindBar } from "./EditorFindBar";
 import { EditorInsights } from "./EditorInsights";
-import { basename, isPathWithin, joinPath } from "../lib/paths";
+import { ShaderField } from "./ShaderField";
+import { basename, dirname, isPathWithin, joinPath, normalizePath } from "../lib/paths";
+import { localPath } from "../chat/imagePreview";
+import { safeWebUrl } from "../terminal/interactions";
 import { keybindingLabelForAction } from "../keybindings";
 
 const DEFAULT_VIEW = { openTabs: [], activePath: null };
@@ -201,15 +203,42 @@ function ImageViewer({ image, onReload }: { image: ImageState; onReload: (path: 
     );
 }
 
-const markdownComponents = { thead: MarkdownTableHead };
+function markdownLinkFile(href: string, documentPath: string): string | null {
+    if (href.startsWith("#")) return null;
+    try {
+        return localPath(new URL(href, `file://${normalizePath(dirname(documentPath)).split("/").map(encodeURIComponent).join("/")}/`).href);
+    } catch {
+        return null;
+    }
+}
 
-function MarkdownPreview({ source }: { source: string }) {
+function MarkdownPreview({ source, path, onOpenFile }: { source: string; path: string; onOpenFile: (path: string) => void }) {
+    const components = useMemo<MarkdownComponents>(
+        () => ({
+            link: ({ href, children }) => (
+                <a
+                    href={href}
+                    onClick={(event) => {
+                        event.preventDefault();
+                        if (!href) return;
+                        const webUrl = safeWebUrl(href);
+                        if (webUrl) {
+                            void invoke("open_url", { url: webUrl, app: null, shortcut: null }).catch(swallow("open markdown link"));
+                            return;
+                        }
+                        const file = markdownLinkFile(href, path);
+                        if (file) onOpenFile(file);
+                    }}>
+                    {children}
+                </a>
+            ),
+        }),
+        [path, onOpenFile],
+    );
     return (
         <div className="ed-markdown-preview">
             <article className="ed-markdown-body">
-                <Markdown components={markdownComponents} remarkPlugins={[remarkGfm]} skipHtml>
-                    {source}
-                </Markdown>
+                <Markdown text={source} options={MARKDOWN_GFM} components={components} />
             </article>
         </div>
     );
@@ -223,6 +252,9 @@ export function EditorPane({
     showInsights = true,
     onCloseWindow,
     languageHint,
+    bare = false,
+    reveal = null,
+    onRevealed,
 }: {
     paneId: string;
     cwd: string;
@@ -231,6 +263,10 @@ export function EditorPane({
     showInsights?: boolean;
     onCloseWindow?: () => void;
     languageHint?: EditorLanguageHint;
+    /** An editor on an agent's desk: no file tree, and only the files the desk hands it. */
+    bare?: boolean;
+    reveal?: DeskReveal | null;
+    onRevealed?: (seq: number) => void;
 }) {
     const hostRef = useRef<HTMLDivElement>(null);
     const viewRef = useRef<EditorView | null>(null);
@@ -302,6 +338,7 @@ export function EditorPane({
 
     const view = useStore((s) => s.editorViews[paneId] ?? DEFAULT_VIEW);
     const keybindingOverrides = useStore((s) => s.keybindingOverrides);
+    const paneShader = useStore((s) => s.paneShader);
     const filePaletteHint = keybindingLabelForAction(keybindingOverrides, "palette.files");
     const pendingCliOpens = useStore((s) => s.pendingEditorOpens[paneId] ?? EMPTY_CLI_OPENS);
     const tabs = view.openTabs;
@@ -311,6 +348,10 @@ export function EditorPane({
     useEffect(() => {
         cmd.setEditorDirtyPaths(paneId, [...dirty]);
     }, [paneId, dirty]);
+
+    useEffect(() => {
+        if (view.preview && dirty.has(view.preview)) cmd.keepEditorTab(paneId, view.preview);
+    }, [paneId, dirty, view.preview]);
 
     useEffect(() => {
         return () => cmd.setEditorDirtyPaths(paneId, []);
@@ -597,15 +638,28 @@ export function EditorPane({
         view.focus();
     };
 
-    const openPathRef = useRef<(path: string) => Promise<void>>(async () => {});
-    const openTreeFile = useCallback((entry: { path: string }) => {
+    const openPathRef = useRef<(path: string, preview?: boolean) => Promise<void>>(async () => {});
+    const previewTreeFile = useCallback((entry: { path: string }) => {
+        void openPathRef.current(entry.path, true).catch(reportError("open file"));
+    }, []);
+    const keepTreeFile = useCallback((entry: { path: string }) => {
         void openPathRef.current(entry.path).catch(reportError("open file"));
     }, []);
 
-    const openPath = async (path: string) => {
+    const openLinkedFile = useCallback((path: string) => {
+        void openPathRef.current(path).catch(reportError("open linked file"));
+    }, []);
+
+    const openTab = (path: string, activate: boolean, preview: boolean) => {
+        const replaced = cmd.openEditorTab(paneId, path, activate, preview);
+        if (replaced && replaced !== path) forgetDocs([replaced]);
+    };
+
+    const openPath = async (path: string, preview = false) => {
         const request = ++openRequestRef.current;
         const liveTabs = useStore.getState().editorViews[paneId]?.openTabs ?? [];
         if (liveTabs.includes(path)) {
+            if (!preview) cmd.keepEditorTab(paneId, path);
             if (isImagePath(path) || states.current.has(path)) {
                 switchTo(path);
                 return;
@@ -614,7 +668,7 @@ export function EditorPane({
         if (isImagePath(path)) {
             const blob = await fsapi.readFileBase64(path);
             cacheImage(path, blob);
-            cmd.openEditorTab(paneId, path);
+            openTab(path, true, preview);
             switchTo(path);
             return;
         }
@@ -624,13 +678,13 @@ export function EditorPane({
         // Two rapid opens of the same path can resolve out of order. Do not
         // replace the state created by the newer request with the stale read.
         if (!latest && states.current.has(path)) {
-            cmd.openEditorTab(paneId, path, false);
+            openTab(path, false, preview);
             return;
         }
         const st = makeState(path, content);
         cacheState(path, st);
         savedRef.current.set(path, content);
-        cmd.openEditorTab(paneId, path, latest);
+        openTab(path, latest, preview);
         if (latest) switchTo(path, st);
     };
     openPathRef.current = openPath;
@@ -934,7 +988,25 @@ export function EditorPane({
     }, [paneId]);
 
     useEffect(() => {
+        if (!reveal) return;
+        void (async () => {
+            await openPath(reveal.path);
+            hydratedRef.current = true;
+            if (reveal.line != null && viewRef.current && !isImagePath(reveal.path))
+                scrollToLine(viewRef.current, reveal.line, reveal.character ?? 0);
+        })()
+            .catch(reportError("open file"))
+            .finally(() => onRevealed?.(reveal.seq));
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [reveal?.seq]);
+
+    useEffect(() => {
+        if (bare) return;
         return subscribe("open-file", (e) => {
+            // A view split beside other work shows the one file it was given.
+            const { windows, editorViews } = useStore.getState();
+            const ownWindow = Object.values(windows).find((win) => collectPanes(win.root).some((pane) => pane.id === paneId));
+            if ((ownWindow && ownWindow.role !== "files") || editorViews[paneId]?.single) return;
             // Project files open in their owning editor. LSP targets may live
             // in GOMODCACHE, rust stdlib, site-packages, etc.; route those to
             // the active editor instead of dropping them.
@@ -949,7 +1021,7 @@ export function EditorPane({
             })().catch(reportError("open file"));
         });
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [cwd, active]);
+    }, [bare, cwd, active, paneId]);
 
     useEffect(() => {
         const view = viewRef.current;
@@ -1015,8 +1087,9 @@ export function EditorPane({
     };
     closeTabsRef.current = closeTabs;
 
-    const closeTabsNow = (closing: Set<string>) => {
-        for (const p of closing) {
+    const forgetDocs = (paths: Iterable<string>) => {
+        const forgotten = new Set(paths);
+        for (const p of forgotten) {
             states.current.delete(p);
             imagesRef.current.delete(p);
             savedRef.current.delete(p);
@@ -1028,9 +1101,13 @@ export function EditorPane({
         setDirty((d) => {
             let changed = false;
             const next = new Set(d);
-            for (const p of closing) if (next.delete(p)) changed = true;
+            for (const p of forgotten) if (next.delete(p)) changed = true;
             return changed ? next : d;
         });
+    };
+
+    const closeTabsNow = (closing: Set<string>) => {
+        forgetDocs(closing);
         const next = tabs.filter((t) => !closing.has(t));
         let nextActive = activePath;
         if (activePath && closing.has(activePath)) {
@@ -1047,7 +1124,11 @@ export function EditorPane({
                 viewRef.current?.setState(makeState("", ""));
             }
         }
-        cmd.setEditorView(paneId, { openTabs: next, activePath: nextActive });
+        cmd.setEditorView(paneId, {
+            openTabs: next,
+            activePath: nextActive,
+            preview: view.preview && closing.has(view.preview) ? undefined : view.preview,
+        });
     };
 
     const toggleMarkdownPreview = () => {
@@ -1064,10 +1145,19 @@ export function EditorPane({
 
     return (
         <div className="editor-pane">
-            {!onCloseWindow && (
-                <FileTree width={treeWidth} onResize={setTreeWidth} cwd={cwd} activePath={activePath} onOpenFile={openTreeFile} active={visible} />
+            {!onCloseWindow && !bare && (
+                <FileTree
+                    width={treeWidth}
+                    onResize={setTreeWidth}
+                    cwd={cwd}
+                    activePath={activePath}
+                    onOpenFile={previewTreeFile}
+                    onKeepFile={keepTreeFile}
+                    active={visible}
+                />
             )}
             <div className="ed-main">
+                {!bare && <ShaderField preset="ambient" className="pane-field" enabled={paneShader && visible} />}
                 {/* An ordinary editor's documents are tabs in the session
                     strip, so the only bar left here is the one an SSH config
                     window needs to close itself. */}
@@ -1132,7 +1222,9 @@ export function EditorPane({
                         />
                     )}
                     {activeImage && <ImageViewer image={activeImage} onReload={reloadImage} />}
-                    {previewingMarkdown && <MarkdownPreview source={markdownPreview.content} />}
+                    {previewingMarkdown && (
+                        <MarkdownPreview source={markdownPreview.content} path={markdownPreview.path} onOpenFile={openLinkedFile} />
+                    )}
                 </div>
                 {showInsights && cwd && (
                     <EditorInsights
@@ -1143,7 +1235,7 @@ export function EditorPane({
                         onNavigate={(path, line, character) => nav.push({ path, line, character })}
                     />
                 )}
-                {tabs.length === 0 && (
+                {tabs.length === 0 && !bare && (
                     <div className="ed-empty">
                         <IconFile size={22} />
                         <p>Open a file to get started</p>

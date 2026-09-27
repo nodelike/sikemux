@@ -4,6 +4,7 @@ import { invokeCommand as invoke } from "./api/invoke";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { checkForUpdate } from "./api/updater";
+import { reportActive } from "./api/usage";
 import { TopBar } from "./components/TopBar";
 import { SideRail } from "./components/SideRail";
 import { AgentRail } from "./components/AgentRail";
@@ -27,6 +28,10 @@ import { HarnessBridge } from "./components/HarnessBridge";
 import { CliOpenBridge } from "./components/CliOpenBridge";
 import { git } from "./api/git";
 import { runKeybindingAction, useKeymap } from "./keymap";
+import { usePinchZoom } from "./pinchZoom";
+import { introduceNotifications, useAgentNotifications } from "./agentNotifications";
+import { useVoiceDictation } from "./voice/dictation";
+import { VoiceCaption } from "./voice/VoiceCaption";
 import { useBackdropImage } from "./hooks/useBackdropImage";
 import { useBrowserDownloads } from "./state/browserDownloads";
 import { useBrowserReveal } from "./state/browserReveal";
@@ -56,6 +61,7 @@ import { dirname } from "./lib/paths";
 import type { StandaloneCommand } from "./commands/registry";
 import type { ProjectConfigLoadResult } from "./projectConfig";
 import { agentDetectionApi } from "./api/agentDetection";
+import { lsp } from "./api/lsp";
 import { projectActionCommand, trustProjectConfig } from "./projectConfigRuntime";
 import { worktreeHasLiveOwners } from "./worktreeLifecycle";
 import { performanceTelemetry } from "./lib/performance";
@@ -84,15 +90,12 @@ import { pluginsApi } from "./api/plugins";
 import "./plugins/builtin";
 import { recordAgentTurns } from "./state/activityRecorder";
 import { useInstalledPlugins } from "./plugins/installed";
+import { useRailEntrance } from "./components/railMotion";
 
 const SettingsPanel = lazy(() => import("./components/SettingsPanel").then((module) => ({ default: module.SettingsPanel })));
 
-/*
- * The tour, the release notes and the diagnostics panel, none of which exist
- * until someone opens one. They are the only reason react-markdown was in the
- * boot bundle, and the tour alone is a shader, a keybinding trainer and a
- * miniature of the whole shell.
- */
+/* The welcome, the release notes and the diagnostics panel, none of which exist
+   until someone opens one. */
 const Onboarding = lazy(() => import("./components/ExperienceOverlays").then((module) => ({ default: module.Onboarding })));
 const DiagnosticsOverlay = lazy(() => import("./components/ExperienceOverlays").then((module) => ({ default: module.DiagnosticsOverlay })));
 const WhatsNewOverlay = lazy(() => import("./components/WhatsNewOverlay").then((module) => ({ default: module.WhatsNewOverlay })));
@@ -355,6 +358,7 @@ function ApplicationCommandPalette() {
     const recentCommandKeys = useStore((s) => s.recentCommandKeys);
     const activeKind = useStore((s) => s.sessions[s.activeSessionId]?.kind ?? null);
     const activeProjectCwd = useStore(activeProjectCwdOf);
+    const languageServersAllowedHere = useStore((s) => (activeProjectCwd ? s.languageServerTrust[activeProjectCwd] === true : false));
     const activeTerminalWindowId = useStore((s) => {
         const id = s.sessions[s.activeSessionId]?.activeWindowId;
         return id && s.windows[id]?.role === "term" ? id : null;
@@ -547,6 +551,28 @@ function ApplicationCommandPalette() {
                   } satisfies StandaloneCommand,
               ]
             : []),
+        ...(activeKind === "project" && activeProjectCwd
+            ? [
+                  languageServersAllowedHere
+                      ? ({
+                            id: "project.language-servers.stop",
+                            title: "Stop language servers for this project",
+                            detail: "Stop them now and do not start them again",
+                            category: "Project · Language servers",
+                            execute: runStandalone("project.language-servers.stop", () => {
+                                cmd.setLanguageServerTrust(activeProjectCwd, false);
+                                void lsp.stop(activeProjectCwd).catch(reportError("stop language servers"));
+                            }),
+                        } satisfies StandaloneCommand)
+                      : ({
+                            id: "project.language-servers.allow",
+                            title: "Allow language servers for this project",
+                            detail: "Start them when you open a file here",
+                            category: "Project · Language servers",
+                            execute: runStandalone("project.language-servers.allow", () => cmd.setLanguageServerTrust(activeProjectCwd, true)),
+                        } satisfies StandaloneCommand),
+              ]
+            : []),
         {
             id: "support.diagnostics",
             title: "Open runtime diagnostics",
@@ -563,8 +589,8 @@ function ApplicationCommandPalette() {
         },
         {
             id: "support.onboarding",
-            title: "Replay onboarding",
-            detail: "Open the first-run Sikemux walkthrough",
+            title: "Show welcome",
+            detail: "Open the first-run screen",
             category: "Support",
             execute: runStandalone("support.onboarding", cmd.openOnboarding),
         },
@@ -636,6 +662,9 @@ function ShellBackdrop() {
 
 export default function App() {
     useKeymap();
+    usePinchZoom();
+    useAgentNotifications();
+    useVoiceDictation();
     useBrowserDownloads();
     useBrowserReveal();
     useBrowserStrips();
@@ -648,6 +677,8 @@ export default function App() {
     const sideRailVisible = sideRailOpen && !zen;
     const agentRailVisible = agentRailOpen && !zen;
     const activeSessionIsProject = useStore((s) => s.sessions[s.activeSessionId]?.kind === "project");
+    useRailEntrance(sideRailVisible, ".side-rail");
+    useRailEntrance(agentRailVisible && activeSessionIsProject, ".agent-rail");
     const pickerOpen = useStore((s) => s.pickerOpen);
     const agentPaletteOpen = useStore((s) => s.agentPaletteOpen);
     const filePaletteOpen = useStore((s) => s.filePaletteOpen);
@@ -743,6 +774,7 @@ export default function App() {
                     }
                     unsub = subscribePersist();
                     setBootReady(true);
+                    introduceNotifications();
                 }
                 finishBoot(disposed ? "cancelled" : writable ? "success" : "error");
             });
@@ -814,6 +846,16 @@ export default function App() {
         const poll = window.setInterval(() => void checkForUpdate(), 30 * 60_000);
         return () => {
             window.clearTimeout(firstCheck);
+            window.clearInterval(poll);
+        };
+    }, []);
+
+    useEffect(() => {
+        if (import.meta.env.DEV) return;
+        const firstReport = window.setTimeout(() => void reportActive(), 5000);
+        const poll = window.setInterval(() => void reportActive(), 60 * 60_000);
+        return () => {
+            window.clearTimeout(firstReport);
             window.clearInterval(poll);
         };
     }, []);
@@ -961,6 +1003,7 @@ export default function App() {
             </Suspense>
             <DialogHost />
             <ImageViewer />
+            <VoiceCaption />
             <Toaster />
         </div>
     );

@@ -23,12 +23,24 @@ export interface BrowserSnapshot {
     activeTabId: string | null;
 }
 
-/** Where the page area sits, in the window's CSS pixels. */
+/** A rounded rectangle of the page that the app shows through, in the page's own CSS pixels. */
+export interface BrowserHole {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    radius: number;
+}
+
+/** Where the page area sits, in the window's CSS pixels, how much of either side lies off stage, and what shows through it. */
 export interface BrowserBounds {
     x: number;
     y: number;
     width: number;
     height: number;
+    clipLeft: number;
+    clipRight: number;
+    holes: BrowserHole[];
 }
 
 /** A command chord pressed while a page had keyboard focus. */

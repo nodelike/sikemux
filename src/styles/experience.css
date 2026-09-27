@@ -106,865 +106,217 @@
     background: var(--surface-selected);
 }
 
-/* First run: the tour narrates a scale model of the real window. Everything
-   below reuses the app's tokens, square geometry, and entrance keyframes so the
-   walkthrough reads as Sikemux rather than as a marketing overlay. */
-.onboarding-backdrop {
-    background: color-mix(in srgb, var(--surface-sunken) 82%, transparent);
-}
-
-.onboarding-frame {
-    width: min(940px, 100%);
-    max-height: min(660px, calc(100vh - 48px));
-    background: color-mix(in srgb, var(--surface) calc(var(--window-opacity, 1) * 100%), transparent);
-    outline: none;
-}
-
-.onboarding-frame:focus-visible {
-    box-shadow: 0 0 0 1px var(--acc) inset;
-}
-
-/* Header — same height and rhythm as the app's top bar. */
-.experience-frame .onboarding-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    height: 40px;
-    flex: 0 0 auto;
-    padding: 0 14px 0 16px;
-    background: color-mix(in srgb, var(--surface) calc(var(--window-opacity, 1) * 100%), transparent);
-    border-bottom: 1px solid var(--border);
-}
-
-.onboarding-header > div {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-}
-
-.onboarding-mark {
-    color: var(--acc);
-    filter: drop-shadow(0 0 6px color-mix(in srgb, var(--acc) 45%, transparent));
-}
-
-.onboarding-step-count {
-    padding-left: 10px;
-    border-left: 1px solid var(--border);
-    color: var(--text-tertiary);
-    font-size: var(--text-3xs);
-    letter-spacing: 0.08em;
-    font-variant-numeric: tabular-nums;
-}
-
-.experience-frame .onboarding-header .onboarding-skip {
-    grid-column: auto;
-    grid-row: auto;
-    padding: 6px 0 6px 10px;
-    color: var(--text-tertiary);
-    font-size: 10px;
-    transition: color 0.12s;
-}
-
-.onboarding-skip span {
-    margin-left: 7px;
-    padding: 1px 4px;
-    border: 1px solid var(--border);
-}
-
-.onboarding-skip:hover {
-    color: var(--text-secondary) !important;
-}
-
-/* Progress — four discrete segments, one per scene. */
-.onboarding-progress {
+/* First run: the whole window, since nothing is open yet to be covered. */
+.welcome {
+    position: fixed;
+    inset: 0;
+    z-index: 170;
     display: grid;
-    grid-template-columns: repeat(4, 1fr);
-    gap: 1px;
-    height: 2px;
-    flex: 0 0 auto;
-    background: var(--border);
-}
-
-.onboarding-progress button {
-    position: relative;
-    height: 12px;
-    transform: translateY(-5px);
-}
-
-.onboarding-progress button span {
-    position: absolute;
-    inset: 5px 0;
-    background: transparent;
-    transition:
-        background 0.2s ease,
-        box-shadow 0.2s ease;
-}
-
-.onboarding-progress button.is-complete span {
-    background: color-mix(in srgb, var(--acc) 40%, var(--border));
-}
-
-.onboarding-progress button.is-current span {
-    background: var(--acc);
-}
-
-.onboarding-progress button:hover span {
-    background: var(--border-strong);
-}
-
-.experience-frame .onboarding-progress button:focus-visible {
-    outline: none;
-}
-
-.onboarding-progress button:focus-visible span {
-    background: var(--text-primary);
-}
-
-/* Scene — copy on the left, the miniature on the right. */
-.onboarding-scene {
-    flex: 1;
-    min-height: 0;
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) 384px;
-    gap: 34px;
-    align-items: center;
-    padding: 30px 30px 30px 36px;
+    grid-template-rows: minmax(0, 1fr) auto;
     overflow: hidden;
+    background: color-mix(in srgb, var(--surface-sunken) 94%, transparent);
+    backdrop-filter: blur(28px);
+    animation: welcome-fade 320ms ease-out both;
 }
 
-.onboarding-copy {
-    min-width: 0;
+.welcome:focus {
+    outline: none;
 }
 
-.onboarding-copy > * {
+.welcome-sky {
+    position: absolute;
+    inset: 0 0 auto;
+    height: 32%;
+    opacity: 0.4;
+    pointer-events: none;
+    -webkit-mask-image: linear-gradient(to bottom, black, transparent);
+    mask-image: linear-gradient(to bottom, black, transparent);
 }
 
-.onboarding-copy[data-direction="back"] > * {
-    animation-name: onboarding-copy-in-back;
+.welcome > :not(.welcome-sky) {
+    position: relative;
 }
 
-.onboarding-copy > :nth-child(2) {
-    animation-delay: 40ms;
-}
-.onboarding-copy > :nth-child(3) {
-    animation-delay: 80ms;
-}
-.onboarding-copy > :nth-child(4) {
-    animation-delay: 120ms;
-}
-.onboarding-copy > :nth-child(5) {
-    animation-delay: 160ms;
+.welcome-body {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    width: min(520px, calc(100% - 48px));
+    margin: 0 auto;
+    padding: 48px 0 24px;
+    overflow-y: auto;
+    animation: welcome-rise 520ms cubic-bezier(0.2, 0.8, 0.2, 1) 80ms both;
 }
 
-.onboarding-copy h1 {
-    max-width: 440px;
-    margin: 9px 0 12px;
+.welcome-mark {
+    margin-left: -15px;
+    color: var(--acc);
+}
+
+.welcome-body h1 {
+    margin: 22px 0 0;
     color: var(--text-primary);
-    font-size: clamp(23px, 2.5vw, 29px);
-    font-weight: 600;
-    line-height: 1.14;
-    letter-spacing: -0.035em;
+    font-size: 44px;
+    font-weight: 700;
+    letter-spacing: -0.05em;
+    line-height: 1.05;
 }
 
-.onboarding-copy > p {
-    max-width: 445px;
+.welcome-body h1 span {
+    color: var(--acc);
+}
+
+.welcome-lede {
+    margin: 12px 0 32px;
     color: var(--text-secondary);
-    font-size: var(--text-xs);
-    line-height: 1.65;
-}
-
-.onboarding-aside {
-    margin-top: 12px;
-    color: var(--text-tertiary);
-    font-size: 10px;
+    font-size: var(--text-lg);
     line-height: 1.5;
 }
 
-/* Shared row treatment for the three interactive lists. */
-.onboarding-regions,
-.onboarding-keys,
-.onboarding-signals,
-.onboarding-launch {
+.welcome-moves {
     display: grid;
-    gap: 4px;
-    max-width: 445px;
-    margin-top: 20px;
+    gap: var(--space-1);
 }
 
-.onboarding-regions button,
-.onboarding-keys button,
-.onboarding-signals button,
-.onboarding-launch button {
-    display: flex;
+.welcome-moves button {
+    display: grid;
+    grid-template-columns: 18px minmax(0, 1fr) auto;
     align-items: center;
-    gap: 10px;
-    width: 100%;
-    padding: 8px 10px;
+    gap: 14px;
+    padding: 14px 16px;
     border: 1px solid var(--border);
-    border-left: 2px solid var(--border);
-    background: color-mix(in srgb, var(--surface-raised) 55%, transparent);
-    color: var(--text-secondary);
+    background: color-mix(in srgb, var(--surface) 80%, transparent);
+    color: var(--text-tertiary);
     text-align: left;
-    transition:
-        border-color 0.14s,
-        background 0.14s,
-        color 0.14s;
 }
 
-.onboarding-regions button:hover,
-.onboarding-regions button.is-on,
-.onboarding-keys button:hover,
-.onboarding-launch button:hover,
-.onboarding-launch button.is-on {
-    border-color: var(--border-selected);
-    border-left-color: var(--acc);
-    background: var(--surface-selected);
-    color: var(--text-primary);
+.welcome-moves button:hover {
+    background: var(--surface-raised);
 }
 
-.onboarding-regions b,
-.onboarding-keys b,
-.onboarding-launch b {
-    color: var(--text-primary);
-    font-size: var(--text-2xs);
-    font-weight: 600;
-}
-
-.onboarding-regions button {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 2px;
-}
-
-.onboarding-regions small {
-    color: var(--text-tertiary);
-    font-size: var(--text-3xs);
-    line-height: 1.4;
-}
-
-/* Scene two — the cards you are asked to actually press. */
-.onboarding-keys button {
-    gap: 12px;
-}
-
-.onboarding-keys kbd {
-    min-width: 62px;
-    padding: 7px 8px;
-    border: 1px solid var(--border);
-    background: var(--surface-sunken);
-    color: var(--text-primary);
-    font-family: var(--kbd);
-    font-size: 13px;
-    font-weight: 600;
-    font-style: normal;
-    text-align: center;
-    transition:
-        transform 0.1s,
-        box-shadow 0.1s,
-        border-color 0.14s,
-        color 0.14s;
-}
-
-.onboarding-keys button > span {
-    display: grid;
-    gap: 2px;
-    min-width: 0;
-}
-
-.onboarding-keys small {
-    color: var(--text-tertiary);
-    font-size: var(--text-3xs);
-    line-height: 1.4;
-}
-
-.onboarding-keys em {
-    margin-left: auto;
-    flex: 0 0 auto;
-    color: var(--text-tertiary);
-    font-size: 8.5px;
-    font-style: normal;
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-}
-
-.onboarding-key.is-live kbd {
-    transform: translateY(2px);
-    border-color: var(--acc);
+.welcome-moves button:focus {
+    outline: none;
+    box-shadow: none;
+    border-color: color-mix(in srgb, var(--acc) 55%, var(--border));
+    background: color-mix(in srgb, var(--acc) 8%, var(--surface-raised));
     color: var(--acc);
 }
 
-.onboarding-key.is-done {
-    border-left-color: var(--live);
-}
-
-.onboarding-key.is-done em {
-    color: var(--live);
-}
-
-/* Scene three — the legend drives the rail beside it. */
-.onboarding-signals button {
-    gap: 10px;
-}
-
-.onboarding-signals i {
-    width: 6px;
-    height: 6px;
-    flex: 0 0 auto;
-    background: var(--text-tertiary);
-    transition:
-        background 0.14s,
-        box-shadow 0.14s;
-}
-
-.onboarding-signals b {
-    min-width: 84px;
-    color: var(--text-secondary);
-    font-size: var(--text-2xs);
-    font-weight: 600;
-}
-
-.onboarding-signals span {
-    color: var(--text-tertiary);
-    font-size: var(--text-3xs);
-}
-
-.onboarding-signals .state-working.is-on,
-.onboarding-signals .state-working:hover {
-    border-color: color-mix(in srgb, var(--live) 32%, var(--border));
-    border-left-color: var(--live);
-    background: color-mix(in srgb, var(--live) 8%, transparent);
-}
-.onboarding-signals .state-working.is-on i,
-.onboarding-signals .state-working:hover i {
-    background: var(--live);
-}
-
-.onboarding-signals .state-blocked.is-on,
-.onboarding-signals .state-blocked:hover {
-    border-color: color-mix(in srgb, var(--warn) 32%, var(--border));
-    border-left-color: var(--warn);
-    background: color-mix(in srgb, var(--warn) 8%, transparent);
-}
-.onboarding-signals .state-blocked.is-on i,
-.onboarding-signals .state-blocked:hover i {
-    background: var(--warn);
-}
-
-.onboarding-signals .state-done.is-on {
-    border-color: var(--border-selected);
-    border-left-color: var(--acc);
-    background: var(--surface-selected);
-}
-.onboarding-signals .state-done:hover {
-    border-color: var(--border-strong);
-    background: var(--surface-hover);
-}
-.onboarding-signals .state-done.is-on i {
-    background: var(--acc);
-}
-.onboarding-signals .state-done:hover i {
-    background: var(--text-primary);
-}
-
-.onboarding-signals button.is-on b {
-    color: var(--text-primary);
-}
-
-.onboarding-detected {
+.welcome-moves span {
     display: grid;
     gap: 3px;
-    margin-top: 16px;
+    min-width: 0;
 }
 
-.onboarding-detected span {
-    color: var(--text-tertiary);
-    font-size: 8px;
-    letter-spacing: var(--tracking-label);
-    text-transform: uppercase;
-}
-
-.onboarding-detected b {
-    overflow: hidden;
-    color: var(--live);
-    font-size: 10px;
+.welcome-moves b {
+    color: var(--text-primary);
+    font-size: var(--text-md);
     font-weight: 500;
+}
+
+.welcome-moves small {
+    overflow: hidden;
+    color: var(--text-tertiary);
+    font-size: var(--text-xs);
     text-overflow: ellipsis;
     white-space: nowrap;
 }
 
-/* Scene four — each row is a real first move. */
-.onboarding-launch kbd {
-    margin-left: auto;
-    flex: 0 0 auto;
-    color: var(--text-tertiary);
-    font-family: var(--kbd);
-    font-size: var(--text-2xs);
-    font-style: normal;
-    white-space: nowrap;
-}
-
-.onboarding-launch button:hover kbd,
-.onboarding-launch button.is-on kbd {
-    color: var(--acc);
-}
-
-.onboarding-health {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 5px;
-    margin-top: 16px;
-}
-
-.onboarding-health span {
-    padding: 3px 6px;
-    border: 1px solid var(--border);
-    color: var(--text-tertiary);
-    font-size: 8.5px;
-}
-
-.onboarding-health span.is-ready {
-    border-color: color-mix(in srgb, var(--live) 26%, var(--border));
-    color: var(--live);
-}
-
-.onboarding-health span.is-ready::before {
-    content: "✓ ";
-}
-
-.onboarding-health span.is-checking::before {
-    content: "· ";
-    color: var(--warn);
-    animation: onboarding-blink 1s steps(2, end) infinite;
-}
-
-/* ── The miniature ─────────────────────────────────────────────────────────
-   A scale model of the Sikemux window, assembled with the app's own entrance
-   keyframes so the tour opens the way the app does. */
-.onb-stage {
-    display: grid;
-    gap: 10px;
-    justify-self: center;
-    width: 100%;
-    max-width: 384px;
-}
-
-.onb-win {
-    display: grid;
-    grid-template-rows: 18px minmax(0, 1fr);
-    height: 244px;
-    overflow: hidden;
+.welcome-moves .kbd {
+    padding: 3px 7px;
     border: 1px solid var(--border);
     border-radius: var(--radius-1);
     background: var(--surface-sunken);
+    font-size: var(--text-xs);
 }
 
-.onb-win-bar {
+.welcome-moves button:focus .kbd {
+    border-color: color-mix(in srgb, var(--acc) 55%, var(--border));
+    color: var(--text-primary);
+}
+
+.welcome-found {
+    margin-top: 32px;
+}
+
+.welcome-label {
+    color: var(--text-tertiary);
+    font:
+        600 9px/1.4 "JetBrainsMono NF",
+        monospace;
+    letter-spacing: var(--tracking-label);
+    text-transform: uppercase;
+}
+
+.welcome-agents {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin: 12px 0 0;
+    padding: 0;
+    list-style: none;
+}
+
+.welcome-agents li {
     display: flex;
     align-items: center;
     gap: 8px;
-    padding: 0 7px;
-    background: var(--surface);
-    border-bottom: 1px solid var(--border);
-}
-
-.onb-win-lights {
-    display: flex;
-    gap: 3px;
-}
-
-.onb-win-lights i {
-    width: 4px;
-    height: 4px;
-    border-radius: 50%;
-    background: var(--border);
-}
-.onb-win-lights i:first-child {
-    background: color-mix(in srgb, var(--danger) 55%, var(--border));
-}
-.onb-win-lights i:nth-child(2) {
-    background: color-mix(in srgb, var(--warn) 55%, var(--border));
-}
-.onb-win-lights i:last-child {
-    background: color-mix(in srgb, var(--live) 55%, var(--border));
-}
-
-.onb-win-crumb {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    min-width: 0;
+    padding: 7px 11px 7px 9px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-2);
+    background: color-mix(in srgb, var(--surface) 80%, transparent);
     color: var(--text-primary);
-    font-size: 7px;
-    font-weight: 600;
-    white-space: nowrap;
-}
-.onb-win-crumb svg {
-    color: var(--text-tertiary);
-}
-.onb-win-crumb em {
-    color: var(--text-tertiary);
-    font-style: normal;
-}
-.onb-win-crumb b {
-    color: var(--acc);
-    font-weight: 600;
+    font-size: var(--text-xs);
 }
 
-.onb-win-clock {
-    margin-left: auto;
-    color: var(--text-tertiary);
-    font-size: 7px;
-    font-variant-numeric: tabular-nums;
-}
-
-.onb-win-body {
-    position: relative;
-    display: grid;
-    grid-template-columns: 80px 76px minmax(0, 1fr);
-    min-height: 0;
-}
-
-.onb-win-rail,
-.onb-win-agents {
-    display: flex;
-    flex-direction: column;
-    gap: 1px;
-    min-width: 0;
-    padding: 4px 3px;
-    background: var(--surface);
-    overflow: hidden;
-}
-
-.onb-win-rail {
-    border-right: 1px solid var(--border);
-}
-
-.onb-win-agents {
-    border-right: 1px solid var(--border);
-}
-
-.onb-win-group {
-    padding: 5px 4px 3px;
-    color: var(--text-tertiary);
-    font-size: 6px;
-    font-weight: var(--weight-semibold);
-    letter-spacing: var(--tracking-label);
-    text-transform: uppercase;
-}
-
-.onb-win-row {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    height: 15px;
-    flex: 0 0 auto;
-    padding: 0 4px;
-    border-left: 2px solid transparent;
-    color: var(--text-secondary);
-    font-size: 7.5px;
-    white-space: nowrap;
-    overflow: hidden;
-}
-
-.onb-win-row svg {
-    flex: 0 0 auto;
-}
-
-.onb-win-rail .onb-win-row.is-active {
-    border-left-color: var(--acc);
-    background: var(--surface-selected);
-    color: var(--acc);
-}
-
-.onb-win-agents .onb-win-row.is-active {
-    border-left-color: var(--acc);
-    background: var(--surface-selected);
-    color: var(--text-primary);
-}
-
-.onb-win-pip {
-    width: 5px;
-    height: 5px;
-    margin-left: auto;
-    flex: 0 0 auto;
-    border-radius: 50%;
-    background: color-mix(in srgb, var(--live) 60%, transparent);
-}
-
-.onb-win-pip.is-working {
-    border-radius: 50%;
-    background: transparent;
-    border: 1.5px solid color-mix(in srgb, var(--live) 28%, transparent);
-    border-top-color: var(--live);
-    animation: agent-activity-spin 0.72s linear infinite;
-}
-
-/* Reuse the real agent state indicator, scaled to the model. */
-.onb-win-agents .agent-activity {
-    width: 11px;
-    height: 11px;
-    margin-left: auto;
-}
-.onb-win-agents .agent-state-icon {
-    width: 10px;
-    height: 10px;
-}
-.onb-win-agents .agent-state-loader {
-    width: 9px;
-    height: 9px;
-    border-width: 1.5px;
-    transform-origin: 4.5px 4.5px;
-}
-
-.onb-tone-live {
-    color: var(--live);
-}
-.onb-tone-cmd {
-    color: var(--cmd);
-}
-.onb-tone-warn {
-    color: var(--warn);
-}
-.onb-tone-claude {
-    color: var(--brand-claude);
-}
-.onb-tone-codex {
-    color: var(--brand-codex);
-}
-
-.onb-win-main {
-    display: grid;
-    grid-template-rows: 14px minmax(0, 1fr);
-    min-width: 0;
-}
-
-.onb-win-tabs {
-    display: flex;
-    background: var(--surface-raised);
-}
-
-.onb-win-tabs span {
-    padding: 0 6px;
-    border-right: 1px solid var(--border);
-    color: var(--text-tertiary);
-    font-size: 6.5px;
-    line-height: 14px;
-}
-
-.onb-win-tabs span.is-active {
-    color: var(--text-primary);
-    background: var(--surface-selected);
-    box-shadow: inset 0 -1.5px 0 var(--acc);
-}
-
-.onb-win-tabs span:last-child:not(.is-active) {
-}
-
-.onb-win-panes {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr);
-    gap: 1px;
-    min-height: 0;
-    background: var(--border);
-}
-
-.onb-win-panes.is-split {
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-}
-
-.onb-win-pane {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-    min-width: 0;
-    padding: 7px;
-    overflow: hidden;
-    background: var(--surface);
-}
-
-.onb-win-panes.is-split .onb-win-pane.is-code {
-}
-
-.onb-win-line {
-    color: var(--text-secondary);
-    font-size: 7px;
-    white-space: nowrap;
-}
-.onb-win-line b {
-    color: var(--live);
-    font-weight: var(--weight-semibold);
-}
-.onb-win-line.is-dim {
+.welcome-agents li.is-missing {
+    border-style: dashed;
+    background: none;
     color: var(--text-tertiary);
 }
 
-.onb-win-caret {
-    display: inline-block;
-    width: 4px;
-    height: 7px;
-    vertical-align: -1px;
-    background: var(--live);
-    animation: blink 1.1s steps(1) infinite;
+.welcome-agents li.is-missing .agent-glyph {
+    opacity: 0.4;
+    filter: grayscale(1);
 }
 
-.onb-win-code {
-    height: 3px;
-    flex: 0 0 auto;
-    background: var(--border);
-}
-.onb-win-code.is-acc {
-    background: color-mix(in srgb, var(--acc) 55%, var(--border));
-}
-.onb-win-code.is-live {
-    background: color-mix(in srgb, var(--live) 45%, var(--border));
-}
-
-/* Pointing at a region from the copy column dims the rest of the model. */
-.onb-win-rail,
-.onb-win-main,
-.onb-win-agents {
-    transition:
-        opacity 0.2s ease,
-        box-shadow 0.2s ease;
-}
-
-.onb-stage:not([data-region="none"]) .onb-win-rail,
-.onb-stage:not([data-region="none"]) .onb-win-main,
-.onb-stage:not([data-region="none"]) .onb-win-agents {
-    opacity: 0.36;
-}
-
-.onb-stage[data-region="rail"] .onb-win-rail,
-.onb-stage[data-region="stage"] .onb-win-main,
-.onb-stage[data-region="agents"] .onb-win-agents {
-    opacity: 1;
-    box-shadow: inset 0 0 0 1px var(--border-selected);
-}
-
-/* The model's own picker and command deck, mirroring the real overlays —
-   corners included, at the smallest radius so they read at quarter scale. */
-.onb-win-scrim {
-    position: absolute;
-    inset: 0;
-    display: flex;
-    justify-content: center;
-    align-items: flex-start;
-    padding-top: 28px;
-    background: color-mix(in oklab, var(--surface-sunken) 72%, transparent);
-}
-
-.onb-win-overlay {
-    width: 78%;
-    overflow: hidden;
-    border: 1px solid var(--border-selected);
-    border-radius: var(--radius-1);
-    background: var(--surface-raised);
-}
-
-.onb-win-overlay-head {
-    display: block;
-    padding: 5px 7px;
-    border-bottom: 1px solid var(--border);
+.welcome-muted {
+    margin: 12px 0 0;
     color: var(--text-tertiary);
-    font-size: 6.5px;
-    letter-spacing: var(--tracking-label);
-    text-transform: uppercase;
+    font-size: var(--text-xs);
 }
 
-.onb-win-overlay-row {
-    display: flex;
-    align-items: center;
-    gap: 5px;
-    padding: 4px 7px;
-    border-left: 2px solid transparent;
-    color: var(--text-secondary);
-    font-size: 7px;
-    white-space: nowrap;
-    overflow: hidden;
-}
-
-.onb-win-overlay-row em {
-    margin-left: auto;
-    flex: 0 0 auto;
-    padding-left: 6px;
-    color: var(--text-tertiary);
-    font-size: 6.5px;
-    font-style: normal;
-}
-
-.onb-win-overlay-row.is-sel {
-    border-left-color: var(--acc);
-    background: var(--surface-selected);
-    color: var(--text-primary);
-}
-
-.onb-stage-caption {
-    color: var(--text-tertiary);
-    font-size: 8.5px;
-    letter-spacing: 0.1em;
-    text-align: center;
-    text-transform: uppercase;
-}
-
-/* Footer — mirrors the app's dialog footers. */
-.experience-frame .onboarding-footer {
+.welcome-foot {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    min-height: 56px;
-    flex: 0 0 auto;
-    padding: 11px 14px 11px 16px;
-    border-top: 1px solid var(--border);
-}
-
-.onboarding-footer > div {
-    display: flex;
-    gap: 6px;
-}
-
-.onboarding-key-hint {
-    display: flex;
-    align-items: center;
-    gap: 4px;
+    padding: 14px 22px;
     color: var(--text-tertiary);
-    font-size: var(--text-3xs);
-}
-
-.onboarding-key-hint kbd {
-    display: inline-grid;
-    min-width: 18px;
-    height: 18px;
-    margin-right: 1px;
-    place-items: center;
-    border: 1px solid var(--border);
-    color: var(--text-secondary);
     font-family: var(--kbd);
-    font-style: normal;
+    font-size: var(--text-2xs);
 }
 
-.experience-frame .onboarding-footer button {
-    min-width: 78px;
-    padding: 8px 12px;
-    transition:
-        border-color 0.12s,
-        background 0.12s,
-        color 0.12s;
+.welcome-warn {
+    color: var(--warn);
 }
 
-.experience-frame .onboarding-footer button.primary {
-    min-width: 118px;
-    border-color: var(--border-selected);
-    background: var(--surface-selected);
+.welcome-foot button {
+    margin-left: auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--text-tertiary);
+    font: inherit;
 }
 
-.experience-frame .onboarding-footer button:hover {
-    border-color: var(--text-tertiary);
+.welcome-foot button:hover {
     color: var(--text-primary);
 }
 
-.experience-frame .onboarding-footer button.primary:hover {
-    border-color: var(--acc);
-    background: color-mix(in srgb, var(--acc) 22%, var(--surface-raised));
+.welcome-foot .kbd {
+    padding: 2px 5px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-1);
 }
 
 .experience-frame button:focus-visible {
@@ -972,113 +324,26 @@
     outline-offset: 2px;
 }
 
-.onboarding-sr-only {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    padding: 0;
-    overflow: hidden;
-    clip: rect(0, 0, 0, 0);
-    white-space: nowrap;
-    border: 0;
-}
-
-@keyframes onboarding-frame-in {
+@keyframes welcome-fade {
     from {
         opacity: 0;
-        transform: translateY(10px);
     }
 }
 
-@keyframes onboarding-copy-in {
+@keyframes welcome-rise {
     from {
         opacity: 0;
-        transform: translateX(14px);
-    }
-}
-
-@keyframes onboarding-copy-in-back {
-    from {
-        opacity: 0;
-        transform: translateX(-14px);
-    }
-}
-
-@keyframes onboarding-blink {
-    50% {
-        opacity: 0.35;
-    }
-}
-
-@media (max-width: 900px) {
-    .onboarding-scene {
-        grid-template-columns: minmax(0, 1fr) 300px;
-        gap: 24px;
-        padding: 26px 24px 26px 28px;
-    }
-
-    .onb-win {
-        height: 210px;
-    }
-
-    .onb-win-body {
-        grid-template-columns: 68px 66px minmax(0, 1fr);
-    }
-}
-
-@media (max-width: 720px), (max-height: 640px) {
-    .onboarding-backdrop {
-        padding: 12px;
-    }
-
-    .onboarding-frame {
-        max-height: calc(100vh - 24px);
-    }
-
-    .onboarding-scene {
-        grid-template-columns: minmax(0, 1fr);
-        overflow-y: auto;
-        padding: 22px 22px 24px 24px;
-    }
-
-    .onb-stage,
-    .onboarding-key-hint {
-        display: none;
-    }
-
-    .experience-frame .onboarding-footer {
-        justify-content: flex-end;
+        transform: translateY(12px);
     }
 }
 
 @media (prefers-reduced-motion: reduce) {
-    .onboarding-backdrop,
-    .onboarding-frame,
-    .onboarding-copy > *,
-    .onb-win,
-    .onb-win-bar,
-    .onb-win-rail,
-    .onb-win-agents,
-    .onb-win-main,
-    .onb-win-pip.is-working,
-    .onb-win-caret,
-    .onb-win-tabs span:last-child:not(.is-active),
-    .onb-win-panes.is-split .onb-win-pane.is-code,
-    .onb-win-scrim,
-    .onb-win-overlay,
-    .onboarding-health span.is-checking::before {
-        animation: none !important;
-    }
-
-    .onboarding-progress button span,
-    .onb-win-rail,
-    .onb-win-main,
-    .onb-win-agents,
-    .onboarding-keys kbd,
-    .experience-frame .onboarding-footer button {
-        transition: none !important;
+    .welcome,
+    .welcome-body {
+        animation: none;
     }
 }
+
 .diagnostics-json {
     min-height: 280px;
     margin: 0;

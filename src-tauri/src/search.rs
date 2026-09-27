@@ -911,13 +911,7 @@ pub async fn read_file_window(
         )));
     }
     tauri::async_runtime::spawn_blocking(move || {
-        let metadata = fs::metadata(&path).map_err(AppError::from)?;
-        if metadata.len() > MAX_FILE_BYTES {
-            return Err(AppError::Search(format!(
-                "file window is limited to {MAX_FILE_BYTES} bytes"
-            )));
-        }
-        let bytes = fs::read(&path).map_err(AppError::from)?;
+        let bytes = crate::fs::read_bounded(Path::new(&path), MAX_FILE_BYTES)?;
         let text = String::from_utf8_lossy(&bytes).into_owned();
         let lines: Vec<&str> = text.lines().collect();
         let total = lines.len() as u32;

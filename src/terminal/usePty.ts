@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useSyncExternalStore, type Ref
 import { Channel } from "@tauri-apps/api/core";
 import { invokeCommand as invoke } from "../api/invoke";
 import { registerPtyDrop } from "../state/dropRegistry";
+import { registerTextInsert } from "../state/textInsertRegistry";
 import { IS_WINDOWS } from "../lib/platform";
 import type { PtyContext, PtyDirectCommand } from "../state/types";
 import { createItemId } from "../workbench/registry";
@@ -287,10 +288,17 @@ export function usePty(opts: {
                       .catch(() => {});
               })
             : () => {};
+        const unregisterTextInsert = host
+            ? registerTextInsert(host, (text) => {
+                  if (text.includes("\0")) return;
+                  void controller.write(`\x1b[200~${text} \x1b[201~`);
+              })
+            : () => {};
 
         return () => {
             active = false;
             unregisterDrop();
+            unregisterTextInsert();
             if (controllerRef.current === controller) controllerRef.current = null;
             if (!durable) void controller.dispose();
         };

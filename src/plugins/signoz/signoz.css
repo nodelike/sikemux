@@ -184,7 +184,7 @@
     padding: var(--space-5);
     border: 1px solid var(--border);
     border-radius: var(--radius-3);
-    background: var(--s-raised);
+    background: transparent;
 }
 .sgz-card-title {
     margin: 0;
@@ -602,7 +602,7 @@
     padding: 0 var(--space-0) 0 var(--space-2);
     border: 1px solid var(--border-strong);
     border-radius: var(--radius-2);
-    background: var(--s-raised);
+    background: transparent;
     font-family: var(--mono);
     font-size: var(--text-xs);
 }
@@ -847,7 +847,7 @@
 .sgz-log.open {
     margin: var(--space-1) 0;
     border: 1px solid var(--border);
-    background: var(--s-raised);
+    background: transparent;
 }
 .sgz-log-head {
     display: grid;
@@ -972,7 +972,7 @@
     height: 18px;
     border: 1px solid var(--border);
     border-radius: var(--radius-1);
-    background: var(--s-raised);
+    background: transparent;
     color: var(--text-secondary);
     font-family: var(--mono);
     font-size: var(--text-2xs);
@@ -1244,7 +1244,7 @@
     overflow: hidden;
     border: 1px solid var(--border);
     border-radius: var(--radius-3);
-    background: var(--s-raised);
+    background: transparent;
 }
 .sgz-panel-head {
     display: flex;
@@ -1296,7 +1296,8 @@
     position: sticky;
     top: 0;
     padding: var(--space-1) var(--space-2);
-    background: var(--surface-raised);
+    border-bottom: 1px solid var(--border);
+    background: var(--s-panel);
     color: var(--text-tertiary);
     font-size: var(--text-3xs);
     font-weight: var(--weight-semibold);
@@ -1350,9 +1351,6 @@
     color: var(--text-primary);
     text-align: right;
     font-variant-numeric: tabular-nums;
-}
-.sgz-card .sgz-input {
-    background: var(--surface);
 }
 
 /* Pages: the services and dashboards tables */

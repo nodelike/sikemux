@@ -66,6 +66,6 @@ describe("switching a plugin off", () => {
         );
         expect(screen.getByText("Plugins")).toBeTruthy();
         for (const name of ["AWS", "Bruno", "Rundeck", "SigNoz"]) expect(screen.queryByRole("button", { name })).toBeNull();
-        expect(document.querySelector(".tb-aws-chip")).toBeNull();
+        expect(document.querySelector(".tb-deploy-chip")).toBeNull();
     });
 });

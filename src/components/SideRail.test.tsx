@@ -137,3 +137,30 @@ describe("plugins group", () => {
         expect(screen.queryByRole("button", { name: "Rundeck" })).toBeNull();
     });
 });
+
+describe("leaving settings from the rail", () => {
+    for (const [what, name] of [
+        ["switching project", "beta"],
+        ["closing a project", "Close beta"],
+        ["opening a project", /^Open project/],
+        ["starting a terminal", "New terminal"],
+    ] as const) {
+        it(`closes settings when ${what}`, () => {
+            setState({ settingsOpen: true });
+            render(<SideRail />);
+
+            fireEvent.click(screen.getByRole("button", { name }));
+
+            expect(getState().settingsOpen).toBe(false);
+        });
+    }
+
+    it("leaves the rail's clicks alone while settings is closed", () => {
+        render(<SideRail />);
+
+        fireEvent.click(screen.getByRole("button", { name: "beta" }));
+
+        expect(getState().settingsOpen).toBe(false);
+        expect(getState().activeSessionId).toBe("beta");
+    });
+});

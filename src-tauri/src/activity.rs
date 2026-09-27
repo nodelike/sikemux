@@ -6,7 +6,6 @@ use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use std::sync::{Mutex, MutexGuard, OnceLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tauri::async_runtime::spawn_blocking;
@@ -109,12 +108,8 @@ fn now_ms() -> i64 {
 }
 
 fn git(repo: &str, args: &[&str]) -> Option<String> {
-    let mut command = Command::new("git");
-    command
-        .env("GIT_TERMINAL_PROMPT", "0")
-        .arg("-C")
-        .arg(repo)
-        .args(args);
+    let mut command = crate::git::git_command(repo);
+    command.args(args);
     let output =
         crate::bounded_process::run(&mut command, None, GIT_TIMEOUT, 1024 * 1024, None).ok()?;
     output

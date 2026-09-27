@@ -7,6 +7,7 @@ use tauri_plugin_updater::{Update, Updater, UpdaterExt};
 
 use crate::error::{AppError, AppResult};
 use crate::observability::{global_observability, Metadata, ScalarValue, SpanContext, SpanOutcome};
+use crate::release_credits::{bundled_credits, ReleaseCredits};
 
 const STABLE_ENDPOINT: &str =
     "https://github.com/nodelike/sikemux/releases/latest/download/latest.json";
@@ -29,6 +30,7 @@ pub struct UpdateInfo {
     current_version: String,
     notes: Option<String>,
     date: Option<String>,
+    credits: Option<ReleaseCredits>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Serialize)]
@@ -167,8 +169,9 @@ pub async fn update_check(app: AppHandle, channel: String) -> AppResult<Option<U
         .map(|update| UpdateInfo {
             version: update.version,
             current_version: update.current_version,
-            notes: update.body,
             date: update.date.map(|date| date.to_string()),
+            credits: bundled_credits(&update.raw_json),
+            notes: update.body,
         }))
 }
 
@@ -210,6 +213,7 @@ async fn update_install_inner(
         current_version: update.current_version.clone(),
         notes: update.body.clone(),
         date: update.date.map(|date| date.to_string()),
+        credits: bundled_credits(&update.raw_json),
     };
 
     let observer = global_observability();

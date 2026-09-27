@@ -9,6 +9,7 @@ import { useStore } from "../state/store";
 import { useMouseActive } from "../hooks/useMouseActive";
 import { IconSearch } from "./Icons";
 import { FileIcon } from "./FileIcon";
+import { leavingOverlay } from "../lib/motion";
 
 const MAX_RESULTS = 200;
 
@@ -64,7 +65,7 @@ export function FilePalette() {
     };
 
     return (
-        <div className="picker-backdrop" onMouseDown={cmd.closeFilePalette}>
+        <div ref={leavingOverlay} className="picker-backdrop" onMouseDown={cmd.closeFilePalette}>
             <div
                 ref={modalRef}
                 tabIndex={-1}

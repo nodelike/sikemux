@@ -28,7 +28,7 @@ it("keeps a large expanded directory to a small mounted row window", async () =>
         })),
     );
 
-    const { container } = render(<FileTree cwd="/repo" active activePath={null} onOpenFile={vi.fn()} />);
+    const { container } = render(<FileTree cwd="/repo" active activePath={null} onOpenFile={vi.fn()} onKeepFile={vi.fn()} />);
 
     await waitFor(() => expect(container.querySelectorAll('[role="treeitem"]')).toHaveLength(30));
     expect(container.textContent).toContain("file-0.ts");

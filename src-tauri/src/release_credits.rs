@@ -21,6 +21,9 @@ const REPO_API: &str = "https://api.github.com/repos/nodelike/sikemux";
 const REPO_WEB: &str = "https://github.com/nodelike/sikemux";
 const AVATAR_ORIGIN: &str = "https://avatars.githubusercontent.com/";
 const FETCH_TIMEOUT: Duration = Duration::from_secs(10);
+/// GitHub serves from several addresses and a network can silently drop one.
+/// Without this the request waits on that address until FETCH_TIMEOUT instead of trying the next.
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 /// GitHub lists at most this many commits in one page of a comparison.
 const COMMITS_PER_PAGE: usize = 100;
 const MAX_COMMIT_PAGES: usize = 20;
@@ -29,7 +32,7 @@ const AVATAR_PIXELS: u32 = 64;
 const MAX_AVATAR_BYTES: usize = 64 * 1024;
 const MAX_AVATARS: usize = 64;
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Contributor {
     login: String,
@@ -92,10 +95,33 @@ struct CommitAuthor {
     name: String,
 }
 
-struct Credits {
+/// Credits a release carries in its update manifest, so they show without asking GitHub.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReleaseCredits {
     commits: u32,
     compare: String,
-    people: Vec<Contributor>,
+    contributors: Vec<Contributor>,
+    /// `data:` URLs keyed by each contributor's avatar address.
+    avatars: HashMap<String, String>,
+}
+
+/// The manifest is not signed, so only links back to this repository and inline images are kept.
+pub fn bundled_credits(manifest: &serde_json::Value) -> Option<ReleaseCredits> {
+    let mut credits = ReleaseCredits::deserialize(manifest.get("credits")?).ok()?;
+    if !credits.compare.starts_with(&format!("{REPO_WEB}/compare/")) {
+        return None;
+    }
+    credits
+        .contributors
+        .retain(|person| person.avatar.starts_with(AVATAR_ORIGIN));
+    credits.avatars.retain(|url, data| {
+        url.starts_with(AVATAR_ORIGIN)
+            && ["png", "jpeg", "gif", "webp"]
+                .iter()
+                .any(|kind| data.starts_with(&format!("data:image/{kind};base64,")))
+    });
+    Some(credits)
 }
 
 /// The notes of one published release, and everyone who committed to it.
@@ -122,7 +148,9 @@ pub async fn release_notes(version: String) -> AppResult<ReleaseNotes> {
         date: release.published_at,
         commits: credits.as_ref().map(|credits| credits.commits),
         compare: credits.as_ref().map(|credits| credits.compare.clone()),
-        contributors: credits.map(|credits| credits.people).unwrap_or_default(),
+        contributors: credits
+            .map(|credits| credits.contributors)
+            .unwrap_or_default(),
     };
     if notes.compare.is_some() {
         remember_notes(&version, notes.clone());
@@ -151,7 +179,7 @@ fn previous_release<'a>(version: &Version, tags: impl Iterator<Item = &'a str>) 
     .map(|(_, tag)| tag.to_owned())
 }
 
-async fn credits_between(previous: &str, tag: &str) -> Option<Credits> {
+async fn credits_between(previous: &str, tag: &str) -> Option<ReleaseCredits> {
     let mut commits = Vec::new();
     let mut total = 0;
     for page in 1..=MAX_COMMIT_PAGES {
@@ -167,10 +195,11 @@ async fn credits_between(previous: &str, tag: &str) -> Option<Credits> {
             break;
         }
     }
-    Some(Credits {
+    Some(ReleaseCredits {
         commits: total,
         compare: format!("{REPO_WEB}/compare/{previous}...{tag}"),
-        people: tally(commits),
+        contributors: tally(commits),
+        avatars: HashMap::new(),
     })
 }
 
@@ -247,10 +276,12 @@ pub async fn release_avatars(urls: Vec<String>) -> HashMap<String, String> {
         .collect();
     let fetched = join_all(wanted.into_iter().map(|url| async move {
         if let Some(known) = cached_avatar(&url) {
-            return (url, known);
+            return (url, Some(known));
         }
         let data = fetch_avatar(&url).await;
-        remember_avatar(&url, data.clone());
+        if let Some(data) = &data {
+            remember_avatar(&url, data.clone());
+        }
         (url, data)
     }))
     .await;
@@ -260,12 +291,12 @@ pub async fn release_avatars(urls: Vec<String>) -> HashMap<String, String> {
         .collect()
 }
 
-fn avatar_cache() -> &'static Mutex<HashMap<String, Option<String>>> {
-    static CACHE: OnceLock<Mutex<HashMap<String, Option<String>>>> = OnceLock::new();
+fn avatar_cache() -> &'static Mutex<HashMap<String, String>> {
+    static CACHE: OnceLock<Mutex<HashMap<String, String>>> = OnceLock::new();
     CACHE.get_or_init(Default::default)
 }
 
-fn cached_avatar(url: &str) -> Option<Option<String>> {
+fn cached_avatar(url: &str) -> Option<String> {
     avatar_cache()
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
@@ -273,7 +304,7 @@ fn cached_avatar(url: &str) -> Option<Option<String>> {
         .cloned()
 }
 
-fn remember_avatar(url: &str, data: Option<String>) {
+fn remember_avatar(url: &str, data: String) {
     avatar_cache()
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
@@ -331,6 +362,7 @@ fn client() -> &'static Client {
     CLIENT.get_or_init(|| {
         Client::builder()
             .timeout(FETCH_TIMEOUT)
+            .connect_timeout(CONNECT_TIMEOUT)
             .user_agent(concat!("sikemux/", env!("CARGO_PKG_VERSION")))
             .build()
             .unwrap_or_default()
@@ -412,6 +444,41 @@ mod tests {
     }
 
     #[test]
+    fn keeps_only_repository_links_and_inline_avatars_from_a_manifest() {
+        let avatar = "https://avatars.githubusercontent.com/u/1?v=4";
+        let manifest = json!({
+            "credits": {
+                "commits": 3,
+                "compare": "https://github.com/nodelike/sikemux/compare/v0.4.1...v0.4.2",
+                "contributors": [
+                    { "login": "nodelike", "name": "NØDE", "commits": 2, "avatar": avatar },
+                    { "login": "stranger", "name": "Stranger", "commits": 1, "avatar": "https://example.com/a.png" }
+                ],
+                "avatars": {
+                    avatar: "data:image/png;base64,AAAA",
+                    "https://avatars.githubusercontent.com/u/2": "https://example.com/tracker.png"
+                }
+            }
+        });
+        let credits = bundled_credits(&manifest).expect("credits");
+        assert_eq!(credits.commits, 3);
+        assert_eq!(
+            credits
+                .contributors
+                .iter()
+                .map(|person| person.login.as_str())
+                .collect::<Vec<_>>(),
+            ["nodelike"]
+        );
+        assert_eq!(credits.avatars.keys().collect::<Vec<_>>(), [avatar]);
+
+        let mut elsewhere = manifest.clone();
+        elsewhere["credits"]["compare"] = json!("https://example.com/compare/a...b");
+        assert_eq!(bundled_credits(&elsewhere), None);
+        assert_eq!(bundled_credits(&json!({ "version": "0.4.2" })), None);
+    }
+
+    #[test]
     fn asks_github_for_a_small_avatar() {
         assert_eq!(
             sized("https://avatars.githubusercontent.com/u/1?v=4"),
@@ -428,6 +495,26 @@ mod tests {
         assert_eq!(image_type(b"\x89PNG\r\n\x1a\nrest"), Some("image/png"));
         assert_eq!(image_type(b"\xff\xd8\xff\xe0"), Some("image/jpeg"));
         assert_eq!(image_type(b"<html>not found</html>"), None);
+    }
+
+    #[test]
+    #[ignore = "requires network access"]
+    fn release_avatars_reads_github() {
+        crate::install_tls_crypto();
+        let runtime = tokio::runtime::Runtime::new().expect("tokio runtime");
+        let urls = vec![
+            "https://avatars.githubusercontent.com/u/95223229?v=4".to_owned(),
+            "https://avatars.githubusercontent.com/u/108696612?v=4".to_owned(),
+        ];
+        let found = runtime.block_on(release_avatars(urls.clone()));
+        for url in &urls {
+            assert!(
+                found
+                    .get(url)
+                    .is_some_and(|data| data.starts_with("data:image/")),
+                "{url}"
+            );
+        }
     }
 
     // Network check, excluded from the normal suite. Run with

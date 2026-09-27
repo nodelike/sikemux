@@ -14,6 +14,9 @@ import { AgentStateIndicator } from "./AgentStateIndicator";
 import { sortByAttention } from "../state/agentStatus";
 import { Tooltip } from "./Tooltip";
 import { Panel, PanelHeader } from "./Panel";
+import { animate, type Box, contentBox, EASE_LEAVE, glideSelection, leavingRef } from "../lib/motion";
+import { CountUp } from "./RollingText";
+import { leavingRail } from "./railMotion";
 
 const RECENTS_PAGE = 12;
 const USAGE_REFRESH_MS = 5 * 60_000;
@@ -33,12 +36,53 @@ function ago(unixSecs: number): string {
 }
 
 const persistedSessionIdOf = (a: Agent) => a.resumeId ?? a.id;
+
+/**
+ * An open agent's row, closing: content goes in 50ms and the slot closes
+ * front-loaded, so the row answers the click at once. Rows swapped out by a
+ * project switch just go, and a closed selected row leaves its box behind for
+ * the selection to glide from.
+ */
+function rowLeaving(currentSession: { current: string }, closedBoxes: Map<string, Box>) {
+    return leavingRef<HTMLDivElement>(
+        (wrap) => {
+            wrap.style.overflow = "hidden";
+            for (const part of wrap.children)
+                animate(part, [{ opacity: 1 }, { opacity: 0, transform: "translateX(-6px)" }], { duration: 50, easing: "linear", fill: "forwards" });
+            return animate(wrap, [{ height: `${wrap.offsetHeight}px` }, { height: "0px", marginTop: "0px", marginBottom: "0px" }], {
+                duration: 120,
+                easing: EASE_LEAVE,
+            });
+        },
+        {
+            onRemove: (wrap) => {
+                if (wrap.dataset.session !== currentSession.current) return false;
+                const row = wrap.querySelector<HTMLElement>(".agent-row.active");
+                const group = wrap.parentElement;
+                if (row && group && wrap.dataset.agentId) closedBoxes.set(wrap.dataset.agentId, contentBox(row.getBoundingClientRect(), group));
+            },
+        },
+    );
+}
+
+function arriveRow(wrap: HTMLElement): void {
+    const height = wrap.offsetHeight;
+    animate(
+        wrap,
+        [
+            { height: "0px", opacity: 0, marginTop: "0px", marginBottom: "0px" },
+            { height: `${height}px`, opacity: 1 },
+        ],
+        { duration: 170 },
+    );
+    animate(wrap.querySelector(".agent-row"), [{ transform: "translateX(-6px)" }, { transform: "none" }], { duration: 190 });
+}
 const sessionKey = (type: AgentType, id: string) => `${type}:${id}`;
 
 export const AgentRail = memo(function AgentRail() {
     const density = useStore((s) => s.railDensity);
     return (
-        <aside className="workspace-rail agent-rail" aria-label="Agents" data-density={density}>
+        <aside ref={leavingRail} className="workspace-rail agent-rail" aria-label="Agents" data-density={density}>
             <AgentRailBody />
         </aside>
     );
@@ -143,6 +187,67 @@ export function AgentRailBody() {
         return () => ro.disconnect();
     }, [visibleRecents, disk.length, cwd, selectedType]);
 
+    const currentSession = useRef("");
+    currentSession.current = session?.id ?? "";
+    const closedRowBoxes = useRef(new Map<string, Box>());
+    const leaveRow = useMemo(() => rowLeaving(currentSession, closedRowBoxes.current), []);
+    const seen = useRef<{ session?: string; active?: string; ids?: Set<string>; type?: AgentType | null; stagger?: boolean }>({});
+    /*
+     * The rail's motion, read from what was just drawn: the selection glides
+     * between open agents, a new agent opens its slot, and a provider switch
+     * brings its name and recent chats in.
+     */
+    useLayoutEffect(() => {
+        const scroll = scrollRef.current;
+        const last = seen.current;
+        const wraps = scroll ? [...scroll.querySelectorAll<HTMLElement>(".agent-row-wrap[data-agent-id]:not(.is-leaving)")] : [];
+        const ids = new Set(wraps.map((w) => w.dataset.agentId ?? ""));
+        const active = wraps.find((w) => w.querySelector(".agent-row.active"))?.dataset.agentId;
+        const sameSession = last.session === session?.id;
+        if (sameSession && last.ids) {
+            for (const wrap of wraps) if (!last.ids.has(wrap.dataset.agentId ?? "")) arriveRow(wrap);
+            if (active && last.active && active !== last.active) {
+                const to = wraps.find((w) => w.dataset.agentId === active);
+                const from = wraps.find((w) => w.dataset.agentId === last.active);
+                const row = to?.querySelector<HTMLElement>(".agent-row");
+                const group = to?.parentElement;
+                const fromRow = from?.querySelector<HTMLElement>(".agent-row");
+                const fromBox =
+                    fromRow && group && from?.parentElement === group
+                        ? contentBox(fromRow.getBoundingClientRect(), group)
+                        : closedRowBoxes.current.get(last.active);
+                if (row && group && fromBox) glideSelection(group, fromBox, row, fromRow);
+            }
+        }
+        closedRowBoxes.current.clear();
+        if (last.type !== undefined && last.type !== selectedType) {
+            animate(
+                scroll?.parentElement?.querySelector(".agent-header-name"),
+                [
+                    { opacity: 0, transform: "translateY(3px)" },
+                    { opacity: 1, transform: "none" },
+                ],
+                { duration: 140 },
+            );
+            last.stagger = true;
+        }
+        const recents = scroll ? [...scroll.querySelectorAll<HTMLElement>(".agent-row.recent")] : [];
+        if (last.stagger && recents.length > 0) {
+            recents.slice(0, 12).forEach((row, i) =>
+                animate(
+                    row,
+                    [
+                        { opacity: 0, transform: "translateY(4px)" },
+                        { opacity: 1, transform: "none" },
+                    ],
+                    { duration: 150, delay: i * 20, fill: "backwards" },
+                ),
+            );
+            last.stagger = false;
+        }
+        seen.current = { session: session?.id, active, ids, type: selectedType, stagger: last.stagger };
+    });
+
     if (!session) return null;
 
     const opens = sortByAttention(
@@ -190,6 +295,7 @@ export function AgentRailBody() {
                     searchOpen={false}
                     onToggleSearch={toggleSearch}
                     usagePeaks={usagePeaks}
+                    plan={selectedUsage?.data?.plan}
                     canOpenPalette={catalogAgents.length > 0}
                 />
                 <div className="agent-empty">agents are project-scoped</div>
@@ -215,6 +321,7 @@ export function AgentRailBody() {
                 searchOpen={searchOpen}
                 onToggleSearch={toggleSearch}
                 usagePeaks={usagePeaks}
+                plan={selectedUsage?.data?.plan}
                 canOpenPalette={catalogAgents.length > 0}
             />
             {searchOpen && (
@@ -253,7 +360,7 @@ export function AgentRailBody() {
                         {opens.map((a) => {
                             const active = activeAgentId({ windows: windowsById }, session) === a.id;
                             return (
-                                <div key={a.id} className="agent-row-wrap">
+                                <div key={a.id} className="agent-row-wrap" data-agent-id={a.id} data-session={session.id} ref={leaveRow}>
                                     <button className={`agent-row${active ? " active" : ""}`} onClick={() => cmd.selectAgent(a.id)}>
                                         <span className={`agent-glyph ${a.type}`}>
                                             <AgentIcon type={a.type} size={20} />
@@ -451,7 +558,7 @@ function AgentUsagePanel({ provider, usage, label }: { provider: UsageAgentType;
                                 </div>
                                 <div className="agent-usage-gauge">
                                     <span className="agent-usage-pct">
-                                        {rounded}
+                                        <CountUp value={rounded} />
                                         <i>%</i>
                                     </span>
                                     <span
@@ -484,6 +591,7 @@ function AgentHeader({
     searchOpen,
     onToggleSearch,
     usagePeaks,
+    plan,
     canOpenPalette,
 }: {
     agents: AgentInfo[];
@@ -492,26 +600,33 @@ function AgentHeader({
     searchOpen: boolean;
     onToggleSearch: () => void;
     usagePeaks: Partial<Record<UsageAgentType, number | undefined>>;
+    plan?: string | null;
     canOpenPalette: boolean;
 }) {
     const label = agents.find((a) => a.type === type)?.label ?? type;
     return (
         <div className="agent-header">
             <div className="agent-header-top">
-                <span className="agent-header-label">Agents</span>
+                {type ? (
+                    <span className="agent-header-name">
+                        <span className={`agent-glyph ${type}`}>
+                            <AgentIcon type={type} size={16} />
+                        </span>
+                        <span className="agent-header-label">{label}</span>
+                        {plan && <span className="agent-header-plan">{planLabel(plan)}</span>}
+                    </span>
+                ) : (
+                    <span className="agent-header-label">Agents</span>
+                )}
                 <div className="agent-header-actions">
                     <Tooltip label="Filter recent chats">
-                        <button
-                            className={`agent-header-btn${searchOpen ? " active" : ""}`}
-                            aria-pressed={searchOpen}
-                            aria-label="Filter recent chats"
-                            onClick={onToggleSearch}>
+                        <button className="agent-header-action" aria-pressed={searchOpen} aria-label="Filter recent chats" onClick={onToggleSearch}>
                             <IconSearch size={15} />
                         </button>
                     </Tooltip>
                     <Tooltip label={type ? `new ${label} agent — ⌥N` : canOpenPalette ? "Review agent setup" : "No agent CLI detected"}>
                         <button
-                            className="agent-header-btn"
+                            className="agent-header-action"
                             disabled={!type && !canOpenPalette}
                             aria-label={type ? `New ${label} agent` : canOpenPalette ? "Review agent setup" : "No agent CLI detected"}
                             onClick={() => {

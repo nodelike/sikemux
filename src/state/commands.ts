@@ -12,7 +12,7 @@ import { sshApi } from "../api/ssh";
 import { checkForUpdateNow } from "../api/updater";
 import { basename, dirname, isPathWithin } from "../lib/paths";
 import { clampRailWidth, type RailEdge } from "../lib/railWidths";
-import { MAX_AGENT_MODEL_LENGTH, normalizePermissionMode } from "../agentLaunch";
+import { MAX_AGENT_MODEL_LENGTH, normalizePermissionMode, type ChatAgentType } from "../agentLaunch";
 import { cloneTheme, DEFAULT_THEME_ID, type Theme } from "../themes";
 import { sshStartup } from "../terminal/sshStartup";
 import { taskPtyBindings, type TaskTerminalPresentationRequest } from "../tasks/nativeRuntime";
@@ -25,6 +25,20 @@ import { reduceAgentState } from "./agentStatus";
 import { invalidate, peekResource } from "./resources";
 import { agentSessionsR, projectRootsScanR } from "./resources.defs";
 import { getState, mutate, setState, type StoreState } from "./store";
+import type { Draft } from "immer";
+import { refreshBrowserStrip } from "./browserStrips";
+import {
+    BROWSER_ACTIVE,
+    deskEditorId,
+    deskItemsOf,
+    EMPTY_DESK,
+    EMPTY_STRIP,
+    fileKey,
+    isShown,
+    shownDeskItem,
+    terminalKey,
+    type DeskItem,
+} from "./desks";
 import { notify, reportError, swallow } from "./toast";
 import { agentIdsWithLiveSessions } from "./agentLiveSessions";
 import { confirmDialog } from "./dialog";
@@ -36,12 +50,16 @@ import {
     agentIdsOf,
     agentWindowId,
     agentPaneId,
+    editorPaneOf,
     nextInCycle,
     ownerSessionId,
+    paneToSeparate,
     selectTabRefs,
-    shownBrowserPaneId,
+    shownDeskPaneId,
     stripOrder,
     tabRefKey,
+    tabSplitAllowed,
+    type SplitSide,
     type TabSource,
 } from "./selectors";
 import { agentWindow } from "./agentWindow";
@@ -55,6 +73,7 @@ import {
     makePane,
     neighborPane,
     newId,
+    addBeside,
     removePane,
     replacePane,
     resizeTowards,
@@ -64,6 +83,7 @@ import {
 import type {
     Agent,
     AgentEffort,
+    Desk,
     AgentPermissionMode,
     AgentType,
     CliOpenRequest,
@@ -72,6 +92,7 @@ import type {
     FocusDir,
     PickerMode,
     PaneKind,
+    PaneNode,
     ProviderProfile,
     Session,
     SessionKind,
@@ -143,7 +164,7 @@ function makeSession(kind: SessionKind, name: string, cwd: string, activeWindowI
 }
 
 function projectWindows(cwd: string): Window[] {
-    return [makeWindow(cwd, "1", { role: "term" })];
+    return [makeWindow(cwd, "Terminal", { role: "term" })];
 }
 
 /**
@@ -155,9 +176,20 @@ function ensureRoleWindow(role: WindowRole, kind: PaneKind, name: string, seedEd
     const st = getState();
     const session = st.sessions[st.activeSessionId];
     if (!session || session.kind !== "project") return;
-    const existing = (st.windowsBySession[session.id] ?? []).find((id) => st.windows[id]?.role === role);
+    const ids = st.windowsBySession[session.id] ?? [];
+    const existing = ids.find((id) => st.windows[id]?.role === role);
     if (existing) {
         selectWindowId(existing);
+        return;
+    }
+    // Git or search split into another tab is still the one to go to.
+    const holder = SPLITTABLE_TOOLS.has(kind)
+        ? ids.find((id) => st.windows[id] && collectPanes(st.windows[id].root).some((pane) => pane.kind === kind))
+        : undefined;
+    if (holder) {
+        const pane = collectPanes(st.windows[holder].root).find((candidate) => candidate.kind === kind)!;
+        selectWindowId(holder);
+        focusPane(pane.id);
         return;
     }
     mutate((d) => {
@@ -227,11 +259,13 @@ function attachSession(d: StoreState, session: Session, windows: Window[]): void
 
 function dirtyPathsForWindow(st: StoreState, win: Window | undefined): string[] {
     if (!win) return [];
-    return collectPanes(win.root).flatMap((p) => st.dirtyEditorPaths[p.id] ?? []);
+    return collectPanes(win.root).flatMap((p) => dirtyPathsForPane(st, p.id));
 }
 
+/* A desk's editor keeps its edits under its agent rather than its pane. */
 function dirtyPathsForPane(st: StoreState, paneId: string): string[] {
-    return st.dirtyEditorPaths[paneId] ?? [];
+    const deskAgentId = st.deskPanes[paneId];
+    return [...(st.dirtyEditorPaths[paneId] ?? []), ...(deskAgentId ? (st.dirtyEditorPaths[deskEditorId(deskAgentId)] ?? []) : [])];
 }
 
 function dirtyPathsForSession(st: StoreState, sessionId: string): string[] {
@@ -527,7 +561,7 @@ export function reorderDocumentTab(windowId: string, sourceDoc: string, targetDo
     mutate((d) => {
         const win = d.windows[windowId];
         if (!win) return;
-        const list = win.role === "files" ? d.editorViews[win.activePaneId]?.openTabs : undefined;
+        const list = win.role === "files" ? d.editorViews[editorPaneOf(win, d.editorViews)]?.openTabs : undefined;
         if (list) moveBeside(list, sourceDoc, targetDoc, placement);
     });
     const win = getState().windows[windowId];
@@ -583,9 +617,7 @@ function closeSessionNow(id: string): void {
     });
     if (!getState().sessions[id]) {
         for (const paneId of taskPaneIds) taskPtyBindings.release(paneId);
-        for (const agentId of closingAgentIds) {
-            void browserApi.closeAgent(agentId).catch(reportError("close agent browser"));
-        }
+        for (const agentId of closingAgentIds) closeAgentDesk(agentId);
     }
     if (closingCwd) {
         const stillOpen = Object.values(getState().sessions).some((s) => s.cwd === closingCwd);
@@ -689,6 +721,129 @@ export function splitActivePane(dir: SplitDir): void {
         win.activePaneId = np.id;
         d.zoomedPaneId = null;
     });
+}
+
+/**
+ * Puts the tab `source` beside the pane `besidePaneId` of the tab its session
+ * is showing, on `side`: up to three across, or two stacked, sharing the space
+ * evenly. The tab that stays is the agent's when there is one; the other one's
+ * pane moves into it, still running. A file moves out of the editor into a
+ * pane of its own.
+ */
+/** Tool panes that can be split into another tab and still be found there by their rail button and shortcut. */
+const SPLITTABLE_TOOLS: ReadonlySet<PaneKind> = new Set(["git", "search"]);
+
+/** The kind of tab a lone pane is, when the tab it was split into has to become what is left of it. */
+function roleOfPane(pane: PaneNode): WindowRole {
+    if (pane.kind === "agent") return "agent";
+    if (pane.kind === "git" || pane.kind === "search") return pane.kind;
+    return pane.startup ? "named" : "term";
+}
+
+/** Where each pane's tab was in the strip before it was split into another, so moving it out puts it back. */
+const splitOrigins = new Map<string, { windowId: string; name: string; role: WindowRole; previous: string | null; next: string | null }>();
+
+export function splitWithTab(sessionId: string, source: TabRef, side: SplitSide, besidePaneId?: string): void {
+    if (!tabSplitAllowed(getState(), sessionId, source)) return;
+    const editor = getState().windows[source.id];
+    const shownId = getState().sessions[sessionId]?.activeWindowId;
+    mutate((d) => {
+        const session = d.sessions[sessionId];
+        const shown = d.windows[session.activeWindowId];
+        const from = d.windows[source.id];
+        const moving = source.doc !== undefined ? makePane(session.cwd, { kind: "editor" }) : (from.root as PaneNode);
+        const root = addBeside(shown.root, besidePaneId ?? null, moving, side);
+        if (!root) return;
+        const host = source.doc === undefined && from.role === "agent" ? from : shown;
+        if (source.doc !== undefined) {
+            d.editorViews[moving.id] = { openTabs: [source.doc], activePath: source.doc, single: true };
+        } else {
+            const leaving = host === from ? shown : from;
+            const ids = d.windowsBySession[sessionId] ?? [];
+            const index = ids.indexOf(leaving.id);
+            const origin = {
+                windowId: leaving.id,
+                name: leaving.name,
+                role: leaving.role,
+                previous: ids[index - 1] ?? null,
+                next: ids[index + 1] ?? null,
+            };
+            for (const pane of collectPanes(leaving.root)) splitOrigins.set(pane.id, origin);
+            delete d.windows[leaving.id];
+            d.windowsBySession[sessionId] = ids.filter((id) => id !== leaving.id);
+        }
+        host.root = root;
+        host.activePaneId = moving.id;
+        session.activeWindowId = host.id;
+        d.zoomedPaneId = null;
+    });
+    // Beside another tab the file moves out of the editor; beside the editor itself it is a second view of it.
+    if (source.doc !== undefined && editor && editor.id !== shownId) closeDocument(editor, source.doc);
+}
+
+/**
+ * Moves a pane out of a split tab (the focused one when unnamed): a terminal
+ * back to its own tab, in the place and under the name it had before it was
+ * split in, still running, and a file back into the editor.
+ */
+export function separatePane(windowId: string, paneId?: string): void {
+    const st = getState();
+    const win = st.windows[windowId];
+    const pane = win ? paneToSeparate(win, st, paneId) : null;
+    const sessionId = win ? ownerSessionId(st, windowId) : null;
+    if (!win || !pane || !sessionId) return;
+    const view = pane.kind === "editor" ? st.editorViews[pane.id] : undefined;
+    // The file showing goes last, so the editor ends on it.
+    const paths = view ? [...view.openTabs.filter((open) => open !== view.activePath), ...(view.activePath ? [view.activePath] : [])] : [];
+    const origin = splitOrigins.get(pane.id);
+    splitOrigins.delete(pane.id);
+    mutate((d) => {
+        const host = d.windows[windowId];
+        const rest = removePane(host.root, pane.id);
+        if (!rest) return;
+        host.root = rest;
+        if (!collectPanes(rest).some((candidate) => candidate.id === host.activePaneId)) host.activePaneId = collectPanes(rest)[0].id;
+        // A Git or search tab left holding something else is that thing's tab now.
+        if (rest.type === "pane" && (host.role === "git" || host.role === "search") && rest.kind !== host.role) {
+            host.role = roleOfPane(rest);
+            host.name = rest.title;
+        }
+        d.zoomedPaneId = null;
+        if (pane.kind === "editor") {
+            delete d.editorViews[pane.id];
+            return;
+        }
+        const ids = d.windowsBySession[sessionId] ?? [];
+        const separated: Window = {
+            id: origin && !d.windows[origin.windowId] ? origin.windowId : newId("win"),
+            name: origin?.name ?? pane.title,
+            role: origin?.role ?? roleOfPane(pane),
+            root: pane,
+            activePaneId: pane.id,
+        };
+        // Beside the tab it sat after, or the one it sat before, whichever is still there.
+        const at =
+            origin?.previous && ids.includes(origin.previous)
+                ? ids.indexOf(origin.previous) + 1
+                : origin?.next && ids.includes(origin.next)
+                  ? ids.indexOf(origin.next)
+                  : origin && origin.previous === null
+                    ? 0
+                    : ids.indexOf(windowId) + 1;
+        d.windows[separated.id] = separated;
+        d.windowsBySession[sessionId] = [...ids.slice(0, at), separated.id, ...ids.slice(at)];
+        d.sessions[sessionId].activeWindowId = separated.id;
+    });
+    for (const path of paths) requestOpenFile(path);
+}
+
+/** Takes a split tab apart: every pane that can leave goes back where it came from, and the agent, if any, keeps the tab. */
+export function unsplitTab(windowId: string): void {
+    const win = getState().windows[windowId];
+    if (!win) return;
+    for (const pane of collectPanes(win.root)) if (pane.kind !== "agent") separatePane(windowId, pane.id);
+    const sessionId = ownerSessionId(getState(), windowId);
+    if (sessionId && getState().windows[windowId]) mutate((d) => void (d.sessions[sessionId].activeWindowId = windowId));
 }
 
 export async function runBackgroundCommand(
@@ -822,7 +977,7 @@ export function openTaskTerminal(request: TaskTerminalPresentationRequest): stri
             return;
         }
 
-        const created = makeWindow(cwd, label, { role: "named" });
+        const created = makeWindow(cwd, label, { role: "term" });
         created.transient = true;
         if (created.root.type !== "pane") return;
         created.root.title = label;
@@ -929,6 +1084,13 @@ export async function importSessionFromClipboard(): Promise<void> {
     notify("success", "Imported session as a safe, dormant copy");
 }
 
+/** Closes one pane of a split, leaving the rest of the tab open. */
+export function closePane(windowId: string, paneId: string): void {
+    selectWindowId(windowId);
+    focusPane(paneId);
+    guardDiscardDirty(dirtyPathsForPane(getState(), paneId), "close pane", closeActivePane);
+}
+
 function closeActivePane(): void {
     let taskPaneId: string | null = null;
     withActiveWindow((d, w, session) => {
@@ -966,13 +1128,24 @@ function closeActivePane(): void {
     if (taskPaneId) taskPtyBindings.release(taskPaneId);
 }
 
-/* Nothing shows this agent's browser once its pane is gone, so the tabs stop
-   being worth keeping — including the ones a restored pane never opened. */
-function dropBrowserPaneState(d: StoreState, paneId: string): void {
-    const agentId = d.browserPanes[paneId];
-    delete d.browserPanes[paneId];
-    delete d.browserRestores[paneId];
-    if (agentId && !Object.values(d.browserPanes).includes(agentId)) delete d.browserStrips[agentId];
+/* Nothing shows this agent's browser once its pane is gone, so the strip stops
+   being worth reading — and so do the pages a restored pane never opened. */
+function dropDeskPaneState(d: StoreState, paneId: string): void {
+    const agentId = d.deskPanes[paneId];
+    delete d.deskPanes[paneId];
+    delete d.deskRestores[paneId];
+    if (agentId && !Object.values(d.deskPanes).includes(agentId)) delete d.browserStrips[agentId];
+}
+
+/** An agent's desk goes with the agent: its pages, its files and its terminals. */
+function closeAgentDesk(agentId: string): void {
+    for (const terminal of getState().desks[agentId]?.terminals ?? []) taskPtyBindings.release(terminal.id);
+    mutate((d) => {
+        delete d.desks[agentId];
+        delete d.editorViews[deskEditorId(agentId)];
+        delete d.dirtyEditorPaths[deskEditorId(agentId)];
+    });
+    void browserApi.closeAgent(agentId).catch(reportError("close agent browser"));
 }
 
 function disposePaneState(d: StoreState, paneId: string): void {
@@ -982,7 +1155,7 @@ function disposePaneState(d: StoreState, paneId: string): void {
     delete d.pendingEditorOpens[paneId];
     delete d.dirtyEditorPaths[paneId];
     delete d.gitViews[paneId];
-    dropBrowserPaneState(d, paneId);
+    dropDeskPaneState(d, paneId);
     delete d.terminalTitles[paneId];
     delete d.agents[paneId];
     delete d.agentActivity[paneId];
@@ -1012,9 +1185,13 @@ function replaceWithFreshTerminalTab(d: StoreState, session: Session, closing: W
 }
 
 function closeActiveTerminalTab(): void {
+    let taskPaneIds: string[] = [];
     withActiveSession((d, session) => {
         const closing = d.windows[session.activeWindowId];
         if (!closing || closing.role !== "term") return;
+        taskPaneIds = collectPanes(closing.root)
+            .filter((pane) => pane.externalPty)
+            .map((pane) => pane.id);
 
         const winIds = d.windowsBySession[session.id] ?? [];
         const termIds = winIds.filter((id) => d.windows[id]?.role === "term");
@@ -1039,6 +1216,7 @@ function closeActiveTerminalTab(): void {
         sess.activeWindowId = nextId;
         d.zoomedPaneId = null;
     });
+    for (const paneId of taskPaneIds) taskPtyBindings.release(paneId);
 }
 
 export function closeActiveFocusTarget(): void {
@@ -1135,13 +1313,7 @@ export function setSplitSizes(windowId: string, splitId: string, sizes: number[]
 export function newWindow(): void {
     withActiveSession((d, session) => {
         const winIds = d.windowsBySession[session.id] ?? [];
-        const terminalNumbers = winIds
-            .map((id) => d.windows[id])
-            .filter((win) => win?.role === "term")
-            .map((win) => Number.parseInt(win.name, 10))
-            .filter((n) => Number.isFinite(n) && n > 0);
-        const nextTerminalNumber = terminalNumbers.length === 0 ? 1 : Math.max(...terminalNumbers) + 1;
-        const w = makeWindow(session.cwd, String(nextTerminalNumber));
+        const w = makeWindow(session.cwd, "Terminal");
         d.windows[w.id] = w;
         d.windowsBySession[session.id] = [...winIds, w.id];
         const sess = d.sessions[session.id];
@@ -1219,7 +1391,7 @@ function closeWindowNow(id: string): void {
     if (!getState().windows[id]) {
         for (const paneId of taskPaneIds) taskPtyBindings.release(paneId);
         if (closingAgent) {
-            void browserApi.closeAgent(closingAgent.id).catch(reportError("close agent browser"));
+            closeAgentDesk(closingAgent.id);
             if (closingAgent.type === "claude" || closingAgent.type === "codex") {
                 invalidate((kind) => kind === "agents.catalog" || kind === "agents.models" || kind === "agents.usage");
             }
@@ -1247,14 +1419,14 @@ export function selectWindowId(id: string): void {
 
 /** Shows `doc` in the window holding it; the window's role says which view keeps it. */
 function selectDocument(win: Window, doc: string): void {
-    if (win.role === "files") setEditorView(win.activePaneId, { activePath: doc });
+    if (win.role === "files") setEditorView(editorPaneOf(win, getState().editorViews), { activePath: doc });
     pluginDocuments(win.role)?.select(win.activePaneId, doc);
 }
 
 function closeDocument(win: Window, doc: string): void {
     // The editor owns the unsaved-changes prompt and the CodeMirror state for
     // each document, so closing goes through it rather than around it.
-    if (win.role === "files") emit({ type: "close-file", paneId: win.activePaneId, path: doc });
+    if (win.role === "files") emit({ type: "close-file", paneId: editorPaneOf(win, getState().editorViews), path: doc });
     pluginDocuments(win.role)?.close(win.activePaneId, doc);
 }
 
@@ -1384,7 +1556,7 @@ export function agentSessionMetadataPending(agent: Agent): boolean {
     return title.length <= FALLBACK_AGENT_TITLE_MAX && agent.resumeId.startsWith(title);
 }
 
-export function configureEmptyAgent(id: string, type: "codex" | "claude", profileId?: string): void {
+export function configureEmptyAgent(id: string, type: ChatAgentType, profileId?: string): void {
     mutate((d) => {
         const agent = d.agents[id];
         const activity = d.agentActivity[id];
@@ -1648,6 +1820,22 @@ export function setAgentTitle(id: string, title: string): void {
     mutate((d) => {
         const agent = d.agents[id];
         if (agent) agent.title = value;
+    });
+}
+
+const PROMPT_TITLE_MAX = 72;
+
+/* Stands in until the provider titles the conversation, which Claude only does
+   once the first turn ends. */
+export function titleAgentFromPrompt(id: string, text: string): void {
+    const title = text.split(/\s+/).filter(Boolean).join(" ");
+    if (!title || title.startsWith("/") || title.startsWith("<")) return;
+    mutate((d) => {
+        const agent = d.agents[id];
+        if (!agent) return;
+        const profile = agent.profileId ? d.providerProfiles.find((item) => item.id === agent.profileId && item.provider === agent.type) : undefined;
+        if (agent.title !== (profile?.name || agent.type)) return;
+        agent.title = [...title].slice(0, PROMPT_TITLE_MAX).join("");
     });
 }
 
@@ -2075,70 +2263,96 @@ function activeBrowserAgentId(): string | null {
     return activeAgentId(st, session);
 }
 
+function ensureDesk(d: Draft<StoreState>, agentId: string): Desk {
+    return (d.desks[agentId] ??= structuredClone(EMPTY_DESK));
+}
+
+function setDeskActive(agentId: string, active: string): void {
+    mutate((d) => {
+        ensureDesk(d, agentId).active = active;
+    });
+}
+
 export function newBrowserTab(forAgentId?: string): boolean {
     const agentId = forAgentId ?? activeBrowserAgentId();
     if (!agentId) return false;
-    openBrowserPane(agentId);
+    openDesk(agentId);
+    setDeskActive(agentId, BROWSER_ACTIVE);
     void browserApi.newTab(agentId).catch(reportError("open browser tab"));
     return true;
 }
 
-export function openUrlInBrowserPane(agentId: string, url: string): void {
-    openBrowserPane(agentId);
+export function openUrlOnDesk(agentId: string, url: string): void {
+    openDesk(agentId);
+    setDeskActive(agentId, BROWSER_ACTIVE);
     void browserApi.newTab(agentId, url).catch(reportError("open link in browser"));
 }
 
-/** Hiding the browser keeps its tabs alive, so showing it again brings them back as they were. */
-export function toggleBrowserPane(agentId: string): void {
-    const openPaneId = shownBrowserPaneId(getState(), agentId);
+/** Hiding the desk keeps what is on it, so showing it again brings it back as it was. */
+export function toggleDesk(agentId: string): void {
+    const openPaneId = shownDeskPaneId(getState(), agentId);
     if (openPaneId) {
-        closeBrowserPane(openPaneId);
+        closeDesk(openPaneId);
         return;
     }
-    openBrowserPane(agentId);
+    openDesk(agentId);
+    if (getState().desks[agentId]?.terminals.length || getState().editorViews[deskEditorId(agentId)]?.openTabs.length) return;
     void browserApi
         .snapshot(agentId)
         .then((snapshot) => (snapshot.tabs.length === 0 ? browserApi.newTab(agentId) : undefined))
         .catch(reportError("open browser tab"));
 }
 
-/** Brings the browser on screen for an agent that started using it, leaving focus where the person had it. */
-export function revealBrowserPane(agentId: string): void {
-    if (shownBrowserPaneId(getState(), agentId)) return;
-    openBrowserPane(agentId, { focus: false });
+/** Brings the desk on screen for an agent that put something on it, leaving focus where the person had it. */
+export function revealDesk(agentId: string): void {
+    if (shownDeskPaneId(getState(), agentId)) return;
+    openDesk(agentId, { focus: false });
+}
+
+/** The agent started working in its browser, so the page comes forward on its desk. */
+export function showDeskBrowser(agentId: string): void {
+    revealDesk(agentId);
+    setDeskActive(agentId, BROWSER_ACTIVE);
 }
 
 /**
- * Put the agent's browser beside it, once.
+ * Put the agent's desk beside it, once.
  *
  * The pane is a leaf like any other, so it splits, resizes and closes through
- * the layout rather than through anything the browser owns itself.
+ * the layout rather than through anything the desk owns itself.
  */
-export function openBrowserPane(agentId: string, opts: { focus?: boolean } = {}): void {
+export function openDesk(agentId: string, opts: { focus?: boolean } = {}): void {
     const focus = opts.focus ?? true;
     mutate((d) => {
-        const existing = Object.entries(d.browserPanes).find(([, owner]) => owner === agentId);
+        const existing = Object.entries(d.deskPanes).find(([, owner]) => owner === agentId);
         const windowId = Object.keys(d.windows).find((id) => collectPanes(d.windows[id].root).some((pane) => pane.id === agentId));
         if (!windowId) return;
+        ensureDesk(d, agentId);
         const win = d.windows[windowId];
         if (existing && collectPanes(win.root).some((pane) => pane.id === existing[0])) {
             if (focus) win.activePaneId = existing[0];
             return;
         }
         const agentPane = collectPanes(win.root).find((candidate) => candidate.id === agentId);
-        const pane = makePane(agentPane?.cwd ?? "", { kind: "browser" });
+        const pane = makePane(agentPane?.cwd ?? "", { kind: "desk" });
         win.root = splitPane(win.root, agentId, "row", pane);
         if (focus) win.activePaneId = pane.id;
-        d.browserPanes[pane.id] = agentId;
+        d.deskPanes[pane.id] = agentId;
         d.zoomedPaneId = null;
     });
 }
 
+/** Hides the desk. Its files are only held by the editor on screen, so unsaved ones are asked about first. */
+export function closeDesk(paneId: string): void {
+    const st = getState();
+    guardDiscardDirty(dirtyPathsForPane(st, paneId), "hide desk", () => removeDeskPane(paneId));
+}
+
 /**
- * The last tab closed, or the pane came back from a layout without the agent
- * that gave it meaning — either way there is nothing left for it to show.
+ * Everything left the desk, or the pane came back from a layout without the
+ * agent that gave it meaning — either way there is nothing left for it to show.
  */
-export function closeBrowserPane(paneId: string): void {
+export function removeDeskPane(paneId: string): void {
     mutate((d) => {
         for (const id of Object.keys(d.windows)) {
             const win = d.windows[id];
@@ -2150,36 +2364,126 @@ export function closeBrowserPane(paneId: string): void {
             if (!remaining.some((pane) => pane.id === win.activePaneId)) win.activePaneId = remaining[0]?.id ?? win.activePaneId;
             d.zoomedPaneId = null;
         }
-        dropBrowserPaneState(d, paneId);
+        dropDeskPaneState(d, paneId);
     });
 }
 
-export function closeActiveBrowserTab(): boolean {
-    const agentId = activeBrowserAgentId();
-    if (!agentId) return false;
-    void browserApi
-        .snapshot(agentId)
-        .then((snapshot) => (snapshot.activeTabId ? browserApi.closeTab(agentId, snapshot.activeTabId) : undefined))
-        .catch(reportError("close browser tab"));
-    return true;
+/** Opens a file on the agent's desk, at a line when one is given. */
+export function openFileOnDesk(agentId: string, path: string, line?: number, character?: number, opts: { focus?: boolean } = {}): void {
+    openDesk(agentId, { focus: opts.focus ?? true });
+    mutate((d) => {
+        const desk = ensureDesk(d, agentId);
+        const key = fileKey(path);
+        if (!desk.order.includes(key)) desk.order.push(key);
+        desk.active = key;
+        desk.reveal = { path, line, character, seq: (desk.reveal?.seq ?? 0) + 1 };
+    });
 }
 
-export function cycleBrowserTab(delta: number): boolean {
-    const agentId = activeBrowserAgentId();
-    if (!agentId) return false;
-    void browserApi
-        .snapshot(agentId)
-        .then((snapshot) => {
-            if (snapshot.tabs.length < 2) return;
-            const current = Math.max(
-                0,
-                snapshot.tabs.findIndex((tab) => tab.id === snapshot.activeTabId),
-            );
-            const next = (current + delta + snapshot.tabs.length) % snapshot.tabs.length;
-            return browserApi.switchTab(agentId, snapshot.tabs[next].id);
-        })
-        .catch(reportError("switch browser tab"));
-    return true;
+export function consumeDeskReveal(agentId: string, seq: number): void {
+    mutate((d) => {
+        const desk = d.desks[agentId];
+        if (desk?.reveal?.seq === seq) desk.reveal = null;
+    });
+}
+
+/**
+ * Puts a task terminal on the agent's desk and returns the id its process is
+ * bound to. A rerun of the same task comes back to the terminal it had.
+ */
+export function openDeskTerminal(agentId: string, request: Pick<TaskTerminalPresentationRequest, "terminalKey" | "label" | "cwd">): string {
+    let id = "";
+    mutate((d) => {
+        const desk = ensureDesk(d, agentId);
+        let terminal = desk.terminals.find((candidate) => candidate.terminalKey === request.terminalKey);
+        if (!terminal) {
+            terminal = { id: newId("desk-terminal"), terminalKey: request.terminalKey, label: request.label, cwd: request.cwd };
+            desk.terminals.push(terminal);
+            desk.order.push(terminalKey(terminal.id));
+        }
+        terminal.label = request.label;
+        terminal.cwd = request.cwd;
+        desk.active = terminalKey(terminal.id);
+        id = terminal.id;
+    });
+    revealDesk(agentId);
+    return id;
+}
+
+export function showDeskTerminal(agentId: string, id: string): void {
+    revealDesk(agentId);
+    setDeskActive(agentId, terminalKey(id));
+}
+
+/** The desk terminal showing a task execution, if one is. */
+export function deskTerminalFor(executionId: string): { agentId: string; id: string } | null {
+    for (const [agentId, desk] of Object.entries(getState().desks))
+        for (const terminal of desk.terminals)
+            if (taskPtyBindings.getSnapshot(terminal.id)?.executionId === executionId) return { agentId, id: terminal.id };
+    return null;
+}
+
+export function selectDeskItem(agentId: string, item: DeskItem): void {
+    if (item.kind === "browser") {
+        setDeskActive(agentId, BROWSER_ACTIVE);
+        void browserApi
+            .switchTab(agentId, item.tab.id)
+            .then(() => refreshBrowserStrip(agentId))
+            .catch(reportError("switch browser tab"));
+        return;
+    }
+    setDeskActive(agentId, item.key);
+    if (item.kind === "file") setEditorView(deskEditorId(agentId), { activePath: item.path });
+}
+
+export function closeDeskItem(agentId: string, item: DeskItem): void {
+    const items = deskItemsOf(getState(), agentId);
+    const desk = getState().desks[agentId] ?? EMPTY_DESK;
+    const shown = shownDeskItem(desk, items);
+    const strip = getState().browserStrips[agentId];
+    if (strip && isShown(item, shown, strip)) {
+        const at = items.findIndex((candidate) => candidate.key === item.key);
+        const next = items[at + 1] ?? items[at - 1];
+        if (next) selectDeskItem(agentId, next);
+    }
+    if (item.kind === "browser") {
+        void browserApi
+            .closeTab(agentId, item.tab.id)
+            .then(() => refreshBrowserStrip(agentId))
+            .catch(reportError("close browser tab"));
+        return;
+    }
+    if (item.kind === "file") {
+        emit({ type: "close-file", paneId: deskEditorId(agentId), path: item.path });
+        return;
+    }
+    taskPtyBindings.release(item.terminal.id);
+    mutate((d) => {
+        const current = d.desks[agentId];
+        if (!current) return;
+        current.terminals = current.terminals.filter((terminal) => terminal.id !== item.terminal.id);
+        current.order = current.order.filter((key) => key !== item.key);
+    });
+}
+
+export function closeShownDeskTab(agentId: string): void {
+    const state = getState();
+    const items = deskItemsOf(state, agentId);
+    const shown = shownDeskItem(state.desks[agentId] ?? EMPTY_DESK, items);
+    const item = items.find((candidate) => isShown(candidate, shown, state.browserStrips[agentId] ?? EMPTY_STRIP));
+    if (item) closeDeskItem(agentId, item);
+}
+
+export function cycleDeskTab(agentId: string, delta: number): void {
+    const state = getState();
+    const items = deskItemsOf(state, agentId);
+    if (items.length < 2) return;
+    const shown = shownDeskItem(state.desks[agentId] ?? EMPTY_DESK, items);
+    const current = Math.max(
+        0,
+        items.findIndex((item) => isShown(item, shown, state.browserStrips[agentId] ?? EMPTY_STRIP)),
+    );
+    selectDeskItem(agentId, items[(current + delta + items.length) % items.length]);
 }
 
 export function reloadBrowserTab(): boolean {
@@ -2199,13 +2503,16 @@ export function browserHistory(delta: number): boolean {
 export function focusBrowserAddress(): boolean {
     const agentId = activeBrowserAgentId();
     if (!agentId) return false;
-    const selector = `.browser-pane[data-agent-id="${CSS.escape(agentId)}"] .browser-address`;
+    const selector = `.desk[data-agent-id="${CSS.escape(agentId)}"] .browser-address`;
     const focus = () => {
         const input = document.querySelector<HTMLInputElement>(selector);
         input?.focus();
         input?.select();
     };
-    if (document.querySelector(selector)) focus();
+    const hasPage = (getState().browserStrips[agentId]?.tabs.length ?? 0) > 0;
+    openDesk(agentId);
+    setDeskActive(agentId, BROWSER_ACTIVE);
+    if (hasPage) window.requestAnimationFrame(focus);
     else
         void browserApi
             .newTab(agentId)
@@ -2214,6 +2521,10 @@ export function focusBrowserAddress(): boolean {
     return true;
 }
 export const setRestoreAgentTabs = (value: boolean): void => setState({ restoreAgentTabs: value });
+export const setAgentNotifications = (value: boolean): void => setState({ agentNotifications: value });
+export const setVoiceDictation = (value: boolean): void => setState({ voiceDictation: value });
+export const setVoiceWords = (words: readonly string[]): void => setState({ voiceWords: [...new Set(words)] });
+export const setPaneShader = (value: boolean): void => setState({ paneShader: value });
 export const setUiTextScale = (value: number): void => setState({ uiTextScale: [1, 1.1, 1.25].includes(value) ? value : 1 });
 
 export const setRailDensity = (value: import("./types").RailDensity): void => setState({ railDensity: value });
@@ -2253,6 +2564,11 @@ export const setUpdateChannel = (value: "stable" | "nightly"): void => {
     setState({ updateChannel: value, pendingUpdate: null, lastUpdateCheck: null });
     void checkForUpdateNow();
 };
+
+export const setShareUsageData = (value: boolean): void => setState({ shareUsageData: value });
+
+export const setLanguageServerTrust = (project: string, allowed: boolean): void =>
+    setState((s) => ({ languageServerTrust: { ...s.languageServerTrust, [project]: allowed } }));
 
 export function setKeybinding(id: import("../keybindings").KeybindingActionId, binding: string | null): void {
     setState((s) => ({ keybindingOverrides: { ...s.keybindingOverrides, [id]: binding } }));
@@ -2299,12 +2615,33 @@ export function setProjectRootDepth(path: string, depth: number): void {
     invalidate((kind) => kind === projectRootsScanR.kind);
 }
 
-export function openEditorTab(paneId: string, path: string, activate = true): void {
+/** Opens `path` as a tab, and returns the preview tab it took the place of, if any. */
+export function openEditorTab(paneId: string, path: string, activate = true, preview = false): string | null {
+    let replaced: string | null = null;
     mutate((d) => {
         const cur = d.editorViews[paneId] ?? { openTabs: [], activePath: null };
-        if (!cur.openTabs.includes(path)) cur.openTabs.push(path);
+        const previewIndex = cur.preview ? cur.openTabs.indexOf(cur.preview) : -1;
+        if (cur.openTabs.includes(path)) {
+            if (!preview && cur.preview === path) delete cur.preview;
+        } else if (preview && previewIndex >= 0) {
+            replaced = cur.openTabs[previewIndex];
+            cur.openTabs[previewIndex] = path;
+            if (cur.activePath === replaced) cur.activePath = path;
+            cur.preview = path;
+        } else {
+            cur.openTabs.push(path);
+            if (preview) cur.preview = path;
+        }
         if (activate) cur.activePath = path;
         d.editorViews[paneId] = cur;
+    });
+    return replaced;
+}
+
+export function keepEditorTab(paneId: string, path: string): void {
+    mutate((d) => {
+        const cur = d.editorViews[paneId];
+        if (cur?.preview === path) delete cur.preview;
     });
 }
 

@@ -63,6 +63,35 @@ export function splitPane(root: LayoutNode, paneId: string, dir: SplitDir, newPa
     return rec(root);
 }
 
+type Side = "left" | "right" | "top" | "bottom";
+
+/** A split tab holds at most three panes side by side, or two stacked. */
+export const MOST_SIDE_BY_SIDE = 3;
+
+/** Where one more pane can go: any side of a lone pane, then only across while a row of panes has room. */
+export function openSides(root: LayoutNode): Side[] {
+    if (root.type === "pane") return ["left", "right", "top", "bottom"];
+    const flatRow = root.dir === "row" && root.children.every((child) => child.type === "pane");
+    return flatRow && root.children.length < MOST_SIDE_BY_SIDE ? ["left", "right"] : [];
+}
+
+/** Adds `pane` beside the pane `targetId` on `side`, the panes sharing the space evenly; null when that side is not open. */
+export function addBeside(root: LayoutNode, targetId: string | null, pane: PaneNode, side: Side): LayoutNode | null {
+    if (!openSides(root).includes(side)) return null;
+    const children = root.type === "pane" ? [root] : root.children.slice();
+    const before = side === "left" || side === "top";
+    const target = children.findIndex((child) => child.id === targetId);
+    const at = target < 0 ? (before ? 0 : children.length) : before ? target : target + 1;
+    children.splice(at, 0, pane);
+    return {
+        type: "split",
+        id: root.type === "split" ? root.id : newId("split"),
+        dir: side === "left" || side === "right" ? "row" : "column",
+        children,
+        sizes: children.map(() => 1 / children.length),
+    };
+}
+
 export function replacePane(root: LayoutNode, paneId: string, newPane: PaneNode): LayoutNode {
     if (root.type === "pane") return root.id === paneId ? newPane : root;
     return { ...root, children: root.children.map((child) => replacePane(child, paneId, newPane)) };

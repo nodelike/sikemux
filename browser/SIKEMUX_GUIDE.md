@@ -7,7 +7,10 @@ description: How to drive a Sikemux project and its browser — task launches, o
 
 You are running in a pane of a Sikemux workspace. The tools named `sikemux_*`
 act on the project the person has open. The tools named `browser_*` act on the
-browser tabs in your own pane, which the person can see.
+browser tabs on your desk, the pane beside yours that the person can see.
+
+Your desk holds everything you open for the person: browser pages, files and
+the terminals of tasks you start, as tabs in one strip.
 
 Read this once before your first task launch or browser click. Everything the
 tool descriptions leave out is here.
@@ -17,6 +20,32 @@ tool descriptions leave out is here.
 `workspace_inspect` is the entry point. It returns the open project,
 its panes, the tasks configured in `sikemux.json`, the harness runs you already
 started, and an event cursor. Task ids come from there — do not guess one.
+
+`configStatus` is `absent` when the project has no `sikemux.json`, and
+`invalid` when it has one that failed to load; `configErrors` then lists each
+problem by path. Neither state offers any tasks.
+
+## Writing sikemux.json
+
+The file sits at the project root. Tasks are what `task_start` launches:
+
+```json
+{
+  "version": 1,
+  "tasks": [
+    { "id": "web", "label": "Web", "command": "pnpm dev", "cwd": "apps/web" },
+    { "id": "api", "label": "API", "command": "uv run main.py", "env": { "PORT": "8000" } }
+  ],
+  "preview": { "url": "http://localhost:5173" }
+}
+```
+
+`version` is required and must be `1`. A task needs `id`, `label` and
+`command`; `cwd` is relative to the project and defaults to `.`, and `env`
+holds string values. Ids use letters, numbers, `.`, `_` and `-`. Unknown fields
+are rejected. If the project already describes its processes elsewhere, such
+as `.claude/launch.json` or a Procfile, carry those commands over rather than
+inventing new ones. Inspect again after writing to see `configErrors`.
 
 ## Running a task
 
@@ -35,23 +64,48 @@ Two things can stop a launch:
   first. Starting a task already running through the harness just returns that
   execution.
 
-Task terminals open in the background. To show one to the person, call
-`ui_open` with `kind: "terminal"`, the `executionId`, and `focus: true`.
+`readyWhen` makes `task_start` wait, up to 45 seconds, until that text
+appears in the output, such as `Ready in` for a dev server. The result then
+carries `ready`: `true` once it appeared, `false` if the task stopped or the
+wait ran out first.
+
+`task_restart` takes a `taskId`, stops that task's latest execution, starts a
+new one, and returns it. Use it instead of a stop followed by a start with a
+new key.
+
+A task you start opens its terminal as a tab on your desk, without taking the
+person's focus. To bring the person to it, call `ui_open` with
+`kind: "terminal"`, the `executionId`, and `focus: true`.
 
 ## Reading output
 
-`task_read` pages through a task's output by byte cursor.
+`task_read` pages through a task's output by byte cursor. Name the run with
+its `executionId`, or pass a `taskId` to read that task's latest execution.
 
 Start at cursor `0`. Pass the returned `cursor` into the next call. Keep
-reading while `hasMore` is true. Pages are 8 KiB by default; `limit` accepts
-4 to 8192 bytes.
+reading while `hasMore` is true. Every page reports `end`, the length of the
+output so far. Pages are 8 KiB by default; `limit` accepts 4 to 8192 bytes.
 
-Two things to expect in the bytes:
+Output is raw terminal data and may contain escape sequences. Three options
+change what comes back:
 
-- Output is raw terminal data and may contain escape sequences.
-- A task retains about 1 MiB. If your cursor is older than the retained bytes,
-  `truncated` comes back true — you have lost the gap and should read on from
-  the cursor you were given rather than trying to recover it.
+- `plain: true` strips escape sequences and replays carriage returns and
+  cursor moves, so a progress bar or build screen that redraws itself shows
+  each line once, in its final state. Runs of an identical line or block of
+  lines keep one copy and a note such as `[repeated 40 more times]`. The
+  cursor still counts raw bytes, so plain pages chain like raw ones.
+- `tail: N` returns the last N lines instead of paging from the cursor, which
+  answers "what did the server just say". Its `cursor` is `end`, ready for the
+  next read of new output.
+- `search: "text"` returns only the lines containing that text, ignoring case,
+  each with `context` lines around it (3 by default, at most 20), and groups
+  separated by `--`. It reads plain text and reports `matches`. It pages
+  forward from `cursor` like a normal read; with `tail: N` it returns the last
+  N matches instead, such as the latest stack trace.
+
+A task retains about 1 MiB. If your cursor is older than the retained bytes,
+`truncated` comes back true — you have lost the gap and should read on from
+the cursor you were given rather than trying to recover it.
 
 Finished terminals are kept for roughly ten minutes, and can be dropped sooner
 when the app is under pressure. Read output you care about promptly.
@@ -83,36 +137,67 @@ A wait does not schedule you a future turn. It only holds this call open.
 - `terminal` — with an `executionId`
 - `preview` — the project's configured preview
 
-Files open as background tabs. Add `focus: true` to actually reveal one.
+Files and terminals open on your desk, and the tab comes to the front there
+without taking the person's focus. Add `focus: true` to bring the person to
+your session as well. A diff opens in the workspace.
 
 Paths must resolve inside the project; a path that escapes it is refused.
 
-Preview needs an agent session and opens in your own browser. The `previewUrl`
+Preview needs an agent session and opens as a page on your desk. The `previewUrl`
 you get back is configuration, not proof that anything is listening. If you
 need to know the server is up, read the task output or navigate to it.
 
 ## Stopping
 
 `task_stop` takes an `executionId` and stops that exact execution and
-its process tree. It does not stop a task started from the command deck.
+its process tree. A `taskId` instead stops that task's latest execution. It
+does not stop a task started from the command deck.
 
 ## The browser
 
 `browser_state` returns page state: url, title, numbered interactive elements,
-visible text, and the open tabs. Most browser tools return the same shape after
-acting, so you rarely need a separate read.
+visible text, and the open tabs. The text stops after about 2 KB, and
+`textLength` then gives its full length; `fullText: true` returns up to 40 KB,
+and `browser_extract` reads the text of one part of the page.
 
-**Element numbers expire.** They are only valid until the next state read. Read
-state, act on a number from that read, and treat the numbers in the result as
-the new set. Never reuse a number across two reads.
+Tools that act (navigate, click, type with submit, press, drag, upload,
+dialog, wait, back, forward) report on the page afterwards, and `report`
+chooses how much:
+
+- `"changes"`, the default, returns url, title and loading plus `changes`
+  since the last read of this page: `elements` lists new or changed elements,
+  `removed` the numbers that went away, `textAdded` and `textRemoved` the lines
+  of text that came and went. `changes: "none"` means nothing moved. When the
+  page has not been read before, such as after a navigation, you get the full
+  state instead.
+- `"outcome"` returns only url, title, loading and what the action itself
+  found, such as the clicked `label` and whether it was `covered`. Use it for a
+  run of steps whose effect you will check afterwards.
+- `"full"` returns the whole state, as `browser_state` would.
+
+**Element numbers expire** when their element leaves the page. A number stays
+with the same element for as long as that element is there, so a number from
+an earlier read either reaches the same element or fails with "no element".
+Elements that appear later get new numbers. A page that redraws a list builds
+new elements, so read again after it does.
+
+`browser_find` with a `query` lists the elements whose visible text or
+accessible name contains it, with their numbers, exact matches first. `role`
+narrows it, as in `button`, `link`, `checkbox`, `textbox` or `tab`. When no
+element matches but the words show on the page, it returns `points` with
+their `x`, `y` to click instead.
 
 Clicks, keys and typing arrive as real input, the same as the person's, so
 pages that check for a trusted event and editors that keep their own model of
 the text both respond to them.
 
-`browser_click` takes a number from the latest state, or `x` and `y` in CSS
-pixels from the top left of the viewport, which is where a screenshot's pixels
-sit too. Coordinates reach things that have no number, such as a canvas or a
+`browser_click` takes a number from the latest state, or `text` naming the
+element by its visible text or accessible name, or `x` and `y` in CSS pixels
+from the top left of the viewport, which is where a screenshot's pixels sit
+too. `text` must pick out one element: when several match, nothing is clicked
+and the error lists them, so pass their number or a `role`. With a number,
+`expectLabel` makes the click fail rather than land on an element whose label
+does not contain it. The result names the `index` and `label` it clicked. Coordinates reach things that have no number, such as a canvas or a
 field inside a frame from another site. `double: true` double-clicks.
 `hover: true` only moves the pointer there, to open a hover menu; while
 Sikemux is in the background the page is told about the hover but CSS
@@ -164,6 +249,19 @@ prefer the other tools for acting, since they send real input.
 `browser_scroll` moves the page by `deltaY` pixels, default 600, negative for
 up. Pass an `index` to scroll inside a scrollable element instead.
 
+A tab's viewport follows the pane, so it changes size when the person resizes
+the pane, and a tab the pane is not showing lays out at the size it last had.
+`browser_viewport` holds the current tab at `width` and `height` in CSS pixels
+(200 to 4000), or a `preset`: `desktop` is 1280×800, `tablet` 820×1180 and
+`mobile` 390×844. `preset: "fit"` lets it follow the pane again. The size
+stays through reloads and navigations in that tab. The page lays out at that
+size and is scaled down to fit the pane, never up, so screenshots and `x`,
+`y` stay in the viewport's CSS pixels. Only the size changes: a mobile preset
+keeps the desktop Safari user agent and a mouse pointer, so sites that sniff
+either still serve their desktop version. The full state reports `viewport`
+with the page's `width` and `height`, and `fixed` holding the size you set or
+`false`. With no arguments it just returns the state.
+
 `browser_wait` sleeps for `ms` (default 1000, max 30000) and then waits for any
 load to finish. Prefer it over repeated state reads when a page is settling.
 
@@ -173,8 +271,10 @@ text. Its pixels are CSS pixels, so a point you read off it can go straight to
 `browser_click` as `x` and `y`. `fullPage: true` captures the whole page
 instead, cut at 14,400 pixels tall (`cutAt` says when it was).
 `annotate: true` reads state afresh, draws each element's number on the
-picture, and returns the element list with it, which is the quickest way to
-match what you see to a number.
+picture, and returns the list of the elements it drew, which is the quickest
+way to match what you see to a number. It leaves out elements that are cut
+off, covered, or behind an open modal, and boxes that would cover a large
+share of the view.
 
 While you act, the person sees a pointer move to each click, with a ripple
 where it lands. Screenshots leave the pointer out. `browser_annotate` draws
@@ -195,9 +295,19 @@ recording of a tab the person is not looking at still works.
 `browser_network` lists the fetch and XHR calls the page has made since it
 loaded, oldest first, with each status, duration and a truncated response body.
 It is how you tell a request that failed apart from a button that never asked,
-which the DOM alone cannot show. Narrow a busy page with `filter`, a substring
-of the URL. Only fetch and XHR appear; images, scripts and the document itself
-do not.
+which the DOM alone cannot show. A call that never got an answer carries the
+`error` the page saw, such as `TypeError: Load failed`. Data requests a
+framework makes behind a navigation are named in `framework`: `next rsc`,
+`next server action` or `next data`. Narrow a busy page with `filter`, a
+substring of the URL. Images, scripts and styles do not appear.
+
+`documents` lists the tab's last 20 whole-page loads, oldest first, with each
+`status`, `mimeType`, duration, and the `error` of a load that never reached
+the server, which leaves no page behind to record anything. A load cut short
+by the next one says `cancelled`. `since: "navigation"` keeps only the load
+that produced the page on screen and any tried after it. A web app moving
+between its own screens loads no document, so its calls stay listed with the
+page that made them.
 
 `browser_console` lists what the page logged since it loaded, oldest first:
 each message's `level` (`log`, `info`, `warn`, `error`, `debug`, `uncaught`
@@ -207,6 +317,7 @@ messages are kept, and the newest 50 are returned unless you pass `limit`.
 
 Tabs are yours. `browser_list_tabs`, `browser_switch_tab` and
 `browser_close_tab` act on this pane's tabs, not the person's other windows.
+Switching returns the full state of the tab you land on.
 `browser_navigate` reuses the current tab unless you pass `newTab: true`.
 
 ## What does not survive
@@ -227,10 +338,15 @@ Every tool here is also a CLI verb, which is useful inside a task or a script:
 sikemux tool workspace.inspect
 sikemux tool task.start '{"taskId":"dev","idempotencyKey":"dev-first-run"}'
 sikemux tool task.read '{"executionId":"ID","cursor":0}'
+sikemux tool task.read '{"taskId":"dev","tail":50,"plain":true}'
 sikemux tool events.wait '{"cursor":"CURSOR","timeoutMs":30000}'
 sikemux tool ui.open '{"kind":"file","path":"src/App.tsx","line":42,"focus":true}'
 sikemux tool task.stop '{"executionId":"ID"}'
 ```
+
+`sikemux` is on PATH for the terminals, tasks and agents Sikemux launches,
+including your own shell tool. Where it is not, `workspace_inspect` returns
+its absolute path as `cli`.
 
 Terminals that Sikemux launches already carry the project and agent context.
 From any other shell, run the CLI inside the open project's Git root or set

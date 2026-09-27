@@ -34,8 +34,13 @@ function keyTargetIn(e: KeyboardEvent, selector: string): boolean {
 }
 
 function isBrowserKeyTarget(e: KeyboardEvent): boolean {
+    return keyTargetIn(e, "[data-browser-pane]");
+}
+
+/** The agent whose desk the key was pressed in, if it was pressed in one. */
+function deskKeyTarget(e: KeyboardEvent): string | null {
     const target = e.target instanceof Element ? e.target : document.activeElement;
-    return !!target?.closest?.("[data-browser-pane]");
+    return target?.closest<HTMLElement>("[data-desk]")?.dataset.agentId ?? null;
 }
 
 function hasOpenModal(st: StoreState): boolean {
@@ -103,6 +108,9 @@ export function runKeybindingAction(action: KeybindingActionId, event: KeyboardE
         }
         case "settings.toggle":
             cmd.toggleSettings();
+            return true;
+        case "view.focusMode":
+            cmd.toggleZen();
             return true;
         case "pane.splitRow":
             cmd.splitActivePane("row");
@@ -228,9 +236,12 @@ export function runKeybindingAction(action: KeybindingActionId, event: KeyboardE
             return true;
         case "browser.tabNew":
             return cmd.newBrowserTab();
-        case "browser.tabClose":
-            if (!isBrowserKeyTarget(event)) return false;
-            return cmd.closeActiveBrowserTab();
+        case "browser.tabClose": {
+            const deskAgentId = deskKeyTarget(event);
+            if (!deskAgentId) return false;
+            cmd.closeShownDeskTab(deskAgentId);
+            return true;
+        }
         case "browser.address":
             return cmd.focusBrowserAddress();
         case "browser.reload":
@@ -243,11 +254,12 @@ export function runKeybindingAction(action: KeybindingActionId, event: KeyboardE
             if (!isBrowserKeyTarget(event)) return false;
             return cmd.browserHistory(1);
         case "browser.tabNext":
-            if (!isBrowserKeyTarget(event)) return false;
-            return cmd.cycleBrowserTab(1);
-        case "browser.tabPrevious":
-            if (!isBrowserKeyTarget(event)) return false;
-            return cmd.cycleBrowserTab(-1);
+        case "browser.tabPrevious": {
+            const deskAgentId = deskKeyTarget(event);
+            if (!deskAgentId) return false;
+            cmd.cycleDeskTab(deskAgentId, action === "browser.tabNext" ? 1 : -1);
+            return true;
+        }
         case "window.files":
             cmd.openEditorPane();
             return true;
@@ -366,7 +378,7 @@ export function useKeymap(): void {
         const pageChords = new AbortController();
         void browserApi
             .subscribeShortcuts((shortcut) => {
-                const pane = document.querySelector<HTMLElement>(`.browser-pane[data-agent-id="${CSS.escape(shortcut.agentId)}"] .browser-viewport`);
+                const pane = document.querySelector<HTMLElement>(`.desk[data-agent-id="${CSS.escape(shortcut.agentId)}"] .browser-viewport`);
                 (pane ?? document.body).dispatchEvent(
                     new KeyboardEvent("keydown", {
                         key: shortcut.key,

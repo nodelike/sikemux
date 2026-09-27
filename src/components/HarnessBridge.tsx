@@ -66,6 +66,10 @@ export function HarnessBridge() {
                 )
                     void service.then(({ harnessTasks }) => harnessTasks.closeProject(session.cwd)).catch(swallow("harness project close"));
             }
+            if (!service || state.agents === previous.agents) return;
+            for (const agentId of Object.keys(previous.agents))
+                if (!state.agents[agentId])
+                    void service.then(({ harnessTasks }) => harnessTasks.closeAgent(agentId)).catch(swallow("harness agent close"));
         });
         return () => {
             controller.abort();

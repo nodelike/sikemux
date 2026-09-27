@@ -58,6 +58,7 @@ export const SETTINGS_INDEX: SettingsEntry[] = [
     section("appearance", "Theme", "colours colors palette dark light custom fork editor"),
     section("appearance", "Interface"),
     row("appearance", "Interface", "Text size", "font zoom scale larger smaller accessibility"),
+    row("appearance", "Interface", "Pane texture", "dither dithering shader grain noise background effect"),
     ...(IS_MACOS
         ? [
               section("appearance", "Window"),
@@ -76,7 +77,9 @@ export const SETTINGS_INDEX: SettingsEntry[] = [
     section("about", "Updates", "version upgrade release"),
     row("about", "Updates", "Channel", "nightly stable prerelease beta"),
     row("about", "Updates", "Last checked", "check for updates now"),
-    section("about", "Help", "what's new changelog diagnostics onboarding tour"),
+    section("about", "Privacy", "analytics telemetry tracking"),
+    row("about", "Privacy", "Share anonymous usage", "analytics telemetry tracking opt out posthog"),
+    section("about", "Help", "what's new changelog diagnostics welcome onboarding"),
 
     section("agents", "Launch boundary", "permissions yolo sandbox safety bypass approval"),
     section("agents", "Provider profiles", "claude codex gemini accounts"),
@@ -88,8 +91,18 @@ export const SETTINGS_INDEX: SettingsEntry[] = [
     row("agents", "Provider profiles", "Codex default", "profile"),
     section("agents", "Sessions"),
     row("agents", "Sessions", "Restore agent tabs", "resume reopen startup"),
+    row("agents", "Sessions", "Notify when an agent needs you", "notification alert badge dock permission finished"),
+    row("agents", "Sessions", "Test notification", "notification sound permission send try"),
     row("agents", "Sessions", "Rail density", "compact comfortable sidebar"),
     row("agents", "Sessions", "Idle agents", "sleep memory process"),
+    ...(IS_MACOS
+        ? [
+              section("agents", "Voice", "dictation microphone speech talk transcribe"),
+              row("agents", "Voice", "Dictate with right Option", "dictation microphone speech push to talk hold"),
+              row("agents", "Voice", "Speech model", "parakeet download neural engine"),
+              row("agents", "Voice", "Words to recognise", "vocabulary names spelling"),
+          ]
+        : []),
 
     section("actions", "Your actions", "custom commands command deck scripts"),
     section("actions", "New action", "custom command add create"),

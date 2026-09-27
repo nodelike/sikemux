@@ -93,13 +93,20 @@ fn run_command_with_timeout(
         .map_err(|error| error.to_string())
 }
 
-fn run_git(repo: &str, args: &[&str]) -> Result<(bool, String, String), String> {
+/// Every git process the app starts goes through here. A repo's own config can
+/// name an fsmonitor program, which git would otherwise run on any status read.
+pub(crate) fn git_command(repo: &str) -> Command {
     let mut command = Command::new("git");
     command
         .env("GIT_TERMINAL_PROMPT", "0")
-        .arg("-C")
-        .arg(repo)
-        .args(args);
+        .args(["-c", "core.fsmonitor=false", "-C"])
+        .arg(repo);
+    command
+}
+
+fn run_git(repo: &str, args: &[&str]) -> Result<(bool, String, String), String> {
+    let mut command = git_command(repo);
+    command.args(args);
     let out = run_command_with_timeout(&mut command, None, GIT_COMMAND_TIMEOUT)?;
     Ok((
         out.status.success(),
@@ -1063,7 +1070,8 @@ pub async fn git_overview(repo: String) -> Result<GitOverview, String> {
 #[tauri::command]
 pub async fn git_checkout(repo: String, branch: String) -> Result<(), String> {
     // git2 checkout is fiddly with working-tree handling — shell out.
-    run_blocking(move || git_ok(&repo, &["checkout", &branch]).map(|_| ())).await
+    run_blocking(move || git_ok(&repo, &["checkout", "--end-of-options", &branch]).map(|_| ()))
+        .await
 }
 
 fn local_branch_exists(repo: &str, branch: &str) -> bool {
@@ -1140,7 +1148,7 @@ pub async fn git_checkout_smart(repo: String, branch: String) -> Result<String, 
     run_blocking(move || -> Result<String, String> {
         let (preferred_remote, local) = normalize_branch_input(&repo, &branch)?;
         if local_branch_exists(&repo, &local) {
-            git_ok(&repo, &["checkout", &local])?;
+            git_ok(&repo, &["checkout", "--end-of-options", &local])?;
             return Ok(format!("checked out {local}"));
         }
 
@@ -1148,7 +1156,7 @@ pub async fn git_checkout_smart(repo: String, branch: String) -> Result<String, 
         if remote.is_none() {
             match preferred_remote.as_deref() {
                 Some(r) => {
-                    let _ = git_ok(&repo, &["fetch", "--prune", r]);
+                    let _ = git_ok(&repo, &["fetch", "--prune", "--end-of-options", r]);
                 }
                 None => {
                     let _ = git_ok(&repo, &["fetch", "--all", "--prune"]);
@@ -1162,7 +1170,17 @@ pub async fn git_checkout_smart(repo: String, branch: String) -> Result<String, 
             ));
         };
         let full_ref = format!("{remote}/{local}");
-        git_ok(&repo, &["checkout", "-b", &local, "--track", &full_ref])?;
+        git_ok(
+            &repo,
+            &[
+                "checkout",
+                "-b",
+                &local,
+                "--track",
+                "--end-of-options",
+                &full_ref,
+            ],
+        )?;
         Ok(format!("checked out {local} tracking {full_ref}"))
     })
     .await
@@ -1185,7 +1203,7 @@ pub async fn git_branch_create(
         let mut args: Vec<&str> = vec!["checkout", "-b", trimmed];
         if let Some(sp) = start_point.as_deref() {
             if !sp.is_empty() {
-                args.push(sp);
+                args.extend(["--end-of-options", sp]);
             }
         }
         git_ok(&repo, &args).map(|_| ())
@@ -1201,7 +1219,7 @@ pub async fn git_branch_delete(repo: String, name: String, force: bool) -> Resul
             return Err("branch name is empty".into());
         }
         let flag = if force { "-D" } else { "-d" };
-        git_ok(&repo, &["branch", flag, trimmed]).map(|_| ())
+        git_ok(&repo, &["branch", flag, "--end-of-options", trimmed]).map(|_| ())
     })
     .await
 }
@@ -1218,7 +1236,11 @@ pub async fn git_branch_rename(
         if old_trimmed.is_empty() || new_trimmed.is_empty() {
             return Err("branch name is empty".into());
         }
-        git_ok(&repo, &["branch", "-m", old_trimmed, new_trimmed]).map(|_| ())
+        git_ok(
+            &repo,
+            &["branch", "-m", "--end-of-options", old_trimmed, new_trimmed],
+        )
+        .map(|_| ())
     })
     .await
 }
@@ -1234,7 +1256,7 @@ pub async fn git_merge(repo: String, branch: String) -> Result<String, String> {
         if trimmed.is_empty() {
             return Err("branch name is empty".into());
         }
-        git_ok(&repo, &["merge", "--no-ff", trimmed])
+        git_ok(&repo, &["merge", "--no-ff", "--end-of-options", trimmed])
     })
     .await
 }
@@ -1246,7 +1268,7 @@ pub async fn git_merge_squash(repo: String, branch: String) -> Result<String, St
         if trimmed.is_empty() {
             return Err("branch name is empty".into());
         }
-        git_ok(&repo, &["merge", "--squash", trimmed])
+        git_ok(&repo, &["merge", "--squash", "--end-of-options", trimmed])
     })
     .await
 }
@@ -1264,7 +1286,7 @@ pub async fn git_reset(repo: String, rev: String, mode: String) -> Result<(), St
             "hard" => "--hard",
             other => return Err(format!("unknown reset mode: {other}")),
         };
-        git_ok(&repo, &["reset", flag, trimmed]).map(|_| ())
+        git_ok(&repo, &["reset", flag, "--end-of-options", trimmed]).map(|_| ())
     })
     .await
 }
@@ -1276,7 +1298,7 @@ pub async fn git_revert(repo: String, rev: String) -> Result<(), String> {
         if trimmed.is_empty() {
             return Err("revision is empty".into());
         }
-        git_ok(&repo, &["revert", "--no-edit", trimmed]).map(|_| ())
+        git_ok(&repo, &["revert", "--no-edit", "--end-of-options", trimmed]).map(|_| ())
     })
     .await
 }
@@ -1328,19 +1350,19 @@ fn git_diff_sync(repo: String, path: String, staged: bool) -> Result<String, Str
         return Ok(s);
     }
 
-    // Untracked — fall back to git no-index for parity with the old impl.
-    let (_, so, _) = run_git(
-        &repo,
-        &[
-            "diff",
-            "--no-ext-diff",
-            "--no-index",
-            "--",
-            "/dev/null",
-            &path,
-        ],
-    )?;
-    Ok(so)
+    let mut untracked = DiffOptions::new();
+    untracked
+        .pathspec(&path)
+        .context_lines(3)
+        .include_untracked(true)
+        .recurse_untracked_dirs(true)
+        .show_untracked_content(true)
+        .include_ignored(true)
+        .recurse_ignored_dirs(true);
+    let diff = r
+        .diff_index_to_workdir(None, Some(&mut untracked))
+        .map_err(|e| e.message().to_string())?;
+    write_diff_to_string(&diff)
 }
 
 #[tauri::command]
@@ -1559,7 +1581,21 @@ fn revparse_commit<'a>(repo: &'a Repository, rev: &str) -> Result<git2::Commit<'
 pub async fn git_show(repo: String, rev: String) -> Result<String, String> {
     // git2's diff doesn't render the message + stat block the way `git show`
     // does — shelling out here costs us nothing and keeps the UI identical.
-    run_blocking(move || git_ok(&repo, &["show", "--no-ext-diff", "--stat", "-p", &rev])).await
+    run_blocking(move || {
+        git_ok(
+            &repo,
+            &[
+                "show",
+                "--no-ext-diff",
+                "--no-textconv",
+                "--stat",
+                "-p",
+                "--end-of-options",
+                &rev,
+            ],
+        )
+    })
+    .await
 }
 
 // Content-addressed cache for immutable revs.
@@ -1634,12 +1670,19 @@ fn looks_binary_bytes(bytes: &[u8]) -> bool {
 }
 
 fn blob_to_inline_text(blob: &git2::Blob<'_>, path: &str) -> Result<String, String> {
-    let bytes = blob.content();
+    bytes_to_inline_text(blob.content(), path)
+}
+
+fn too_large_for_inline_diff(path: &str, bytes: usize) -> String {
+    format!(
+        "{path} is too large for inline diff ({}). Open the file directly or use git diff in the terminal.",
+        human_bytes(bytes)
+    )
+}
+
+fn bytes_to_inline_text(bytes: &[u8], path: &str) -> Result<String, String> {
     if bytes.len() > GIT_FILE_AT_MAX_BYTES {
-        return Err(format!(
-            "{path} is too large for inline diff ({}). Open the file directly or use git diff in the terminal.",
-            human_bytes(bytes.len())
-        ));
+        return Err(too_large_for_inline_diff(path, bytes.len()));
     }
     if looks_binary_bytes(bytes) {
         return Err(format!("{path} is binary; inline diff is disabled."));
@@ -1648,10 +1691,9 @@ fn blob_to_inline_text(blob: &git2::Blob<'_>, path: &str) -> Result<String, Stri
         .map_err(|_| format!("{path} is not UTF-8 text; inline diff is disabled."))
 }
 
-#[tauri::command]
-pub async fn git_file_at(repo: String, rev: String, path: String) -> Result<String, String> {
-    let cacheable = is_immutable_rev(&rev);
-    let key = (repo.clone(), rev.clone(), path.clone());
+fn file_text_at(repo: &str, rev: &str, path: &str) -> Result<String, String> {
+    let cacheable = is_immutable_rev(rev);
+    let key = (repo.to_string(), rev.to_string(), path.to_string());
     if cacheable {
         if let Ok(mut cache) = file_at_cache().lock() {
             if let Some(hit) = cache.get(&key) {
@@ -1659,42 +1701,82 @@ pub async fn git_file_at(repo: String, rev: String, path: String) -> Result<Stri
             }
         }
     }
-    let cache_key = key.clone();
-    run_blocking(move || -> Result<String, String> {
-        let r = open_repo(&repo)?;
-        let content = if rev == ":index" {
-            let idx = r.index().map_err(|e| e.message().to_string())?;
-            match idx.get_path(Path::new(&path), 0) {
-                Some(entry) => {
-                    let blob = r.find_blob(entry.id).map_err(|e| e.message().to_string())?;
-                    blob_to_inline_text(&blob, &path)?
-                }
-                None => String::new(),
+    let r = open_repo(repo)?;
+    let content = if rev == ":index" {
+        let idx = r.index().map_err(|e| e.message().to_string())?;
+        match idx.get_path(Path::new(path), 0) {
+            Some(entry) => {
+                let blob = r.find_blob(entry.id).map_err(|e| e.message().to_string())?;
+                blob_to_inline_text(&blob, path)?
             }
-        } else {
-            match revparse_commit(&r, &rev) {
-                Ok(commit) => {
-                    let tree = commit.tree().map_err(|e| e.message().to_string())?;
-                    match tree.get_path(Path::new(&path)) {
-                        Ok(entry) => {
-                            let blob = r
-                                .find_blob(entry.id())
-                                .map_err(|e| e.message().to_string())?;
-                            blob_to_inline_text(&blob, &path)?
-                        }
-                        Err(e) if e.code() == ErrorCode::NotFound => String::new(),
-                        Err(e) => return Err(e.message().to_string()),
-                    }
-                }
-                Err(_) => String::new(),
-            }
-        };
-        if cacheable {
-            if let Ok(mut cache) = file_at_cache().lock() {
-                cache.insert(cache_key, content.clone());
-            }
+            None => String::new(),
         }
-        Ok(content)
+    } else {
+        match revparse_commit(&r, rev) {
+            Ok(commit) => {
+                let tree = commit.tree().map_err(|e| e.message().to_string())?;
+                match tree.get_path(Path::new(path)) {
+                    Ok(entry) => {
+                        let blob = r
+                            .find_blob(entry.id())
+                            .map_err(|e| e.message().to_string())?;
+                        blob_to_inline_text(&blob, path)?
+                    }
+                    Err(e) if e.code() == ErrorCode::NotFound => String::new(),
+                    Err(e) => return Err(e.message().to_string()),
+                }
+            }
+            Err(_) => String::new(),
+        }
+    };
+    if cacheable {
+        if let Ok(mut cache) = file_at_cache().lock() {
+            cache.insert(key, content.clone());
+        }
+    }
+    Ok(content)
+}
+
+fn worktree_text(repo: &str, path: &str) -> Result<String, String> {
+    let full = Path::new(repo).join(path);
+    match std::fs::metadata(&full) {
+        Ok(meta) if meta.len() as usize > GIT_FILE_AT_MAX_BYTES => {
+            return Err(too_large_for_inline_diff(path, meta.len() as usize));
+        }
+        Ok(meta) if !meta.is_file() => return Ok(String::new()),
+        Ok(_) => {}
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(String::new()),
+        Err(e) => return Err(e.to_string()),
+    }
+    match std::fs::read(&full) {
+        Ok(bytes) => bytes_to_inline_text(&bytes, path),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(String::new()),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
+#[tauri::command]
+pub async fn git_file_at(repo: String, rev: String, path: String) -> Result<String, String> {
+    run_blocking(move || file_text_at(&repo, &rev, &path)).await
+}
+
+/// The rows of a unified diff of one file between two revisions, or between a
+/// revision and the working tree when `head_rev` is absent.
+#[tauri::command]
+pub async fn git_file_diff(
+    repo: String,
+    path: String,
+    base_rev: String,
+    head_rev: Option<String>,
+    full: bool,
+) -> Result<Vec<crate::diff::DiffRow>, String> {
+    run_blocking(move || -> Result<_, String> {
+        let base = file_text_at(&repo, &base_rev, &path)?;
+        let head = match head_rev {
+            Some(rev) => file_text_at(&repo, &rev, &path)?,
+            None => worktree_text(&repo, &path)?,
+        };
+        Ok(crate::diff::unified_rows(&base, &head, full))
     })
     .await
 }
@@ -1761,6 +1843,42 @@ pub struct GitBlame {
 
 fn is_zero_sha(s: &str) -> bool {
     !s.is_empty() && s.bytes().all(|b| b == b'0')
+}
+
+fn blame_commit(
+    sha: String,
+    author: String,
+    author_email: String,
+    timestamp: i64,
+    summary: String,
+) -> BlameCommit {
+    let uncommitted = is_zero_sha(&sha);
+    BlameCommit {
+        short: if uncommitted {
+            String::new()
+        } else {
+            sha[..8.min(sha.len())].to_string()
+        },
+        author: if uncommitted {
+            "You".to_string()
+        } else {
+            author
+        },
+        author_email,
+        time: if uncommitted {
+            String::new()
+        } else {
+            relative_time(timestamp)
+        },
+        timestamp,
+        summary: if uncommitted {
+            "Uncommitted changes".to_string()
+        } else {
+            summary
+        },
+        uncommitted,
+        sha,
+    }
 }
 
 /// Parse `git blame --porcelain`. Commit metadata is emitted only the first
@@ -1847,33 +1965,13 @@ fn parse_blame_porcelain(out: &str) -> GitBlame {
         .iter()
         .map(|sha| {
             let m = &meta[sha];
-            let uncommitted = is_zero_sha(sha);
-            BlameCommit {
-                sha: sha.clone(),
-                short: if uncommitted {
-                    String::new()
-                } else {
-                    sha[..8.min(sha.len())].to_string()
-                },
-                author: if uncommitted {
-                    "You".to_string()
-                } else {
-                    m.author.clone()
-                },
-                author_email: m.author_email.clone(),
-                time: if uncommitted {
-                    String::new()
-                } else {
-                    relative_time(m.timestamp)
-                },
-                timestamp: m.timestamp,
-                summary: if uncommitted {
-                    "Uncommitted changes".to_string()
-                } else {
-                    m.summary.clone()
-                },
-                uncommitted,
-            }
+            blame_commit(
+                sha.clone(),
+                m.author.clone(),
+                m.author_email.clone(),
+                m.timestamp,
+                m.summary.clone(),
+            )
         })
         .collect();
 
@@ -1889,6 +1987,88 @@ fn parse_blame_porcelain(out: &str) -> GitBlame {
     GitBlame { commits, lines }
 }
 
+/// Filter drivers are commands git runs on file contents. Ones from system or
+/// global config are the user's own; any other scope came with the repo.
+fn repo_defines_filters(repo: &str) -> bool {
+    match run_git(
+        repo,
+        &[
+            "config",
+            "--show-scope",
+            "--includes",
+            "--get-regexp",
+            r"^filter\..*\.(clean|smudge|process)$",
+        ],
+    ) {
+        Ok((true, out, _)) => out
+            .lines()
+            .any(|line| !matches!(line.split('\t').next(), Some("system" | "global"))),
+        Ok((false, out, err)) => !out.trim().is_empty() || !err.trim().is_empty(),
+        Err(_) => true,
+    }
+}
+
+fn blame_with_libgit2(
+    repo: &str,
+    path: &str,
+    contents: Option<String>,
+) -> Result<GitBlame, String> {
+    use std::collections::HashMap;
+
+    let r = open_repo(repo)?;
+    let buffer = match contents {
+        Some(text) => text.into_bytes(),
+        None => std::fs::read(Path::new(repo).join(path)).map_err(|e| e.to_string())?,
+    };
+    let committed = r
+        .blame_file(Path::new(path), None)
+        .map_err(|e| e.message().to_string())?;
+    let blame = committed
+        .blame_buffer(&buffer)
+        .map_err(|e| e.message().to_string())?;
+
+    let mut commits = Vec::new();
+    let mut index_of: HashMap<git2::Oid, u32> = HashMap::new();
+    let mut lines: Vec<u32> = Vec::new();
+    for hunk in blame.iter() {
+        let oid = hunk.final_commit_id();
+        let index = *index_of.entry(oid).or_insert_with(|| {
+            let commit = r.find_commit(oid).ok();
+            let author = commit.as_ref().map(|c| c.author());
+            commits.push(blame_commit(
+                oid.to_string(),
+                author
+                    .as_ref()
+                    .map(|a| String::from_utf8_lossy(a.name_bytes()).into_owned())
+                    .unwrap_or_default(),
+                author
+                    .as_ref()
+                    .map(|a| String::from_utf8_lossy(a.email_bytes()).into_owned())
+                    .unwrap_or_default(),
+                author.as_ref().map(|a| a.when().seconds()).unwrap_or(0),
+                commit
+                    .as_ref()
+                    .and_then(|c| c.summary_bytes())
+                    .map(|b| String::from_utf8_lossy(b).into_owned())
+                    .unwrap_or_default(),
+            ));
+            (commits.len() - 1) as u32
+        });
+        let start = hunk.final_start_line();
+        let end = start + hunk.lines_in_hunk();
+        if start == 0 {
+            continue;
+        }
+        if lines.len() < end - 1 {
+            lines.resize(end - 1, 0);
+        }
+        for line in start..end {
+            lines[line - 1] = index;
+        }
+    }
+    Ok(GitBlame { commits, lines })
+}
+
 /// Blame a single file. When `contents` is provided we blame that buffer via
 /// `--contents -` so unsaved editor edits line up correctly (those lines come
 /// back as the zero-sha "uncommitted" commit). Untracked / no-HEAD / binary
@@ -1902,11 +2082,15 @@ pub async fn git_blame(
 ) -> Result<GitBlame, String> {
     let _permit = git_walk_permit().await?;
     run_blocking(move || -> Result<GitBlame, String> {
+        if repo_defines_filters(&repo) {
+            return Ok(blame_with_libgit2(&repo, &path, contents).unwrap_or_default());
+        }
         let out = match contents {
             Some(text) => {
-                let mut command = Command::new("git");
-                command.arg("-C").arg(&repo).args([
+                let mut command = git_command(&repo);
+                command.args([
                     "blame",
+                    "--no-textconv",
                     "--porcelain",
                     "--contents",
                     "-",
@@ -1924,7 +2108,10 @@ pub async fn git_blame(
                 String::from_utf8_lossy(&o.stdout).into_owned()
             }
             None => {
-                let (ok, so, _se) = run_git(&repo, &["blame", "--porcelain", "--", &path])?;
+                let (ok, so, _se) = run_git(
+                    &repo,
+                    &["blame", "--no-textconv", "--porcelain", "--", &path],
+                )?;
                 if !ok {
                     return Ok(GitBlame::default());
                 }
@@ -1939,8 +2126,8 @@ pub async fn git_blame(
 // ---- commit / push / pull -------------------------------------------------
 
 fn commit_with_message(repo: &str, message: &str) -> Result<String, String> {
-    let mut command = Command::new("git");
-    command.arg("-C").arg(repo).args(["commit", "-F", "-"]);
+    let mut command = git_command(repo);
+    command.args(["commit", "-F", "-"]);
     let out =
         run_command_with_timeout(&mut command, Some(message.as_bytes()), GIT_COMMAND_TIMEOUT)?;
     if out.status.success() {
@@ -1962,7 +2149,16 @@ pub async fn git_push(repo: String) -> Result<String, String> {
         let branch = current_branch_name(&repo)?;
         if !has_upstream(&repo) {
             let remote = default_remote(&repo)?;
-            let (ok, so, se) = run_git(&repo, &["push", "--set-upstream", &remote, &branch])?;
+            let (ok, so, se) = run_git(
+                &repo,
+                &[
+                    "push",
+                    "--set-upstream",
+                    "--end-of-options",
+                    &remote,
+                    &branch,
+                ],
+            )?;
             return if ok {
                 let out = format!("{so}{se}").trim().to_string();
                 Ok(if out.is_empty() {
@@ -1983,7 +2179,16 @@ pub async fn git_push(repo: String) -> Result<String, String> {
         // check and push, publish with -u instead of dumping raw Git advice.
         if se.contains("has no upstream branch") || se.contains("--set-upstream") {
             let remote = default_remote(&repo)?;
-            let (ok2, so2, se2) = run_git(&repo, &["push", "--set-upstream", &remote, &branch])?;
+            let (ok2, so2, se2) = run_git(
+                &repo,
+                &[
+                    "push",
+                    "--set-upstream",
+                    "--end-of-options",
+                    &remote,
+                    &branch,
+                ],
+            )?;
             return if ok2 {
                 Ok(format!(
                     "published {branch} → {remote}/{branch}\n{}",
@@ -2837,6 +3042,9 @@ fn run_ai_commit_model(
                 "--no-session-persistence",
                 "--tools",
                 "",
+                "--setting-sources",
+                "user",
+                "--strict-mcp-config",
             ]);
             (
                 command,
@@ -3124,7 +3332,16 @@ fn compact_stat(stat: &str) -> String {
 fn staged_diff(repo: &str) -> Result<(String, String), String> {
     Ok((
         git_ok(repo, &["diff", "--cached", "--stat"])?,
-        git_ok(repo, &["diff", "--cached", "--no-ext-diff", "--unified=0"])?,
+        git_ok(
+            repo,
+            &[
+                "diff",
+                "--cached",
+                "--no-ext-diff",
+                "--no-textconv",
+                "--unified=0",
+            ],
+        )?,
     ))
 }
 
@@ -3132,12 +3349,24 @@ fn worktree_diff(repo: &str) -> Result<(String, String), String> {
     if git_has_head(repo) {
         Ok((
             git_ok(repo, &["diff", "HEAD", "--stat"])?,
-            git_ok(repo, &["diff", "HEAD", "--no-ext-diff", "--unified=0"])?,
+            git_ok(
+                repo,
+                &[
+                    "diff",
+                    "HEAD",
+                    "--no-ext-diff",
+                    "--no-textconv",
+                    "--unified=0",
+                ],
+            )?,
         ))
     } else {
         Ok((
             git_ok(repo, &["diff", "--stat"])?,
-            git_ok(repo, &["diff", "--no-ext-diff", "--unified=0"])?,
+            git_ok(
+                repo,
+                &["diff", "--no-ext-diff", "--no-textconv", "--unified=0"],
+            )?,
         ))
     }
 }
@@ -3214,6 +3443,82 @@ pub async fn git_ai_commit(
 
 // ---- open PR --------------------------------------------------------------
 
+#[derive(Debug, PartialEq)]
+enum PullRequestHost {
+    GitHub,
+    Bitbucket,
+}
+
+fn remote_host_and_path(remote_url: &str) -> Option<(String, String)> {
+    if let Ok(parsed) = url::Url::parse(remote_url) {
+        if !matches!(
+            parsed.scheme(),
+            "https" | "http" | "ssh" | "git" | "git+ssh"
+        ) {
+            return None;
+        }
+        return Some((parsed.host_str()?.to_string(), parsed.path().to_string()));
+    }
+    let (user_host, path) = remote_url.split_once(':')?;
+    if user_host.contains('/') {
+        return None;
+    }
+    let host = user_host
+        .rsplit_once('@')
+        .map_or(user_host, |(_, host)| host);
+    Some((host.to_string(), path.to_string()))
+}
+
+fn is_plain_path_segment(segment: &str) -> bool {
+    !segment.is_empty()
+        && segment != "."
+        && segment != ".."
+        && segment
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
+}
+
+fn pull_request_url(remote_url: &str, branch: &str) -> Result<String, String> {
+    let unsupported = || format!("unsupported remote: {remote_url}");
+    let (host, path) = remote_host_and_path(remote_url.trim()).ok_or_else(unsupported)?;
+    let provider = match host.to_ascii_lowercase().as_str() {
+        "github.com" => PullRequestHost::GitHub,
+        "bitbucket.org" => PullRequestHost::Bitbucket,
+        _ => return Err(unsupported()),
+    };
+    let path = path.trim_matches('/');
+    let path = path.strip_suffix(".git").unwrap_or(path);
+    let (owner, name) = path.split_once('/').ok_or_else(unsupported)?;
+    if !is_plain_path_segment(owner) || !is_plain_path_segment(name) {
+        return Err(unsupported());
+    }
+
+    let mut url = url::Url::parse(match provider {
+        PullRequestHost::GitHub => "https://github.com/",
+        PullRequestHost::Bitbucket => "https://bitbucket.org/",
+    })
+    .map_err(|e| e.to_string())?;
+    {
+        let mut segments = url
+            .path_segments_mut()
+            .map_err(|_| "cannot build pull request url".to_string())?;
+        segments.clear().extend([owner, name]);
+        match provider {
+            PullRequestHost::GitHub => {
+                segments.push("compare").extend(branch.split('/'));
+            }
+            PullRequestHost::Bitbucket => {
+                segments.extend(["pull-requests", "new"]);
+            }
+        }
+    }
+    match provider {
+        PullRequestHost::GitHub => url.query_pairs_mut().append_pair("expand", "1"),
+        PullRequestHost::Bitbucket => url.query_pairs_mut().append_pair("source", branch),
+    };
+    Ok(url.into())
+}
+
 #[tauri::command]
 pub async fn pr_open(repo: String) -> Result<String, String> {
     run_blocking(move || -> Result<String, String> {
@@ -3231,23 +3536,7 @@ pub async fn pr_open(repo: String) -> Result<String, String> {
             .and_then(|h| h.shorthand().ok().map(String::from))
             .ok_or("no current branch (detached HEAD?)")?;
 
-        let mut url = if let Some(rest) = remote_url.strip_prefix("git@") {
-            match rest.split_once(':') {
-                Some((host, path)) => format!("https://{host}/{}", path.trim_end_matches(".git")),
-                None => remote_url.clone(),
-            }
-        } else {
-            remote_url.trim_end_matches(".git").to_string()
-        };
-
-        if url.contains("github.com") {
-            url = format!("{url}/compare/{branch}?expand=1");
-        } else if url.contains("bitbucket.org") {
-            url = format!("{url}/pull-requests/new?source={branch}");
-        } else {
-            return Err(format!("unsupported remote host: {url}"));
-        }
-
+        let url = pull_request_url(&remote_url, &branch)?;
         open::that_detached(&url).map_err(|e| e.to_string())?;
         Ok(url)
     })
@@ -3360,10 +3649,13 @@ fn parse_stash_branch(message: &str) -> String {
 }
 
 fn resolve_stash_ref(repo: &str, refname: &str, expected_sha: &str) -> Result<String, String> {
-    let cur_sha = git_ok(repo, &["rev-parse", refname])
-        .unwrap_or_default()
-        .trim()
-        .to_string();
+    let cur_sha = git_ok(
+        repo,
+        &["rev-parse", "--verify", "--end-of-options", refname],
+    )
+    .unwrap_or_default()
+    .trim()
+    .to_string();
     if !expected_sha.is_empty() && cur_sha == expected_sha {
         return Ok(refname.to_string());
     }
@@ -3430,7 +3722,7 @@ pub async fn git_stash_push(
 pub async fn git_stash_apply(repo: String, refname: String, sha: String) -> Result<(), String> {
     run_blocking(move || -> Result<(), String> {
         let r = resolve_stash_ref(&repo, &refname, &sha)?;
-        git_ok(&repo, &["stash", "apply", &r])?;
+        git_ok(&repo, &["stash", "apply", "--end-of-options", &r])?;
         Ok(())
     })
     .await
@@ -3440,7 +3732,7 @@ pub async fn git_stash_apply(repo: String, refname: String, sha: String) -> Resu
 pub async fn git_stash_pop(repo: String, refname: String, sha: String) -> Result<(), String> {
     run_blocking(move || -> Result<(), String> {
         let r = resolve_stash_ref(&repo, &refname, &sha)?;
-        git_ok(&repo, &["stash", "pop", &r])?;
+        git_ok(&repo, &["stash", "pop", "--end-of-options", &r])?;
         Ok(())
     })
     .await
@@ -3450,7 +3742,7 @@ pub async fn git_stash_pop(repo: String, refname: String, sha: String) -> Result
 pub async fn git_stash_drop(repo: String, refname: String, sha: String) -> Result<(), String> {
     run_blocking(move || -> Result<(), String> {
         let r = resolve_stash_ref(&repo, &refname, &sha)?;
-        git_ok(&repo, &["stash", "drop", &r])?;
+        git_ok(&repo, &["stash", "drop", "--end-of-options", &r])?;
         Ok(())
     })
     .await
@@ -3465,7 +3757,7 @@ pub async fn git_stash_branch(
 ) -> Result<(), String> {
     run_blocking(move || -> Result<(), String> {
         let r = resolve_stash_ref(&repo, &refname, &sha)?;
-        git_ok(&repo, &["stash", "branch", &name, &r])?;
+        git_ok(&repo, &["stash", "branch", "--end-of-options", &name, &r])?;
         Ok(())
     })
     .await
@@ -3484,11 +3776,11 @@ pub async fn git_stash_rename(
         // can never remove the only ordinary stash reference.
         let r = resolve_stash_ref(&repo, &refname, &sha)?;
         // Grab the underlying commit SHA for the stash so we can re-store.
-        let sha = git_ok(&repo, &["rev-parse", &r])?.trim().to_string();
+        let sha = git_ok(&repo, &["rev-parse", "--verify", "--end-of-options", &r])?.trim().to_string();
         if sha.is_empty() {
             return Err(format!("could not resolve {r}"));
         }
-        git_ok(&repo, &["stash", "store", "-m", &new_message, &sha])?;
+        git_ok(&repo, &["stash", "store", "-m", &new_message, "--", &sha])?;
         let original_index = r
             .strip_prefix("stash@{")
             .and_then(|value| value.strip_suffix('}'))
@@ -3499,7 +3791,10 @@ pub async fn git_stash_rename(
                 )
             })?;
         let shifted_original = format!("stash@{{{}}}", original_index + 1);
-        let shifted_sha = git_ok(&repo, &["rev-parse", &shifted_original])?
+        let shifted_sha = git_ok(
+            &repo,
+            &["rev-parse", "--verify", "--end-of-options", &shifted_original],
+        )?
             .trim()
             .to_string();
         if shifted_sha != sha {
@@ -3508,7 +3803,10 @@ pub async fn git_stash_rename(
                     .to_string(),
             );
         }
-        git_ok(&repo, &["stash", "drop", &shifted_original])?;
+        git_ok(
+            &repo,
+            &["stash", "drop", "--end-of-options", &shifted_original],
+        )?;
         Ok(())
     })
     .await
@@ -3566,7 +3864,7 @@ pub async fn git_remotes(repo: String) -> Result<Vec<GitRemote>, String> {
 #[tauri::command]
 pub async fn git_remote_add(repo: String, name: String, url: String) -> Result<(), String> {
     run_blocking(move || -> Result<(), String> {
-        git_ok(&repo, &["remote", "add", &name, &url])?;
+        git_ok(&repo, &["remote", "add", "--end-of-options", &name, &url])?;
         Ok(())
     })
     .await
@@ -3575,7 +3873,7 @@ pub async fn git_remote_add(repo: String, name: String, url: String) -> Result<(
 #[tauri::command]
 pub async fn git_remote_remove(repo: String, name: String) -> Result<(), String> {
     run_blocking(move || -> Result<(), String> {
-        git_ok(&repo, &["remote", "remove", &name])?;
+        git_ok(&repo, &["remote", "remove", "--end-of-options", &name])?;
         Ok(())
     })
     .await
@@ -3588,7 +3886,10 @@ pub async fn git_remote_rename(
     new_name: String,
 ) -> Result<(), String> {
     run_blocking(move || -> Result<(), String> {
-        git_ok(&repo, &["remote", "rename", &old_name, &new_name])?;
+        git_ok(
+            &repo,
+            &["remote", "rename", "--end-of-options", &old_name, &new_name],
+        )?;
         Ok(())
     })
     .await
@@ -3597,7 +3898,10 @@ pub async fn git_remote_rename(
 #[tauri::command]
 pub async fn git_remote_set_url(repo: String, name: String, url: String) -> Result<(), String> {
     run_blocking(move || -> Result<(), String> {
-        git_ok(&repo, &["remote", "set-url", &name, &url])?;
+        git_ok(
+            &repo,
+            &["remote", "set-url", "--end-of-options", &name, &url],
+        )?;
         Ok(())
     })
     .await
@@ -3611,7 +3915,9 @@ pub async fn git_remote_set_url(repo: String, name: String, url: String) -> Resu
 pub async fn git_fetch(repo: String, remote: Option<String>) -> Result<String, String> {
     run_blocking(move || -> Result<String, String> {
         let out = match remote {
-            Some(r) if !r.is_empty() => git_ok(&repo, &["fetch", "--prune", &r])?,
+            Some(r) if !r.is_empty() => {
+                git_ok(&repo, &["fetch", "--prune", "--end-of-options", &r])?
+            }
             _ => git_ok(&repo, &["fetch", "--all", "--prune"])?,
         };
         Ok(out)
@@ -3737,9 +4043,19 @@ pub async fn git_checkout_remote_branch(
         )
         .is_ok();
         if exists {
-            git_ok(&repo, &["checkout", &local])?;
+            git_ok(&repo, &["checkout", "--end-of-options", &local])?;
         } else {
-            git_ok(&repo, &["checkout", "-b", &local, "--track", &full_ref])?;
+            git_ok(
+                &repo,
+                &[
+                    "checkout",
+                    "-b",
+                    &local,
+                    "--track",
+                    "--end-of-options",
+                    &full_ref,
+                ],
+            )?;
         }
         Ok(())
     })
@@ -3755,7 +4071,10 @@ pub async fn git_delete_remote_branch(
     branch: String,
 ) -> Result<(), String> {
     run_blocking(move || -> Result<(), String> {
-        git_ok(&repo, &["push", &remote, "--delete", &branch])?;
+        git_ok(
+            &repo,
+            &["push", "--delete", "--end-of-options", &remote, &branch],
+        )?;
         Ok(())
     })
     .await
@@ -3775,11 +4094,19 @@ pub async fn git_set_upstream(
             Some(u) if !u.is_empty() => {
                 git_ok(
                     &repo,
-                    &["branch", &format!("--set-upstream-to={u}"), &branch],
+                    &[
+                        "branch",
+                        &format!("--set-upstream-to={u}"),
+                        "--end-of-options",
+                        &branch,
+                    ],
                 )?;
             }
             _ => {
-                git_ok(&repo, &["branch", "--unset-upstream", &branch])?;
+                git_ok(
+                    &repo,
+                    &["branch", "--unset-upstream", "--end-of-options", &branch],
+                )?;
             }
         }
         Ok(())
@@ -4425,6 +4752,20 @@ mod tests {
         assert!(last.uncommitted, "appended line should be uncommitted");
         assert_eq!(last.summary, "Uncommitted changes");
         assert!(!blame.commits[blame.lines[0] as usize].uncommitted);
+
+        let library = blame_with_libgit2(
+            &repo_arg(td.path()),
+            "f.txt",
+            Some("one\ntwo\nthree\nfour\n".into()),
+        )
+        .expect("library blame");
+        let shas = |b: &GitBlame| -> Vec<String> {
+            b.lines
+                .iter()
+                .map(|&i| b.commits[i as usize].sha.clone())
+                .collect()
+        };
+        assert_eq!(shas(&library), shas(&blame));
     }
 
     #[tokio::test]
@@ -4461,6 +4802,187 @@ mod tests {
             .expect("discover");
 
         assert!(found.is_empty(), "{found:?} should be empty");
+    }
+
+    fn arm_hostile_config(repo: &Path, markers: &Path) {
+        for (name, body) in [
+            ("fsmonitor", "exit 1"),
+            ("clean", "cat"),
+            ("textconv", "cat \"$1\""),
+        ] {
+            let script = markers.join(format!("{name}.sh"));
+            let marker = markers.join(format!("{name}.ran"));
+            fs::write(
+                &script,
+                format!("#!/bin/sh\ntouch '{}'\n{body}\n", marker.display()),
+            )
+            .expect("write script");
+            Command::new("chmod")
+                .arg("+x")
+                .arg(&script)
+                .status()
+                .expect("chmod");
+        }
+        let script = |name: &str| markers.join(format!("{name}.sh")).display().to_string();
+        git(repo, &["config", "core.fsmonitor", &script("fsmonitor")]);
+        git(repo, &["config", "filter.evil.clean", &script("clean")]);
+        git(repo, &["config", "filter.evil.smudge", &script("clean")]);
+        git(repo, &["config", "diff.evil.textconv", &script("textconv")]);
+    }
+
+    fn markers_left(markers: &Path) -> Vec<String> {
+        let mut ran: Vec<String> = fs::read_dir(markers)
+            .expect("read markers")
+            .filter_map(|entry| entry.ok())
+            .map(|entry| entry.file_name().to_string_lossy().into_owned())
+            .filter(|name| name.ends_with(".ran"))
+            .collect();
+        ran.sort();
+        ran
+    }
+
+    #[tokio::test]
+    async fn reading_files_in_a_hostile_repo_runs_none_of_its_commands() {
+        let td = init_repo();
+        let markers = tempdir().expect("markers");
+        fs::write(
+            td.path().join(".gitattributes"),
+            "*.txt filter=evil diff=evil\n",
+        )
+        .expect("write attributes");
+        fs::write(td.path().join("f.txt"), "one\ntwo\nthree\n").expect("write");
+        git(td.path(), &["add", "."]);
+        git(td.path(), &["commit", "-m", "seed"]);
+        arm_hostile_config(td.path(), markers.path());
+        fs::write(td.path().join("f.txt"), "one\ntwo\nthree\nfour\n").expect("edit");
+        fs::write(td.path().join("new.txt"), "hi\n").expect("write untracked");
+        let repo = repo_arg(td.path());
+
+        assert!(repo_defines_filters(&repo));
+        let on_disk = git_blame(repo.clone(), "f.txt".into(), None)
+            .await
+            .expect("blame disk");
+        assert_eq!(on_disk.lines.len(), 4);
+        let seed = &on_disk.commits[on_disk.lines[0] as usize];
+        assert_eq!(seed.author, "sikemux");
+        assert_eq!(seed.author_email, "sikemux@example.test");
+        assert_eq!(seed.summary, "seed");
+        assert_eq!(seed.short.len(), 8);
+        assert!(!seed.uncommitted);
+        let last = &on_disk.commits[on_disk.lines[3] as usize];
+        assert!(last.uncommitted);
+        assert_eq!(last.summary, "Uncommitted changes");
+
+        let buffer = git_blame(repo.clone(), "f.txt".into(), Some("zero\none\n".into()))
+            .await
+            .expect("blame buffer");
+        assert_eq!(buffer.lines.len(), 2);
+        assert!(buffer.commits[buffer.lines[0] as usize].uncommitted);
+        assert!(!buffer.commits[buffer.lines[1] as usize].uncommitted);
+
+        let diff = git_diff(repo.clone(), "new.txt".into(), false)
+            .await
+            .expect("untracked diff");
+        assert!(diff.contains("+hi"), "{diff}");
+        git_show(repo.clone(), "HEAD".into()).await.expect("show");
+        git_status(repo.clone()).await.expect("status");
+
+        assert_eq!(markers_left(markers.path()), Vec::<String>::new());
+    }
+
+    #[test]
+    fn filter_drivers_the_repo_defines_are_untrusted() {
+        let td = init_repo();
+        let repo = repo_arg(td.path());
+        assert!(!repo_defines_filters(&repo));
+        git(
+            td.path(),
+            &["config", "filter.lfs.clean", "git-lfs clean -- %f"],
+        );
+        assert!(repo_defines_filters(&repo));
+    }
+
+    #[tokio::test]
+    async fn refs_that_look_like_options_are_only_ever_refs() {
+        let td = init_repo();
+        commit_base(td.path());
+        let repo = repo_arg(td.path());
+        let main = git(td.path(), &["branch", "--show-current"])
+            .trim()
+            .to_string();
+        git(td.path(), &["update-ref", "refs/heads/-q", "HEAD"]);
+
+        git_checkout(repo.clone(), "-q".into())
+            .await
+            .expect("checkout");
+        assert_eq!(git(td.path(), &["branch", "--show-current"]).trim(), "-q");
+        git_checkout(repo.clone(), main)
+            .await
+            .expect("checkout back");
+        git_merge(repo.clone(), "-q".into()).await.expect("merge");
+        git_branch_delete(repo.clone(), "-q".into(), true)
+            .await
+            .expect("delete");
+        assert!(Repository::open(td.path())
+            .expect("open")
+            .find_reference("refs/heads/-q")
+            .is_err());
+
+        let written = td.path().join("written");
+        let flag = format!("--output={}", written.display());
+        assert!(git_show(repo.clone(), flag.clone()).await.is_err());
+        assert!(git_reset(repo.clone(), flag.clone(), "soft".into())
+            .await
+            .is_err());
+        assert!(!written.exists());
+
+        let remote = tempdir().expect("remote");
+        git(remote.path(), &["init", "--bare"]);
+        git(
+            td.path(),
+            &["remote", "add", "origin", &repo_arg(remote.path())],
+        );
+        git(td.path(), &["push", "origin", "HEAD:refs/heads/-q"]);
+        git_delete_remote_branch(repo.clone(), "origin".into(), "-q".into())
+            .await
+            .expect("delete remote branch");
+        assert!(Repository::open(remote.path())
+            .expect("open remote")
+            .find_reference("refs/heads/-q")
+            .is_err());
+    }
+
+    #[test]
+    fn pull_request_urls_only_point_at_known_hosts() {
+        let github = "https://github.com/nodelike/sikemux/compare/feat/x?expand=1";
+        for remote in [
+            "git@github.com:nodelike/sikemux.git",
+            "https://github.com/nodelike/sikemux.git",
+            "https://token@github.com/nodelike/sikemux",
+            "ssh://git@github.com/nodelike/sikemux.git",
+        ] {
+            assert_eq!(pull_request_url(remote, "feat/x").as_deref(), Ok(github));
+        }
+        assert_eq!(
+            pull_request_url("git@bitbucket.org:team/app.git", "feat/x").as_deref(),
+            Ok("https://bitbucket.org/team/app/pull-requests/new?source=feat%2Fx")
+        );
+        assert_eq!(
+            pull_request_url("git@github.com:o/r.git", "a#b?c d").as_deref(),
+            Ok("https://github.com/o/r/compare/a%23b%3Fc%20d?expand=1")
+        );
+        for remote in [
+            "https://github.com.evil.test/o/r.git",
+            "https://evil.test/github.com/o/r.git",
+            "git@evil.test:github.com/r.git",
+            "file:///tmp/github.com/o/r",
+            "javascript:alert(1)//github.com/o/r",
+            "/tmp/github.com/o/r",
+            "https://github.com/o/r/extra",
+            "https://github.com/../r",
+        ] {
+            assert!(pull_request_url(remote, "main").is_err(), "{remote}");
+        }
     }
 
     #[tokio::test]

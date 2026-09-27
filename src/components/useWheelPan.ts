@@ -137,7 +137,7 @@ export function useWheelPan(areaRef: RefObject<HTMLElement | null>, pan: WindowP
             // painted.
             const flick = flicked(done.pushes, until) || pulledOn(done.offset, done.way);
             const thrown = flick * done.offset < 0 ? 0 : flick;
-            const onto = (thrown === 0 ? null : (order[done.slot + thrown] ?? null)) ?? on;
+            const onto = thrown === 0 ? on : (order[done.slot + thrown] ?? on);
             const travel = (onto === on ? 0 : thrown) - done.offset;
             const returning = travel * thrust(done.pushes, until) < 0;
             if (onto !== on) {
@@ -155,7 +155,7 @@ export function useWheelPan(areaRef: RefObject<HTMLElement | null>, pan: WindowP
         };
 
         const onWheel = (event: WheelEvent) => {
-            // The strip sits on the stage and scrolls itself.
+            // A stack's strip sits on the stage and scrolls itself.
             if (event.target instanceof Element && event.target.closest(".tabbar")) return;
             const { order, on } = session();
             // A switch from somewhere else takes the track away, and the pan the

@@ -38,45 +38,6 @@
     --shader-field-gain: 1;
 }
 
-/* ── First run: the tour ──────────────────────────────────────────────────── */
-
-/*
- * The one screen in the app with no data on it, so the field runs edge to edge
- * behind the whole card. The frame keeps its own `--pane` ground underneath, so
- * this is a tint on top of the surface rather than the surface itself.
- */
-.onboarding-frame {
-    position: relative;
-}
-
-.onb-field {
-    --shader-field-strength: 0.5;
-    position: absolute;
-    inset: 0;
-    pointer-events: none;
-    mask-image: linear-gradient(to bottom, #000, rgba(0, 0, 0, 0.45) 62%, transparent);
-    animation: shader-field-in 1200ms ease both;
-}
-
-.onboarding-frame > :not(.onb-field) {
-    position: relative;
-}
-
-@keyframes shader-field-in {
-    from {
-        opacity: 0;
-    }
-    to {
-        opacity: 1;
-    }
-}
-
-@media (prefers-reduced-motion: reduce) {
-    .onb-field {
-        animation: none;
-    }
-}
-
 /* The shell is a stacking context so the negative z-indexes below stay inside
    it and cannot slide behind the window's own background. */
 .shell {
@@ -153,4 +114,9 @@
  */
 .pane {
     background: transparent;
+}
+
+/* Plugin panes are panels in their own right, so they take the rails' ground. */
+.pane-plugin {
+    background: var(--pane-ground);
 }

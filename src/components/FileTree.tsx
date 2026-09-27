@@ -19,11 +19,15 @@ import { Tooltip } from "./Tooltip";
 import { gitFileDecoration } from "./git/gitFileStatus";
 import { basename, dirname, isPathWithin, joinPath, normalizePath, relativePath as pathRelative } from "../lib/paths";
 import { FILE_MANAGER_NAME } from "../lib/platform";
+import { leavingMenu } from "../lib/motion";
 
 interface FileTreeProps {
     cwd: string;
     activePath: string | null;
+    /** A single click: the file takes the preview tab. */
     onOpenFile: (entry: DirEntry) => void;
+    /** A double click, or any open that means it: the file gets a tab of its own. */
+    onKeepFile: (entry: DirEntry) => void;
     /** Omit both to let the tree fill its container instead of owning a width. */
     width?: number;
     onResize?: (w: number) => void;
@@ -65,7 +69,7 @@ function validEntryName(raw: string): string | null {
     return name;
 }
 
-export const FileTree = memo(function FileTree({ cwd, activePath, onOpenFile, width, onResize, active, revealPath }: FileTreeProps) {
+export const FileTree = memo(function FileTree({ cwd, activePath, onOpenFile, onKeepFile, width, onResize, active, revealPath }: FileTreeProps) {
     const resizable = width !== undefined && onResize !== undefined;
     const [dirs, setDirs] = useState<Record<string, DirEntry[]>>({});
     const [expanded, setExpanded] = useState<Set<string>>(new Set());
@@ -287,7 +291,7 @@ export const FileTree = memo(function FileTree({ cwd, activePath, onOpenFile, wi
             await loadDir(newRequest.parent);
             cancelNew();
             if (newRequest.kind === "file") {
-                onOpenFile({
+                onKeepFile({
                     name,
                     path: target,
                     is_dir: false,
@@ -557,7 +561,7 @@ export const FileTree = memo(function FileTree({ cwd, activePath, onOpenFile, wi
                 label: "Open",
                 run: () => {
                     setSelectedDir(null);
-                    onOpenFile(entry);
+                    onKeepFile(entry);
                 },
             },
             { sep: true },
@@ -600,7 +604,7 @@ export const FileTree = memo(function FileTree({ cwd, activePath, onOpenFile, wi
             );
         }
         const e = row.entry;
-        const pad = 10 + row.depth * 13;
+        const pad = 4 + row.depth * 13;
         if (renaming === e.path) {
             return (
                 <RenameRow
@@ -669,6 +673,7 @@ export const FileTree = memo(function FileTree({ cwd, activePath, onOpenFile, wi
                     setSelectedDir(null);
                     onOpenFile(e);
                 }}
+                onDoubleClick={() => onKeepFile(e)}
                 onContextMenu={(ev) => openMenu(ev, e)}
                 role="treeitem"
                 aria-level={row.depth + 1}
@@ -875,6 +880,7 @@ export function TreeContextMenu({ x, y, items, onClose }: { x: number; y: number
 
     return createPortal(
         <div
+            ref={leavingMenu}
             className="tree-ctx-scrim"
             onClick={onClose}
             onContextMenu={(e) => {
@@ -950,7 +956,7 @@ function NewEntryRow({
     onCancel: () => void;
     inputRef: React.RefObject<HTMLInputElement | null>;
 }) {
-    const pad = 10 + depth * 13;
+    const pad = 4 + depth * 13;
     return (
         <div className="tree-row tree-new" style={{ paddingLeft: pad + 13 }}>
             <span className="tree-file">{kind === "folder" ? <IconFolder size={17} /> : <FileIcon name="" size={20} />}</span>
@@ -991,7 +997,7 @@ function RenameRow({
     onCancel: () => void;
     inputRef: React.RefObject<HTMLInputElement | null>;
 }) {
-    const pad = 10 + depth * 13;
+    const pad = 4 + depth * 13;
     return (
         <div className="tree-row tree-new" style={{ paddingLeft: pad }}>
             {kind === "folder" ? (

@@ -21,6 +21,15 @@ const AWS_COMMAND_TIMEOUT: Duration = Duration::from_secs(120);
 const AWS_SSO_TIMEOUT: Duration = Duration::from_secs(10 * 60);
 const AWS_MAX_OUTPUT_BYTES: usize = 16 * 1024 * 1024;
 
+/// The CLI reads anything starting with a dash as an option, so a name like
+/// `--endpoint-url=...` would redirect the call instead of naming a resource.
+pub(crate) fn cli_value(value: &str) -> AwsResult<&str> {
+    if value.starts_with('-') {
+        return Err(AwsError::BadArg("names cannot start with a dash"));
+    }
+    Ok(value)
+}
+
 pub(crate) fn aws_bin() -> String {
     std::env::var("AWS_CLI").unwrap_or_else(|_| "aws".to_string())
 }
@@ -182,6 +191,14 @@ pub(crate) async fn describe_in_chunks<R: DeserializeOwned>(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn refuses_values_the_cli_would_read_as_options() {
+        assert_eq!(cli_value("prod-cluster").unwrap(), "prod-cluster");
+        assert_eq!(cli_value("/ecs/api").unwrap(), "/ecs/api");
+        assert!(cli_value("--endpoint-url=https://example.com").is_err());
+        assert!(cli_value("-h").is_err());
+    }
 
     #[test]
     fn classify_substring_expired() {

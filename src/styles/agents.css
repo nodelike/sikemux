@@ -54,8 +54,19 @@
 .agent-glyph.grok {
     color: var(--brand-grok);
 }
+.agent-glyph.term,
+.sess-icon.ssh {
+    color: color-mix(in oklab, var(--cmd) 70%, var(--ink-dim));
+}
+.agent-glyph.files {
+    color: color-mix(in oklab, var(--git-modified) 76%, var(--ink-dim));
+}
+.agent-glyph.git {
+    color: color-mix(in oklab, var(--git-added) 76%, var(--ink-dim));
+}
 .agent-title {
     flex: 1;
+    font-weight: var(--weight-medium);
     text-align: left;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -74,6 +85,63 @@
     display: block;
 }
 .agent-state-loader {
+    display: grid;
+    grid-template-columns: repeat(3, 2.5px);
+    gap: 1.5px;
+}
+.agent-state-loader i {
+    width: 2.5px;
+    height: 2.5px;
+    border-radius: 0.5px;
+    background: currentColor;
+    animation: agent-state-twinkle var(--twinkle-period) ease-in-out var(--twinkle-offset) infinite;
+}
+.agent-state-loader i:nth-child(1) {
+    --twinkle-period: 0.9s;
+    --twinkle-offset: 0s;
+}
+.agent-state-loader i:nth-child(2) {
+    --twinkle-period: 1.24s;
+    --twinkle-offset: -0.52s;
+}
+.agent-state-loader i:nth-child(3) {
+    --twinkle-period: 1.58s;
+    --twinkle-offset: -1.04s;
+}
+.agent-state-loader i:nth-child(4) {
+    --twinkle-period: 1.07s;
+    --twinkle-offset: -0.39s;
+}
+.agent-state-loader i:nth-child(5) {
+    --twinkle-period: 1.41s;
+    --twinkle-offset: -0.91s;
+}
+.agent-state-loader i:nth-child(6) {
+    --twinkle-period: 0.9s;
+    --twinkle-offset: -0.26s;
+}
+.agent-state-loader i:nth-child(7) {
+    --twinkle-period: 1.24s;
+    --twinkle-offset: -0.78s;
+}
+.agent-state-loader i:nth-child(8) {
+    --twinkle-period: 1.58s;
+    --twinkle-offset: -0.13s;
+}
+.agent-state-loader i:nth-child(9) {
+    --twinkle-period: 1.07s;
+    --twinkle-offset: -0.65s;
+}
+@keyframes agent-state-twinkle {
+    0%,
+    100% {
+        opacity: 0.2;
+    }
+    40% {
+        opacity: 1;
+    }
+}
+.loading-ring {
     display: block;
     width: 12px;
     height: 12px;
@@ -113,31 +181,22 @@
     color: var(--text-tertiary);
 }
 .subagent-count {
-    position: relative;
-    display: grid;
-    place-items: center;
-    width: 16px;
-    height: 16px;
-    margin-right: 5px;
-    color: color-mix(in srgb, var(--live) 58%, var(--ink-faint));
-}
-.subagent-count-dot {
-    position: absolute;
-    top: -3px;
-    right: -3px;
-    display: grid;
-    place-items: center;
-    min-width: 11px;
-    height: 11px;
-    padding: 0 2px;
-    box-sizing: border-box;
-    border-radius: 999px;
-    background: var(--live);
-    color: var(--surface-sunken);
-    font-size: 8px;
-    font-weight: 700;
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    color: var(--text-tertiary);
+    font-size: 11px;
+    font-weight: var(--weight-medium);
     line-height: 1;
     font-variant-numeric: tabular-nums;
+}
+.subagent-count svg {
+    fill: currentColor;
+    stroke: none;
+    color: color-mix(in srgb, var(--live) 70%, var(--text-tertiary));
+}
+.tab-wrap.active .subagent-count {
+    color: var(--text-secondary);
 }
 @keyframes agent-activity-spin {
     to {
@@ -685,7 +744,8 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-    .agent-state-loader,
+    .agent-state-loader i,
+    .loading-ring,
     .proj-pip.is-working::after,
     .yolo-switch-option.armed.active::before,
     .yolo-switch-option.armed.active .yolo-switch-label,
@@ -736,21 +796,8 @@
 
 .rail-gut-tab.active {
     background: var(--surface-selected);
+    box-shadow: inset 0 0 0 1px var(--border-selected);
     color: var(--text-primary);
-}
-
-/* Selection reads on the rail's own edge rather than as a fifth box: the tick
- * lives in the gutter's margin, so the button keeps its geometry in every
- * state and the accent is spent once. */
-.rail-gut-tab.active::before {
-    content: "";
-    position: absolute;
-    top: 5px;
-    bottom: 5px;
-    left: -4px;
-    width: 2px;
-    border-radius: 0 2px 2px 0;
-    background: var(--acc);
 }
 
 /* The column beside the gutter — header, then body, exactly as each panel
@@ -829,7 +876,8 @@
 .ed-tree.fill {
     width: 100%;
     min-width: 0;
-    border-right: 0;
+    border: 0;
+    border-radius: 0;
 }
 
 /* Changes tab */

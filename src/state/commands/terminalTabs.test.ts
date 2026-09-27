@@ -12,20 +12,20 @@ function activeProjectTerminalIds(): string[] {
 }
 
 describe("project terminal tabs", () => {
-    it("creates the initial terminal as a regular numbered, closable tab", () => {
+    it("creates the initial terminal as a regular closable tab named Terminal", () => {
         cmd.createProjectSession("/work/demo");
 
         const [terminalId] = activeProjectTerminalIds();
-        expect(getState().windows[terminalId]).toMatchObject({ name: "1", role: "term" });
+        expect(getState().windows[terminalId]).toMatchObject({ name: "Terminal", role: "term" });
         expect(getState().windows[terminalId].fixed).toBeUndefined();
     });
 
-    it("numbers new terminals from the existing terminal tabs, not fixed project windows", () => {
+    it("names every new terminal Terminal rather than a number", () => {
         cmd.createProjectSession("/work/demo");
         cmd.newWindow();
 
         const labels = activeProjectTerminalIds().map((id) => getState().windows[id].name);
-        expect(labels).toEqual(["1", "2"]);
+        expect(labels).toEqual(["Terminal", "Terminal"]);
     });
 
     it("can close the last project terminal instead of silently replacing it", () => {
@@ -42,7 +42,7 @@ describe("project terminal tabs", () => {
         expect(getState().windowsBySession[getState().activeSessionId]).toEqual([]);
     });
 
-    it("closes the initial terminal through the tab action and can reopen terminal 1", () => {
+    it("closes the initial terminal through the tab action and can reopen a terminal", () => {
         cmd.createProjectSession("/work/demo");
         const [terminalId] = activeProjectTerminalIds();
 
@@ -51,7 +51,7 @@ describe("project terminal tabs", () => {
 
         cmd.selectWindowByRole("term");
         const [reopenedId] = activeProjectTerminalIds();
-        expect(getState().windows[reopenedId]).toMatchObject({ name: "1", role: "term" });
+        expect(getState().windows[reopenedId]).toMatchObject({ name: "Terminal", role: "term" });
         expect(getState().sessions[getState().activeSessionId].activeWindowId).toBe(reopenedId);
     });
 });

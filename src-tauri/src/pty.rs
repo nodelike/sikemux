@@ -2108,25 +2108,32 @@ fn validate_direct_command(
     Ok(())
 }
 
-fn configure_interactive_command(command: &mut CommandBuilder, launch: &PtyDirectCommand) {
+fn configure_interactive_command(
+    command: &mut CommandBuilder,
+    shell: &str,
+    launch: &PtyDirectCommand,
+) {
+    let kind = detect_shell_kind(shell);
     let invocation = std::iter::once(&launch.program)
         .chain(launch.args.iter())
-        .map(|value| {
-            #[cfg(unix)]
-            {
-                format!("'{}'", value.replace('\'', "'\\''"))
-            }
-            #[cfg(windows)]
-            {
-                format!("'{}'", value.replace('\'', "''"))
-            }
-        })
+        .map(|value| quote_shell_word(value, kind))
         .collect::<Vec<_>>()
         .join(" ");
     #[cfg(unix)]
     command.args(["-l", "-i", "-c", &invocation]);
     #[cfg(windows)]
     command.args(["-NoLogo", "-NoExit", "-Command", &format!("& {invocation}")]);
+}
+
+fn quote_shell_word(value: &str, kind: Option<ShellKind>) -> String {
+    match kind {
+        Some(ShellKind::Fish) => {
+            format!("'{}'", value.replace('\\', "\\\\").replace('\'', "\\'"))
+        }
+        Some(ShellKind::PowerShell) => format!("'{}'", value.replace('\'', "''")),
+        _ if cfg!(windows) => format!("'{}'", value.replace('\'', "''")),
+        _ => format!("'{}'", value.replace('\'', "'\\''")),
+    }
 }
 
 fn agent_profile_config_root(path: &str) -> PathBuf {
@@ -2604,7 +2611,7 @@ pub async fn pty_spawn(
     let has_direct_command = direct_command.is_some();
     let mut cmd = CommandBuilder::new(&shell);
     if let Some(command) = direct_command.as_ref() {
-        configure_interactive_command(&mut cmd, command);
+        configure_interactive_command(&mut cmd, &shell, command);
     }
     let cli_executable = crate::cli_server::cli_executable_path();
     let cli_endpoint = crate::cli_server::cli_endpoint_path();
@@ -3757,6 +3764,7 @@ mod tests {
         let argument = "spaces ' quotes; $(printf injected) \n next";
         super::configure_interactive_command(
             &mut command,
+            "/bin/zsh",
             &super::PtyDirectCommand {
                 program: "probe".into(),
                 args: vec![argument.into()],
@@ -3780,6 +3788,23 @@ mod tests {
         assert!(String::from_utf8_lossy(&output)
             .replace("\r\n", "\n")
             .contains(&format!("from-zshrc|{argument}")));
+    }
+
+    #[test]
+    fn fish_words_escape_backslashes_and_quotes_inside_single_quotes() {
+        let fish = Some(super::ShellKind::Fish);
+        assert_eq!(super::quote_shell_word("plain", fish), "'plain'");
+        assert_eq!(super::quote_shell_word("it's", fish), r"'it\'s'");
+        assert_eq!(super::quote_shell_word(r"ends\", fish), r"'ends\\'");
+        assert_eq!(
+            super::quote_shell_word(r"a\'; rm -rf ~; echo '", fish),
+            r"'a\\\'; rm -rf ~; echo \''"
+        );
+        #[cfg(unix)]
+        assert_eq!(
+            super::quote_shell_word(r"it's\", Some(super::ShellKind::Zsh)),
+            r"'it'\''s\'"
+        );
     }
 
     #[test]
@@ -5403,8 +5428,7 @@ pub async fn pty_kill(manager: State<'_, PtyManager>, id: u32) -> AppResult<()> 
 pub async fn harness_task_output(
     manager: State<'_, PtyManager>,
     id: u32,
-    cursor: u64,
-    limit: usize,
+    query: crate::harness::OutputQuery,
 ) -> Result<crate::harness::OutputPage, String> {
     let pty = manager
         .ptys
@@ -5418,7 +5442,7 @@ pub async fn harness_task_output(
         pty.harness_output
             .lock()
             .map_err(|_| "output lock poisoned".to_string())?
-            .read(cursor, limit)
+            .query(&query)
     })
     .await
     .map_err(|e| format!("harness_task_output join: {e}"))?

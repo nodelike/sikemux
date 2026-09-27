@@ -96,6 +96,7 @@ step 'prettier format' pnpm format:check
 [ "$FRONTEND" = 1 ] && step 'eslint' pnpm lint
 [ "$FRONTEND" = 1 ] && step 'typescript' pnpm typecheck
 [ "$FRONTEND" = 1 ] && step 'ipc contracts' pnpm ipc:check
+[ "$FRONTEND" = 1 ] && step 'grammar manifest' pnpm grammars:check
 
 if [ "${#FAILED[@]}" -ne 0 ]; then
   summary

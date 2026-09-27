@@ -62,6 +62,11 @@ if [[ -f "$ROOT/.env" ]]; then
   [[ -n "$existing_password" ]] && TAURI_SIGNING_PRIVATE_KEY_PASSWORD="$saved_password"
   [[ -n "$existing_identity" ]] && APPLE_SIGNING_IDENTITY="$saved_identity"
 fi
+# The updater key goes to the bundling step alone, not to dependency installs
+# or the build tools every step below starts.
+UPDATER_KEY="${TAURI_SIGNING_PRIVATE_KEY:-}"
+UPDATER_KEY_PASSWORD="${TAURI_SIGNING_PRIVATE_KEY_PASSWORD:-}"
+unset TAURI_SIGNING_PRIVATE_KEY TAURI_SIGNING_PRIVATE_KEY_PASSWORD
 
 fail() {
   echo "Release preflight failed: $*" >&2
@@ -136,8 +141,7 @@ if TAG_SHA="$(git rev-parse -q --verify "refs/tags/v$VERSION^{commit}")"; then
   [[ "$TAG_SHA" == "$HEAD_SHA" ]] || fail "tag v$VERSION already exists on $TAG_SHA"
 fi
 
-[[ -n "${TAURI_SIGNING_PRIVATE_KEY:-}" ]] || fail "TAURI_SIGNING_PRIVATE_KEY is not set"
-export TAURI_SIGNING_PRIVATE_KEY_PASSWORD="${TAURI_SIGNING_PRIVATE_KEY_PASSWORD:-}"
+[[ -n "$UPDATER_KEY" ]] || fail "TAURI_SIGNING_PRIVATE_KEY is not set"
 if [[ "$NOTARIZED" == "1" ]]; then
   [[ -n "${APPLE_SIGNING_IDENTITY:-}" ]] || fail "APPLE_SIGNING_IDENTITY is not set"
   /usr/bin/security find-identity -v -p codesigning | grep -Fq "\"$APPLE_SIGNING_IDENTITY\"" || \
@@ -162,6 +166,7 @@ if [[ "$PUBLISH" == "1" ]]; then
   fi
   gh release view "v$VERSION" >/dev/null 2>&1 && fail "GitHub release v$VERSION already exists"
   gh api "repos/nodelike/sikemux/commits/$HEAD_SHA" >/dev/null 2>&1 || fail "HEAD is not on the remote; push before publishing"
+  export SIKEMUX_USAGE_REPORTING=1
 fi
 
 if [[ "${RELEASE_PREFLIGHT_ONLY:-0}" == "1" ]]; then
@@ -249,7 +254,8 @@ APP="$BUNDLE/macos/${APP_NAME}.app"
 # when a bundler updates files in place.
 rm -rf "$APP" "$TAR" "$SIG" "$BUNDLE/dmg"
 echo "→ Building updater-signed v$VERSION"
-REQUIRE_VALID_SIGNATURE=1 REQUIRE_SIGNED_APP="$NOTARIZED" "$ROOT/scripts/build-mac.sh"
+TAURI_SIGNING_PRIVATE_KEY="$UPDATER_KEY" TAURI_SIGNING_PRIVATE_KEY_PASSWORD="$UPDATER_KEY_PASSWORD" \
+  REQUIRE_VALID_SIGNATURE=1 REQUIRE_SIGNED_APP="$NOTARIZED" "$ROOT/scripts/build-mac.sh"
 
 [[ -d "$APP" ]] || fail "app bundle was not produced"
 if [[ "$NOTARIZED" == "1" ]]; then
@@ -331,7 +337,12 @@ if [[ "$CHANNEL" == "stable" ]]; then
 else
   MANIFEST="$BUNDLE/latest.json"
 fi
-PLATFORM_LIST="${PLATFORMS[*]}" VERSION="$VERSION" NOTES="$NOTES" PUB_DATE="$PUB_DATE" SIG="$SIG" TAR_URL="$TAR_URL" MANIFEST="$MANIFEST" python3 - <<'PY'
+# Credits are a nicety. Without them the What's new modal asks GitHub itself.
+CREDITS="$(node scripts/release-credits.mjs "$VERSION" "$HEAD_SHA")" || {
+  echo "! Could not gather release credits; latest.json ships without them." >&2
+  CREDITS=""
+}
+PLATFORM_LIST="${PLATFORMS[*]}" VERSION="$VERSION" NOTES="$NOTES" PUB_DATE="$PUB_DATE" SIG="$SIG" TAR_URL="$TAR_URL" MANIFEST="$MANIFEST" CREDITS="$CREDITS" python3 - <<'PY'
 import json, os, pathlib
 entry = {
     "signature": pathlib.Path(os.environ["SIG"]).read_text().strip(),
@@ -343,6 +354,8 @@ manifest = {
     "pub_date": os.environ["PUB_DATE"],
     "platforms": {platform: dict(entry) for platform in os.environ["PLATFORM_LIST"].split()},
 }
+if os.environ["CREDITS"]:
+    manifest["credits"] = json.loads(os.environ["CREDITS"])
 pathlib.Path(os.environ["MANIFEST"]).write_text(json.dumps(manifest, indent=2) + "\n")
 PY
 python3 -m json.tool "$MANIFEST" >/dev/null

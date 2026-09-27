@@ -1,9 +1,10 @@
-import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { IconCheck, IconChevron } from "./Icons";
 import { useOccludeNativeViews } from "../state/nativeViews";
 import { Tooltip } from "./Tooltip";
 import "../styles/dropdown.css";
+import { alsoLeaving, leavingMenu } from "../lib/motion";
 
 export interface DropdownOption {
     value: string;
@@ -42,6 +43,7 @@ export function Dropdown({
     const [position, setPosition] = useState({ left: 0, top: 0, width: 0, maxHeight: 280 });
     const buttonRef = useRef<HTMLButtonElement>(null);
     const menuRef = useRef<HTMLDivElement>(null);
+    const menuElement = useMemo(() => alsoLeaving(menuRef, leavingMenu), []);
     const prefix = useRef({ text: "", at: 0 });
     const id = useId();
     const active = options.find((option) => option.value === value);
@@ -142,7 +144,7 @@ export function Dropdown({
             {open &&
                 createPortal(
                     <div
-                        ref={menuRef}
+                        ref={menuElement}
                         id={id}
                         data-modal-owner={owner}
                         className="dd-menu"

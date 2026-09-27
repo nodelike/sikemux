@@ -8,6 +8,8 @@
 //! `WebviewWindow` fail. The app reaches the main window with `get_window`.
 
 pub mod agents;
+mod burst;
+mod documents;
 mod favicon;
 #[cfg(target_os = "macos")]
 mod input;
@@ -16,11 +18,12 @@ mod macos;
 #[cfg(target_os = "macos")]
 mod recording;
 pub mod tools;
+mod viewport;
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Mutex;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use std::path::{Path, PathBuf};
 
@@ -41,16 +44,27 @@ pub const BLANK_URL: &str = "about:blank";
 /// Injected into every document before its own scripts, so a page's calls are
 /// already recorded by the time an agent asks about them.
 const RECORDER_SCRIPT: &str = include_str!("recorder.js");
-const PAGE_DIALOGS_SCRIPT: &str = include_str!("page-dialogs.js");
 const MAX_URL_LEN: usize = 8192;
+/// A page opening more tabs than this in `POPUP_WINDOW` is in a loop.
+const POPUP_LIMIT: usize = 4;
+const POPUP_WINDOW: Duration = Duration::from_secs(10);
+// Parked pages sit outside the window, since a hidden view still takes file
+// drops over the spot it last covered. They are hidden too once they are idle.
+const PARKED_ORIGIN: f64 = -100_000.0;
 const PARKED_BOUNDS: BrowserBounds = BrowserBounds {
-    x: 0.0,
-    y: 0.0,
+    x: PARKED_ORIGIN,
+    y: PARKED_ORIGIN,
     width: 1200.0,
     height: 800.0,
+    clip_left: 0.0,
+    clip_right: 0.0,
+    holes: Vec::new(),
 };
 
 const ACTING_LINGER: Duration = Duration::from_secs(3);
+/// A hidden page runs no animation frames, and React reveals streamed content
+/// on one, so a parked tab stays shown this long after it finishes loading.
+const LOAD_SETTLE: Duration = Duration::from_secs(2);
 
 /// WebKit's own agent string names no browser at all, and sites answer that
 /// with an "unsupported browser" page, so tabs — and the fetch that goes after
@@ -80,14 +94,30 @@ pub struct BrowserSnapshot {
     pub active_tab_id: Option<String>,
 }
 
-/// Where the page area sits, in the main window's CSS pixels.
-#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq)]
+/// Where the page area sits, in the main window's CSS pixels. The clips are
+/// how much of either side lies outside the stage and must not be drawn. The
+/// holes are app elements, like toasts, that must show through the page.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct BrowserBounds {
     pub x: f64,
     pub y: f64,
     pub width: f64,
     pub height: f64,
+    pub clip_left: f64,
+    pub clip_right: f64,
+    pub holes: Vec<BrowserHole>,
+}
+
+/// A rounded rectangle in the page's own coordinates.
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct BrowserHole {
+    pub x: f64,
+    pub y: f64,
+    pub width: f64,
+    pub height: f64,
+    pub radius: f64,
 }
 
 /// A command chord pressed while the page had keyboard focus. The app's own
@@ -153,6 +183,8 @@ pub struct TabStrip {
     /// Tabs the agent is working in, each with the mark that put it there, so
     /// only the latest mark may take it away again.
     pub acting: HashMap<String, u64>,
+    /// Tabs that finished loading a moment ago, keyed by mark like `acting`.
+    pub settling: HashMap<String, u64>,
 }
 
 impl TabStrip {
@@ -171,6 +203,7 @@ impl TabStrip {
         self.order.remove(index);
         self.pages.remove(id);
         self.acting.remove(id);
+        self.settling.remove(id);
         if self.active.as_deref() == Some(id) {
             self.active = self
                 .order
@@ -203,6 +236,25 @@ impl TabStrip {
         true
     }
 
+    pub fn settle(&mut self, tab: &str, mark: u64) {
+        self.settling.insert(tab.to_owned(), mark);
+    }
+
+    pub fn release_settled(&mut self, tab: &str, mark: u64) -> bool {
+        if self.settling.get(tab) != Some(&mark) {
+            return false;
+        }
+        self.settling.remove(tab);
+        true
+    }
+
+    /// Whether the tab must keep drawing frames while it is out of sight.
+    pub fn awake(&self, id: &str) -> bool {
+        self.pages.get(id).is_some_and(|page| page.loading)
+            || self.acting.contains_key(id)
+            || self.settling.contains_key(id)
+    }
+
     pub fn snapshot(&self) -> BrowserSnapshot {
         BrowserSnapshot {
             tabs: self
@@ -233,18 +285,20 @@ struct AgentBrowser {
     strip: TabStrip,
     views: HashMap<String, Webview>,
     bounds: Option<BrowserBounds>,
+    viewports: HashMap<String, viewport::Viewport>,
 }
 
 #[derive(Default)]
 pub struct BrowserManager {
     agents: Mutex<HashMap<String, AgentBrowser>>,
     next_tab: AtomicU64,
-    next_acting_mark: AtomicU64,
+    next_mark: AtomicU64,
     shortcuts_installed: AtomicBool,
     downloads: Mutex<HashMap<(String, String), PathBuf>>,
     icons: Mutex<favicon::IconCache>,
     dialogs: Mutex<HashMap<String, PageDialog>>,
     uploads: Mutex<HashMap<String, Vec<PathBuf>>>,
+    documents: Mutex<HashMap<String, documents::DocumentLog>>,
     #[cfg(target_os = "macos")]
     recordings: Mutex<HashMap<String, recording::Session>>,
 }
@@ -285,7 +339,7 @@ impl BrowserManager {
         let bounds = self
             .lock()
             .get(agent_id)
-            .and_then(|agent| agent.bounds)
+            .and_then(|agent| agent.bounds.clone())
             .unwrap_or(PARKED_BOUNDS);
 
         let builder = self.tab_builder(app, agent_id, &tab_id, parsed);
@@ -304,6 +358,8 @@ impl BrowserManager {
                 let (moved_agent, moved_tab) = (agent.clone(), tab.clone());
                 let (dialog_app, dialog_tab) = (app_handle.clone(), tab.clone());
                 let (upload_app, upload_tab) = (app_handle.clone(), tab.clone());
+                let (document_app, document_agent, document_tab) =
+                    (app_handle.clone(), agent.clone(), tab.clone());
                 macos::adopt(
                     platform.inner(),
                     agent,
@@ -327,6 +383,24 @@ impl BrowserManager {
                     move || {
                         let manager = upload_app.state::<BrowserManager>();
                         manager.take_upload(&upload_tab)
+                    },
+                    move |event| {
+                        let manager = document_app.state::<BrowserManager>();
+                        let failed = manager
+                            .documents_lock()
+                            .entry(document_tab.clone())
+                            .or_default()
+                            .note(event);
+                        if failed {
+                            manager.note_page(
+                                &document_app,
+                                &document_agent,
+                                &document_tab,
+                                |page| {
+                                    page.loading = false;
+                                },
+                            );
+                        }
                     },
                 );
             });
@@ -362,7 +436,7 @@ impl BrowserManager {
             .focused(false)
             .zoom_hotkeys_enabled(true)
             .initialization_script(RECORDER_SCRIPT)
-            .initialization_script(PAGE_DIALOGS_SCRIPT);
+            .on_navigation(tab_may_load);
         #[cfg(target_os = "macos")]
         let builder = builder.user_agent(USER_AGENT);
 
@@ -371,6 +445,7 @@ impl BrowserManager {
         let (title_app, title_agent, title_tab) =
             (app.clone(), agent_id.to_owned(), tab_id.to_owned());
         let (popup_app, popup_agent) = (app.clone(), agent_id.to_owned());
+        let popups = Mutex::new(burst::Burst::new(POPUP_LIMIT, POPUP_WINDOW));
         let (download_app, download_agent, download_tab) =
             (app.clone(), agent_id.to_owned(), tab_id.to_owned());
         builder
@@ -408,6 +483,13 @@ impl BrowserManager {
                 });
             })
             .on_new_window(move |url, _| {
+                let admitted = popups
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner())
+                    .admit(Instant::now());
+                if !admitted {
+                    return NewWindowResponse::Deny;
+                }
                 let (app, agent) = (popup_app.clone(), popup_agent.clone());
                 tauri::async_runtime::spawn(async move {
                     let manager = app.state::<BrowserManager>();
@@ -439,6 +521,10 @@ impl BrowserManager {
             DownloadEvent::Finished { url, path, success } => {
                 let chosen = self.downloads_lock().remove(&key(&url));
                 let path = path.or(chosen).unwrap_or_default();
+                #[cfg(target_os = "macos")]
+                if success {
+                    quarantine(&path);
+                }
                 (
                     url,
                     path,
@@ -500,6 +586,21 @@ impl BrowserManager {
         self.uploads_lock().remove(tab_id)
     }
 
+    fn documents_lock(&self) -> std::sync::MutexGuard<'_, HashMap<String, documents::DocumentLog>> {
+        self.documents
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    /// The tab's top-level loads, oldest first; with `since_current`, only
+    /// the one that produced the page on screen and any tried after it.
+    pub fn documents(&self, tab_id: &str, since_current: bool) -> Vec<documents::DocumentLoad> {
+        self.documents_lock()
+            .get(tab_id)
+            .map(|log| log.loads(since_current))
+            .unwrap_or_default()
+    }
+
     fn downloads_lock(&self) -> std::sync::MutexGuard<'_, HashMap<(String, String), PathBuf>> {
         self.downloads
             .lock()
@@ -513,7 +614,7 @@ impl BrowserManager {
         tab_id: &str,
         update: impl FnOnce(&mut TabPage),
     ) {
-        let changed = {
+        let (changed, loading) = {
             let mut agents = self.lock();
             match agents
                 .get_mut(agent_id)
@@ -522,14 +623,41 @@ impl BrowserManager {
                 Some(page) => {
                     let before = page.clone();
                     update(page);
-                    *page != before
+                    let loading = (before.loading != page.loading).then_some(page.loading);
+                    (*page != before, loading)
                 }
-                None => false,
+                None => (false, None),
             }
         };
         if changed {
             self.announce(app);
         }
+        match loading {
+            Some(true) => self.relayout(agent_id),
+            Some(false) => self.settle(app, agent_id, tab_id),
+            None => {}
+        }
+    }
+
+    fn settle(&self, app: &AppHandle, agent_id: &str, tab_id: &str) {
+        let mark = self.next_mark.fetch_add(1, Ordering::AcqRel);
+        match self.lock().get_mut(agent_id) {
+            Some(agent) => agent.strip.settle(tab_id, mark),
+            None => return,
+        }
+        self.relayout(agent_id);
+        let (app, agent_id, tab_id) = (app.clone(), agent_id.to_owned(), tab_id.to_owned());
+        tauri::async_runtime::spawn(async move {
+            tokio::time::sleep(LOAD_SETTLE).await;
+            let manager = app.state::<BrowserManager>();
+            let released = manager
+                .lock()
+                .get_mut(&agent_id)
+                .is_some_and(|agent| agent.strip.release_settled(&tab_id, mark));
+            if released {
+                manager.relayout(&agent_id);
+            }
+        });
     }
 
     pub fn close_tab(&self, app: &AppHandle, agent_id: &str, tab_id: &str) -> AppResult<()> {
@@ -543,6 +671,8 @@ impl BrowserManager {
                 return Err(AppError::BadArg("unknown browser tab"));
             }
             let view = agent.views.remove(tab_id);
+            agent.viewports.remove(tab_id);
+            self.documents_lock().remove(tab_id);
             if agent.strip.order.is_empty() {
                 agents.remove(agent_id);
             }
@@ -563,8 +693,18 @@ impl BrowserManager {
         let views = self
             .lock()
             .remove(agent_id)
-            .map(|agent| agent.views.into_values().collect::<Vec<_>>())
+            .map(|agent| agent.views.into_iter().collect::<Vec<_>>())
             .unwrap_or_default();
+        let views: Vec<Webview> = {
+            let mut documents = self.documents_lock();
+            views
+                .into_iter()
+                .map(|(tab_id, view)| {
+                    documents.remove(&tab_id);
+                    view
+                })
+                .collect()
+        };
         for view in views {
             drop_view(view);
         }
@@ -590,8 +730,8 @@ impl BrowserManager {
     /// showing its blank page, or an app overlay needs to paint over it.
     pub fn set_bounds(&self, agent_id: &str, bounds: Option<BrowserBounds>) -> AppResult<()> {
         validate_agent_id(agent_id)?;
-        if let Some(bounds) = bounds {
-            validate_bounds(&bounds)?;
+        if let Some(bounds) = &bounds {
+            validate_bounds(bounds)?;
         }
         {
             let mut agents = self.lock();
@@ -643,6 +783,42 @@ impl BrowserManager {
         }
     }
 
+    /// Holds the tab at `fixed`, or with `None` lets it follow the pane again.
+    pub fn set_viewport(
+        &self,
+        agent_id: &str,
+        tab_id: &str,
+        fixed: Option<viewport::Viewport>,
+    ) -> AppResult<()> {
+        let (view, was_fixed) = {
+            let mut agents = self.lock();
+            let agent = agents
+                .get_mut(agent_id)
+                .ok_or(AppError::BadArg("unknown browser tab"))?;
+            let view = agent
+                .views
+                .get(tab_id)
+                .cloned()
+                .ok_or(AppError::BadArg("unknown browser tab"))?;
+            let was_fixed = match fixed {
+                Some(fixed) => agent.viewports.insert(tab_id.to_owned(), fixed),
+                None => agent.viewports.remove(tab_id),
+            };
+            (view, was_fixed.is_some())
+        };
+        if fixed.is_none() && was_fixed {
+            let _ = view.set_zoom(1.0);
+        }
+        self.relayout(agent_id);
+        Ok(())
+    }
+
+    pub fn viewport(&self, agent_id: &str, tab_id: &str) -> Option<viewport::Viewport> {
+        self.lock()
+            .get(agent_id)
+            .and_then(|agent| agent.viewports.get(tab_id).copied())
+    }
+
     pub fn active_view(&self, agent_id: &str) -> AppResult<(String, Webview)> {
         validate_agent_id(agent_id)?;
         self.lock()
@@ -657,7 +833,12 @@ impl BrowserManager {
 
     /// Show the active tab inside the pane's page area and park the rest.
     fn relayout(&self, agent_id: &str) {
-        let plan: Vec<(Webview, Option<BrowserBounds>)> = {
+        let plan: Vec<(
+            Webview,
+            Option<BrowserBounds>,
+            Option<viewport::Viewport>,
+            bool,
+        )> = {
             let agents = self.lock();
             let Some(agent) = agents.get(agent_id) else {
                 return;
@@ -667,21 +848,52 @@ impl BrowserManager {
                 .iter()
                 .map(|(id, view)| {
                     let shown = agent.strip.active.as_deref() == Some(id.as_str());
-                    (view.clone(), agent.bounds.filter(|_| shown))
+                    (
+                        view.clone(),
+                        agent.bounds.clone().filter(|_| shown),
+                        agent.viewports.get(id).copied(),
+                        agent.strip.awake(id),
+                    )
                 })
                 .collect()
         };
-        for (view, bounds) in plan {
+        for (view, bounds, fixed, awake) in plan {
+            #[cfg(target_os = "macos")]
+            let _ = view.with_webview(move |platform| {
+                macos::keep_running_when_covered(platform.inner(), awake)
+            });
+            let bounds = match (bounds, fixed) {
+                (Some(area), Some(fixed)) => {
+                    let (placed, zoom) = viewport::fit(&area, fixed);
+                    let _ = view.set_zoom(zoom);
+                    Some(placed)
+                }
+                (None, Some(fixed)) => {
+                    let _ = view.set_zoom(1.0);
+                    let _ = view.set_size(LogicalSize::new(
+                        f64::from(fixed.width),
+                        f64::from(fixed.height),
+                    ));
+                    None
+                }
+                (bounds, None) => bounds,
+            };
             match bounds {
                 Some(bounds) => {
                     let _ = view.set_bounds(Rect {
                         position: Position::Logical(LogicalPosition::new(bounds.x, bounds.y)),
                         size: Size::Logical(LogicalSize::new(bounds.width, bounds.height)),
                     });
+                    #[cfg(target_os = "macos")]
+                    let _ = view.with_webview(move |platform| {
+                        let holes = holes(&bounds);
+                        macos::clip(platform.inner(), visible_part(&bounds), holes)
+                    });
                     let _ = view.show();
                 }
                 None => {
-                    let _ = view.hide();
+                    let _ = view.set_position(LogicalPosition::new(PARKED_ORIGIN, PARKED_ORIGIN));
+                    let _ = if awake { view.show() } else { view.hide() };
                 }
             }
         }
@@ -695,9 +907,17 @@ impl BrowserManager {
 
     /// Marks the tab the agent's tools are on, so the strip can show it working there.
     pub fn mark_acting(&self, app: &AppHandle, agent_id: &str) -> Option<(String, u64)> {
-        let mark = self.next_acting_mark.fetch_add(1, Ordering::AcqRel);
-        let tab = self.lock().get_mut(agent_id)?.strip.mark_acting(mark)?;
+        let mark = self.next_mark.fetch_add(1, Ordering::AcqRel);
+        let (tab, woke) = {
+            let mut agents = self.lock();
+            let strip = &mut agents.get_mut(agent_id)?.strip;
+            let was_awake = strip.active.as_deref().is_some_and(|id| strip.awake(id));
+            (strip.mark_acting(mark)?, !was_awake)
+        };
         self.announce(app);
+        if woke {
+            self.relayout(agent_id);
+        }
         Some((tab, mark))
     }
 
@@ -720,6 +940,7 @@ impl BrowserManager {
             }
             if released {
                 manager.announce(&app);
+                manager.relayout(&agent_id);
             }
         });
     }
@@ -864,29 +1085,125 @@ pub(crate) fn validate_agent_id(agent_id: &str) -> AppResult<()> {
     Ok(())
 }
 
+/// Marks a download as from the internet, as Safari does, so Gatekeeper
+/// checks it before it first opens.
+#[cfg(target_os = "macos")]
+fn quarantine(path: &Path) {
+    use std::os::unix::ffi::OsStrExt;
+
+    let seconds = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|elapsed| elapsed.as_secs())
+        .unwrap_or_default();
+    let value = format!("0083;{seconds:08x};Sikemux;");
+    let (Ok(target), Ok(name)) = (
+        std::ffi::CString::new(path.as_os_str().as_bytes()),
+        std::ffi::CString::new("com.apple.quarantine"),
+    ) else {
+        return;
+    };
+    unsafe {
+        libc::setxattr(
+            target.as_ptr(),
+            name.as_ptr(),
+            value.as_ptr().cast(),
+            value.len(),
+            0,
+            0,
+        );
+    }
+}
+
 fn validate_url(url: &str) -> AppResult<()> {
     if url.is_empty() || url.len() > MAX_URL_LEN {
         return Err(AppError::BadArg("browser url is empty or too long"));
     }
-    let scheme = url
-        .split(':')
-        .next()
-        .unwrap_or_default()
-        .to_ascii_lowercase();
-    if matches!(
-        scheme.as_str(),
-        "javascript" | "data" | "tauri" | "asset" | "ipc"
-    ) {
+    let parsed = Url::parse(url).map_err(|_| AppError::BadArg("invalid browser url"))?;
+    let opens = matches!(parsed.scheme(), "http" | "https") || parsed.as_str() == BLANK_URL;
+    if !opens {
         return Err(AppError::BadArg("browser url scheme is not allowed"));
     }
     Ok(())
 }
 
-fn validate_bounds(bounds: &BrowserBounds) -> AppResult<()> {
-    let finite = [bounds.x, bounds.y, bounds.width, bounds.height]
+/// What a tab's page or any frame inside it may load. Frames also build
+/// `about:srcdoc`, `blob:` and `data:` documents, which take the page's origin
+/// or none at all, never the app's.
+fn tab_may_load(url: &Url) -> bool {
+    match url.scheme() {
+        "http" | "https" | "data" => true,
+        "about" => matches!(url.path(), "blank" | "srcdoc"),
+        "blob" => {
+            Url::parse(url.path()).is_ok_and(|inner| matches!(inner.scheme(), "http" | "https"))
+        }
+        _ => false,
+    }
+}
+
+/// The uncut part of the page in its own coordinates, or `None` when all of it shows.
+#[cfg(target_os = "macos")]
+fn visible_part(bounds: &BrowserBounds) -> Option<objc2_foundation::NSRect> {
+    use objc2_foundation::{NSPoint, NSRect, NSSize};
+    (bounds.clip_left > 0.0 || bounds.clip_right > 0.0).then(|| {
+        NSRect::new(
+            NSPoint::new(bounds.clip_left, 0.0),
+            NSSize::new(
+                bounds.width - bounds.clip_left - bounds.clip_right,
+                bounds.height,
+            ),
+        )
+    })
+}
+
+#[cfg(target_os = "macos")]
+fn holes(bounds: &BrowserBounds) -> Vec<(objc2_foundation::NSRect, f64)> {
+    use objc2_foundation::{NSPoint, NSRect, NSSize};
+    bounds
+        .holes
         .iter()
-        .all(|value| value.is_finite() && value.abs() < 1.0e6);
-    if !finite || bounds.width < 1.0 || bounds.height < 1.0 {
+        .map(|hole| {
+            (
+                NSRect::new(
+                    NSPoint::new(hole.x, hole.y),
+                    NSSize::new(hole.width, hole.height),
+                ),
+                hole.radius,
+            )
+        })
+        .collect()
+}
+
+const MAX_HOLES: usize = 32;
+
+fn validate_bounds(bounds: &BrowserBounds) -> AppResult<()> {
+    let finite = [
+        bounds.x,
+        bounds.y,
+        bounds.width,
+        bounds.height,
+        bounds.clip_left,
+        bounds.clip_right,
+    ]
+    .into_iter()
+    .chain(
+        bounds
+            .holes
+            .iter()
+            .flat_map(|hole| [hole.x, hole.y, hole.width, hole.height, hole.radius]),
+    )
+    .all(|value| value.is_finite() && value.abs() < 1.0e6);
+    if !finite
+        || bounds.holes.len() > MAX_HOLES
+        || bounds
+            .holes
+            .iter()
+            .any(|hole| hole.width <= 0.0 || hole.height <= 0.0 || hole.radius < 0.0)
+        || bounds.width < 1.0
+        || bounds.height < 1.0
+        || bounds.clip_left < 0.0
+        || bounds.clip_right < 0.0
+        || bounds.clip_left + bounds.clip_right > bounds.width
+    {
         return Err(AppError::BadArg("invalid browser bounds"));
     }
     Ok(())
@@ -1097,6 +1414,31 @@ mod tests {
     }
 
     #[test]
+    fn a_tab_sleeps_only_once_it_is_idle_and_its_latest_load_has_settled() {
+        let mut strip = TabStrip::default();
+        strip.insert("a".into(), page("https://a.test"));
+        assert!(!strip.awake("a"));
+
+        strip.pages.get_mut("a").unwrap().loading = true;
+        assert!(strip.awake("a"));
+
+        strip.pages.get_mut("a").unwrap().loading = false;
+        strip.settle("a", 1);
+        strip.settle("a", 2);
+        assert!(!strip.release_settled("a", 1));
+        assert!(strip.awake("a"));
+        assert!(strip.release_settled("a", 2));
+        assert!(!strip.awake("a"));
+
+        strip.mark_acting(3);
+        assert!(strip.awake("a"));
+        strip.release_acting("a", 3);
+        strip.settle("a", 4);
+        strip.remove("a");
+        assert!(strip.settling.is_empty());
+    }
+
+    #[test]
     fn a_new_tab_takes_the_active_spot() {
         let mut strip = TabStrip::default();
         strip.insert("a".into(), page("https://a"));
@@ -1168,7 +1510,12 @@ mod tests {
         assert!(validate_url("javascript:alert(1)").is_err());
         assert!(validate_url("DATA:text/html,hi").is_err());
         assert!(validate_url("tauri://localhost").is_err());
+        assert!(validate_url("file:///etc/passwd").is_err());
+        assert!(validate_url("asset://localhost/x").is_err());
+        assert!(validate_url("mailto:a@b.test").is_err());
         assert!(validate_url("https://example.com").is_ok());
+        assert!(validate_url("HTTP://localhost:3000").is_ok());
+        assert!(validate_url(BLANK_URL).is_ok());
         assert!(validate_url(&"x".repeat(MAX_URL_LEN + 1)).is_err());
     }
 
@@ -1210,6 +1557,59 @@ mod tests {
     }
 
     #[test]
+    fn a_page_cannot_move_itself_or_a_frame_onto_an_app_origin() {
+        let loads = |url: &str| tab_may_load(&Url::parse(url).unwrap());
+        for allowed in [
+            "https://example.com/",
+            "http://localhost:1420/",
+            "about:blank",
+            "about:srcdoc",
+            "data:text/html,hi",
+            "blob:https://example.com/0b7e",
+        ] {
+            assert!(loads(allowed), "{allowed} should load");
+        }
+        for refused in [
+            "tauri://localhost/",
+            "ipc://localhost/",
+            "asset://localhost/x",
+            "file:///etc/passwd",
+            "blob:tauri://localhost/0b7e",
+            "about:config",
+            "javascript:alert(1)",
+        ] {
+            assert!(!loads(refused), "{refused} should be refused");
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_finished_download_is_quarantined() {
+        use std::os::unix::ffi::OsStrExt;
+
+        let folder = tempfile::tempdir().unwrap();
+        let path = folder.path().join("setup.dmg");
+        std::fs::write(&path, b"x").unwrap();
+        quarantine(&path);
+        let target = std::ffi::CString::new(path.as_os_str().as_bytes()).unwrap();
+        let name = std::ffi::CString::new("com.apple.quarantine").unwrap();
+        let mut value = [0u8; 64];
+        let read = unsafe {
+            libc::getxattr(
+                target.as_ptr(),
+                name.as_ptr(),
+                value.as_mut_ptr().cast(),
+                value.len(),
+                0,
+                0,
+            )
+        };
+        let value = String::from_utf8_lossy(&value[..usize::try_from(read).unwrap()]);
+        assert!(value.starts_with("0083;"), "{value}");
+        assert!(value.ends_with(";Sikemux;"), "{value}");
+    }
+
+    #[test]
     fn browser_agent_ids_and_bounds_are_bounded() {
         assert!(validate_agent_id("agent-1:ok_x").is_ok());
         assert!(validate_agent_id("").is_err());
@@ -1220,9 +1620,40 @@ mod tests {
             y: 20.0,
             width: 300.0,
             height: 200.0,
+            clip_left: 40.0,
+            clip_right: 0.0,
+            holes: vec![BrowserHole {
+                x: 0.0,
+                y: 150.0,
+                width: 120.0,
+                height: 34.0,
+                radius: 13.0,
+            }],
         };
         assert!(validate_bounds(&good).is_ok());
-        assert!(validate_bounds(&BrowserBounds { width: 0.0, ..good }).is_err());
+        assert!(validate_bounds(&BrowserBounds {
+            holes: vec![BrowserHole {
+                width: 0.0,
+                ..good.holes[0]
+            }],
+            ..good.clone()
+        })
+        .is_err());
+        assert!(validate_bounds(&BrowserBounds {
+            clip_left: -1.0,
+            ..good.clone()
+        })
+        .is_err());
+        assert!(validate_bounds(&BrowserBounds {
+            clip_right: 261.0,
+            ..good.clone()
+        })
+        .is_err());
+        assert!(validate_bounds(&BrowserBounds {
+            width: 0.0,
+            ..good.clone()
+        })
+        .is_err());
         assert!(validate_bounds(&BrowserBounds {
             x: f64::NAN,
             ..good

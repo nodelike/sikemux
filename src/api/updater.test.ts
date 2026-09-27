@@ -32,6 +32,7 @@ function availableUpdate(overrides: Partial<PendingUpdate> = {}): PendingUpdate 
         currentVersion: "0.2.0",
         notes: "Fix updater progress",
         date: "2026-08-14T00:00:00Z",
+        credits: null,
         state: "available",
         error: null,
         downloadedBytes: 0,

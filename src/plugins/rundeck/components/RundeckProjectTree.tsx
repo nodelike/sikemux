@@ -1,18 +1,25 @@
 import { useMemo } from "react";
 import * as cmd from "../state";
 import { useResourceEnabled } from "../../../plugin-api/resources";
-import { rndJobIndexR, rndProjectsR } from "../resources";
-import { IconChevron, IconFolder } from "../../../plugin-api/ui";
+import { rndJobIndexR, rndMatrixR, rndProjectsR } from "../resources";
+import { IconChevron, IconFolder, IconPanelLeft, IconSearch, Tooltip } from "../../../plugin-api/ui";
 import type { RundeckJob } from "../api";
+import { groupSegments, isLiveStatus } from "../shape";
 import { ancestorPaths, buildGroupTree, type GroupNode } from "./groupTree";
 
 export function RundeckProjectTree({ paneId, active }: { paneId: string; active: boolean }) {
     const projects = useResourceEnabled(active, rndProjectsR);
     const index = useResourceEnabled(active, rndJobIndexR);
-    const width = cmd.useRundeck((s) => s.treeWidth);
-    const activeProject = cmd.rundeckSettings.useSelect((s) => s.activeProject);
-    const activeGroup = cmd.rundeckSettings.useSelect((s) => s.activeGroup);
+    const settingsProject = cmd.rundeckSettings.useSelect((s) => s.activeProject);
+    const settingsGroup = cmd.rundeckSettings.useSelect((s) => s.activeGroup);
+    const { stack } = cmd.useRundeckView(paneId);
+    const top = stack[stack.length - 1];
+    const onJob = top && top.kind !== "matrix";
+    const activeProject = onJob ? top.project : settingsProject;
+    const activeGroup = onJob ? top.group : settingsGroup;
+    const branchOptions = cmd.rundeckSettings.useSelect((s) => s.branchOptions);
     const openState = cmd.useRundeck((s) => s.treeOpen[paneId]);
+    const matrix = useResourceEnabled(active && !!activeProject, rndMatrixR, activeProject, branchOptions);
 
     const jobsByProject = useMemo(() => {
         const map = new Map<string, { jobs: RundeckJob[]; error: string | null }>();
@@ -25,6 +32,17 @@ export function RundeckProjectTree({ paneId, active }: { paneId: string; active:
         return [...list].sort((a, b) => a.localeCompare(b));
     }, [projects.data, index.data]);
 
+    /** Folders in the active project with a run going somewhere inside them; "" is the project itself. */
+    const livePaths = useMemo(() => {
+        const paths = new Set<string>();
+        for (const cell of matrix.data?.cells ?? []) {
+            if (!isLiveStatus(cell.latest?.status)) continue;
+            paths.add("");
+            for (const path of ancestorPaths(cell.group)) paths.add(path);
+        }
+        return paths;
+    }, [matrix.data]);
+
     const activePaths = useMemo(() => new Set(ancestorPaths(activeGroup)), [activeGroup]);
 
     const isOpen = (project: string, path: string | null): boolean => {
@@ -33,160 +51,158 @@ export function RundeckProjectTree({ paneId, active }: { paneId: string; active:
         return project === activeProject && (path === null || activePaths.has(path));
     };
 
+    const rows: RowProps[] = [];
+    for (const project of names) {
+        const entry = jobsByProject.get(project);
+        const tree = buildGroupTree(entry?.jobs ?? []);
+        const open = isOpen(project, null);
+        rows.push({
+            paneId,
+            project,
+            path: null,
+            name: project,
+            depth: 0,
+            count: entry ? tree.total : null,
+            expandable: tree.children.length > 0,
+            open,
+            selected: project === activeProject && activeGroup === null,
+            live: project === activeProject && livePaths.has(""),
+            error: entry?.error ?? null,
+        });
+        if (open)
+            addGroups(
+                rows,
+                paneId,
+                project,
+                tree.children,
+                1,
+                isOpen,
+                project === activeProject ? activeGroup : undefined,
+                project === activeProject ? livePaths : null,
+            );
+    }
+
     return (
-        <aside className="rnd-tree" style={{ width }} aria-label="Rundeck projects">
-            <div className="rnd-tree-section" role="tree">
-                {names.map((project) => (
-                    <ProjectBranch
-                        key={project}
-                        paneId={paneId}
-                        project={project}
-                        entry={jobsByProject.get(project)}
-                        indexLoading={index.status === "loading" && !index.data}
-                        activeProject={activeProject}
-                        activeGroup={activeGroup}
-                        isOpen={isOpen}
-                    />
-                ))}
-                {names.length === 0 && projects.status === "loading" && <div className="rnd-tree-hint">loading…</div>}
-                {names.length === 0 && projects.status === "ok" && <div className="rnd-tree-hint">no projects</div>}
+        <aside className="rnd-tree" aria-label="Rundeck projects">
+            <div className="rnd-tree-head">
+                <span>Projects</span>
+                <Tooltip label="Search every job">
+                    <button className="rnd-tree-tool" onClick={cmd.openRundeckJobPalette} aria-label="Search every job">
+                        <IconSearch size={12} />
+                    </button>
+                </Tooltip>
+                <Tooltip label="Hide projects">
+                    <button className="rnd-tree-tool" onClick={() => cmd.updateRundeckSettings({ treeHidden: true })} aria-label="Hide projects">
+                        <IconPanelLeft size={12} />
+                    </button>
+                </Tooltip>
             </div>
-            {projects.error && !projects.data && <div className="rnd-tree-err">{projects.error}</div>}
-            {index.error && !index.data && <div className="rnd-tree-err">{index.error}</div>}
+            <div className="rnd-tree-rows" role="tree">
+                {rows.map((row) => (
+                    <TreeRow key={`${row.project}\u0000${row.path ?? ""}`} {...row} />
+                ))}
+                {names.length === 0 && projects.status === "loading" && <div className="rnd-tree-hint">Loading projects…</div>}
+                {names.length === 0 && projects.status === "ok" && <div className="rnd-tree-hint">No projects</div>}
+                {projects.error && !projects.data && <div className="rnd-tree-hint err">{projects.error}</div>}
+                {index.error && !index.data && <div className="rnd-tree-hint err">{index.error}</div>}
+            </div>
         </aside>
     );
 }
 
-interface BranchProps {
-    paneId: string;
-    project: string;
-    entry: { jobs: RundeckJob[]; error: string | null } | undefined;
-    indexLoading: boolean;
-    activeProject: string;
-    activeGroup: string | null;
-    isOpen: (project: string, path: string | null) => boolean;
+function addGroups(
+    rows: RowProps[],
+    paneId: string,
+    project: string,
+    nodes: GroupNode[],
+    depth: number,
+    isOpen: (project: string, path: string | null) => boolean,
+    activeGroup: string | null | undefined,
+    livePaths: Set<string> | null,
+): void {
+    for (const node of nodes) {
+        const open = isOpen(project, node.path);
+        rows.push({
+            paneId,
+            project,
+            path: node.path,
+            name: node.name,
+            depth,
+            count: node.count,
+            expandable: node.children.length > 0,
+            open,
+            selected: activeGroup !== undefined && groupSegments(activeGroup).join("/") === node.path,
+            live: !!livePaths?.has(node.path),
+            error: null,
+        });
+        if (open) addGroups(rows, paneId, project, node.children, depth + 1, isOpen, activeGroup, livePaths);
+    }
 }
 
-function ProjectBranch({ paneId, project, entry, indexLoading, activeProject, activeGroup, isOpen }: BranchProps) {
-    const tree = useMemo(() => buildGroupTree(entry?.jobs ?? []), [entry]);
-    const open = isOpen(project, null);
-    const selected = project === activeProject && activeGroup === null;
-    const hasChildren = tree.children.length > 0 || tree.ungrouped > 0;
-
-    return (
-        <div className="rnd-tree-group" role="treeitem" aria-expanded={hasChildren ? open : undefined} aria-selected={selected}>
-            <div className={`rnd-tree-row${selected ? " active" : ""}`}>
-                <Chevron paneId={paneId} project={project} path={null} open={open} visible={hasChildren} />
-                <button type="button" className="rnd-tree-select" onClick={() => select(paneId, project, null)} title={project}>
-                    <span className="rnd-tree-ic">
-                        <IconFolder size={11} />
-                    </span>
-                    <span className="rnd-tree-name">{project}</span>
-                    {entry && <span className="rnd-tree-n">{tree.total}</span>}
-                </button>
-            </div>
-            {open && (
-                <div className="rnd-tree-children" role="group">
-                    {tree.children.map((node) => (
-                        <GroupBranch
-                            key={node.path}
-                            paneId={paneId}
-                            project={project}
-                            node={node}
-                            activeProject={activeProject}
-                            activeGroup={activeGroup}
-                            isOpen={isOpen}
-                        />
-                    ))}
-                    {tree.ungrouped > 0 && tree.children.length > 0 && (
-                        <div className="rnd-tree-hint indent">
-                            (no group) <span className="rnd-tree-n">{tree.ungrouped}</span>
-                        </div>
-                    )}
-                    {!entry && indexLoading && <div className="rnd-tree-hint indent">loading…</div>}
-                    {entry?.error && <div className="rnd-tree-hint indent danger">{entry.error}</div>}
-                </div>
-            )}
-        </div>
-    );
-}
-
-function GroupBranch({
-    paneId,
-    project,
-    node,
-    activeProject,
-    activeGroup,
-    isOpen,
-}: {
-    paneId: string;
-    project: string;
-    node: GroupNode;
-    activeProject: string;
-    activeGroup: string | null;
-    isOpen: (project: string, path: string | null) => boolean;
-}) {
-    const open = isOpen(project, node.path);
-    const selected = project === activeProject && activeGroup === node.path;
-    const hasChildren = node.children.length > 0;
-    return (
-        <div className="rnd-tree-group" role="treeitem" aria-expanded={hasChildren ? open : undefined} aria-selected={selected}>
-            <div className={`rnd-tree-leaf${selected ? " active" : ""}`}>
-                <Chevron paneId={paneId} project={project} path={node.path} open={open} visible={hasChildren} />
-                <button
-                    type="button"
-                    className="rnd-tree-select"
-                    onClick={() => select(paneId, project, node.path)}
-                    title={`${project} · ${node.path}/`}>
-                    <span className="rnd-tree-leaf-name">{node.name}/</span>
-                    <span className="rnd-tree-n">{node.count}</span>
-                </button>
-            </div>
-            {open && hasChildren && (
-                <div className="rnd-tree-children" role="group">
-                    {node.children.map((child) => (
-                        <GroupBranch
-                            key={child.path}
-                            paneId={paneId}
-                            project={project}
-                            node={child}
-                            activeProject={activeProject}
-                            activeGroup={activeGroup}
-                            isOpen={isOpen}
-                        />
-                    ))}
-                </div>
-            )}
-        </div>
-    );
-}
-
-function Chevron({
-    paneId,
-    project,
-    path,
-    open,
-    visible,
-}: {
+interface RowProps {
     paneId: string;
     project: string;
     path: string | null;
+    name: string;
+    depth: number;
+    count: number | null;
+    expandable: boolean;
     open: boolean;
-    visible: boolean;
-}) {
-    if (!visible) return <span className="rnd-tree-chev" />;
-    return (
-        <button
-            type="button"
-            className="rnd-tree-chev"
-            aria-label={open ? "Collapse" : "Expand"}
-            onClick={() => cmd.setTreeOpen(paneId, cmd.treeKey(project, path), !open)}>
-            <IconChevron size={9} className={`rnd-tree-chev-ic${open ? " open" : ""}`} />
-        </button>
-    );
+    selected: boolean;
+    live: boolean;
+    error: string | null;
 }
 
-function select(paneId: string, project: string, path: string | null): void {
-    cmd.setTreeOpen(paneId, cmd.treeKey(project, path), true);
-    cmd.selectRundeckGroup(paneId, project, path);
+function TreeRow({ paneId, project, path, name, depth, count, expandable, open, selected, live, error }: RowProps) {
+    const select = () => {
+        cmd.setTreeOpen(paneId, cmd.treeKey(project, path), true);
+        cmd.selectRundeckGroup(paneId, project, path);
+    };
+    return (
+        <div
+            className="rnd-tree-row"
+            role="treeitem"
+            aria-level={depth + 1}
+            aria-selected={selected}
+            aria-expanded={expandable ? open : undefined}
+            tabIndex={0}
+            title={error ?? (path ? `${project} · ${path}` : project)}
+            onClick={select}
+            onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    select();
+                } else if (expandable && (event.key === "ArrowRight" || event.key === "ArrowLeft")) {
+                    event.preventDefault();
+                    cmd.setTreeOpen(paneId, cmd.treeKey(project, path), event.key === "ArrowRight");
+                }
+            }}>
+            {Array.from({ length: depth }, (_, i) => (
+                <span key={i} className="rnd-tree-guide" />
+            ))}
+            <span className={`rnd-tree-item${selected ? " on" : ""}`}>
+                {expandable ? (
+                    <button
+                        type="button"
+                        className={`rnd-tree-twist${open ? " open" : ""}`}
+                        tabIndex={-1}
+                        aria-label={open ? "Collapse" : "Expand"}
+                        onClick={(event) => {
+                            event.stopPropagation();
+                            cmd.setTreeOpen(paneId, cmd.treeKey(project, path), !open);
+                        }}>
+                        <IconChevron size={10} />
+                    </button>
+                ) : (
+                    <span className="rnd-tree-twist" />
+                )}
+                <span className="rnd-tree-icon">
+                    <IconFolder size={14} />
+                </span>
+                <span className="rnd-tree-name">{name}</span>
+                {live && <span className="rnd-live-dot" title="A job in here is running" />}
+                {error ? <span className="rnd-tree-count err">!</span> : count !== null && <span className="rnd-tree-count">{count}</span>}
+            </span>
+        </div>
+    );
 }
