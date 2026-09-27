@@ -72,6 +72,7 @@ import {
     makePane,
     neighborPane,
     newId,
+    addBeside,
     removePane,
     replacePane,
     resizeTowards,
@@ -88,9 +89,9 @@ import type {
     CliOpenResult,
     CliOpenTarget,
     FocusDir,
-    LayoutNode,
     PickerMode,
     PaneKind,
+    PaneNode,
     ProviderProfile,
     Session,
     SessionKind,
@@ -711,38 +712,33 @@ export function splitActivePane(dir: SplitDir): void {
 }
 
 /**
- * Puts the tab `source` beside the one its session is showing, on `side`, as
- * one tab split down the middle. The tab that stays is the agent's when there
- * is one; the other one's panes move into it, still running. A file moves out
- * of the editor into a pane of its own.
+ * Puts the tab `source` beside the pane `besidePaneId` of the tab its session
+ * is showing, on `side`: up to three across, or two stacked, sharing the space
+ * evenly. The tab that stays is the agent's when there is one; the other one's
+ * pane moves into it, still running. A file moves out of the editor into a
+ * pane of its own.
  */
-export function splitWithTab(sessionId: string, source: TabRef, side: SplitSide): void {
+export function splitWithTab(sessionId: string, source: TabRef, side: SplitSide, besidePaneId?: string): void {
     if (!tabSplitAllowed(getState(), sessionId, source)) return;
     const editor = getState().windows[source.id];
     mutate((d) => {
         const session = d.sessions[sessionId];
         const shown = d.windows[session.activeWindowId];
         const from = d.windows[source.id];
-        let moving: LayoutNode = from.root;
-        let host = from.role === "agent" ? from : shown;
+        const moving = source.doc !== undefined ? makePane(session.cwd, { kind: "editor" }) : (from.root as PaneNode);
+        const root = addBeside(shown.root, besidePaneId ?? null, moving, side);
+        if (!root) return;
+        const host = source.doc === undefined && from.role === "agent" ? from : shown;
         if (source.doc !== undefined) {
-            const pane = makePane(session.cwd, { kind: "editor" });
-            d.editorViews[pane.id] = { openTabs: [source.doc], activePath: source.doc };
-            moving = pane;
-            host = shown;
+            d.editorViews[moving.id] = { openTabs: [source.doc], activePath: source.doc };
         } else {
             const leaving = host === from ? shown : from;
+            const ids = d.windowsBySession[sessionId] ?? [];
             delete d.windows[leaving.id];
-            d.windowsBySession[sessionId] = (d.windowsBySession[sessionId] ?? []).filter((id) => id !== leaving.id);
+            d.windowsBySession[sessionId] = ids.filter((id) => id !== leaving.id);
         }
-        host.root = {
-            type: "split",
-            id: newId("split"),
-            dir: "row",
-            children: side === "left" ? [moving, shown.root] : [shown.root, moving],
-            sizes: [0.5, 0.5],
-        };
-        host.activePaneId = collectPanes(moving)[0].id;
+        host.root = root;
+        host.activePaneId = moving.id;
         session.activeWindowId = host.id;
         d.zoomedPaneId = null;
     });

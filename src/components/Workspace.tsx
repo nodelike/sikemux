@@ -5,7 +5,7 @@ import type { CSSProperties, PointerEvent as ReactPointerEvent, RefObject } from
 import type { Agent, CorePaneKind, Divider, PaneKind, Rect, Session, TabRef, Window as WindowT, WindowRole } from "../state/types";
 import { isPluginKind, type PluginKind } from "../plugins/kinds";
 import { pluginSurface } from "../plugins/registry";
-import { collectPanes, computeLayout, findSplit, MIN_FRAC } from "../state/layout";
+import { collectPanes, computeLayout, findSplit, MIN_FRAC, openSides } from "../state/layout";
 import * as cmd from "../state/commands";
 import { getState, useStore } from "../state/store";
 import {
@@ -214,8 +214,49 @@ const roleLabel = (role: WindowRole): string => (isPluginKind(role) ? (pluginSur
 /** A workspace tab, already carrying the ids the strip and the live layer pair up with. */
 type WorkspaceTab = TabDescriptor & { tabId: string; panelId: string };
 
+interface SplitTarget {
+    paneId: string;
+    side: SplitSide;
+    /** The half of the pane the dropped tab will take, placed within the stage. */
+    box: { left: number; top: number; width: number; height: number };
+}
+
+/** The pane of the tab on screen that is under `point`, and the edge of it the point is nearest that can still take a pane. */
+function splitTargetAt(area: HTMLElement | null, sessionId: string, point: TabPoint): SplitTarget | null {
+    const state = getState();
+    const shown = state.windows[state.sessions[sessionId]?.activeWindowId ?? ""];
+    const stage = area?.getBoundingClientRect();
+    if (!shown || !stage) return null;
+    const open = openSides(shown.root);
+    const own = new Set(collectPanes(shown.root).map((pane) => pane.id));
+    const cell = document
+        .elementsFromPoint(point.x, point.y)
+        .map((element) => element.closest<HTMLElement>("[data-pane-id]"))
+        .find((element) => own.has(element?.dataset.paneId ?? ""));
+    if (!cell || open.length === 0) return null;
+    const pane = cell.getBoundingClientRect();
+    const distance: Record<SplitSide, number> = {
+        left: (point.x - pane.left) / pane.width,
+        right: (pane.right - point.x) / pane.width,
+        top: (point.y - pane.top) / pane.height,
+        bottom: (pane.bottom - point.y) / pane.height,
+    };
+    const side = open.reduce((nearest, edge) => (distance[edge] < distance[nearest] ? edge : nearest));
+    const across = side === "left" || side === "right";
+    return {
+        paneId: cell.dataset.paneId!,
+        side,
+        box: {
+            left: pane.left - stage.left + (side === "right" ? pane.width / 2 : 0),
+            top: pane.top - stage.top + (side === "bottom" ? pane.height / 2 : 0),
+            width: across ? pane.width / 2 : pane.width,
+            height: across ? pane.height : pane.height / 2,
+        },
+    };
+}
+
 const WorkspaceTabsBar = memo(function WorkspaceTabsBar({ session, areaRef }: { session: Session; areaRef: RefObject<HTMLDivElement | null> }) {
-    const [splitSide, setSplitSide] = useState<SplitSide | null>(null);
+    const [splitTarget, setSplitTarget] = useState<SplitTarget | null>(null);
     const windowsById = useStore((s) => s.windows);
     const agentsById = useStore((s) => s.agents);
     const activity = useStore((s) => s.agentActivity);
@@ -411,25 +452,19 @@ const WorkspaceTabsBar = memo(function WorkspaceTabsBar({ session, areaRef }: { 
         const ref = refByKey.get(key);
         return !!ref && tabSplitAllowed(getState(), session.id, ref);
     };
-    // Which half of the stage the pointer is over, below the strip.
-    const sideAt = (point: TabPoint): SplitSide | null => {
-        const bounds = areaRef.current?.getBoundingClientRect();
-        if (!bounds || point.x < bounds.left || point.x > bounds.right || point.y > bounds.bottom) return null;
-        return point.x < bounds.left + bounds.width / 2 ? "left" : "right";
-    };
     const dragOut: TabDragOut = {
         allows: splittable,
-        hover: (_key, point) => setSplitSide(point ? sideAt(point) : null),
+        hover: (_key, point) => setSplitTarget(point ? splitTargetAt(areaRef.current, session.id, point) : null),
         drop: (key, point) => {
             const ref = refByKey.get(key);
-            const side = sideAt(point);
-            if (ref && side) cmd.splitWithTab(session.id, ref, side);
+            const target = splitTargetAt(areaRef.current, session.id, point);
+            if (ref && target) cmd.splitWithTab(session.id, ref, target.side, target.paneId);
         },
     };
 
     return (
         <>
-            {splitSide && <div className={`split-preview split-preview--${splitSide}`} aria-hidden="true" />}
+            {splitTarget && <div className={`split-preview split-preview--${splitTarget.side}`} style={splitTarget.box} aria-hidden="true" />}
             <TabBar
                 variant="agent"
                 tabs={tabs}

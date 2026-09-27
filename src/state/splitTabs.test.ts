@@ -71,13 +71,61 @@ describe("splitting two tabs into one", () => {
         expect(tabs()).toEqual(["one", "pinned"]);
     });
 
-    it("splits beside a tab that is already split", () => {
-        const split: LayoutNode = { type: "split", id: "s", dir: "column", children: [pane("p1"), pane("p2")], sizes: [0.5, 0.5] };
-        place("one", win("one", "term", split), win("two", "named", pane("p3")));
+    it("leaves a tab alone once it is two stacked, and keeps a split tab from being dragged in", () => {
+        const stacked: LayoutNode = { type: "split", id: "s", dir: "column", children: [pane("p1"), pane("p2")], sizes: [0.5, 0.5] };
+        place("one", win("one", "term", stacked), win("two", "named", pane("p3")));
+        expect(tabSplitAllowed(getState(), sessionId(), { id: "two" })).toBe(false);
 
-        splitWithTab(sessionId(), { id: "two" }, "right");
+        place("one", win("one", "term", pane("p1")), win("two", "term", stacked));
+        expect(tabSplitAllowed(getState(), sessionId(), { id: "two" })).toBe(false);
+    });
+});
 
-        expect(collectPanes(shown().root).map((p) => p.id)).toEqual(["p1", "p2", "p3"]);
+describe("splitting in every direction", () => {
+    it("stacks a tab above or below the one on screen", () => {
+        place("one", win("one", "term", pane("p1")), win("two", "term", pane("p2")));
+
+        splitWithTab(sessionId(), { id: "two" }, "bottom");
+
+        expect(shown().root).toMatchObject({ type: "split", dir: "column", children: [{ id: "p1" }, { id: "p2" }] });
+    });
+
+    it("fits three across, in the order they were dropped, sharing the space evenly", () => {
+        place(
+            "one",
+            win("one", "term", pane("p1")),
+            win("two", "term", pane("p2")),
+            win("three", "term", pane("p3")),
+            win("four", "term", pane("p4")),
+        );
+
+        splitWithTab(sessionId(), { id: "two" }, "right", "p1");
+        splitWithTab(sessionId(), { id: "three" }, "left", "p2");
+
+        expect(tabs()).toEqual(["one", "four"]);
+        expect(shown().root).toMatchObject({ dir: "row", children: [{ id: "p1" }, { id: "p3" }, { id: "p2" }] });
+        const root = shown().root;
+        const sizes = root.type === "split" ? root.sizes : [];
+        expect(sizes.map((size) => size.toFixed(3))).toEqual(["0.333", "0.333", "0.333"]);
+        expect(tabSplitAllowed(getState(), sessionId(), { id: "four" })).toBe(false);
+    });
+
+    it("stacks only two, and a row takes no pane above or below", () => {
+        place("one", win("one", "term", pane("p1")), win("two", "term", pane("p2")), win("three", "term", pane("p3")));
+        splitWithTab(sessionId(), { id: "two" }, "right", "p1");
+
+        splitWithTab(sessionId(), { id: "three" }, "bottom", "p1");
+
+        expect(tabs()).toEqual(["one", "three"]);
+        expect(shown().root).toMatchObject({ dir: "row", children: [{ id: "p1" }, { id: "p2" }] });
+    });
+
+    it("splits beside the whole tab when the pane named is not in it", () => {
+        place("one", win("one", "term", pane("p1")), win("two", "term", pane("p2")));
+
+        splitWithTab(sessionId(), { id: "two" }, "left", "somewhere-else");
+
+        expect(shown().root).toMatchObject({ dir: "row", children: [{ id: "p2" }, { id: "p1" }] });
     });
 });
 

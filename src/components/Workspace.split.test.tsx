@@ -22,7 +22,7 @@ afterEach(() => {
 });
 
 describe("dragging a tab onto the screen", () => {
-    it("shows the half it will take, then splits it beside the tab on screen", () => {
+    it("shows the half of the pane it will take, on the edge nearest the pointer, then splits there", () => {
         cmd.newWindow();
         const [first, second] = getState().windowsBySession[getState().activeSessionId];
         const paneOf = (id: string) => collectPanes(getState().windows[id].root)[0].id;
@@ -30,15 +30,30 @@ describe("dragging a tab onto the screen", () => {
         const { container } = render(<Workspace />);
         const area = container.querySelector<HTMLElement>(".window-area")!;
         vi.spyOn(area, "getBoundingClientRect").mockReturnValue({ left: 0, right: 1000, top: 0, bottom: 800, width: 1000, height: 800 } as DOMRect);
+        const target = container.querySelector<HTMLElement>(`[data-pane-id="${secondPane}"]`)!;
+        vi.spyOn(target, "getBoundingClientRect").mockReturnValue({
+            left: 0,
+            right: 1000,
+            top: 40,
+            bottom: 800,
+            width: 1000,
+            height: 760,
+        } as DOMRect);
+        document.elementsFromPoint = () => [target];
         const firstTab = screen.getAllByRole("tab")[0];
+        const preview = () => container.querySelector<HTMLElement>(".split-preview");
 
         fireEvent.pointerDown(firstTab, { button: 0, clientX: 10, clientY: 10 });
         fireEvent.pointerMove(window, { clientX: 20, clientY: 300 });
-        expect(container.querySelector(".split-preview")).toHaveClass("split-preview--left");
-        fireEvent.pointerMove(window, { clientX: 800, clientY: 300 });
-        expect(container.querySelector(".split-preview")).toHaveClass("split-preview--right");
+        expect(preview()).toHaveClass("split-preview--left");
+        expect(preview()?.style.width).toBe("500px");
+        fireEvent.pointerMove(window, { clientX: 500, clientY: 790 });
+        expect(preview()).toHaveClass("split-preview--bottom");
+        expect(preview()?.style.top).toBe("420px");
+        fireEvent.pointerMove(window, { clientX: 980, clientY: 300 });
+        expect(preview()).toHaveClass("split-preview--right");
 
-        fireEvent.pointerUp(window, { clientX: 800, clientY: 300 });
+        fireEvent.pointerUp(window, { clientX: 980, clientY: 300 });
         act(() => vi.advanceTimersByTime(TAB_SLIDE_MS));
 
         expect(container.querySelector(".split-preview")).toBeNull();

@@ -1,7 +1,7 @@
 import { pluginDocuments } from "../plugins/documents";
 import type { PaneKind, PaneNode, Session, TabRef, Window, WindowRole } from "./types";
 import type { StoreState } from "./store";
-import { collectPanes } from "./layout";
+import { collectPanes, openSides } from "./layout";
 
 export const selectSessionIds = (state: StoreState): readonly string[] => state.sessionOrder;
 export const selectActiveSessionId = (state: StoreState): string => state.activeSessionId;
@@ -299,14 +299,16 @@ const EMPTY_IDS: readonly string[] = Object.freeze([]);
 /** Tabs that can share the screen. Git, search and plugin tabs each stay whole, since their shortcuts find them by their own tab. */
 const SPLITTABLE_ROLES: ReadonlySet<WindowRole> = new Set(["term", "named", "agent"]);
 
-export type SplitSide = "left" | "right";
+export type SplitSide = "left" | "right" | "top" | "bottom";
 
 type SplitState = Pick<StoreState, "sessions" | "windows" | "windowsBySession" | "dirtyEditorPaths">;
 
 /**
  * Whether the tab `source` can be split beside the one its session is
- * showing. Two agents cannot share a tab, because an agent is found by the
- * tab it lives in. A file with unsaved changes stays in the editor that holds them.
+ * showing, which has room while it holds fewer than three panes across or a
+ * single one. Two agents cannot share a tab, because an agent is found by the
+ * tab it lives in, and a tab already split stays whole. A file with unsaved
+ * changes stays in the editor that holds them.
  */
 export function tabSplitAllowed(state: SplitState, sessionId: string, source: TabRef): boolean {
     const session = state.sessions[sessionId];
@@ -314,10 +316,11 @@ export function tabSplitAllowed(state: SplitState, sessionId: string, source: Ta
     const from = state.windows[source.id];
     if (!shown || !from || shown.id === from.id || shown.transient || from.transient) return false;
     if (!(state.windowsBySession[sessionId] ?? []).includes(from.id) || !SPLITTABLE_ROLES.has(shown.role)) return false;
+    if (openSides(shown.root).length === 0) return false;
     if (source.doc !== undefined) {
         return from.role === "files" && !(state.dirtyEditorPaths[from.activePaneId] ?? []).includes(source.doc);
     }
-    if (!SPLITTABLE_ROLES.has(from.role) || (shown.role === "agent" && from.role === "agent")) return false;
+    if (!SPLITTABLE_ROLES.has(from.role) || (shown.role === "agent" && from.role === "agent") || from.root.type !== "pane") return false;
     return !(from.role === "agent" ? shown : from).fixed;
 }
 

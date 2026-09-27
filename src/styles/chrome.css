@@ -648,23 +648,14 @@
     inset: calc(var(--window-strip-h) + var(--window-strip-gap)) 0 0;
     --pan: 0%;
 }
-/* The half of the screen a tab pulled down out of the strip will split into. */
+/* The half of a pane a tab pulled down out of the strip will split into. */
 .split-preview {
     position: absolute;
-    top: calc(var(--window-strip-h) + var(--window-strip-gap));
-    bottom: 0;
-    width: 50%;
     z-index: 20;
     pointer-events: none;
     border-radius: var(--radius-panel);
     background: color-mix(in oklab, var(--acc) 14%, transparent);
     box-shadow: inset 0 0 0 2px color-mix(in oklab, var(--acc) 55%, transparent);
-}
-.split-preview--left {
-    left: 0;
-}
-.split-preview--right {
-    right: 0;
 }
 /* A transform here would trap the `position: fixed` overlays panes put on
    screen, so the screens are only offset for the length of a slide. */
