@@ -1,5 +1,5 @@
 import { pluginDocuments, usePluginDocumentsVersion } from "../plugins/documents";
-import { memo, useMemo, useRef } from "react";
+import { memo, useMemo, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import type { CSSProperties, PointerEvent as ReactPointerEvent, RefObject } from "react";
 import type { Agent, CorePaneKind, Divider, PaneKind, Rect, Session, TabRef, Window as WindowT, WindowRole } from "../state/types";
@@ -15,13 +15,17 @@ import {
     expandTabRefs,
     selectSwipeOrder,
     selectTabRefs,
+    paneToSeparate,
     tabRefKey,
+    tabSplitAllowed,
     workspaceTabDropAllowed,
+    type SplitSide,
 } from "../state/selectors";
 import { type CtxItem } from "./FileTree";
 import { ErrorBoundary } from "./ErrorBoundary";
 import { ShaderField } from "./ShaderField";
 import { TabBar, type TabDescriptor } from "./TabBar";
+import type { TabDragOut, TabPoint } from "./useTabReorder";
 import { AgentIcon, IconPlus, WindowIcon } from "./Icons";
 import { AgentStateIndicator, SubagentCount } from "./AgentStateIndicator";
 import { renderWorkbenchItem } from "../workbench/renderers";
@@ -122,7 +126,7 @@ export const Workspace = memo(function Workspace() {
 
     // The strip is what the screens start below, so its absence is what the
     // stage has to know about: with no tabs there is nothing to start below.
-    const strip = activeSession && tabCount > 0 ? <WorkspaceTabsBar session={activeSession} /> : null;
+    const strip = activeSession && tabCount > 0 ? <WorkspaceTabsBar session={activeSession} areaRef={areaRef} /> : null;
 
     return (
         <div className={`window-area${strip ? " window-area--strip" : ""}`} ref={areaRef}>
@@ -210,7 +214,8 @@ const roleLabel = (role: WindowRole): string => (isPluginKind(role) ? (pluginSur
 /** A workspace tab, already carrying the ids the strip and the live layer pair up with. */
 type WorkspaceTab = TabDescriptor & { tabId: string; panelId: string };
 
-const WorkspaceTabsBar = memo(function WorkspaceTabsBar({ session }: { session: Session }) {
+const WorkspaceTabsBar = memo(function WorkspaceTabsBar({ session, areaRef }: { session: Session; areaRef: RefObject<HTMLDivElement | null> }) {
+    const [splitSide, setSplitSide] = useState<SplitSide | null>(null);
     const windowsById = useStore((s) => s.windows);
     const agentsById = useStore((s) => s.agents);
     const activity = useStore((s) => s.agentActivity);
@@ -395,52 +400,83 @@ const WorkspaceTabsBar = memo(function WorkspaceTabsBar({ session }: { session: 
 
     const refByKey = new Map(refs.map((ref) => [tabRefKey(ref), ref]));
 
+    const withSeparate = (win: WindowT, items: CtxItem[]): CtxItem[] => {
+        const pane = paneToSeparate(win, getState().dirtyEditorPaths);
+        if (!pane) return items;
+        const label = pane.kind === "editor" ? "Move Focused File Back to Editor" : "Move Focused Terminal to New Tab";
+        return [...items, { sep: true }, { label, run: () => cmd.separatePane(win.id) }];
+    };
+
+    const splittable = (key: string) => {
+        const ref = refByKey.get(key);
+        return !!ref && tabSplitAllowed(getState(), session.id, ref);
+    };
+    // Which half of the stage the pointer is over, below the strip.
+    const sideAt = (point: TabPoint): SplitSide | null => {
+        const bounds = areaRef.current?.getBoundingClientRect();
+        if (!bounds || point.x < bounds.left || point.x > bounds.right || point.y > bounds.bottom) return null;
+        return point.x < bounds.left + bounds.width / 2 ? "left" : "right";
+    };
+    const dragOut: TabDragOut = {
+        allows: splittable,
+        hover: (_key, point) => setSplitSide(point ? sideAt(point) : null),
+        drop: (key, point) => {
+            const ref = refByKey.get(key);
+            const side = sideAt(point);
+            if (ref && side) cmd.splitWithTab(session.id, ref, side);
+        },
+    };
+
     return (
-        <TabBar
-            variant="agent"
-            tabs={tabs}
-            onSelect={(key) => {
-                const ref = refByKey.get(key);
-                if (ref) cmd.selectTab(ref);
-            }}
-            onClose={(key) => {
-                const ref = refByKey.get(key);
-                if (ref) cmd.closeTab(ref);
-            }}
-            buildMenu={(key) => {
-                const ref = refByKey.get(key);
-                if (!ref) return [];
-                const win = windowsById[ref.id];
-                if (!win) return [];
-                const pluginDocs = ref.doc !== undefined ? pluginDocuments(win.role) : undefined;
-                if (ref.doc !== undefined && pluginDocs) {
-                    const doc = ref.doc;
-                    return pluginDocs.menu ? [...pluginDocs.menu(win.activePaneId, doc)] : [{ label: "Close", run: () => cmd.closeTab(ref) }];
-                }
-                if (ref.doc !== undefined) return fileMenu(win, ref.doc);
-                if (win.role === "agent") {
-                    const agent = agentsById[agentPaneId(win) ?? ""];
-                    return agent ? agentMenu(agent) : [];
-                }
-                return windowMenu(win);
-            }}
-            onAdd={() => cmd.openNewTabPalette()}
-            addIcon={<IconPlus size={13} />}
-            addTitle="New tab"
-            canReorder={(sourceKey, targetKey, placement) => {
-                const source = refByKey.get(sourceKey);
-                const target = refByKey.get(targetKey);
-                return !!source && !!target && workspaceTabDropAllowed(refs, source, target, placement);
-            }}
-            onReorder={(sourceKey, targetKey, placement) => {
-                const source = refByKey.get(sourceKey);
-                const target = refByKey.get(targetKey);
-                if (!source || !target) return;
-                // Beside another window's documents means beside that window.
-                if (source.doc !== undefined && target.doc !== undefined) cmd.reorderDocumentTab(source.id, source.doc, target.doc, placement);
-                else cmd.reorderWindowTab(session.id, source.id, target.id, placement);
-            }}
-        />
+        <>
+            {splitSide && <div className={`split-preview split-preview--${splitSide}`} aria-hidden="true" />}
+            <TabBar
+                variant="agent"
+                tabs={tabs}
+                onSelect={(key) => {
+                    const ref = refByKey.get(key);
+                    if (ref) cmd.selectTab(ref);
+                }}
+                onClose={(key) => {
+                    const ref = refByKey.get(key);
+                    if (ref) cmd.closeTab(ref);
+                }}
+                buildMenu={(key) => {
+                    const ref = refByKey.get(key);
+                    if (!ref) return [];
+                    const win = windowsById[ref.id];
+                    if (!win) return [];
+                    const pluginDocs = ref.doc !== undefined ? pluginDocuments(win.role) : undefined;
+                    if (ref.doc !== undefined && pluginDocs) {
+                        const doc = ref.doc;
+                        return pluginDocs.menu ? [...pluginDocs.menu(win.activePaneId, doc)] : [{ label: "Close", run: () => cmd.closeTab(ref) }];
+                    }
+                    if (ref.doc !== undefined) return fileMenu(win, ref.doc);
+                    if (win.role === "agent") {
+                        const agent = agentsById[agentPaneId(win) ?? ""];
+                        return agent ? withSeparate(win, agentMenu(agent)) : [];
+                    }
+                    return withSeparate(win, windowMenu(win));
+                }}
+                onAdd={() => cmd.openNewTabPalette()}
+                addIcon={<IconPlus size={13} />}
+                addTitle="New tab"
+                canReorder={(sourceKey, targetKey, placement) => {
+                    const source = refByKey.get(sourceKey);
+                    const target = refByKey.get(targetKey);
+                    return !!source && !!target && workspaceTabDropAllowed(refs, source, target, placement);
+                }}
+                onReorder={(sourceKey, targetKey, placement) => {
+                    const source = refByKey.get(sourceKey);
+                    const target = refByKey.get(targetKey);
+                    if (!source || !target) return;
+                    // Beside another window's documents means beside that window.
+                    if (source.doc !== undefined && target.doc !== undefined) cmd.reorderDocumentTab(source.id, source.doc, target.doc, placement);
+                    else cmd.reorderWindowTab(session.id, source.id, target.id, placement);
+                }}
+                dragOut={dragOut}
+            />
+        </>
     );
 });
 

@@ -1,5 +1,5 @@
 import { pluginDocuments } from "../plugins/documents";
-import type { PaneKind, Session, TabRef, Window } from "./types";
+import type { PaneKind, PaneNode, Session, TabRef, Window, WindowRole } from "./types";
 import type { StoreState } from "./store";
 import { collectPanes } from "./layout";
 
@@ -295,3 +295,41 @@ export function selectItemState(state: StoreState, kind: PaneKind, itemId: strin
 }
 
 const EMPTY_IDS: readonly string[] = Object.freeze([]);
+
+/** Tabs that can share the screen. Git, search and plugin tabs each stay whole, since their shortcuts find them by their own tab. */
+const SPLITTABLE_ROLES: ReadonlySet<WindowRole> = new Set(["term", "named", "agent"]);
+
+export type SplitSide = "left" | "right";
+
+type SplitState = Pick<StoreState, "sessions" | "windows" | "windowsBySession" | "dirtyEditorPaths">;
+
+/**
+ * Whether the tab `source` can be split beside the one its session is
+ * showing. Two agents cannot share a tab, because an agent is found by the
+ * tab it lives in. A file with unsaved changes stays in the editor that holds them.
+ */
+export function tabSplitAllowed(state: SplitState, sessionId: string, source: TabRef): boolean {
+    const session = state.sessions[sessionId];
+    const shown = session ? state.windows[session.activeWindowId] : undefined;
+    const from = state.windows[source.id];
+    if (!shown || !from || shown.id === from.id || shown.transient || from.transient) return false;
+    if (!(state.windowsBySession[sessionId] ?? []).includes(from.id) || !SPLITTABLE_ROLES.has(shown.role)) return false;
+    if (source.doc !== undefined) {
+        return from.role === "files" && !(state.dirtyEditorPaths[from.activePaneId] ?? []).includes(source.doc);
+    }
+    if (!SPLITTABLE_ROLES.has(from.role) || (shown.role === "agent" && from.role === "agent")) return false;
+    return !(from.role === "agent" ? shown : from).fixed;
+}
+
+/**
+ * The pane that can be moved out of a split tab: its focused terminal, or its
+ * focused file when that has no unsaved changes, while the tab holds more than one pane.
+ */
+export function paneToSeparate(win: Window, dirtyEditorPaths: StoreState["dirtyEditorPaths"]): PaneNode | null {
+    const panes = collectPanes(win.root);
+    if (panes.length < 2 || !SPLITTABLE_ROLES.has(win.role)) return null;
+    const active = panes.find((pane) => pane.id === win.activePaneId);
+    if (active?.kind === "terminal" && !active.externalPty) return active;
+    if (active?.kind === "editor" && (dirtyEditorPaths[active.id] ?? []).length === 0) return active;
+    return null;
+}

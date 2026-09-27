@@ -17,6 +17,22 @@ import {
 export type TabReorderHandler = (sourceId: string, targetId: string, placement: TabPlacement) => void;
 export type TabDropRule = (sourceId: string, targetId: string, placement: TabPlacement) => boolean;
 
+export interface TabPoint {
+    x: number;
+    y: number;
+}
+
+/** Where a tab pulled down out of its strip can go: the stage below, split beside what it shows. */
+export interface TabDragOut {
+    allows: (sourceId: string) => boolean;
+    /** Where the pointer is while the tab is out of the strip, or null once it is back. */
+    hover: (sourceId: string, point: TabPoint | null) => void;
+    drop: (sourceId: string, point: TabPoint) => void;
+}
+
+/** How far below the strip the pointer goes before the tab counts as pulled out of it. */
+export const TAB_PULL_OUT = 24;
+
 interface DragSession {
     sourceId: string;
     startX: number;
@@ -27,6 +43,8 @@ interface DragSession {
     width: number;
     boxes: TabBox[];
     pills: HTMLElement[];
+    stripBottom: number;
+    out: TabPoint | null;
 }
 
 const shift = (px: number) => (px === 0 ? "" : `translateX(${px}px)`);
@@ -45,14 +63,15 @@ export function useTabReorder(
     orderedIds: readonly string[],
     onReorder: TabReorderHandler | undefined,
     canDrop: TabDropRule | undefined,
+    dragOut?: TabDragOut,
 ) {
     const [draggingId, setDraggingId] = useState<string | null>(null);
     const session = useRef<DragSession | null>(null);
     const detach = useRef<(() => void) | null>(null);
     const settleTimer = useRef<number | null>(null);
     const swallowClick = useRef(false);
-    const latest = useRef({ orderedIds, onReorder, canDrop });
-    latest.current = { orderedIds, onReorder, canDrop };
+    const latest = useRef({ orderedIds, onReorder, canDrop, dragOut });
+    latest.current = { orderedIds, onReorder, canDrop, dragOut };
 
     /* Clears every offset in one frame with transitions off, so tabs land
        where they already are instead of animating back from it. */
@@ -71,6 +90,7 @@ export function useTabReorder(
         settleTimer.current = null;
         const drag = session.current;
         session.current = null;
+        if (drag?.out) latest.current.dragOut?.hover(drag.sourceId, null);
         if (drag?.active) release(drag.pills);
         setDraggingId(null);
         document.body.classList.remove("is-sorting-tabs");
@@ -78,20 +98,22 @@ export function useTabReorder(
 
     useEffect(() => end, [end]);
 
-    const measure = (sourceId: string): Pick<DragSession, "from" | "boxes" | "pills" | "width"> | null => {
+    const measure = (sourceId: string): Pick<DragSession, "from" | "boxes" | "pills" | "width" | "stripBottom"> | null => {
         const pills: HTMLElement[] = [];
         const boxes: TabBox[] = [];
+        let stripBottom = -Infinity;
         for (const id of latest.current.orderedIds) {
             const tab = tabElements.current?.get(id);
             const pill = (tab?.closest(".tab-wrap") as HTMLElement | null) ?? tab;
             if (!pill) continue;
-            const { left, right } = pill.getBoundingClientRect();
+            const { left, right, bottom } = pill.getBoundingClientRect();
             pills.push(pill);
             boxes.push({ id, left, right });
+            stripBottom = Math.max(stripBottom, bottom);
         }
         const from = boxes.findIndex((box) => box.id === sourceId);
         if (from < 0) return null;
-        return { from, boxes, pills, width: boxes[from].right - boxes[from].left };
+        return { from, boxes, pills, width: boxes[from].right - boxes[from].left, stripBottom };
     };
 
     const layOut = (drag: DragSession, dx: number) => {
@@ -118,6 +140,8 @@ export function useTabReorder(
             width: 0,
             boxes: [],
             pills: [],
+            stripBottom: 0,
+            out: null,
         };
 
         const move = (e: PointerEvent) => {
@@ -132,6 +156,18 @@ export function useTabReorder(
                 document.body.classList.add("is-sorting-tabs");
             }
             e.preventDefault();
+            const dragOut = latest.current.dragOut;
+            if (dragOut?.allows(drag.sourceId) && e.clientY > drag.stripBottom + TAB_PULL_OUT) {
+                // Out of the strip the tab is going elsewhere, so its neighbours close the gap.
+                drag.out = { x: e.clientX, y: e.clientY };
+                layOut(drag, 0);
+                dragOut.hover(drag.sourceId, drag.out);
+                return;
+            }
+            if (drag.out) {
+                drag.out = null;
+                dragOut?.hover(drag.sourceId, null);
+            }
             layOut(drag, clampTravel(drag.boxes, drag.from, e.clientX - drag.startX));
         };
 
@@ -143,6 +179,19 @@ export function useTabReorder(
             window.setTimeout(() => (swallowClick.current = false), 0);
             detach.current?.();
             detach.current = null;
+
+            const out = drag.out;
+            if (out) {
+                drag.out = null;
+                const dragOut = latest.current.dragOut;
+                dragOut?.hover(drag.sourceId, null);
+                session.current = null;
+                release(drag.pills);
+                setDraggingId(null);
+                document.body.classList.remove("is-sorting-tabs");
+                dragOut?.drop(drag.sourceId, out);
+                return;
+            }
 
             const target = dropForSlot(drag.boxes, drag.from, drag.slot);
             const held = drag.pills[drag.from];
@@ -167,6 +216,10 @@ export function useTabReorder(
             e.preventDefault();
             e.stopPropagation();
             drag.slot = drag.from;
+            if (drag.out) {
+                drag.out = null;
+                latest.current.dragOut?.hover(drag.sourceId, null);
+            }
             drag.pills.forEach((pill, index) => {
                 if (index !== drag.from) pill.style.transform = "";
             });

@@ -52,10 +52,13 @@ import {
     agentPaneId,
     nextInCycle,
     ownerSessionId,
+    paneToSeparate,
     selectTabRefs,
     shownDeskPaneId,
     stripOrder,
     tabRefKey,
+    tabSplitAllowed,
+    type SplitSide,
     type TabSource,
 } from "./selectors";
 import { agentWindow } from "./agentWindow";
@@ -85,6 +88,7 @@ import type {
     CliOpenResult,
     CliOpenTarget,
     FocusDir,
+    LayoutNode,
     PickerMode,
     PaneKind,
     ProviderProfile,
@@ -704,6 +708,77 @@ export function splitActivePane(dir: SplitDir): void {
         win.activePaneId = np.id;
         d.zoomedPaneId = null;
     });
+}
+
+/**
+ * Puts the tab `source` beside the one its session is showing, on `side`, as
+ * one tab split down the middle. The tab that stays is the agent's when there
+ * is one; the other one's panes move into it, still running. A file moves out
+ * of the editor into a pane of its own.
+ */
+export function splitWithTab(sessionId: string, source: TabRef, side: SplitSide): void {
+    if (!tabSplitAllowed(getState(), sessionId, source)) return;
+    const editor = getState().windows[source.id];
+    mutate((d) => {
+        const session = d.sessions[sessionId];
+        const shown = d.windows[session.activeWindowId];
+        const from = d.windows[source.id];
+        let moving: LayoutNode = from.root;
+        let host = from.role === "agent" ? from : shown;
+        if (source.doc !== undefined) {
+            const pane = makePane(session.cwd, { kind: "editor" });
+            d.editorViews[pane.id] = { openTabs: [source.doc], activePath: source.doc };
+            moving = pane;
+            host = shown;
+        } else {
+            const leaving = host === from ? shown : from;
+            delete d.windows[leaving.id];
+            d.windowsBySession[sessionId] = (d.windowsBySession[sessionId] ?? []).filter((id) => id !== leaving.id);
+        }
+        host.root = {
+            type: "split",
+            id: newId("split"),
+            dir: "row",
+            children: side === "left" ? [moving, shown.root] : [shown.root, moving],
+            sizes: [0.5, 0.5],
+        };
+        host.activePaneId = collectPanes(moving)[0].id;
+        session.activeWindowId = host.id;
+        d.zoomedPaneId = null;
+    });
+    if (source.doc !== undefined && editor) closeDocument(editor, source.doc);
+}
+
+/**
+ * Moves a split tab's focused pane out: a terminal into a tab of its own just
+ * after, still running, and a file back into the editor.
+ */
+export function separatePane(windowId: string): void {
+    const st = getState();
+    const win = st.windows[windowId];
+    const pane = win ? paneToSeparate(win, st.dirtyEditorPaths) : null;
+    const sessionId = win ? ownerSessionId(st, windowId) : null;
+    if (!win || !pane || !sessionId) return;
+    const path = pane.kind === "editor" ? st.editorViews[pane.id]?.activePath : null;
+    mutate((d) => {
+        const host = d.windows[windowId];
+        const rest = removePane(host.root, pane.id);
+        if (!rest) return;
+        host.root = rest;
+        host.activePaneId = collectPanes(rest)[0].id;
+        d.zoomedPaneId = null;
+        if (pane.kind === "editor") {
+            delete d.editorViews[pane.id];
+            return;
+        }
+        const separated: Window = { id: newId("win"), name: pane.title, role: pane.startup ? "named" : "term", root: pane, activePaneId: pane.id };
+        d.windows[separated.id] = separated;
+        const ids = d.windowsBySession[sessionId] ?? [];
+        const index = ids.indexOf(windowId);
+        d.windowsBySession[sessionId] = [...ids.slice(0, index + 1), separated.id, ...ids.slice(index + 1)];
+        d.sessions[sessionId].activeWindowId = separated.id;
+    });
+    if (path) requestOpenFile(path);
 }
 
 export async function runBackgroundCommand(
