@@ -6,14 +6,16 @@ const win = (id: string, role: string) => ({ id, role, activePaneId: `${id}-pane
 
 describe("roleHasTab", () => {
     /*
-     * The rail reaches these and the stage renders them, so a tab would be a
-     * second handle on one surface — "Git" in the rail and "Git" in the strip
-     * meant the same screen.
+     * A diff is opened from a change in the rail and read in place, so a tab
+     * would be a second handle on one surface.
      */
-    it("denies a window tab to the roles the workspace rail drives", () => {
+    it("denies a window tab to the diff the rail drives", () => {
         expect(roleHasTab("diff")).toBe(false);
-        expect(roleHasTab("search")).toBe(false);
-        expect(roleHasTab("git")).toBe(false);
+    });
+
+    it("gives Git and search a tab, so they can be picked from the strip and split", () => {
+        expect(roleHasTab("git")).toBe(true);
+        expect(roleHasTab("search")).toBe(true);
     });
 
     /*
@@ -35,18 +37,18 @@ describe("roleHasTab", () => {
 describe("selectSwipeOrder", () => {
     it("skips the windows the strip has no tab for", () => {
         const state = {
-            windowsBySession: { s: ["a1", "e1", "g1", "a2"] },
-            windows: { a1: win("a1", "agent"), e1: win("e1", "files"), g1: win("g1", "git"), a2: win("a2", "agent") },
+            windowsBySession: { s: ["a1", "e1", "d1", "g1", "a2"] },
+            windows: { a1: win("a1", "agent"), e1: win("e1", "files"), d1: win("d1", "diff"), g1: win("g1", "git"), a2: win("a2", "agent") },
             editorViews: { "e1-pane": { openTabs: [], activePath: null } },
             brunoViews: {},
         } as unknown as StoreState;
 
-        expect(selectSwipeOrder(state, "s")).toEqual(["a1", "a2"]);
+        expect(selectSwipeOrder(state, "s")).toEqual(["a1", "e1", "g1", "a2"]);
     });
 });
 
 describe("expandTabRefs", () => {
-    it("leaves out rail-driven windows and keeps the rest", () => {
+    it("leaves out the diff and keeps the rest", () => {
         const refs = expandTabRefs(["t1", "e1", "d1", "s1", "g1"], {
             t1: win("t1", "term"),
             e1: win("e1", "files"),
@@ -55,7 +57,7 @@ describe("expandTabRefs", () => {
             g1: win("g1", "git"),
         });
 
-        expect(refs.map(tabRefKey)).toEqual(["t1"]);
+        expect(refs.map(tabRefKey)).toEqual(["t1", "e1", "s1", "g1"]);
     });
 
     it("expands an editor into one tab per open document, in their open order", () => {
@@ -64,10 +66,10 @@ describe("expandTabRefs", () => {
         expect(refs.map(tabRefKey)).toEqual(["e1:/a.ts", "e1:/b.ts"]);
     });
 
-    it("gives an editor holding nothing no tab at all", () => {
+    it("gives an editor holding nothing one tab for itself", () => {
         const refs = expandTabRefs(["e1"], { e1: win("e1", "files") }, { "e1-pane": { openTabs: [], activePath: null } });
 
-        expect(refs).toEqual([]);
+        expect(refs.map(tabRefKey)).toEqual(["e1"]);
     });
 
     it("keeps a document's tab beside the terminals and agents it shares a strip with", () => {
@@ -86,8 +88,8 @@ describe("expandTabRefs", () => {
         expect(refs.map(tabRefKey)).toEqual(["t1"]);
     });
 
-    it("yields no tabs for a project holding only rail-driven surfaces", () => {
-        const refs = expandTabRefs(["e1", "d1"], { e1: win("e1", "files"), d1: win("d1", "diff") });
+    it("yields no tabs for a project holding only a diff", () => {
+        const refs = expandTabRefs(["d1"], { d1: win("d1", "diff") });
 
         expect(refs).toEqual([]);
     });

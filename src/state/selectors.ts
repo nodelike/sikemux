@@ -102,16 +102,16 @@ export function ownerSessionId(state: Pick<StoreState, "sessionOrder" | "windows
 /**
  * Roles the workspace rail drives, which therefore have no tab of their own.
  *
- * The rail is how you reach these and the stage is where they render, so a tab
- * for them was a second handle on one surface: "Git" in the rail and "Git" in
- * the strip both meant the same screen. Every other role keeps its tab, since
- * nothing else offers a way back to it.
+ * A diff is opened from a change in the rail and read in place, so a tab for
+ * it would be a second handle on one surface. Git and search keep a tab, so
+ * they can be picked from the strip and split beside the work they are about.
  *
  * `files` is absent here because an editor is not one surface: the rail browses
  * the tree, but each open document is its own thing to switch between, so an
- * editor contributes a tab per document instead of none.
+ * editor contributes a tab per document instead, and one for itself while it
+ * holds none.
  */
-const RAIL_DRIVEN_ROLES: ReadonlySet<string> = new Set(["diff", "search", "git"]);
+const RAIL_DRIVEN_ROLES: ReadonlySet<string> = new Set(["diff"]);
 
 /** Whether `role` contributes a window entry to the session tab strip. */
 export function roleHasTab(role: string): boolean {
@@ -140,16 +140,17 @@ export function documentsOf(win: Window, editorViews: StoreState["editorViews"])
  * renders them, so a tab would be a second handle on one surface. An editor,
  * and any plugin surface that holds documents, contributes one entry per open
  * document, which is what puts them in this strip rather than a second bar
- * inside the pane; with nothing open they contribute nothing, because an empty
- * one is not worth a tab. Everything else gets exactly one entry, and the list
- * is derived rather than stored, so a window can never exist without its tab.
+ * inside the pane. With nothing open a plugin surface contributes nothing, and
+ * an editor one entry for itself. Everything else gets exactly one entry, and
+ * the list is derived rather than stored, so a window can never exist without
+ * its tab.
  */
 export function expandTabRefs(windowIds: readonly string[], windows: StoreState["windows"], editorViews: StoreState["editorViews"] = {}): TabRef[] {
     return windowIds.flatMap((id): TabRef[] => {
         const win = windows[id];
         if (!win) return [];
         const documents = documentsOf(win, editorViews);
-        if (documents) return documents.ids.map((doc): TabRef => ({ id, doc }));
+        if (documents && (documents.ids.length > 0 || win.role !== "files")) return documents.ids.map((doc): TabRef => ({ id, doc }));
         return roleHasTab(win.role) ? [{ id }] : [];
     });
 }
