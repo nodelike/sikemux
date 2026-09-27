@@ -12,6 +12,7 @@ import {
     activeTabRef,
     agentPaneId,
     documentsOf,
+    editorPaneOf,
     expandTabRefs,
     selectSwipeOrder,
     selectTabRefs,
@@ -299,8 +300,8 @@ const WorkspaceTabsBar = memo(function WorkspaceTabsBar({ session, areaRef }: { 
     };
 
     const fileMenu = (win: WindowT, doc: string): CtxItem[] => {
-        const open = editorViews[win.activePaneId]?.openTabs ?? [];
-        const dirty = new Set(dirtyEditorPaths[win.activePaneId] ?? []);
+        const open = editorViews[editorPaneOf(win, editorViews)]?.openTabs ?? [];
+        const dirty = new Set(dirtyEditorPaths[editorPaneOf(win, editorViews)] ?? []);
         const index = open.indexOf(doc);
         const close = (paths: string[]) => paths.forEach((path) => cmd.closeTab({ id: win.id, doc: path }));
         const others = open.filter((path) => path !== doc);
@@ -374,7 +375,7 @@ const WorkspaceTabsBar = memo(function WorkspaceTabsBar({ session, areaRef }: { 
                         label: name,
                         title: ref.doc,
                         active: key === activeKey,
-                        dirty: (dirtyEditorPaths[win.activePaneId] ?? []).includes(ref.doc),
+                        dirty: (dirtyEditorPaths[editorPaneOf(win, editorViews)] ?? []).includes(ref.doc),
                         icon: <FileIcon name={name} size={16} />,
                     },
                 ];
@@ -442,7 +443,7 @@ const WorkspaceTabsBar = memo(function WorkspaceTabsBar({ session, areaRef }: { 
     const refByKey = new Map(refs.map((ref) => [tabRefKey(ref), ref]));
 
     const withSeparate = (win: WindowT, items: CtxItem[]): CtxItem[] => {
-        const pane = paneToSeparate(win, getState().dirtyEditorPaths);
+        const pane = paneToSeparate(win, getState());
         if (!pane) return items;
         const label = pane.kind === "editor" ? "Move Focused File Back to Editor" : "Move Focused Pane Back to Tab Bar";
         return [...items, { sep: true }, { label, run: () => cmd.separatePane(win.id) }];
@@ -533,14 +534,15 @@ const WindowLayer = memo(function WindowLayer({
     slot: number;
     areaRef: RefObject<HTMLDivElement | null>;
 }) {
-    const editorView = useStore((s) => s.editorViews[win.activePaneId]);
-    const dirtyEditorPaths = useStore((s) => s.dirtyEditorPaths);
+    const editorPaneId = useStore((s) => editorPaneOf(win, s.editorViews));
+    const editorView = useStore((s) => s.editorViews[editorPaneId]);
+    const splitState = useStore(useShallow((s) => ({ dirtyEditorPaths: s.dirtyEditorPaths, editorViews: s.editorViews })));
     usePluginDocumentsVersion();
-    const editorViews = editorView ? { [win.activePaneId]: editorView } : {};
+    const editorViews = editorView ? { [editorPaneId]: editorView } : {};
     const active = activeTabRef(session, { [win.id]: win }, editorViews);
     const documents = documentsOf(win, editorViews);
     const layerRef = useRef<HTMLDivElement>(null);
-    useDocumentSlide(layerRef, live ? win.activePaneId : null, documents?.activeId ?? null, documents?.ids ?? EMPTY_IDS);
+    useDocumentSlide(layerRef, live ? editorPaneId : null, documents?.activeId ?? null, documents?.ids ?? EMPTY_IDS);
     const zoomedPaneId = useStore((s) => s.zoomedPaneId);
     const paneShader = useStore((s) => s.paneShader);
     const { panes, dividers, stacked, stacks, inStack } = useMemo(() => computeLayout(win.root, win.activePaneId), [win.root, win.activePaneId]);
@@ -600,7 +602,7 @@ const WindowLayer = memo(function WindowLayer({
                             <ErrorBoundary label={`${p.kind} pane`}>
                                 {renderWorkbenchItem({ pane: p, session, win, active: paneActive, visible: paneVisible, painted: panePainted })}
                             </ErrorBoundary>
-                            {live && (paneToSeparate(win, dirtyEditorPaths, p.id) || (p.kind === "agent" && collectPanes(win.root).length > 1)) && (
+                            {live && (paneToSeparate(win, splitState, p.id) || (p.kind === "agent" && collectPanes(win.root).length > 1)) && (
                                 <button
                                     type="button"
                                     className="pane-unsplit"

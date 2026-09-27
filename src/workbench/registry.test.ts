@@ -157,6 +157,15 @@ describe("workbench item persistence", () => {
         expect(registry.decodePersisted(ref, editorEnvelope(state))).toEqual({ ok: true, ref, state });
     });
 
+    it("keeps a view split beside other work as showing one file, and nothing else in that field", () => {
+        const registry = new WorkbenchItemRegistry();
+        const ref = createWorkbenchItemRef("pane-editor", "editor");
+        const state = { openTabs: ["/project/a.ts"], activePath: "/project/a.ts", single: true };
+
+        expect(registry.decodePersisted(ref, editorEnvelope(state))).toEqual({ ok: true, ref, state });
+        expect(registry.decodePersisted(ref, editorEnvelope({ ...state, single: false }))).toMatchObject({ ok: false });
+    });
+
     it("accepts the tab-count boundary and rejects one tab beyond it", () => {
         const registry = new WorkbenchItemRegistry();
         const ref = createWorkbenchItemRef("pane-editor", "editor");

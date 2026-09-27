@@ -957,9 +957,10 @@ export function EditorPane({
     useEffect(() => {
         if (bare) return;
         return subscribe("open-file", (e) => {
-            // An editor split beside another tab shows the one file it was given.
-            const ownWindow = Object.values(useStore.getState().windows).find((win) => collectPanes(win.root).some((pane) => pane.id === paneId));
-            if (ownWindow && ownWindow.role !== "files") return;
+            // A view split beside other work shows the one file it was given.
+            const { windows, editorViews } = useStore.getState();
+            const ownWindow = Object.values(windows).find((win) => collectPanes(win.root).some((pane) => pane.id === paneId));
+            if ((ownWindow && ownWindow.role !== "files") || editorViews[paneId]?.single) return;
             // Project files open in their owning editor. LSP targets may live
             // in GOMODCACHE, rust stdlib, site-packages, etc.; route those to
             // the active editor instead of dropping them.

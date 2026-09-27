@@ -125,9 +125,16 @@ export function roleHasTab(role: string): boolean {
  * document and where each keeps its list, so a new document-holding kind is
  * a case here and nowhere else.
  */
+/** The pane an editor tab keeps its files in; a view split beside it shows one file and is not it. Other tabs answer with their focused pane. */
+export function editorPaneOf(win: Window, editorViews: StoreState["editorViews"]): string {
+    if (win.role !== "files" || win.root.type === "pane") return win.activePaneId;
+    const editors = collectPanes(win.root).filter((pane) => pane.kind === "editor");
+    return (editors.find((pane) => !editorViews[pane.id]?.single) ?? editors[0])?.id ?? win.activePaneId;
+}
+
 export function documentsOf(win: Window, editorViews: StoreState["editorViews"]): { ids: readonly string[]; activeId: string | null } | null {
     if (win.role === "files") {
-        const view = editorViews[win.activePaneId];
+        const view = editorViews[editorPaneOf(win, editorViews)];
         return { ids: view?.openTabs ?? EMPTY_IDS, activeId: view?.activePath ?? null };
     }
     return pluginDocuments(win.role)?.list(win.activePaneId) ?? null;
@@ -298,11 +305,11 @@ export function selectItemState(state: StoreState, kind: PaneKind, itemId: strin
 const EMPTY_IDS: readonly string[] = Object.freeze([]);
 
 /** Tabs that can share the screen. Plugin tabs and the diff each stay whole. */
-const SPLITTABLE_ROLES: ReadonlySet<WindowRole> = new Set(["term", "named", "agent", "git", "search"]);
+const SPLITTABLE_ROLES: ReadonlySet<WindowRole> = new Set(["term", "named", "agent", "git", "search", "files"]);
 
 export type SplitSide = "left" | "right" | "top" | "bottom";
 
-type SplitState = Pick<StoreState, "sessions" | "windows" | "windowsBySession" | "dirtyEditorPaths">;
+type SplitState = Pick<StoreState, "sessions" | "windows" | "windowsBySession" | "dirtyEditorPaths" | "editorViews">;
 
 /**
  * Whether the tab `source` can be split beside the one its session is
@@ -315,26 +322,34 @@ export function tabSplitAllowed(state: SplitState, sessionId: string, source: Ta
     const session = state.sessions[sessionId];
     const shown = session ? state.windows[session.activeWindowId] : undefined;
     const from = state.windows[source.id];
-    if (!shown || !from || shown.id === from.id || shown.transient || from.transient) return false;
+    if (!shown || !from || shown.transient || from.transient) return false;
+    if (shown.id === from.id && !(source.doc !== undefined && shown.role === "files")) return false;
     if (!(state.windowsBySession[sessionId] ?? []).includes(from.id) || !SPLITTABLE_ROLES.has(shown.role)) return false;
     if (openSides(shown.root).length === 0) return false;
     if (source.doc !== undefined) {
-        return from.role === "files" && !(state.dirtyEditorPaths[from.activePaneId] ?? []).includes(source.doc);
+        return from.role === "files" && !(state.dirtyEditorPaths[editorPaneOf(from, state.editorViews)] ?? []).includes(source.doc);
     }
-    if (!SPLITTABLE_ROLES.has(from.role) || (shown.role === "agent" && from.role === "agent") || from.root.type !== "pane") return false;
+    if (from.role === "files" || (shown.role === "agent" && from.role === "agent") || from.root.type !== "pane") return false;
+    if (!SPLITTABLE_ROLES.has(from.role)) return false;
     return !(from.role === "agent" ? shown : from).fixed;
 }
 
 /**
  * Whether the pane `paneId` (the focused one when unnamed) can be moved out of
- * its split tab: a terminal, Git, search, or a file with no unsaved changes,
- * while the tab holds more than one pane.
+ * its split tab: a terminal, Git, search, or a file's single view with no
+ * unsaved changes, while the tab holds more than one pane. The editor holding
+ * an editor tab's files stays; anywhere else an editor was split in.
  */
-export function paneToSeparate(win: Window, dirtyEditorPaths: StoreState["dirtyEditorPaths"], paneId = win.activePaneId): PaneNode | null {
+export function paneToSeparate(
+    win: Window,
+    { dirtyEditorPaths, editorViews }: Pick<StoreState, "dirtyEditorPaths" | "editorViews">,
+    paneId = win.activePaneId,
+): PaneNode | null {
     const panes = collectPanes(win.root);
     if (panes.length < 2 || !SPLITTABLE_ROLES.has(win.role)) return null;
     const pane = panes.find((candidate) => candidate.id === paneId);
     if ((pane?.kind === "terminal" && !pane.externalPty) || pane?.kind === "git" || pane?.kind === "search") return pane;
-    if (pane?.kind === "editor" && (dirtyEditorPaths[pane.id] ?? []).length === 0) return pane;
+    const splitIn = win.role !== "files" || editorViews[pane?.id ?? ""]?.single;
+    if (pane?.kind === "editor" && splitIn && (dirtyEditorPaths[pane.id] ?? []).length === 0) return pane;
     return null;
 }

@@ -184,7 +184,7 @@ function isValidPersistedEditorPath(value: unknown): value is string {
 
 function decodeEditorView(encoded: unknown): PersistedCodecResult<EditorPaneView> {
     if (!isRecord(encoded)) return CODEC_FAILURE;
-    const { openTabs, activePath } = encoded;
+    const { openTabs, activePath, single } = encoded;
     if (!Array.isArray(openTabs) || openTabs.length > EDITOR_PERSISTENCE_LIMITS.maxOpenTabs) return CODEC_FAILURE;
     const uniquePaths = new Set<string>();
     for (const path of openTabs) {
@@ -192,7 +192,8 @@ function decodeEditorView(encoded: unknown): PersistedCodecResult<EditorPaneView
         uniquePaths.add(path);
     }
     if (activePath !== null && (!isValidPersistedEditorPath(activePath) || !uniquePaths.has(activePath))) return CODEC_FAILURE;
-    return { ok: true, value: { openTabs: openTabs.slice(), activePath } };
+    if (single !== undefined && single !== true) return CODEC_FAILURE;
+    return { ok: true, value: { openTabs: openTabs.slice(), activePath, ...(single ? { single } : {}) } };
 }
 
 function isValidPersistedBrowserUrl(value: unknown): value is string {

@@ -2,7 +2,13 @@ import { describe, expect, it } from "vitest";
 import { activeTabRef, expandTabRefs, nextInCycle, roleHasTab, selectSwipeOrder, stripOrder, tabRefKey } from "./selectors";
 import type { StoreState } from "./store";
 
-const win = (id: string, role: string) => ({ id, role, activePaneId: `${id}-pane` }) as unknown as StoreState["windows"][string];
+const win = (id: string, role: string) =>
+    ({
+        id,
+        role,
+        activePaneId: `${id}-pane`,
+        root: { type: "pane", id: `${id}-pane`, kind: "terminal" },
+    }) as unknown as StoreState["windows"][string];
 
 describe("roleHasTab", () => {
     /*

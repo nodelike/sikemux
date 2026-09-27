@@ -1,6 +1,8 @@
 export interface EditorPaneView {
     openTabs: string[];
     activePath: string | null;
+    /** A view split beside other work that shows one file, rather than an editor holding the tab's files. */
+    single?: true;
 }
 
 /** A page the desk can open again, with the title to label it until it loads. */

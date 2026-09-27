@@ -50,6 +50,7 @@ import {
     agentIdsOf,
     agentWindowId,
     agentPaneId,
+    editorPaneOf,
     nextInCycle,
     ownerSessionId,
     paneToSeparate,
@@ -560,7 +561,7 @@ export function reorderDocumentTab(windowId: string, sourceDoc: string, targetDo
     mutate((d) => {
         const win = d.windows[windowId];
         if (!win) return;
-        const list = win.role === "files" ? d.editorViews[win.activePaneId]?.openTabs : undefined;
+        const list = win.role === "files" ? d.editorViews[editorPaneOf(win, d.editorViews)]?.openTabs : undefined;
         if (list) moveBeside(list, sourceDoc, targetDoc, placement);
     });
     const win = getState().windows[windowId];
@@ -745,6 +746,7 @@ const splitOrigins = new Map<string, { windowId: string; name: string; role: Win
 export function splitWithTab(sessionId: string, source: TabRef, side: SplitSide, besidePaneId?: string): void {
     if (!tabSplitAllowed(getState(), sessionId, source)) return;
     const editor = getState().windows[source.id];
+    const shownId = getState().sessions[sessionId]?.activeWindowId;
     mutate((d) => {
         const session = d.sessions[sessionId];
         const shown = d.windows[session.activeWindowId];
@@ -754,7 +756,7 @@ export function splitWithTab(sessionId: string, source: TabRef, side: SplitSide,
         if (!root) return;
         const host = source.doc === undefined && from.role === "agent" ? from : shown;
         if (source.doc !== undefined) {
-            d.editorViews[moving.id] = { openTabs: [source.doc], activePath: source.doc };
+            d.editorViews[moving.id] = { openTabs: [source.doc], activePath: source.doc, single: true };
         } else {
             const leaving = host === from ? shown : from;
             const ids = d.windowsBySession[sessionId] ?? [];
@@ -775,7 +777,8 @@ export function splitWithTab(sessionId: string, source: TabRef, side: SplitSide,
         session.activeWindowId = host.id;
         d.zoomedPaneId = null;
     });
-    if (source.doc !== undefined && editor) closeDocument(editor, source.doc);
+    // Beside another tab the file moves out of the editor; beside the editor itself it is a second view of it.
+    if (source.doc !== undefined && editor && editor.id !== shownId) closeDocument(editor, source.doc);
 }
 
 /**
@@ -786,10 +789,12 @@ export function splitWithTab(sessionId: string, source: TabRef, side: SplitSide,
 export function separatePane(windowId: string, paneId?: string): void {
     const st = getState();
     const win = st.windows[windowId];
-    const pane = win ? paneToSeparate(win, st.dirtyEditorPaths, paneId) : null;
+    const pane = win ? paneToSeparate(win, st, paneId) : null;
     const sessionId = win ? ownerSessionId(st, windowId) : null;
     if (!win || !pane || !sessionId) return;
-    const path = pane.kind === "editor" ? st.editorViews[pane.id]?.activePath : null;
+    const view = pane.kind === "editor" ? st.editorViews[pane.id] : undefined;
+    // The file showing goes last, so the editor ends on it.
+    const paths = view ? [...view.openTabs.filter((open) => open !== view.activePath), ...(view.activePath ? [view.activePath] : [])] : [];
     const origin = splitOrigins.get(pane.id);
     splitOrigins.delete(pane.id);
     mutate((d) => {
@@ -829,7 +834,7 @@ export function separatePane(windowId: string, paneId?: string): void {
         d.windowsBySession[sessionId] = [...ids.slice(0, at), separated.id, ...ids.slice(at)];
         d.sessions[sessionId].activeWindowId = separated.id;
     });
-    if (path) requestOpenFile(path);
+    for (const path of paths) requestOpenFile(path);
 }
 
 /** Takes a split tab apart: every pane that can leave goes back where it came from, and the agent, if any, keeps the tab. */
@@ -1407,14 +1412,14 @@ export function selectWindowId(id: string): void {
 
 /** Shows `doc` in the window holding it; the window's role says which view keeps it. */
 function selectDocument(win: Window, doc: string): void {
-    if (win.role === "files") setEditorView(win.activePaneId, { activePath: doc });
+    if (win.role === "files") setEditorView(editorPaneOf(win, getState().editorViews), { activePath: doc });
     pluginDocuments(win.role)?.select(win.activePaneId, doc);
 }
 
 function closeDocument(win: Window, doc: string): void {
     // The editor owns the unsaved-changes prompt and the CodeMirror state for
     // each document, so closing goes through it rather than around it.
-    if (win.role === "files") emit({ type: "close-file", paneId: win.activePaneId, path: doc });
+    if (win.role === "files") emit({ type: "close-file", paneId: editorPaneOf(win, getState().editorViews), path: doc });
     pluginDocuments(win.role)?.close(win.activePaneId, doc);
 }
 

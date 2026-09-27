@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { openGitWorkbench, separatePane, splitWithTab, unsplitTab } from "./commands";
 import { collectPanes } from "./layout";
-import { paneToSeparate, tabSplitAllowed } from "./selectors";
+import { editorPaneOf, expandTabRefs, paneToSeparate, tabRefKey, tabSplitAllowed } from "./selectors";
 import { getState, setState } from "./store";
 import type { LayoutNode, Window } from "./types";
 
@@ -188,9 +188,9 @@ describe("moving a terminal back to its own tab", () => {
             children: [pane("p1"), pane("a1", "agent")],
             sizes: [0.5, 0.5],
         });
-        expect(paneToSeparate({ ...agentTab, activePaneId: "a1" }, {})).toBeNull();
-        expect(paneToSeparate({ ...agentTab, activePaneId: "p1" }, {})?.id).toBe("p1");
-        expect(paneToSeparate(win("one", "term", pane("p1")), {})).toBeNull();
+        expect(paneToSeparate({ ...agentTab, activePaneId: "a1" }, { dirtyEditorPaths: {}, editorViews: {} })).toBeNull();
+        expect(paneToSeparate({ ...agentTab, activePaneId: "p1" }, { dirtyEditorPaths: {}, editorViews: {} })?.id).toBe("p1");
+        expect(paneToSeparate(win("one", "term", pane("p1")), { dirtyEditorPaths: {}, editorViews: {} })).toBeNull();
     });
 });
 
@@ -211,7 +211,7 @@ describe("splitting a file beside the tab on screen", () => {
         const [agentPane, filePane] = collectPanes(shown().root);
         expect(agentPane.id).toBe("a1");
         expect(filePane).toMatchObject({ kind: "editor" });
-        expect(getState().editorViews[filePane.id]).toEqual({ openTabs: ["/p/a.ts"], activePath: "/p/a.ts" });
+        expect(getState().editorViews[filePane.id]).toEqual({ openTabs: ["/p/a.ts"], activePath: "/p/a.ts", single: true });
         expect(shown().activePaneId).toBe(filePane.id);
     });
 
@@ -271,5 +271,61 @@ describe("splitting Git and search", () => {
         const remaining = getState().windows.search;
         expect(remaining).toMatchObject({ role: "term", root: { id: "p1" } });
         expect(getState().windows[tabs()[1]]).toMatchObject({ role: "search", root: { id: "s1" } });
+    });
+});
+
+describe("an editor split in without being marked a single view", () => {
+    it("still moves back out of an agent's tab, with every file it held", () => {
+        const layout: LayoutNode = { type: "split", id: "s", dir: "row", children: [pane("a1", "agent"), pane("ed2", "editor")], sizes: [0.5, 0.5] };
+        place("agent", win("agent", "agent", layout), win("files", "files", pane("ed", "editor")));
+        setState({ editorViews: { ed: { openTabs: [], activePath: null }, ed2: { openTabs: ["/p/a.ts", "/p/b.ts"], activePath: "/p/a.ts" } } });
+
+        expect(paneToSeparate(shown(), getState(), "ed2")?.id).toBe("ed2");
+        unsplitTab("agent");
+
+        expect(getState().windows.agent.root).toMatchObject({ type: "pane", id: "a1" });
+        expect(getState().editorViews.ed2).toBeUndefined();
+    });
+});
+
+describe("the same file twice in the editor", () => {
+    function editorTab(...paths: string[]): void {
+        place("files", win("files", "files", pane("ed", "editor")));
+        setState({ editorViews: { ed: { openTabs: paths, activePath: paths[0] } } });
+    }
+
+    it("opens a second view of a file beside it, and the editor keeps it open", () => {
+        editorTab("/p/a.ts", "/p/b.ts");
+
+        splitWithTab(sessionId(), { id: "files", doc: "/p/a.ts" }, "right");
+
+        expect(tabs()).toEqual(["files"]);
+        const [main, view] = collectPanes(shown().root);
+        expect(main.id).toBe("ed");
+        expect(getState().editorViews[view.id]).toEqual({ openTabs: ["/p/a.ts"], activePath: "/p/a.ts", single: true });
+        expect(getState().editorViews.ed.openTabs).toEqual(["/p/a.ts", "/p/b.ts"]);
+    });
+
+    it("keeps the file tabs on the editor, whichever view has focus", () => {
+        editorTab("/p/a.ts", "/p/b.ts");
+        splitWithTab(sessionId(), { id: "files", doc: "/p/a.ts" }, "right");
+
+        expect(shown().activePaneId).not.toBe("ed");
+        expect(editorPaneOf(shown(), getState().editorViews)).toBe("ed");
+        expect(expandTabRefs(tabs(), getState().windows, getState().editorViews).map(tabRefKey)).toEqual(["files:/p/a.ts", "files:/p/b.ts"]);
+    });
+
+    it("moves the second view out but never the editor itself", () => {
+        editorTab("/p/a.ts");
+        splitWithTab(sessionId(), { id: "files", doc: "/p/a.ts" }, "right");
+        const view = collectPanes(shown().root)[1];
+
+        expect(paneToSeparate(shown(), getState(), "ed")).toBeNull();
+        expect(paneToSeparate(shown(), getState(), view.id)?.id).toBe(view.id);
+
+        separatePane("files", view.id);
+
+        expect(shown().root).toMatchObject({ type: "pane", id: "ed" });
+        expect(getState().editorViews.ed.openTabs).toEqual(["/p/a.ts"]);
     });
 });
