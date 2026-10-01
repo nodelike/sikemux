@@ -174,12 +174,11 @@ mod platform {
 
 #[cfg(not(target_os = "macos"))]
 mod platform {
-    use std::ffi::c_void;
     use std::path::Path;
 
     use super::Placement;
 
-    pub fn show(_page: *mut c_void, _owner: String, _path: &Path, _placement: Placement) {}
+    pub fn show<Page>(_page: Page, _owner: String, _path: &Path, _placement: Placement) {}
 
     pub fn hide(_owner: &str) {}
 
