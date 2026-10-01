@@ -4,7 +4,7 @@ Thanks for taking the time to contribute. Sikemux is a Tauri + Rust + React desk
 
 ## Getting started
 
-**Prerequisites:** [rustup](https://www.rust-lang.org/tools/install), which installs the Rust version `rust-toolchain.toml` pins, the same one CI uses (Homebrew Rust ignores that file), Node.js 22+, and pnpm 10.33.0 (the version pinned in `package.json`). macOS bundles require Xcode; Windows development requires Microsoft C++ Build Tools and WebView2. Published releases target Apple Silicon. Windows is not a current target: the background core that owns terminals and agents is Unix-only, so the app no longer builds there and `pnpm build:windows` does not work.
+**Prerequisites:** [rustup](https://www.rust-lang.org/tools/install), which installs the Rust version `rust-toolchain.toml` pins, the same one CI uses (Homebrew Rust ignores that file), Node.js 22+, and pnpm 10.33.0 (the version pinned in `package.json`). macOS bundles require Xcode; Linux builds require the [Tauri Linux packages](https://v2.tauri.app/start/prerequisites/#linux) (WebKitGTK 4.1, librsvg), and `pnpm build:linux` makes a `.deb`, an `.rpm` and an AppImage; Windows development requires Microsoft C++ Build Tools and WebView2. Published releases target Apple Silicon. Windows is not a current target: the background core that owns terminals and agents is Unix-only, so the app no longer builds there and `pnpm build:windows` does not work.
 
 ```bash
 git clone git@github.com:nodelike/sikemux.git
