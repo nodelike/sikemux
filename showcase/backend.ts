@@ -3,7 +3,7 @@ import type {
   IpcTransport,
   IpcUnsubscribe,
 } from "../src/api/transport";
-import type { GitOverview } from "../src/api/git";
+import type { GitCommit, GitOverview } from "../src/api/git";
 import {
   AGENT_SCRIPTS,
   AGENT_USAGE,
@@ -13,6 +13,7 @@ import {
 } from "./world/agents";
 import { BRANCHES, GIT_STATUS } from "./world/git";
 import { RUNDECK, rundeckStream } from "./world/rundeck";
+import { GITHUB } from "./world/github";
 import { SIGNOZ, signozTail } from "./world/signoz";
 import { AWS, awsLogLines } from "./world/aws";
 import { demoActivity } from "./world/activity";
@@ -23,7 +24,12 @@ import {
   brunoDir,
 } from "./world/bruno";
 import { BROWSER_TABS, placeBrowserPage } from "./browserPage";
-import { DEMO_HOME, DEMO_PROJECTS } from "./world/projects";
+import {
+  DEMO_HOME,
+  DEMO_PROJECTS,
+  PANE_IMAGE,
+  SIKEMUX,
+} from "./world/projects";
 import { terminalReplay } from "./world/terminals";
 import { demoSnapshot } from "./world/workspace";
 
@@ -38,6 +44,46 @@ async function server<T>(endpoint: string, input: unknown): Promise<T> {
   const value = await response.json();
   if (!response.ok) throw new Error(value.error);
   return value as T;
+}
+
+interface RecentRequest {
+  providers: { agent: string }[];
+  projects: string[];
+  limit: number;
+  cursor?: { key: string } | null;
+  query?: string;
+  exclude: { agent: string; id: string }[];
+}
+
+// The demo's saved chats all belong to the sikemux project.
+function recentPage(request: RecentRequest) {
+  const rows = request.providers
+    .flatMap(({ agent }) =>
+      (SAVED_SESSIONS[agent] ?? []).map((row) => ({
+        ...row,
+        agent,
+        project: SIKEMUX,
+      })),
+    )
+    .filter((row) => request.projects.includes(row.project))
+    .filter(
+      (row) =>
+        !request.exclude.some(
+          (open) => open.agent === row.agent && open.id === row.id,
+        ),
+    )
+    .filter(
+      (row) =>
+        !request.query || row.title.toLowerCase().includes(request.query),
+    )
+    .sort((a, b) => b.mtime - a.mtime);
+  const start = request.cursor ? Number(request.cursor.key) : 0;
+  const sessions = rows.slice(start, start + request.limit);
+  const end = start + sessions.length;
+  return {
+    sessions,
+    next: end < rows.length ? { atMs: 0, agent: "", key: String(end) } : null,
+  };
 }
 
 export class ShowcaseBackend implements IpcTransport {
@@ -95,8 +141,14 @@ export class ShowcaseBackend implements IpcTransport {
     this.on(
       "plugin_manifests",
       constant(
-        ["rundeck", "signoz", "aws", "bruno"].map((name) => ({
-          id: `sikemux.${name}`,
+        [
+          ["rundeck", "Rundeck"],
+          ["signoz", "SigNoz"],
+          ["aws", "AWS"],
+          ["bruno", "Bruno"],
+          ["github", "GitHub"],
+        ].map(([id, name]) => ({
+          id: `sikemux.${id}`,
           name,
           version: "1.0.0",
           sikemux: "^0.4.0",
@@ -108,6 +160,7 @@ export class ShowcaseBackend implements IpcTransport {
       constant({ percent: 86, charging: false, time_remaining: null }),
     );
     this.on("cli_frontend_ready", constant([]));
+    this.on("take_deep_links", constant([]));
     this.on("harness_claim", constant([]));
     this.on("git_worktree_list", constant([]));
     this.on("agent_sessions_watch_start", constant(1));
@@ -171,6 +224,9 @@ export class ShowcaseBackend implements IpcTransport {
         ? brunoDir(path as string)
         : [],
     );
+    this.on("preview_file", ({ path }) =>
+      path === PANE_IMAGE ? { mime: "image/jpeg", size: 0, modified: 0 } : null,
+    );
     this.on("read_file_versioned", async ({ path }) => ({
       content: await server<string>("read_file", { path }),
       version: "showcase",
@@ -213,6 +269,46 @@ export class ShowcaseBackend implements IpcTransport {
       ]),
     );
     this.on("git_stash_list", constant([]));
+    this.on("git_commit_files", async ({ repo, rev }) => {
+      const project = DEMO_PROJECTS.find(
+        (candidate) => candidate.path === repo,
+      );
+      if (!project) return [];
+      return server<string[]>("commit_files", { project: project.name, rev });
+    });
+    this.on("git_compare", async ({ repo }) => {
+      const project = DEMO_PROJECTS.find(
+        (candidate) => candidate.path === repo,
+      );
+      if (!project) throw new Error("could not find repository");
+      const log = await server<GitCommit[]>("git_log", {
+        project: project.name,
+        count: 4,
+      });
+      const commits = log.slice(0, 3);
+      const paths = new Set<string>();
+      for (const commit of commits) {
+        const files = await server<string[]>("commit_files", {
+          project: project.name,
+          rev: commit.full_hash,
+        });
+        files.forEach((path) => paths.add(path));
+      }
+      return {
+        merge_base: log[3]?.full_hash ?? "",
+        files: [...paths].map((path) => ({ path, status: "M" })),
+        commits,
+      };
+    });
+    this.on("git_remote_branches", ({ repo, remote }) =>
+      (BRANCHES[repo as string] ?? ["main"]).map((name) => ({
+        name,
+        full_ref: `${remote}/${name}`,
+        is_head_pointer: false,
+        tracked_by: name,
+        subject: null,
+      })),
+    );
 
     let nextPty = 1;
     const ptyPanes = new Map<number, { paneId?: string; cwd: string | null }>();
@@ -244,10 +340,17 @@ export class ShowcaseBackend implements IpcTransport {
       "agent_sessions",
       ({ agent }) => SAVED_SESSIONS[agent as string] ?? [],
     );
+    this.on("agent_recent_sessions", ({ request }) =>
+      recentPage(request as RecentRequest),
+    );
     this.on(
       "agent_usage",
       ({ agent }) => AGENT_USAGE[agent as keyof typeof AGENT_USAGE] ?? null,
     );
+    this.on("acp_attach", () => ({ status: "missing" }));
+    this.on("acp_list", () => []);
+    this.on("pty_sessions", () => []);
+    this.on("listening_ports", () => []);
     this.on("acp_start", ({ agentId, provider }) =>
       this.startAgent(agentId as string, provider as string),
     );
@@ -257,6 +360,7 @@ export class ShowcaseBackend implements IpcTransport {
       "sikemux.signoz": SIGNOZ,
       "sikemux.aws": AWS,
       "sikemux.bruno": { send: () => CHECKOUT_RESPONSE },
+      "sikemux.github": GITHUB,
     };
     this.on("plugin_call", ({ plugin, method, params }) => {
       const answer = plugins[plugin as string]?.[method as string];
@@ -288,6 +392,57 @@ export class ShowcaseBackend implements IpcTransport {
     this.on("browser_set_bounds", ({ agentId, bounds }) =>
       placeBrowserPage(agentId as string, bounds as DOMRectInit | null),
     );
+
+    const phone =
+      "4b1e8c0d27a95f36e1c4b80d9a2f6e7135c0b8d4e9f2a6c1d07e3b5f9a8c2d41";
+    const remote = {
+      enabled: true,
+      coreId:
+        "7d3f9c2ae0b54d18a6f1c39e85b27d0c4fa16e93b2d8c05a7e14f69b3c2d8a50",
+      addresses: [] as string[],
+      devices: [
+        {
+          id: phone,
+          name: "iPhone",
+          platform: "ios",
+          access: "full",
+          pairedAt: Date.now() - 9 * 86_400_000,
+          lastSeen: Date.now(),
+        },
+        {
+          id: "9a0c5e3b7d1f48a2c6e09b4d8f3a1c7e5b2d06f9a4c8e1b3d7f5a2c09e6b4d18",
+          name: "Pixel 9",
+          platform: "android",
+          access: "watch",
+          pairedAt: Date.now() - 30 * 86_400_000,
+          lastSeen: Date.now() - 2 * 3_600_000,
+        },
+      ],
+      connected: [phone],
+      pairing: null as { code: string; expiresAt: number } | null,
+      pending: [] as {
+        id: string;
+        deviceId: string;
+        name: string;
+        platform: string;
+      }[],
+    };
+    this.on("remote_status", () => ({ ...remote }));
+    this.on("remote_set_enabled", ({ enabled }) => ({
+      ...Object.assign(remote, { enabled: enabled as boolean }),
+    }));
+    this.on("remote_open_pairing", () => ({
+      ...Object.assign(remote, {
+        pairing: {
+          code: "482913",
+          expiresAt: Date.now() + 5 * 60_000,
+          link: "sikemux://pair?core=7d3f9c2ae0b54d18a6f1c39e85b27d0c4fa16e93b2d8c05a7e14f69b3c2d8a50&code=482913",
+        },
+      }),
+    }));
+    this.on("remote_close_pairing", () => ({
+      ...Object.assign(remote, { pairing: null }),
+    }));
   }
 
   private readonly liveSteps: { run: () => void; holdMs: number }[] = [];

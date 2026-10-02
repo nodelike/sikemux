@@ -1,0 +1,98 @@
+.commit-review {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+}
+.commit-head {
+    flex: 0 0 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    padding: 9px 12px;
+    border-bottom: 1px solid var(--border);
+}
+.commit-hash {
+    color: var(--warn);
+    font-size: var(--text-2xs);
+}
+.commit-subject {
+    color: var(--text-primary);
+    font-size: 12.5px;
+}
+.commit-empty {
+    padding: 12px;
+    color: var(--text-tertiary);
+    font-size: var(--text-2xs);
+}
+
+.commit-stack {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+}
+.acc-item {
+    border-bottom: 1px solid var(--border);
+}
+.acc-item.open > .acc-header {
+    box-shadow: 0 1px 0 var(--border);
+}
+.acc-header {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    height: 28px;
+    padding-right: 2px;
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    /* A pinned header covers the code scrolling under it, so it keeps a near-solid ground even in a transparent window. */
+    background: color-mix(in srgb, var(--surface) var(--surface-solidity, 100%), transparent);
+    cursor: pointer;
+    user-select: none;
+}
+.acc-toggle {
+    display: flex;
+    align-items: center;
+    height: 100%;
+    padding: 0 0 0 9px;
+    color: var(--text-tertiary);
+}
+.acc-header:hover .acc-toggle {
+    color: var(--text-secondary);
+}
+.acc-chev {
+    display: flex;
+    transition: transform 0.12s ease;
+}
+.acc-chev.open {
+    transform: rotate(90deg);
+}
+/* Only the name opens the file; the rest of the header folds the diff. */
+.acc-name {
+    flex: 0 1 auto;
+    min-width: 0;
+    padding: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--text-secondary);
+    font-size: var(--text-sm);
+    text-align: left;
+    text-underline-offset: 3px;
+    cursor: pointer;
+}
+.acc-name:hover {
+    color: var(--text-primary);
+    text-decoration: underline;
+}
+.acc-grow {
+    flex: 1 1 auto;
+    align-self: stretch;
+}
+
+.sess-icon.agent {
+    color: var(--acc);
+}
+.picker-icon.agent {
+    color: var(--acc);
+}

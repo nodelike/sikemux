@@ -6,10 +6,10 @@ export interface DirEntry {
     is_dir: boolean;
 }
 
-export interface FileBlob {
+export interface FilePreview {
     mime: string;
-    data: string;
     size: number;
+    modified: number;
 }
 
 export interface FileSnapshot {
@@ -36,7 +36,7 @@ export const fsapi = {
     readFile: (path: string) => invoke<string>("read_file", { path }),
     readFileVersioned: (path: string) => invoke<FileSnapshot>("read_file_versioned", { path }),
     readTextFileLimited: (path: string) => invoke<string>("read_text_file_limited", { path }),
-    readFileBase64: (path: string) => invoke<FileBlob>("read_file_base64", { path }),
+    previewFile: (path: string) => invoke<FilePreview>("preview_file", { path }),
     writeFile: (path: string, content: string) => invoke<void>("write_file", { path, content }),
     writeFileVersioned: (path: string, content: string, expectedVersion: string) =>
         invoke<FileWriteResult>("write_file_versioned", { path, content, expectedVersion }),
@@ -49,6 +49,7 @@ export const fsapi = {
     saveClipboardImage: (name: string) => invoke<string | null>("save_clipboard_image", { name }),
     saveBase64IntoDir: (dir: string, name: string, data: string) => invoke<string>("save_base64_into_dir", { dir, name, data }),
     rename: (src: string, dest: string) => invoke<void>("rename_path", { src, dest }),
+    openInDefaultApp: (path: string) => invoke<void>("open_in_default_app", { path }),
     revealInFinder: (path: string) => invoke<void>("reveal_in_finder", { path }),
     deletePath: (path: string) => invoke<void>("delete_path", { path }),
 };

@@ -1,14 +1,19 @@
 import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
 
-const stylesDir = join(process.cwd(), "src", "styles");
 const entry = readFileSync(join(process.cwd(), "src", "styles.css"), "utf8");
 
 /* The sheets styles.css pulls in are on screen from the first paint. The rest
    arrive with the component that imports them, so a rule only they define does
    not exist until someone has opened that component. */
-const eager = [...entry.matchAll(/@import\s+"\.\/styles\/([\w-]+\.css)"/g)].map((m) => readFileSync(join(stylesDir, m[1]), "utf8")).join("\n");
+function inline(dir: string, css: string): string {
+    return css.replace(/@import\s+"\.\/([\w/.-]+\.css)";/g, (_, path: string) => {
+        const file = join(dir, path);
+        return inline(dirname(file), readFileSync(file, "utf8"));
+    });
+}
+const eager = inline(join(process.cwd(), "src"), entry);
 
 describe("shared chrome", () => {
     /* `.settings-btn` is drawn by the AWS sign-in dialog and the editor's empty

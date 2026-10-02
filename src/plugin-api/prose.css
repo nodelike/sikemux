@@ -1,0 +1,100 @@
+.prose {
+    font-size: var(--text-xs);
+    line-height: 1.6;
+    color: var(--text-primary);
+    word-break: break-word;
+}
+.prose > :first-child {
+    margin-top: 0;
+}
+.prose > :last-child {
+    margin-bottom: 0;
+}
+.prose :is(h1, h2, h3, h4, h5, h6) {
+    margin: var(--space-3) 0 var(--space-1);
+    font-weight: var(--weight-semibold);
+    letter-spacing: var(--tracking-tight);
+    color: var(--text-primary);
+}
+.prose h1 {
+    font-size: var(--text-md);
+}
+.prose h2 {
+    font-size: var(--text-sm);
+}
+.prose :is(h3, h4, h5, h6) {
+    font-size: var(--text-xs);
+}
+.prose h1,
+.prose h2 {
+    padding-bottom: var(--space-1);
+    border-bottom: 1px solid var(--border);
+}
+.prose p {
+    margin: var(--space-2) 0;
+}
+.prose :is(ul, ol) {
+    margin: var(--space-2) 0;
+    padding-left: var(--space-4);
+}
+.prose li {
+    margin: var(--space-0) 0;
+}
+.prose li::marker {
+    color: var(--text-tertiary);
+}
+.prose a {
+    color: var(--acc);
+    text-decoration: none;
+    cursor: pointer;
+}
+.prose a:hover {
+    text-decoration: underline;
+}
+.prose code {
+    padding: 1px var(--space-1);
+    border-radius: var(--radius-1);
+    background: var(--surface-hover);
+    font-family: var(--mono);
+    font-size: var(--text-2xs);
+    color: var(--text-primary);
+}
+.prose pre {
+    margin: var(--space-2) 0;
+    padding: var(--space-2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-2);
+    background: color-mix(in oklab, var(--ink) 3%, transparent);
+    overflow-x: auto;
+}
+.prose pre code {
+    padding: 0;
+    background: none;
+}
+.prose blockquote {
+    margin: var(--space-2) 0;
+    padding-left: var(--space-3);
+    border-left: 2px solid var(--border);
+    color: var(--text-secondary);
+}
+.prose hr {
+    margin: var(--space-3) 0;
+    border: none;
+    border-top: 1px solid var(--border);
+}
+.prose table {
+    margin: var(--space-2) 0;
+    border-collapse: collapse;
+}
+.prose :is(th, td) {
+    padding: var(--space-1) var(--space-2);
+    border: 1px solid var(--border);
+    text-align: left;
+}
+.prose th {
+    font-weight: var(--weight-medium);
+}
+.prose img {
+    max-width: 100%;
+    border-radius: var(--radius-2);
+}

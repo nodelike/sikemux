@@ -538,10 +538,16 @@ type Tally = (
     fn(&mut ActivityShare, i64),
 );
 
-fn summarize(db: &Connection, offset_ms: i64, now_ms: i64) -> rusqlite::Result<ActivitySummary> {
+fn summarize(
+    db: &Connection,
+    offset_ms: i64,
+    now_ms: i64,
+    project: Option<&str>,
+) -> rusqlite::Result<ActivitySummary> {
     let mut totals = db.query_row(
-        "SELECT COUNT(*), COALESCE(SUM(resumed), 0), MIN(at_ms) FROM launches",
-        [],
+        "SELECT COUNT(*), COALESCE(SUM(resumed), 0), MIN(at_ms) FROM launches
+         WHERE ?1 IS NULL OR project = ?1",
+        [project],
         |row| {
             Ok(ActivityTotals {
                 sessions: row.get(0)?,
@@ -552,14 +558,16 @@ fn summarize(db: &Connection, offset_ms: i64, now_ms: i64) -> rusqlite::Result<A
         },
     )?;
     (totals.turns, totals.agent_ms) = db.query_row(
-        "SELECT COUNT(*), COALESCE(SUM(ended_ms - started_ms), 0) FROM turns",
-        [],
+        "SELECT COUNT(*), COALESCE(SUM(ended_ms - started_ms), 0) FROM turns
+         WHERE ?1 IS NULL OR project = ?1",
+        [project],
         |row| Ok((row.get(0)?, row.get(1)?)),
     )?;
-    (totals.commits, totals.agent_commits) =
-        db.query_row("SELECT COUNT(*), COUNT(agent) FROM commits", [], |row| {
-            Ok((row.get(0)?, row.get(1)?))
-        })?;
+    (totals.commits, totals.agent_commits) = db.query_row(
+        "SELECT COUNT(*), COUNT(agent) FROM commits WHERE ?1 IS NULL OR project = ?1",
+        [project],
+        |row| Ok((row.get(0)?, row.get(1)?)),
+    )?;
     (
         totals.input,
         totals.output,
@@ -567,8 +575,9 @@ fn summarize(db: &Connection, offset_ms: i64, now_ms: i64) -> rusqlite::Result<A
         totals.cache_write,
     ) = db.query_row(
         "SELECT COALESCE(SUM(input), 0), COALESCE(SUM(output), 0),
-                COALESCE(SUM(cache_read), 0), COALESCE(SUM(cache_write), 0) FROM tokens",
-        [],
+                COALESCE(SUM(cache_read), 0), COALESCE(SUM(cache_write), 0) FROM tokens
+         WHERE ?1 IS NULL OR project = ?1",
+        [project],
         |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
     )?;
 
@@ -578,29 +587,31 @@ fn summarize(db: &Connection, offset_ms: i64, now_ms: i64) -> rusqlite::Result<A
     let mut projects: HashMap<String, ActivityShare> = HashMap::new();
     let queries: [Tally; 4] = [
         (
-            "SELECT at_ms, agent, project, 1 FROM launches",
+            "SELECT at_ms, agent, project, 1 FROM launches WHERE ?1 IS NULL OR project = ?1",
             |day, n| day.sessions += n,
             |share, n| share.sessions += n,
         ),
         (
-            "SELECT started_ms, agent, project, ended_ms - started_ms FROM turns",
+            "SELECT started_ms, agent, project, ended_ms - started_ms FROM turns
+             WHERE ?1 IS NULL OR project = ?1",
             |day, n| day.agent_ms += n,
             |share, n| share.agent_ms += n,
         ),
         (
-            "SELECT at_ms, agent, project, 1 FROM commits",
+            "SELECT at_ms, agent, project, 1 FROM commits WHERE ?1 IS NULL OR project = ?1",
             |day, n| day.commits += n,
             |share, n| share.commits += n,
         ),
         (
-            "SELECT at_ms, agent, project, input + output + cache_write FROM tokens",
+            "SELECT at_ms, agent, project, input + output + cache_write FROM tokens
+             WHERE ?1 IS NULL OR project = ?1",
             |day, n| day.tokens += n,
             |share, n| share.tokens += n,
         ),
     ];
     for (sql, add_day, add_share) in queries {
         let mut statement = db.prepare(sql)?;
-        let mut rows = statement.query([])?;
+        let mut rows = statement.query([project])?;
         while let Some(row) = rows.next()? {
             let at_ms: i64 = row.get(0)?;
             let agent: Option<String> = row.get(1)?;
@@ -659,13 +670,15 @@ fn summarize(db: &Connection, offset_ms: i64, now_ms: i64) -> rusqlite::Result<A
 
 /// `utc_offset_minutes` places each event on the user's own calendar day.
 #[tauri::command]
-pub async fn activity_summary(utc_offset_minutes: i64) -> ActivitySummary {
+pub async fn activity_summary(utc_offset_minutes: i64, project: Option<String>) -> ActivitySummary {
     let offset_ms = utc_offset_minutes.clamp(-24 * 60, 24 * 60) * 60_000;
-    spawn_blocking(move || with_database(|db| summarize(db, offset_ms, now_ms())))
-        .await
-        .ok()
-        .flatten()
-        .unwrap_or_default()
+    spawn_blocking(move || {
+        with_database(|db| summarize(db, offset_ms, now_ms(), project.as_deref()))
+    })
+    .await
+    .ok()
+    .flatten()
+    .unwrap_or_default()
 }
 
 #[cfg(test)]
@@ -787,7 +800,7 @@ mod tests {
             day + 60_000
         ))
         .unwrap();
-        let summary = summarize(&db, -60_000, day + DAY_MS).unwrap();
+        let summary = summarize(&db, -60_000, day + DAY_MS, None).unwrap();
         assert_eq!(summary.totals.sessions, 2);
         assert_eq!(summary.totals.resumed, 1);
         assert_eq!(summary.totals.agent_ms, 60_000);
@@ -799,5 +812,12 @@ mod tests {
         assert_eq!(summary.agents[0].name, "codex");
         assert_eq!(summary.projects[0].name, "/p/b");
         assert_eq!(summary.projects[0].commits, 2);
+
+        let only_a = summarize(&db, -60_000, day + DAY_MS, Some("/p/a")).unwrap();
+        assert_eq!(only_a.totals.sessions, 1);
+        assert_eq!(only_a.totals.commits, 0);
+        assert_eq!(only_a.days[0].tokens, 6);
+        assert_eq!(only_a.days[0].commits, 0);
+        assert_eq!(only_a.projects.len(), 1);
     }
 }

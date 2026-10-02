@@ -9,7 +9,6 @@
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -112,7 +111,7 @@ pub struct SampleCapturer;
 
 impl StackCapturer for SampleCapturer {
     fn capture(&self, pid: i32, seconds: u32, destination: &Path) -> Result<(), String> {
-        let mut command = Command::new(SAMPLE_BINARY);
+        let mut command = sikemux_process::user_environment::command(SAMPLE_BINARY);
         command
             .arg(pid.to_string())
             .arg(seconds.to_string())
@@ -528,8 +527,13 @@ mod macos {
     /// SAFETY: `pointer` must be a live `WKWebView*`, and this must run on the
     /// main thread.
     pub fn web_process_identifier(pointer: *mut c_void) -> Option<i32> {
+        // SAFETY: the only caller passes `platform.inner()` from inside `with_webview`: the
+        // live WKWebView, on the main thread.
         let webview: Retained<WKWebView> =
             unsafe { Retained::retain(pointer.cast::<WKWebView>()) }?;
+        // SAFETY: `_webProcessIdentifier` is a private WKWebView method that takes nothing
+        // and returns the pid as an int. Unlike `keep_running_when_covered`, its
+        // existence is not checked first.
         let pid: i32 = unsafe { msg_send![&*webview, _webProcessIdentifier] };
         (pid > 0).then_some(pid)
     }
@@ -548,7 +552,7 @@ fn stamp(ms: u64) -> String {
     format!("{year:04}{month:02}{day:02}-{hour:02}{minute:02}{second:02}-{millis:03}")
 }
 
-fn iso8601(ms: u64) -> String {
+pub(crate) fn iso8601(ms: u64) -> String {
     let (year, month, day, hour, minute, second, millis) = utc_parts(ms);
     format!("{year:04}-{month:02}-{day:02}T{hour:02}:{minute:02}:{second:02}.{millis:03}Z")
 }

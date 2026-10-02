@@ -1,0 +1,48 @@
+.git-pane {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    width: 100%;
+    outline: none;
+}
+
+.git-body {
+    display: flex;
+    flex: 1;
+    min-height: 0;
+    width: 100%;
+}
+
+.git-left {
+    width: clamp(320px, 30%, 400px);
+    min-width: 260px;
+    max-width: calc(100% - 360px);
+    flex: 0 0 auto;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    overflow: hidden;
+}
+/* The hairline between the columns is also the handle that resizes them; it reaches a few pixels past the line so it is easy to grab. */
+.git-split {
+    position: relative;
+    z-index: 3;
+    flex: 0 0 auto;
+    width: 1px;
+    background: var(--border);
+    cursor: col-resize;
+    outline: none;
+    touch-action: none;
+    transition: background var(--dur-1);
+}
+.git-split::before {
+    content: "";
+    position: absolute;
+    inset: 0 -4px;
+}
+.git-split:hover,
+.git-split:active,
+.git-split:focus-visible {
+    background: var(--acc-line);
+    box-shadow: 0 0 0 1px var(--acc-line);
+}

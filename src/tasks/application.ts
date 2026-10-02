@@ -1,5 +1,5 @@
 import { joinPath } from "../lib/paths";
-import type { ProjectTask } from "../projectConfig";
+import type { ProjectTask } from "../projects/projectConfig";
 import { openTaskTerminal } from "../state/commands";
 import { TaskRegistry, type TaskDefinitionInput, type TaskRegistrySnapshot } from "./taskRegistry";
 import { TaskRuntime } from "./runtime";

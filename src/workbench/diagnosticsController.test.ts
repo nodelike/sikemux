@@ -1,11 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { LSP_PAYLOAD_LIMITS, type LspDiagnostic, type LspDiagnosticsPayload, type LspRange } from "../api/lsp";
-import {
-    DIAGNOSTICS_CONTROLLER_LIMITS,
-    DiagnosticsController,
-    type DiagnosticsDeliveryListener,
-    type DiagnosticsSourceSubscribe,
-} from "./diagnosticsController";
+import { DIAGNOSTICS_CONTROLLER_LIMITS, DiagnosticsController } from "./diagnosticsController";
 
 function diagnostic(
     message: string,
@@ -40,16 +35,6 @@ function payload(
         diagnostics,
         ...overrides,
     };
-}
-
-function deferred<T>() {
-    let resolve!: (value: T) => void;
-    let reject!: (reason: unknown) => void;
-    const promise = new Promise<T>((resolvePromise, rejectPromise) => {
-        resolve = resolvePromise;
-        reject = rejectPromise;
-    });
-    return { promise, resolve, reject };
 }
 
 describe("DiagnosticsController publish policy", () => {
@@ -247,69 +232,8 @@ describe("DiagnosticsController clearing and selectors", () => {
     });
 });
 
-describe("DiagnosticsController source lifecycle", () => {
-    it("coalesces source startup and disposes a throwing listener exactly once", async () => {
-        let delivery: DiagnosticsDeliveryListener | undefined;
-        const unsubscribe = vi.fn(() => {
-            throw new Error("native listener already gone");
-        });
-        const source = vi.fn<DiagnosticsSourceSubscribe>((listener) => {
-            delivery = listener;
-            return unsubscribe;
-        });
-        const controller = new DiagnosticsController("/repo", source);
-        controller.activateServer("typescript", 1);
-
-        const first = controller.start();
-        const second = controller.start();
-        expect(second).toBe(first);
-        await first;
-        expect(source).toHaveBeenCalledOnce();
-        expect(controller.getSnapshot().connected).toBe(true);
-
-        delivery?.(payload("/repo/a.ts", 1), 1);
-        expect(controller.selectProblems()).toHaveLength(1);
-        controller.dispose();
-        controller.dispose();
-        expect(unsubscribe).toHaveBeenCalledOnce();
-        expect(controller.getSnapshot()).toMatchObject({ connected: false, disposed: true, activeServers: 0, problems: 0 });
-
-        delivery?.(payload("/repo/a.ts", 2), 1);
-        expect(controller.selectProblems()).toEqual([]);
-        expect(controller.publish(payload("/repo/a.ts", 2), 1)).toBe("disposed");
-    });
-
-    it("unsubscribes safely when disposed before asynchronous registration finishes", async () => {
-        const registered = deferred<() => void>();
-        const unsubscribe = vi.fn();
-        const source = vi.fn<DiagnosticsSourceSubscribe>(() => registered.promise);
-        const controller = new DiagnosticsController("/repo", source);
-
-        const started = controller.start();
-        controller.dispose();
-        registered.resolve(unsubscribe);
-        await started;
-
-        expect(unsubscribe).toHaveBeenCalledOnce();
-        expect(controller.getSnapshot()).toMatchObject({ connected: false, disposed: true });
-    });
-
-    it("preserves subscription errors and allows a retry", async () => {
-        const failure = new Error("listen failed");
-        const source = vi
-            .fn<DiagnosticsSourceSubscribe>()
-            .mockImplementationOnce(() => Promise.reject(failure))
-            .mockReturnValueOnce(() => {});
-        const controller = new DiagnosticsController("/repo", source);
-
-        await expect(controller.start()).rejects.toBe(failure);
-        await expect(controller.start()).resolves.toBeUndefined();
-        expect(source).toHaveBeenCalledTimes(2);
-    });
-});
-
 describe("DiagnosticsController validation and disposal", () => {
-    it("rejects unsafe construction and lifecycle identifiers", async () => {
+    it("rejects unsafe construction and lifecycle identifiers", () => {
         expect(() => new DiagnosticsController(" ")).toThrow(TypeError);
         expect(() => new DiagnosticsController("/bad\nproject")).toThrow(TypeError);
         expect(() => new DiagnosticsController("x".repeat(LSP_PAYLOAD_LIMITS.maxPathBytes + 1))).toThrow(TypeError);
@@ -326,7 +250,6 @@ describe("DiagnosticsController validation and disposal", () => {
         controller.dispose();
         expect(() => controller.activateServer("typescript", 2)).toThrow("disposed");
         expect(() => controller.subscribe(() => {})).toThrow("disposed");
-        await expect(controller.start()).rejects.toThrow("disposed");
         expect(controller.clearDocument("/repo/a.ts")).toBe(0);
         expect(controller.clearProject()).toBe(0);
         expect(controller.shutdownServer("typescript", 1)).toBe(false);

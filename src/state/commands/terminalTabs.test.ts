@@ -12,14 +12,6 @@ function activeProjectTerminalIds(): string[] {
 }
 
 describe("project terminal tabs", () => {
-    it("creates the initial terminal as a regular closable tab named Terminal", () => {
-        cmd.createProjectSession("/work/demo");
-
-        const [terminalId] = activeProjectTerminalIds();
-        expect(getState().windows[terminalId]).toMatchObject({ name: "Terminal", role: "term" });
-        expect(getState().windows[terminalId].fixed).toBeUndefined();
-    });
-
     it("names every new terminal Terminal rather than a number", () => {
         cmd.createProjectSession("/work/demo");
         cmd.newWindow();

@@ -1,0 +1,172 @@
+/* ---- Side panel --------------------------------------------------------- */
+
+.rnd-insp {
+    width: 360px;
+    flex: 0 0 auto;
+    display: flex;
+    flex-direction: column;
+    border-left: 1px solid var(--border);
+    overflow-y: auto;
+}
+.rnd-insp-head {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    padding: var(--space-4) var(--space-4) var(--space-3);
+    border-bottom: 1px solid var(--rnd-rule);
+}
+.rnd-insp-title {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    min-width: 0;
+}
+.rnd-insp-name {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: var(--text-lg);
+    font-weight: var(--weight-semibold);
+    letter-spacing: var(--tracking-tight);
+}
+.rnd-insp-desc {
+    margin: 0;
+    font-size: var(--text-xs);
+    line-height: 1.45;
+    color: var(--text-secondary);
+}
+.rnd-insp-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-1);
+}
+.rnd-insp-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-1h);
+    margin-top: var(--space-1);
+}
+.rnd-insp-note {
+    padding: var(--space-1) 0;
+    font-size: var(--text-xs);
+    color: var(--text-tertiary);
+}
+.rnd-insp-note.err {
+    color: var(--danger);
+}
+.rnd-insp-sec {
+    padding: var(--space-3) var(--space-4) var(--space-1);
+}
+.rnd-insp-sec h3 {
+    display: flex;
+    justify-content: space-between;
+    margin: 0 0 var(--space-2);
+    font-size: var(--text-3xs);
+    font-weight: var(--weight-semibold);
+    letter-spacing: var(--tracking-label);
+    text-transform: uppercase;
+    color: var(--text-tertiary);
+}
+.rnd-insp-sec h3 span {
+    font-weight: var(--weight-normal);
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0;
+    text-transform: none;
+}
+.rnd-live-row,
+.rnd-run {
+    display: grid;
+    align-items: center;
+    gap: var(--space-2);
+    width: calc(100% + var(--space-4));
+    margin: 0 calc(-1 * var(--space-2));
+    height: 32px;
+    padding: 0 var(--space-2);
+    border: 0;
+    background: transparent;
+    color: var(--text-secondary);
+    font: inherit;
+    font-size: var(--text-xs);
+    text-align: left;
+    cursor: pointer;
+}
+.rnd-live-row {
+    grid-template-columns: 56px minmax(0, 1fr) auto 12px;
+}
+.rnd-run {
+    grid-template-columns: 7px 58px minmax(0, 1fr) auto 46px 12px;
+}
+.rnd-live-row:hover,
+.rnd-run:hover {
+    background: var(--surface-hover);
+    color: var(--text-primary);
+}
+.rnd-live-row > svg,
+.rnd-run > svg {
+    color: var(--text-tertiary);
+    opacity: 0;
+}
+.rnd-live-row:hover > svg,
+.rnd-run:hover > svg {
+    opacity: 1;
+}
+.rnd-live-k {
+    font-size: var(--text-2xs);
+    color: var(--text-tertiary);
+}
+.rnd-live-row .rnd-branch {
+    justify-self: start;
+    border-color: transparent;
+    padding: 0;
+    color: var(--text-primary);
+}
+.rnd-live-m,
+.rnd-run-when,
+.rnd-run-dur {
+    font-size: var(--text-2xs);
+    font-variant-numeric: tabular-nums;
+    color: var(--text-tertiary);
+    white-space: nowrap;
+}
+.rnd-run-dur {
+    text-align: right;
+}
+.rnd-run-id {
+    font-variant-numeric: tabular-nums;
+    color: var(--text-tertiary);
+}
+.rnd-run-branch {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--text-primary);
+}
+.rnd-run .rnd-status {
+    gap: 0;
+}
+.rnd-runs {
+    display: flex;
+    flex-direction: column;
+    padding-bottom: var(--space-3);
+}
+.rnd-spark {
+    display: flex;
+    align-items: flex-end;
+    gap: 3px;
+    height: 28px;
+}
+.rnd-spark i {
+    width: 8px;
+    border-radius: 2px;
+    background: var(--text-disabled);
+}
+.rnd-spark i.succeeded {
+    background: color-mix(in oklab, var(--live) 70%, transparent);
+}
+.rnd-spark i.failed {
+    background: var(--danger);
+}
+.rnd-spark i.running {
+    background: var(--warn);
+}

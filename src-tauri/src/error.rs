@@ -39,6 +39,10 @@ pub enum AppError {
     #[error("invalid argument: {0}")]
     BadArg(&'static str),
 
+    /// A bad argument reported by another process, such as the terminal core.
+    #[error("invalid argument: {0}")]
+    BadArgText(String),
+
     #[error("pty: {0}")]
     Pty(String),
 
@@ -50,6 +54,9 @@ pub enum AppError {
 
     #[error("file conflict: {0}")]
     FileConflict(String),
+
+    #[error("{0} is not UTF-8 text")]
+    NotText(String),
 
     #[error("watch: {0}")]
     Watch(String),
@@ -74,6 +81,15 @@ impl From<reqwest::Error> for AppError {
 impl From<git2::Error> for AppError {
     fn from(e: git2::Error) -> Self {
         AppError::Git(e.message().to_string())
+    }
+}
+
+impl From<sikemux_pty::error::PtyError> for AppError {
+    fn from(e: sikemux_pty::error::PtyError) -> Self {
+        match e {
+            sikemux_pty::error::PtyError::BadArg(message) => AppError::BadArg(message),
+            sikemux_pty::error::PtyError::Pty(message) => AppError::Pty(message),
+        }
     }
 }
 
@@ -130,11 +146,12 @@ impl AppError {
             AppError::LspServerMissing { .. } => "lsp-server-missing",
             AppError::Http(_) => "http",
             AppError::Plugin { .. } => "plugin",
-            AppError::BadArg(_) => "bad-arg",
+            AppError::BadArg(_) | AppError::BadArgText(_) => "bad-arg",
             AppError::Pty(_) => "pty",
             AppError::Search(_) => "search",
             AppError::Fs(_) => "fs",
             AppError::FileConflict(_) => "file-conflict",
+            AppError::NotText(_) => "not-text",
             AppError::Watch(_) => "watch",
             AppError::State(_) => "state",
             AppError::Window(_) => "window",

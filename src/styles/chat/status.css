@@ -1,0 +1,282 @@
+.chat-connection-state {
+    display: grid;
+    min-height: 260px;
+    place-items: center;
+    align-content: center;
+    gap: 10px;
+    padding: 24px;
+    color: var(--ink-faint);
+    font-size: var(--text-xs);
+    text-align: center;
+}
+
+.chat-welcome {
+    container-type: inline-size;
+    display: flex;
+    flex-direction: column;
+    gap: 32px;
+    width: min(calc(100% - 44px), 756px);
+    margin-inline: auto;
+    padding-top: clamp(16px, 8vh, 80px);
+}
+
+.chat-welcome-head {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    text-align: center;
+}
+
+.chat-welcome-mark {
+    display: flex;
+    margin-bottom: 6px;
+    color: var(--ink-dim);
+}
+
+.chat-welcome-title {
+    color: var(--ink);
+    font-size: var(--text-lg);
+    font-weight: var(--weight-semibold);
+    letter-spacing: var(--tracking-display);
+}
+
+.chat-welcome-activity {
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+}
+
+@container (max-width: 560px) {
+    .chat-welcome .activity-stats {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        row-gap: var(--space-3);
+    }
+    .chat-welcome .activity-stat:nth-child(3) {
+        padding-left: 0;
+        border-left: 0;
+    }
+    .chat-welcome .activity-metrics {
+        display: none;
+    }
+}
+
+/* Lines up with the text in a message: the transcript is 800px wide with 22px
+   of padding either side. */
+.chat-activity,
+.chat-error,
+.chat-permission,
+.chat-plan,
+.chat-reconnect {
+    width: min(calc(100% - 44px), 756px);
+    margin-inline: auto;
+}
+
+.chat-activity {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 10px;
+    color: var(--ink-faint);
+    font-size: var(--text-2xs);
+}
+
+.chat-activity-label {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    background: linear-gradient(90deg, var(--ink-faint) 40%, var(--ink) 50%, var(--ink-faint) 60%) 100% 0 / 300% 100%;
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    animation: chat-activity-shimmer 2.2s linear infinite;
+}
+
+.chat-activity-elapsed {
+    color: color-mix(in srgb, var(--ink-faint) 68%, transparent);
+    font-family: var(--mono);
+    font-size: calc(9.5px * var(--chat-text-em, 1));
+}
+
+.chat-activity-mark {
+    flex: none;
+    animation: chat-activity-breathe 1.5s ease-in-out infinite;
+}
+
+.chat-activity-loader {
+    flex: none;
+    width: 11px;
+    height: 11px;
+    box-sizing: border-box;
+    border: 1.5px solid color-mix(in srgb, currentColor 22%, transparent);
+    border-top-color: var(--live);
+    border-right-color: var(--live);
+    border-radius: 50%;
+    animation: chat-activity-spin 0.72s linear infinite;
+}
+
+.chat-connection-state .chat-activity-loader {
+    width: 14px;
+    height: 14px;
+}
+
+@keyframes chat-activity-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+@keyframes chat-activity-shimmer {
+    to {
+        background-position: 0 0;
+    }
+}
+
+@keyframes chat-activity-breathe {
+    50% {
+        opacity: 0.5;
+    }
+}
+
+.chat-connection-actions {
+    display: flex;
+    gap: 8px;
+}
+
+.chat-connection-state button,
+.chat-reconnect button {
+    height: 28px;
+    padding: 0 11px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-control);
+    background: var(--rail-2);
+    color: var(--ink-dim);
+    font-size: calc(10.5px * var(--chat-text-em, 1));
+}
+
+.chat-connection-state button:hover,
+.chat-reconnect button:hover {
+    border-color: var(--acc-line);
+    color: var(--ink);
+}
+
+.chat-reconnect {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    margin-top: 12px;
+    padding: 8px 12px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-control);
+    color: var(--ink-faint);
+    font-size: var(--text-2xs);
+}
+
+.chat-recovery-detail {
+    flex-basis: 100%;
+    max-width: 100%;
+    max-height: 9em;
+    overflow: auto;
+    color: var(--ink-dim);
+    font-family: var(--mono);
+    text-align: center;
+    overflow-wrap: anywhere;
+    white-space: pre-wrap;
+    user-select: text;
+    cursor: text;
+}
+
+.chat-error {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 12px;
+    padding: 9px 11px;
+    border: 1px solid color-mix(in srgb, var(--danger) 40%, var(--line));
+    border-radius: var(--radius-control);
+    background: color-mix(in srgb, var(--danger) 8%, transparent);
+    color: color-mix(in srgb, var(--danger) 72%, var(--ink));
+    font-size: var(--text-2xs);
+}
+
+.chat-permission {
+    margin-top: 12px;
+    padding: 12px;
+    border: 1px solid color-mix(in srgb, var(--warn) 44%, var(--line));
+    border-radius: var(--radius-panel);
+    background: color-mix(in srgb, var(--warn) 7%, var(--rail));
+}
+
+.chat-permission-copy {
+    display: flex;
+    gap: 9px;
+    color: var(--warn);
+}
+
+.chat-permission-copy div {
+    display: grid;
+    gap: 2px;
+}
+
+.chat-permission-copy strong {
+    color: var(--ink);
+    font-size: var(--text-xs);
+    font-weight: 600;
+}
+
+.chat-permission-copy span {
+    color: var(--ink-dim);
+    font-size: var(--text-2xs);
+}
+
+.chat-permission-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 6px;
+    margin-top: 11px;
+}
+
+.chat-permission-actions button {
+    height: 28px;
+    padding: 0 10px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-control);
+    background: var(--rail-2);
+    color: var(--ink-dim);
+    font-size: calc(10.5px * var(--chat-text-em, 1));
+}
+
+.chat-permission-actions button.allow {
+    border-color: color-mix(in srgb, var(--warn) 45%, var(--line));
+    color: var(--ink);
+}
+
+.chat-permission-actions button:hover:not(:disabled) {
+    filter: brightness(1.12);
+}
+
+/* Anchored to the composer rather than to a guess at its height, so it sits
+   the same distance above it whether the draft is one line or six. */
+.chat-jump-bottom {
+    position: absolute;
+    bottom: calc(100% + 8px);
+    left: 50%;
+    display: grid;
+    width: 26px;
+    height: 26px;
+    place-items: center;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-full);
+    background: var(--chat-composer-fill);
+    color: var(--ink-dim);
+    box-shadow: 0 6px 18px color-mix(in srgb, var(--void) calc(var(--window-opacity, 1) * 52%), transparent);
+    transform: translateX(-50%);
+}
+
+.chat-jump-bottom:hover {
+    border-color: var(--acc-line);
+    color: var(--ink);
+}

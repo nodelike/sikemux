@@ -1,5 +1,5 @@
 import { invokeCommand as invoke } from "./invoke";
-import type { AgentRuntimeProfile } from "../agentProfiles";
+import type { AgentRuntimeProfile } from "../agents/agentProfiles";
 import type { AgentEffort, AgentType } from "../state/types";
 
 export interface AgentInfo {
@@ -27,6 +27,34 @@ export interface AgentSession {
     id: string;
     title: string;
     mtime: number; // unix seconds
+}
+
+/** Where the last page of saved chats ended; handed back to fetch the next one. */
+export interface RecentCursor {
+    atMs: number;
+    agent: string;
+    key: string;
+}
+
+export interface RecentChatsRequest {
+    providers: { agent: AgentType; configPath?: string | null }[];
+    projects: string[];
+    limit: number;
+    cursor?: RecentCursor | null;
+    query?: string;
+    /** Chats already open as agents, left out so a page stays full. */
+    exclude: { agent: AgentType; id: string }[];
+}
+
+export interface RecentChat extends AgentSession {
+    agent: AgentType;
+    /** The project folder the chat ran in. */
+    project: string;
+}
+
+export interface RecentChatsPage {
+    sessions: RecentChat[];
+    next: RecentCursor | null;
 }
 
 export interface AgentUsageWindow {
@@ -109,8 +137,11 @@ export const agentApi = {
     usage: (agent: AgentType, executablePath?: string, configPath?: string): Promise<AgentUsage> =>
         invoke<AgentUsage>("agent_usage", { agent, executablePath, configPath }),
     sessions: fetchSessions,
+    recent: (request: RecentChatsRequest): Promise<RecentChatsPage> => invoke<RecentChatsPage>("agent_recent_sessions", { request }),
     sessionContext: (agent: AgentType, cwd: string, sessionId: string, configPath?: string): Promise<SavedSessionContext | null> =>
         invoke<SavedSessionContext | null>("agent_session_context", { agent, cwd, sessionId, configPath }),
+    renameSession: (agent: AgentType, cwd: string, sessionId: string, title: string, executablePath?: string, configPath?: string): Promise<void> =>
+        invoke<void>("agent_session_rename", { agent, cwd, sessionId, title, executablePath, configPath }),
     sessionResults: fetchSessionResults,
     watchStart: (agent: AgentType, cwd: string, configPath?: string): Promise<number> =>
         invoke<number>("agent_sessions_watch_start", { agent, cwd, configPath }),

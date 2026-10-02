@@ -18,6 +18,10 @@ export interface PaneNode {
     kind: PaneKind;
     title: string;
     startup?: string;
+    /** The tab this pane had before it was split into another, which it takes back when it moves out. */
+    tab?: { name: string; role: WindowRole };
+    /** The terminal core session this pane shows, which outlives the app. */
+    ptyId?: number;
     /** Runtime-only marker: this pane borrows a process owned outside its renderer. */
     externalPty?: true;
     /** Runtime-only stable task identity used to reuse its presentation window. */
@@ -122,6 +126,22 @@ export interface Agent {
     launchState?: "live" | "dormant";
     /** Exempts a resumable live agent from automatic idle sleeping. */
     keepAlive?: boolean;
+    /** The user named this agent, so titles from the provider no longer replace it. */
+    renamed?: boolean;
+    /** The git worktree this chat was moved into before its first message. */
+    worktree?: AgentWorktree;
+    /** The terminal core session running this agent's TUI, which outlives the app. */
+    ptyId?: number;
+}
+
+export interface AgentWorktree {
+    /** The main checkout, which git commands about the worktree run against. */
+    repo: string;
+    path: string;
+    branch: string;
+    /** The branch the project was on when the worktree was cut, if it was on one. */
+    base: string | null;
+    startSha: string;
 }
 
 export interface PtyDirectCommand {
@@ -165,11 +185,21 @@ export interface PtyContext {
 }
 
 export type RailDensity = "comfortable" | "compact";
+/** Whether the agent rail lists the open project or every open project. */
+export type AgentRailScope = "project" | "all";
 
 /** What the diff tab is reviewing: a changed file, or a whole commit. */
 export type DiffTarget = { kind: "worktree"; path: string } | { kind: "commit"; rev: string; subject: string };
 
 /** Which panel the workspace rail is showing. */
+
+/** A set of projects the person makes to see on their own, so other work stays out of sight without being closed. */
+export interface ProjectSpace {
+    id: string;
+    name: string;
+    /** An emoji, or empty to show the name's first letter instead. */
+    icon: string;
+}
 
 export interface Session {
     id: string;

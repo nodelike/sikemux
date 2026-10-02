@@ -26,6 +26,10 @@ describe("browser downloads", () => {
         expect(downloadToast(download("failed"))).toMatchObject({ kind: "error", options: { timeoutMs: null } });
     });
 
+    it("names a download by its address when it has no file name yet", () => {
+        expect(downloadToast({ ...download("started"), path: "" }).text).toBe("Downloading https://a.test/files/report.pdf");
+    });
+
     it("offers to reveal a finished download", async () => {
         const toast = downloadToast(download("finished"));
         expect(toast.kind).toBe("success");

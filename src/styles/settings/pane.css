@@ -1,0 +1,37 @@
+/*
+ * Settings.
+ *
+ * Every labelled setting in here is the same thing — a name, an optional line
+ * of help, and one control on the right — so the sheet defines that row once
+ * (`.settings-row`) and every page reuses it. The page-specific blocks below
+ * only exist where a setting genuinely is not a row: a grid of theme cards, a
+ * keymap, a master/detail editor.
+ *
+ * Read DESIGN.md first. Colours come from the semantic tokens, never from
+ * `--hl` / `--ink-muted` / `--bg-raised`; sizes come from the type scale;
+ * corners come from the radius scale by role.
+ */
+
+.settings-pane {
+    position: absolute;
+    inset: 0;
+    z-index: 50;
+    display: flex;
+    overflow: hidden;
+    /* It fills the stage the way a screen does, so it carries the same edge
+       rather than borrowing one from the stage behind it. */
+    border: 1px solid var(--border);
+    border-radius: var(--radius-3);
+    color: var(--text-primary);
+    font-family: var(--ui);
+
+    background: var(--s-panel);
+}
+.settings-frame {
+    display: grid;
+    grid-template-columns: 196px minmax(0, 1fr);
+    width: 100%;
+    height: 100%;
+    min-height: 0;
+    overflow: hidden;
+}

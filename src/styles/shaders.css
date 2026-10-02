@@ -80,6 +80,16 @@
     clip-path: inset(0 round calc(var(--radius-panel) - 1px));
 }
 
+/* The picture only covers the band the grain would have reached, so it is framed
+   to that band rather than to the whole pane, and fades over it the same way. */
+.pane-field-image {
+    bottom: auto;
+    height: 60%;
+    --shader-field-strength: 0.38;
+    mask-image: linear-gradient(to bottom, #000 0%, rgba(0, 0, 0, 0.45) 40%, rgba(0, 0, 0, 0.08) 76%, transparent 100%);
+    clip-path: inset(0 round calc(var(--radius-panel) - 1px) calc(var(--radius-panel) - 1px) 0 0);
+}
+
 /*
  * The optional full-window image, under the shader and over the ground.
  *

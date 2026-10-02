@@ -2,6 +2,7 @@
 //! workspace tools but never reach the frontend: the plugin host answers them.
 
 use serde_json::{json, Value};
+use sikemux_plugin_api::AgentTool;
 use tauri::{AppHandle, Manager};
 
 use super::PluginHost;
@@ -10,16 +11,22 @@ use crate::error::AppError;
 const LIST: &str = "plugins.tools";
 const CALL: &str = "plugins.call";
 
-pub fn is_agent_method(method: &str) -> bool {
-    method == LIST || method == CALL
-}
-
-pub fn execute(app: &AppHandle, method: &str, params: &Value) -> Result<Value, String> {
+pub fn execute(
+    app: &AppHandle,
+    project: &str,
+    method: &str,
+    params: &Value,
+) -> Result<Value, String> {
     let host = app
         .try_state::<PluginHost>()
         .ok_or("plugins are not loaded")?;
     match method {
-        LIST => Ok(list(&host)),
+        LIST => {
+            let remotes = crate::git::remote::remote_urls(project);
+            Ok(describe(tauri::async_runtime::block_on(
+                host.agent_tools_for(&remotes),
+            )))
+        }
         CALL => {
             let name = params
                 .get("tool")
@@ -55,9 +62,9 @@ fn explain(error: &AppError) -> String {
     }
 }
 
-fn list(host: &PluginHost) -> Value {
+fn describe(tools: Vec<(&str, &AgentTool)>) -> Value {
     Value::Array(
-        host.agent_tools()
+        tools
             .into_iter()
             .map(|(plugin, tool)| {
                 json!({
@@ -87,6 +94,18 @@ mod tests {
                 None => error,
             },
         }
+    }
+
+    #[test]
+    fn a_listed_tool_names_the_plugin_that_answers_it() {
+        let tool: AgentTool = serde_json::from_value(json!({
+            "name": "github_runs", "method": "runs", "description": "Runs.",
+        }))
+        .expect("a tool");
+        let listed = describe(vec![("sikemux.github", &tool)]);
+        assert_eq!(listed[0]["plugin"], "sikemux.github");
+        assert_eq!(listed[0]["name"], "github_runs");
+        assert_eq!(listed[0]["method"], "runs");
     }
 
     #[test]

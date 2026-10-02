@@ -3,8 +3,8 @@ import { createJSONStorage, persist, type StateStorage } from "zustand/middlewar
 import { git } from "../api/git";
 import { runGitCmd } from "./git";
 import { errMessage } from "./toast";
-import { DEFAULT_AI_PROVIDER, defaultAiModel } from "../components/git/gitPaneConstants";
-import type { GitAiProvider } from "../components/git/gitPaneTypes";
+import { DEFAULT_AI_PROVIDER, defaultAiModel } from "../git/gitPaneConstants";
+import type { GitAiProvider } from "../git/gitPaneTypes";
 
 interface Operation {
     label: string;

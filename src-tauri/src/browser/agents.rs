@@ -10,8 +10,9 @@ use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::time::Duration;
 
-use agent_client_protocol::schema::v1::{EnvVariable, McpServer, McpServerStdio};
 use serde_json::{json, Value};
+use sikemux_core::acp::schema::v1::{EnvVariable, McpServer, McpServerStdio};
+use sikemux_pty::user_shell::login_shell_environment;
 use tauri::{AppHandle, Manager};
 
 use super::{browser_state_dir, validate_agent_id, BrowserManager, BrowserMcpLaunch};
@@ -55,7 +56,7 @@ impl BrowserManager {
         agent_program: &str,
     ) -> AppResult<BrowserAgentIntegration> {
         validate_agent_id(agent_id)?;
-        let launch = self.mcp_launch(app)?;
+        let launch = self.mcp_launch()?;
         let mut environment = base_environment(agent_id)?;
         let args_prefix = match agent_type {
             "claude" => claude_browser_args(app, &launch)?,
@@ -102,7 +103,7 @@ impl BrowserManager {
 /// terminal one above and needs telling too.
 pub fn acp_browser_server(app: &AppHandle, agent_id: &str) -> AppResult<McpServer> {
     validate_agent_id(agent_id)?;
-    let launch = app.state::<BrowserManager>().mcp_launch(app)?;
+    let launch = app.state::<BrowserManager>().mcp_launch()?;
     let mut server = McpServerStdio::new("sikemux-tools", absolute_command(&launch.command)?);
     server.args = launch.args;
     server.env = base_environment(agent_id)?
@@ -130,7 +131,7 @@ fn base_environment(agent_id: &str) -> AppResult<Vec<(String, String)>> {
         ("SIKEMUX_TOOLS_AGENT_ID".into(), agent_id.to_owned()),
         (
             "SIKEMUX_CLI_ENDPOINT".into(),
-            crate::cli_server::cli_endpoint_path()
+            crate::cli_paths::cli_endpoint_path()
                 .ok_or_else(|| AppError::Other("CLI endpoint unavailable".into()))?
                 .to_string_lossy()
                 .into_owned(),
@@ -173,7 +174,7 @@ fn codex_browser_args(launch: &BrowserMcpLaunch) -> AppResult<Vec<String>> {
 }
 
 fn inherited_opencode_config() -> Option<String> {
-    crate::system::login_shell_environment()
+    login_shell_environment()
         .get("OPENCODE_CONFIG_CONTENT")
         .cloned()
         .or_else(|| std::env::var("OPENCODE_CONFIG_CONTENT").ok())
@@ -280,7 +281,7 @@ async fn prepare_grok_home(
 }
 
 fn agent_home(variable: &str, default_name: &str) -> PathBuf {
-    crate::system::login_shell_environment()
+    login_shell_environment()
         .get(variable)
         .map(PathBuf::from)
         .unwrap_or_else(|| crate::system::user_home().join(default_name))
@@ -355,7 +356,7 @@ async fn run_config_command(
 ) -> AppResult<()> {
     let output = tokio::time::timeout(
         CONFIG_TIMEOUT,
-        tokio::process::Command::new(program)
+        tokio::process::Command::from(sikemux_process::user_environment::command(program))
             .args(args)
             .env(home.0, home.1)
             .kill_on_drop(true)
@@ -386,8 +387,8 @@ mod tests {
 
     fn launch() -> BrowserMcpLaunch {
         BrowserMcpLaunch {
-            command: "/Apps/Sikemux.app/sikemux-tools-mcp".into(),
-            args: vec!["--stdio".into()],
+            command: "/Apps/Sikemux.app/sikemux-editor".into(),
+            args: vec!["--tools-mcp".into()],
         }
     }
 
@@ -435,14 +436,14 @@ mod tests {
     /// tag, so the shape matters as much as the values.
     #[test]
     fn an_acp_stdio_server_is_untagged_with_its_environment_spelled_out() {
-        let mut stdio = McpServerStdio::new("sikemux-tools", "/apps/sikemux-tools-mcp");
-        stdio.args = vec!["--stdio".into()];
+        let mut stdio = McpServerStdio::new("sikemux-tools", "/apps/sikemux-editor");
+        stdio.args = vec!["--tools-mcp".into()];
         stdio.env = vec![EnvVariable::new("SIKEMUX_TOOLS_AGENT_ID", "agent-one")];
         let value = serde_json::to_value(McpServer::Stdio(stdio)).unwrap();
         assert!(value.get("type").is_none(), "{value}");
         assert_eq!(value["name"], "sikemux-tools");
-        assert_eq!(value["command"], "/apps/sikemux-tools-mcp");
-        assert_eq!(value["args"], json!(["--stdio"]));
+        assert_eq!(value["command"], "/apps/sikemux-editor");
+        assert_eq!(value["args"], json!(["--tools-mcp"]));
         assert_eq!(value["env"][0]["name"], "SIKEMUX_TOOLS_AGENT_ID");
         assert_eq!(value["env"][0]["value"], "agent-one");
     }
@@ -473,10 +474,10 @@ mod tests {
             codex_browser_args(&launch()).unwrap(),
             vec![
                 "-c".to_string(),
-                "mcp_servers.sikemux_tools.command=\"/Apps/Sikemux.app/sikemux-tools-mcp\""
+                "mcp_servers.sikemux_tools.command=\"/Apps/Sikemux.app/sikemux-editor\""
                     .to_string(),
                 "-c".to_string(),
-                "mcp_servers.sikemux_tools.args=[\"--stdio\"]".to_string(),
+                "mcp_servers.sikemux_tools.args=[\"--tools-mcp\"]".to_string(),
             ]
         );
     }
@@ -495,8 +496,8 @@ mod tests {
         let document = json!({ "mcpServers": { "sikemux-tools": mcp_server_document(&launch()) } });
         let server = &document["mcpServers"]["sikemux-tools"];
         assert_eq!(server["type"], "stdio");
-        assert_eq!(server["command"], "/Apps/Sikemux.app/sikemux-tools-mcp");
-        assert_eq!(server["args"], json!(["--stdio"]));
+        assert_eq!(server["command"], "/Apps/Sikemux.app/sikemux-editor");
+        assert_eq!(server["args"], json!(["--tools-mcp"]));
     }
 
     #[test]
@@ -509,7 +510,7 @@ mod tests {
         assert_eq!(merged["mcp"]["other"]["type"], "local");
         assert_eq!(
             merged["mcp"]["sikemux_tools"]["command"],
-            json!(["/Apps/Sikemux.app/sikemux-tools-mcp", "--stdio"])
+            json!(["/Apps/Sikemux.app/sikemux-editor", "--tools-mcp"])
         );
         assert_eq!(merged["mcp"]["sikemux_tools"]["enabled"], true);
     }

@@ -27,7 +27,7 @@ pub(crate) async fn tail(
         cli_value(since)?;
     }
     let bin = aws_bin();
-    let mut cmd = Command::new(&bin);
+    let mut cmd = Command::from(sikemux_process::user_environment::command(&bin));
     cmd.env("AWS_PROFILE", &profile)
         .env("AWS_PAGER", "")
         .env("NO_COLOR", "1")

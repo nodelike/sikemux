@@ -1,6 +1,6 @@
 import { ActionRegistry, type ActionContextInput, type ActionDefinition, type ActionScope } from "./registry";
-import { keybindingLabel, matchesKeybinding } from "../keybindings";
-import { normalizeProjectActionKeybinding, type ProjectAction } from "../projectConfig";
+import { keybindingLabel, matchesKeybinding } from "../commands/keybindings";
+import { normalizeProjectActionKeybinding, type ProjectAction } from "../projects/projectConfig";
 import {
     InternalExtensionHost,
     type ExtensionContributionAdapter,

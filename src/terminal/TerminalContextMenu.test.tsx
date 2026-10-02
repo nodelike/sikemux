@@ -40,4 +40,26 @@ describe("TerminalContextMenu", () => {
         render(<TerminalContextMenu x={20} y={20} controller={controller("")} onFind={vi.fn()} onClose={vi.fn()} />);
         expect(screen.getByRole("menuitem", { name: /Copy(?:⌘|Ctrl\+)C/ })).toBeDisabled();
     });
+
+    it("offers to send a selection to an agent, and only when there is one", () => {
+        const onSend = vi.fn();
+        const first = render(
+            <TerminalContextMenu x={20} y={20} controller={controller("")} onFind={vi.fn()} onSendSelection={onSend} onClose={vi.fn()} />,
+        );
+        expect(screen.queryByRole("menuitem", { name: /Send Selection to Agent/ })).toBeNull();
+        first.unmount();
+
+        render(
+            <TerminalContextMenu
+                x={20}
+                y={20}
+                controller={controller("FAIL a.test.ts")}
+                onFind={vi.fn()}
+                onSendSelection={onSend}
+                onClose={vi.fn()}
+            />,
+        );
+        fireEvent.click(screen.getByRole("menuitem", { name: /Send Selection to Agent/ }));
+        expect(onSend).toHaveBeenCalledWith("FAIL a.test.ts");
+    });
 });

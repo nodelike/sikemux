@@ -1,4 +1,5 @@
 import { useEffect, useSyncExternalStore } from "react";
+import { mergeHoles, watchOverlays } from "./overlayHoles";
 
 /* Native child views (the browser pages) paint above every DOM element, so an
    overlay that must show over them asks for them to step aside while it is
@@ -45,8 +46,10 @@ export function useOccludeNativeViews(active: boolean): void {
     }, [active]);
 }
 
-/* A toast is too small and too brief to send a page away for, so the page
-   leaves a hole where it sits instead. Rects are in the window's CSS pixels. */
+/* A toast or a menu is too small to send a page away for, so the page leaves
+   a hole where it sits instead. The holes are found by watching the DOM for
+   anything floating, for as long as a page is reading them. Rects are in the
+   window's CSS pixels. */
 export interface NativeViewHole {
     x: number;
     y: number;
@@ -56,13 +59,21 @@ export interface NativeViewHole {
 }
 
 const NO_HOLES: NativeViewHole[] = [];
+const holesByOwner = new Map<object, NativeViewHole[]>();
 let holes = NO_HOLES;
 const holeListeners = new Set<() => void>();
+const OVERLAYS = {};
+let stopWatching: (() => void) | null = null;
 
 function subscribeHoles(listener: () => void) {
     holeListeners.add(listener);
+    stopWatching ??= watchOverlays((next) => setNativeViewHoles(OVERLAYS, next));
     return () => {
         holeListeners.delete(listener);
+        if (holeListeners.size || !stopWatching) return;
+        const stop = stopWatching;
+        stopWatching = null;
+        stop();
     };
 }
 
@@ -70,10 +81,13 @@ function currentHoles(): NativeViewHole[] {
     return holes;
 }
 
-export function setNativeViewHoles(next: NativeViewHole[]): void {
-    const same = next.length === holes.length && next.every((hole, i) => sameHole(hole, holes[i]));
-    if (same) return;
-    holes = next.length ? next : NO_HOLES;
+/** Replace the holes `owner` asked for. An empty list withdraws them. */
+export function setNativeViewHoles(owner: object, next: NativeViewHole[]): void {
+    const previous = holesByOwner.get(owner) ?? NO_HOLES;
+    if (next.length === previous.length && next.every((hole, i) => sameHole(hole, previous[i]))) return;
+    if (next.length) holesByOwner.set(owner, next);
+    else holesByOwner.delete(owner);
+    holes = holesByOwner.size ? mergeHoles([...holesByOwner.values()].flat()) : NO_HOLES;
     for (const listener of holeListeners) listener();
 }
 

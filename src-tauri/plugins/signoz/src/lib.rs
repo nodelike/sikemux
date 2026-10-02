@@ -6,7 +6,9 @@
 //   logs      — search, and a tail that polls for new lines
 //   services  — health per service, and one service's charts, endpoints and errors
 //   traces    — every span of one trace, ordered for a waterfall
+//   agent     — which method each of the agent's tools reaches
 
+mod agent;
 mod auth;
 mod client;
 mod config;
@@ -108,6 +110,11 @@ async fn status(data_dir: &Path) -> Status {
     }
 }
 
+/// Whether a call could find a credential, judged without the Keychain.
+fn has_credentials(config: &config::SignozConfig) -> bool {
+    !config.url.is_empty() && (config::env_api_key().is_some() || !config.account.is_empty())
+}
+
 async fn signed_in(data_dir: &Path, outcome: SignozResult<()>) -> Result<Value, PluginError> {
     outcome?;
     reply(status(data_dir).await)
@@ -132,6 +139,7 @@ impl Plugin for Signoz {
     ) -> PluginFuture<'a, Value> {
         Box::pin(async move {
             let data_dir = ctx.data_dir();
+            let (method, input) = agent::route(method, input)?;
             match method {
                 "status" => reply(status(data_dir).await),
                 "inspect" => answer(auth::inspect(data_dir, params(input)?)).await,
@@ -175,6 +183,14 @@ impl Plugin for Signoz {
             }
         })
     }
+
+    fn offers_agent_tools<'a>(
+        &'a self,
+        ctx: &'a PluginContext,
+        _remotes: &'a [String],
+    ) -> PluginFuture<'a, bool> {
+        Box::pin(async move { Ok(has_credentials(&auth::load(ctx.data_dir()).await?)) })
+    }
 }
 
 #[cfg(test)]
@@ -186,6 +202,21 @@ mod tests {
         assert_eq!(
             plugin().expect("manifest parses").manifest().id,
             "sikemux.signoz"
+        );
+    }
+
+    #[test]
+    fn only_a_saved_address_with_a_credential_can_answer_an_agent() {
+        let config = |url: &str, account: &str| config::SignozConfig {
+            url: url.into(),
+            account: account.into(),
+            ..Default::default()
+        };
+        assert!(!has_credentials(&config("", "key")));
+        assert!(has_credentials(&config("https://signoz.example", "key")));
+        assert_eq!(
+            has_credentials(&config("https://signoz.example", "")),
+            config::env_api_key().is_some()
         );
     }
 }
@@ -318,6 +349,7 @@ mod live {
                     "start": now - 60 * 60_000,
                     "end": now,
                     "limit": 5,
+                    "view": "pane",
                 }),
             )
             .await

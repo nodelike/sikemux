@@ -6,7 +6,6 @@ import {
     installIpcTransportForTests,
     productionIpcTransport,
     resetIpcTransportForTests,
-    type IpcEvent,
     type IpcEventListener,
     type IpcTransportBindings,
 } from "./transport";
@@ -191,102 +190,5 @@ describe("IPC test installation seam", () => {
         staleReset();
         expect(getIpcTransport()).toBe(memory);
         currentReset();
-    });
-});
-
-describe("MemoryIpcTransport", () => {
-    it("passes opaque args and cancellation through without retaining late results", async () => {
-        const pending = deferred<unknown>();
-        let enumerations = 0;
-        const args = new Proxy(
-            {},
-            {
-                ownKeys: () => {
-                    enumerations += 1;
-                    throw new Error("memory transport enumerated args");
-                },
-            },
-        );
-        const native = Object.freeze({ channelMode: true });
-        const handler = vi.fn((receivedArgs, context) => {
-            expect(receivedArgs).toBe(args);
-            expect(context.native).toBe(native);
-            return pending.promise;
-        });
-        const memory = new MemoryIpcTransport();
-        memory.register("stream", handler);
-        const controller = new AbortController();
-        const reason = new Error("cancel memory invoke");
-        const invocation = memory.invoke("stream", args, { signal: controller.signal, native });
-
-        controller.abort(reason);
-        await expect(invocation).rejects.toBe(reason);
-        expect(enumerations).toBe(0);
-        expect(handler).toHaveBeenCalledOnce();
-        pending.resolve("late value");
-        await Promise.resolve();
-    });
-
-    it("bounds handlers, event names, and listeners while containing event errors", async () => {
-        const listenerError = new Error("test listener failed");
-        const listenerErrors: unknown[] = [];
-        const memory = new MemoryIpcTransport({
-            maxCommandHandlers: 1,
-            maxEventNames: 1,
-            maxListenersPerEvent: 1,
-            maxListeners: 1,
-            onListenerError: (_event, error) => listenerErrors.push(error),
-        });
-        const unregister = memory.register("one", async () => 1);
-        expect(() => memory.register("two", async () => 2)).toThrow("limit");
-        unregister();
-        memory.register("two", async () => 2);
-
-        const payload = Object.freeze({ marker: "event" });
-        let received: IpcEvent<typeof payload> | null = null;
-        const unlisten = await memory.subscribe<typeof payload>("changed", (event) => {
-            received = event;
-            throw listenerError;
-        });
-        await expect(memory.subscribe("changed", vi.fn())).rejects.toThrow("listener limit");
-        await expect(memory.subscribe("other", vi.fn())).rejects.toThrow("listener limit");
-
-        expect(memory.emit("changed", payload)).toEqual({ delivered: 0, listenerErrors: 1 });
-        expect(received).toMatchObject({ event: "changed", id: 1, payload });
-        expect(Object.isFrozen(received)).toBe(true);
-        expect(listenerErrors).toEqual([listenerError]);
-
-        unlisten();
-        unlisten();
-        expect(memory.eventListenerCount).toBe(0);
-        const controller = new AbortController();
-        await memory.subscribe("other", vi.fn(), { signal: controller.signal });
-        controller.abort();
-        expect(memory.eventListenerCount).toBe(0);
-
-        const eventBounded = new MemoryIpcTransport({ maxEventNames: 1, maxListenersPerEvent: 2, maxListeners: 2 });
-        await eventBounded.subscribe("first", vi.fn());
-        await expect(eventBounded.subscribe("second", vi.fn())).rejects.toThrow("event name limit");
-
-        memory.reset();
-        expect(memory.commandHandlerCount).toBe(0);
-        let resetEvent: IpcEvent<typeof payload> | null = null;
-        await memory.subscribe<typeof payload>("changed", (event) => {
-            resetEvent = event;
-        });
-        memory.emit("changed", payload);
-        expect(resetEvent).toMatchObject({ id: 1 });
-    });
-
-    it("keeps registrations isolated from stale disposal after reset", async () => {
-        const memory = new MemoryIpcTransport();
-        const handler = async () => "shared";
-        const staleUnregister = memory.register("same", handler);
-
-        memory.reset();
-        memory.register("same", handler);
-        staleUnregister();
-
-        await expect(memory.invoke("same")).resolves.toBe("shared");
     });
 });

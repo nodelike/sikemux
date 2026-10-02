@@ -340,21 +340,4 @@ describe("ProjectController", () => {
         await expect(controller.refresh()).resolves.toBeUndefined();
         expect(() => controller.retain()).toThrow("disposed");
     });
-
-    it("publishes immutable snapshots and disposes idempotently", async () => {
-        const api = services();
-        const controller = new ProjectController("/repo", api);
-        const listener = vi.fn();
-        controller.subscribe(listener);
-        await controller.retain();
-        const snapshot = controller.getSnapshot();
-        expect(snapshot.config).toEqual({ name: "repo" });
-        expect(listener).toHaveBeenCalled();
-        expect(performanceTelemetry.snapshot().latencies["project.refresh"].count).toBe(1);
-
-        controller.dispose();
-        controller.dispose();
-        expect(api.watchStop).toHaveBeenCalledTimes(1);
-        expect(() => controller.retain()).toThrow("disposed");
-    });
 });

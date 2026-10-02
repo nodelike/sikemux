@@ -1,0 +1,208 @@
+/* ── rail ───────────────────────────────────────────── */
+.settings-rail {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    padding: var(--space-3) var(--space-2) var(--space-2);
+    background: var(--s-panel);
+    border-right: 1px solid var(--border);
+}
+.settings-nav {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    gap: var(--space-4);
+    min-height: 0;
+    overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: var(--border) transparent;
+}
+.settings-nav::-webkit-scrollbar {
+    width: 6px;
+}
+.settings-nav::-webkit-scrollbar-thumb {
+    background: var(--border);
+    border-radius: var(--radius-full);
+}
+.settings-nav-group {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-0);
+}
+.settings-nav-label {
+    padding: 0 var(--space-2) var(--space-1);
+    color: var(--text-tertiary);
+    font-size: var(--text-3xs);
+    font-weight: var(--weight-semibold);
+    letter-spacing: var(--tracking-label);
+    text-transform: uppercase;
+}
+
+/* The app's list row, at the app's list-row size. See DESIGN.md § Rows. */
+.settings-rail-item {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    height: 28px;
+    padding: 0 var(--space-2);
+    border: 1px solid transparent;
+    border-radius: var(--radius-2);
+    background: transparent;
+    color: var(--text-secondary);
+    font-family: var(--ui);
+    font-size: var(--text-sm);
+    font-weight: var(--weight-medium);
+    letter-spacing: var(--tracking-normal);
+    text-align: left;
+    cursor: pointer;
+    transition:
+        background var(--dur-1),
+        border-color var(--dur-1),
+        color var(--dur-1);
+}
+.settings-rail-item:hover {
+    background: var(--surface-hover);
+    color: var(--text-primary);
+}
+.settings-rail-item.active {
+    background: var(--surface-selected);
+    border-color: var(--border-selected);
+    color: var(--text-primary);
+}
+.settings-rail-item:focus-visible {
+    outline: 0;
+    box-shadow: var(--focus-ring);
+}
+.settings-rail-icon {
+    display: flex;
+    flex: 0 0 auto;
+    color: var(--text-tertiary);
+    transition: color var(--dur-1);
+}
+.settings-rail-item:hover .settings-rail-icon,
+.settings-rail-item.active .settings-rail-icon {
+    color: inherit;
+}
+.settings-rail-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.settings-rail-foot {
+    margin-top: auto;
+    padding: var(--space-3) var(--space-2) var(--space-1);
+    color: var(--text-tertiary);
+    font-size: var(--text-2xs);
+    line-height: 1.4;
+}
+
+.settings-search {
+    display: flex;
+    flex: 0 0 auto;
+    align-items: center;
+    gap: var(--space-2);
+    height: 28px;
+    margin-bottom: var(--space-3);
+    padding: 0 var(--space-2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-2);
+    background: var(--s-raised);
+    color: var(--text-tertiary);
+    transition: border-color var(--dur-1);
+}
+.settings-search:focus-within {
+    border-color: var(--border-selected);
+}
+.settings-search input {
+    flex: 1 1 auto;
+    min-width: 0;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--text-primary);
+    font-family: var(--ui);
+    font-size: var(--text-sm);
+    outline: 0;
+}
+.settings-search input::placeholder {
+    color: var(--text-tertiary);
+}
+.settings-search-key {
+    flex: 0 0 auto;
+    color: var(--text-tertiary);
+    font-family: var(--kbd);
+    font-size: var(--text-2xs);
+}
+
+/* ── search results ─────────────────────────────────── */
+.settings-results {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-3);
+    background: var(--s-raised);
+}
+.settings-result {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) minmax(0, auto);
+    align-items: center;
+    gap: var(--space-2);
+    min-height: 36px;
+    padding: var(--space-1) var(--space-3);
+    border: 0;
+    background: transparent;
+    color: var(--text-secondary);
+    font-family: var(--ui);
+    text-align: left;
+    cursor: pointer;
+}
+.settings-result + .settings-result {
+    border-top: 1px solid var(--border);
+}
+.settings-result.active {
+    background: var(--surface-selected);
+    color: var(--text-primary);
+}
+.settings-result.active .settings-rail-icon {
+    color: inherit;
+}
+.settings-result-label {
+    overflow: hidden;
+    color: inherit;
+    font-size: var(--text-sm);
+    font-weight: var(--weight-medium);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.settings-result-path {
+    overflow: hidden;
+    color: var(--text-tertiary);
+    font-size: var(--text-xs);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* Where a search result lands, lit briefly so the eye finds it. A section has
+   no box of its own, so only its title lights. */
+.settings-row[data-settings-flash] {
+    animation: settings-flash 1.6s ease-out;
+}
+.settings-section[data-settings-flash] .settings-section-title {
+    animation: settings-flash-title 1.6s ease-out;
+}
+@keyframes settings-flash {
+    0%,
+    30% {
+        background: var(--surface-selected);
+    }
+    100% {
+        background: transparent;
+    }
+}
+@keyframes settings-flash-title {
+    0%,
+    30% {
+        color: var(--acc);
+    }
+}

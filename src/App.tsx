@@ -5,31 +5,36 @@ import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { checkForUpdate } from "./api/updater";
 import { reportActive } from "./api/usage";
-import { TopBar } from "./components/TopBar";
-import { SideRail } from "./components/SideRail";
-import { AgentRail } from "./components/AgentRail";
-import { RailPeek } from "./components/RailPeek";
-import { RailResizer, useRailWidthVars } from "./components/RailResizer";
-import { AgentSessionSync } from "./components/AgentSessionSync";
-import { AgentLifecycleManager } from "./components/AgentLifecycleManager";
-import { AgentPalettePortal as AgentPalette } from "./components/AgentPalettePortal";
-import { FilePalette } from "./components/FilePalette";
-import { NewTabPalette } from "./components/NewTabPalette";
-import { SeshPicker } from "./components/SeshPicker";
-import { SessionSwitcher } from "./components/SessionSwitcher";
-import { Workspace } from "./components/Workspace";
-import { Toaster } from "./components/Toaster";
-import { CommandPalette } from "./components/CommandPalette";
-import { DialogHost } from "./components/DialogHost";
-import { ImageViewer } from "./components/ImageViewer";
+import { TopBar } from "./shell/TopBar";
+import { SideRail } from "./rail/SideRail";
+import { AgentRail } from "./rail/AgentRail";
+import { RailPeek } from "./rail/RailPeek";
+import { RailResizer, useRailWidthVars } from "./rail/RailResizer";
+import { AgentSessionSync } from "./agents/AgentSessionSync";
+import { watchTerminalAgentExits } from "./agents/tuiResume";
+import { AgentLifecycleManager } from "./agents/AgentLifecycleManager";
+import { AgentPalettePortal as AgentPalette } from "./agents/AgentPalettePortal";
+import { FilePalette } from "./palettes/FilePalette";
+import { NewTabPalette } from "./palettes/NewTabPalette";
+import { SeshPicker } from "./palettes/SeshPicker";
+import { SessionSwitcher } from "./palettes/SessionSwitcher";
+import { Workspace } from "./workspace/Workspace";
+import { Toaster } from "./shell/Toaster";
+import { CommandPalette } from "./palettes/CommandPalette";
+import { DialogHost } from "./shell/DialogHost";
+import { ImageViewer } from "./editor/ImageViewer";
 import { useOccludeNativeViews } from "./state/nativeViews";
 import { TerminalPane } from "./terminal/TerminalPane";
-import { HarnessBridge } from "./components/HarnessBridge";
-import { CliOpenBridge } from "./components/CliOpenBridge";
+import { HarnessBridge } from "./shell/HarnessBridge";
+import { RemoteChatBridge } from "./shell/RemoteChatBridge";
+import { RemoteWorkspaceBridge } from "./shell/RemoteWorkspaceBridge";
+import { CliOpenBridge } from "./shell/CliOpenBridge";
+import { DeepLinkBridge } from "./shell/DeepLinkBridge";
 import { git } from "./api/git";
-import { runKeybindingAction, useKeymap } from "./keymap";
-import { usePinchZoom } from "./pinchZoom";
-import { introduceNotifications, useAgentNotifications } from "./agentNotifications";
+import { runKeybindingAction, useKeymap } from "./commands/keymap";
+import { getKeybindingAction } from "./commands/keybindings";
+import { usePinchZoom } from "./shell/pinchZoom";
+import { introduceNotifications, useAgentNotifications } from "./agents/agentNotifications";
 import { useVoiceDictation } from "./voice/dictation";
 import { VoiceCaption } from "./voice/VoiceCaption";
 import { useBackdropImage } from "./hooks/useBackdropImage";
@@ -39,6 +44,9 @@ import { useBrowserStrips } from "./state/browserStrips";
 import { filesApi } from "./api/files";
 import { emit } from "./state/bus";
 import * as cmd from "./state/commands";
+import { offerSavedSessions, restoreCoreSessions } from "./workspace/restoreCoreSessions";
+import { coreSessionsApi } from "./api/coreSessions";
+import { IS_MACOS } from "./lib/platform";
 import { applyHydrate, canFlushPersist, flushPersist, hydrationAllowsPersistence, subscribePersist, type HydrationResult } from "./state/persist";
 import {
     dispatchFolder,
@@ -59,11 +67,11 @@ import { applyChatTextScale } from "./chat/textScale";
 import { applyEditorTextScale } from "./editor/textScale";
 import { dirname } from "./lib/paths";
 import type { StandaloneCommand } from "./commands/registry";
-import type { ProjectConfigLoadResult } from "./projectConfig";
+import type { ProjectConfigLoadResult } from "./projects/projectConfig";
 import { agentDetectionApi } from "./api/agentDetection";
 import { lsp } from "./api/lsp";
-import { projectActionCommand, trustProjectConfig } from "./projectConfigRuntime";
-import { worktreeHasLiveOwners } from "./worktreeLifecycle";
+import { projectActionCommand, trustProjectConfig } from "./projects/projectConfigRuntime";
+import { worktreeHasLiveOwners } from "./git/worktreeLifecycle";
 import { performanceTelemetry } from "./lib/performance";
 import { workbenchRuntime } from "./workbench/runtime";
 import {
@@ -90,20 +98,19 @@ import { pluginsApi } from "./api/plugins";
 import "./plugins/builtin";
 import { recordAgentTurns } from "./state/activityRecorder";
 import { useInstalledPlugins } from "./plugins/installed";
-import { useRailEntrance } from "./components/railMotion";
+import { useRailEntrance } from "./rail/railMotion";
 
-const SettingsPanel = lazy(() => import("./components/SettingsPanel").then((module) => ({ default: module.SettingsPanel })));
+const SettingsPanel = lazy(() => import("./settings/SettingsPanel").then((module) => ({ default: module.SettingsPanel })));
 
 /* The welcome, the release notes and the diagnostics panel, none of which exist
    until someone opens one. */
-const Onboarding = lazy(() => import("./components/ExperienceOverlays").then((module) => ({ default: module.Onboarding })));
-const DiagnosticsOverlay = lazy(() => import("./components/ExperienceOverlays").then((module) => ({ default: module.DiagnosticsOverlay })));
-const WhatsNewOverlay = lazy(() => import("./components/WhatsNewOverlay").then((module) => ({ default: module.WhatsNewOverlay })));
+const Onboarding = lazy(() => import("./shell/ExperienceOverlays").then((module) => ({ default: module.Onboarding })));
+const DiagnosticsOverlay = lazy(() => import("./shell/ExperienceOverlays").then((module) => ({ default: module.DiagnosticsOverlay })));
+const WhatsNewOverlay = lazy(() => import("./shell/WhatsNewOverlay").then((module) => ({ default: module.WhatsNewOverlay })));
 
 interface BootInfo {
     home: string;
     state: string;
-    recent: string[];
 }
 
 export interface ActiveTaskControls {
@@ -126,12 +133,26 @@ export function activeTaskControls(snapshot: TaskControllerSnapshot | null, curr
     });
 }
 
+/** The part of `path` below `folder`, with forward slashes, or null when it is not below it. */
+function below(folder: string, path: unknown): string | null {
+    if (typeof path !== "string" || !(path.startsWith(`${folder}/`) || path.startsWith(`${folder}\\`))) return null;
+    return path.slice(folder.length + 1).replaceAll("\\", "/");
+}
+
 export function gitChangeInvalidates(kind: string, args: unknown[], repo: string, paths: readonly string[] | null): boolean {
+    // A project folder that holds repositories is watched as one tree, so a
+    // change inside one of them arrives for the folder, not for that repository.
+    const nested = repo ? below(repo, args[0]) : null;
+    if (nested !== null) {
+        const touched = !paths?.length || paths.some((path) => path === nested || path.startsWith(`${nested}/`));
+        if (!touched || !kind.startsWith("git.")) return false;
+        return !paths?.length || kind === "git.overview" || kind === "git.status";
+    }
     if (repo && args[0] !== repo) return false;
     if (kind === "files.list") return true;
     if (!kind.startsWith("git.")) return false;
     if (!paths?.length) return true;
-    return kind === "git.overview" || kind === "git.status";
+    return kind === "git.overview" || kind === "git.status" || kind === "git.discoveredRepos";
 }
 
 export function subscribeGitChanged(signal?: AbortSignal): Promise<IpcUnsubscribe> {
@@ -352,6 +373,11 @@ function ProjectBridge() {
  * command executed, for a list nobody was looking at. Mounting it with the
  * palette means the shell above stops subscribing to any of its inputs.
  */
+async function quitAndStopEverything(): Promise<void> {
+    if (canFlushPersist()) await flushPersist().catch(() => false);
+    await coreSessionsApi.quitAndStopEverything().catch(reportError("quit and stop everything"));
+}
+
 function ApplicationCommandPalette() {
     const keybindingOverrides = useStore((s) => s.keybindingOverrides);
     const customCommands = useStore((s) => s.customCommands);
@@ -540,17 +566,6 @@ function ApplicationCommandPalette() {
                 : []),
         ]);
     const standaloneCommands: StandaloneCommand[] = [
-        ...(activeKind === "project"
-            ? [
-                  {
-                      id: "agents.launch",
-                      title: "Open an agent CLI",
-                      detail: "Choose a local provider and open it directly in a PTY",
-                      category: "Agents",
-                      execute: runStandalone("agents.launch", cmd.openAgentPalette),
-                  } satisfies StandaloneCommand,
-              ]
-            : []),
         ...(activeKind === "project" && activeProjectCwd
             ? [
                   languageServersAllowedHere
@@ -620,6 +635,14 @@ function ApplicationCommandPalette() {
               ]
             : []),
         {
+            id: "app.quit-and-stop-everything",
+            title: "Quit and Stop Everything",
+            detail: "Stop every terminal, terminal agent and task, then quit. Plain Quit leaves them running.",
+            category: "Application",
+            shortcut: IS_MACOS ? "⌥⌘Q" : undefined,
+            execute: runStandalone("app.quit-and-stop-everything", () => void quitAndStopEverything()),
+        },
+        {
             id: "agents.reload-manifests",
             title: "Reload agent manifests",
             detail: "Reload agent-state detection rules from disk",
@@ -642,7 +665,8 @@ function ApplicationCommandPalette() {
             onClose={cmd.closeCommandPalette}
             onExecute={cmd.noteRecentCommand}
             executeBuiltin={(id) => {
-                runKeybindingAction(id, new KeyboardEvent("keydown"), getState());
+                if (runKeybindingAction(id, new KeyboardEvent("keydown"), getState())) return;
+                notify("info", `${getKeybindingAction(id)?.label ?? id}: nothing here to act on`);
             }}
             executeCustom={(command) => {
                 cmd.runCustomCommand(command);
@@ -740,6 +764,7 @@ export default function App() {
                     applyEditorTextScale(st.editorTextScale);
                     cmd.setWindowBlur(st.windowBlur);
                     if (hydrationAllowsPersistence(hydrationResult)) {
+                        offerSavedSessions();
                         if (!st.onboardingComplete) cmd.openOnboarding();
                         else if (st.lastReleaseNotes && st.lastSeenVersion !== st.lastReleaseNotes.version) cmd.openWhatsNew();
                         performanceTelemetry.endSpan(hydrateSpan, { outcome: "success" });
@@ -775,6 +800,7 @@ export default function App() {
                     unsub = subscribePersist();
                     setBootReady(true);
                     introduceNotifications();
+                    void restoreCoreSessions();
                 }
                 finishBoot(disposed ? "cancelled" : writable ? "success" : "error");
             });
@@ -797,6 +823,8 @@ export default function App() {
     );
 
     useEffect(() => recordAgentTurns(), []);
+
+    useEffect(() => watchTerminalAgentExits(), []);
 
     useEffect(() => {
         let disposed = false;
@@ -937,7 +965,10 @@ export default function App() {
         <div className="shell">
             <ShellBackdrop />
             <CliOpenBridge />
+            <DeepLinkBridge />
             <HarnessBridge />
+            <RemoteWorkspaceBridge />
+            <RemoteChatBridge />
             <ProjectBridge />
             <AgentSessionSync />
             <AgentLifecycleManager />

@@ -1,0 +1,242 @@
+/* ---- In the git pane's two columns -------------------------------------- */
+
+/* A list, or an open pull request's conversation, fills the left column; the commits fold beneath it. */
+.git-left .pr-list,
+.gha-full-page > .pr-list {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+}
+.git-left .pr-list,
+.gha-full-page > .pr-list {
+    padding: 0 6px var(--space-3);
+}
+.git-left .pr-list .gha-list-head,
+.gha-full-page > .pr-list .gha-list-head {
+    padding: var(--space-2) 4px var(--space-1);
+}
+.git-left .gha-item-row {
+    padding: 7px 8px 7px 6px;
+    column-gap: var(--space-2);
+}
+.gha-item-row[data-on="1"] {
+    border-color: var(--border-selected);
+    background: var(--surface-selected);
+}
+/* An open pull request's column: its card where Changes has the commit box, then its files, then the folding panels. */
+.pr-card {
+    flex: 0 0 auto;
+    margin: var(--space-2) 10px var(--space-1);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-2);
+    background: var(--s-sunken);
+}
+.pr-back {
+    display: inline-flex;
+    align-items: center;
+    align-self: flex-start;
+    gap: var(--space-1);
+    flex: 0 0 auto;
+    height: 24px;
+    margin: var(--space-2) 10px 0;
+    padding: 0 var(--space-1);
+    border: 0;
+    background: none;
+    color: var(--text-tertiary);
+    font: inherit;
+    font-size: var(--text-xs);
+    cursor: pointer;
+}
+.pr-back:hover {
+    color: var(--text-primary);
+}
+.pr-back > svg {
+    transform: rotate(180deg);
+}
+.pr-number {
+    color: var(--text-tertiary);
+}
+/* The merge box sits inside the card, so it drops its own frame and keeps only the rules between its parts. */
+.pr-card .gha-merge-box {
+    border: 0;
+    border-radius: 0;
+    background: none;
+}
+.pr-card .gha-merge-part {
+    padding: 6px 10px;
+}
+.pr-card .gha-merge-title {
+    font-size: var(--text-xs);
+}
+.pr-card .gha-merge-actions {
+    flex-wrap: wrap;
+    gap: var(--space-1h);
+}
+.pr-card .gha-merge-box > .gha-merge-actions {
+    padding: 6px;
+}
+/* The files take the rows they need; whatever is left goes to the open panels beneath. */
+.pr-files {
+    flex: 0 1 auto;
+    min-height: 64px;
+    overflow-y: auto;
+}
+.pr-files:last-of-type,
+.pr-files:has(+ .git-history:not(.open)) {
+    flex-grow: 1;
+}
+.pr-files-stat {
+    margin-left: auto;
+    padding-right: var(--space-1h);
+}
+button.git-file-row {
+    width: 100%;
+    text-align: left;
+    font: inherit;
+    font-size: var(--text-sm);
+}
+.pr-verdict {
+    flex: none;
+    height: 16px;
+    margin-right: var(--space-2);
+    padding: 0 6px;
+    border-radius: var(--radius-full);
+    border: 1px solid color-mix(in oklab, var(--danger) 40%, transparent);
+    color: var(--danger);
+    font-size: var(--text-3xs);
+    line-height: 14px;
+}
+.pr-verdict[data-tone="live"] {
+    border-color: color-mix(in oklab, var(--live) 40%, transparent);
+    color: var(--live);
+}
+.pr-title-row {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--space-2);
+}
+.pr-title-row > .git-detail-title {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+.gha-merge-by {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+    padding-left: calc(22px + var(--space-2));
+    font-size: var(--text-2xs);
+    color: var(--text-tertiary);
+}
+/* An open pull request's right column: its header, then the conversation or the files, whichever is toggled on. */
+.pr-right {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 0;
+}
+.pr-right > .git-detail .pr-number {
+    color: var(--text-tertiary);
+}
+.pr-right > .git-detail .gha-branch > span {
+    font-size: var(--text-2xs);
+}
+.pr-tab {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-1h);
+}
+.pr-right > .merge-review,
+.pr-right > .commit-review {
+    flex: 1 1 auto;
+    min-height: 0;
+}
+.pr-conversation {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    padding: var(--space-4) 16px var(--space-6);
+}
+.pr-conversation > .gha-thread,
+.pr-conversation > .release-notes,
+.pr-conversation > .release-assets {
+    max-width: 880px;
+    margin: 0 auto;
+}
+/* A run's jobs list like a pull request's files; each shows how long it took. */
+.git-file-row > .gha-job-stopped {
+    flex: 0 1 auto;
+    font-size: var(--text-2xs);
+    color: var(--danger);
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.run-card-tools {
+    display: inline-flex;
+    align-items: center;
+    margin-left: auto;
+}
+.run-job-took {
+    margin-left: auto;
+    padding-right: var(--space-1h);
+    font-size: var(--text-2xs);
+    font-variant-numeric: tabular-nums;
+    color: var(--text-tertiary);
+}
+.pr-card .gha-callout {
+    margin: 0;
+}
+.git-history .gha-artifacts {
+    overflow-y: auto;
+    padding: 0 10px var(--space-2);
+}
+.run-billed {
+    padding: 0 var(--space-5) var(--space-2);
+    font-size: var(--text-2xs);
+}
+/* The log takes whatever height the steps leave, so it reads like a terminal rather than a box on a page. */
+.pr-conversation:has(> .run-logs) {
+    display: flex;
+    flex-direction: column;
+    padding-bottom: var(--space-3);
+}
+.run-logs {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    min-height: 0;
+}
+.run-logs > .gha-steps {
+    flex: 0 1 auto;
+    max-height: 40%;
+    overflow-y: auto;
+}
+.run-logs > .gha-log {
+    flex: 1 1 0;
+    min-height: 200px;
+    max-height: none;
+}
+/* An issue reads on the right, where a pull request's files would be. */
+.issue-page {
+    height: 100%;
+    overflow-y: auto;
+}
+.issue-page > .gha-detail {
+    padding-top: var(--space-3);
+}
+.git-right > .gha-empty,
+.git-right > .empty-state {
+    margin: auto;
+}
+.gha-body > .git-body {
+    height: 100%;
+}
+/* The columns scroll themselves, so bringing a commit into view never slides the whole pane. */
+.gha-body:has(> .git-body) {
+    overflow: hidden;
+}
+.git-right-review > .empty-state {
+    margin: auto;
+}

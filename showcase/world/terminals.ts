@@ -40,12 +40,12 @@ const DEV = lines(
   `    ${c.green("Finished")} \`dev\` profile in 11.02s`,
   `     ${c.green("Running")} \`target/debug/sikemux\``,
   `${c.dim("9:40:07")} ${c.cyan("[vite]")} ${c.green("hmr")} ${c.dim("/src/styles/modern-shell.css")}`,
-  `${c.dim("9:40:19")} ${c.cyan("[vite]")} ${c.green("hmr")} ${c.dim("/src/components/AgentRail.tsx")}`,
+  `${c.dim("9:40:19")} ${c.cyan("[vite]")} ${c.green("hmr")} ${c.dim("/src/rail/AgentRail.tsx")}`,
 );
 
 const TEST = lines(
   title("vitest"),
-  `${prompt("~/code/sikemux", "main", "!3?1")}pnpm test src/components/AgentRail`,
+  `${prompt("~/code/sikemux", "main", "!3?1")}pnpm test src/rail/AgentRail`,
   "",
   ` ${c.bold(c.cyan("RUN"))}  ${c.cyan("v4.1.10")} ${c.dim("~/code/sikemux")}`,
   "",
@@ -71,10 +71,10 @@ const GIT = lines(
   `${c.yellow("f4c21b8")} perf(pty): replay as one buffer`,
   `${prompt("~/code/sikemux", "main", "!3?1")}git status -sb`,
   `${c.green("## main")}...${c.red("origin/main")} [ahead ${c.green("2")}]`,
-  ` ${c.red("M")} src/components/AgentRail.tsx`,
+  ` ${c.red("M")} src/rail/AgentRail.tsx`,
   `${c.green("M")}  src/styles/modern-shell.css`,
   ` ${c.red("M")} src/styles/tokens.css`,
-  `${c.red("??")} src/components/AgentRailDensity.tsx`,
+  `${c.red("??")} src/rail/AgentRailDensity.tsx`,
   prompt("~/code/sikemux", "main", "!3?1"),
 );
 

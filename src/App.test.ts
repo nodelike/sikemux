@@ -75,6 +75,22 @@ describe("Git change IPC subscription", () => {
         expect(gitChangeInvalidates("git.status", ["/other"], "/repo", null)).toBe(false);
     });
 
+    it("refreshes the repositories inside a project folder as their files change", () => {
+        const folder = "/work/internal";
+        // The list of repositories, with their change counts, is kept for the folder.
+        expect(gitChangeInvalidates("git.discoveredRepos", [folder], folder, ["web/src/app.ts"])).toBe(true);
+        expect(gitChangeInvalidates("git.discoveredRepos", [folder], folder, null)).toBe(true);
+        // A repository opened from that list is kept under its own path.
+        expect(gitChangeInvalidates("git.overview", [`${folder}/web`], folder, ["web/src/app.ts"])).toBe(true);
+        expect(gitChangeInvalidates("git.status", [`${folder}/web`], folder, ["web/src/app.ts"])).toBe(true);
+        expect(gitChangeInvalidates("git.overview", [`${folder}/crm`], folder, ["web/src/app.ts"])).toBe(false);
+        expect(gitChangeInvalidates("git.stashes", [`${folder}/web`], folder, ["web/src/app.ts"])).toBe(false);
+        // A commit or a stage names no files, so everything Git knows about each repository refreshes.
+        expect(gitChangeInvalidates("git.stashes", [`${folder}/web`], folder, null)).toBe(true);
+        expect(gitChangeInvalidates("files.list", [`${folder}/web`], folder, null)).toBe(false);
+        expect(gitChangeInvalidates("git.overview", ["/work/internal-old/web"], folder, null)).toBe(false);
+    });
+
     it("routes through the installed transport and aborts idempotently", async () => {
         const changed = vi.fn();
         const unsubscribeBus = subscribe("fs-changed", changed);

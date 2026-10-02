@@ -1,0 +1,152 @@
+/* Diff tab: the review side of the git pane, driven by the workspace rail. */
+.diff-pane {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    height: 100%;
+    min-height: 0;
+    overflow: hidden;
+}
+
+.diff-pane > .merge-review {
+    flex: 1;
+    min-height: 0;
+}
+
+.diff-pane-empty {
+    display: grid;
+    width: 100%;
+    height: 100%;
+    place-items: center;
+    padding: var(--space-5);
+    color: var(--text-secondary);
+    font-family: var(--ui);
+    font-size: var(--text-xs);
+    text-align: center;
+}
+
+.diff-pane-empty.error {
+    color: var(--danger);
+}
+
+.git-repo-list {
+    list-style: none;
+    margin: 0;
+    padding: 6px 0;
+    overflow-y: auto;
+    flex: 1 1 auto;
+}
+.git-repo-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 0 12px;
+    height: 28px;
+    border: 0;
+    background: transparent;
+    color: var(--text-secondary);
+    font-family: var(--mono);
+    font-size: var(--text-xs);
+    text-align: left;
+    cursor: pointer;
+}
+.git-repo-row:hover {
+    background: var(--hl);
+    color: var(--text-primary);
+}
+.git-repo-icon {
+    flex: none;
+    opacity: 0.7;
+}
+.git-repo-icon.dirty {
+    color: var(--warn);
+    opacity: 1;
+}
+.git-repo-name {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.git-repo-branch {
+    flex: 0 1 auto;
+    min-width: 0;
+    color: var(--acc);
+    font-size: var(--text-2xs);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.git-repo-sync {
+    flex: none;
+    color: var(--text-tertiary);
+    font-size: var(--text-2xs);
+}
+.git-repo-changes {
+    flex: none;
+    min-width: 18px;
+    text-align: right;
+    color: var(--text-tertiary);
+    font-size: var(--text-2xs);
+}
+.git-repo-changes.dirty {
+    color: var(--warn);
+}
+
+.diff-merge-editor {
+    isolation: isolate;
+}
+.diff-merge-editor .cm-editor .cm-line {
+    padding: 0 1ch;
+}
+.diff-merge-editor .cm-editor .cm-lineNumbers .cm-gutterElement {
+    min-width: 3ch;
+    padding: 0 1ch 0 2ch;
+}
+.diff-merge-editor .cm-editor .cm-changeGutter {
+    width: 4px;
+    padding: 0;
+}
+.diff-merge-editor .cm-editor.cm-merge-b .cm-changedLineGutter {
+    background: var(--live);
+}
+.diff-merge-editor .cm-editor .cm-deletedLineGutter {
+    background: linear-gradient(0deg, color-mix(in lab, transparent 80%, var(--danger)) 50%, var(--danger) 50%) 0 0 / 1.9px 1.9px;
+}
+.diff-merge-editor.tinted .cm-editor.cm-merge-b .cm-changedLine {
+    background: color-mix(in lab, transparent 80%, var(--live));
+}
+.diff-merge-editor .cm-editor .cm-deletedChunk {
+    padding-left: 0;
+}
+.diff-merge-editor.tinted .cm-editor .cm-deletedChunk {
+    background: color-mix(in lab, transparent 80%, var(--danger));
+}
+.diff-merge-editor .cm-editor.cm-merge-b .cm-changedText {
+    border-radius: 3px;
+    background: rgb(from var(--live) r g b / 0.2);
+}
+.diff-merge-editor .cm-editor .cm-deletedChunk .cm-deletedText {
+    border-radius: 3px;
+    background: rgb(from var(--danger) r g b / 0.2);
+}
+.diff-merge-editor .cm-editor .cm-collapsedLines {
+    height: 4px;
+    padding: 0;
+    font-size: 0;
+    background: color-mix(in oklab, var(--ink) 7%, transparent);
+}
+.diff-merge-editor .cm-editor .cm-collapsedLines::before,
+.diff-merge-editor .cm-editor .cm-collapsedLines::after {
+    content: none;
+}
+.diff-merge-editor .cm-editor ::selection,
+.diff-merge-editor .cm-editor .cm-selectionBackground {
+    background: var(--acc-soft);
+}
+.gg-avatar-picture {
+    object-fit: cover;
+    background: var(--surface-sunken);
+}

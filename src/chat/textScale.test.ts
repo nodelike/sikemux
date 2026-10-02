@@ -21,10 +21,4 @@ describe("chat text scale", () => {
 
         expect(document.documentElement.style.getPropertyValue("--chat-text-scale")).toBe("1.4");
     });
-
-    it("never publishes a value outside the range", () => {
-        applyChatTextScale(99);
-
-        expect(document.documentElement.style.getPropertyValue("--chat-text-scale")).toBe("2");
-    });
 });

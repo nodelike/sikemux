@@ -7,12 +7,14 @@ use serde_json::{json, Value};
 use sikemux_plugin_api::{reply, PluginResult, StreamSink};
 
 use crate::client;
-use crate::error::SignozResult;
+use crate::error::{SignozError, SignozResult};
 use crate::filter::Scope;
-use crate::query::{self, all_of, quote};
+use crate::query::{self, all_of, quote, View};
 
-const DEFAULT_LIMIT: u32 = 100;
+const DEFAULT_LIMIT: u32 = 30;
 const MAX_LIMIT: u32 = 500;
+const BODY_CHARS: usize = 1_000;
+const ID_WINDOW_MS: u64 = 10 * 60_000;
 const TAIL_INTERVAL: Duration = Duration::from_secs(2);
 const TAIL_MAX_BACKOFF: Duration = Duration::from_secs(30);
 const TAIL_GIVE_UP_AFTER: u32 = 8;
@@ -27,8 +29,11 @@ pub struct LogSearch {
     #[serde(default)]
     pub severities: Vec<String>,
     pub trace_id: Option<String>,
+    pub id: Option<String>,
     pub limit: Option<u32>,
     pub offset: Option<u32>,
+    #[serde(default)]
+    pub view: View,
 }
 
 #[derive(Serialize, Clone, Debug, PartialEq)]
@@ -51,6 +56,59 @@ pub struct LogLine {
 pub struct LogPage {
     pub lines: Vec<LogLine>,
     pub next_offset: Option<u32>,
+}
+
+/// What every returned line has in common, written once instead of on each line.
+#[derive(Serialize, Default, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Shared {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub service: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub severity: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub trace_id: Option<String>,
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub attributes: BTreeMap<String, Value>,
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub resources: BTreeMap<String, Value>,
+}
+
+#[derive(Serialize, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct DigestLine {
+    pub id: String,
+    pub timestamp: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub service: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub severity: Option<String>,
+    pub body: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub trace_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub span_id: Option<String>,
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub attributes: BTreeMap<String, Value>,
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub resources: BTreeMap<String, Value>,
+}
+
+#[derive(Serialize, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct LogDigest {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub shared: Option<Shared>,
+    pub lines: Vec<DigestLine>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_offset: Option<u32>,
+}
+
+#[derive(Serialize)]
+#[serde(untagged)]
+pub enum LogReply {
+    Lines(LogPage),
+    Digest(LogDigest),
 }
 
 #[derive(Serialize)]
@@ -77,6 +135,7 @@ fn expression(search: &LogSearch) -> SignozResult<Option<String>> {
         present(&search.text).map(|text| format!("body CONTAINS {}", quote(text))),
         (!severities.is_empty()).then(|| format!("severity_text IN ({})", severities.join(", "))),
         present(&search.trace_id).map(|trace| format!("trace_id = {}", quote(trace))),
+        present(&search.id).map(|id| format!("id = {}", quote(id))),
     ];
     Ok(all_of(
         own.into_iter().flatten().chain(search.scope.clauses()?),
@@ -246,14 +305,172 @@ fn bucket(result: &Value, start: u64, end: u64, step_ms: u64) -> Vec<VolumeBucke
     buckets
 }
 
-pub async fn search(data_dir: &Path, search: LogSearch) -> SignozResult<LogPage> {
+pub async fn search(data_dir: &Path, search: LogSearch) -> SignozResult<LogReply> {
+    if search.view == View::Agent {
+        if let Some(id) = present(&search.id) {
+            return one_line(data_dir, &search, id).await.map(LogReply::Digest);
+        }
+    }
     let limit = search.limit.unwrap_or(DEFAULT_LIMIT).clamp(1, MAX_LIMIT);
     let offset = search.offset.unwrap_or(0);
     let request = list_query(&search, search.scope.window()?, limit, offset, true)?;
     let result = client::query_range(data_dir, &request).await?;
     let lines = lines_of(&result);
     let next_offset = (lines.len() as u32 == limit).then(|| offset.saturating_add(limit));
-    Ok(LogPage { lines, next_offset })
+    Ok(match search.view {
+        View::Pane => LogReply::Lines(LogPage { lines, next_offset }),
+        View::Agent => LogReply::Digest(digest(lines, next_offset, Some(BODY_CHARS))),
+    })
+}
+
+/// One line, whole. A SigNoz log id is a KSUID stamped with the line's time,
+/// so without a window from the agent the lookup reads only minutes around it.
+async fn one_line(data_dir: &Path, search: &LogSearch, id: &str) -> SignozResult<LogDigest> {
+    let scope = &search.scope;
+    let window_given = scope.start.is_some() || scope.end.is_some() || scope.minutes.is_some();
+    let stamped = ksuid_seconds(id).filter(|_| !window_given).map(|seconds| {
+        let at = seconds * 1_000;
+        (at.saturating_sub(ID_WINDOW_MS), at + ID_WINDOW_MS)
+    });
+    let mut windows = Vec::from_iter(stamped);
+    windows.push(scope.window()?);
+    for window in windows {
+        let request = list_query(search, window, 1, 0, true)?;
+        let lines = lines_of(&client::query_range(data_dir, &request).await?);
+        if !lines.is_empty() {
+            return Ok(digest(lines, None, None));
+        }
+    }
+    Err(SignozError::NotFound(format!(
+        "no log line {id} in the window; pass the minutes or start and end the search used"
+    )))
+}
+
+fn ksuid_seconds(id: &str) -> Option<u64> {
+    if id.len() != 27 {
+        return None;
+    }
+    let mut bytes = [0u8; 20];
+    for c in id.chars() {
+        let mut carry = match c {
+            '0'..='9' => c as u32 - '0' as u32,
+            'A'..='Z' => c as u32 - 'A' as u32 + 10,
+            'a'..='z' => c as u32 - 'a' as u32 + 36,
+            _ => return None,
+        };
+        for byte in bytes.iter_mut().rev() {
+            let value = u32::from(*byte) * 62 + carry;
+            *byte = (value & 0xff) as u8;
+            carry = value >> 8;
+        }
+        if carry != 0 {
+            return None;
+        }
+    }
+    let stamp = u32::from_be_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
+    Some(u64::from(stamp) + 1_400_000_000)
+}
+
+fn uniform<'a>(mut values: impl Iterator<Item = Option<&'a String>>) -> Option<String> {
+    let first = values.next()??;
+    values
+        .all(|value| value == Some(first))
+        .then(|| first.clone())
+}
+
+fn common(maps: &[&BTreeMap<String, Value>]) -> BTreeMap<String, Value> {
+    let Some((first, rest)) = maps.split_first() else {
+        return BTreeMap::new();
+    };
+    first
+        .iter()
+        .filter(|(key, value)| rest.iter().all(|map| map.get(*key) == Some(*value)))
+        .map(|(key, value)| (key.clone(), value.clone()))
+        .collect()
+}
+
+fn without(
+    map: BTreeMap<String, Value>,
+    shared: &BTreeMap<String, Value>,
+) -> BTreeMap<String, Value> {
+    map.into_iter()
+        .filter(|(key, _)| !shared.contains_key(key))
+        .collect()
+}
+
+fn clipped(body: String, most: Option<usize>) -> String {
+    let Some(most) = most else {
+        return body;
+    };
+    let length = body.chars().count();
+    if length <= most {
+        return body;
+    }
+    let kept: String = body.chars().take(most).collect();
+    format!(
+        "{kept}… [{} more chars; search by this line's id for all of it]",
+        length - most
+    )
+}
+
+/// Lines as an agent reads them: anything every line repeats is said once in
+/// `shared`, and each line keeps only what sets it apart.
+pub fn digest(
+    lines: Vec<LogLine>,
+    next_offset: Option<u32>,
+    body_chars: Option<usize>,
+) -> LogDigest {
+    let mut lines = lines;
+    for line in &mut lines {
+        if line.service.is_some()
+            && line.resources.get("service.name").and_then(Value::as_str) == line.service.as_deref()
+        {
+            line.resources.remove("service.name");
+        }
+    }
+    let shared = (lines.len() > 1).then(|| Shared {
+        service: uniform(lines.iter().map(|line| line.service.as_ref())),
+        severity: uniform(lines.iter().map(|line| line.severity.as_ref())),
+        trace_id: uniform(lines.iter().map(|line| line.trace_id.as_ref())),
+        attributes: common(
+            &lines
+                .iter()
+                .map(|line| &line.attributes)
+                .collect::<Vec<_>>(),
+        ),
+        resources: common(&lines.iter().map(|line| &line.resources).collect::<Vec<_>>()),
+    });
+    let hoisted = shared.as_ref();
+    let lines = lines
+        .into_iter()
+        .map(|line| {
+            let unless_shared = |value: Option<String>, pick: fn(&Shared) -> &Option<String>| {
+                value.filter(|_| hoisted.and_then(|shared| pick(shared).as_ref()).is_none())
+            };
+            DigestLine {
+                service: unless_shared(line.service, |shared| &shared.service),
+                severity: unless_shared(line.severity, |shared| &shared.severity),
+                trace_id: unless_shared(line.trace_id, |shared| &shared.trace_id),
+                attributes: match hoisted {
+                    Some(shared) => without(line.attributes, &shared.attributes),
+                    None => line.attributes,
+                },
+                resources: match hoisted {
+                    Some(shared) => without(line.resources, &shared.resources),
+                    None => line.resources,
+                },
+                body: clipped(line.body, body_chars),
+                id: line.id,
+                timestamp: line.timestamp,
+                span_id: line.span_id,
+            }
+        })
+        .collect();
+    LogDigest {
+        shared: shared.filter(|shared| shared != &Shared::default()),
+        lines,
+        next_offset,
+    }
 }
 
 struct Seen {
@@ -409,6 +626,128 @@ mod tests {
         assert_eq!(buckets[1].counts.get("OTHER"), Some(&3));
         assert_eq!(buckets[2].counts.get("ERROR"), Some(&1));
         assert!(buckets[3].counts.is_empty());
+    }
+
+    fn line(id: &str, pod: &str, status: u64, body: &str) -> LogLine {
+        LogLine {
+            id: id.into(),
+            timestamp: format!("2026-09-24T09:11:5{id}Z"),
+            service: Some("api".into()),
+            severity: Some("ERROR".into()),
+            body: body.into(),
+            trace_id: Some(format!("trace-{id}")),
+            span_id: None,
+            attributes: BTreeMap::from([
+                ("path".into(), json!("/upload")),
+                ("status".into(), json!(status)),
+            ]),
+            resources: BTreeMap::from([
+                ("service.name".into(), json!("api")),
+                ("k8s.pod.name".into(), json!(pod)),
+                ("host.name".into(), json!("node-1")),
+            ]),
+        }
+    }
+
+    #[test]
+    fn says_once_what_every_line_repeats() {
+        let digest = digest(
+            vec![
+                line("1", "api-a", 503, "failed"),
+                line("2", "api-a", 500, "failed"),
+            ],
+            Some(30),
+            Some(BODY_CHARS),
+        );
+        let shared = digest.shared.as_ref().unwrap();
+        assert_eq!(shared.service.as_deref(), Some("api"));
+        assert_eq!(shared.severity.as_deref(), Some("ERROR"));
+        assert_eq!(shared.trace_id, None);
+        assert_eq!(
+            shared.attributes,
+            BTreeMap::from([("path".into(), json!("/upload"))])
+        );
+        assert_eq!(
+            shared.resources,
+            BTreeMap::from([
+                ("host.name".into(), json!("node-1")),
+                ("k8s.pod.name".into(), json!("api-a")),
+            ])
+        );
+        let first = &digest.lines[0];
+        assert_eq!(first.service, None);
+        assert_eq!(first.severity, None);
+        assert_eq!(first.trace_id.as_deref(), Some("trace-1"));
+        assert_eq!(
+            first.attributes,
+            BTreeMap::from([("status".into(), json!(503))])
+        );
+        assert!(first.resources.is_empty());
+        assert_eq!(
+            serde_json::to_value(&digest).unwrap()["lines"][1],
+            json!({ "id": "2", "timestamp": "2026-09-24T09:11:52Z", "body": "failed", "traceId": "trace-2", "attributes": { "status": 500 } })
+        );
+    }
+
+    #[test]
+    fn keeps_a_key_on_its_line_when_only_some_lines_have_it() {
+        let mut other = line("2", "api-b", 503, "failed");
+        other.attributes.remove("path");
+        other.severity = Some("WARN".into());
+        let digest = digest(vec![line("1", "api-a", 503, "failed"), other], None, None);
+        let shared = digest.shared.unwrap();
+        assert_eq!(
+            shared.attributes,
+            BTreeMap::from([("status".into(), json!(503))])
+        );
+        assert_eq!(shared.severity, None);
+        assert_eq!(
+            digest.lines[0].attributes.get("path"),
+            Some(&json!("/upload"))
+        );
+        assert_eq!(
+            digest.lines[0].resources.get("k8s.pod.name"),
+            Some(&json!("api-a"))
+        );
+        assert_eq!(digest.lines[1].severity.as_deref(), Some("WARN"));
+    }
+
+    #[test]
+    fn a_single_line_keeps_everything_but_its_repeated_service_name() {
+        let digest = digest(vec![line("1", "api-a", 503, "failed")], None, None);
+        assert_eq!(digest.shared, None);
+        assert_eq!(digest.lines[0].service.as_deref(), Some("api"));
+        assert_eq!(digest.lines[0].resources.len(), 2);
+    }
+
+    #[test]
+    fn clips_long_bodies_and_says_how_to_read_the_rest() {
+        let long = "x".repeat(BODY_CHARS + 25);
+        let clipped = digest(vec![line("1", "p", 1, &long)], None, Some(BODY_CHARS));
+        let body = &clipped.lines[0].body;
+        assert!(body.starts_with(&"x".repeat(BODY_CHARS)));
+        assert!(body.ends_with("[25 more chars; search by this line's id for all of it]"));
+        let whole = digest(vec![line("1", "p", 1, &long)], None, None);
+        assert_eq!(whole.lines[0].body, long);
+    }
+
+    #[test]
+    fn reads_the_time_a_ksuid_was_stamped_with() {
+        assert_eq!(
+            ksuid_seconds("0ujtsYcgvSTl8PAuAdqWYSMnLOv"),
+            Some(1_507_608_047)
+        );
+        assert_eq!(ksuid_seconds("not-a-ksuid"), None);
+        assert_eq!(ksuid_seconds("zzzzzzzzzzzzzzzzzzzzzzzzzzz"), None);
+    }
+
+    #[test]
+    fn looks_a_line_up_by_its_id() {
+        let search = LogSearch {
+            id: Some("abc".into()),
+            ..LogSearch::default()
+        };
+        assert_eq!(expression(&search).unwrap().unwrap(), "id = 'abc'");
     }
 
     #[test]

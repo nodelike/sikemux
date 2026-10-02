@@ -1,0 +1,39 @@
+.gha-topbar {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-1h);
+    height: 24px;
+    padding: 0 var(--space-1);
+    border: 0;
+    background: transparent;
+    color: var(--text-secondary);
+    font: inherit;
+    font-size: var(--text-2xs);
+    cursor: pointer;
+    -webkit-app-region: no-drag;
+    transition: color var(--dur-1) linear;
+}
+.gha-topbar:hover {
+    color: var(--text-primary);
+}
+.gha-topbar:focus-visible {
+    box-shadow: var(--focus-ring);
+    outline: none;
+}
+.gha-topbar .gha-outcome {
+    display: inline-flex;
+    color: var(--text-tertiary);
+}
+.gha-topbar .gha-outcome[data-outcome="success"] {
+    color: var(--live);
+}
+.gha-topbar .gha-outcome[data-outcome="failure"] {
+    color: var(--danger);
+}
+.gha-topbar .gha-outcome:is([data-outcome="running"], [data-outcome="blocked"]) {
+    color: var(--warn);
+}
+.gha-topbar-number {
+    font-family: var(--mono);
+    font-variant-numeric: tabular-nums;
+}

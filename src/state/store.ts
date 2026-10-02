@@ -5,9 +5,9 @@ import { DEFAULT_THEME_ID, type Theme } from "../themes";
 import { DEFAULT_TERMINAL_FONT_SIZE } from "../terminal/fontSize";
 import { DEFAULT_CHAT_TEXT_SCALE } from "../chat/textScale";
 import { DEFAULT_EDITOR_TEXT_SCALE } from "../editor/textScale";
-import type { KeybindingOverrides } from "../keybindings";
+import type { KeybindingOverrides } from "../commands/keybindings";
 import type { CustomCommand } from "../commands/registry";
-import type { SettingsPageId } from "../settingsIndex";
+import type { SettingsPageId } from "../settings/settingsIndex";
 import { RAIL_WIDTH } from "../lib/railWidths";
 import { DEFAULT_PROVIDER_PROFILES, DEFAULT_PROVIDER_PROFILE_SELECTION } from "./types";
 
@@ -19,6 +19,7 @@ import type { HeldRelease, ReleaseCredits } from "../api/releases";
 import type {
     Agent,
     AgentPermissionMode,
+    AgentType,
     Desk,
     DeskView,
     EditorPaneView,
@@ -27,10 +28,12 @@ import type {
     GlobalSearchView,
     PickerMode,
     ProjectRoot,
+    ProjectSpace,
     ProviderProfile,
     ProviderProfileSelection,
     RecentEntry,
     RailDensity,
+    AgentRailScope,
     DiffTarget,
     Session,
     SessionSwitcherView,
@@ -55,6 +58,8 @@ export interface DomainState {
     customThemes: Theme[];
     uiTextScale: number;
     paneShader: boolean;
+    /** A picture on disk that panes show, dithered, in place of the grain. */
+    paneImage: string | null;
     terminalFontSize: number;
     chatTextScale: number;
     editorTextScale: number;
@@ -74,11 +79,20 @@ export interface DomainState {
     /** Plugins switched off in Settings; they are built in but act as if absent. */
     disabledPlugins: readonly string[];
     restoreAgentTabs: boolean;
+    spaces: readonly ProjectSpace[];
+    /** The space id each project belongs to, by project folder, so it outlives closing the project. */
+    projectSpaces: Readonly<Record<string, string>>;
+    /** The space the rail shows, or null for every project. */
+    activeSpaceId: string | null;
     agentNotifications: boolean;
     voiceDictation: boolean;
-    voiceWords: readonly string[];
     notificationsIntroduced: boolean;
+    /** The person was told once that terminals keep running after Sikemux quits. */
+    keptRunningNoticeShown: boolean;
     railDensity: RailDensity;
+    /** The agent rail shows every CLI's chats instead of one provider's. */
+    agentRailAllAgents: boolean;
+    agentRailScope: AgentRailScope;
     onboardingComplete: boolean;
     lastSeenVersion: string;
     customCommands: CustomCommand[];
@@ -90,8 +104,12 @@ export interface DomainState {
     providerProfiles: ProviderProfile[];
     selectedProviderProfileIds: ProviderProfileSelection;
     defaultAgentPermissionMode: AgentPermissionMode;
+    /** The agent ⌘N starts: whichever was launched last. */
+    lastAgentType: AgentType | null;
     /** Whether each project, by root path, may start its language servers. A project absent here has not been asked. */
     languageServerTrust: Record<string, boolean>;
+    /** Whether a new chat in each project, by root path, starts with its Worktree switch on. */
+    agentWorktreeDefaults: Record<string, boolean>;
 }
 
 export type UpdateOperationState = "available" | "preparing" | "downloading" | "installing" | "restarting" | "error";
@@ -126,6 +144,8 @@ export interface ViewState {
     agentPaletteOpen: boolean;
     filePaletteOpen: boolean;
     newTabPaletteOpen: boolean;
+    /** The agent whose desk has its address open in the middle of the page, from ⌘L. */
+    deskAddressOpen: string | null;
     settingsOpen: boolean;
     settingsPage: SettingsPageId;
     zoomedPaneId: string | null;
@@ -212,6 +232,7 @@ export const useStore = create<StoreState>(() => {
         customThemes: [],
         uiTextScale: 1,
         paneShader: true,
+        paneImage: null,
         terminalFontSize: DEFAULT_TERMINAL_FONT_SIZE,
         chatTextScale: DEFAULT_CHAT_TEXT_SCALE,
         editorTextScale: DEFAULT_EDITOR_TEXT_SCALE,
@@ -229,11 +250,16 @@ export const useStore = create<StoreState>(() => {
         pluginSettings: {},
         disabledPlugins: [],
         restoreAgentTabs: true,
+        spaces: [],
+        projectSpaces: {},
+        activeSpaceId: null,
         agentNotifications: true,
         voiceDictation: false,
-        voiceWords: [],
         notificationsIntroduced: false,
+        keptRunningNoticeShown: false,
         railDensity: "comfortable",
+        agentRailAllAgents: false,
+        agentRailScope: "project",
         onboardingComplete: false,
         lastSeenVersion: "",
         customCommands: [],
@@ -244,7 +270,9 @@ export const useStore = create<StoreState>(() => {
         providerProfiles: DEFAULT_PROVIDER_PROFILES.map((profile) => ({ ...profile })),
         selectedProviderProfileIds: { ...DEFAULT_PROVIDER_PROFILE_SELECTION },
         defaultAgentPermissionMode: "bypass",
+        lastAgentType: null,
         languageServerTrust: {},
+        agentWorktreeDefaults: {},
 
         home: "",
         pluginManifests: [],
@@ -253,6 +281,7 @@ export const useStore = create<StoreState>(() => {
         agentPaletteOpen: false,
         filePaletteOpen: false,
         newTabPaletteOpen: false,
+        deskAddressOpen: null,
         settingsOpen: false,
         settingsPage: "general",
         zoomedPaneId: null,

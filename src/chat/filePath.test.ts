@@ -57,7 +57,45 @@ describe("parsePathRef", () => {
     });
 });
 
+describe("parsePathRef edge cases", () => {
+    it("reads the column a code host puts after the line", () => {
+        expect(parsePathRef("src/a.ts#L9C4", roots)).toEqual({ path: "/work/demo/src/a.ts", line: 9, column: 4 });
+    });
+
+    it("drops the leading slash of a Windows file URI", () => {
+        expect(parsePathRef("file:///C:/work/a.ts:3", roots)).toEqual({ path: "C:/work/a.ts", line: 3, column: undefined });
+    });
+
+    it("refuses a file URI it cannot decode", () => {
+        expect(parsePathRef("file:///work/%E0%A4%A.ts", roots)).toBeNull();
+    });
+
+    it("refuses nothing at all and a reference too long to be one", () => {
+        expect(parsePathRef("   ", roots)).toBeNull();
+        expect(parsePathRef(`src/${"a".repeat(600)}.ts`, roots)).toBeNull();
+        expect(parsePathRef(":12", roots)).toBeNull();
+    });
+
+    it("takes a dotfile as a relative path", () => {
+        expect(parsePathRef(".env", roots)?.path).toBe("/work/demo/.env");
+        expect(parsePathRef(".gitignore", roots)?.path).toBe("/work/demo/.gitignore");
+    });
+
+    it("cannot place a relative path without a project to resolve it from", () => {
+        expect(parsePathRef("src/a.ts", { cwd: "" })).toBeNull();
+        expect(parsePathRef("/etc/hosts", { cwd: "" })?.path).toBe("/etc/hosts");
+    });
+});
+
 describe("scanPathCandidates", () => {
+    it("passes over a word that is only punctuation", () => {
+        expect(scanPathCandidates('well ... ("") ok')).toEqual([]);
+    });
+
+    it("keeps a file URI a sentence mentions", () => {
+        expect(scanPathCandidates("open <file:///tmp/a.ts>")).toEqual([{ start: 6, end: 22, raw: "file:///tmp/a.ts" }]);
+    });
+
     it("finds a path in the middle of a sentence without its full stop", () => {
         expect(scanPathCandidates("I edited src/a.ts.")).toEqual([{ start: 9, end: 17, raw: "src/a.ts" }]);
     });

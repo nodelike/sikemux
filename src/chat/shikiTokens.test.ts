@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { tokenizeCode, tokenizeLines } from "./shikiTokens";
+import { textMateGrammar, tokenizeCode, tokenizeLines } from "./shikiTokens";
 import { codeThemeName } from "../themes/codeTheme";
 import { DEFAULT_THEME_ID, themeById } from "../themes";
 
@@ -35,6 +35,14 @@ describe("tokenizeCode", () => {
     it("leaves the plain words of a line uncoloured, so a fence keeps the weight it reads at", async () => {
         const lines = await tokenizeCode("body { color: red; }", "css", theme, name);
         expect(tokens(lines).some((token) => token.color === undefined)).toBe(true);
+    });
+
+    it("sets a heading in bold and a link underlined", async () => {
+        const lines = await tokenizeCode("# Title\n\nSee [docs](https://example.com)", "markdown", theme, name);
+        const word = (text: string) => tokens(lines).find((token) => token.text.includes(text));
+
+        expect(word("Title")?.bold).toBe(true);
+        expect(word("https://example.com")?.underline).toBe(true);
     });
 
     it("says nothing for a grammar there is not", async () => {
@@ -77,5 +85,23 @@ describe("tokenizeLines", () => {
         let calls = 0;
         expect(await tokenizeLines(lines, "typescript", theme, name, { maxLineLength: 1000, stale: () => ++calls > 1 })).toBeNull();
         expect(await tokenizeLines(["+[-]"], "brainfuck", theme, name, never)).toBeNull();
+    });
+});
+
+describe("textMateGrammar", () => {
+    it("hands over a grammar it carries and nothing for one it does not", async () => {
+        const grammar = await textMateGrammar("typescript");
+        const line = grammar?.tokenizeLine("const a = 1;", null);
+        expect(line?.tokens.some((token) => token.scopes.includes("storage.type.ts"))).toBe(true);
+        expect(await textMateGrammar("brainfuck")).toBeNull();
+    });
+});
+
+describe("tokenizeLines when the answer goes stale at the end", () => {
+    it("drops a finished answer nobody wants any more", async () => {
+        let asked = 0;
+        const stale = () => ++asked > 1;
+        expect(await tokenizeLines(["const a = 1;"], "typescript", theme, name, { maxLineLength: 1000, stale })).toBeNull();
+        expect(asked).toBe(2);
     });
 });

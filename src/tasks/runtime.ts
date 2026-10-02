@@ -18,7 +18,7 @@ export const TASK_RUNTIME_LIMITS = Object.freeze({
     defaultRows: 24,
     maxColumns: 1_000,
     maxRows: 1_000,
-    maxPtyId: 0xffff_ffff,
+    maxPtyId: Number.MAX_SAFE_INTEGER,
     maxSignalLength: 128,
 });
 
@@ -42,6 +42,8 @@ export interface TaskExecutionRequest {
     readonly env: Readonly<Record<string, string>>;
     readonly cols: number;
     readonly rows: number;
+    /** The agent whose desk shows the task. */
+    readonly agentId?: string;
 }
 
 export interface TaskProcessExit {
@@ -74,6 +76,8 @@ export interface TaskTerminalOpenRequest {
     readonly cwd: string;
     /** The agent that started the task, whose desk shows its terminal. */
     readonly agentId?: string;
+    /** Opened without taking focus, for a task taken back when the app starts. */
+    readonly background?: boolean;
     /** Cancels pending presentation on stop/failure; it never requests closing an opened terminal. */
     readonly signal: AbortSignal;
 }
@@ -81,24 +85,6 @@ export interface TaskTerminalOpenRequest {
 export interface TaskTerminalSurface {
     /** Open or reuse a command terminal attached to the already-running PTY. */
     open(request: TaskTerminalOpenRequest): void | PromiseLike<void>;
-}
-
-/** Structurally compatible with the command palette's StandaloneCommand. */
-export interface TaskRuntimeCommand {
-    readonly id: string;
-    readonly title: string;
-    readonly detail: string;
-    readonly category: "Tasks";
-    readonly execute: () => void;
-}
-
-export interface ProjectTaskRuntime {
-    readonly project: string;
-    run(taskId: string): Promise<void>;
-    restart(taskId?: string): Promise<void>;
-    stop(): Promise<void>;
-    getSnapshot(): TaskControllerSnapshot | null;
-    commands(): readonly TaskRuntimeCommand[];
 }
 
 export interface HeadlessPtyTaskRunnerOptions {
@@ -167,20 +153,6 @@ export class TaskRuntimeDisposedError extends Error {
     constructor() {
         super("Task runtime has been disposed");
         this.name = "TaskRuntimeDisposedError";
-    }
-}
-
-export class TaskRuntimeNotInstalledError extends Error {
-    constructor() {
-        super("Application task runtime has not been installed");
-        this.name = "TaskRuntimeNotInstalledError";
-    }
-}
-
-export class TaskRuntimeAlreadyInstalledError extends Error {
-    constructor() {
-        super("Application task runtime is already installed");
-        this.name = "TaskRuntimeAlreadyInstalledError";
     }
 }
 
@@ -309,10 +281,6 @@ function terminalKey(task: ResolvedTaskDefinition): string {
     return JSON.stringify(["task", task.project, task.id]);
 }
 
-function commandId(task: ResolvedTaskDefinition): string {
-    return JSON.stringify(["task.run", task.project, task.id]);
-}
-
 /**
  * Converts trusted task definitions into independently owned headless PTYs.
  *
@@ -391,7 +359,31 @@ export class HeadlessPtyTaskRunner implements TaskRunner {
         return this.createHandle(request, ptyId, processCompletion);
     }
 
-    private createHandle(request: TaskExecutionRequest, ptyId: number, processCompletion: Promise<TaskProcessExit>): TaskRunnerHandle {
+    /** A run the core kept going while no page watched it; its terminal opens without taking focus. */
+    adopt(task: ResolvedTaskDefinition, executionId: string, started: TaskExecutionStart): TaskRunnerHandle {
+        const stableTerminalKey = terminalKey(task);
+        const request: TaskExecutionRequest = Object.freeze({
+            executionId,
+            terminalKey: stableTerminalKey,
+            taskId: task.id,
+            label: task.label,
+            project: task.project,
+            source: task.source,
+            command: task.command,
+            cwd: task.cwd,
+            env: copyEnvironment(task.env),
+            cols: this.cols,
+            rows: this.rows,
+        });
+        return this.createHandle(request, requirePtyId(started.ptyId), requireCompletion(started.completion), true);
+    }
+
+    private createHandle(
+        request: TaskExecutionRequest,
+        ptyId: number,
+        processCompletion: Promise<TaskProcessExit>,
+        background = false,
+    ): TaskRunnerHandle {
         const abort = new AbortController();
         let state: RunState = "active";
         let surfaceOpened = false;
@@ -477,6 +469,7 @@ export class HeadlessPtyTaskRunner implements TaskRunner {
             project: request.project,
             source: request.source,
             cwd: request.cwd,
+            ...(background ? { background } : {}),
             signal: abort.signal,
         });
         void callAsPromise(() => this.openTerminal(surfaceRequest)).then(
@@ -552,6 +545,18 @@ export class TaskRuntime {
         return this.trackRecent(controller.run(task), task);
     }
 
+    /** Shows a task the core kept running as this project's running task, so it can be stopped and restarted. */
+    adopt(task: ResolvedTaskDefinition, executionId: string, started: TaskExecutionStart): Promise<void> {
+        if (this.disposed) return rejected(new TaskRuntimeDisposedError());
+        let controller: TaskController;
+        try {
+            controller = this.controllerFor(requireProject(task.project));
+        } catch (error) {
+            return rejected(error);
+        }
+        return controller.adopt(task, () => this.runner.adopt(task, executionId, started));
+    }
+
     restart(projectInput: string, taskId?: string): Promise<void> {
         if (this.disposed) return rejected(new TaskRuntimeDisposedError());
         let project: string;
@@ -593,37 +598,6 @@ export class TaskRuntime {
         if (!controller) return null;
         this.touch(project, controller);
         return controller.getSnapshot();
-    }
-
-    commandsForProject(projectInput: string): readonly TaskRuntimeCommand[] {
-        this.assertActive();
-        const project = requireProject(projectInput);
-        return Object.freeze(
-            this.registry.list(project).map((task) =>
-                Object.freeze({
-                    id: commandId(task),
-                    title: task.label,
-                    detail: `${task.source} task · ${task.cwd}`,
-                    category: "Tasks" as const,
-                    execute: () => {
-                        void this.run(project, task.id);
-                    },
-                }),
-            ),
-        );
-    }
-
-    forProject(projectInput: string): ProjectTaskRuntime {
-        this.assertActive();
-        const project = requireProject(projectInput);
-        return Object.freeze({
-            project,
-            run: (taskId: string) => this.run(project, taskId),
-            restart: (taskId?: string) => this.restart(project, taskId),
-            stop: () => this.stop(project),
-            getSnapshot: () => this.getSnapshot(project),
-            commands: () => this.commandsForProject(project),
-        });
     }
 
     disposeProject(projectInput: string): Promise<void> {
@@ -693,32 +667,4 @@ export class TaskRuntime {
     private assertActive(): void {
         if (this.disposed) throw new TaskRuntimeDisposedError();
     }
-}
-
-let appTaskRuntime: TaskRuntime | null = null;
-
-/** Install once at app bootstrap. The returned cleanup only removes the binding. */
-export function installAppTaskRuntime(runtime: TaskRuntime): () => void {
-    if (!(runtime instanceof TaskRuntime)) throw new TypeError("application task runtime must be a TaskRuntime");
-    if (appTaskRuntime !== null) throw new TaskRuntimeAlreadyInstalledError();
-    appTaskRuntime = runtime;
-    let installed = true;
-    return () => {
-        if (!installed) return;
-        installed = false;
-        if (appTaskRuntime === runtime) appTaskRuntime = null;
-    };
-}
-
-export function getAppTaskRuntime(): TaskRuntime {
-    if (!appTaskRuntime) throw new TaskRuntimeNotInstalledError();
-    return appTaskRuntime;
-}
-
-export function appTasksForProject(project: string): ProjectTaskRuntime {
-    return getAppTaskRuntime().forProject(project);
-}
-
-export function runAppTask(project: string, taskId: string): Promise<void> {
-    return getAppTaskRuntime().run(project, taskId);
 }

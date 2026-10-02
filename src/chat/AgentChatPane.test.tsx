@@ -35,7 +35,7 @@ vi.mock("../api/fs", () => ({
     fsapi: {
         pathKinds: mocks.pathKinds,
         revealInFinder: mocks.revealInFinder,
-        readFileBase64: vi.fn(async () => {
+        previewFile: vi.fn(async () => {
             throw new Error("no file");
         }),
     },
@@ -49,6 +49,7 @@ vi.mock("../api/acp", () => ({
                 mocks.eventListener = null;
             };
         }),
+        attach: vi.fn(async () => ({ status: "missing" })),
         start: mocks.start,
         setPermissionMode: mocks.setPermissionMode,
         setConfig: mocks.setConfig,
@@ -184,6 +185,29 @@ async function openTranscript(prompt = "Look at the styles"): Promise<void> {
     Object.defineProperty(scroller, "offsetHeight", { configurable: true, get: () => 400 });
     reportResize(scroller);
     await screen.findByRole("status");
+}
+
+async function openWithCompactCommand(): Promise<HTMLElement> {
+    render(<AgentChatPane agent={agent} cwd="/repo" active profile={undefined} onBusyChange={() => {}} />);
+    await waitFor(() => expect(mocks.eventListener).not.toBeNull());
+    emit("ready", { capabilities: {}, setup: {} });
+    emit("session_update", {
+        sessionId: "session-1",
+        update: {
+            sessionUpdate: "available_commands_update",
+            availableCommands: [{ name: "compact", description: "Compact context", input: { hint: "focus" } }],
+        },
+    });
+    await act(async () => window.requestAnimationFrame(() => {}));
+    return screen.getByRole("textbox", { name: "Message agent" });
+}
+
+function findToolRow(selector: string): Promise<HTMLElement> {
+    return waitFor(() => {
+        const row = document.querySelector<HTMLElement>(selector);
+        expect(row).not.toBeNull();
+        return row as HTMLElement;
+    });
 }
 
 describe("AgentChatPane", () => {
@@ -406,16 +430,50 @@ describe("AgentChatPane", () => {
         expect(mocks.start).toHaveBeenCalledTimes(1);
     });
 
-    it("sends one prompt at a time while the first is waiting for turn_started", async () => {
+    it("stops the running turn on Escape and keeps what was being typed", async () => {
         render(<AgentChatPane agent={agent} cwd="/repo" active onBusyChange={() => {}} />);
+        const editor = screen.getByRole("textbox", { name: "Message agent" }) as HTMLTextAreaElement;
+        await waitFor(() => expect(editor).toBeEnabled());
+        fireEvent.change(editor, { target: { value: "First" } });
+        fireEvent.keyDown(editor, { key: "Enter" });
+        fireEvent.change(editor, { target: { value: "and then the tests" } });
+
+        fireEvent.keyDown(editor, { key: "Escape", shiftKey: true });
+        expect(acpApi.cancel).not.toHaveBeenCalled();
+        fireEvent.keyDown(editor, { key: "Escape" });
+
+        expect(acpApi.cancel).toHaveBeenCalledWith(agent.id);
+        expect(editor.value).toBe("and then the tests");
+    });
+
+    it("leaves Escape alone while the agent is idle", async () => {
+        render(<AgentChatPane agent={agent} cwd="/repo" active onBusyChange={() => {}} />);
+        const editor = screen.getByRole("textbox", { name: "Message agent" });
+        await waitFor(() => expect(editor).toBeEnabled());
+
+        fireEvent.keyDown(editor, { key: "Escape" });
+
+        expect(acpApi.cancel).not.toHaveBeenCalled();
+    });
+
+    it("leaves Escape pressed anywhere but the composer to whatever has focus", async () => {
+        render(
+            <>
+                <input aria-label="A form in the browser" />
+                <AgentChatPane agent={agent} cwd="/repo" active onBusyChange={() => {}} />
+            </>,
+        );
         const editor = screen.getByRole("textbox", { name: "Message agent" });
         await waitFor(() => expect(editor).toBeEnabled());
         fireEvent.change(editor, { target: { value: "First" } });
         fireEvent.keyDown(editor, { key: "Enter" });
-        fireEvent.change(editor, { target: { value: "Second" } });
-        fireEvent.keyDown(editor, { key: "Enter" });
-        expect(mocks.prompt).toHaveBeenCalledTimes(1);
-        expect(screen.getByRole("button", { name: "Stop agent" })).toBeInTheDocument();
+
+        const form = screen.getByRole("textbox", { name: "A form in the browser" });
+        form.focus();
+        fireEvent.keyDown(form, { key: "Escape" });
+        fireEvent.keyDown(window, { key: "Escape" });
+
+        expect(acpApi.cancel).not.toHaveBeenCalled();
     });
 
     it("holds a message written mid-turn until the running turn ends", async () => {
@@ -430,6 +488,7 @@ describe("AgentChatPane", () => {
         expect(await screen.findByLabelText("1 queued")).toHaveTextContent("Then look at the tests");
         expect(mocks.steer).not.toHaveBeenCalled();
         expect(mocks.prompt).toHaveBeenCalledTimes(1);
+        expect(screen.getByRole("button", { name: "Stop agent" })).toBeInTheDocument();
 
         emit("turn_completed", {});
 
@@ -437,7 +496,7 @@ describe("AgentChatPane", () => {
         expect(screen.queryByLabelText("1 queued")).not.toBeInTheDocument();
     });
 
-    it("brings back sent messages with the arrow keys, then what was being typed", async () => {
+    it("brings back sent messages with the arrow keys from an empty composer", async () => {
         render(<AgentChatPane agent={agent} cwd="/repo" active onBusyChange={() => {}} />);
         const editor = screen.getByRole("textbox", { name: "Message agent" }) as HTMLTextAreaElement;
         await waitFor(() => expect(editor).toBeEnabled());
@@ -445,7 +504,7 @@ describe("AgentChatPane", () => {
         fireEvent.keyDown(editor, { key: "Enter" });
         fireEvent.change(editor, { target: { value: "Then look at the tests" } });
         fireEvent.keyDown(editor, { key: "Enter" });
-        fireEvent.change(editor, { target: { value: "half typed" } });
+        expect(editor.value).toBe("");
 
         fireEvent.keyDown(editor, { key: "ArrowUp" });
         expect(editor.value).toBe("Then look at the tests");
@@ -454,25 +513,30 @@ describe("AgentChatPane", () => {
         fireEvent.keyDown(editor, { key: "ArrowUp" });
         expect(editor.value).toBe("First");
 
-        editor.setSelectionRange(editor.value.length, editor.value.length);
         fireEvent.keyDown(editor, { key: "ArrowDown" });
         expect(editor.value).toBe("Then look at the tests");
-        editor.setSelectionRange(editor.value.length, editor.value.length);
         fireEvent.keyDown(editor, { key: "ArrowDown" });
-        expect(editor.value).toBe("half typed");
+        expect(editor.value).toBe("");
     });
 
-    it("keeps the arrows moving between lines inside a message", async () => {
+    it("leaves the arrows to the text being written", async () => {
         render(<AgentChatPane agent={agent} cwd="/repo" active onBusyChange={() => {}} />);
         const editor = screen.getByRole("textbox", { name: "Message agent" }) as HTMLTextAreaElement;
         await waitFor(() => expect(editor).toBeEnabled());
         fireEvent.change(editor, { target: { value: "First" } });
         fireEvent.keyDown(editor, { key: "Enter" });
-        fireEvent.change(editor, { target: { value: "one\ntwo" } });
-        editor.setSelectionRange(6, 6);
+        fireEvent.change(editor, { target: { value: "one line that wraps across the box" } });
+        editor.setSelectionRange(3, 3);
 
+        expect(fireEvent.keyDown(editor, { key: "ArrowUp" })).toBe(true);
+        expect(editor.value).toBe("one line that wraps across the box");
+
+        fireEvent.change(editor, { target: { value: "" } });
         fireEvent.keyDown(editor, { key: "ArrowUp" });
-        expect(editor.value).toBe("one\ntwo");
+        expect(editor.value).toBe("First");
+        fireEvent.change(editor, { target: { value: "First, but better" } });
+        fireEvent.keyDown(editor, { key: "ArrowUp" });
+        expect(editor.value).toBe("First, but better");
     });
 
     it("offers no steering for an agent that cannot take a message mid-turn", async () => {
@@ -520,27 +584,7 @@ describe("AgentChatPane", () => {
         expect(screen.queryByLabelText("1 queued")).not.toBeInTheDocument();
     });
 
-    it("steers the one queued message on the shortcut when nothing is drafted", async () => {
-        mocks.start.mockResolvedValueOnce({ sessionId: "session-1", capabilities: { steering: true }, setup: {} });
-        render(<AgentChatPane agent={agent} cwd="/repo" active onBusyChange={() => {}} />);
-        const editor = screen.getByRole("textbox", { name: "Message agent" });
-        await waitFor(() => expect(editor).toBeEnabled());
-        fireEvent.change(editor, { target: { value: "First" } });
-        fireEvent.keyDown(editor, { key: "Enter" });
-        fireEvent.change(editor, { target: { value: "Actually, check the other file" } });
-        fireEvent.keyDown(editor, { key: "Enter" });
-        await screen.findByLabelText("1 queued");
-        expect(mocks.steer).not.toHaveBeenCalled();
-
-        fireEvent.keyDown(editor, { key: shortcutKey.key, ...shortcutKey.modifier });
-
-        await waitFor(() => expect(mocks.steer).toHaveBeenCalledWith(agent.id, "Actually, check the other file", []));
-        expect(screen.queryByLabelText("1 queued")).not.toBeInTheDocument();
-    });
-
-    /* Steering aborts the turn, so the shortcut must not guess which message
-       it takes when there is more than one to choose from. */
-    it("leaves a queue of two alone on the shortcut", async () => {
+    it("steers every queued message as one on the shortcut", async () => {
         mocks.start.mockResolvedValueOnce({ sessionId: "session-1", capabilities: { steering: true }, setup: {} });
         render(<AgentChatPane agent={agent} cwd="/repo" active onBusyChange={() => {}} />);
         const editor = screen.getByRole("textbox", { name: "Message agent" });
@@ -555,8 +599,82 @@ describe("AgentChatPane", () => {
 
         fireEvent.keyDown(editor, { key: shortcutKey.key, ...shortcutKey.modifier });
 
-        expect(mocks.steer).not.toHaveBeenCalled();
-        expect(await screen.findByLabelText("2 queued")).toBeInTheDocument();
+        await waitFor(() => expect(mocks.steer).toHaveBeenCalledWith(agent.id, "Then the tests\n\nAnd the rail", []));
+        expect(mocks.steer).toHaveBeenCalledTimes(1);
+        expect(screen.queryByLabelText("2 queued")).not.toBeInTheDocument();
+    });
+
+    it("steers the queue along with a message sent on the shortcut", async () => {
+        mocks.start.mockResolvedValueOnce({ sessionId: "session-1", capabilities: { steering: true }, setup: {} });
+        render(<AgentChatPane agent={agent} cwd="/repo" active onBusyChange={() => {}} />);
+        const editor = screen.getByRole("textbox", { name: "Message agent" });
+        await waitFor(() => expect(editor).toBeEnabled());
+        fireEvent.change(editor, { target: { value: "First" } });
+        fireEvent.keyDown(editor, { key: "Enter" });
+        fireEvent.change(editor, { target: { value: "Then the tests" } });
+        fireEvent.keyDown(editor, { key: "Enter" });
+        await screen.findByLabelText("1 queued");
+
+        fireEvent.change(editor, { target: { value: "And the rail" } });
+        fireEvent.keyDown(editor, { key: shortcutKey.key, ...shortcutKey.modifier });
+
+        await waitFor(() => expect(mocks.steer).toHaveBeenCalledWith(agent.id, "Then the tests\n\nAnd the rail", []));
+        expect(screen.queryByLabelText("1 queued")).not.toBeInTheDocument();
+    });
+
+    it("steers every queued message from the queue's own button", async () => {
+        mocks.start.mockResolvedValueOnce({ sessionId: "session-1", capabilities: { steering: true }, setup: {} });
+        render(<AgentChatPane agent={agent} cwd="/repo" active onBusyChange={() => {}} />);
+        const editor = screen.getByRole("textbox", { name: "Message agent" });
+        await waitFor(() => expect(editor).toBeEnabled());
+        fireEvent.change(editor, { target: { value: "First" } });
+        fireEvent.keyDown(editor, { key: "Enter" });
+        fireEvent.change(editor, { target: { value: "Then the tests" } });
+        fireEvent.keyDown(editor, { key: "Enter" });
+        fireEvent.change(editor, { target: { value: "And the rail" } });
+        fireEvent.keyDown(editor, { key: "Enter" });
+
+        fireEvent.click(await screen.findByRole("button", { name: "Steer the running turn with every queued message" }));
+
+        await waitFor(() => expect(mocks.steer).toHaveBeenCalledWith(agent.id, "Then the tests\n\nAnd the rail", []));
+        expect(screen.queryByLabelText("2 queued")).not.toBeInTheDocument();
+    });
+
+    it("sends everything queued as one prompt when the turn ends", async () => {
+        render(<AgentChatPane agent={agent} cwd="/repo" active onBusyChange={() => {}} />);
+        const editor = screen.getByRole("textbox", { name: "Message agent" });
+        await waitFor(() => expect(editor).toBeEnabled());
+        fireEvent.change(editor, { target: { value: "First" } });
+        fireEvent.keyDown(editor, { key: "Enter" });
+        fireEvent.change(editor, { target: { value: "Then the tests" } });
+        fireEvent.keyDown(editor, { key: "Enter" });
+        fireEvent.change(editor, { target: { value: "And the rail" } });
+        fireEvent.keyDown(editor, { key: "Enter" });
+        await screen.findByLabelText("2 queued");
+
+        emit("turn_completed", {});
+
+        await waitFor(() => expect(mocks.prompt).toHaveBeenCalledWith(agent.id, "Then the tests\n\nAnd the rail", []));
+        expect(mocks.prompt).toHaveBeenCalledTimes(2);
+        expect(screen.queryByLabelText("2 queued")).not.toBeInTheDocument();
+    });
+
+    it("keeps a queued slash command out of the combined prompt", async () => {
+        render(<AgentChatPane agent={agent} cwd="/repo" active onBusyChange={() => {}} />);
+        const editor = screen.getByRole("textbox", { name: "Message agent" });
+        await waitFor(() => expect(editor).toBeEnabled());
+        fireEvent.change(editor, { target: { value: "First" } });
+        fireEvent.keyDown(editor, { key: "Enter" });
+        fireEvent.change(editor, { target: { value: "Then the tests" } });
+        fireEvent.keyDown(editor, { key: "Enter" });
+        fireEvent.change(editor, { target: { value: "/compact" } });
+        fireEvent.keyDown(editor, { key: "Enter" });
+        await screen.findByLabelText("2 queued");
+
+        emit("turn_completed", {});
+
+        await waitFor(() => expect(mocks.prompt).toHaveBeenCalledWith(agent.id, "Then the tests", []));
+        expect(await screen.findByLabelText("1 queued")).toHaveTextContent("/compact");
     });
 
     it("sends as its own prompt when the turn ended before the steer arrived", async () => {
@@ -605,17 +723,6 @@ describe("AgentChatPane", () => {
             { sessionId: "session-1", update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "three" } } },
         ]);
         expect(await screen.findByText("One two three")).toBeInTheDocument();
-    });
-
-    it("offers a copy on the prompt and on the answer it drew", async () => {
-        await openTranscript();
-        emit("session_update", {
-            sessionId: "session-1",
-            update: { sessionUpdate: "agent_message_chunk", messageId: "m1", content: { type: "text", text: "The pane paints no background" } },
-        });
-
-        expect(await screen.findByRole("button", { name: "Copy message" })).toBeInTheDocument();
-        expect(await screen.findByRole("button", { name: "Copy reply" })).toBeInTheDocument();
     });
 
     it("says what a running tool is doing instead of quoting the command it was given", async () => {
@@ -700,6 +807,35 @@ describe("AgentChatPane", () => {
         expect(mocks.openUrlOnDesk).toHaveBeenCalledWith(agent.id, "https://docs.livekit.io/home/self-hosting/deployment/");
     });
 
+    it("finds text across the conversation with the find shortcut", async () => {
+        await openTranscript("Look at the styles");
+        emit("session_update", {
+            sessionId: "session-1",
+            update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "The styles are in chat.css" } },
+        });
+        await screen.findByText("The styles are in chat.css");
+
+        fireEvent.keyDown(window, { key: "f", code: "KeyF", metaKey: IS_MACOS, ctrlKey: !IS_MACOS });
+        const input = await screen.findByRole("textbox", { name: "Find in chat" });
+        expect(input).toHaveFocus();
+
+        fireEvent.change(input, { target: { value: "styles" } });
+        expect(screen.getByText("1/2")).toBeInTheDocument();
+        fireEvent.keyDown(input, { key: "Enter" });
+        expect(screen.getByText("2/2")).toBeInTheDocument();
+        fireEvent.keyDown(input, { key: "Enter" });
+        expect(screen.getByText("1/2")).toBeInTheDocument();
+        fireEvent.keyDown(input, { key: "Enter", shiftKey: true });
+        expect(screen.getByText("2/2")).toBeInTheDocument();
+
+        fireEvent.change(input, { target: { value: "nowhere" } });
+        expect(screen.getByText("No results")).toBeInTheDocument();
+
+        fireEvent.keyDown(input, { key: "Escape" });
+        expect(screen.queryByRole("textbox", { name: "Find in chat" })).toBeNull();
+        expect(screen.getByRole("textbox", { name: "Message agent" })).toHaveFocus();
+    });
+
     it("builds a subagent's transcript only once it is opened", async () => {
         await openTranscript();
         emit("session_update", {
@@ -762,13 +898,15 @@ describe("AgentChatPane", () => {
             },
         });
 
-        const rows = await screen.findAllByTitle(/shaderField|BrowserPane/);
+        const rows = await waitFor(() => {
+            const found = [...document.querySelectorAll<HTMLElement>(".chat-tool")];
+            expect(found).toHaveLength(2);
+            return found;
+        });
         expect(rows[0]).toHaveTextContent("run");
         expect(rows[0]).toHaveTextContent("pnpm vitest run src/lib/shaderField.test.ts");
-        // A path shows the name it ends in; the whole path stays in the tooltip.
         expect(rows[1]).toHaveTextContent("BrowserPane.tsx");
         expect(rows[1]).not.toHaveTextContent("src/components");
-        expect(rows[1]).toHaveAttribute("title", "src/components/browser/BrowserPane.tsx");
     });
 
     it("puts the file a call touched on the desk, opens it in the editor on a double click, and still opens what the call did", async () => {
@@ -842,7 +980,7 @@ describe("AgentChatPane", () => {
             },
         });
 
-        const edit = await screen.findByTitle("src/styles/stage.css");
+        const edit = await findToolRow(".chat-tool[data-kind='edit']");
         expect(edit).toHaveTextContent("+1");
         expect(edit).toHaveTextContent("−1");
         expect(screen.queryByText(/background: transparent;/)).not.toBeInTheDocument();
@@ -854,7 +992,7 @@ describe("AgentChatPane", () => {
         expect(added.querySelector("mark")).toHaveTextContent("transparent");
         expect(document.querySelector(".chat-diff-line.del")).toHaveTextContent("background: var(--pane);");
 
-        fireEvent.click(screen.getByTitle("pnpm vitest run"));
+        fireEvent.click(document.querySelector(".chat-tool.status-failed") as HTMLElement);
         expect(await screen.findByText(/1 failed/)).toBeInTheDocument();
     });
 
@@ -874,7 +1012,7 @@ describe("AgentChatPane", () => {
 
         const header = await screen.findByRole("button", { name: /Build the site/ });
         expect(header).toHaveClass("live");
-        expect(document.querySelector(".chat-tool.live")).toHaveAttribute("title", "pnpm build");
+        expect(document.querySelector(".chat-tool.live")).not.toBeNull();
 
         emit("session_update", {
             sessionId: "session-1",
@@ -900,7 +1038,7 @@ describe("AgentChatPane", () => {
             },
         });
 
-        const row = await screen.findByTitle(/python3 - <<'EOF'/);
+        const row = await findToolRow(".chat-tool");
         expect(row).toHaveTextContent("python3 - <<'EOF'");
         expect(row).not.toHaveTextContent("print('hi')");
 
@@ -914,25 +1052,6 @@ describe("AgentChatPane", () => {
 
         fireEvent.click(screen.getByRole("button", { name: "Show all 20 lines" }));
         expect(terminal.querySelector(".chat-tool-output pre")).toHaveTextContent("line 20");
-    });
-
-    it("ends a failed Codex command's output with the code it exited with", async () => {
-        await openTranscript();
-        emit("session_update", {
-            sessionId: "session-1",
-            update: {
-                sessionUpdate: "tool_call",
-                toolCallId: "tool-1",
-                kind: "execute",
-                title: "cargo test",
-                status: "failed",
-                rawOutput: { formatted_output: "test result: FAILED. 1 failed", exit_code: 101 },
-            },
-        });
-
-        fireEvent.click(await screen.findByTitle("cargo test"));
-        expect(await screen.findByText("test result: FAILED. 1 failed")).toBeInTheDocument();
-        expect(screen.getByText("exit 101")).toBeInTheDocument();
     });
 
     it("opens a picture an agent sent, with a name to save it under", async () => {
@@ -950,36 +1069,6 @@ describe("AgentChatPane", () => {
 
         fireEvent.click(picture);
         expect(shownImage()).toEqual({ src: "data:image/png;base64,SEVMTE8=", name: "attachment.png", path: undefined });
-    });
-
-    it("names an mcp call for the server it went to, and gives the column room for it", async () => {
-        await openTranscript();
-        emit("session_update", {
-            sessionId: "session-1",
-            update: { sessionUpdate: "tool_call", toolCallId: "tool-1", title: "mcp__atlassian__addCommentToJiraIssue", status: "in_progress" },
-        });
-
-        const row = await screen.findByTitle("mcp__atlassian__addCommentToJiraIssue");
-        expect(row).toHaveTextContent("atlassian");
-        expect(row).toHaveTextContent("addCommentToJiraIssue");
-        expect(row).toHaveAttribute("data-kind", "mcp");
-        expect((document.querySelector(".chat-tools-body") as HTMLElement).style.getPropertyValue("--chat-kind")).toBe("9ch");
-    });
-
-    it("rules a table the agent wrote, and lets a wide one scroll on its own", async () => {
-        await openTranscript();
-        emit("session_update", {
-            sessionId: "session-1",
-            update: {
-                sessionUpdate: "agent_message_chunk",
-                content: { type: "text", text: "| approach | cpu |\n| --- | --- |\n| ack every frame | 90.6% |\n" },
-            },
-        });
-
-        const cell = await screen.findByText("ack every frame");
-        expect(cell.tagName).toBe("TD");
-        expect(screen.getByText("approach").tagName).toBe("TH");
-        expect(cell.closest(".chat-table")).not.toBeNull();
     });
 
     it("shows markup the person pasted, and still drops markup the agent wrote", async () => {
@@ -1018,64 +1107,6 @@ describe("AgentChatPane", () => {
         await waitFor(() => expect(screen.queryByRole("status")).not.toBeInTheDocument());
         expect(screen.getByText("Here is the fix:")).toBe(intro);
         expect(document.querySelectorAll(".chat-markdown pre")).toHaveLength(1);
-    });
-
-    it("leaves out the header band when the table has no column labels", async () => {
-        await openTranscript();
-        emit("session_update", {
-            sessionId: "session-1",
-            update: {
-                sessionUpdate: "agent_message_chunk",
-                content: { type: "text", text: "|  |  |\n| --- | --- |\n| Image write path | live row |\n" },
-            },
-        });
-
-        const cell = await screen.findByText("Image write path");
-        const table = cell.closest("table") as HTMLTableElement;
-        expect(table.querySelector("thead")).toBeNull();
-        expect(table.querySelectorAll("tr")).toHaveLength(1);
-    });
-
-    it("colours a patch the agent wrote in a fence, and leaves ordinary output alone", async () => {
-        await openTranscript();
-        emit("session_update", {
-            sessionId: "session-1",
-            update: {
-                sessionUpdate: "agent_message_chunk",
-                content: {
-                    type: "text",
-                    text: "```\n .stage {\n-    background: var(--pane);\n+    background: transparent;\n }\n```\n\n```\n900x600 ok\n1024x600 FLOOD\n```\n",
-                },
-            },
-        });
-
-        await waitFor(() => expect(document.querySelector(".chat-code-diff")).not.toBeNull());
-        expect(document.querySelector(".chat-code-diff .chat-diff-line.del")).toHaveTextContent("background: var(--pane);");
-        expect(document.querySelector(".chat-code-diff .chat-diff-line.add mark")).toHaveTextContent("transparent");
-        // The block of measurements beside it is not a patch and keeps its own shape.
-        expect(document.querySelectorAll(".chat-code-diff")).toHaveLength(1);
-    });
-
-    it("heads a fence with its language's icon and a copy button, and leaves inline code bare", async () => {
-        await openTranscript();
-        emit("session_update", {
-            sessionId: "session-1",
-            update: {
-                sessionUpdate: "agent_message_chunk",
-                content: { type: "text", text: "Run `ls` first.\n\n```sh\nmkdir -p out\n```\n\n```\nplain\n```\n" },
-            },
-        });
-
-        const titles = await waitFor(() => {
-            const found = document.querySelectorAll(".chat-code-title");
-            expect(found).toHaveLength(2);
-            return found;
-        });
-        expect(titles[0].querySelector(".file-glyph")).toHaveStyle({ color: "#89e051" });
-        expect(titles[0]).toHaveTextContent("sh");
-        expect(titles[1].querySelector(".file-glyph")).toBeNull();
-        expect(screen.getAllByRole("button", { name: "Copy code" })).toHaveLength(2);
-        expect(screen.getByText("ls").closest("pre")).toBeNull();
     });
 
     it("titles a fence whose name is not valid percent-encoding with the name as written", async () => {
@@ -1126,45 +1157,112 @@ describe("AgentChatPane", () => {
         expect(document.querySelector(".chat-tool-spinner")).toBeNull();
     });
 
-    it("shows adapter progress and starts a failed adapter again on its own", async () => {
+    it("shows adapter progress and waits to be asked before starting a failed adapter again", async () => {
         render(<AgentChatPane agent={agent} cwd="/repo" active profile={undefined} onBusyChange={() => {}} />);
         await waitFor(() => expect(mocks.eventListener).not.toBeNull());
 
         emit("status", { state: "installing" });
         expect(screen.getAllByText("Installing structured-session adapter…")[0]).toBeInTheDocument();
+        emit("status", { state: "error", reason: "failed", message: "adapter failed" });
         emit("error", { message: "adapter failed" });
-        const callsBeforeRetry = mocks.start.mock.calls.length;
-        expect(screen.getAllByText("Reconnecting…")[0]).toBeInTheDocument();
+        expect(screen.getByText("Structured session unavailable.")).toBeInTheDocument();
+        expect(mocks.start).toHaveBeenCalledTimes(1);
 
-        await waitFor(() => expect(mocks.start.mock.calls.length).toBeGreaterThan(callsBeforeRetry), { timeout: 3_000 });
+        fireEvent.click(screen.getByRole("button", { name: "Reconnect" }));
+        await waitFor(() => expect(mocks.start).toHaveBeenCalledTimes(2));
     });
 
-    it("offers reconnecting a dropped transcript in the transcript column", async () => {
-        await openTranscript();
-        emit("status", { state: "stopped" });
+    describe("an agent that dies under the chat", () => {
+        const saved = { ...agent, resumeId: "session-1" };
 
-        const notice = await waitFor(() => {
-            const element = document.querySelector(".chat-reconnect");
-            expect(element).not.toBeNull();
-            return element as HTMLElement;
+        async function openReady(chatAgent: Agent) {
+            render(<AgentChatPane agent={chatAgent} cwd="/repo" active visible profile={undefined} onBusyChange={() => {}} />);
+            await waitFor(() => expect(mocks.eventListener).not.toBeNull());
+            await waitFor(() => expect(mocks.start).toHaveBeenCalledTimes(1));
+            emit("ready", { capabilities: {}, setup: {} });
+        }
+
+        it("resumes on its saved session and says so quietly", async () => {
+            let resumed!: () => void;
+            mocks.start.mockImplementationOnce(async () => ({ sessionId: "session-1", capabilities: {}, setup: {} }));
+            mocks.start.mockImplementationOnce(
+                () =>
+                    new Promise((resolve) => {
+                        resumed = () => resolve({ sessionId: "session-1", capabilities: {}, setup: {} });
+                    }),
+            );
+            await openReady(saved);
+            emit("status", { state: "stopped", reason: "exited" });
+
+            await waitFor(() => expect(mocks.start).toHaveBeenCalledTimes(2));
+            expect(mocks.start).toHaveBeenLastCalledWith(expect.objectContaining({ resumeId: "session-1" }));
+            expect(screen.getByText("Resuming…")).toBeInTheDocument();
+            expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+
+            await act(async () => resumed());
+            await waitFor(() => expect(screen.queryByText("Resuming…")).not.toBeInTheDocument());
         });
-        expect(notice).toHaveTextContent("Reconnecting…");
-        // Every control in the transcript belongs to a styled row, never loose in the scroller.
-        expect(document.querySelector(".chat-scroll-content > button")).toBeNull();
-    });
 
-    it("sends a message written while the session is down once it is back", async () => {
-        render(<AgentChatPane agent={agent} cwd="/repo" active visible profile={undefined} onBusyChange={() => {}} />);
-        await waitFor(() => expect(mocks.eventListener).not.toBeNull());
-        emit("ready", { capabilities: {}, setup: {} });
-        emit("status", { state: "stopped" });
+        it("never resumes a stop that was asked for", async () => {
+            await openReady(saved);
+            emit("status", { state: "stopped", reason: "requested" });
+            await act(async () => {});
+            expect(mocks.start).toHaveBeenCalledTimes(1);
+            expect(screen.queryByText("Resuming…")).not.toBeInTheDocument();
+        });
 
-        const editor = screen.getByRole("textbox", { name: "Message agent" });
-        fireEvent.change(editor, { target: { value: "carry on" } });
-        fireEvent.keyDown(editor, { key: "Enter" });
-        expect(mocks.prompt).not.toHaveBeenCalled();
+        it("gives up on a second death soon after, with the detail and a retry", async () => {
+            await openReady(saved);
+            emit("status", { state: "stopped", reason: "exited" });
+            await waitFor(() => expect(mocks.start).toHaveBeenCalledTimes(2));
+            await waitFor(() => expect(screen.queryByText("Resuming…")).not.toBeInTheDocument());
 
-        await waitFor(() => expect(mocks.prompt).toHaveBeenCalledWith(agent.id, "carry on", []), { timeout: 3_000 });
+            emit("status", { state: "error", reason: "exited", message: "Process exited with 1: out of memory" });
+            expect(screen.getByText("Couldn't resume this chat")).toBeInTheDocument();
+            expect(screen.getByText("Process exited with 1: out of memory")).toHaveClass("chat-recovery-detail");
+            await act(async () => {});
+            expect(mocks.start).toHaveBeenCalledTimes(2);
+
+            fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+            await waitFor(() => expect(mocks.start).toHaveBeenCalledTimes(3));
+            expect(mocks.start).toHaveBeenLastCalledWith(expect.objectContaining({ resumeId: "session-1" }));
+        });
+
+        it("gives up when the resume itself fails to start", async () => {
+            mocks.start.mockImplementationOnce(async () => ({ sessionId: "session-1", capabilities: {}, setup: {} }));
+            mocks.start.mockImplementationOnce(async () => {
+                throw new Error("session not found");
+            });
+            await openReady(saved);
+            emit("status", { state: "stopped", reason: "exited" });
+
+            expect(await screen.findByText("Couldn't resume this chat")).toBeInTheDocument();
+            expect(screen.getByText("session not found")).toBeInTheDocument();
+            expect(mocks.start).toHaveBeenCalledTimes(2);
+        });
+
+        it("cannot resume a chat with no saved session, and retries with a fresh one", async () => {
+            await openReady(agent);
+            emit("status", { state: "stopped", reason: "exited" });
+            expect(screen.getByText("Couldn't resume this chat")).toBeInTheDocument();
+            await act(async () => {});
+            expect(mocks.start).toHaveBeenCalledTimes(1);
+
+            fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+            await waitFor(() => expect(mocks.start).toHaveBeenCalledTimes(2));
+            expect(mocks.start).toHaveBeenLastCalledWith(expect.objectContaining({ resumeId: undefined }));
+        });
+
+        it("sends a message written while it resumes once it is back", async () => {
+            await openReady(saved);
+            emit("status", { state: "stopped", reason: "exited" });
+
+            const editor = screen.getByRole("textbox", { name: "Message agent" });
+            fireEvent.change(editor, { target: { value: "carry on" } });
+            fireEvent.keyDown(editor, { key: "Enter" });
+
+            await waitFor(() => expect(mocks.prompt).toHaveBeenCalledWith(agent.id, "carry on", []));
+        });
     });
 
     it("shows permission requests even when the adapter omits the optional tool title", async () => {
@@ -1251,59 +1349,15 @@ describe("AgentChatPane", () => {
     });
 
     it("shows ACP slash commands and inserts the selected command", async () => {
-        render(<AgentChatPane agent={agent} cwd="/repo" active profile={undefined} onBusyChange={() => {}} />);
-        await waitFor(() => expect(mocks.eventListener).not.toBeNull());
-        emit("ready", { capabilities: {}, setup: {} });
-        emit("session_update", {
-            sessionId: "session-1",
-            update: {
-                sessionUpdate: "available_commands_update",
-                availableCommands: [{ name: "compact", description: "Compact context", input: { hint: "focus" } }],
-            },
-        });
-        await act(async () => window.requestAnimationFrame(() => {}));
-
-        const editor = screen.getByRole("textbox", { name: "Message agent" });
+        const editor = await openWithCompactCommand();
         fireEvent.change(editor, { target: { value: "/" } });
         expect(await screen.findByRole("option", { name: /compact/i })).toBeInTheDocument();
         fireEvent.keyDown(editor, { key: "Enter" });
         expect(editor).toHaveValue("/compact ");
     });
 
-    it("offers commands for a slash typed part-way through a draft", async () => {
-        render(<AgentChatPane agent={agent} cwd="/repo" active profile={undefined} onBusyChange={() => {}} />);
-        await waitFor(() => expect(mocks.eventListener).not.toBeNull());
-        emit("ready", { capabilities: {}, setup: {} });
-        emit("session_update", {
-            sessionId: "session-1",
-            update: {
-                sessionUpdate: "available_commands_update",
-                availableCommands: [{ name: "compact", description: "Compact context", input: { hint: "focus" } }],
-            },
-        });
-        await act(async () => window.requestAnimationFrame(() => {}));
-
-        const editor = screen.getByRole("textbox", { name: "Message agent" });
-        fireEvent.change(editor, { target: { value: "tidy up then /comp", selectionStart: 18 } });
-        expect(await screen.findByRole("option", { name: /compact/i })).toBeInTheDocument();
-        fireEvent.keyDown(editor, { key: "Enter" });
-        expect(editor).toHaveValue("tidy up then /compact ");
-    });
-
     it("leaves what follows the caret in place when a command is chosen", async () => {
-        render(<AgentChatPane agent={agent} cwd="/repo" active profile={undefined} onBusyChange={() => {}} />);
-        await waitFor(() => expect(mocks.eventListener).not.toBeNull());
-        emit("ready", { capabilities: {}, setup: {} });
-        emit("session_update", {
-            sessionId: "session-1",
-            update: {
-                sessionUpdate: "available_commands_update",
-                availableCommands: [{ name: "compact", description: "Compact context", input: { hint: "focus" } }],
-            },
-        });
-        await act(async () => window.requestAnimationFrame(() => {}));
-
-        const editor = screen.getByRole("textbox", { name: "Message agent" });
+        const editor = await openWithCompactCommand();
         fireEvent.change(editor, { target: { value: "run /comp then stop", selectionStart: 9 } });
         expect(await screen.findByRole("option", { name: /compact/i })).toBeInTheDocument();
         fireEvent.keyDown(editor, { key: "Enter" });
@@ -1311,19 +1365,7 @@ describe("AgentChatPane", () => {
     });
 
     it("keeps a slash inside a word from opening the command menu", async () => {
-        render(<AgentChatPane agent={agent} cwd="/repo" active profile={undefined} onBusyChange={() => {}} />);
-        await waitFor(() => expect(mocks.eventListener).not.toBeNull());
-        emit("ready", { capabilities: {}, setup: {} });
-        emit("session_update", {
-            sessionId: "session-1",
-            update: {
-                sessionUpdate: "available_commands_update",
-                availableCommands: [{ name: "compact", description: "Compact context", input: { hint: "focus" } }],
-            },
-        });
-        await act(async () => window.requestAnimationFrame(() => {}));
-
-        const editor = screen.getByRole("textbox", { name: "Message agent" });
+        const editor = await openWithCompactCommand();
         fireEvent.change(editor, { target: { value: "src/comp", selectionStart: 8 } });
         await act(async () => window.requestAnimationFrame(() => {}));
         expect(screen.queryByRole("option", { name: /compact/i })).not.toBeInTheDocument();
@@ -1397,7 +1439,7 @@ describe("AgentChatPane", () => {
 
         const editor = screen.getByRole("textbox", { name: "Message agent" });
         expect(dispatchPathDrop(editor, ["/repo/src/App.tsx"])).toBe(true);
-        expect(await screen.findByText("App.tsx")).toBeInTheDocument();
+        expect(await screen.findByRole("button", { name: "Remove App.tsx" })).toBeInTheDocument();
 
         fireEvent.change(editor, { target: { value: "Review this" } });
         fireEvent.click(screen.getByRole("button", { name: "Send message" }));

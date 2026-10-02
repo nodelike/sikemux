@@ -1,0 +1,225 @@
+/* ---- Lists ---- */
+
+.git-label {
+    font-size: var(--text-3xs);
+    letter-spacing: var(--tracking-label);
+    text-transform: uppercase;
+    font-weight: var(--weight-semibold);
+    color: var(--text-tertiary);
+}
+.git-count {
+    font-family: var(--mono);
+    font-size: var(--text-2xs);
+    color: var(--text-tertiary);
+}
+.git-section-actions {
+    margin-left: auto;
+    display: flex;
+    gap: 2px;
+}
+.git-text-btn {
+    height: 22px;
+    padding: 0 7px;
+    color: var(--text-tertiary);
+    font-size: var(--text-2xs);
+    white-space: nowrap;
+}
+.git-text-btn:hover:not(:disabled) {
+    background: var(--surface-hover);
+    color: var(--text-primary);
+}
+.git-text-btn.danger:hover:not(:disabled) {
+    background: color-mix(in oklab, var(--danger) 12%, transparent);
+    color: var(--danger);
+}
+.git-text-btn:disabled {
+    color: var(--text-disabled);
+    cursor: default;
+}
+.git-filter {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    flex: 0 0 auto;
+    height: 28px;
+    margin: 2px 10px 6px;
+    padding: 0 10px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-2);
+    color: var(--text-tertiary);
+    transition: border-color var(--dur-1);
+}
+.git-filter:focus-within {
+    border-color: var(--border-selected);
+}
+.git-filter input {
+    flex: 1;
+    min-width: 0;
+    height: 100%;
+    padding: 0;
+    border: 0;
+    outline: 0;
+    background: transparent;
+    color: var(--text-primary);
+    font-family: var(--ui);
+    font-size: var(--text-xs);
+}
+.git-filter input::placeholder {
+    color: var(--text-tertiary);
+}
+.git-list {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 0 6px 6px;
+}
+/* History folds into the foot of the Changes column; open, it shares the column's height with the files. */
+.git-history {
+    display: flex;
+    flex-direction: column;
+    flex: 0 0 auto;
+    min-height: 33px;
+    overflow: hidden;
+    border-top: 1px solid var(--border);
+}
+/* Open, the history's top hairline is the handle that resizes it against the files. */
+.git-history-split + .git-history {
+    border-top: 0;
+}
+.git-history-split {
+    position: relative;
+    z-index: 3;
+    flex: 0 0 auto;
+    height: 1px;
+    background: var(--border);
+    cursor: row-resize;
+    outline: none;
+    touch-action: none;
+    transition: background var(--dur-1);
+}
+.git-history-split::before {
+    content: "";
+    position: absolute;
+    inset: -4px 0;
+}
+.git-history-split:hover,
+.git-history-split:active,
+.git-history-split:focus-visible {
+    background: var(--acc-line);
+    box-shadow: 0 0 0 1px var(--acc-line);
+}
+/* A long file list above grows to fit its rows and would squeeze an open panel out, so an open panel keeps a usable
+   share of the column. One dragged to a height of its own keeps only the handle's floor. */
+.git-history.open {
+    flex: 1 1 0;
+    min-height: min(280px, 45%);
+}
+.git-history-head {
+    display: flex;
+    align-items: center;
+    gap: var(--space-1);
+    flex: 0 0 auto;
+    height: 32px;
+    padding-right: 6px;
+}
+.git-history-toggle {
+    display: flex;
+    align-items: center;
+    gap: var(--space-1h);
+    flex: 1 1 auto;
+    min-width: 0;
+    height: 100%;
+    padding: 0 6px 0 12px;
+    color: var(--text-tertiary);
+    text-align: left;
+}
+.shell .git-history-toggle {
+    border-radius: 0 !important;
+}
+.git-history-head:hover {
+    background: var(--surface-hover);
+}
+/* The search opens inside the header row, on its right, so the list below keeps its height. */
+.git-history-search {
+    display: flex;
+    align-items: center;
+    gap: var(--space-1h);
+    flex: 0 1 190px;
+    min-width: 110px;
+    height: 24px;
+    padding: 0 8px;
+    border: 1px solid var(--border-selected);
+    border-radius: var(--radius-2);
+    background: var(--s-sunken);
+    color: var(--text-tertiary);
+}
+.git-history-search input {
+    flex: 1;
+    min-width: 0;
+    height: 100%;
+    padding: 0;
+    border: 0;
+    outline: 0;
+    background: transparent;
+    color: var(--text-primary);
+    font-family: var(--ui);
+    font-size: var(--text-xs);
+}
+.shell .git-history-search input {
+    border-radius: 0 !important;
+}
+.git-history-search input::placeholder {
+    color: var(--text-tertiary);
+}
+.git-history-chev {
+    display: flex;
+    flex: none;
+    transform: rotate(-90deg);
+    transition: transform var(--dur-1);
+}
+.git-history.open .git-history-chev {
+    transform: rotate(90deg);
+}
+.git-history-latest {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: var(--text-xs);
+    color: var(--text-tertiary);
+}
+.git-history-toggle kbd {
+    margin-left: auto;
+    flex: none;
+    padding: 0 4px;
+    border: 1px solid var(--border);
+    font-family: var(--kbd);
+    font-size: var(--text-3xs);
+    color: var(--text-tertiary);
+}
+.git-history-latest + kbd {
+    margin-left: 0;
+}
+.git-left-foot {
+    flex: 0 0 auto;
+    padding: 10px;
+    border-top: 1px solid var(--border);
+}
+.git-group {
+    display: flex;
+    align-items: center;
+    gap: var(--space-1h);
+    height: 26px;
+    padding: 0 2px 0 8px;
+    color: var(--text-tertiary);
+    font-size: var(--text-2xs);
+}
+/* The Staged and Unstaged groups are the column's headings in the Changes tab. */
+.git-file-group {
+    height: 32px;
+    padding: 0 2px 0 8px;
+}
+.git-file-group.follows {
+    margin-top: var(--space-1h);
+}

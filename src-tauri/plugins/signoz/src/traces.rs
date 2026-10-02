@@ -7,11 +7,13 @@ use serde_json::{json, Value};
 use crate::client;
 use crate::error::{SignozError, SignozResult};
 use crate::filter::Scope;
-use crate::query::{self, quote};
+use crate::query::{self, quote, round_ms, View};
 
 const MAX_SPANS: u32 = 5_000;
 const DEFAULT_LOOKBACK_MINUTES: u32 = 24 * 60;
-const DEFAULT_TRACE_LIMIT: u32 = 100;
+const DEFAULT_TRACE_LIMIT: u32 = 20;
+const DEFAULT_OUTLINE_SPANS: u32 = 40;
+const MAX_OUTLINE_SPANS: u32 = 500;
 const MAX_TRACE_LIMIT: u32 = 500;
 
 #[derive(Deserialize, Default, Clone, Copy, PartialEq, Eq, Debug)]
@@ -146,6 +148,10 @@ pub async fn search(data_dir: &Path, search: TraceSearch) -> SignozResult<TraceP
 pub struct TraceRequest {
     pub trace_id: String,
     pub minutes: Option<u32>,
+    pub span_id: Option<String>,
+    pub max_spans: Option<u32>,
+    #[serde(default)]
+    pub view: View,
 }
 
 #[derive(Clone, Debug)]
@@ -187,6 +193,53 @@ pub struct Trace {
     /// In the order a waterfall draws them: each span followed by its children, earliest first.
     pub spans: Vec<TraceSpan>,
     pub truncated: bool,
+}
+
+#[derive(Serialize, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct OutlineSpan {
+    pub span_id: String,
+    pub name: String,
+    /// Left out when it is the same as the parent span's.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub service: Option<String>,
+    pub depth: usize,
+    pub offset_ms: f64,
+    pub duration_ms: f64,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub error: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub status: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub kind: Option<String>,
+    /// Spans below this one that the outline leaves out.
+    #[serde(skip_serializing_if = "is_zero")]
+    pub hidden: usize,
+}
+
+fn is_zero(count: &usize) -> bool {
+    *count == 0
+}
+
+#[derive(Serialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct TraceOutline {
+    pub trace_id: String,
+    pub start: String,
+    pub duration_ms: f64,
+    pub span_count: usize,
+    pub error_count: usize,
+    pub services: Vec<String>,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub truncated: bool,
+    pub spans: Vec<OutlineSpan>,
+}
+
+#[derive(Serialize)]
+#[serde(untagged)]
+pub enum TraceReply {
+    Waterfall(Trace),
+    Outline(TraceOutline),
 }
 
 fn text(data: &Value, key: &str) -> Option<String> {
@@ -285,7 +338,148 @@ fn waterfall(mut spans: Vec<RawSpan>) -> Vec<TraceSpan> {
     ordered
 }
 
-pub async fn trace(data_dir: &Path, request: TraceRequest) -> SignozResult<Trace> {
+/// The spans worth reading first, in waterfall order: the top of the tree, every
+/// failing span, and the spans that spent the most time on their own work, each
+/// with the spans above it so the path from the root stays readable.
+fn outline(trace: Trace, from: Option<&str>, most: usize) -> SignozResult<TraceOutline> {
+    let top = match from {
+        Some(id) => trace
+            .spans
+            .iter()
+            .position(|span| span.span_id == id)
+            .ok_or_else(|| {
+                SignozError::NotFound(format!("trace {} has no span {id}", trace.trace_id))
+            })?,
+        None => 0,
+    };
+    let base = trace.spans.get(top).map_or(0, |span| span.depth);
+    let subtree: Vec<&TraceSpan> = trace
+        .spans
+        .iter()
+        .skip(top)
+        .enumerate()
+        .take_while(|(index, span)| from.is_none() || *index == 0 || span.depth > base)
+        .map(|(_, span)| span)
+        .collect();
+    let mut parent: Vec<Option<usize>> = Vec::with_capacity(subtree.len());
+    let mut path: Vec<usize> = Vec::new();
+    for (index, span) in subtree.iter().enumerate() {
+        path.truncate(span.depth.saturating_sub(base));
+        parent.push(path.last().copied());
+        path.push(index);
+    }
+    let parent_of = |index: usize| parent.get(index).copied().flatten();
+    let mut children_time = vec![0.0; subtree.len()];
+    for (index, span) in subtree.iter().enumerate() {
+        if let Some(time) = parent_of(index).and_then(|up| children_time.get_mut(up)) {
+            *time += span.duration_ms;
+        }
+    }
+    let own_time: Vec<f64> = subtree
+        .iter()
+        .zip(&children_time)
+        .map(|(span, children)| (span.duration_ms - children).max(0.0))
+        .collect();
+    let depth_of = |index: usize| subtree.get(index).map_or(0, |span| span.depth);
+    let own_of = |index: usize| own_time.get(index).copied().unwrap_or(0.0);
+    let roots = (0..subtree.len()).filter(|&index| parent_of(index).is_none());
+    let mut failing: Vec<usize> = (0..subtree.len())
+        .filter(|&index| subtree.get(index).is_some_and(|span| span.error))
+        .collect();
+    failing.sort_by_key(|&index| std::cmp::Reverse(depth_of(index)));
+    let mut busiest: Vec<usize> = (0..subtree.len()).collect();
+    busiest.sort_by(|&left, &right| own_of(right).total_cmp(&own_of(left)));
+    let mut shown = vec![false; subtree.len()];
+    let is_shown = |shown: &[bool], index: usize| shown.get(index).copied().unwrap_or(false);
+    let mut count = 0;
+    for candidate in roots.chain(failing).chain(busiest) {
+        let mut chain = Vec::new();
+        let mut at = Some(candidate);
+        while let Some(index) = at.filter(|&index| !is_shown(&shown, index)) {
+            chain.push(index);
+            at = parent_of(index);
+        }
+        if count + chain.len() > most {
+            continue;
+        }
+        count += chain.len();
+        for index in chain {
+            if let Some(flag) = shown.get_mut(index) {
+                *flag = true;
+            }
+        }
+        if count == most {
+            break;
+        }
+    }
+    let mut hidden = vec![0; subtree.len()];
+    for index in (0..subtree.len()).filter(|&index| !is_shown(&shown, index)) {
+        let mut at = parent_of(index);
+        while let Some(up) = at.filter(|&up| !is_shown(&shown, up)) {
+            at = parent_of(up);
+        }
+        if let Some(slot) = at.and_then(|up| hidden.get_mut(up)) {
+            *slot += 1;
+        }
+    }
+    let spans = subtree
+        .iter()
+        .enumerate()
+        .filter(|&(index, _)| is_shown(&shown, index))
+        .map(|(index, span)| {
+            let parent_service = parent_of(index)
+                .and_then(|up| subtree.get(up))
+                .map(|up| up.service.as_str());
+            OutlineSpan {
+                span_id: span.span_id.clone(),
+                name: span.name.clone(),
+                service: (parent_service != Some(span.service.as_str()))
+                    .then(|| span.service.clone()),
+                depth: span.depth,
+                offset_ms: round_ms(span.offset_ms),
+                duration_ms: round_ms(span.duration_ms),
+                error: span.error,
+                status: span.status.clone(),
+                kind: span
+                    .kind
+                    .clone()
+                    .filter(|kind| !matches!(kind.as_str(), "Internal" | "Unspecified")),
+                hidden: hidden.get(index).copied().unwrap_or(0),
+            }
+        })
+        .collect();
+    Ok(TraceOutline {
+        span_count: trace.spans.len(),
+        trace_id: trace.trace_id,
+        start: trace.start,
+        duration_ms: round_ms(trace.duration_ms),
+        error_count: trace.error_count,
+        services: trace.services,
+        truncated: trace.truncated,
+        spans,
+    })
+}
+
+pub async fn trace(data_dir: &Path, request: TraceRequest) -> SignozResult<TraceReply> {
+    let view = request.view;
+    let from = request
+        .span_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|id| !id.is_empty())
+        .map(str::to_string);
+    let most = request
+        .max_spans
+        .unwrap_or(DEFAULT_OUTLINE_SPANS)
+        .clamp(1, MAX_OUTLINE_SPANS) as usize;
+    let trace = whole_trace(data_dir, request).await?;
+    Ok(match view {
+        View::Pane => TraceReply::Waterfall(trace),
+        View::Agent => TraceReply::Outline(outline(trace, from.as_deref(), most)?),
+    })
+}
+
+async fn whole_trace(data_dir: &Path, request: TraceRequest) -> SignozResult<Trace> {
     let trace_id = request.trace_id.trim().to_string();
     if trace_id.is_empty() || !trace_id.chars().all(|c| c.is_ascii_hexdigit()) {
         return Err(SignozError::BadArg("a trace id is hexadecimal".into()));
@@ -416,6 +610,102 @@ mod tests {
         ]);
         assert_eq!(ordered.len(), 3);
         assert!(ordered.iter().all(|span| span.depth == 0));
+    }
+
+    fn traced(raw: Vec<RawSpan>) -> Trace {
+        Trace {
+            trace_id: "t".into(),
+            start: String::new(),
+            duration_ms: 0.0,
+            error_count: raw.iter().filter(|span| span.error).count(),
+            services: Vec::new(),
+            spans: waterfall(raw),
+            truncated: false,
+        }
+    }
+
+    fn wide() -> Vec<RawSpan> {
+        let mut raw = vec![RawSpan {
+            duration_ns: 900_000_000,
+            ..span("root", None, 0)
+        }];
+        for index in 0..50 {
+            let child = format!("child-{index}");
+            raw.push(RawSpan {
+                service: "db".into(),
+                ..span(&child, Some("root"), index + 1)
+            });
+            raw.push(span(&format!("leaf-{index}"), Some(&child), index + 1));
+        }
+        raw.push(RawSpan {
+            error: true,
+            status: Some("connection reset".into()),
+            ..span("broken", Some("child-30"), 31)
+        });
+        raw.push(RawSpan {
+            duration_ns: 400_000_000,
+            ..span("slow", Some("child-7"), 8)
+        });
+        raw
+    }
+
+    #[test]
+    fn a_small_trace_is_shown_whole_and_says_each_service_once() {
+        let outline = outline(
+            traced(vec![
+                span("root", None, 0),
+                RawSpan {
+                    service: "db".into(),
+                    kind: Some("Client".into()),
+                    ..span("query", Some("root"), 1)
+                },
+                RawSpan {
+                    kind: Some("Internal".into()),
+                    ..span("render", Some("root"), 2)
+                },
+            ]),
+            None,
+            40,
+        )
+        .unwrap();
+        let services: Vec<Option<&str>> = outline
+            .spans
+            .iter()
+            .map(|span| span.service.as_deref())
+            .collect();
+        assert_eq!(services, [Some("svc"), Some("db"), None]);
+        assert_eq!(outline.spans[1].kind.as_deref(), Some("Client"));
+        assert_eq!(outline.spans[2].kind, None);
+        assert!(outline.spans.iter().all(|span| span.hidden == 0));
+    }
+
+    #[test]
+    fn a_big_trace_keeps_its_failures_and_slowest_work_and_counts_the_rest() {
+        let outline = outline(traced(wide()), None, 5).unwrap();
+        let shown: Vec<&str> = outline
+            .spans
+            .iter()
+            .map(|span| span.span_id.as_str())
+            .collect();
+        assert_eq!(outline.span_count, 103);
+        assert_eq!(shown, ["root", "child-7", "slow", "child-30", "broken"]);
+        assert_eq!(outline.spans[4].status.as_deref(), Some("connection reset"));
+        let hidden: usize = outline.spans.iter().map(|span| span.hidden).sum();
+        assert_eq!(hidden + shown.len(), outline.span_count);
+        assert_eq!(outline.spans[1].hidden, 1);
+    }
+
+    #[test]
+    fn opens_one_span_and_everything_under_it() {
+        let outline = outline(traced(wide()), Some("child-30"), 40).unwrap();
+        let shown: Vec<(&str, usize)> = outline
+            .spans
+            .iter()
+            .map(|span| (span.span_id.as_str(), span.depth))
+            .collect();
+        assert_eq!(shown, [("child-30", 1), ("broken", 2), ("leaf-30", 2)]);
+        assert_eq!(outline.spans[0].service.as_deref(), Some("db"));
+        assert!(super::outline(traced(wide()), Some("nope"), 40).is_err());
     }
 
     #[test]

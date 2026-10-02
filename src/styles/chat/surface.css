@@ -1,0 +1,305 @@
+.agent-surface {
+    display: grid;
+    /* 28px rather than 34px: the header reaches up into the pane's 6px inset. */
+    grid-template-rows: 28px minmax(0, 1fr);
+    width: 100%;
+    height: 100%;
+    min-width: 0;
+    min-height: 0;
+    /* No fill of its own: the stage under the pane already carries the surface,
+     * exactly as it does for terminals (.pane-terminal) and the editor
+     * (.editor-pane). This used to paint the legacy --pane hex on top, which
+     * read as a second, theme-deaf background inside the frame. */
+    background: transparent;
+}
+
+.agent-surface-header {
+    --control-h: 24px;
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    height: 34px;
+    min-width: 0;
+    /* The pane insets its contents, and the desk beside it does not. Bleeding
+       into that inset puts this hairline at the same height as the desk's, and
+       runs it the full width of the pane like the desk's does. */
+    margin: calc(-1 * var(--space-1h)) calc(-1 * var(--space-1h)) 0;
+    padding: 0 11px 0 14px;
+    border-bottom: 1px solid var(--border);
+    background: color-mix(in srgb, var(--void) 70%, transparent);
+}
+
+.agent-surface-mark {
+    display: grid;
+    place-items: center;
+    width: 18px;
+    height: 18px;
+    flex: none;
+}
+
+.agent-surface-title {
+    min-width: 0;
+    flex: 0 1 auto;
+    overflow: hidden;
+    color: var(--ink);
+    font-family: var(--ui);
+    font-size: var(--text-md);
+    font-weight: var(--weight-semibold);
+    letter-spacing: var(--tracking-tight);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.agent-surface-menu {
+    display: grid;
+    place-items: center;
+    flex: none;
+    width: 22px;
+    height: 24px;
+    /* The menu belongs to the title, so it sits against it and everything
+       after it goes to the far end of the row. */
+    margin: 0 auto 0 -4px;
+    padding: 0;
+    border: 1px solid transparent;
+    background: transparent;
+    color: var(--ink-faint);
+    transition:
+        color 100ms,
+        background 100ms;
+}
+
+.agent-surface-menu:hover,
+.agent-surface-menu[aria-expanded="true"] {
+    background: var(--surface-hover);
+    color: var(--ink);
+}
+
+.agent-view-switch {
+    display: flex;
+    align-items: center;
+    height: var(--control-h);
+    padding: 2px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-control);
+    background: transparent;
+}
+
+.agent-view-switch button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+    height: 100%;
+    padding: 0 8px;
+    color: var(--ink-faint);
+    font-family: var(--ui);
+    font-size: calc(10.5px * var(--chat-text-em, 1));
+    transition:
+        color 100ms,
+        background 100ms;
+}
+
+.agent-view-switch button:hover:not(:disabled) {
+    color: var(--ink);
+}
+
+.agent-view-switch button[aria-pressed="true"] {
+    color: var(--ink);
+    background: var(--surface-active);
+}
+
+.agent-view-switch button:disabled {
+    cursor: default;
+    opacity: 0.42;
+}
+
+.agent-desk-open {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: var(--control-h);
+    height: var(--control-h);
+    padding: 0;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-control);
+    background: transparent;
+    color: var(--ink-faint);
+    transition:
+        color 100ms,
+        border-color 100ms,
+        background 100ms;
+}
+
+.agent-desk-open:hover {
+    border-color: var(--border-strong);
+    background: var(--surface-hover);
+    color: var(--text-primary);
+}
+
+.agent-desk-open[aria-pressed="true"] {
+    border-color: var(--border-selected);
+    background: var(--surface-selected);
+    color: var(--acc);
+}
+
+.yolo-toggle {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    height: var(--control-h);
+    padding: 0 10px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-control);
+    background: color-mix(in srgb, var(--void) 46%, transparent);
+    color: var(--ink-faint);
+    font-family: var(--ui);
+    font-size: calc(10.5px * var(--chat-text-em, 1));
+    font-weight: 560;
+    line-height: 1;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    transition:
+        color 100ms,
+        border-color 100ms;
+}
+
+.yolo-toggle:hover:not(:disabled) {
+    color: var(--ink);
+}
+
+.yolo-toggle:disabled {
+    cursor: default;
+    opacity: 0.42;
+}
+
+.yolo-glyph {
+    display: flex;
+}
+
+.yolo-hint {
+    padding-left: 6px;
+    border-left: 1px solid var(--line);
+    color: var(--ink-faint);
+    font-family: var(--kbd);
+    font-size: calc(9px * var(--chat-text-em, 1));
+    font-weight: 600;
+    letter-spacing: 0.02em;
+}
+
+.yolo-hint kbd {
+    font: inherit;
+}
+
+.yolo-toggle.on {
+    border-color: transparent;
+}
+
+/* The ring sits on the border, so it needs the inset and a radius one px wider
+   than the button's own. The colours move by sliding a wide strip behind the
+   window this cuts, which the compositor can do without repainting. */
+.yolo-toggle.on .yolo-ring {
+    position: absolute;
+    inset: -1px;
+    padding: 1px;
+    border-radius: calc(var(--radius-control) + 1px);
+    overflow: hidden;
+    -webkit-mask:
+        linear-gradient(#000 0 0) content-box,
+        linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+    pointer-events: none;
+}
+
+.yolo-toggle.on .yolo-ring::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    width: 400%;
+    background-image: var(--yolo-rainbow);
+    background-size: 50% 100%;
+    animation: yolo-slide 5s linear infinite;
+}
+
+.yolo-toggle.on .yolo-label {
+    color: transparent;
+    background: var(--yolo-rainbow);
+    background-size: 200% 100%;
+    background-clip: text;
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+}
+
+.yolo-toggle.on .yolo-glyph {
+    /* Not animated: `color` is not a compositor property, so cycling it
+       repainted the glyph and resolved style on every frame, in every pane
+       holding a live agent. The ring beside it already carries the motion. */
+    color: var(--acc);
+}
+
+.yolo-toggle.on .yolo-hint {
+    color: var(--ink-dim);
+    border-left-color: color-mix(in srgb, var(--ink-faint) 70%, transparent);
+}
+
+.agent-surface-body,
+.agent-gui-layer,
+.agent-tui-layer {
+    position: relative;
+    min-width: 0;
+    min-height: 0;
+    overflow: hidden;
+}
+
+.agent-gui-layer {
+    position: absolute;
+    inset: 0;
+}
+
+/* Hides by absence of `.visible`, never by declaring `visibility: visible`:
+   that would also un-hide this layer when the whole tab is hidden. */
+.agent-gui-layer:not(.visible) {
+    visibility: hidden;
+    pointer-events: none;
+}
+
+.agent-tui-layer {
+    width: 100%;
+    height: 100%;
+}
+
+.agent-transport-switching {
+    display: grid;
+    width: 100%;
+    height: 100%;
+    place-items: center;
+    color: var(--ink-faint);
+    font-family: var(--ui);
+    font-size: var(--text-xs);
+}
+
+.agent-surface-resuming {
+    display: flex;
+    flex: none;
+    align-items: center;
+    gap: 6px;
+    color: var(--ink-faint);
+    font-family: var(--ui);
+    font-size: var(--text-2xs);
+}
+
+.agent-tui-recovery {
+    position: absolute;
+    inset: auto 0 12px;
+    pointer-events: none;
+}
+
+.agent-tui-recovery .chat-reconnect {
+    margin-top: 0;
+    background: var(--surface-overlay);
+    font-family: var(--ui);
+    pointer-events: auto;
+}

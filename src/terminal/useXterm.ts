@@ -656,7 +656,14 @@ export function useXterm(opts: {
                     settlePtyOperation(pty.resize(term.cols, term.rows));
                 };
                 const resize = () => {
-                    if (resizeFrame == null) resizeFrame = window.requestAnimationFrame(resizeNow);
+                    if (resizeFrame != null) return;
+                    resizeFrame = window.requestAnimationFrame(resizeNow);
+                    /* Fitting resizes the canvas, which clears it, and xterm redraws on
+                       a frame it books then. Booked from inside our frame, that redraw
+                       lands a frame late, and the cleared canvas is painted in between:
+                       the terminal blinks whenever the stage changes width. Booking it
+                       now puts it right behind the fit, in the same frame. */
+                    term.refresh(0, term.rows - 1);
                 };
                 resizeRef.current = resize;
                 resourceDisposers.push(registerTerminalFontSize({ term, refit: resize }));

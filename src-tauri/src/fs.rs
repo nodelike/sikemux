@@ -2,7 +2,6 @@ use std::collections::HashMap;
 use std::fs;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use std::sync::{Arc, Mutex, OnceLock, Weak};
 
 use base64::{engine::general_purpose, Engine as _};
@@ -35,13 +34,6 @@ pub struct DirListing {
 pub enum PathKind {
     File,
     Dir,
-}
-
-#[derive(Serialize)]
-pub struct FileBlob {
-    mime: String,
-    data: String,
-    size: u64,
 }
 
 #[derive(Serialize)]
@@ -182,7 +174,7 @@ pub async fn path_kinds(paths: Vec<String>) -> AppResult<Vec<Option<PathKind>>> 
 pub async fn read_file(path: String) -> AppResult<String> {
     spawn_blocking(move || {
         let bytes = read_bounded(Path::new(&path), EDITOR_TEXT_MAX_BYTES)?;
-        String::from_utf8(bytes).map_err(|_| AppError::Fs(format!("{path} is not UTF-8 text")))
+        String::from_utf8(bytes).map_err(|_| AppError::NotText(path))
     })
     .await
     .map_err(|e| AppError::Other(format!("read_file join: {e}")))?
@@ -201,8 +193,8 @@ pub async fn read_file_versioned(path: String) -> AppResult<FileSnapshot> {
             .map_err(|_| AppError::Other("file write lock poisoned".into()))?;
         let bytes = read_bounded(&path, EDITOR_TEXT_MAX_BYTES)?;
         let version = content_version(&bytes);
-        let content = String::from_utf8(bytes)
-            .map_err(|_| AppError::Fs(format!("{} is not UTF-8 text", path.display())))?;
+        let content =
+            String::from_utf8(bytes).map_err(|_| AppError::NotText(path.display().to_string()))?;
         Ok(FileSnapshot { content, version })
     })
     .await
@@ -211,7 +203,6 @@ pub async fn read_file_versioned(path: String) -> AppResult<FileSnapshot> {
 
 const INLINE_TEXT_MAX_BYTES: u64 = 1024 * 1024;
 const EDITOR_TEXT_MAX_BYTES: u64 = 16 * 1024 * 1024;
-const MEDIA_MAX_BYTES: u64 = 64 * 1024 * 1024;
 
 /// Refuses anything but a regular file. Opening without blocking means a named
 /// pipe is turned away instead of hanging until something writes to it.
@@ -288,41 +279,10 @@ fn human_bytes(bytes: u64) -> String {
 }
 
 #[tauri::command]
-pub async fn read_file_base64(path: String) -> AppResult<FileBlob> {
-    spawn_blocking(move || read_file_base64_sync(path))
+pub async fn open_in_default_app(path: String) -> AppResult<()> {
+    spawn_blocking(move || open::that_detached(&path).map_err(AppError::from))
         .await
-        .map_err(|e| AppError::Other(format!("read_file_base64 join: {e}")))?
-}
-
-fn read_file_base64_sync(path: String) -> AppResult<FileBlob> {
-    let bytes = read_bounded(Path::new(&path), MEDIA_MAX_BYTES)?;
-    let mime = mime_for_path(&path);
-    Ok(FileBlob {
-        mime,
-        size: bytes.len() as u64,
-        data: general_purpose::STANDARD.encode(bytes),
-    })
-}
-
-fn mime_for_path(path: &str) -> String {
-    let ext = Path::new(path)
-        .extension()
-        .and_then(|s| s.to_str())
-        .map(|s| s.to_ascii_lowercase())
-        .unwrap_or_default();
-    match ext.as_str() {
-        "png" => "image/png",
-        "jpg" | "jpeg" => "image/jpeg",
-        "gif" => "image/gif",
-        "webp" => "image/webp",
-        "svg" => "image/svg+xml",
-        "bmp" => "image/bmp",
-        "ico" => "image/x-icon",
-        "avif" => "image/avif",
-        "tif" | "tiff" => "image/tiff",
-        _ => "application/octet-stream",
-    }
-    .to_string()
+        .map_err(|e| AppError::Other(format!("open_in_default_app join: {e}")))?
 }
 
 #[tauri::command]
@@ -376,6 +336,8 @@ fn sync_before_replace(file: &fs::File) -> AppResult<()> {
     {
         use std::os::fd::AsRawFd;
         // A filesystem that does not know the barrier falls through to fsync.
+        // SAFETY: `file` stays open for the call, so its descriptor is valid, and
+        // F_BARRIERFSYNC takes no pointer.
         if unsafe { libc::fcntl(file.as_raw_fd(), libc::F_BARRIERFSYNC) } != -1 {
             return Ok(());
         }
@@ -665,13 +627,18 @@ fn clipboard_png() -> Option<Vec<u8>> {
     use objc2_foundation::NSDictionary;
 
     let pasteboard = NSPasteboard::generalPasteboard();
+    // SAFETY: objc2 does not tie NSPasteboard to the main thread, and the type is an
+    // immutable AppKit constant.
     if let Some(png) = unsafe { pasteboard.dataForType(NSPasteboardTypePNG) } {
         return Some(png.to_vec());
     }
     // Screenshots land on the clipboard as TIFF.
+    // SAFETY: as above.
     let tiff = unsafe { pasteboard.dataForType(NSPasteboardTypeTIFF) }?;
     let bitmap = NSBitmapImageRep::imageRepWithData(&tiff)?;
     let empty = NSDictionary::new();
+    // SAFETY: NSBitmapImageRep works off the main thread, and an empty properties
+    // dictionary is allowed.
     let png =
         unsafe { bitmap.representationUsingType_properties(NSBitmapImageFileType::PNG, &empty) }?;
     Some(png.to_vec())
@@ -761,11 +728,14 @@ fn reveal_in_finder_sync(path: String) -> AppResult<()> {
     }
     #[cfg(target_os = "macos")]
     {
-        Command::new("open").arg("-R").arg(&p).status()?;
+        sikemux_process::user_environment::command("open")
+            .arg("-R")
+            .arg(&p)
+            .status()?;
     }
     #[cfg(target_os = "windows")]
     {
-        Command::new("explorer.exe")
+        sikemux_process::user_environment::command("explorer.exe")
             .arg("/select,")
             .arg(&p)
             .status()?;
@@ -779,7 +749,9 @@ fn reveal_in_finder_sync(path: String) -> AppResult<()> {
                 .map(|d| d.to_path_buf())
                 .unwrap_or_else(|| p.clone())
         };
-        Command::new("xdg-open").arg(&dir).status()?;
+        sikemux_process::user_environment::command("xdg-open")
+            .arg(&dir)
+            .status()?;
     }
     Ok(())
 }
@@ -811,6 +783,7 @@ mod tests {
         let dir = tempfile::tempdir().expect("tempdir");
         let pipe = dir.path().join("pipe");
         let name = std::ffi::CString::new(pipe.to_string_lossy().as_bytes()).unwrap();
+        // SAFETY: `name` is a nul-terminated path that outlives the call.
         assert_eq!(unsafe { libc::mkfifo(name.as_ptr(), 0o600) }, 0);
         assert!(matches!(read_bounded(&pipe, 1024), Err(AppError::Fs(_))));
         assert!(matches!(

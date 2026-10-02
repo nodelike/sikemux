@@ -12,13 +12,13 @@ import { mountShaderField, unmountShaderField, type ShaderFieldPreset } from "..
  * or WebGL is missing the hook is a no-op and the element stays empty, which is
  * why every surface is styled to look deliberate with no canvas in it.
  */
-export function useShaderField<T extends HTMLElement>(preset: ShaderFieldPreset, enabled = true) {
+export function useShaderField<T extends HTMLElement>(preset: ShaderFieldPreset, enabled = true, image: HTMLImageElement | null = null) {
     const ref = useRef<T | null>(null);
     useEffect(() => {
         const host = ref.current;
         if (!host || !enabled) return;
-        mountShaderField(host, preset);
+        mountShaderField(host, preset, image);
         return () => unmountShaderField(host);
-    }, [preset, enabled]);
+    }, [preset, enabled, image]);
     return ref;
 }

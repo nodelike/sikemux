@@ -101,6 +101,10 @@
     white-space: nowrap;
     transition: color 0.12s;
 }
+.tb-git-host {
+    display: inline-flex;
+    color: var(--ink);
+}
 .tb-git-chip:hover {
     color: var(--ink);
 }
@@ -144,4 +148,33 @@
     height: 16px;
     background: var(--line);
     flex: 0 0 auto;
+}
+
+.tb-ports {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    flex: 0 0 auto;
+}
+.tb-ports-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    height: 24px;
+    padding: 0 4px;
+    background: transparent;
+    border: 0;
+    color: var(--ink-dim);
+    font-family: var(--mono);
+    font-size: var(--text-2xs);
+    cursor: pointer;
+    white-space: nowrap;
+    transition: color var(--dur-1);
+}
+.tb-ports-chip:hover,
+.tb-ports-chip[aria-expanded="true"] {
+    color: var(--ink);
+}
+.tb-ports-count {
+    color: var(--ink);
 }

@@ -13,3 +13,6 @@ serde_json = { version = "1", features = ["preserve_order"] }
 
 [lints]
 workspace = true
+
+[target.'cfg(target_os = "macos")'.dependencies]
+workspace-hack = { version = "0.1", path = "../workspace-hack" }

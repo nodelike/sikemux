@@ -8,7 +8,7 @@ let package = Package(
         .executable(name: "sikemux-voice", targets: ["SikemuxVoice"])
     ],
     dependencies: [
-        .package(url: "https://github.com/FluidInference/FluidAudio.git", exact: "0.14.8")
+        .package(path: "FluidAudio")
     ],
     targets: [
         .executableTarget(

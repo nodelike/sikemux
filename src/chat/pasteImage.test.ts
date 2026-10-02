@@ -64,6 +64,17 @@ describe("pasting a picture into the composer", () => {
         expect(attachmentName(png("image.jpg", "image/jpeg"), at)).toBe("pasted-20260919-200503042.jpg");
     });
 
+    it("names a pasted picture of a less common type after its type", () => {
+        const at = new Date(2026, 8, 19, 20, 5, 3, 42);
+        expect(attachmentName(png("", "image/x-icon"), at)).toBe("pasted-20260919-200503042.xicon");
+        expect(attachmentName(png("Screenshot.PNG", "image/"), at)).toBe("pasted-20260919-200503042.png");
+    });
+
+    it("finds a picture in items when the clipboard has no file list at all", () => {
+        const data = { items: [{ kind: "file", type: "image/png", getAsFile: () => png() }] } as unknown as DataTransfer;
+        expect(imagesInClipboard(data)).toHaveLength(1);
+    });
+
     it("keeps a name the picture genuinely had", () => {
         expect(attachmentName(png("diagram.png"))).toBe("diagram.png");
     });

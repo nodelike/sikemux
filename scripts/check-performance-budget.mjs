@@ -131,10 +131,16 @@ const budgets = [
     // chunk of its own, fetched only once a block that can use it settles.
     // Tool calls also carry what they printed now, opened under the row, and
     // the transcript animates new messages and tool runs opening and closing.
+    // The composer's @ and # pickers, context chips, and resuming a chat whose
+    // agent died live here too; the code host part loads only once # is typed.
+    // So does the Worktree switch's state; its button, the worktree line in the
+    // transcript, the header's pull request badge and the git work load apart.
+    // The project strip over a new chat's composer loads apart too. A terminal
+    // agent's resuming state and its failed-resume row live here as well.
     label: "ACP chat lazy chunk",
     pattern: /^AgentSurface-.*\.js$/,
-    raw: 93_000,
-    gzip: 29_700,
+    raw: 110_000,
+    gzip: 35_000,
   },
   {
     // Shiki, its JavaScript regex engine and vscode-textmate, with no
@@ -156,13 +162,16 @@ const budgets = [
     // Rolldown reaches CommonJS exports such as React's jsx through
     // `(0, ns.jsx)(...)` at every call site, which Rollup did not. The app's
     // motion (glides, rows opening and closing, overlays fading) lives here too.
+    // Chat agents in their own worktrees added a few small lazy chunks, and
+    // the top bar's listening ports chip one more for its menu. Taking
+    // terminals and tasks back from the core at launch added a little more.
     label:
       "default-path JavaScript except the highlighter and its grammar chunks",
     pattern: new RegExp(
       `^(?!(?:highlighter|paper-shaders|xterm-webgl|${diffLanguageChunkNames.join("|")})-).*\\.js$`,
     ),
-    raw: 3_260_000,
-    gzip: 1_050_000,
+    raw: 3_460_000,
+    gzip: 1_120_000,
   },
   {
     label: "opt-in shader renderer",
@@ -179,14 +188,16 @@ const budgets = [
   {
     // The chat pane has since grown rows the budget predates: subagent
     // transcripts, background tasks, queued messages, the reconnect states,
-    // code block copy buttons, the composer microphone, and a tool call's
-    // output. It is one lazily loaded sheet behind an agent pane, so this buys
-    // those rows room without touching what the app loads at startup.
+    // code block copy buttons, the composer microphone, a tool call's output,
+    // context chips, the resuming states, a terminal agent's among them, and
+    // attached files drawn as cards. It is one lazily loaded sheet behind an
+    // agent pane, so this buys those rows room without touching what the app
+    // loads at startup.
     // Lightning CSS, Vite's minifier, keeps the spaces inside color-mix().
     label: "ACP chat CSS",
     pattern: /^AgentSurface-.*\.css$/,
-    raw: 42_800,
-    gzip: 7_980,
+    raw: 47_500,
+    gzip: 8_800,
   },
   {
     // Includes the JetBrainsMono Nerd Font @font-face rules: a base face per
@@ -195,8 +206,8 @@ const budgets = [
     // glyph is actually rendered. Plugin panes bring their own sheets.
     label: "application CSS",
     pattern: /^index-.*\.css$/,
-    raw: 216_000,
-    gzip: 37_800,
+    raw: 220_000,
+    gzip: 38_500,
   },
   {
     label: "settings lazy CSS",

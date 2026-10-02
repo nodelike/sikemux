@@ -1,4 +1,4 @@
-import { agentLaunchArgs } from "../../agentLaunch";
+import { agentLaunchArgs } from "../../agents/agentLaunch";
 import { IS_WINDOWS } from "../../lib/platform";
 import type { AgentEffort, AgentPermissionMode, AgentType, PtyDirectCommand } from "../types";
 

@@ -74,24 +74,26 @@ export function glideSelection(container: HTMLElement, from: Box, to: HTMLElemen
         return;
     }
     const surface = getComputedStyle(to);
+    // A tint drawn as a background image sits over a ground every item shares, so only the tint moves.
+    const tintLayer = surface.backgroundImage !== "none";
     const ghost = document.createElement("div");
     ghost.className = "selection-glide";
     ghost.setAttribute("aria-hidden", "true");
     Object.assign(ghost.style, {
         ...px(target),
-        background: surface.backgroundColor,
+        background: tintLayer ? surface.backgroundImage : surface.backgroundColor,
         borderRadius: surface.borderTopLeftRadius,
         boxShadow: surface.boxShadow,
         border: `${surface.borderTopWidth} ${surface.borderTopStyle} ${surface.borderTopColor}`,
     });
-    to.style.setProperty("background", "transparent", "important");
+    to.style.setProperty(tintLayer ? "background-image" : "background", tintLayer ? "none" : "transparent", "important");
     to.style.setProperty("border-color", "transparent", "important");
     to.style.setProperty("box-shadow", "none", "important");
     if (getComputedStyle(container).position === "static") container.style.position = "relative";
     container.append(ghost);
     const run = ghost.animate([px(from), px(target)], { duration, easing: EASE_OUT, fill: "forwards" });
     const land = () => {
-        for (const property of ["background", "border-color", "box-shadow"]) to.style.removeProperty(property);
+        for (const property of ["background", "background-image", "border-color", "box-shadow"]) to.style.removeProperty(property);
         ghost.remove();
         requestAnimationFrame(() => requestAnimationFrame(() => (to.style.transition = kept)));
     };

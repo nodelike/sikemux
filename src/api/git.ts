@@ -65,6 +65,12 @@ export interface GitCommit {
     unpushed: boolean;
 }
 
+export interface GitCompare {
+    merge_base: string;
+    files: { path: string; status: "A" | "M" | "D" | "R" }[];
+    commits: GitCommit[];
+}
+
 export interface GitOverview {
     status: GitStatus;
     branches: GitBranch[];
@@ -233,6 +239,7 @@ export const git = {
     fileDiff: (repo: string, path: string, baseRev: string, headRev: string | null, full: boolean) =>
         invoke<DiffRow[]>("git_file_diff", { repo, path, baseRev, headRev, full }),
     commitFiles: (repo: string, rev: string) => invoke<string[]>("git_commit_files", { repo, rev }),
+    compare: (repo: string, base: string, head: string) => invoke<GitCompare>("git_compare", { repo, base, head }),
     blame: (repo: string, path: string, contents?: string | null) => invoke<GitBlame>("git_blame", { repo, path, contents: contents ?? null }),
     commit: (repo: string, message: string) => invoke<string>("git_commit", { repo, message }),
     push: (repo: string) => invoke<string>("git_push", { repo }),
@@ -270,6 +277,8 @@ export const git = {
     remoteRename: (repo: string, oldName: string, newName: string) => invoke<void>("git_remote_rename", { repo, oldName, newName }),
     remoteSetUrl: (repo: string, name: string, url: string) => invoke<void>("git_remote_set_url", { repo, name, url }),
     fetch: (repo: string, remote?: string | null) => invoke<string>("git_fetch", { repo, remote: remote ?? null }),
+    /** One ref from a remote into a local branch, such as a pull request that lives only on the remote it was opened on. */
+    fetchRef: (repo: string, remote: string, source: string, branch: string) => invoke<string>("git_fetch_ref", { repo, remote, source, branch }),
 
     remoteBranches: (repo: string, remote: string) => invoke<GitRemoteBranch[]>("git_remote_branches", { repo, remote }),
     checkoutRemoteBranch: (repo: string, remote: string, branch: string, localName?: string | null) =>

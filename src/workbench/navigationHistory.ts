@@ -16,18 +16,6 @@ export interface NavigationLocation extends NavigationLocationInput {
 
 export type NavigationHistoryPushResult = "pushed" | "duplicate" | "invalid" | "stale";
 
-export type NavigationHistoryTelemetryEvent = "push" | "duplicate" | "invalid" | "stale" | "back" | "forward" | "miss" | "reset";
-
-export interface NavigationHistoryTelemetryMetadata {
-    readonly size: number;
-    readonly backwardDepth: number;
-    readonly forwardDepth: number;
-    readonly stalePruned: number;
-}
-
-/** Receives fixed event names and numeric metadata, never location data. */
-export type NavigationHistoryTelemetry = (event: NavigationHistoryTelemetryEvent, metadata: NavigationHistoryTelemetryMetadata) => void;
-
 export type NavigationLocationFreshness = (location: NavigationLocation) => boolean;
 
 export interface NavigationHistoryOptions {
@@ -35,7 +23,6 @@ export interface NavigationHistoryOptions {
     readonly capacity?: number;
     /** Return false when a project/path can no longer be navigated to. */
     readonly isLocationCurrent?: NavigationLocationFreshness;
-    readonly telemetry?: NavigationHistoryTelemetry;
 }
 
 export interface NavigationHistorySnapshot {
@@ -150,7 +137,6 @@ function requireCapacity(value: number): number {
 export class NavigationHistory {
     readonly capacity: number;
     private readonly isLocationCurrent: NavigationLocationFreshness;
-    private readonly telemetry: NavigationHistoryTelemetry | undefined;
     private readonly backwardStack: NavigationLocation[] = [];
     private readonly forwardStack: NavigationLocation[] = [];
     private current: NavigationLocation | null = null;
@@ -158,50 +144,28 @@ export class NavigationHistory {
     constructor(options: NavigationHistoryOptions = {}) {
         this.capacity = requireCapacity(options.capacity ?? NAVIGATION_HISTORY_LIMITS.defaultCapacity);
         this.isLocationCurrent = options.isLocationCurrent ?? (() => true);
-        this.telemetry = options.telemetry;
     }
 
     push(value: NavigationLocationInput): NavigationHistoryPushResult;
     push(value: unknown): NavigationHistoryPushResult {
         const location = parseNavigationLocation(value);
-        if (!location) {
-            this.emit("invalid", 0);
-            return "invalid";
-        }
-        if (!this.isCurrent(location)) {
-            this.emit("stale", 0);
-            return "stale";
-        }
-        if (this.current && sameLocation(this.current, location)) {
-            this.emit("duplicate", 0);
-            return "duplicate";
-        }
+        if (!location) return "invalid";
+        if (!this.isCurrent(location)) return "stale";
+        if (this.current && sameLocation(this.current, location)) return "duplicate";
 
-        let stalePruned = 0;
-        if (this.current) {
-            if (this.isCurrent(this.current)) this.backwardStack.push(this.current);
-            else stalePruned += 1;
-        }
+        if (this.current && this.isCurrent(this.current)) this.backwardStack.push(this.current);
         this.current = location;
         this.forwardStack.length = 0;
         while (this.size > this.capacity) this.backwardStack.shift();
-        this.emit("push", stalePruned);
         return "pushed";
     }
 
     back(): NavigationLocation | null {
-        return this.navigate(this.backwardStack, this.forwardStack, "back");
+        return this.navigate(this.backwardStack, this.forwardStack);
     }
 
     forward(): NavigationLocation | null {
-        return this.navigate(this.forwardStack, this.backwardStack, "forward");
-    }
-
-    reset(): void {
-        this.backwardStack.length = 0;
-        this.forwardStack.length = 0;
-        this.current = null;
-        this.emit("reset", 0);
+        return this.navigate(this.forwardStack, this.backwardStack);
     }
 
     getSnapshot(): NavigationHistorySnapshot {
@@ -220,24 +184,15 @@ export class NavigationHistory {
         return this.backwardStack.length + this.forwardStack.length + (this.current ? 1 : 0);
     }
 
-    private navigate(source: NavigationLocation[], destination: NavigationLocation[], event: "back" | "forward"): NavigationLocation | null {
+    private navigate(source: NavigationLocation[], destination: NavigationLocation[]): NavigationLocation | null {
         let target: NavigationLocation | undefined;
-        let stalePruned = 0;
         while ((target = source.pop())) {
             if (this.isCurrent(target)) break;
-            stalePruned += 1;
         }
-        if (!target) {
-            this.emit("miss", stalePruned);
-            return null;
-        }
+        if (!target) return null;
 
-        if (this.current) {
-            if (this.isCurrent(this.current)) destination.push(this.current);
-            else stalePruned += 1;
-        }
+        if (this.current && this.isCurrent(this.current)) destination.push(this.current);
         this.current = target;
-        this.emit(event, stalePruned);
         return target;
     }
 
@@ -246,23 +201,6 @@ export class NavigationHistory {
             return this.isLocationCurrent(location) === true;
         } catch {
             return false;
-        }
-    }
-
-    private emit(event: NavigationHistoryTelemetryEvent, stalePruned: number): void {
-        if (!this.telemetry) return;
-        try {
-            this.telemetry(
-                event,
-                Object.freeze({
-                    size: this.size,
-                    backwardDepth: this.backwardStack.length,
-                    forwardDepth: this.forwardStack.length,
-                    stalePruned,
-                }),
-            );
-        } catch {
-            // Optional observation cannot disrupt navigation.
         }
     }
 }

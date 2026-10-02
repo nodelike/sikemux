@@ -22,6 +22,10 @@ pub struct Options {
     /// Keeps `file://` and drive-letter links, which are dropped otherwise.
     #[serde(default)]
     pub file_links: bool,
+    /// Keeps the pictures in embedded `<img>` tags, which GitHub writes for an
+    /// uploaded image, while the rest of the markup is still dropped.
+    #[serde(default)]
+    pub html_images: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -195,6 +199,31 @@ struct Builder {
     footnotes: Vec<String>,
 }
 
+/// The value of `name="…"` or `name='…'` in one HTML tag.
+fn attribute(tag: &str, name: &str) -> Option<String> {
+    let lower = tag.to_ascii_lowercase();
+    let mut from = 0;
+    while let Some(at) = lower.get(from..)?.find(name) {
+        let start = from + at;
+        from = start + name.len();
+        let after_space = lower.get(..start)?.ends_with(char::is_whitespace);
+        let Some(rest) = tag.get(from..)?.trim_start().strip_prefix('=') else {
+            continue;
+        };
+        if !after_space {
+            continue;
+        }
+        let rest = rest.trim_start();
+        let quote = rest.chars().next().filter(|c| *c == '"' || *c == '\'')?;
+        let value = rest.get(1..)?;
+        return value
+            .find(quote)
+            .and_then(|close| value.get(..close))
+            .map(str::to_owned);
+    }
+    None
+}
+
 fn nonempty(text: &str) -> Option<String> {
     (!text.is_empty()).then(|| text.to_owned())
 }
@@ -313,6 +342,32 @@ impl Builder {
         url::sanitize(url, self.options.file_links)
     }
 
+    fn html_images(&self, html: &str) -> Vec<Element> {
+        let lower = html.to_ascii_lowercase();
+        let mut images = Vec::new();
+        let mut from = 0;
+        while let Some(at) = lower.get(from..).and_then(|rest| rest.find("<img")) {
+            let start = from + at;
+            let end = lower
+                .get(start..)
+                .and_then(|rest| rest.find('>'))
+                .map_or(html.len(), |close| start + close);
+            let tag = html.get(start..end).unwrap_or_default();
+            if let Some(src) = attribute(tag, "src")
+                .map(|src| self.url(&src))
+                .filter(|src| !src.is_empty())
+            {
+                images.push(Element::Img {
+                    src,
+                    alt: attribute(tag, "alt").unwrap_or_default(),
+                    title: attribute(tag, "title"),
+                });
+            }
+            from = end.max(start + 1);
+        }
+        images
+    }
+
     fn event(&mut self, event: Event) {
         match event {
             Event::Start(tag) => self.start(tag),
@@ -326,6 +381,10 @@ impl Builder {
             Event::InlineHtml(html) => {
                 if self.options.html_as_text {
                     self.push(Piece::Typed(html.into_string()));
+                } else if self.options.html_images {
+                    for image in self.html_images(&html) {
+                        self.push_element(image);
+                    }
                 }
             }
             Event::FootnoteReference(label) => {
@@ -470,7 +529,19 @@ impl Builder {
             }
             Kind::Html(html) => {
                 if !self.options.html_as_text {
-                    return;
+                    let images = if self.options.html_images {
+                        self.html_images(&html)
+                    } else {
+                        Vec::new()
+                    };
+                    if images.is_empty() {
+                        return;
+                    }
+                    self.open(Kind::Paragraph);
+                    for image in images {
+                        self.push_element(image);
+                    }
+                    return self.end(TagEnd::Paragraph);
                 }
                 self.open(Kind::Paragraph);
                 self.push(Piece::Typed(html.trim_end_matches(['\n', '\r']).to_owned()));

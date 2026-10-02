@@ -64,7 +64,7 @@ export function BrunoEnvPalette() {
         if (!collection) return;
         const idx = rows.findIndex((r) => r.id === selectedEnvId);
         setSel(idx > 0 ? idx : 0);
-        // eslint-disable-next-line react-hooks/exhaustive-deps
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- the cursor is placed when the collection loads, not on every selection change
     }, [collection]);
 
     useEffect(() => {

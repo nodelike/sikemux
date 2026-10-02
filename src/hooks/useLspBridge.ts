@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { documentLanguageIdFromPath, languageFromPath, lsp, type LspTextChange } from "../api/lsp";
-import { languageServersAllowed } from "../languageServerTrust";
+import { languageServersAllowed } from "../editor/languageServerTrust";
 import { dismissToast, errCategory, errMessage, notify, swallow } from "../state/toast";
 import { projectDiagnosticsRuntime, type ProjectDiagnosticsLease } from "../workbench/projectDiagnostics";
 

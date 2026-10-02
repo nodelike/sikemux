@@ -18,7 +18,7 @@ const mocks = vi.hoisted(() => ({
     languageServersAllowed: vi.fn(),
 }));
 
-vi.mock("../languageServerTrust", () => ({ languageServersAllowed: mocks.languageServersAllowed }));
+vi.mock("../editor/languageServerTrust", () => ({ languageServersAllowed: mocks.languageServersAllowed }));
 
 vi.mock("../api/lsp", async (importOriginal) => {
     const actual = await importOriginal<typeof import("../api/lsp")>();

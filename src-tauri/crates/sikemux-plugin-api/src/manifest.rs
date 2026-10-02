@@ -19,6 +19,10 @@ pub struct Manifest {
     pub call_timeout_secs: Option<u64>,
     #[serde(default)]
     pub tools: Vec<AgentTool>,
+    /// Variables the plugin reads from the person's shell. An app opened from
+    /// the Dock starts without them, so the host copies them in from the login shell.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub environment: Vec<String>,
 }
 
 /// A plugin method that agents may call as a tool. Only methods named here are
@@ -52,6 +56,16 @@ impl Manifest {
                     format!("callTimeoutSecs must be 1 to {MAX_CALL_TIMEOUT_SECS}, not {secs}"),
                 ));
             }
+        }
+        if let Some(name) = manifest
+            .environment
+            .iter()
+            .find(|name| !is_valid_variable(name))
+        {
+            return Err(PluginError::new(
+                "manifest",
+                format!("`{name}` is not an environment variable name"),
+            ));
         }
         for (index, tool) in manifest.tools.iter().enumerate() {
             if !is_valid_tool_name(&tool.name) {
@@ -105,6 +119,14 @@ pub fn is_valid_id(id: &str) -> bool {
     segments.len() >= 2 && segments.iter().all(|segment| is_valid_segment(segment))
 }
 
+fn is_valid_variable(name: &str) -> bool {
+    let mut bytes = name.bytes();
+    bytes
+        .next()
+        .is_some_and(|first| first.is_ascii_uppercase() || first == b'_')
+        && bytes.all(|byte| byte.is_ascii_uppercase() || byte.is_ascii_digit() || byte == b'_')
+}
+
 /// Lowercase words joined by underscores, which every agent host accepts in a tool name.
 fn is_valid_tool_name(name: &str) -> bool {
     let mut bytes = name.bytes();
@@ -145,6 +167,24 @@ mod tests {
         assert!(manifest.supports(&nightly));
         assert!(!manifest.supports(&older));
         Ok(())
+    }
+
+    #[test]
+    fn environment_names_must_be_variables() {
+        let with = |names: &str| {
+            Manifest::from_json(&format!(
+                r#"{{"id":"sikemux.github","name":"GitHub","version":"1.0.0","sikemux":">=0.4","environment":{names}}}"#
+            ))
+        };
+        assert!(with(r#"["GH_TOKEN","_X1"]"#).is_ok());
+        for bad in [
+            r#"[""]"#,
+            r#"["gh_token"]"#,
+            r#"["1TOKEN"]"#,
+            r#"["GH-TOKEN"]"#,
+        ] {
+            assert!(with(bad).is_err(), "{bad} should be turned down");
+        }
     }
 
     #[test]

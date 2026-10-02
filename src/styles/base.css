@@ -224,7 +224,6 @@ html.is-transparent .stage,
 html.is-transparent .window-layer,
 html.is-transparent .tabbar,
 html.is-transparent .browser-toolbar,
-html.is-transparent .acc-header,
 html.is-transparent .env-dd-btn {
     background: transparent;
 }
@@ -257,6 +256,8 @@ html.is-transparent
         .custom-command-list,
         .cli-paths,
         .cli-usage,
+        .pairing-code,
+        .pairing-request,
         .provider-profile-layout,
         .provider-profile-editor,
         .theme-editor,

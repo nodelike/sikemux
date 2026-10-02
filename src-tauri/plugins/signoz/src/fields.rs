@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::client;
-use crate::error::SignozResult;
+use crate::error::{SignozError, SignozResult};
 
 const SUGGESTIONS: u32 = 50;
 
@@ -108,6 +108,11 @@ fn parse_keys(answer: &Value) -> Vec<FieldKey> {
 }
 
 pub async fn values(data_dir: &Path, request: ValueQuery) -> SignozResult<Vec<String>> {
+    if request.name.trim().is_empty() {
+        return Err(SignozError::BadArg(
+            "name the attribute to list values of".into(),
+        ));
+    }
     let limit = SUGGESTIONS.to_string();
     let query = query_string(&[
         ("signal", request.signal.name()),

@@ -14,7 +14,6 @@
 use crate::bounded_process::run as run_bounded;
 use crate::error::{AppError, AppResult};
 use std::collections::HashMap;
-use std::process::Command;
 use std::time::Duration;
 
 const BACKGROUND_TIMEOUT: Duration = Duration::from_secs(120);
@@ -40,12 +39,12 @@ pub async fn run_background_command(
     }
     let output = tauri::async_runtime::spawn_blocking(move || {
         let mut process = if cfg!(windows) {
-            let mut child = Command::new("powershell.exe");
+            let mut child = sikemux_process::user_environment::command("powershell.exe");
             child.args(["-NoLogo", "-NonInteractive", "-Command", &command]);
             child
         } else {
             let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".into());
-            let mut child = Command::new(shell);
+            let mut child = sikemux_process::user_environment::command(shell);
             child.args(["-lc", &command]);
             child
         };
@@ -103,14 +102,16 @@ pub async fn open_url(url: String, app: Option<String>, shortcut: Option<String>
         {
             if let Some(app_name) = app.as_deref() {
                 run_focus(app_name, shortcut.as_deref());
-                Command::new("open")
+                sikemux_process::user_environment::command("open")
                     .arg("-a")
                     .arg(app_name)
                     .arg(&url)
                     .status()?;
                 return Ok(());
             }
-            Command::new("open").arg(&url).status()?;
+            sikemux_process::user_environment::command("open")
+                .arg(&url)
+                .status()?;
         }
         #[cfg(not(target_os = "macos"))]
         {
@@ -145,7 +146,10 @@ pub async fn macos_focus_app(app: String, shortcut: Option<String>) -> AppResult
 #[cfg(target_os = "macos")]
 fn run_focus(app_name: &str, shortcut: Option<&str>) {
     let script = build_activate_and_switch(app_name, shortcut);
-    let _ = Command::new("osascript").arg("-e").arg(&script).status();
+    let _ = sikemux_process::user_environment::command("osascript")
+        .arg("-e")
+        .arg(&script)
+        .status();
 }
 
 #[cfg(target_os = "macos")]

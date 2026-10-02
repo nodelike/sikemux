@@ -256,7 +256,7 @@ function useResourceHandle<Args extends unknown[], T>(
         if (stale) {
             void trigger(def, key, args).catch(() => {});
         }
-        // eslint-disable-next-line react-hooks/exhaustive-deps
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- the key stands in for the definition and its arguments
     }, [enabled, key]);
 
     const subscribe = useCallback(

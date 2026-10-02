@@ -60,8 +60,7 @@ pub struct LoginResult {
 }
 
 fn short_hostname() -> String {
-    use std::process::Command;
-    Command::new("hostname")
+    sikemux_process::user_environment::command("hostname")
         .arg("-s")
         .output()
         .ok()

@@ -1,0 +1,114 @@
+.git-log-bar {
+    flex: 0 0 auto;
+    background: var(--surface);
+    border-top: 1px solid var(--border);
+    color: var(--text-secondary);
+    font-family: var(--mono);
+}
+.git-log-bar.collapsed {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 5px 12px;
+    border: none;
+    border-top: 1px solid var(--border);
+    cursor: pointer;
+    color: var(--text-tertiary);
+    font-size: var(--text-2xs);
+    text-align: left;
+    width: 100%;
+}
+.git-log-bar.collapsed:hover {
+    color: var(--text-secondary);
+}
+.git-log-bar-summary {
+    flex: 1 1 auto;
+}
+.git-log-bar.open {
+    display: flex;
+    flex-direction: column;
+    max-height: 220px;
+}
+.git-log-bar-head {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 6px 12px;
+    border-bottom: 1px solid var(--border);
+    font-size: var(--text-2xs);
+}
+.git-log-bar-title {
+    color: var(--text-primary);
+    font-weight: 600;
+    letter-spacing: 0.02em;
+}
+.git-log-bar-count {
+    color: var(--text-tertiary);
+    font-size: 10.5px;
+}
+.git-log-bar-btn {
+    margin-left: auto;
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text-secondary);
+    font-family: var(--mono);
+    font-size: 10.5px;
+    padding: 2px 8px;
+    cursor: pointer;
+}
+.git-log-bar-btn + .git-log-bar-btn {
+    margin-left: 4px;
+}
+.git-log-bar-btn:hover:not(:disabled) {
+    color: var(--text-primary);
+    border-color: var(--border-selected);
+}
+.git-log-bar-rows {
+    flex: 1 1 auto;
+    overflow-y: auto;
+    padding: 4px 0;
+}
+.git-log-bar-empty {
+    padding: 14px 16px;
+    color: var(--text-tertiary);
+    font-style: italic;
+    font-size: 11.5px;
+}
+.git-log-row {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    padding: 3px 12px;
+    font-size: 11.5px;
+    color: var(--text-secondary);
+}
+.git-log-row.status-ok .git-log-row-glyph {
+    color: var(--live);
+}
+.git-log-row.status-error .git-log-row-glyph {
+    color: var(--danger);
+}
+.git-log-row.status-running .git-log-row-glyph {
+    color: var(--warn);
+}
+.git-log-row-time {
+    color: var(--text-tertiary);
+    font-size: 10px;
+    flex-shrink: 0;
+    width: 60px;
+}
+.git-log-row-glyph {
+    width: 12px;
+    flex-shrink: 0;
+}
+.git-log-row-label {
+    color: var(--text-primary);
+    flex-shrink: 0;
+}
+.git-log-row-detail {
+    color: var(--text-tertiary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    flex: 1 1 auto;
+}

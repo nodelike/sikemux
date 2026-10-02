@@ -122,6 +122,10 @@ export function swallow(label: string): (err: unknown) => void {
     };
 }
 
+export function swallowedErrors(): typeof swallowed {
+    return swallowed.slice();
+}
+
 if (typeof window !== "undefined") {
-    (window as unknown as { __swallowed?: () => typeof swallowed }).__swallowed = () => swallowed.slice();
+    (window as unknown as { __swallowed?: typeof swallowedErrors }).__swallowed = swallowedErrors;
 }

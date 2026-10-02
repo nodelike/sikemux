@@ -1,0 +1,1386 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Sikemux for iPhone · screens</title>
+<style>
+  @font-face { font-family: "Figtree"; src: url("../../public/fonts/Figtree-latin-wght-normal.woff2") format("woff2"); font-weight: 300 900; }
+  @font-face { font-family: "JetBrains Mono"; src: url("../../public/fonts/JetBrainsMonoNerdFontMono-Regular-Base.woff2") format("woff2"); font-weight: 400; }
+  @font-face { font-family: "JetBrains Mono"; src: url("../../public/fonts/JetBrainsMonoNerdFontMono-Bold-Base.woff2") format("woff2"); font-weight: 700; }
+
+  :root {
+    /* Aura Noir, the Mac app's default theme */
+    --bg: #0f0f13;
+    --bg-dim: #09090b;
+    --rail-2: #19191e;
+    --ink: #e7e5ef;
+    --ink-dim: #8b8898;
+    --ink-faint: #736f80;
+    --acc: #a277ff;
+    --acc-soft: rgba(162, 119, 255, 0.10);
+    --line: #24242b;
+    --danger: #ff6767;
+    --live: #61ffca;
+    --warn: #ffca85;
+    --cmd: #ff6ac1;
+    --git-modified: #e2c08d;
+    --git-added: #81b88b;
+    --git-deleted: #d75f47;
+    --git-renamed: #6c8cd5;
+    --brand-claude: #d97757;
+    --brand-codex: #7a9dff;
+    --brand-hermes: #e0a050;
+    --brand-opencode: #a78bfa;
+
+    --gray-100: color-mix(in oklab, var(--ink) 4%, var(--bg));
+    --gray-200: color-mix(in oklab, var(--ink) 7%, var(--bg));
+    --gray-300: color-mix(in oklab, var(--ink) 11%, var(--bg));
+    --gray-500: color-mix(in oklab, var(--ink) 22%, var(--bg));
+    --gray-700: color-mix(in oklab, var(--ink) 42%, var(--bg));
+
+    --surface-sunken: var(--bg-dim);
+    --surface: var(--bg);
+    --surface-raised: var(--gray-100);
+    --surface-overlay: var(--gray-200);
+    --surface-hover: color-mix(in oklab, var(--ink) 6%, transparent);
+    --surface-active: color-mix(in oklab, var(--ink) 10%, transparent);
+    --surface-selected: color-mix(in oklab, var(--acc) 14%, transparent);
+    --border: var(--gray-300);
+    --border-strong: var(--gray-500);
+    --border-selected: color-mix(in oklab, var(--acc) 42%, transparent);
+    --text-primary: var(--ink);
+    --text-secondary: color-mix(in oklab, var(--ink) 76%, var(--bg));
+    --text-tertiary: color-mix(in oklab, var(--ink) 55%, var(--bg));
+    --tree-spine: color-mix(in oklab, var(--acc) 52%, var(--line));
+    --tree-tick: color-mix(in oklab, var(--acc) 72%, transparent);
+
+    --ui: "Figtree", -apple-system, system-ui, sans-serif;
+    --mono: "JetBrains Mono", ui-monospace, Menlo, monospace;
+    --kbd: -apple-system, system-ui, sans-serif;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: #050507; color: var(--text-secondary); font-family: var(--ui); -webkit-font-smoothing: antialiased; padding: 56px 48px 140px; }
+  .ico { display: block; flex: none; }
+
+  /* ---------- the page around the phones ---------- */
+  .page-head { max-width: 860px; margin-bottom: 40px; }
+  .page-head h1 { font-size: 28px; font-weight: 600; letter-spacing: -0.028em; color: var(--text-primary); display: flex; align-items: center; gap: 12px; }
+  .page-head h1 .ico { color: var(--text-primary); }
+  .page-head p { margin-top: 10px; font-size: 15px; line-height: 1.55; }
+  .page-head code, .note code { font-family: var(--mono); font-size: 0.9em; color: var(--text-primary); }
+  .flow { margin-top: 72px; }
+  .flow > h2 { font-size: 11px; font-weight: 500; letter-spacing: 0.2em; text-transform: uppercase; color: var(--text-tertiary); margin-bottom: 6px; display: flex; align-items: center; gap: 12px; max-width: 860px; }
+  .flow > h2::after { content: ""; flex: 1; height: 1px; background: var(--border); }
+  .flow > p { font-size: 14px; max-width: 760px; line-height: 1.55; margin-bottom: 26px; }
+  .phones { display: flex; gap: 44px; flex-wrap: wrap; align-items: flex-start; }
+  figure { width: 390px; }
+  figcaption { margin-top: 16px; }
+  figcaption > b { display: block; color: var(--text-primary); font-weight: 600; font-size: 14px; }
+  .note { font-size: 13px; line-height: 1.55; margin-top: 4px; }
+
+  /* ---------- device ---------- */
+  .phone { position: relative; width: 390px; height: 844px; border-radius: 54px; background: var(--surface); box-shadow: 0 0 0 10px #18181d, 0 0 0 11px #2c2c33, 0 40px 80px -30px rgba(0,0,0,.9); overflow: hidden; display: flex; flex-direction: column; font-size: 15px; }
+  .island { position: absolute; z-index: 5; top: 11px; left: 50%; translate: -50% 0; width: 124px; height: 36px; border-radius: 20px; background: #000; }
+  .status { height: 54px; flex: none; display: flex; align-items: center; justify-content: space-between; padding: 6px 30px 0 36px; font-family: var(--kbd); font-size: 16px; font-weight: 600; color: var(--text-primary); }
+  .status .bars { display: flex; gap: 6px; align-items: center; }
+  .status .bars i { display: block; width: 17px; height: 11px; border-radius: 3px; background: currentColor; }
+  .status .bars i:last-child { width: 25px; height: 12px; border-radius: 4px; }
+  .home-bar { position: absolute; z-index: 5; bottom: 8px; left: 50%; translate: -50% 0; width: 134px; height: 5px; border-radius: 3px; background: var(--text-primary); }
+  .screen { flex: 1; min-height: 0; display: flex; flex-direction: column; position: relative; }
+  .pad { padding: 0 16px; }
+  .grow { flex: 1; min-height: 0; overflow: hidden; }
+
+  /* grain, the phone's version of the Mac's dithered backdrop */
+  .grain { position: absolute; inset: 0; pointer-events: none;
+    background-image: radial-gradient(circle at 1px 1px, color-mix(in oklab, var(--ink) 9%, transparent) 0.8px, transparent 1.2px);
+    background-size: 4px 4px;
+    mask-image: radial-gradient(420px 360px at 50% 26%, #000 0%, transparent 72%);
+    -webkit-mask-image: radial-gradient(420px 360px at 50% 26%, #000 0%, transparent 72%); }
+
+  /* ---------- navigation ---------- */
+  .nav { height: 46px; flex: none; display: flex; align-items: center; gap: 8px; padding: 0 8px 0 6px; }
+  .nav .back { display: flex; align-items: center; gap: 2px; height: 44px; padding: 0 8px 0 4px; color: var(--text-secondary); font-size: 16px; }
+  .nav .back .ico { transform: rotate(180deg); }
+  .nav .mid { flex: 1; min-width: 0; display: flex; align-items: center; justify-content: center; gap: 8px; color: var(--text-primary); font-weight: 600; font-size: 16px; letter-spacing: -0.015em; }
+  .nav .mid span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .nav .end { width: 76px; display: flex; justify-content: flex-end; }
+  .icon-btn { width: 40px; height: 40px; border-radius: 999px; display: grid; place-items: center; color: var(--text-tertiary); }
+
+  .title-block { padding: 2px 16px 14px; }
+  .title-block h1 { font-size: 26px; font-weight: 600; letter-spacing: -0.028em; color: var(--text-primary); }
+  .title-block p { margin-top: 3px; font-size: 13px; color: var(--text-tertiary); display: flex; align-items: center; gap: 6px; }
+
+  /* section labels with the hairline, from the agent rail */
+  .label { display: flex; align-items: center; gap: 10px; padding: 18px 4px 8px; font-size: 11px; font-weight: 500; letter-spacing: 0.2em; text-transform: uppercase; color: var(--text-tertiary); }
+  .label::after { content: ""; flex: 1; height: 1px; background: var(--border); }
+  .label .pill { order: 2; letter-spacing: 0; text-transform: none; font-size: 11px; color: var(--ink); background: var(--surface-active); border-radius: 999px; padding: 1px 8px; }
+
+  /* the agent rail's provider tiles */
+  .tiles { display: flex; gap: 4px; padding: 0 16px; }
+  .tile { width: 46px; height: 38px; border-radius: 8px; display: grid; place-items: center; color: var(--text-tertiary); border: 1px solid transparent; }
+  .tile.inbox { margin-right: 8px; }
+  .tile.on { background: var(--surface-selected); border-color: var(--border-selected); color: var(--acc); }
+
+  /* This project / All projects, the rail's scope track */
+  .track { margin: 0 16px; height: 36px; padding: 3px; border-radius: 10px; box-shadow: inset 0 0 0 1px var(--border); display: grid; grid-template-columns: 1fr 1fr; }
+  .track span { display: flex; align-items: center; justify-content: center; border-radius: 7px; font-size: 13px; color: var(--text-tertiary); gap: 7px; }
+  .track span.on { background: var(--surface-active); color: var(--text-primary); }
+  .track .count { font-size: 11px; color: var(--bg); background: var(--ink); font-weight: 600; border-radius: 999px; padding: 0 6px; line-height: 16px; }
+
+  /* rows: the rail's grammar at a thumb's height */
+  .rows { display: flex; flex-direction: column; gap: 2px; }
+  .row { display: flex; align-items: center; gap: 12px; min-height: 48px; padding: 6px 10px; border-radius: 9px; color: var(--text-secondary); border: 1px solid transparent; }
+  .row .mark { width: 24px; height: 24px; flex: none; display: grid; place-items: center; }
+  .row .body { flex: 1; min-width: 0; }
+  .row .t { font-size: 15.5px; font-weight: 500; letter-spacing: -0.01em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .row .s { margin-top: 1px; font-size: 12.5px; color: var(--text-tertiary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .row .s .m, .m { font-family: var(--mono); font-size: 11.5px; }
+  .row .ago { font-size: 12px; color: var(--text-tertiary); font-variant-numeric: tabular-nums; }
+  .row.on { background: var(--surface-selected); border-color: var(--border-selected); color: var(--text-primary); }
+  .row.new { color: var(--text-secondary); min-height: 44px; }
+  .row.boxed { border-color: var(--border); background: var(--surface-raised); }
+  .row .chev { color: var(--gray-700); }
+
+  .claude { color: var(--brand-claude); }
+  .codex { color: var(--brand-codex); }
+  .hermes { color: var(--brand-hermes); }
+  .opencode { color: var(--brand-opencode); }
+
+  /* state indicators from AgentStateIndicator */
+  .loader { width: 13px; height: 13px; display: grid; grid-template-columns: repeat(3, 3px); gap: 2px; }
+  .loader i { width: 3px; height: 3px; border-radius: .6px; background: var(--live); animation: twinkle 1.2s ease-in-out infinite; }
+  .loader i:nth-child(2) { animation-duration: 1.58s; animation-delay: -.3s; } .loader i:nth-child(3) { animation-duration: .9s; animation-delay: -.6s; }
+  .loader i:nth-child(4) { animation-duration: 1.4s; animation-delay: -.2s; } .loader i:nth-child(5) { animation-duration: 1.05s; animation-delay: -.8s; }
+  .loader i:nth-child(6) { animation-duration: 1.3s; animation-delay: -.5s; } .loader i:nth-child(7) { animation-duration: .95s; animation-delay: -.1s; }
+  .loader i:nth-child(8) { animation-duration: 1.5s; animation-delay: -.7s; } .loader i:nth-child(9) { animation-duration: 1.15s; animation-delay: -.4s; }
+  @keyframes twinkle { 0%, 100% { opacity: .2; } 50% { opacity: 1; } }
+  .dot { width: 8px; height: 8px; border-radius: 999px; position: relative; flex: none; }
+  .dot.warn { background: var(--ink); }
+  .dot.warn::after { content: ""; position: absolute; inset: -4px; border-radius: 999px; border: 1.5px solid var(--ink); animation: ping 2s ease-out infinite; }
+  @keyframes ping { 0% { transform: scale(.6); opacity: .9; } 100% { transform: scale(1.8); opacity: 0; } }
+  .dot.acc { background: var(--acc); }
+  .dot.live { background: var(--live); }
+  .dot.idle { background: var(--gray-700); }
+  .dot.off { border: 1.5px solid var(--gray-700); }
+  .status-slot { width: 20px; display: grid; place-items: center; flex: none; }
+
+  /* ---------- buttons ---------- */
+  .btn { display: flex; align-items: center; justify-content: center; gap: 8px; height: 50px; border-radius: 12px; font-size: 16px; font-weight: 600; border: 1px solid var(--border); background: var(--surface-raised); color: var(--text-primary); }
+  .btn.primary { background: var(--ink); border-color: var(--ink); color: var(--bg); }
+  .btn.danger { color: var(--danger); }
+  .footer { flex: none; padding: 12px 16px 34px; display: flex; flex-direction: column; gap: 8px; }
+
+  /* ---------- chat pane ---------- */
+  .chat { flex: 1; min-height: 0; overflow: hidden; padding: 6px 18px 0; display: flex; flex-direction: column; justify-content: flex-end; }
+  .chat > * { flex: none; }
+  .msg-user { align-self: flex-end; max-width: 84%; margin: 12px 0 8px; padding: 9px 13px; border-radius: 12px; border: 1px solid color-mix(in oklab, var(--line) 80%, transparent); background: color-mix(in oklab, var(--rail-2) 72%, transparent); color: var(--ink); font-size: 15px; line-height: 1.6; }
+  code.chip { font-family: var(--mono); font-size: .86em; padding: 1px 5px; border-radius: 5px; background: var(--acc-soft); color: color-mix(in oklab, var(--acc) 74%, var(--ink)); }
+  .prose { color: var(--ink); font-size: 15.5px; line-height: 1.62; margin: 6px 0 8px; }
+  .thought { color: var(--ink-faint); font-size: 13.5px; line-height: 1.6; font-style: italic; margin: 8px 0; }
+
+  .tools { font-family: var(--mono); font-size: 12px; margin: 6px 0; }
+  .tools-sum { display: inline-flex; align-items: center; gap: 8px; height: 26px; color: var(--ink-dim); font-family: var(--ui); font-size: 13px; }
+  .tools-sum .time { font-family: var(--mono); font-size: 11.5px; font-variant-numeric: tabular-nums; }
+  .tools-sum .ico { opacity: .7; }
+  .tools-sum.open .ico { transform: rotate(90deg); }
+  .tools-body { margin-left: 6px; padding: 2px 0; }
+  .tool { position: relative; display: grid; grid-template-columns: 10px 14px auto minmax(0, 1fr) auto; align-items: center; gap: 8px; min-height: 26px; }
+  .tool::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 1px; background: var(--tree-spine); }
+  .tool:last-child::before { bottom: 50%; }
+  .tool .tick { height: 1px; background: var(--tree-tick); }
+  .tool:last-child .tick { height: 9px; align-self: start; margin-top: 4px; border-left: 1px solid var(--tree-spine); border-bottom: 1px solid var(--tree-tick); border-bottom-left-radius: 4px; background: none; margin-left: 0; }
+  .tool:last-child::before { display: none; }
+  .tool .kind { font-weight: 400; }
+  .tool .target { color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .tool .end { font-size: 11px; color: var(--ink-dim); display: flex; gap: 6px; font-variant-numeric: tabular-nums; }
+  .k-run { color: color-mix(in oklab, var(--cmd) 70%, var(--ink-dim)); }
+  .k-read { color: color-mix(in oklab, var(--git-renamed) 76%, var(--ink-dim)); }
+  .k-edit { color: color-mix(in oklab, var(--git-modified) 76%, var(--ink-dim)); }
+  .add { color: var(--git-added); } .del { color: var(--git-deleted); }
+  .tool.running .target { color: transparent; background: linear-gradient(90deg, var(--ink-faint) 0%, var(--ink) 45%, var(--ink-faint) 90%) 0 0 / 200% 100%; -webkit-background-clip: text; background-clip: text; animation: shimmer 2.2s linear infinite; }
+  .tool.running .ico { animation: breathe 1.5s ease-in-out infinite; }
+
+  .activity { display: flex; align-items: center; gap: 9px; margin: 14px 0 6px; font-size: 13px; color: var(--ink-faint); }
+  .activity .glyph { animation: breathe 1.5s ease-in-out infinite; }
+  .activity .lbl { color: transparent; background: linear-gradient(90deg, var(--ink-faint) 0%, var(--ink) 45%, var(--ink-faint) 90%) 0 0 / 200% 100%; -webkit-background-clip: text; background-clip: text; animation: shimmer 2.2s linear infinite; }
+  .activity .el { font-family: var(--mono); font-size: 10.5px; color: color-mix(in oklab, var(--ink-faint) 68%, transparent); }
+  @keyframes shimmer { from { background-position: 200% 0; } to { background-position: 0 0; } }
+  @keyframes breathe { 0%, 100% { opacity: 1; } 50% { opacity: .5; } }
+
+  .permission { margin: 10px 0 6px; padding: 14px; border-radius: 14px; border: 1px solid var(--border-strong); background: var(--surface-overlay); box-shadow: 0 12px 30px -18px rgba(0,0,0,.8); }
+  .permission .copy { display: flex; gap: 10px; color: var(--ink); }
+  .permission strong { display: block; color: var(--ink); font-size: 14px; font-weight: 600; }
+  .permission span { display: block; color: var(--ink-dim); font-size: 12.5px; margin-top: 2px; }
+  .permission .cmd { margin-top: 10px; font-family: var(--mono); font-size: 12px; line-height: 1.5; color: var(--ink); background: color-mix(in oklab, var(--bg-dim) 70%, transparent); border: 1px solid var(--line); border-radius: 7px; padding: 8px 10px; }
+  .permission .cmd b { color: color-mix(in oklab, var(--cmd) 70%, var(--ink-dim)); font-weight: 400; }
+  .permission .acts { display: flex; gap: 6px; margin-top: 12px; }
+  .permission .acts span { flex: 1; height: 38px; margin: 0; display: grid; place-items: center; border-radius: 8px; border: 1px solid var(--line); background: var(--rail-2); font-size: 13.5px; color: var(--ink-dim); }
+  .permission .acts span.allow { border-color: var(--border-strong); color: var(--ink); }
+  .permission .acts span.go { background: var(--ink); border-color: var(--ink); color: var(--bg); font-weight: 600; }
+
+  /* ---------- composer ---------- */
+  .composer-wrap { flex: none; padding: 8px 10px 30px; }
+  .composer { padding: 6px; border-radius: 16px; border: 1px solid var(--border); background: color-mix(in oklab, var(--surface-raised) 55%, var(--surface-sunken)); }
+  .composer.focus { border-color: var(--border-selected); }
+  .composer .ta { padding: 9px 10px 4px; min-height: 44px; font-size: 16px; line-height: 1.5; color: var(--ink); }
+  .composer .ta.ph { color: var(--ink-faint); }
+  .caret { display: inline-block; width: 2px; height: 19px; background: var(--acc); vertical-align: -4px; margin-left: 1px; animation: blink 1s steps(1) infinite; }
+  @keyframes blink { 50% { opacity: 0; } }
+  .bar { display: flex; align-items: center; gap: 2px; padding: 6px 0 0; }
+  .bar .ib { width: 34px; height: 34px; border-radius: 999px; display: grid; place-items: center; color: var(--ink-dim); flex: none; }
+  .yolo { display: inline-flex; align-items: center; gap: 4px; padding: 0 6px; height: 34px; font-size: 11px; font-weight: 560; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-faint); }
+  .yolo.on .ico { color: var(--acc); }
+  .yolo.on b { font-weight: 560; color: transparent; background: linear-gradient(90deg, var(--acc), var(--cmd), var(--danger), var(--warn), var(--live)); -webkit-background-clip: text; background-clip: text; }
+  .picker { display: inline-flex; align-items: center; gap: 6px; height: 34px; padding: 0 7px; border-radius: 7px; font-size: 12.5px; color: var(--ink-dim); white-space: nowrap; }
+  .picker.model { color: var(--acc); }
+  .picker .ch .ico { transform: rotate(90deg); opacity: .6; }
+  .ring { width: 34px; height: 34px; display: grid; place-items: center; flex: none; }
+  .spacer { flex: 1; }
+  .send { width: 34px; height: 34px; border-radius: 999px; background: var(--ink); color: var(--bg); display: grid; place-items: center; flex: none; }
+  .send.off { opacity: .28; }
+  .send i { width: 10px; height: 10px; border-radius: 2px; background: currentColor; display: block; }
+  .composer-wrap.jumps { position: relative; }
+  .jump { position: absolute; left: 50%; bottom: calc(100% + 8px); transform: translateX(-50%); width: 34px; height: 34px; border-radius: 999px; display: grid; place-items: center; border: 1px solid var(--border); background: color-mix(in oklab, var(--surface-raised) 55%, var(--surface-sunken)); color: var(--ink-dim); box-shadow: 0 6px 18px rgba(0,0,0,.52); }
+
+  /* ---------- sheet ---------- */
+  .scrim { position: absolute; inset: 0; background: color-mix(in oklab, var(--surface-sunken) 62%, transparent); }
+  .sheet { position: absolute; left: 0; right: 0; bottom: 0; background: var(--surface-overlay); border-top: 1px solid var(--border); border-radius: 22px 22px 0 0; padding: 8px 12px 34px; box-shadow: 0 -24px 60px -10px rgba(0,0,0,.7); }
+  .grabber { width: 36px; height: 5px; border-radius: 3px; background: var(--gray-500); margin: 0 auto 10px; }
+  .sheet h3 { padding: 4px 8px 10px; color: var(--text-primary); font-size: 16px; font-weight: 600; letter-spacing: -0.015em; }
+  .menu-item { display: flex; align-items: center; gap: 12px; height: 48px; padding: 0 10px; border-radius: 9px; color: var(--text-secondary); font-size: 15px; border: 1px solid transparent; }
+  .menu-item .sub { margin-left: auto; font-size: 12.5px; color: var(--text-tertiary); }
+  .menu-item.on { background: var(--surface-selected); border-color: var(--border-selected); color: var(--text-primary); }
+  .menu-item .check { color: var(--acc); }
+
+  /* ---------- pairing ---------- */
+  .stack { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 0 30px; gap: 10px; position: relative; }
+  .stack h2 { color: var(--text-primary); font-size: 23px; font-weight: 600; letter-spacing: -0.028em; line-height: 1.2; }
+  .stack p { font-size: 15px; line-height: 1.5; }
+  .mono-meta { font-family: var(--mono); font-size: 11.5px; color: var(--text-tertiary); }
+  .digits { display: flex; gap: 8px; margin-top: 18px; }
+  .digits span { width: 46px; height: 58px; border-radius: 10px; border: 1px solid var(--border); background: var(--surface-sunken); display: grid; place-items: center; font-family: var(--mono); font-size: 26px; color: var(--text-primary); }
+  .digits span.cur { border-color: var(--border-selected); box-shadow: 0 0 0 3px color-mix(in oklab, var(--acc) 20%, transparent); }
+  .digits .gap { width: 6px; border: 0; background: none; }
+
+
+
+
+  /* permission, docked */
+  .dock { flex: none; background: var(--surface-overlay); border-top: 1px solid var(--border-strong); border-radius: 22px 22px 0 0; padding: 8px 16px 34px; box-shadow: 0 -18px 40px -16px rgba(0,0,0,.85); }
+  .dock .grabber { margin-bottom: 14px; }
+  .dock-head { display: flex; gap: 12px; align-items: flex-start; color: var(--ink); }
+  .dock-head .ico { margin-top: 2px; }
+  .dock-head b { display: block; font-size: 17px; font-weight: 600; letter-spacing: -0.02em; }
+  .dock-head span { display: block; margin-top: 2px; font-size: 13.5px; color: var(--text-tertiary); }
+  .dock-cmd { margin-top: 14px; font-family: var(--mono); font-size: 13px; line-height: 1.5; color: var(--ink); background: var(--surface-sunken); border: 1px solid var(--border); border-radius: 10px; padding: 11px 12px; }
+  .dock-cmd b { font-weight: 400; color: color-mix(in oklab, var(--cmd) 70%, var(--ink-dim)); margin-right: 4px; }
+  .dock-where { display: flex; align-items: center; gap: 6px; margin-top: 8px; padding: 0 2px; font-size: 12px; color: var(--text-tertiary); }
+  .dock-acts { margin-top: 16px; display: flex; flex-direction: column; gap: 8px; }
+  .dock-acts span { height: 48px; border-radius: 12px; display: grid; place-items: center; font-size: 15.5px; font-weight: 600; border: 1px solid var(--border-strong); color: var(--ink); }
+  .dock-acts .go { background: var(--ink); border-color: var(--ink); color: var(--bg); }
+  .dock-acts .pair { display: flex; gap: 8px; }
+  .dock-acts .pair span { flex: 1; font-weight: 500; }
+  .dock-acts .pair span:last-child { color: var(--text-secondary); }
+  .tucked { display: flex; align-items: center; gap: 10px; margin: 0 24px -1px; padding: 9px 12px 10px; border: 1px solid var(--border-strong); border-bottom: 0; border-radius: 14px 14px 0 0; background: var(--surface-overlay); font-size: 13px; color: var(--text-tertiary); }
+  .tucked .ico { color: var(--ink); }
+  .tucked > span:nth-child(2) { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-family: var(--mono); font-size: 12px; }
+  .tucked b { font-family: var(--ui); font-size: 13.5px; font-weight: 600; color: var(--ink); margin-right: 6px; }
+  .tucked .open { font-weight: 600; color: var(--ink); }
+
+  .docked { margin: 0 10px -1px; padding: 12px 12px 12px; border: 1px solid var(--border-strong); border-bottom: 0; border-radius: 16px 16px 0 0; background: var(--surface-overlay); }
+  .docked-head { display: flex; gap: 10px; align-items: flex-start; color: var(--ink); }
+  .docked-head .ico { margin-top: 2px; }
+  .docked-head > div { flex: 1; min-width: 0; }
+  .docked-head b { display: block; font-size: 15px; font-weight: 600; letter-spacing: -0.015em; }
+  .docked-head span { display: block; margin-top: 1px; font-size: 12.5px; color: var(--text-tertiary); }
+  .docked-head .hide { color: var(--text-tertiary); transform: rotate(90deg); margin-top: 4px; }
+  .docked .dock-cmd { margin-top: 10px; font-size: 12.5px; padding: 9px 11px; }
+  .docked-acts { display: flex; gap: 6px; margin-top: 10px; }
+  .docked-acts span { flex: 1; height: 38px; border-radius: 10px; display: grid; place-items: center; font-size: 14px; font-weight: 500; border: 1px solid var(--border-strong); color: var(--ink); }
+  .docked-acts span:first-child { color: var(--text-secondary); }
+  .docked-acts .go { background: var(--ink); border-color: var(--ink); color: var(--bg); font-weight: 600; }
+
+  /* model and effort sheet */
+  .picker-sheet { padding: 8px 16px 46px; }
+  .ps-head { display: flex; align-items: center; gap: 10px; padding: 2px 4px 4px; }
+  .ps-head b { font-size: 17px; font-weight: 600; letter-spacing: -0.02em; color: var(--text-primary); }
+  .ps-plan { margin-left: auto; font-family: var(--mono); font-size: 11px; color: var(--text-tertiary); border: 1px solid var(--border); border-radius: 5px; padding: 1px 6px; }
+  .ps-label { padding: 18px 6px 8px; font-size: 13px; font-weight: 600; color: var(--text-tertiary); }
+  .picker-sheet .group { background: var(--surface-raised); }
+  .picker-sheet .group .row { min-height: 52px; padding: 8px 14px; }
+  .picker-sheet .group .row .t { font-size: 15.5px; color: var(--text-secondary); }
+  .picker-sheet .group .row.on { background: var(--surface-active); }
+  .picker-sheet .group .row.on .t { color: var(--text-primary); }
+  .picker-sheet .check { color: var(--text-primary); }
+  .track.three { margin: 0; grid-template-columns: 1fr 1fr 1fr; height: 38px; }
+  .ps-context { margin-top: 20px; padding: 0 4px; }
+  .ps-ctx-top { display: flex; justify-content: space-between; font-size: 13px; color: var(--text-tertiary); }
+  .ps-ctx-top span:first-child { font-weight: 600; }
+  .ps-bar { margin-top: 8px; height: 4px; border-radius: 999px; background: var(--border); overflow: hidden; }
+  .ps-bar i { display: block; height: 100%; border-radius: 999px; background: var(--brand-claude); }
+
+  .agent-switch { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+  .agent-switch > span { height: 64px; border-radius: 12px; border: 1px solid var(--border); background: var(--surface-raised); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; font-size: 12px; color: var(--text-tertiary); }
+  .agent-switch > span.on { background: var(--surface-active); border-color: var(--border-strong); color: var(--text-primary); }
+  .picker-sheet .group .row + .row::before { left: 50px; }
+
+  /* the Mac's project strip, docked on a new chat's composer */
+  .project-strip { display: flex; align-items: center; gap: 10px; margin: 0 14px -1px; padding: 6px 12px 6px 6px; border: 1px solid var(--border); border-bottom: 0; border-radius: 12px 12px 0 0; background: color-mix(in oklab, var(--surface-raised) 55%, var(--surface-sunken)); }
+  .ps-project { display: inline-flex; align-items: center; gap: 7px; height: 30px; padding: 0 8px 0 6px; border-radius: 7px; font-size: 13.5px; color: var(--ink); }
+  .ps-project .folder { color: var(--live); }
+  .ps-project b { font-weight: 500; }
+  .ps-project .ch .ico { transform: rotate(90deg); color: var(--ink-faint); }
+  .ps-branch { margin-left: auto; display: inline-flex; align-items: center; gap: 5px; font-family: var(--mono); font-size: 11.5px; color: var(--ink-dim); }
+
+  /* project picker */
+  .project-sheet { top: 110px; padding: 8px 16px 40px; display: flex; flex-direction: column; }
+  .project-sheet.typing { top: 150px; padding-bottom: 0; }
+  .search { display: flex; align-items: center; gap: 10px; height: 44px; padding: 0 12px; border-radius: 12px; border: 1px solid var(--border); background: var(--surface-sunken); color: var(--text-tertiary); font-size: 15.5px; }
+  .search.focus { border-color: var(--border-selected); }
+  .search .q { flex: 1; color: var(--ink); }
+  .search .clear { width: 20px; height: 20px; border-radius: 999px; background: var(--gray-500); color: var(--bg); display: grid; place-items: center; }
+  .project-sheet .group .row { min-height: 54px; padding: 8px 14px; }
+  .project-sheet .group .row + .row::before { left: 50px; }
+  .project-sheet .row .t { color: var(--text-secondary); }
+  .project-sheet .row.on { background: var(--surface-active); }
+  .project-sheet .row.on .t { color: var(--text-primary); }
+  .project-sheet .mark.folder { color: var(--text-tertiary); }
+  .project-sheet .row.on .mark.folder { color: var(--live); }
+  .project-sheet .check { color: var(--text-primary); }
+  .project-sheet .path { direction: rtl; text-align: left; display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .project-sheet mark { background: none; color: var(--text-primary); font-weight: 600; }
+
+  /* the Mac's new-chat welcome: project activity */
+  .welcome-chat { flex: 1; min-height: 0; padding: 0 28px 40px; display: flex; flex-direction: column; justify-content: center; gap: 26px; }
+  .wc-head { display: flex; flex-direction: column; align-items: center; gap: 10px; }
+  .wc-head b { font-size: 20px; font-weight: 600; letter-spacing: -0.028em; color: var(--text-primary); }
+  .wc-stats { display: grid; grid-template-columns: 1fr 1fr; row-gap: 14px; }
+  .wc-stats > div { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+  .wc-stats > div:nth-child(even) { padding-left: 16px; border-left: 1px solid var(--border); }
+  .wc-stats span { font-size: 12px; color: var(--text-tertiary); }
+  .wc-stats b { font-size: 24px; font-weight: 600; letter-spacing: -0.03em; color: var(--text-primary); font-variant-numeric: tabular-nums; }
+  .wc-stats em { font-style: normal; font-family: var(--mono); font-size: 10.5px; color: var(--text-tertiary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .wc-cal-top { font-size: 12.5px; color: var(--text-secondary); margin-bottom: 10px; }
+  .wc-heat { --g: 3px; }
+  .wc-days { display: grid; grid-template-rows: 12px repeat(7, 1fr); row-gap: var(--g); font-size: 9.5px; color: var(--text-tertiary); }
+  .wc-days span { display: flex; align-items: center; }
+  .wc-months { display: grid; grid-template-columns: repeat(20, 1fr); column-gap: var(--g); height: 12px; font-size: 9.5px; color: var(--text-tertiary); margin-bottom: var(--g); }
+  .wc-cells { display: grid; grid-template-columns: repeat(20, 1fr); grid-template-rows: repeat(7, auto); grid-auto-flow: column; gap: var(--g); }
+  .wc-cells i, .wc-legend i { aspect-ratio: 1; border-radius: 2.5px; background: color-mix(in oklab, var(--text-primary) 7%, transparent); }
+  .wc-cells i.future { visibility: hidden; }
+  .wc-cells i[data-level="1"], .wc-legend i[data-level="1"] { background: color-mix(in oklab, var(--acc) 30%, transparent); }
+  .wc-cells i[data-level="2"], .wc-legend i[data-level="2"] { background: color-mix(in oklab, var(--acc) 52%, transparent); }
+  .wc-cells i[data-level="3"], .wc-legend i[data-level="3"] { background: color-mix(in oklab, var(--acc) 76%, transparent); }
+  .wc-cells i[data-level="4"], .wc-legend i[data-level="4"] { background: var(--acc); }
+  .wc-legend { display: flex; align-items: center; justify-content: flex-end; gap: 3px; margin-top: 8px; font-size: 9.5px; color: var(--text-tertiary); }
+  .wc-legend i { width: 10px; }
+  .wc-caption { margin-top: 12px; text-align: center; font-size: 13px; color: var(--text-tertiary); }
+  /* a device */
+  .dev-title { display: flex; align-items: center; gap: 14px; padding: 4px 18px 16px; }
+  .dev-title h1 { font-size: 24px; font-weight: 600; letter-spacing: -0.03em; color: var(--text-primary); }
+  .dev-title p { margin-top: 1px; font-size: 13px; color: var(--text-tertiary); }
+  .dev-title .presence { box-shadow: 0 0 0 2.5px var(--surface); }
+  .track .count { font-style: normal; }
+  .filters { display: flex; gap: 6px; padding: 12px 16px 2px; }
+  .filters span { height: 32px; min-width: 40px; padding: 0 12px; border-radius: 999px; display: grid; place-items: center; border: 1px solid var(--border); font-size: 13px; color: var(--text-secondary); }
+  .filters .claude { color: var(--brand-claude); } .filters .codex { color: var(--brand-codex); } .filters .hermes { color: var(--brand-hermes); } .filters .opencode { color: var(--brand-opencode); }
+  .filters span.on { background: var(--surface-active); border-color: var(--border-strong); color: var(--text-primary); }
+  .ask-card { margin-top: 14px; display: flex; align-items: center; gap: 12px; padding: 14px; border-radius: 14px; border: 1px solid var(--border-strong); background: var(--surface-overlay); box-shadow: 0 14px 30px -20px rgba(0,0,0,.9); }
+  .ask-card .body { flex: 1; min-width: 0; }
+  .ask-card .t { font-size: 15.5px; font-weight: 500; color: var(--text-primary); }
+  .ask-card .s { margin-top: 2px; font-size: 13px; color: var(--text-tertiary); }
+  .ask-card code { font-family: var(--mono); font-size: 12px; color: var(--text-secondary); }
+  .ask-card .dot { margin-right: 4px; }
+  .scope { display: flex; padding: 0 16px 12px; }
+  .scope .pill { display: inline-flex; align-items: center; gap: 7px; height: 32px; padding: 0 10px 0 10px; border-radius: 999px; border: 1px solid var(--border); background: var(--surface-raised); font-size: 13.5px; font-weight: 500; color: var(--ink); }
+  .scope .pill .folder { color: var(--live); display: grid; }
+  .scope .pill .ch { display: grid; margin-left: 1px; }
+  .scope .pill .ch .ico { transform: rotate(90deg); color: var(--ink-faint); }
+  .scope-sheet { top: auto; padding: 8px 16px 34px; }
+  .scope-sheet .head { display: flex; align-items: baseline; justify-content: space-between; padding: 6px 4px 12px; }
+  .scope-sheet .head b { font-size: 17px; font-weight: 600; letter-spacing: -0.02em; color: var(--text-primary); }
+  .scope-sheet .head span { font-size: 13px; color: var(--text-tertiary); }
+  .scope-sheet .group { margin-top: 12px; }
+  .scope-sheet .group .row { min-height: 56px; padding: 8px 14px; gap: 12px; }
+  .scope-sheet .group .row + .row::before { left: 48px; }
+  .scope-sheet .row .t { color: var(--text-primary); font-weight: 500; }
+  .scope-sheet .row .mark.folder, .scope-sheet .row .mark.all { color: var(--live); }
+  .scope-sheet .row.on { background: var(--surface-active); }
+  .scope-sheet .row .path { direction: rtl; text-align: left; display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .scope-sheet .tail { display: inline-flex; align-items: center; gap: 8px; flex: 0 0 auto; }
+  .scope-sheet .tail .num { font-size: 13px; color: var(--text-tertiary); font-variant-numeric: tabular-nums; }
+  .scope-sheet .tail .faces > span { width: 26px; height: 26px; border: 1px solid var(--border); box-shadow: 0 0 0 2px var(--surface-raised); background: var(--surface-overlay); margin-right: -7px; }
+  .scope-sheet .tail .faces > span:last-child { margin-right: 0; }
+  .scope-sheet .tail .tcount { color: var(--text-tertiary); display: inline-flex; align-items: center; gap: 4px; font-size: 13px; }
+  .scope-sheet .check { color: var(--text-primary); display: grid; }
+  .fab { position: absolute; right: 16px; bottom: 34px; height: 52px; padding: 0 20px 0 16px; border-radius: 999px; background: var(--ink); color: var(--bg); display: flex; align-items: center; gap: 8px; font-size: 15px; font-weight: 600; box-shadow: 0 10px 30px -8px rgba(0,0,0,.7); }
+  .glabel { padding: 20px 6px 8px; font-size: 13px; font-weight: 600; color: var(--text-tertiary); letter-spacing: -0.005em; }
+  .group { border-radius: 14px; border: 1px solid var(--border); background: var(--surface-raised); overflow: hidden; }
+  .group .row { position: relative; border-radius: 0; border: 0; min-height: 56px; padding: 8px 14px; }
+  .group .row + .row::before { content: ""; position: absolute; left: 50px; right: 0; top: 0; height: 1px; background: var(--border); }
+  /* devices */
+  .devices { display: flex; flex-direction: column; gap: 10px; padding-top: 2px; }
+  .device { border-radius: 16px; border: 1px solid var(--border); background: var(--surface-raised); overflow: hidden; }
+  .device.away { background: transparent; }
+  .device.away .dev-glyph, .device.away .dev-name { color: var(--text-tertiary); }
+  .dev-head { display: flex; align-items: center; gap: 14px; padding: 14px 14px 14px 16px; }
+  .dev-head .body { flex: 1; min-width: 0; }
+  .dev-glyph { position: relative; width: 34px; height: 34px; display: grid; place-items: center; color: var(--text-primary); flex: none; }
+  .presence { position: absolute; right: -1px; bottom: 3px; width: 9px; height: 9px; border-radius: 999px; box-shadow: 0 0 0 2.5px var(--surface-raised); }
+  .presence.live { background: var(--live); }
+  .presence.off { background: var(--surface); border: 1.5px solid var(--gray-700); box-shadow: 0 0 0 2.5px var(--surface); }
+  .dev-name { font-size: 17px; font-weight: 600; letter-spacing: -0.02em; color: var(--text-primary); }
+  .dev-meta { margin-top: 2px; font-size: 13px; color: var(--text-tertiary); }
+  .dev-head .chev { color: var(--gray-700); }
+  .dev-ask { display: flex; align-items: center; gap: 10px; margin: 0 8px; padding: 10px 12px; border-radius: 10px;
+    border: 1px solid var(--border-strong); background: var(--surface-overlay); }
+  .dev-ask .body { flex: 1; min-width: 0; font-size: 13.5px; line-height: 1.35; }
+  .dev-ask b { display: block; font-weight: 500; color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .dev-ask .body span { color: var(--text-tertiary); }
+  .dev-ask code { font-family: var(--mono); font-size: 12px; color: var(--text-secondary); }
+  .dev-ask .dot { margin-right: 4px; }
+  .dev-work { display: flex; align-items: center; gap: 10px; padding: 12px 16px 14px; font-size: 13px; color: var(--text-secondary); }
+  .dev-work .loader { margin-left: auto; }
+  .faces { display: flex; }
+  .faces > span { width: 26px; height: 26px; border-radius: 999px; display: grid; place-items: center; background: var(--surface-overlay); box-shadow: 0 0 0 2px var(--surface-raised); margin-right: -6px; }
+  .faces > span:last-child { margin-right: 0; }
+  .this-phone { flex: none; display: flex; align-items: center; gap: 8px; margin: 0 16px 38px; padding-top: 14px; border-top: 1px solid var(--border); font-size: 13px; color: var(--text-tertiary); }
+  .this-phone .m { margin-left: auto; }
+  /* welcome: the rail itself, drifting past */
+  .reel { position: absolute; left: 0; right: 0; top: 54px; height: 360px; overflow: hidden; padding: 0 16px;
+    -webkit-mask-image: linear-gradient(to bottom, transparent 0%, #000 24%, #000 52%, transparent 94%);
+    mask-image: linear-gradient(to bottom, transparent 0%, #000 24%, #000 52%, transparent 94%); }
+  .reel-track { display: flex; flex-direction: column; gap: 2px; animation: reel 26s linear infinite; }
+  .reel .row { opacity: .92; }
+  @keyframes reel { from { transform: translateY(0); } to { transform: translateY(-50%); } }
+  @media (prefers-reduced-motion: reduce) { .reel-track, .loader i, .dot.warn::after, .activity *, .tool.running *, .spin, .caret { animation: none !important; } }
+  .welcome { position: relative; margin-top: auto; padding: 0 24px; }
+  .mark-line { display: flex; align-items: center; gap: 9px; color: var(--text-primary); font-size: 15px; font-weight: 600; letter-spacing: -0.015em; }
+  .welcome h2 { margin-top: 18px; color: var(--text-primary); font-size: 34px; line-height: 1.08; font-weight: 600; letter-spacing: -0.035em; }
+  .welcome p { margin-top: 12px; font-size: 16px; line-height: 1.5; max-width: 300px; }
+  .welcome-foot { padding-top: 28px; gap: 12px; }
+  .nearby { display: flex; align-items: center; gap: 10px; height: 44px; padding: 0 4px; font-size: 14px; color: var(--text-secondary); border-top: 1px solid var(--border); }
+  .nearby .dot { width: 7px; height: 7px; }
+  .nearby .chev { margin-left: auto; color: var(--gray-700); }
+  .text-link { text-align: center; height: 36px; line-height: 36px; font-size: 15px; font-weight: 500; color: var(--text-secondary); }
+  /* the three pairing steps share one layout so the code never moves */
+  .pairing { padding: 40px 28px 0; display: flex; flex-direction: column; align-items: center; text-align: center; }
+  .pairing h2 { color: var(--text-primary); font-size: 22px; font-weight: 600; letter-spacing: -0.028em; line-height: 1.25; text-wrap: balance; }
+  .pairing p { margin-top: 8px; min-height: 3em; font-size: 15px; line-height: 1.5; text-wrap: balance; }
+  .pairing .digits { margin-top: 32px; }
+  .digits.locked span { background: var(--surface-raised); border-color: var(--border-strong); }
+  .digits.failed span { border-color: color-mix(in oklab, var(--danger) 55%, transparent); background: color-mix(in oklab, var(--danger) 7%, var(--surface-sunken)); color: color-mix(in oklab, var(--danger) 70%, var(--ink)); }
+  .digits span.gap { background: none; border: 0; }
+
+  .big-code { font-family: var(--mono); font-size: 36px; letter-spacing: .06em; color: var(--text-primary); margin-top: 18px; }
+  .waiting { display: flex; align-items: center; gap: 8px; margin-top: 22px; font-size: 13px; color: var(--text-tertiary); }
+  .spin { width: 15px; height: 15px; border-radius: 999px; border: 2px solid var(--gray-300); border-top-color: var(--text-secondary); animation: spin .9s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .mini-mac { width: 210px; border-radius: 12px; border: 1px solid var(--border); background: var(--surface-raised); padding: 12px; text-align: left; margin-bottom: 26px; box-shadow: 0 20px 50px -20px rgba(0,0,0,.8); }
+  .mini-mac .hd { display: flex; align-items: center; gap: 7px; font-size: 11px; color: var(--warn); }
+  .mini-mac .ttl { margin-top: 6px; font-size: 12px; font-weight: 600; color: var(--ink); }
+  .mini-mac .sb { font-size: 10px; color: var(--ink-dim); margin-top: 1px; }
+  .mini-mac .ac { display: flex; gap: 5px; margin-top: 10px; }
+  .mini-mac .ac span { flex: 1; height: 22px; border-radius: 5px; border: 1px solid var(--line); background: var(--rail-2); font-size: 9.5px; color: var(--ink-dim); display: grid; place-items: center; }
+  .mini-mac .ac span.allow { border-color: color-mix(in oklab, var(--warn) 45%, var(--line)); color: var(--ink); }
+
+  .camera { flex: 1; position: relative; overflow: hidden; background: radial-gradient(260px 200px at 52% 40%, #34343d 0%, transparent 70%), radial-gradient(420px 300px at 30% 85%, #1d1d23 0%, transparent 70%), #101013; }
+  .finder { position: absolute; left: 50%; top: 40%; translate: -50% -50%; width: 236px; height: 236px; border-radius: 26px; box-shadow: 0 0 0 2000px rgba(5,5,7,.6); }
+  .finder i { position: absolute; width: 44px; height: 44px; border: 3px solid #fff; }
+  .finder i:nth-child(1) { left: 0; top: 0; border-right: 0; border-bottom: 0; border-top-left-radius: 26px; }
+  .finder i:nth-child(2) { right: 0; top: 0; border-left: 0; border-bottom: 0; border-top-right-radius: 26px; }
+  .finder i:nth-child(3) { left: 0; bottom: 0; border-right: 0; border-top: 0; border-bottom-left-radius: 26px; }
+  .finder i:nth-child(4) { right: 0; bottom: 0; border-left: 0; border-top: 0; border-bottom-right-radius: 26px; }
+  .finder svg { position: absolute; left: 46px; top: 46px; width: 144px; height: 144px; opacity: .5; }
+  .camera .hint { position: absolute; left: 28px; right: 28px; top: calc(40% + 148px); text-align: center; color: #fff; font-size: 15px; line-height: 1.45; }
+  .camera .bottom { position: absolute; left: 16px; right: 16px; bottom: 34px; }
+  .camera .bottom .btn { background: rgba(28,28,34,.78); border-color: rgba(255,255,255,.12); backdrop-filter: blur(20px); color: #fff; }
+
+  /* ---------- keyboards ---------- */
+  .kb { flex: none; background: #1c1c21; padding: 8px 3px 30px; }
+  .kb .r { display: flex; gap: 6px; justify-content: center; margin-bottom: 11px; }
+  .kb .k { height: 42px; flex: 0 0 32px; border-radius: 5px; background: #45454c; display: grid; place-items: center; color: #fff; font-family: var(--kbd); font-size: 19px; }
+  .kb .k.w { flex: 0 0 44px; background: #2e2e34; font-size: 14px; }
+  .kb .k.sp { flex: 1 1 auto; font-size: 14px; }
+  .kb.num .k { flex: 1 1 0; height: 46px; font-size: 24px; }
+  .kb.num .k.blank { background: none; }
+
+  /* ---------- terminal ---------- */
+  .term { flex: 1; min-height: 0; overflow: hidden; background: var(--surface-sunken); font-family: var(--mono); font-size: 11.5px; line-height: 1.5; color: var(--ink); padding: 10px 12px; white-space: pre; }
+  .term .p { color: var(--acc); } .term .g { color: var(--live); } .term .y { color: var(--warn); } .term .f { color: var(--ink-faint); }
+  .term .cur { background: var(--ink); color: var(--bg); }
+  .keyrow { flex: none; display: flex; gap: 6px; padding: 7px 8px; background: var(--surface); border-top: 1px solid var(--border); overflow: hidden; }
+  .keyrow span { height: 36px; min-width: 42px; padding: 0 10px; border-radius: 7px; border: 1px solid var(--border); background: var(--surface-raised); display: grid; place-items: center; font-family: var(--mono); font-size: 12.5px; color: var(--text-secondary); flex: none; }
+  .keyrow span.on { background: var(--surface-selected); border-color: var(--border-selected); color: var(--text-primary); }
+  .term-head { display: flex; align-items: center; gap: 8px; padding: 0 16px 8px; font-family: var(--mono); font-size: 11.5px; color: var(--text-tertiary); }
+
+  /* ---------- lock screen ---------- */
+  .lock { flex: 1; position: relative; background: radial-gradient(500px 420px at 50% 18%, #2b2542 0%, transparent 70%), radial-gradient(400px 400px at 85% 95%, #13261f 0%, transparent 70%), #08080a; }
+  .lock .clock { text-align: center; color: #fff; margin-top: 36px; font-family: var(--kbd); }
+  .lock .clock div:first-child { font-size: 18px; font-weight: 500; opacity: .85; }
+  .lock .clock div:last-child { font-size: 86px; font-weight: 600; letter-spacing: -2px; line-height: 1.02; }
+  .notif { position: absolute; left: 10px; right: 10px; top: 300px; background: rgba(38,38,46,.8); backdrop-filter: blur(30px); border-radius: 22px; padding: 12px 14px 14px; color: #fff; }
+  .notif .h { display: flex; align-items: center; gap: 8px; font-size: 13px; opacity: .85; font-family: var(--kbd); }
+  .notif .appicon { width: 22px; height: 22px; border-radius: 6px; background: var(--bg); border: 1px solid #34343c; display: grid; place-items: center; color: var(--ink); }
+  .notif .h .t { margin-left: auto; }
+  .notif .b { margin-top: 6px; font-size: 15px; line-height: 1.35; font-family: var(--kbd); }
+  .notif .b b { font-weight: 600; }
+  .notif .b .m { font-family: var(--mono); font-size: 13px; opacity: .85; }
+  .notif .acts { display: flex; gap: 8px; margin-top: 10px; }
+  .notif .acts span { flex: 1; text-align: center; padding: 8px 0; border-radius: 12px; background: rgba(255,255,255,.12); font-size: 14px; font-weight: 500; font-family: var(--kbd); }
+
+  .toggle { width: 51px; height: 31px; border-radius: 999px; background: var(--live); position: relative; flex: none; }
+  .toggle::after { content: ""; position: absolute; right: 2px; top: 2px; width: 27px; height: 27px; border-radius: 999px; background: #fff; }
+</style>
+</head>
+<body>
+
+<header class="page-head">
+  <h1>{{Logo:30}} Sikemux for iPhone</h1>
+  <p>Every screen, drawn with the Mac app's own parts: the icons are rendered from <code>src/ui/Icons.tsx</code>, and the chat, the composer and the agent list use the same structure, words and values as the Mac's chat pane and agent rail, sized up for a thumb. The colours are Aura Noir, the default theme. The little squares, the shimmer and the amber ping are animated here as they are on the Mac.</p>
+</header>
+
+<!-- ================================================================ -->
+<section class="flow">
+  <h2>Pairing</h2>
+  <p>A phone reaches a Mac only after someone at the Mac approves it. A code scanned or a link pasted inside Sikemux goes straight to "Approve on your Mac". A link opened from anywhere else, such as the iPhone's own Camera, first asks whether to pair.</p>
+  <div class="phones">
+
+    <figure><div class="phone"><div class="island"></div>
+      <div class="status"><span>9:41</span><span class="bars"><i></i><i></i></span></div>
+      <div class="screen">
+        <div class="reel" aria-hidden="true">
+          <div class="reel-track">
+            <div class="row"><span class="mark claude">{{IconClaude:22}}</span><div class="body"><div class="t">Tighten the rail spacing</div><div class="s">sikemux · Editing…</div></div><span class="status-slot"><span class="loader"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span></span></div>
+            <div class="row"><span class="mark codex">{{IconCodex:22}}</span><div class="body"><div class="t">Fix the flaky PTY replay test</div><div class="s">sikemux · Running a command…</div></div><span class="status-slot"><span class="loader"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span></span></div>
+            <div class="row"><span class="mark claude">{{IconClaude:22}}</span><div class="body"><div class="t">Remote pairing screen</div><div class="s">sikemux · Needs input</div></div><span class="status-slot"><span class="dot warn"></span></span></div>
+            <div class="row"><span class="mark hermes">{{IconHermes:22}}</span><div class="body"><div class="t">Release notes for v0.4.3</div><div class="s">sikemux-front · Done</div></div><span class="status-slot"><span class="dot acc"></span></span></div>
+            <div class="row"><span class="mark opencode">{{IconOpenCode:22}}</span><div class="body"><div class="t">Why does the shader dim the rail</div><div class="s">sikemux · Thinking…</div></div><span class="status-slot"><span class="loader"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span></span></div>
+            <div class="row"><span class="mark codex">{{IconCodex:22}}</span><div class="body"><div class="t">Download size on the hero</div><div class="s">sikemux-front · Reading…</div></div><span class="status-slot"><span class="loader"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span></span></div>
+            <div class="row"><span class="mark claude">{{IconClaude:22}}</span><div class="body"><div class="t">Tighten the rail spacing</div><div class="s">sikemux · Editing…</div></div><span class="status-slot"><span class="loader"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span></span></div>
+            <div class="row"><span class="mark codex">{{IconCodex:22}}</span><div class="body"><div class="t">Fix the flaky PTY replay test</div><div class="s">sikemux · Running a command…</div></div><span class="status-slot"><span class="loader"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span></span></div>
+            <div class="row"><span class="mark claude">{{IconClaude:22}}</span><div class="body"><div class="t">Remote pairing screen</div><div class="s">sikemux · Needs input</div></div><span class="status-slot"><span class="dot warn"></span></span></div>
+            <div class="row"><span class="mark hermes">{{IconHermes:22}}</span><div class="body"><div class="t">Release notes for v0.4.3</div><div class="s">sikemux-front · Done</div></div><span class="status-slot"><span class="dot acc"></span></span></div>
+            <div class="row"><span class="mark opencode">{{IconOpenCode:22}}</span><div class="body"><div class="t">Why does the shader dim the rail</div><div class="s">sikemux · Thinking…</div></div><span class="status-slot"><span class="loader"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span></span></div>
+            <div class="row"><span class="mark codex">{{IconCodex:22}}</span><div class="body"><div class="t">Download size on the hero</div><div class="s">sikemux-front · Reading…</div></div><span class="status-slot"><span class="loader"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span></span></div>
+          </div>
+        </div>
+        <div class="welcome">
+          <div class="mark-line">{{Logo:22}}<span>Sikemux</span></div>
+          <h2>Your agents,<br>on your phone.</h2>
+          <p>Watch them work, answer what they ask, and open the Mac's terminals.</p>
+        </div>
+        <div class="footer welcome-foot">
+          <div class="nearby"><span class="dot live"></span><span>MacBook Pro is on this Wi‑Fi</span><span class="chev">{{IconChevron:13}}</span></div>
+          <div class="btn primary">Scan the code on your Mac</div>
+          <div class="text-link">Paste a pairing link</div>
+        </div>
+      </div>
+      <div class="home-bar"></div></div>
+      <figcaption><b>Welcome</b><div class="note">The hero is the Mac's own agent rail drifting past and fading into the dark: the first thing the app shows is what it is for. One button; pasting a link is a quiet second choice. A Mac found on the same Wi‑Fi is one line above it.</div></figcaption>
+    </figure>
+
+    <figure><div class="phone" style="background:#000"><div class="island"></div>
+      <div class="status" style="color:#fff"><span>9:41</span><span class="bars"><i></i><i></i></span></div>
+      <div class="camera">
+        <div class="nav"><span class="back" style="color:#fff">{{IconChevron:18}}Back</span></div>
+        <div class="finder"><i></i><i></i><i></i><i></i>
+          <svg viewBox="0 0 21 21" shape-rendering="crispEdges"><path fill="#fff" d="M0 0h7v7H0zM1 1v5h5V1zM2 2h3v3H2zM14 0h7v7h-7zM15 1v5h5V1zM16 2h3v3h-3zM0 14h7v7H0zM1 15v5h5v-5zM2 16h3v3H2zM8 0h1v2H8zM10 1h2v1h-2zM9 3h3v1H9zM8 5h1v3H8zM11 6h2v2h-2zM0 8h2v1H0zM3 9h3v1H3zM8 9h4v1H8zM14 8h3v1h-3zM18 9h3v2h-3zM9 11h2v2H9zM12 12h3v1h-3zM16 12h2v3h-2zM8 14h1v3H8zM10 15h3v1h-3zM12 17h2v4h-2zM15 16h1v2h-1zM17 17h4v1h-4zM19 19h2v2h-2zM9 19h2v2H9z"/></svg>
+        </div>
+        <div class="hint">On your Mac, open <b>Settings → Devices</b> and point the camera at the code.</div>
+        <div class="bottom"><div class="btn">Paste a pairing link instead</div></div>
+      </div>
+      <div class="home-bar" style="background:#fff"></div></div>
+      <figcaption><b>Scan</b><div class="note">Four corners and nothing else. The first frame holding a <code>sikemux://pair</code> link moves on; there is no shutter.</div></figcaption>
+    </figure>
+
+    <figure><div class="phone"><div class="island"></div>
+      <div class="status"><span>9:41</span><span class="bars"><i></i><i></i></span></div>
+      <div class="screen">
+        <div class="nav"><span class="back">{{IconChevron:18}}Back</span></div>
+        <div class="pairing">
+          <h2>Enter the code from MacBook Pro</h2>
+          <p>It's under the QR code in Settings → Devices.</p>
+          <div class="digits"><span>4</span><span>8</span><span>1</span><span class="gap"></span><span class="cur"></span><span></span><span></span></div>
+        </div>
+        <div style="flex:1"></div>
+        <div class="kb num">
+          <div class="r"><span class="k">1</span><span class="k">2</span><span class="k">3</span></div>
+          <div class="r"><span class="k">4</span><span class="k">5</span><span class="k">6</span></div>
+          <div class="r"><span class="k">7</span><span class="k">8</span><span class="k">9</span></div>
+          <div class="r"><span class="k blank"></span><span class="k">0</span><span class="k blank" style="font-size:18px">⌫</span></div>
+        </div>
+      </div>
+      <div class="home-bar"></div></div>
+      <figcaption><b>Code, for a Mac found nearby</b><div class="note">Three and three, as the Mac shows it. The sixth digit sends it.</div></figcaption>
+    </figure>
+
+    <figure><div class="phone"><div class="island"></div>
+      <div class="status"><span>9:41</span><span class="bars"><i></i><i></i></span></div>
+      <div class="screen">
+        <div class="nav"><span class="back">{{IconChevron:18}}Cancel</span></div>
+        <div class="pairing">
+          <h2>Pair with this Mac?</h2>
+          <p>Only go on if your Mac shows this code right now.</p>
+          <div class="digits locked"><span>4</span><span>8</span><span>1</span><span class="gap"></span><span>2</span><span>0</span><span>7</span></div>
+          <span class="m" style="margin-top:16px">Mac 5f0c21ab</span>
+        </div>
+        <div style="flex:1"></div>
+        <div class="footer"><div class="btn primary">Pair</div></div>
+      </div>
+      <div class="home-bar"></div></div>
+      <figcaption><b>A link from outside</b><div class="note">Any app can open a pairing link, so one that did not come from this app's scanner or paste waits for a tap. The code and the start of the Mac's key are there to check against the Mac's screen.</div></figcaption>
+    </figure>
+
+    <figure><div class="phone"><div class="island"></div>
+      <div class="status"><span>9:41</span><span class="bars"><i></i><i></i></span></div>
+      <div class="screen">
+        <div class="nav"><span class="back">{{IconChevron:18}}Cancel</span></div>
+        <div class="pairing">
+          <h2>Approve on MacBook Pro</h2>
+          <p>Check the Mac shows this code, then choose what this iPhone may do.</p>
+          <div class="digits locked"><span>4</span><span>8</span><span>1</span><span class="gap"></span><span>2</span><span>0</span><span>7</span></div>
+        </div>
+        <div style="flex:1"></div>
+        <div class="footer">
+          <div class="row boxed"><span class="mark"><span class="loader"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span></span><div class="body"><div class="t" style="font-size:15px;font-weight:400">Waiting for MacBook Pro</div></div><span class="ago m">1:52</span></div>
+        </div>
+            </div>
+      <div class="home-bar"></div></div>
+      <figcaption><b>Waiting for approval</b><div class="note">The code stays where it was typed; the cursor goes and the tiles settle. Below it, the rail’s working squares until the Mac answers. The Mac picks the access, so the phone asks nothing.</div></figcaption>
+    </figure>
+
+    <figure><div class="phone"><div class="island"></div>
+      <div class="status"><span>9:41</span><span class="bars"><i></i><i></i></span></div>
+      <div class="screen">
+        <div class="nav"><span class="back">{{IconChevron:18}}Back</span></div>
+        <div class="pairing">
+          <h2>That code has changed</h2>
+          <p>The Mac makes a new one every few minutes, and after a wrong one.</p>
+          <div class="digits failed"><span>4</span><span>8</span><span>1</span><span class="gap"></span><span>2</span><span>0</span><span>7</span></div>
+        </div>
+        <div style="flex:1"></div>
+        <div class="footer"><div class="btn primary">Scan again</div></div>
+      </div>
+      <div class="home-bar"></div></div>
+      <figcaption><b>Pairing failed</b><div class="note">Same place, same tiles, edged red. Every failure reads this way, its cause in one line: wrong code, refused on the Mac, out of reach, or two minutes with no answer, when the clock reaches 0:00.</div></figcaption>
+    </figure>
+
+  </div>
+</section>
+
+<!-- ================================================================ -->
+<section class="flow">
+  <h2>Devices</h2>
+  <p>Every computer this phone is paired with. With only one, the app opens straight into it and this list is one step back.</p>
+  <div class="phones">
+
+    <figure><div class="phone"><div class="island"></div>
+      <div class="status"><span>9:41</span><span class="bars"><i></i><i></i></span></div>
+      <div class="screen">
+        <div class="nav"><span style="flex:1"></span><span class="icon-btn">{{IconPlus:18}}</span></div>
+        <div class="title-block"><h1>Devices</h1></div>
+        <div class="pad grow devices">
+
+          <div class="device">
+            <div class="dev-head">
+              <span class="dev-glyph">{{IconLaptop:30}}<i class="presence live"></i></span>
+              <div class="body"><div class="dev-name">MacBook Pro</div><div class="dev-meta">3 agents · 2 terminals</div></div>
+              <span class="chev">{{IconChevron:14}}</span>
+            </div>
+            <div class="dev-ask">
+              <span class="claude">{{IconClaude:16}}</span>
+              <div class="body"><b>Remote pairing screen</b><span>wants to run <code>pnpm test</code></span></div>
+              <span class="dot warn"></span>
+            </div>
+            <div class="dev-work">
+              <span class="faces"><span class="claude">{{IconClaude:16}}</span><span class="codex">{{IconCodex:16}}</span><span class="hermes">{{IconHermes:16}}</span></span>
+              <span>3 working</span>
+              <span class="loader"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span>
+            </div>
+          </div>
+
+          <div class="device">
+            <div class="dev-head">
+              <span class="dev-glyph">{{IconDesktop:30}}<i class="presence live"></i></span>
+              <div class="body"><div class="dev-name">Studio</div><div class="dev-meta">Nothing running · last agent 40m ago</div></div>
+              <span class="chev">{{IconChevron:14}}</span>
+            </div>
+          </div>
+
+          <div class="device away">
+            <div class="dev-head">
+              <span class="dev-glyph">{{IconMini:30}}<i class="presence off"></i></span>
+              <div class="body"><div class="dev-name">Mac mini</div><div class="dev-meta">Asleep or offline · seen 2h ago</div></div>
+              <span class="chev">{{IconChevron:14}}</span>
+            </div>
+          </div>
+
+        </div>
+        <div class="this-phone">
+          <span>{{IconPhone:15}}</span>
+          <span>Kishore's iPhone</span>
+          <span class="m">3308a907</span>
+        </div>
+      </div>
+      <div class="home-bar"></div></div>
+      <figcaption><b>Devices</b><div class="note">Each card is a device with its own glyph and a presence dot. The busy one says the one thing that needs you, then who is working, with the rail's logos and squares. A device that is asleep keeps its place but drops to an outline.</div></figcaption>
+    </figure>
+
+    <figure><div class="phone"><div class="island"></div>
+      <div class="status"><span>9:41</span><span class="bars"><i></i><i></i></span></div>
+      <div class="screen">
+        <div class="stack" style="padding-bottom:120px">
+          <h2 style="font-size:20px">Couldn't read your paired Macs</h2>
+          <p>The saved list on this phone could not be read.</p>
+        </div>
+        <div class="footer"><div class="btn primary">Try again</div></div>
+      </div>
+      <div class="home-bar"></div></div>
+      <figcaption><b>List unreadable</b><div class="note">If the saved list of Macs cannot be read, the app says so in one line instead of offering to pair from scratch.</div></figcaption>
+    </figure>
+
+  </div>
+</section>
+
+<!-- ================================================================ -->
+<section class="flow">
+  <h2>A device</h2>
+  <p>The Mac's agent rail at phone size: a switch for agents or terminals, the provider filter, then what needs you lifted above everything else. Running agents keep the rail's green squares.</p>
+  <div class="phones">
+    <figure><div class="phone"><div class="island"></div>
+      <div class="status"><span>9:41</span><span class="bars"><i></i><i></i></span></div>
+      <div class="screen">
+        <div class="nav"><span class="back">{{IconChevron:18}}Devices</span><span style="flex:1"></span><span class="icon-btn">{{IconMore:18}}</span></div>
+        <div class="dev-title"><span class="dev-glyph">{{IconLaptop:30}}<i class="presence live"></i></span><div><h1>MacBook Pro</h1><p>3 agents · 2 terminals</p></div></div>
+        <div class="track"><span class="on">Agents <i class="count">1</i></span><span>Terminals</span></div>
+        <div class="filters">
+          <span class="on">All</span>
+          <span class="claude">{{IconClaude:17}}</span>
+          <span class="codex">{{IconCodex:17}}</span>
+          <span class="hermes">{{IconHermes:17}}</span>
+          <span class="opencode">{{IconOpenCode:17}}</span>
+        </div>
+        <div class="pad grow">
+          <div class="ask-card">
+            <span class="mark claude">{{IconClaude:22}}</span>
+            <div class="body"><div class="t">Remote pairing screen</div><div class="s">Needs input · wants to run <code>pnpm test</code></div></div>
+            <span class="dot warn"></span>
+          </div>
+          <div class="glabel">Open</div>
+          <div class="group">
+            <div class="row"><span class="mark codex">{{IconCodex:22}}</span><div class="body"><div class="t">Fix the flaky PTY replay test</div><div class="s">sikemux · Running a command…</div></div><span class="status-slot"><span class="loader"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span></span></div>
+            <div class="row"><span class="mark claude">{{IconClaude:22}}</span><div class="body"><div class="t">Tighten the rail spacing</div><div class="s">sikemux · Editing…</div></div><span class="status-slot"><span class="loader"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span></span></div>
+            <div class="row"><span class="mark claude">{{IconClaude:22}}</span><div class="body"><div class="t">Download size on the hero</div><div class="s">sikemux-front · Done</div></div><span class="status-slot"><span class="dot acc"></span></span></div>
+          </div>
+          <div class="glabel">Recent</div>
+          <div class="group">
+            <div class="row"><span class="mark claude">{{IconClaude:20}}</span><div class="body"><div class="t">Split the Rundeck matrix into jobs</div></div><span class="ago">3h</span></div>
+            <div class="row"><span class="mark hermes">{{IconHermes:20}}</span><div class="body"><div class="t">Why does the shader dim the rail</div></div><span class="ago">1d</span></div>
+          </div>
+        </div>
+        <div class="fab">{{IconPlus:18}}New chat</div>
+      </div>
+      <div class="home-bar"></div></div>
+      <figcaption><b>Agents</b><div class="note">The one agent waiting on you is the only lifted card, with a white pulsing dot. Everything else sits in quiet groups: open chats with their state at the end, recent ones with their age.</div></figcaption>
+    </figure>
+
+    <figure><div class="phone"><div class="island"></div>
+      <div class="status"><span>9:41</span><span class="bars"><i></i><i></i></span></div>
+      <div class="screen">
+        <div class="nav"><span class="back">{{IconChevron:18}}Devices</span><span style="flex:1"></span><span class="icon-btn">{{IconMore:18}}</span></div>
+        <div class="dev-title"><span class="dev-glyph">{{IconLaptop:30}}<i class="presence live"></i></span><div><h1>MacBook Pro</h1><p>3 agents · 2 terminals</p></div></div>
+        <div class="track"><span>Agents <i class="count">1</i></span><span class="on">Terminals</span></div>
+        <div class="pad grow">
+          <div class="glabel">sikemux</div>
+          <div class="group">
+            <div class="row"><span class="mark" style="color:var(--text-secondary)">{{IconCommand:18}}</span><div class="body"><div class="t">zsh</div><div class="s"><span class="m">~/proj/pers/sikemux</span></div></div><span class="status-slot"><span class="dot live" style="width:7px;height:7px"></span></span></div>
+            <div class="row"><span class="mark" style="color:var(--text-secondary)">{{IconRun:16}}</span><div class="body"><div class="t">dev</div><div class="s"><span class="m">pnpm dev · 1h 12m</span></div></div><span class="status-slot"><span class="loader"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span></span></div>
+          </div>
+          <div class="glabel">sikemux-front</div>
+          <div class="group">
+            <div class="row"><span class="mark" style="color:var(--text-tertiary)">{{IconCommand:18}}</span><div class="body"><div class="t" style="color:var(--text-tertiary)">zsh</div><div class="s"><span class="m">exited 0 · 3m ago</span></div></div><span class="status-slot"></span></div>
+          </div>
+        </div>
+      </div>
+      <div class="home-bar"></div></div>
+      <figcaption><b>Terminals</b><div class="note">Grouped by project. Shells use the Mac’s command glyph; tasks use its run glyph and show the squares while they run.</div></figcaption>
+    </figure>
+
+    <figure><div class="phone"><div class="island"></div>
+      <div class="status"><span>9:41</span><span class="bars"><i></i><i></i></span></div>
+      <div class="screen">
+        <div class="nav"><span class="back">{{IconChevron:18}}Devices</span><span style="flex:1"></span></div>
+        <div class="dev-title"><span class="dev-glyph">{{IconLaptop:30}}<i class="presence off"></i></span><div><h1>MacBook Pro</h1><p>Asleep or offline · seen 9:12</p></div></div>
+        <div class="stack" style="padding-bottom:120px">
+          <h2 style="font-size:20px">Can't reach MacBook Pro</h2>
+          <p>It may be asleep, offline, or have remote access turned off.</p>
+          <div class="waiting" style="margin-top:14px"><span class="spin"></span>Trying again</div>
+          <div class="btn" style="align-self:stretch;margin-top:12px">Try now</div>
+        </div>
+      </div>
+      <div class="home-bar"></div></div>
+      <figcaption><b>Out of reach</b><div class="note">The device glyph keeps an empty presence ring. Reconnecting is automatic and happens again whenever the app returns to the front; Try now skips the wait between attempts.</div></figcaption>
+    </figure>
+
+    <figure><div class="phone"><div class="island"></div>
+      <div class="status"><span>9:41</span><span class="bars"><i></i><i></i></span></div>
+      <div class="screen">
+        <div class="nav"><span class="back">{{IconChevron:18}}Devices</span><span style="flex:1"></span><span class="icon-btn">{{IconMore:18}}</span></div>
+        <div class="dev-title"><span class="dev-glyph">{{IconLaptop:30}}<i class="presence live"></i></span><div><h1>MacBook Pro</h1></div></div>
+        <div class="stack" style="padding-bottom:120px">
+          <div class="waiting" style="margin-top:0"><span class="loader"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span>Connecting…</div>
+        </div>
+      </div>
+      <div class="home-bar"></div></div>
+      <figcaption><b>Connecting</b><div class="note">Until the Mac answers, the screen holds only the rail's squares. The tabs arrive with the first list of agents and terminals.</div></figcaption>
+    </figure>
+
+  </div>
+</section>
+
+<!-- ================================================================ -->
+<section class="flow">
+  <h2>Project scope</h2>
+  <p>The Mac's Projects header at phone size: one pill under the device scopes both Agents and Terminals to a project, the way picking a project on the Mac scopes its rail. It opens the same searchable sheet as New chat.</p>
+  <div class="phones">
+
+    <figure><div class="phone"><div class="island"></div>
+      <div class="status"><span>9:41</span><span class="bars"><i></i><i></i></span></div>
+      <div class="screen">
+        <div class="nav"><span class="back">{{IconChevron:18}}Devices</span><span style="flex:1"></span><span class="icon-btn">{{IconMore:18}}</span></div>
+        <div class="dev-title"><span class="dev-glyph">{{IconLaptop:30}}<i class="presence live"></i></span><div><h1>MacBook Pro</h1><p>Dev · 4 agents · 3 terminals</p></div></div>
+        <div class="scope"><span class="pill"><span class="folder">{{IconFolder:14}}</span>All projects<span class="ch">{{IconChevron:10}}</span></span></div>
+        <div class="track"><span class="on">Agents <i class="count">1</i></span><span>Terminals</span></div>
+        <div class="filters">
+          <span class="on">All</span>
+          <span class="claude">{{IconClaude:17}}</span>
+          <span class="codex">{{IconCodex:17}}</span>
+        </div>
+        <div class="pad grow">
+          <div class="ask-card">
+            <span class="mark claude">{{IconClaude:22}}</span>
+            <div class="body"><div class="t">Remote pairing screen</div><div class="s">sikemux · Needs input</div></div>
+            <span class="dot warn"></span>
+          </div>
+          <div class="glabel">Open</div>
+          <div class="group">
+            <div class="row"><span class="mark codex">{{IconCodex:22}}</span><div class="body"><div class="t">Fix the flaky PTY replay test</div><div class="s">sikemux · Running a command…</div></div><span class="status-slot"><span class="loader"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span></span></div>
+            <div class="row"><span class="mark claude">{{IconClaude:22}}</span><div class="body"><div class="t">Download size on the hero</div><div class="s">sikemux-front · Done</div></div><span class="status-slot"><span class="dot acc"></span></span></div>
+            <div class="row"><span class="mark claude">{{IconClaude:22}}</span><div class="body"><div class="t">Release notes for v0.4.3</div><div class="s">sikemux-front · Sleeping</div></div><span class="status-slot"></span></div>
+          </div>
+        </div>
+        <div class="fab">{{IconPlus:18}}New chat</div>
+      </div>
+      <div class="home-bar"></div></div>
+      <figcaption><b>All projects</b><div class="note">The pill sits between the device and the Agents/Terminals switch, because it scopes both. Unscoped, each row names its project, as now.</div></figcaption>
+    </figure>
+
+    <figure><div class="phone"><div class="island"></div>
+      <div class="status"><span>9:41</span><span class="bars"><i></i><i></i></span></div>
+      <div class="screen">
+        <div class="nav"><span class="back">{{IconChevron:18}}Devices</span><span style="flex:1"></span></div>
+        <div class="dev-title"><span class="dev-glyph">{{IconLaptop:30}}<i class="presence live"></i></span><div><h1>MacBook Pro</h1><p>Dev · 4 agents · 3 terminals</p></div></div>
+        <div class="scrim"></div>
+        <div class="sheet project-sheet scope-sheet">
+          <div class="grabber"></div>
+          <div class="head"><b>Projects</b><span>MacBook Pro</span></div>
+          <div class="search">{{IconSearch:16}}<span>Search projects…</span></div>
+          <div class="group">
+            <div class="row on"><span class="mark all">{{IconFolders:16}}</span><div class="body"><div class="t">All projects</div><div class="s">4 agents · 3 terminals</div></div><span class="check">{{IconCheck:16}}</span></div>
+            <div class="row"><span class="mark folder">{{IconFolder:16}}</span><div class="body"><div class="t">sikemux</div><div class="s"><span class="m path">&lrm;~/proj/pers/sikemux&lrm;</span></div></div><span class="tail"><span class="dot warn"></span><span class="faces"><span class="claude">{{IconClaude:14}}</span><span class="codex">{{IconCodex:14}}</span></span></span></div>
+            <div class="row"><span class="mark folder">{{IconFolder:16}}</span><div class="body"><div class="t">sikemux-front</div><div class="s"><span class="m path">&lrm;~/projects/personal/sikemux-front&lrm;</span></div></div><span class="tail"><span class="faces"><span class="claude">{{IconClaude:14}}</span><span class="claude">{{IconClaude:14}}</span></span></span></div>
+            <div class="row"><span class="mark folder">{{IconFolder:16}}</span><div class="body"><div class="t">api-docs</div><div class="s"><span class="m path">&lrm;~/proj/swishx/api-docs&lrm;</span></div></div><span class="tail"><span class="tcount">{{IconCommand:13}}1</span></span></div>
+          </div>
+        </div>
+      </div>
+      <div class="home-bar"></div></div>
+      <figcaption><b>Picking a project</b><div class="note">A short sheet over the device, titled with the Mac it belongs to. All projects heads the same list. Folders are the Mac rail's green; each project shows the logos of the agents in it, the white dot if one is waiting on you, and a terminal count when that is all it has.</div></figcaption>
+    </figure>
+
+    <figure><div class="phone"><div class="island"></div>
+      <div class="status"><span>9:41</span><span class="bars"><i></i><i></i></span></div>
+      <div class="screen">
+        <div class="nav"><span class="back">{{IconChevron:18}}Devices</span><span style="flex:1"></span><span class="icon-btn">{{IconMore:18}}</span></div>
+        <div class="dev-title"><span class="dev-glyph">{{IconLaptop:30}}<i class="presence live"></i></span><div><h1>MacBook Pro</h1><p>Dev · 4 agents · 3 terminals</p></div></div>
+        <div class="scope"><span class="pill"><span class="folder">{{IconFolder:14}}</span>sikemux<span class="ch">{{IconChevron:10}}</span></span></div>
+        <div class="track"><span class="on">Agents <i class="count">1</i></span><span>Terminals</span></div>
+        <div class="pad grow">
+          <div class="ask-card">
+            <span class="mark claude">{{IconClaude:22}}</span>
+            <div class="body"><div class="t">Remote pairing screen</div><div class="s">Needs input · wants to run <code>pnpm test</code></div></div>
+            <span class="dot warn"></span>
+          </div>
+          <div class="glabel">Open</div>
+          <div class="group">
+            <div class="row"><span class="mark codex">{{IconCodex:22}}</span><div class="body"><div class="t">Fix the flaky PTY replay test</div><div class="s">Running a command…</div></div><span class="status-slot"><span class="loader"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span></span></div>
+          </div>
+        </div>
+        <div class="fab">{{IconPlus:18}}New chat</div>
+      </div>
+      <div class="home-bar"></div></div>
+      <figcaption><b>One project</b><div class="note">The pill names the project. Rows drop the project name they no longer need, the provider filter hides when one provider is left, and New chat starts one in this project. The choice is kept per device.</div></figcaption>
+    </figure>
+
+  </div>
+</section>
+
+<!-- ================================================================ -->
+<section class="flow">
+  <h2>Starting a chat</h2>
+  <p>The + at the top right was the hardest place to reach one-handed, so starting a chat moves to the bottom of the screen.</p>
+  <div class="phones">
+
+    <figure><div class="phone"><div class="island"></div>
+      <div class="status"><span>9:41</span><span class="bars"><i></i><i></i></span></div>
+      <div class="screen">
+        <div class="nav"><span class="back">{{IconChevron:18}}Devices</span><span style="flex:1"></span><span class="icon-btn">{{IconMore:18}}</span></div>
+        <div class="dev-title"><span class="dev-glyph">{{IconLaptop:30}}<i class="presence live"></i></span><div><h1>MacBook Pro</h1><p>Dev · 4 agents · 3 terminals</p></div></div>
+        <div class="scope"><span class="pill"><span class="folder">{{IconFolder:14}}</span>sikemux<span class="ch">{{IconChevron:10}}</span></span></div>
+        <div class="track"><span class="on">Agents <i class="count">1</i></span><span>Terminals</span></div>
+        <div class="pad grow">
+          <div class="ask-card">
+            <span class="mark claude">{{IconClaude:22}}</span>
+            <div class="body"><div class="t">Remote pairing screen</div><div class="s">Needs input · wants to run <code>pnpm test</code></div></div>
+            <span class="dot warn"></span>
+          </div>
+          <div class="glabel">Open</div>
+          <div class="group">
+            <div class="row"><span class="mark codex">{{IconCodex:22}}</span><div class="body"><div class="t">Fix the flaky PTY replay test</div><div class="s">Running a command…</div></div><span class="status-slot"><span class="loader"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span></span></div>
+            <div class="row"><span class="mark claude">{{IconClaude:22}}</span><div class="body"><div class="t">Tighten the rail spacing</div><div class="s">Ready</div></div><span class="status-slot"></span></div>
+            <div class="row"><span class="mark claude">{{IconClaude:22}}</span><div class="body"><div class="t">App naming</div><div class="s">Sleeping</div></div><span class="status-slot"></span></div>
+          </div>
+        </div>
+        <div class="fab">{{IconPlus:18}}New chat</div>
+      </div>
+      <div class="home-bar"></div></div>
+      <figcaption><b>New chat</b><div class="note">A pill floats at the bottom right of the Agents tab, within the thumb's reach, and starts a chat in the chosen project. The list leaves room below its last row, so nothing stays under it; the top keeps only ⋯.</div></figcaption>
+    </figure>
+
+  </div>
+</section>
+
+<!-- ================================================================ -->
+<section class="flow">
+  <h2>An agent</h2>
+  <p>The Mac's chat pane, line for line: your messages in a bubble on the right, the agent's prose with no bubble, its thinking in faint italics, tool calls folded to "N tool calls" and opened as a tree with the coloured verbs, and the working line with the agent's logo breathing. The composer is the Mac's: attach, YOLO, model, effort, context ring, dictate, send or stop.</p>
+  <div class="phones">
+
+    <figure><div class="phone"><div class="island"></div>
+      <div class="status"><span>9:41</span><span class="bars"><i></i><i></i></span></div>
+      <div class="screen">
+        <div class="nav"><span class="back">{{IconChevron:18}}</span><span class="mid"><span class="codex">{{IconCodex:17}}</span><span>Fix the flaky PTY replay test</span></span><span class="icon-btn">{{IconMoreVertical:16}}</span></div>
+        <div class="chat" style="border-top:1px solid var(--border)">
+          <div class="msg-user"><code class="chip">usePty.test.tsx &gt; replays the snapshot once</code> fails about one run in ten on CI. Find out why and fix it without adding sleeps.</div>
+          <div class="tools"><span class="tools-sum">1 tool call{{IconChevron:11}}</span></div>
+          <div class="thought">Two writes means the attach response and the first channel message both carry the snapshot.</div>
+          <div class="prose">The channel could deliver bytes already inside the attach snapshot. The controller now drops channel output until the snapshot is written, which passes 100 out of 100 runs.</div>
+          <div class="msg-user">Good. Run the whole terminal suite, then commit it.</div>
+          <div class="thought">Running every terminal test before the commit, since the change touches attach and detach.</div>
+          <div class="tools">
+            <span class="tools-sum open">3 tool calls <span class="time">7s</span>{{IconChevron:11}}</span>
+            <div class="tools-body">
+              <div class="tool"><span class="tick"></span><span class="k-run">{{IconCommand:12}}</span><span class="kind k-run">run</span><span class="target">pnpm vitest run src/terminal</span><span class="end">6s</span></div>
+              <div class="tool"><span class="tick"></span><span class="k-edit">{{IconPencil:12}}</span><span class="kind k-edit">edit</span><span class="target">ptyController.ts</span><span class="end"><span class="add">+14</span><span class="del">−3</span></span></div>
+              <div class="tool running"><span class="tick"></span><span class="k-run">{{IconCommand:12}}</span><span class="kind k-run">run</span><span class="target">git commit -m "fix(pty): drop channel bytes…"</span><span class="end">1s</span></div>
+            </div>
+          </div>
+          <div class="activity"><span class="glyph codex">{{IconCodex:20}}</span><span class="lbl">Running a command…</span><span class="el">9s</span></div>
+        </div>
+        <div class="composer-wrap">
+          <div class="composer">
+            <div class="ta ph">Send to queue behind the running turn</div>
+            <div class="bar">
+              <span class="ib">{{IconPlus:18}}</span>
+              <span class="yolo on">{{IconShieldBolt:13}}<b>yolo</b></span>
+              <span class="picker model"><span class="codex">{{IconCodex:16}}</span>GPT-5.5<span class="ch">{{IconChevron:10}}</span></span>
+              <span class="picker">Medium<span class="ch">{{IconChevron:10}}</span></span>
+              <span class="spacer"></span>
+              <span class="ib">{{IconMic:17}}</span>
+              <span class="send"><i></i></span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="home-bar"></div></div>
+      <figcaption><b>Chat, while it works</b><div class="note">Same placeholder as the Mac, "Send to queue behind the running turn", and the same white stop button. The context ring moves to the ⋮ menu: at phone width it is the one control that does not fit.</div></figcaption>
+    </figure>
+
+    <figure><div class="phone"><div class="island"></div>
+      <div class="status"><span>9:41</span><span class="bars"><i></i><i></i></span></div>
+      <div class="screen">
+        <div class="nav"><span class="back">{{IconChevron:18}}</span><span class="mid"><span class="claude">{{IconClaude:17}}</span><span>Remote pairing screen</span></span><span class="icon-btn">{{IconMoreVertical:16}}</span></div>
+        <div class="chat" style="border-top:1px solid var(--border)">
+          <div class="prose">The pairing screen builds and the Devices page shows the waiting phone. Before I commit, I want the settings tests green.</div>
+          <div class="tools">
+            <span class="tools-sum open">2 tool calls <span class="time">1s</span>{{IconChevron:11}}</span>
+            <div class="tools-body">
+              <div class="tool"><span class="tick"></span><span class="k-read">{{IconFile:12}}</span><span class="kind k-read">read</span><span class="target">src/settings/DevicesPage.tsx</span><span class="end">12ms</span></div>
+              <div class="tool"><span class="tick"></span><span class="k-edit">{{IconPencil:12}}</span><span class="kind k-edit">edit</span><span class="target">PairingQr.tsx</span><span class="end"><span class="add">+18</span><span class="del">−4</span></span></div>
+            </div>
+          </div>
+        </div>
+        <div class="composer-wrap">
+          <div class="docked">
+            <div class="docked-head">{{IconShieldBolt:16}}<div><b>Run a command?</b><span>Claude Code needs permission to continue</span></div></div>
+            <div class="dock-cmd"><b>$</b> pnpm test src/settings</div>
+            <div class="docked-acts"><span>Reject</span><span>Always allow</span><span class="go">Allow</span></div>
+          </div>
+          <div class="composer">
+            <div class="ta ph">Send to queue behind the running turn</div>
+            <div class="bar">
+              <span class="ib">{{IconPlus:18}}</span>
+              <span class="yolo">{{IconShield:13}}<b style="font-weight:560">safe</b></span>
+              <span class="picker model"><span class="claude">{{IconClaude:16}}</span>Opus 4.6<span class="ch">{{IconChevron:10}}</span></span>
+              <span class="picker">High<span class="ch">{{IconChevron:10}}</span></span>
+              <span class="spacer"></span>
+              <span class="ib">{{IconMic:17}}</span>
+              <span class="send"><i></i></span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="home-bar"></div></div>
+      <figcaption><b>Asking permission</b><div class="note">Docked to the top of the composer, inside the chat, and it stays until it is answered: no drawer, no scrim, nothing to fold away. The transcript stays readable above it and the composer below it. Allow is the one white button.</div></figcaption>
+    </figure>
+
+    <figure><div class="phone"><div class="island"></div>
+      <div class="status"><span>9:41</span><span class="bars"><i></i><i></i></span></div>
+      <div class="screen">
+        <div class="nav"><span class="back">{{IconChevron:18}}</span><span class="mid"><span class="claude">{{IconClaude:17}}</span><span>Download size on the hero</span></span><span class="icon-btn">{{IconMoreVertical:16}}</span></div>
+        <div class="chat" style="border-top:1px solid var(--border)">
+          <div class="msg-user">Show the download size next to the button.</div>
+          <div class="tools"><span class="tools-sum">2 tool calls <span class="time">3s</span>{{IconChevron:11}}</span></div>
+          <div class="prose">Done. The size comes from the latest release's DMG at build time, then from the visitor's browser, so it stays right between deploys.</div>
+        </div>
+        <div class="composer-wrap" style="padding-bottom:8px">
+          <div class="composer focus">
+            <div class="ta">Make it say "MB" with one decimal<span class="caret"></span></div>
+            <div class="bar">
+              <span class="ib">{{IconPlus:18}}</span>
+              <span class="yolo">{{IconShield:13}}<b style="font-weight:560">safe</b></span>
+              <span class="picker model"><span class="claude">{{IconClaude:16}}</span>Opus 4.6<span class="ch">{{IconChevron:10}}</span></span>
+              <span class="picker">High<span class="ch">{{IconChevron:10}}</span></span>
+              <span class="spacer"></span>
+              <span class="ib">{{IconMic:17}}</span>
+              <span class="send">{{IconArrowUp:16}}</span>
+            </div>
+          </div>
+        </div>
+        <div class="kb" style="padding-bottom:26px">
+          <div class="r"><span class="k">q</span><span class="k">w</span><span class="k">e</span><span class="k">r</span><span class="k">t</span><span class="k">y</span><span class="k">u</span><span class="k">i</span><span class="k">o</span><span class="k">p</span></div>
+          <div class="r"><span class="k">a</span><span class="k">s</span><span class="k">d</span><span class="k">f</span><span class="k">g</span><span class="k">h</span><span class="k">j</span><span class="k">k</span><span class="k">l</span></div>
+          <div class="r"><span class="k w">⇧</span><span class="k">z</span><span class="k">x</span><span class="k">c</span><span class="k">v</span><span class="k">b</span><span class="k">n</span><span class="k">m</span><span class="k w">⌫</span></div>
+          <div class="r"><span class="k w">123</span><span class="k sp">space</span><span class="k w">return</span></div>
+        </div>
+      </div>
+      <div class="home-bar"></div></div>
+      <figcaption><b>Writing</b><div class="note">Focus edges the composer in the selection colour, and the stop square becomes the Mac's up arrow. Return makes a new line; the arrow sends.</div></figcaption>
+    </figure>
+
+    <figure><div class="phone"><div class="island"></div>
+      <div class="status"><span>9:41</span><span class="bars"><i></i><i></i></span></div>
+      <div class="screen">
+        <div class="nav"><span class="back">{{IconChevron:18}}</span><span class="mid"><span class="codex">{{IconCodex:17}}</span><span>Fix the flaky PTY replay test</span></span><span class="icon-btn">{{IconMoreVertical:16}}</span></div>
+        <div class="chat" style="border-top:1px solid var(--border);justify-content:flex-start">
+          <div class="prose">The channel could deliver bytes already inside the attach snapshot, so the first write landed twice whenever the channel won the race.</div>
+          <div class="msg-user">Good. Run the whole terminal suite, then commit it.</div>
+          <div class="thought">Running every terminal test before the commit, since the change touches attach and detach.</div>
+          <div class="tools"><span class="tools-sum">3 tool calls <span class="time">7s</span>{{IconChevron:11}}</span></div>
+          <div class="prose">All 214 terminal tests pass. The fix keeps channel output back until the snapshot is written, then lets it through in order.</div>
+        </div>
+        <div class="composer-wrap jumps">
+          <span class="jump">{{IconArrowDown:16}}</span>
+          <div class="composer">
+            <div class="ta ph">Send to queue behind the running turn</div>
+            <div class="bar">
+              <span class="ib">{{IconPlus:18}}</span>
+              <span class="yolo on">{{IconShieldBolt:13}}<b>yolo</b></span>
+              <span class="picker model"><span class="codex">{{IconCodex:16}}</span>GPT-5.5<span class="ch">{{IconChevron:10}}</span></span>
+              <span class="picker">Medium<span class="ch">{{IconChevron:10}}</span></span>
+              <span class="spacer"></span>
+              <span class="ib">{{IconMic:17}}</span>
+              <span class="send"><i></i></span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="home-bar"></div></div>
+      <figcaption><b>Reading back</b><div class="note">Scrolled up, the transcript holds still while the agent keeps writing below. A round arrow sits just above the composer, as on the Mac, and takes you back to the latest message. Near the end, new lines follow on their own. Text can be selected, and links open in the browser.</div></figcaption>
+    </figure>
+
+    <figure><div class="phone"><div class="island"></div>
+      <div class="status"><span>9:41</span><span class="bars"><i></i><i></i></span></div>
+      <div class="screen">
+        <div class="nav"><span class="back">{{IconChevron:18}}</span><span class="mid"><span class="claude">{{IconClaude:17}}</span><span>Download size on the hero</span></span><span class="icon-btn">{{IconMoreVertical:16}}</span></div>
+        <div class="chat" style="border-top:1px solid var(--border)">
+          <div class="msg-user">Show the download size next to the button.</div>
+          <div class="tools"><span class="tools-sum">2 tool calls <span class="time">3s</span>{{IconChevron:11}}</span></div>
+          <div class="prose">Done. The size comes from the latest release's DMG at build time, then from the visitor's browser.</div>
+        </div>
+        <div class="scrim"></div>
+        <div class="sheet picker-sheet">
+          <div class="grabber"></div>
+          <div class="ps-head"><span class="claude">{{IconClaude:20}}</span><b>Claude Code</b><span class="ps-plan">Max</span></div>
+          <div class="ps-label">Model</div>
+          <div class="group">
+            <div class="row on"><span class="mark claude">{{IconClaude:20}}</span><div class="body"><div class="t">Opus 4.6</div></div><span class="check">{{IconCheck:17}}</span></div>
+            <div class="row"><span class="mark claude">{{IconClaude:20}}</span><div class="body"><div class="t">Sonnet 4.6</div></div></div>
+            <div class="row"><span class="mark claude">{{IconClaude:20}}</span><div class="body"><div class="t">Haiku 4.5</div></div></div>
+          </div>
+          <div class="ps-label">Effort</div>
+          <div class="track three"><span>Low</span><span>Medium</span><span class="on">High</span></div>
+          <div class="ps-context">
+            <div class="ps-ctx-top"><span>Context</span><span class="m">84k of 200k</span></div>
+            <div class="ps-bar"><i style="width:42%"></i></div>
+          </div>
+        </div>
+      </div>
+      <div class="home-bar"></div></div>
+      <figcaption><b>Model and effort</b><div class="note">Tapping the model or effort opens one sheet: the agent and its plan, the models with the agent's icon and a check on the chosen one, effort as the same switch the device screen uses, and how much of the context is used, in the provider’s colour.</div></figcaption>
+    </figure>
+
+    <figure><div class="phone"><div class="island"></div>
+      <div class="status"><span>9:41</span><span class="bars"><i></i><i></i></span></div>
+      <div class="screen">
+        <div class="nav"><span class="back">{{IconChevron:18}}Cancel</span><span class="mid"><span>New chat</span></span><span class="end"></span></div>
+        <div class="scrim"></div>
+        <div class="sheet picker-sheet">
+          <div class="grabber"></div>
+          <div class="ps-label" style="padding-top:4px">Agent</div>
+          <div class="agent-switch">
+            <span><span class="claude">{{IconClaude:20}}</span>Claude</span>
+            <span class="on"><span class="codex">{{IconCodex:20}}</span>Codex</span>
+            <span><span class="hermes">{{IconHermes:20}}</span>Hermes</span>
+            <span><span class="opencode">{{IconOpenCode:20}}</span>OpenCode</span>
+          </div>
+          <div class="ps-label">Model</div>
+          <div class="group">
+            <div class="row on"><span class="mark codex">{{IconCodex:20}}</span><div class="body"><div class="t">GPT-5.5</div></div><span class="check">{{IconCheck:17}}</span></div>
+            <div class="row"><span class="mark codex">{{IconCodex:20}}</span><div class="body"><div class="t">GPT-5.5 mini</div></div></div>
+            <div class="row"><span class="mark codex">{{IconCodex:20}}</span><div class="body"><div class="t">GPT-5.4</div></div></div>
+          </div>
+          <div class="ps-label">Effort</div>
+          <div class="track three"><span>Low</span><span class="on">Medium</span><span>High</span></div>
+        </div>
+      </div>
+      <div class="home-bar"></div></div>
+      <figcaption><b>Model and effort, new chat</b><div class="note">Before the first message the agent is still open, so the sheet starts with an agent switch and the models follow it. Context is left out: there is none yet.</div></figcaption>
+    </figure>
+
+    <figure><div class="phone"><div class="island"></div>
+      <div class="status"><span>9:41</span><span class="bars"><i></i><i></i></span></div>
+      <div class="screen">
+        <div class="nav"><span class="back">{{IconChevron:18}}</span><span class="mid"><span class="claude">{{IconClaude:17}}</span><span>Download size on the hero</span></span><span class="icon-btn">{{IconMoreVertical:16}}</span></div>
+        <div class="chat" style="border-top:1px solid var(--border);justify-content:flex-start">
+          <div class="msg-user">Show the download size next to the button.</div>
+          <div class="tools"><span class="tools-sum">2 tool calls <span class="time">3s</span>{{IconChevron:11}}</span></div>
+          <div class="prose">Done. The size comes from the latest release's DMG at build time, then from the visitor's browser, so it stays right between deploys.</div>
+        </div>
+        <div class="composer-wrap">
+          <div class="composer" style="display:flex;align-items:center;gap:10px;padding:14px;color:var(--ink-dim);font-size:13.5px;line-height:1.45">
+            {{IconEye:17}}<span>Watching. This phone can answer permission requests on MacBook Pro; the Mac can give it full access.</span>
+          </div>
+        </div>
+      </div>
+      <div class="home-bar"></div></div>
+      <figcaption><b>Watch only</b><div class="note">Where the composer would be, one line saying what this phone may do and where that is decided.</div></figcaption>
+    </figure>
+
+    <figure><div class="phone"><div class="island"></div>
+      <div class="status"><span>9:41</span><span class="bars"><i></i><i></i></span></div>
+      <div class="screen">
+        <div class="nav"><span class="back">{{IconChevron:18}}</span><span class="mid"><span class="claude">{{IconClaude:17}}</span><span>Remote pairing screen</span></span><span class="icon-btn">{{IconMoreVertical:16}}</span></div>
+        <div class="chat" style="border-top:1px solid var(--border);padding-bottom:34px">
+          <p style="text-align:center;font-size:13px;color:var(--text-tertiary);margin-bottom:16px">This chat is no longer running on the Mac.</p>
+          <div class="btn">Try again</div>
+        </div>
+      </div>
+      <div class="home-bar"></div></div>
+      <figcaption><b>Could not open</b><div class="note">A chat the Mac cannot wake or attach says why in one line, with Try again under it in place of the composer.</div></figcaption>
+    </figure>
+
+  </div>
+</section>
+
+<!-- ================================================================ -->
+<section class="flow">
+  <h2>New chat</h2>
+  <p>The Mac's empty chat: pick the agent from the same tiles, the project, and type into the same composer. Only launchers the Mac app publishes appear.</p>
+  <div class="phones">
+
+    <figure><div class="phone"><div class="island"></div>
+      <div class="status"><span>9:41</span><span class="bars"><i></i><i></i></span></div>
+      <div class="screen">
+        <div class="nav"><span class="back">{{IconChevron:18}}Cancel</span><span class="mid"><span>New chat</span></span><span class="end"></span></div>
+        <div class="welcome-chat">
+          <div class="wc-head"><span class="claude">{{IconClaude:36}}</span><b>sikemux</b></div>
+          <div class="wc-cal">
+            <div class="wc-heat"><div class="wc-cells"><i data-level="2"></i><i data-level="1"></i><i></i><i data-level="2"></i><i data-level="3"></i><i></i><i></i><i data-level="2"></i><i></i><i data-level="3"></i><i data-level="2"></i><i data-level="3"></i><i data-level="2"></i><i data-level="1"></i><i data-level="1"></i><i data-level="2"></i><i data-level="2"></i><i data-level="3"></i><i data-level="4"></i><i></i><i data-level="2"></i><i data-level="1"></i><i data-level="1"></i><i data-level="3"></i><i data-level="4"></i><i data-level="2"></i><i data-level="1"></i><i></i><i data-level="2"></i><i data-level="2"></i><i></i><i data-level="3"></i><i data-level="4"></i><i></i><i data-level="1"></i><i></i><i data-level="2"></i><i data-level="3"></i><i data-level="4"></i><i></i><i data-level="1"></i><i></i><i data-level="3"></i><i data-level="3"></i><i></i><i></i><i data-level="4"></i><i data-level="1"></i><i data-level="1"></i><i data-level="4"></i><i data-level="2"></i><i data-level="4"></i><i data-level="3"></i><i data-level="3"></i><i></i><i></i><i data-level="2"></i><i data-level="3"></i><i data-level="3"></i><i></i><i data-level="3"></i><i></i><i></i><i data-level="3"></i><i data-level="3"></i><i data-level="4"></i><i data-level="2"></i><i data-level="2"></i><i></i><i data-level="1"></i><i data-level="3"></i><i data-level="2"></i><i></i><i data-level="2"></i><i data-level="2"></i><i data-level="2"></i><i data-level="2"></i><i data-level="4"></i><i></i><i data-level="4"></i><i data-level="3"></i><i data-level="3"></i><i></i><i data-level="1"></i><i data-level="2"></i><i data-level="1"></i><i data-level="1"></i><i></i><i data-level="3"></i><i></i><i></i><i></i><i data-level="3"></i><i data-level="4"></i><i data-level="2"></i><i data-level="3"></i><i></i><i data-level="1"></i><i data-level="2"></i><i></i><i></i><i data-level="2"></i><i data-level="4"></i><i></i><i></i><i data-level="3"></i><i data-level="4"></i><i data-level="1"></i><i data-level="2"></i><i data-level="1"></i><i data-level="1"></i><i data-level="1"></i><i data-level="2"></i><i data-level="3"></i><i data-level="2"></i><i data-level="2"></i><i data-level="3"></i><i data-level="1"></i><i></i><i data-level="4"></i><i></i><i></i><i data-level="2"></i><i data-level="3"></i><i data-level="1"></i><i data-level="2"></i><i data-level="2"></i><i></i><i></i><i data-level="2"></i><i data-level="3"></i><i data-level="2"></i><i data-level="1"></i><i data-level="2"></i><i data-level="1"></i><i data-level="1"></i><i data-level="4"></i><i class="future"></i><i class="future"></i><i class="future"></i></div></div>
+            <div class="wc-caption">96 active days in the last 20 weeks</div>
+          </div>
+        </div>
+        <div class="composer-wrap">
+          <div class="project-strip">
+            <span class="ps-project"><span class="folder">{{IconFolder:13}}</span><b>sikemux</b><span class="ch">{{IconChevron:10}}</span></span>
+            <span class="ps-branch">{{IconGit:12}}main</span>
+          </div>
+          <div class="composer">
+            <div class="ta ph">Ask about this project, or type / for commands</div>
+            <div class="bar">
+              <span class="ib">{{IconPlus:18}}</span>
+              <span class="yolo on">{{IconShieldBolt:13}}<b>yolo</b></span>
+              <span class="picker model"><span class="claude">{{IconClaude:16}}</span>Opus 4.6<span class="ch">{{IconChevron:10}}</span></span>
+              <span class="picker">High<span class="ch">{{IconChevron:10}}</span></span>
+              <span class="spacer"></span>
+              <span class="ib">{{IconMic:17}}</span>
+              <span class="send off">{{IconArrowUp:16}}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="home-bar"></div></div>
+      <figcaption><b>New chat</b><div class="note">The Mac's new-chat welcome, cut to what reads at a glance: the agent, the project, and the last twenty weeks of its activity calendar with one line under it. The project strip docks on the composer until the first message; the agent is chosen from the model picker.</div></figcaption>
+    </figure>
+
+    <figure><div class="phone"><div class="island"></div>
+      <div class="status"><span>9:41</span><span class="bars"><i></i><i></i></span></div>
+      <div class="screen">
+        <div class="nav"><span class="back">{{IconChevron:18}}Cancel</span><span class="mid"><span>New chat</span></span><span class="end"></span></div>
+        <div class="scrim"></div>
+        <div class="sheet project-sheet">
+          <div class="grabber"></div>
+          <div class="search">{{IconSearch:16}}<span>Search projects…</span></div>
+          <div class="ps-label">Open</div>
+          <div class="group">
+            <div class="row on"><span class="mark folder">{{IconFolder:16}}</span><div class="body"><div class="t">sikemux</div><div class="s"><span class="m path">&lrm;~/proj/pers/sikemux&lrm;</span></div></div><span class="check">{{IconCheck:16}}</span></div>
+            <div class="row"><span class="mark folder">{{IconFolder:16}}</span><div class="body"><div class="t">sikemux-front</div><div class="s"><span class="m path">&lrm;~/projects/personal/sikemux-front&lrm;</span></div></div></div>
+            <div class="row"><span class="mark folder">{{IconFolder:16}}</span><div class="body"><div class="t">api-docs</div><div class="s"><span class="m path">&lrm;~/proj/swishx/api-docs&lrm;</span></div></div></div>
+          </div>
+          <div class="ps-label">Found on disk</div>
+          <div class="group">
+            <div class="row"><span class="mark folder">{{IconFolder:16}}</span><div class="body"><div class="t">hermes-agent</div><div class="s"><span class="m path">&lrm;~/proj/oss/hermes-agent&lrm;</span></div></div></div>
+            <div class="row"><span class="mark folder">{{IconFolder:16}}</span><div class="body"><div class="t">dotfiles</div><div class="s"><span class="m path">&lrm;~/dotfiles&lrm;</span></div></div></div>
+            <div class="row"><span class="mark folder">{{IconFolder:16}}</span><div class="body"><div class="t">ghostty-themes</div><div class="s"><span class="m path">&lrm;~/proj/pers/ghostty-themes&lrm;</span></div></div></div>
+          </div>
+        </div>
+      </div>
+      <div class="home-bar"></div></div>
+      <figcaption><b>Project</b><div class="note">The strip's project opens the Mac's switcher as a tall sheet: projects open in the Mac app first, then ones found on disk. The path is mono and cut from the start, so the folder it ends in stays on screen. The current project carries the check.</div></figcaption>
+    </figure>
+
+    <figure><div class="phone"><div class="island"></div>
+      <div class="status"><span>9:41</span><span class="bars"><i></i><i></i></span></div>
+      <div class="screen">
+        <div class="nav"><span class="back">{{IconChevron:18}}Cancel</span><span class="mid"><span>New chat</span></span><span class="end"></span></div>
+        <div class="scrim"></div>
+        <div class="sheet project-sheet typing">
+          <div class="grabber"></div>
+          <div class="search focus">{{IconSearch:16}}<span class="q">sike<span class="caret"></span></span><span class="clear">{{IconClose:12}}</span></div>
+          <div class="group" style="margin-top:12px">
+            <div class="row on"><span class="mark folder">{{IconFolder:16}}</span><div class="body"><div class="t"><mark>sike</mark>mux</div><div class="s"><span class="m path">&lrm;~/proj/pers/sikemux&lrm;</span></div></div><span class="check">{{IconCheck:16}}</span></div>
+            <div class="row"><span class="mark folder">{{IconFolder:16}}</span><div class="body"><div class="t"><mark>sike</mark>mux-front</div><div class="s"><span class="m path">&lrm;~/projects/personal/sikemux-front&lrm;</span></div></div></div>
+            <div class="row"><span class="mark folder">{{IconFolder:16}}</span><div class="body"><div class="t"><mark>sike</mark>mux-showreel</div><div class="s"><span class="m path">&lrm;~/proj/pers/sikemux-showreel&lrm;</span></div></div></div>
+          </div>
+          <div class="kb" style="margin:auto -16px 0;padding-bottom:26px">
+            <div class="r"><span class="k">q</span><span class="k">w</span><span class="k">e</span><span class="k">r</span><span class="k">t</span><span class="k">y</span><span class="k">u</span><span class="k">i</span><span class="k">o</span><span class="k">p</span></div>
+            <div class="r"><span class="k">a</span><span class="k">s</span><span class="k">d</span><span class="k">f</span><span class="k">g</span><span class="k">h</span><span class="k">j</span><span class="k">k</span><span class="k">l</span></div>
+            <div class="r"><span class="k w">⇧</span><span class="k">z</span><span class="k">x</span><span class="k">c</span><span class="k">v</span><span class="k">b</span><span class="k">n</span><span class="k">m</span><span class="k w">⌫</span></div>
+            <div class="r"><span class="k w">123</span><span class="k sp">space</span><span class="k w">go</span></div>
+          </div>
+        </div>
+      </div>
+      <div class="home-bar"></div></div>
+      <figcaption><b>Project, searching</b><div class="note">Typing filters both groups at once with the Mac's fuzzy match; the matched letters brighten. Go picks the first result, and the strip shows the new project.</div></figcaption>
+    </figure>
+
+  </div>
+</section>
+
+<!-- ================================================================ -->
+<section class="flow">
+  <h2>A terminal</h2>
+  <p>The Mac's own terminal in xterm.js, with a key row for what the phone keyboard lacks.</p>
+  <div class="phones">
+
+    <figure><div class="phone"><div class="island"></div>
+      <div class="status"><span>9:41</span><span class="bars"><i></i><i></i></span></div>
+      <div class="screen">
+        <div class="nav"><span class="back">{{IconChevron:18}}</span><span class="mid"><span style="color:var(--text-secondary)">{{IconCommand:16}}</span><span>zsh</span></span><span class="icon-btn">{{IconMoreVertical:16}}</span></div>
+        <div class="term-head">~/proj/pers/sikemux · 120×34 on the Mac</div>
+<div class="term"><span class="p">~/proj/pers/sikemux</span> <span class="f">main</span> <span class="g">❯</span> pnpm test src/settings
+
+ <span class="g">✓</span> src/settings/DevicesPage.test.tsx <span class="f">(9)</span>
+ <span class="g">✓</span> src/settings/SettingsPanel.test.tsx <span class="f">(14)</span>
+ <span class="g">✓</span> src/settings/PairingQr.test.tsx <span class="f">(3)</span>
+
+ <span class="f">Test Files</span>  <span class="g">3 passed</span> (3)
+ <span class="f">     Tests</span>  <span class="g">26 passed</span> (26)
+ <span class="f">  Duration</span>  1.84s
+
+<span class="p">~/proj/pers/sikemux</span> <span class="f">main</span> <span class="g">❯</span> git st<span class="cur"> </span></div>
+        <div class="keyrow"><span>esc</span><span class="on">ctrl</span><span>tab</span><span>↑</span><span>↓</span><span>←</span><span>→</span><span>|</span><span>~</span></div>
+        <div class="kb" style="padding-bottom:26px">
+          <div class="r"><span class="k">q</span><span class="k">w</span><span class="k">e</span><span class="k">r</span><span class="k">t</span><span class="k">y</span><span class="k">u</span><span class="k">i</span><span class="k">o</span><span class="k">p</span></div>
+          <div class="r"><span class="k">a</span><span class="k">s</span><span class="k">d</span><span class="k">f</span><span class="k">g</span><span class="k">h</span><span class="k">j</span><span class="k">k</span><span class="k">l</span></div>
+          <div class="r"><span class="k w">⇧</span><span class="k">z</span><span class="k">x</span><span class="k">c</span><span class="k">v</span><span class="k">b</span><span class="k">n</span><span class="k">m</span><span class="k w">⌫</span></div>
+          <div class="r"><span class="k w">123</span><span class="k sp">space</span><span class="k w">return</span></div>
+        </div>
+      </div>
+      <div class="home-bar"></div></div>
+      <figcaption><b>Terminal</b><div class="note">Ctrl latches for one key, with the selection look. The terminal keeps the Mac's size and the phone scales it, so a running program never reflows because a phone looked at it.</div></figcaption>
+    </figure>
+
+    <figure><div class="phone"><div class="island"></div>
+      <div class="status"><span>9:41</span><span class="bars"><i></i><i></i></span></div>
+      <div class="screen">
+        <div class="nav"><span class="back">{{IconChevron:18}}</span><span class="mid"><span style="color:var(--text-secondary)">{{IconRun:14}}</span><span>dev</span></span><span class="icon-btn">{{IconMoreVertical:16}}</span></div>
+        <div class="term-head">pnpm dev · running 1h 12m</div>
+<div class="term"><span class="f">  VITE v7.3.1  ready in 412 ms</span>
+
+  <span class="g">➜</span>  Local:   <span class="p">http://localhost:1420/</span>
+  <span class="f">➜  Network: use --host to expose</span>
+
+<span class="f">9:38:02</span> <span class="p">[vite]</span> hmr update /src/settings/Devi…
+<span class="f">9:38:40</span> <span class="p">[vite]</span> hmr update /src/settings/Pair…
+<span class="f">9:39:12</span> <span class="p">[vite]</span> <span class="y">page reload</span> src/settings/index.ts
+<span class="f">9:40:55</span> <span class="p">[vite]</span> hmr update /src/settings/Devi…</div>
+        <div class="footer" style="flex-direction:row;border-top:1px solid var(--border)">
+          <div class="btn" style="flex:1">{{IconCommand:16}}Keyboard</div>
+          <div class="btn danger" style="flex:1">{{IconStop:14}}Stop</div>
+        </div>
+      </div>
+      <div class="home-bar"></div></div>
+      <figcaption><b>Watching a task</b><div class="note">With the keyboard down the output gets the screen. Stop asks first, then sends what the Mac's stop does.</div></figcaption>
+    </figure>
+
+  </div>
+</section>
+
+<!-- ================================================================ -->
+<section class="flow">
+  <h2>Away from the app</h2>
+  <p>An agent stops to ask while the phone is in a pocket. This needs a push service the core can reach, which does not exist yet.</p>
+  <div class="phones">
+
+    <figure><div class="phone" style="background:#000"><div class="island"></div>
+      <div class="status" style="color:#fff"><span></span><span class="bars"><i></i><i></i></span></div>
+      <div class="lock">
+        <div class="clock"><div>Friday 2 October</div><div>9:41</div></div>
+        <div class="notif">
+          <div class="h"><span class="appicon">{{Logo:15}}</span>SIKEMUX<span class="t">now</span></div>
+          <div class="b"><b>Claude Code needs permission</b><br><span class="m">pnpm test src/settings</span><br>sikemux on MacBook Pro</div>
+          <div class="acts"><span>Reject</span><span>Allow</span></div>
+        </div>
+      </div>
+      <div class="home-bar" style="background:#fff"></div></div>
+      <figcaption><b>Notification</b><div class="note">Allow or Reject straight from the lock screen. "Always allow" is left to the chat, where you can see what you would be allowing.</div></figcaption>
+    </figure>
+
+  </div>
+</section>
+
+</body>
+</html>

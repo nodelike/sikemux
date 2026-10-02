@@ -30,7 +30,7 @@ struct SikemuxVoice {
             case "prepare":
                 await dictation.prepare(modelsDir: command.modelsDir ?? "")
             case "start":
-                await dictation.start(vocabulary: command.vocabulary ?? [])
+                await dictation.start()
             case "stop":
                 await dictation.stop()
             case "cancel":
@@ -47,19 +47,18 @@ struct SikemuxVoice {
         return arguments[index + 1]
     }
 
-    private static func prepareForFile(_ dictation: Dictation) async -> [String] {
+    private static func prepareForFile(_ dictation: Dictation) async {
         guard let models = option("--models"), await dictation.prepare(modelsDir: models) else {
             FileHandle.standardError.write(
-                Data("usage: sikemux-voice --transcribe|--stream <audio> --models <dir> [--vocabulary a,b]\n".utf8))
+                Data("usage: sikemux-voice --transcribe|--stream <audio> --models <dir>\n".utf8))
             exit(2)
         }
-        return option("--vocabulary")?.split(separator: ",").map(String.init) ?? []
     }
 
     private static func stream(file: String, with dictation: Dictation) async {
-        let vocabulary = await prepareForFile(dictation)
+        await prepareForFile(dictation)
         do {
-            try await dictation.stream(file: URL(fileURLWithPath: file), vocabulary: vocabulary)
+            try await dictation.stream(file: URL(fileURLWithPath: file))
         } catch {
             Output.failure("transcribe", error.localizedDescription)
             exit(1)
@@ -67,10 +66,10 @@ struct SikemuxVoice {
     }
 
     private static func transcribe(file: String, with dictation: Dictation) async {
-        let vocabulary = await prepareForFile(dictation)
+        await prepareForFile(dictation)
         do {
             let started = Date()
-            let text = try await dictation.transcribe(file: URL(fileURLWithPath: file), vocabulary: vocabulary)
+            let text = try await dictation.transcribe(file: URL(fileURLWithPath: file))
             Output.send(["type": "transcript", "text": text, "seconds": Date().timeIntervalSince(started)])
         } catch {
             Output.failure("transcribe", error.localizedDescription)

@@ -1,0 +1,253 @@
+.git-right {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+.git-right-review {
+    position: relative;
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.merge-review {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 0;
+    overflow: hidden;
+}
+.merge-review-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    min-height: 34px;
+    flex: 0 0 auto;
+    padding: 0 10px 0 14px;
+    border-bottom: 1px solid var(--border);
+    background: color-mix(in srgb, var(--surface) calc(var(--window-opacity, 1) * 100%), transparent);
+}
+.merge-review-count {
+    margin-right: auto;
+    color: var(--text-tertiary);
+    font-size: var(--text-xs);
+}
+.merge-review-action {
+    height: 22px;
+    padding: 0 7px;
+    color: var(--text-tertiary);
+    font-size: var(--text-2xs);
+    transition:
+        color 0.12s,
+        opacity 0.12s;
+}
+.merge-review-action:hover:not(:disabled) {
+    background: var(--surface-hover);
+    color: var(--text-primary);
+}
+.merge-review-action:disabled {
+    opacity: 0.35;
+    cursor: default;
+}
+/* The diffs run to the pane's edge: a scrollbar column here left a strip beside every file, and pinned headers drew over it. */
+.merge-review-list {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    scrollbar-width: none;
+}
+.merge-review-list::-webkit-scrollbar {
+    display: none;
+    width: 0;
+}
+.merge-review-virtual {
+    position: relative;
+    width: 100%;
+}
+.merge-review-virtual-item {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+}
+.merge-review-item.focused > .merge-file-header {
+    background: color-mix(in srgb, var(--surface) var(--surface-solidity, 100%), transparent)
+        linear-gradient(var(--surface-selected), var(--surface-selected));
+    box-shadow: inset 0 0 0 1px var(--border-selected);
+}
+.merge-file-dir {
+    color: var(--text-tertiary);
+}
+.merge-file-base {
+    color: var(--text-primary);
+}
+.merge-file-actions {
+    display: none;
+    gap: 2px;
+    padding-right: var(--space-1);
+}
+.merge-file-header:hover .merge-file-actions {
+    display: flex;
+}
+.merge-file-status {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    padding-right: 9px;
+}
+.merge-review-content {
+    min-width: 0;
+    content-visibility: auto;
+    contain-intrinsic-size: auto 240px;
+}
+.merge-sections {
+    display: flex;
+    flex-direction: column;
+}
+.merge-section {
+    display: flex;
+    flex-direction: column;
+}
+.merge-section + .merge-section {
+    border-top: 1px solid var(--border);
+}
+.merge-section-title {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    flex: 0 0 auto;
+    height: 22px;
+    padding: 0 10px;
+    color: var(--text-tertiary);
+    font-size: var(--text-3xs);
+    letter-spacing: var(--tracking-label);
+    text-transform: uppercase;
+    background: color-mix(in srgb, var(--surface) calc(var(--window-opacity, 1) * 55%), transparent);
+}
+.diff-editor {
+    flex: 1;
+    min-height: 0;
+    overflow: auto;
+}
+.diff-editor-error {
+    margin: 12px;
+    padding: 10px 12px;
+    border: 1px solid rgba(255, 103, 103, 0.55);
+    color: var(--danger);
+    background: rgba(255, 103, 103, 0.07);
+    font-size: var(--text-xs);
+    line-height: 1.5;
+    white-space: pre-wrap;
+}
+.diff-editor-loading {
+    padding: 12px;
+    color: var(--text-tertiary);
+    font-size: var(--text-2xs);
+}
+.diff-editor.auto {
+    flex: none;
+    overflow: visible;
+}
+.diff-view {
+    --diff-add-row: color-mix(in lab, transparent 88%, var(--live));
+    --diff-del-row: color-mix(in lab, transparent 88%, var(--danger));
+    isolation: isolate;
+    padding: 8px 0;
+    overflow: auto hidden;
+    overscroll-behavior-x: none;
+    font: 12px / 19px var(--mono);
+    color: var(--ink);
+    tab-size: 2;
+    user-select: text;
+    scrollbar-color: var(--ink-faint) transparent;
+}
+.diff-view.tinted {
+    --diff-add-row: color-mix(in lab, transparent 80%, var(--live));
+    --diff-del-row: color-mix(in lab, transparent 80%, var(--danger));
+}
+.diff-view::-webkit-scrollbar {
+    width: 12px;
+    height: 12px;
+}
+.diff-view::-webkit-scrollbar-track,
+.diff-view::-webkit-scrollbar-corner {
+    background: transparent;
+}
+.diff-view::-webkit-scrollbar-thumb {
+    background: var(--ink-faint);
+    border: 3px solid transparent;
+    background-clip: padding-box;
+}
+.diff-view::-webkit-scrollbar-thumb:hover {
+    background: var(--ink-dim);
+    background-clip: padding-box;
+}
+.diff-view ::selection {
+    background: var(--acc-soft);
+}
+.diff-rows {
+    width: max-content;
+    min-width: 100%;
+}
+.diff-row {
+    display: flex;
+    height: 19px;
+}
+.diff-row[data-kind="hidden"] {
+    height: 4px;
+    background: color-mix(in oklab, var(--ink) 7%, transparent);
+    cursor: pointer;
+}
+.diff-num {
+    position: sticky;
+    left: 0;
+    z-index: 1;
+    flex: none;
+    box-sizing: content-box;
+    width: calc(var(--diff-digits) * 1ch);
+    padding: 0 1ch 0 2ch;
+    border-right: 2px solid transparent;
+    background: var(--surface-gutter);
+    color: var(--ink-faint);
+    text-align: right;
+    user-select: none;
+}
+.diff-code {
+    flex: 1 0 auto;
+    padding: 0 1ch;
+    white-space: pre;
+}
+.diff-row[data-kind="added"] .diff-num::before,
+.diff-row[data-kind="deleted"] .diff-num::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 4px;
+    height: 100%;
+}
+.diff-row[data-kind="added"] .diff-num::before {
+    background: var(--live);
+}
+.diff-row[data-kind="deleted"] .diff-num::before {
+    background-image: linear-gradient(0deg, var(--diff-del-row) 50%, var(--danger) 50%);
+    background-size: 1.9px 1.9px;
+}
+.diff-view.tinted .diff-row[data-kind="added"] .diff-num {
+    color: var(--live);
+    background: color-mix(in lab, transparent 85%, var(--live));
+}
+.diff-view.tinted .diff-row[data-kind="deleted"] .diff-num {
+    color: var(--danger);
+    background: color-mix(in lab, transparent 85%, var(--danger));
+}
+.diff-view.tinted .diff-row[data-kind="added"] .diff-code {
+    background: var(--diff-add-row);
+}
+.diff-view.tinted .diff-row[data-kind="deleted"] .diff-code {
+    background: var(--diff-del-row);
+}

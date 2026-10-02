@@ -19,24 +19,18 @@ export const BROWSER_TABS: Record<
   [AGENTS.hero.id]: {
     tabs: [
       tab(
-        "tab-pr",
-        "https://github.com/nodelike/sikemux/pull/14",
-        "fix(agents): probe Hermes with --help, not --version · Pull Request #14",
+        "tab-site",
+        "http://localhost:4321/",
+        "Sikemux · the IDE for you and your coding agents",
         true,
       ),
-      tab(
-        "tab-actions",
-        "https://github.com/nodelike/sikemux/actions",
-        "Actions · nodelike/sikemux",
-        false,
-      ),
     ],
-    activeTabId: "tab-pr",
+    activeTabId: "tab-site",
   },
 };
 
 const SNAPSHOTS: Record<string, string> = {
-  [AGENTS.hero.id]: "/showcase/pages/github-pr.png",
+  [AGENTS.hero.id]: "/showcase/pages/sikemux-home.png",
 };
 const frames = new Map<string, HTMLImageElement>();
 

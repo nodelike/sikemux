@@ -40,6 +40,18 @@ function boundedString(value: unknown, maxLength: number, allowEmpty = false): v
     return typeof value === "string" && value.length <= maxLength && (allowEmpty || value.length > 0);
 }
 
+export function isCoreSessionId(value: unknown): value is number {
+    return typeof value === "number" && Number.isSafeInteger(value) && value > 0;
+}
+
+function isPersistedTab(value: unknown, maxLength: number): boolean {
+    return (
+        isRecord(value) &&
+        boundedString(value.name, maxLength, true) &&
+        (PERSISTED_WINDOW_ROLES.has(value.role as WindowRole) || isPluginKind(value.role))
+    );
+}
+
 /**
  * Iterative validation shared by hydration and clipboard imports. Keeping the
  * walk iterative prevents attacker-controlled nesting from overflowing the JS
@@ -72,6 +84,10 @@ export function validatePersistedLayout(value: unknown, limits: LayoutValidation
             if (!boundedString(current.value.title, limits.maxStringLength, true)) return { ok: false, reason: "pane has an invalid title" };
             if (current.value.startup !== undefined && !boundedString(current.value.startup, limits.maxStringLength, true))
                 return { ok: false, reason: "pane startup is invalid" };
+            if (current.value.tab !== undefined && !isPersistedTab(current.value.tab, limits.maxStringLength))
+                return { ok: false, reason: "pane tab is invalid" };
+            if (current.value.ptyId !== undefined && !isCoreSessionId(current.value.ptyId))
+                return { ok: false, reason: "pane terminal session is invalid" };
             paneIds.push(current.value.id);
             continue;
         }

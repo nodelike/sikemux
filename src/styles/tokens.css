@@ -97,6 +97,8 @@
     --s-panel: color-mix(in srgb, var(--surface) calc(var(--window-opacity, 1) * 100%), transparent);
     --s-sunken: color-mix(in srgb, var(--surface-sunken) calc(var(--window-opacity, 1) * 100%), transparent);
     --s-raised: color-mix(in srgb, var(--surface-raised) calc(var(--window-opacity, 1) * 100%), transparent);
+    /* Line-number gutters: a translucent shade of the recess, darker than the code beside it but never a solid block. */
+    --surface-gutter: color-mix(in oklab, var(--surface-sunken) 30%, transparent);
 
     /* Row states. Hover is a tint, not a colour — an accent wash on every
      * hovered row is what made the rails read as decorated rather than dense. */

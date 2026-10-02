@@ -53,7 +53,7 @@ fn read_wallpaper(path: &Path) -> AppResult<Wallpaper> {
 #[cfg(target_os = "macos")]
 fn image_bytes(path: &Path) -> AppResult<(Vec<u8>, &'static str)> {
     let out = tempfile::Builder::new().suffix(".png").tempfile()?;
-    let status = std::process::Command::new("/usr/bin/sips")
+    let status = sikemux_process::user_environment::command("/usr/bin/sips")
         .args(["-s", "format", "png", "-Z", "320"])
         .arg(path)
         .arg("--out")
@@ -76,7 +76,7 @@ fn aerial_thumbnail(path: &Path) -> Option<PathBuf> {
     if path.extension()? != "madesktop" {
         return None;
     }
-    let output = std::process::Command::new("/usr/bin/plutil")
+    let output = sikemux_process::user_environment::command("/usr/bin/plutil")
         .args(["-extract", "thumbnailPath", "raw", "-o", "-"])
         .arg(path)
         .output()
@@ -141,7 +141,7 @@ async fn wallpaper_path(_app: &AppHandle) -> AppResult<PathBuf> {
         return Ok(resolved);
     }
     for key in ["picture-uri-dark", "picture-uri"] {
-        let Ok(output) = std::process::Command::new("gsettings")
+        let Ok(output) = sikemux_process::user_environment::command("gsettings")
             .args(["get", "org.gnome.desktop.background", key])
             .output()
         else {
@@ -164,7 +164,7 @@ async fn wallpaper_path(_app: &AppHandle) -> AppResult<PathBuf> {
 
 #[cfg(target_os = "windows")]
 async fn wallpaper_path(_app: &AppHandle) -> AppResult<PathBuf> {
-    let output = std::process::Command::new("reg")
+    let output = sikemux_process::user_environment::command("reg")
         .args(["query", r"HKCU\Control Panel\Desktop", "/v", "WallPaper"])
         .output()?;
     String::from_utf8_lossy(&output.stdout)

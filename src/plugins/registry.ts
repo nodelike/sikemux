@@ -1,5 +1,5 @@
 import type { ComponentType, ReactNode } from "react";
-import type { CtxItem } from "../components/FileTree";
+import type { CtxItem } from "../rail/FileTree";
 import { isPluginKind, pluginIdOf, type PluginKind } from "./kinds";
 
 export interface PluginSurfaceProps {

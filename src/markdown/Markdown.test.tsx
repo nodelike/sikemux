@@ -1,6 +1,6 @@
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
-import { Markdown, MarkdownBlocks, type MarkdownComponents } from "./Markdown";
+import { MarkdownBlocks, type MarkdownComponents } from "./Markdown";
 import type { MdElement } from "./types";
 
 afterEach(cleanup);
@@ -106,11 +106,21 @@ describe("drawing a read message", () => {
                 '<figure data-lang="ts">z\n</figure>',
         );
     });
-});
 
-describe("reading text into blocks", () => {
-    it("draws a message once the parser has read it", async () => {
-        render(<Markdown text={"I edited src/a.ts to fix it."} options={{ gfm: true, htmlAsText: false, fileLinks: true }} />);
-        expect((await screen.findByText("I edited src/a.ts to fix it.")).tagName).toBe("P");
+    it("lets a surface draw pictures, and tells it which ones sit inside a link", () => {
+        const blocks: MdElement[] = [
+            {
+                t: "p",
+                c: [
+                    { t: "img", src: "https://a.dev/1.png", alt: "one" },
+                    { t: "a", href: "https://a.dev", c: [{ t: "img", src: "https://a.dev/2.png", alt: "two" }] },
+                ],
+            },
+        ];
+        expect(html(blocks)).toBe(
+            '<p><img alt="one" src="https://a.dev/1.png"><a href="https://a.dev"><img alt="two" src="https://a.dev/2.png"></a></p>',
+        );
+        const components: MarkdownComponents = { img: ({ alt, inLink }) => <i data-linked={String(inLink)}>{alt}</i> };
+        expect(html(blocks, components)).toBe('<p><i data-linked="false">one</i><a href="https://a.dev"><i data-linked="true">two</i></a></p>');
     });
 });

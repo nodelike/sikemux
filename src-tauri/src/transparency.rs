@@ -62,6 +62,7 @@ mod imp {
 pub use imp::apply;
 
 #[cfg(not(target_os = "macos"))]
+// SAFETY: does nothing; it is unsafe only to match the macOS signature.
 #[allow(dead_code)]
 pub unsafe fn apply(_ns_window: *mut std::ffi::c_void, _blur_radius: i32) {}
 
@@ -76,6 +77,8 @@ pub fn set_window_blur(window: tauri::Window, radius: i32) -> crate::error::AppR
         let handle = window
             .ns_window()
             .map_err(|e| crate::error::AppError::Window(e.to_string()))?;
+        // SAFETY: `ns_window()` is this window's live NSWindow, and a synchronous Tauri
+        // command runs on the main thread.
         unsafe {
             apply(handle, radius);
         }

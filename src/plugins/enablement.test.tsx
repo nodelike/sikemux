@@ -1,20 +1,21 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import "./builtin";
-import { SideRail } from "../components/SideRail";
-import { TopBar } from "../components/TopBar";
-import { Workspace } from "../components/Workspace";
-import { keybindingActions, normaliseKeybindingOverrides } from "../keybindings";
+import { SideRail } from "../rail/SideRail";
+import { TopBar } from "../shell/TopBar";
+import { Workspace } from "../workspace/Workspace";
+import { keybindingActions, normaliseKeybindingOverrides } from "../commands/keybindings";
 import * as cmd from "../state/commands";
 import { applyHydrate } from "../state/persist";
 import { getState, setState } from "../state/store";
 
-const MANIFESTS = ["sikemux.aws", "sikemux.bruno", "sikemux.rundeck", "sikemux.signoz"].map((id) => ({
-    id,
-    name: id,
-    version: "0.1.0",
-    sikemux: ">=0.4",
-}));
+const MANIFESTS = [
+    { id: "sikemux.aws", name: "AWS" },
+    { id: "sikemux.bruno", name: "Bruno" },
+    { id: "sikemux.github", name: "GitHub" },
+    { id: "sikemux.rundeck", name: "Rundeck" },
+    { id: "sikemux.signoz", name: "SigNoz" },
+].map((plugin) => ({ ...plugin, version: "0.1.0", sikemux: ">=0.4" }));
 const initial = getState();
 
 beforeEach(() => setState({ ...initial, pluginManifests: MANIFESTS }, true));
@@ -65,7 +66,8 @@ describe("switching a plugin off", () => {
             </>,
         );
         expect(screen.getByText("Plugins")).toBeTruthy();
-        for (const name of ["AWS", "Bruno", "Rundeck", "SigNoz"]) expect(screen.queryByRole("button", { name })).toBeNull();
+        for (const name of ["AWS", "Bruno", "GitHub", "Rundeck", "SigNoz"]) expect(screen.queryByRole("button", { name })).toBeNull();
         expect(document.querySelector(".tb-deploy-chip")).toBeNull();
+        expect(document.querySelector(".gha-topbar")).toBeNull();
     });
 });

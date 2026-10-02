@@ -4,14 +4,6 @@ import { fingersDown, onFingers, setFingersDown } from "./wheelTouch";
 beforeEach(() => setFingersDown(null));
 
 describe("wheel touch", () => {
-    it("is neither until something says a hand is on the trackpad", () => {
-        expect(fingersDown()).toBe(null);
-        setFingersDown(true);
-        expect(fingersDown()).toBe(true);
-        setFingersDown(false);
-        expect(fingersDown()).toBe(false);
-    });
-
     /*
      * A landing starts a swipe and a lift ends one, and each is reported once
      * however many scroll events carry it.

@@ -3,17 +3,19 @@ use std::fs;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{Ipv4Addr, SocketAddrV4, TcpStream};
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 use std::thread;
 use std::time::{Duration, Instant};
 
 use uuid::Uuid;
 
-use crate::cli_protocol::{
+use sikemux_core::cli::protocol::{
     CliClientCommand, CliClientHello, CliCloseReason, CliEndpointDescriptor, CliOpenRequest,
     CliOpenTarget, CliServerResponse, CliTargetKind, CLI_PROTOCOL_VERSION, MAX_CLI_RESPONSE_BYTES,
 };
 
+/// Starts this binary as the MCP server agents use to reach their tools, instead of the editor.
+pub const TOOLS_MCP_FLAG: &str = "--tools-mcp";
 const APP_START_TIMEOUT: Duration = Duration::from_secs(15);
 const PROBE_TIMEOUT: Duration = Duration::from_millis(900);
 const ACCEPT_TIMEOUT: Duration = Duration::from_secs(60);
@@ -223,8 +225,16 @@ fn status() -> Result<i32, String> {
         },
     )?;
     match read_response(&mut reader)? {
-        CliServerResponse::Pong { version, .. } => {
+        CliServerResponse::Pong {
+            version,
+            window: true,
+            ..
+        } => {
             println!("Sikemux {version} is running");
+            Ok(0)
+        }
+        CliServerResponse::Pong { version, .. } => {
+            println!("Sikemux {version} is running in the background; its window is closed");
             Ok(0)
         }
         CliServerResponse::Error { message } => Err(message),
@@ -397,9 +407,11 @@ fn endpoint_path() -> Result<PathBuf, String> {
         }))
 }
 
+/// The endpoint once Sikemux's window is open, starting the app first when
+/// it is not running or only its background core is.
 fn connect_or_launch(endpoint_path: &Path) -> Result<CliEndpointDescriptor, String> {
     if let Ok(descriptor) = read_endpoint(endpoint_path) {
-        if probe(&descriptor).is_ok() {
+        if probe(&descriptor) == Ok(true) {
             return Ok(descriptor);
         }
     }
@@ -408,7 +420,7 @@ fn connect_or_launch(endpoint_path: &Path) -> Result<CliEndpointDescriptor, Stri
     let mut delay = Duration::from_millis(40);
     while started.elapsed() < APP_START_TIMEOUT {
         if let Ok(descriptor) = read_endpoint(endpoint_path) {
-            if probe(&descriptor).is_ok() {
+            if probe(&descriptor) == Ok(true) {
                 return Ok(descriptor);
             }
         }
@@ -418,7 +430,8 @@ fn connect_or_launch(endpoint_path: &Path) -> Result<CliEndpointDescriptor, Stri
     Err("Sikemux did not become ready within 15 seconds".into())
 }
 
-fn probe(descriptor: &CliEndpointDescriptor) -> Result<(), String> {
+/// Whether the window is open, once the endpoint answers.
+fn probe(descriptor: &CliEndpointDescriptor) -> Result<bool, String> {
     let mut reader = session(descriptor)?;
     write_command(
         reader.get_mut(),
@@ -428,7 +441,9 @@ fn probe(descriptor: &CliEndpointDescriptor) -> Result<(), String> {
         },
     )?;
     match read_response(&mut reader)? {
-        CliServerResponse::Pong { protocol, .. } if protocol == CLI_PROTOCOL_VERSION => Ok(()),
+        CliServerResponse::Pong {
+            protocol, window, ..
+        } if protocol == CLI_PROTOCOL_VERSION => Ok(window),
         CliServerResponse::Error { message } => Err(message),
         _ => Err("unexpected response from Sikemux".into()),
     }
@@ -467,7 +482,7 @@ fn session(descriptor: &CliEndpointDescriptor) -> Result<BufReader<TcpStream>, S
         .set_read_timeout(Some(PROBE_TIMEOUT))
         .map_err(|error| format!("cannot configure CLI connection: {error}"))?;
     let mut reader = BufReader::new(stream);
-    let nonce = crate::cli_auth::new_nonce();
+    let nonce = sikemux_core::cli::auth::new_nonce();
     write_command(
         reader.get_mut(),
         &CliClientHello::Hello {
@@ -475,10 +490,11 @@ fn session(descriptor: &CliEndpointDescriptor) -> Result<BufReader<TcpStream>, S
             nonce: nonce.clone(),
         },
     )?;
-    let expected = crate::cli_auth::server_proof(&descriptor.token, descriptor.port, &nonce);
+    let expected =
+        sikemux_core::cli::auth::server_proof(&descriptor.token, descriptor.port, &nonce);
     match read_response(&mut reader) {
         Ok(CliServerResponse::Hello { proof })
-            if crate::cli_auth::same_secret(&proof, &expected) =>
+            if sikemux_core::cli::auth::same_secret(&proof, &expected) =>
         {
             Ok(reader)
         }
@@ -513,7 +529,7 @@ fn read_response(reader: &mut BufReader<TcpStream>) -> Result<CliServerResponse,
 
 fn launch_app() -> Result<(), String> {
     if let Some(executable) = env::var_os("SIKEMUX_APP_EXECUTABLE") {
-        Command::new(executable)
+        sikemux_process::user_environment::command(executable)
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null())
@@ -531,7 +547,7 @@ fn launch_app() -> Result<(), String> {
         if let Ok(value) = fs::read_to_string(pointer) {
             let executable = PathBuf::from(value.trim());
             if executable.is_file() && executable != current {
-                Command::new(executable)
+                sikemux_process::user_environment::command(executable)
                     .stdin(Stdio::null())
                     .stdout(Stdio::null())
                     .stderr(Stdio::null())
@@ -550,7 +566,7 @@ fn launch_app() -> Result<(), String> {
             .and_then(Path::parent)
             .filter(|path| path.extension().is_some_and(|extension| extension == "app"))
         {
-            Command::new("/usr/bin/open")
+            sikemux_process::user_environment::command("/usr/bin/open")
                 .arg(bundle)
                 .stdin(Stdio::null())
                 .stdout(Stdio::null())
@@ -569,7 +585,7 @@ fn launch_app() -> Result<(), String> {
         } else {
             "sikemux"
         });
-    Command::new(executable)
+    sikemux_process::user_environment::command(executable)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
@@ -594,7 +610,7 @@ fn execute_tool(args: &[String]) -> Result<i32, String> {
             .to_string_lossy()
             .into_owned()
     });
-    let request = crate::harness::HarnessRequest {
+    let request = sikemux_core::cli::protocol::HarnessRequest {
         id: Uuid::new_v4().to_string(),
         project,
         agent_id: env::var("SIKEMUX_AGENT_ID").ok(),
@@ -638,7 +654,7 @@ mod tests {
             let Ok(CliClientHello::Hello { nonce, .. }) = serde_json::from_str(&hello) else {
                 panic!("the client did not open with a hello: {hello}");
             };
-            let proof = crate::cli_auth::server_proof(token, port, &nonce);
+            let proof = sikemux_core::cli::auth::server_proof(token, port, &nonce);
             let mut reply = serde_json::to_vec(&CliServerResponse::Hello { proof }).unwrap();
             reply.push(b'\n');
             (&stream).write_all(&reply).unwrap();

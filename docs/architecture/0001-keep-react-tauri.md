@@ -16,7 +16,7 @@ asynchronous work, typed registries, lazy surfaces, frame-aligned rendering,
 structured telemetry, and latency histograms.
 
 The license boundary matters: GPUI is independently Apache-2.0 and can be
-evaluated by this MIT-licensed project with the normal notice obligations. The
+evaluated by this FSL-licensed project with the normal notice obligations. The
 Zed application is GPL-3.0-or-later; its application code must not be copied
 into Sikemux without a deliberate licensing decision. This ADR adopts
 architectural ideas, not Zed implementation code.

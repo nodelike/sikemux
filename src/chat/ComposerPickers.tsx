@@ -1,30 +1,16 @@
 import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
-import { AgentIcon, IconCheck, IconChevron } from "../components/Icons";
-import { agentSupportsChat, CHAT_AGENT_TYPES, type ChatAgentType } from "../agentLaunch";
-import { selectedAgentRuntimeProfiles } from "../agentProfiles";
+import { AgentIcon, IconCheck, IconChevron } from "../ui/Icons";
+import { agentSupportsChat, CHAT_AGENT_TYPES, type ChatAgentType } from "../agents/agentLaunch";
+import { selectedAgentRuntimeProfiles } from "../agents/agentProfiles";
 import { useResource } from "../state/resources";
 import { agentCatalogR } from "../state/resources.defs";
 import { useStore } from "../state/store";
 import { DEFAULT_PROVIDER_PROFILE_SELECTION, type Agent, type ProviderProfile } from "../state/types";
 import { leavingMenu } from "../lib/motion";
+import { pickerSlots, sessionConfigs, type ConfigChoice, type SessionConfig } from "./sessionConfig";
 
-interface Choice {
-    value: string;
-    label: string;
-    description?: string;
+interface Choice extends ConfigChoice {
     icon?: ReactNode;
-}
-
-export interface SessionConfig {
-    id: string;
-    name: string;
-    category?: string;
-    currentValue: string;
-    options: Choice[];
-}
-
-function record(value: unknown): Record<string, unknown> | null {
-    return value !== null && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
 }
 
 const HARNESS_LABELS: Record<ChatAgentType, string> = {
@@ -39,56 +25,6 @@ const HARNESS_LABELS: Record<ChatAgentType, string> = {
 /* Claude and Codex install their adapter on first use, so they are offered
    whether or not their CLI is found yet. The rest need their own CLI. */
 const ALWAYS_OFFERED = new Set<ChatAgentType>(["codex", "claude"]);
-
-const LEGACY_EFFORT_ID: Partial<Record<ChatAgentType, string>> = { claude: "effort", codex: "reasoning_effort" };
-
-/** The option that sets how hard the model thinks. Agents name it differently
-    but tag it with the same category. */
-export function effortConfig(configs: SessionConfig[], type: Agent["type"]): SessionConfig | undefined {
-    const legacy = agentSupportsChat(type) ? LEGACY_EFFORT_ID[type] : undefined;
-    return configs.find((config) => config.category === "thought_level") ?? configs.find((config) => config.id === legacy);
-}
-
-const NAMED_VERSION = /^(\p{L}+)\s+(\d+(?:\.\d+)?)\b/u;
-
-// The agent names a model without its release number ("Opus") and leaves that
-// number in the description ("Opus 5 with 1M context"), so put it back.
-function versioned(label: string, description?: string): string {
-    const named = description?.match(NAMED_VERSION);
-    if (!named) return label;
-    const [, family, version] = named;
-    const head = label.split(" ")[0];
-    return head.toLowerCase() !== family.toLowerCase() || label.includes(version) ? label : label.replace(head, `${head} ${version}`);
-}
-
-function choices(value: unknown, group?: string): Choice[] {
-    if (!Array.isArray(value)) return [];
-    return value.flatMap((item): Choice[] => {
-        const row = record(item);
-        if (!row) return [];
-        if (Array.isArray(row.options)) return choices(row.options, typeof row.name === "string" ? row.name : undefined);
-        if (typeof row.value !== "string" || typeof row.name !== "string") return [];
-        const description = typeof row.description === "string" ? row.description : group;
-        return [{ value: row.value, label: versioned(row.name, description), description }];
-    });
-}
-
-export function sessionConfigs(setup: Record<string, unknown>): SessionConfig[] {
-    if (!Array.isArray(setup.configOptions)) return [];
-    return setup.configOptions.flatMap((value): SessionConfig[] => {
-        const row = record(value);
-        if (!row || row.type !== "select" || typeof row.id !== "string" || typeof row.currentValue !== "string") return [];
-        return [
-            {
-                id: row.id,
-                name: typeof row.name === "string" ? row.name : row.id,
-                ...(typeof row.category === "string" ? { category: row.category } : {}),
-                currentValue: row.currentValue,
-                options: choices(row.options),
-            },
-        ];
-    });
-}
 
 function Picker({
     name,
@@ -243,17 +179,6 @@ function Picker({
             )}
         </div>
     );
-}
-
-/* Claude and Codex always show both pickers, disabled until the session
-   fills them. The other agents only offer effort for some models, so theirs
-   comes and goes with the model. */
-function pickerSlots(configs: SessionConfig[], type: Agent["type"]): { id: string; config?: SessionConfig }[] {
-    const slots: { id: string; config?: SessionConfig }[] = [{ id: "model", config: configs.find((item) => item.id === "model") }];
-    const effort = effortConfig(configs, type);
-    const legacy = agentSupportsChat(type) ? LEGACY_EFFORT_ID[type] : undefined;
-    if (effort || legacy) slots.push({ id: effort?.id ?? legacy ?? "effort", config: effort });
-    return slots;
 }
 
 export function ComposerPickers({

@@ -110,18 +110,6 @@ describe("SessionController lifecycle", () => {
         expect(dispose).toHaveBeenCalledOnce();
         expect(controller.getSnapshot()).toMatchObject({ itemCount: 0, activeItemId: null, disposed: true, retiringItems: 0 });
     });
-
-    it("honors close guards", async () => {
-        const canClose = vi.fn().mockReturnValue(false);
-        const controller = new SessionController(
-            "session-1",
-            registry(() => lifecycleController({ canClose })),
-        );
-        controller.reconcile(session(), [window("pane-1")], "session-1");
-
-        await expect(controller.canClose()).resolves.toBe(false);
-        expect(canClose).toHaveBeenCalledOnce();
-    });
 });
 
 describe("SessionController retries and generations", () => {

@@ -37,8 +37,11 @@ echo "→ Compiling $ICON_SOURCE"
 rm -rf "$ICON_BUILD"
 mkdir -p "$ICON_BUILD"
 
+# Space optimisation stores the flat icons for macOS before 26 with a denser
+# codec. They are most of Assets.car, and it takes about 250 KB off the DMG.
 actool "$ICON_SOURCE" \
   --compile "$ICON_BUILD" \
+  --optimization space \
   --output-format human-readable-text \
   --notices --warnings --errors \
   --output-partial-info-plist "$ICON_BUILD/PartialInfo.plist" \

@@ -123,26 +123,6 @@
     gap: var(--space-2);
     min-width: 0;
 }
-.aws-account-logo {
-    width: 28px;
-    height: 28px;
-    flex: 0 0 auto;
-    display: grid;
-    place-items: center;
-    border-radius: var(--radius-2);
-    background: #232f3e;
-    color: #fff;
-}
-.aws-account-logo.small {
-    width: 22px;
-    height: 22px;
-    border-radius: var(--radius-1);
-}
-.aws-account-logo.large {
-    width: 44px;
-    height: 44px;
-    border-radius: var(--radius-3);
-}
 .aws-account-who {
     display: flex;
     flex-direction: column;
@@ -1414,105 +1394,6 @@
 }
 .aws-bill-row.total :is(.aws-bill-name, .aws-bill-amount) {
     font-weight: var(--weight-semibold);
-}
-
-/* ---- Signed out --------------------------------------------------------- */
-
-.aws-signin {
-    flex: 1 1 auto;
-    display: grid;
-    place-items: center;
-    padding: var(--space-6);
-    overflow-y: auto;
-}
-.aws-signin-card {
-    width: min(460px, 100%);
-    display: flex;
-    flex-direction: column;
-    gap: 14px;
-    padding: var(--space-6);
-    border: 1px solid var(--border);
-    background: var(--aws-tint);
-}
-.aws-signin-card h2 {
-    margin: 0;
-    font-size: var(--text-xl);
-    font-weight: var(--weight-semibold);
-    letter-spacing: var(--tracking-display);
-}
-.aws-signin-card p {
-    margin: 0;
-    font-size: var(--text-sm);
-    line-height: 1.5;
-    color: var(--text-secondary);
-}
-.aws-signin-card code {
-    padding: 1px 5px;
-    border: 1px solid var(--border);
-    background: var(--aws-tint);
-    font-family: var(--mono);
-    font-size: var(--text-2xs);
-    color: var(--text-primary);
-}
-.aws-signin-err {
-    margin: 0;
-    max-height: 100px;
-    overflow-y: auto;
-    padding: var(--space-2) 10px;
-    border: 1px solid color-mix(in oklab, var(--danger) 25%, transparent);
-    background: color-mix(in oklab, var(--danger) 7%, transparent);
-    font-family: var(--mono);
-    font-size: var(--text-2xs);
-    line-height: 1.5;
-    color: var(--danger);
-    white-space: pre-wrap;
-}
-.aws-signin-actions {
-    display: flex;
-    gap: var(--space-2);
-}
-.aws-signin-actions .aws-btn {
-    height: 32px;
-    padding: 0 14px;
-    font-size: var(--text-sm);
-}
-.aws-signin-or {
-    margin-top: var(--space-1);
-    font-size: var(--text-2xs);
-    color: var(--text-tertiary);
-}
-.aws-profiles {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-1h);
-}
-.aws-profile {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    height: 44px;
-    padding: 0 var(--space-3);
-    border: 1px solid var(--border);
-    background: transparent;
-    color: var(--text-primary);
-    font: inherit;
-    text-align: left;
-    cursor: pointer;
-}
-.aws-profile:hover {
-    background: var(--surface-hover);
-    border-color: var(--border-strong);
-}
-.aws-profile:focus-visible {
-    box-shadow: var(--focus-ring);
-}
-.aws-profile-name {
-    flex: 1 1 auto;
-    font-size: var(--text-sm);
-}
-.aws-profile-meta {
-    font-size: var(--text-2xs);
-    color: var(--text-tertiary);
 }
 
 /* ---- Narrow panes ------------------------------------------------------- */

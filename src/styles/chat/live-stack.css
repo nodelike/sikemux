@@ -1,0 +1,238 @@
+/*
+ * What is still running, stuck to the composer from above: the same fill and
+ * the same border, stepped in narrower, ending on the composer's top border.
+ * It must not run behind the composer, which shows through a translucent fill.
+ */
+.chat-live-stack {
+    position: relative;
+    z-index: 0;
+    width: calc(min(100%, 820px) - var(--chat-step) * 2);
+    margin: 0 auto;
+    border: 1px solid var(--border);
+    border-bottom: 0;
+    border-radius: var(--radius-3) var(--radius-3) 0 0;
+    background: var(--chat-composer-fill);
+}
+
+.chat-group + .chat-group {
+    border-top: 1px solid var(--border);
+}
+
+/* A row on its own says what it is; eight rows need telling apart, and the
+   label is what does it. It stays for a group of one so the kinds keep their
+   order as they come and go. */
+.chat-group-label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 11px 2px;
+    color: var(--ink-faint);
+    font-size: var(--text-3xs);
+    letter-spacing: var(--tracking-label);
+    text-transform: uppercase;
+}
+
+.chat-group-count {
+    color: var(--ink-dim);
+    font-family: var(--mono);
+    letter-spacing: 0;
+}
+
+.chat-task {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    min-width: 0;
+    padding: 4px 8px 4px 11px;
+    color: color-mix(in srgb, var(--live) 58%, var(--ink-faint));
+    font-size: var(--text-2xs);
+}
+
+.chat-group > :last-child {
+    padding-bottom: 7px;
+}
+
+.chat-task.state-paused {
+    color: var(--ink-faint);
+}
+
+/* A subagent rides the same strip as a background task, in the accent that
+   marks its card in the transcript rather than the task green. */
+.chat-task-agent {
+    color: color-mix(in srgb, var(--acc) 62%, var(--ink-faint));
+}
+
+.chat-task-agent > .agent-glyph {
+    flex: none;
+}
+
+.chat-task-spinner {
+    box-sizing: border-box;
+    width: 9px;
+    height: 9px;
+    flex: none;
+    margin-left: auto;
+    border: 1.4px solid color-mix(in oklab, currentcolor 26%, transparent);
+    border-top-color: currentcolor;
+    border-right-color: currentcolor;
+    border-radius: 50%;
+    animation: chat-activity-spin 0.72s linear infinite;
+}
+
+/* An agent names a task with the command it ran, and that runs long. The name
+   gives way before the row does, so the stop button stays on screen. */
+.chat-task-name {
+    min-width: 0;
+    overflow: hidden;
+    color: var(--ink);
+    font-family: var(--mono);
+    font-size: calc(10.5px * var(--chat-text-em, 1));
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.chat-task-detail {
+    flex: 1 1 0;
+    min-width: 0;
+    overflow: hidden;
+    color: var(--ink-faint);
+    font-size: calc(10.5px * var(--chat-text-em, 1));
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.chat-task button {
+    display: grid;
+    flex: none;
+    place-items: center;
+    width: 18px;
+    height: 18px;
+    margin-left: auto;
+    border-radius: var(--radius-xs);
+    color: var(--ink-faint);
+}
+
+.chat-task button:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--danger) 16%, transparent);
+    color: var(--danger);
+}
+
+.chat-queued-message {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    min-width: 0;
+    padding: 4px 8px 4px 11px;
+    color: var(--ink-dim);
+}
+
+.chat-queued-text {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    color: var(--text-secondary);
+    font-family: var(--ui);
+    font-size: var(--text-xs);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.chat-queued-steer {
+    display: inline-flex;
+    flex: none;
+    align-items: center;
+    gap: 6px;
+    height: 20px;
+    padding: 0 7px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-xs);
+    background: color-mix(in srgb, var(--live) 8%, transparent);
+    color: var(--ink);
+    font-size: calc(10.5px * var(--chat-text-em, 1));
+    line-height: 1;
+    transition:
+        background 100ms,
+        border-color 100ms;
+}
+
+.chat-queued-steer:hover {
+    border-color: color-mix(in srgb, var(--live) 45%, var(--line));
+    background: color-mix(in srgb, var(--live) 18%, transparent);
+}
+
+.chat-queued-steer-all {
+    margin-left: auto;
+    letter-spacing: 0;
+    text-transform: none;
+}
+
+.chat-queued-steer-key {
+    padding-left: 6px;
+    border-left: 1px solid var(--line);
+    color: var(--ink-faint);
+    font-family: var(--kbd);
+    font-size: calc(9px * var(--chat-text-em, 1));
+    font-weight: 600;
+    letter-spacing: 0.02em;
+}
+
+.chat-queued-message > button:last-child {
+    display: grid;
+    flex: none;
+    place-items: center;
+    width: 18px;
+    height: 18px;
+    border-radius: var(--radius-xs);
+    color: var(--ink-faint);
+}
+
+.chat-queued-message > button:last-child:hover {
+    background: color-mix(in srgb, var(--danger) 16%, transparent);
+    color: var(--danger);
+}
+
+.chat-notice {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    margin: 4px 0;
+    padding: 4px 10px;
+    border: 1px solid var(--line-soft);
+    border-radius: var(--radius-control);
+    background: color-mix(in srgb, var(--rail-2) 45%, transparent);
+    color: var(--ink-faint);
+    font-size: var(--text-2xs);
+}
+
+.chat-notice > svg {
+    flex: none;
+}
+
+/* Named with the command the task ran, like a background task; the name gives
+   way so its state stays on screen. */
+.chat-notice-name {
+    min-width: 0;
+    overflow: hidden;
+    color: var(--ink);
+    font-family: var(--mono);
+    font-size: calc(10.5px * var(--chat-text-em, 1));
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.chat-notice-state {
+    flex: none;
+    font-size: calc(10.5px * var(--chat-text-em, 1));
+}
+
+.chat-notice.state-failed .chat-notice-state {
+    color: var(--danger);
+}
+
+.chat-notice-summary {
+    min-width: 0;
+    overflow: hidden;
+    font-size: calc(10.5px * var(--chat-text-em, 1));
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}

@@ -4,15 +4,26 @@ import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { createInterface } from "node:readline";
 import type { IncomingMessage, ServerResponse } from "node:http";
+import type { Browser } from "playwright-core";
 import { mergeConfig, type PluginOption } from "vite";
 import base from "../vite.config.ts";
-import { DEMO_PROJECTS } from "./world/projects.ts";
+import { DEMO_PROJECTS, PANE_IMAGE } from "./world/projects.ts";
 
 const LOCAL_ROOTS: Record<string, string> = {
   sikemux: resolve(import.meta.dirname, ".."),
   "sikemux-front": join(homedir(), "projects/personal/sikemux-front"),
   "moodboard-studio": join(homedir(), "projects/personal/moodboard-studio"),
 };
+
+const PANE_IMAGE_FILE = join(
+  homedir(),
+  "wallpaper/old/jinx-graffiti-5120x2880-19975.jpg",
+);
+
+const WALLPAPER_FILE = join(
+  homedir(),
+  "wallpaper/butterfly-neon-glowing-dark-background-amoled-3840x2160-2171.png",
+);
 
 const MAX_FILE_BYTES = 400_000;
 const HIDDEN_FOLDERS = new Set([
@@ -199,6 +210,21 @@ function parseMarkdown(requests: unknown[]): Promise<unknown[]> {
   );
 }
 
+function commitFiles(name: string, rev: string): string[] {
+  if (!LOCAL_ROOTS[name] || !existsSync(LOCAL_ROOTS[name])) return [];
+  try {
+    return execFileSync(
+      "git",
+      ["show", "--name-only", "--format=", "--end-of-options", rev],
+      { cwd: LOCAL_ROOTS[name], encoding: "utf8" },
+    )
+      .split("\n")
+      .filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
 async function body(
   request: IncomingMessage,
 ): Promise<Record<string, unknown>> {
@@ -213,12 +239,83 @@ function send(response: ServerResponse, status: number, value: unknown) {
   response.end(JSON.stringify(value));
 }
 
+let chosenWallpaper: Buffer | null = null;
+
+let snapshotBrowser: Promise<Browser> | null = null;
+
+async function snapshot(
+  origin: string,
+  { state, layout }: Record<string, unknown>,
+): Promise<string[]> {
+  snapshotBrowser ??= import("playwright-core").then(({ chromium }) =>
+    chromium.launch({ channel: "chrome" }),
+  );
+  const context = await (
+    await snapshotBrowser
+  ).newContext({
+    viewport: { width: 1920, height: 1080 },
+    deviceScaleFactor: 2.25,
+    colorScheme: "dark",
+  });
+  try {
+    await context.clock.setFixedTime(new Date("2026-09-26T09:41:00"));
+    const page = await context.newPage();
+    await page.goto(`${origin}/showcase/twitter.html?capture`);
+    await page.frameLocator("iframe").locator(".shell").waitFor();
+    const app = page.frames()[1];
+    await app.waitForFunction(() => "showcase" in window);
+    await app.evaluate((restored) => {
+      const { showcase } = window as unknown as {
+        showcase: {
+          store: { setState: (state: object) => void };
+          backend: { stepLive: () => number };
+        };
+      };
+      showcase.store.setState(restored as object);
+      while (showcase.backend.stepLive() >= 0);
+    }, state);
+    await page.waitForTimeout(1500);
+    const stamp = new Date().toLocaleString("sv").replace(/[ :]/g, "-");
+    if (layout !== "thirds") {
+      const name = `sikemux-${stamp}.png`;
+      await page.screenshot({ path: join(homedir(), "Downloads", name) });
+      return [name];
+    }
+    const names = [1, 2, 3].map((slice) => `sikemux-${stamp}-${slice}.png`);
+    for (const [index, name] of names.entries()) {
+      await page.screenshot({
+        path: join(homedir(), "Downloads", name),
+        clip: { x: index * 640, y: 0, width: 640, height: 1080 },
+      });
+    }
+    return names;
+  } finally {
+    await context.close();
+  }
+}
+
 function demoFileSystem(): PluginOption {
   return {
     name: "sikemux-showcase-fs",
     configureServer(server) {
-      server.httpServer?.on("close", () => markdownParser?.stop());
+      server.httpServer?.on("close", () => {
+        markdownParser?.stop();
+        void snapshotBrowser?.then((browser) => browser.close());
+      });
       server.middlewares.use("/__showcase", async (request, response) => {
+        if (request.url === `/preview/${encodeURIComponent(PANE_IMAGE)}`) {
+          response.setHeader("Content-Type", "image/jpeg");
+          return response.end(readFileSync(PANE_IMAGE_FILE));
+        }
+        if (request.url?.split("?")[0] === "/wallpaper") {
+          if (request.method === "POST") {
+            const chunks: Buffer[] = [];
+            for await (const chunk of request) chunks.push(chunk as Buffer);
+            chosenWallpaper = Buffer.concat(chunks);
+            return response.end();
+          }
+          return response.end(chosenWallpaper ?? readFileSync(WALLPAPER_FILE));
+        }
         try {
           const input = await body(request);
           switch (request.url) {
@@ -244,11 +341,26 @@ function demoFileSystem(): PluginOption {
                 found ? [...found.project.files].sort() : [],
               );
             }
+            case "/commit_files":
+              return send(
+                response,
+                200,
+                commitFiles(input.project as string, input.rev as string),
+              );
             case "/git_log":
               return send(
                 response,
                 200,
                 gitLog(input.project as string, Number(input.count ?? 60)),
+              );
+            case "/snapshot":
+              return send(
+                response,
+                200,
+                await snapshot(
+                  `http://localhost:${server.config.server.port}`,
+                  input,
+                ),
               );
             case "/markdown":
               return send(
@@ -269,8 +381,25 @@ function demoFileSystem(): PluginOption {
   };
 }
 
+// A Sikemux browser tab already holds Tauri's own read-only globals, so the mocks move to globals of their own.
+const TAURI_GLOBAL =
+  /\bwindow\.__TAURI_(INTERNALS|EVENT_PLUGIN_INTERNALS)__\b/g;
+
+const ownTauriGlobals = {
+  name: "sikemux-showcase-own-tauri-globals",
+  transform(code: string) {
+    if (!code.includes("__TAURI_")) return null;
+    return {
+      code: code.replace(TAURI_GLOBAL, "window.__SHOWCASE_TAURI_$1__"),
+      map: null,
+    };
+  },
+};
+
 export default mergeConfig(base, {
-  plugins: [demoFileSystem()],
+  plugins: [demoFileSystem(), ownTauriGlobals],
+  optimizeDeps: { rolldownOptions: { plugins: [ownTauriGlobals] } },
+  cacheDir: resolve(import.meta.dirname, "../node_modules/.vite-showcase"),
   server: { port: 1471, strictPort: true },
   // Headless Chrome's WebGL context scales xterm's glyphs twice at 2x; the DOM renderer draws the same cells.
   define: { "import.meta.env.VITE_TERMINAL_WEBGL": JSON.stringify("0") },

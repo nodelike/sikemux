@@ -30,8 +30,8 @@ function gutterBackground(theme: Theme): string {
 }
 
 describe("the editor gutter", () => {
-    it("paints no ground, so the window shows through behind the line numbers", () => {
-        expect(gutterBackground(themeById("aura"))).toBe("transparent");
+    it("shades the line numbers with the translucent gutter tone, never a solid ground", () => {
+        expect(gutterBackground(themeById("aura"))).toBe("var(--surface-gutter)");
     });
 
     it("cuts code scrolled sideways off at the gutter's edge", () => {

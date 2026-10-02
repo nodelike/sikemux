@@ -97,8 +97,12 @@ export function replacePane(root: LayoutNode, paneId: string, newPane: PaneNode)
     return { ...root, children: root.children.map((child) => replacePane(child, paneId, newPane)) };
 }
 
+/** A copy is a new pane, so it starts its own terminal rather than sharing this one's. */
 export function cloneLayout(root: LayoutNode): LayoutNode {
-    if (root.type === "pane") return { ...root, id: newId("pane") };
+    if (root.type === "pane") {
+        const { ptyId: _shown, ...pane } = root;
+        return { ...pane, id: newId("pane") };
+    }
     return { ...root, id: newId("split"), children: root.children.map(cloneLayout), sizes: root.sizes.slice() };
 }
 

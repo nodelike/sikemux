@@ -21,6 +21,7 @@ export const README_SCREENSHOTS = {
   "rundeck-deploy-card": "cicd-rundeck-deploy-view.png",
   "signoz-dashboard-card": "observability-signoz-view.png",
   "bruno-card": "api-bruno-pane-view.png",
+  "github-run-card": "cicd-github-run-view.png",
 };
 
 export const SCENES = [
@@ -28,7 +29,7 @@ export const SCENES = [
     name: "hero",
     settle: 1500,
     setup: async (page) => {
-      await openWindow(page, "s-sikemux", "w-agent-hero");
+      await openWindow(page, "s-front", "w-agent-hero");
       await run(page, () =>
         showcase.cmd.openDesk("agent-hero", { focus: false }),
       );
@@ -43,9 +44,41 @@ export const SCENES = [
       rail: ".workspace-rail",
       focus: {
         selector: ".stage",
-        region: { left: 0.1405, top: 0.4386, width: 0.7189, height: 0.3411 },
+        region: { left: 0.1405, top: 0.3957, width: 0.7189, height: 0.3411 },
       },
     },
+  },
+  {
+    name: "agents-all-projects",
+    settle: 1200,
+    setup: async (page) => {
+      await openWindow(page, "s-sikemux", "w-agent-rail");
+      await run(page, () => {
+        const state = (kind, minutesAgo) => ({
+          state: kind,
+          backendState: kind === "done" ? "idle" : kind,
+          unread: kind === "done",
+          updatedAt: Date.now() - minutesAgo * 60_000,
+          lastWorkedAt: Date.now() - minutesAgo * 60_000,
+          sequence: 1,
+          source: "acp",
+          confidence: "high",
+          reason: "",
+        });
+        showcase.cmd.setAgentRailAllAgents(true);
+        showcase.cmd.setAgentRailScope("all");
+        showcase.store.setState({
+          agentActivity: {
+            "agent-rail": state("working", 0),
+            "agent-replay": state("blocked", 3),
+            "agent-hero": state("done", 12),
+            "agent-palette": state("working", 1),
+            "agent-notes": state("blocked", 7),
+          },
+        });
+      });
+    },
+    crops: { rail: ".workspace-rail" },
   },
   {
     name: "files",
@@ -55,7 +88,7 @@ export const SCENES = [
       tree: ".ed-tree",
       focus: {
         selector: ".stage",
-        region: { left: 0.0017, top: 0.0448, width: 0.6474, height: 0.5010 },
+        region: { left: 0.0017, top: 0.0019, width: 0.6474, height: 0.5010 },
       },
     },
   },
@@ -66,7 +99,7 @@ export const SCENES = [
       stage: ".stage",
       focus: {
         selector: ".stage",
-        region: { left: 0.5273, top: 0.0507, width: 0.4659, height: 0.3119 },
+        region: { left: 0.5273, top: 0.0078, width: 0.4659, height: 0.3119 },
       },
     },
   },
@@ -77,7 +110,7 @@ export const SCENES = [
       stage: ".stage",
       focus: {
         selector: ".stage",
-        region: { left: 0.0017, top: 0.0448, width: 0.5562, height: 0.3304 },
+        region: { left: 0.0017, top: 0.0019, width: 0.5562, height: 0.3304 },
       },
     },
   },
@@ -134,7 +167,7 @@ export const SCENES = [
       stage: ".stage",
       card: {
         selector: ".stage",
-        region: { left: 0.1549, top: 0.0448, width: 0.8438, height: 0.4620 },
+        region: { left: 0.1549, top: 0.0019, width: 0.8438, height: 0.4620 },
       },
     },
   },
@@ -166,7 +199,28 @@ export const SCENES = [
       stage: ".stage",
       card: {
         selector: ".stage",
-        region: { left: 0.1486, top: 0.0448, width: 0.8500, height: 0.5205 },
+        region: { left: 0.1486, top: 0.0019, width: 0.8500, height: 0.5205 },
+      },
+    },
+  },
+  {
+    name: "github-run",
+    settle: 1600,
+    setup: async (page) => {
+      await openWindow(page, "s-sikemux", "w-sikemux-git");
+      await page.waitForTimeout(500);
+      await run(page, async () => {
+        const commands = await import("/src/state/commands/index.ts");
+        const host = await import("/src/codehost/state.ts");
+        commands.setGitView("p-git", { area: "actions" });
+        host.showRun("p-git", 36316473434);
+      });
+    },
+    crops: {
+      stage: ".stage",
+      card: {
+        selector: ".stage",
+        region: { left: 0, top: 0, width: 1, height: 0.8 },
       },
     },
   },
@@ -190,7 +244,7 @@ export const SCENES = [
       stage: ".stage",
       card: {
         selector: ".stage",
-        region: { left: 0.1458, top: 0.0448, width: 0.8528, height: 0.3645 },
+        region: { left: 0.1458, top: 0.0019, width: 0.8528, height: 0.3645 },
       },
     },
   },
@@ -208,7 +262,7 @@ export const SCENES = [
       stage: ".stage",
       card: {
         selector: ".stage",
-        region: { left: 0.1458, top: 0.0195, width: 0.8528, height: 0.5585 },
+        region: { left: 0.1458, top: 0.0000, width: 0.8528, height: 0.5585 },
       },
     },
   },
@@ -246,7 +300,7 @@ export const SCENES = [
       stage: ".stage",
       card: {
         selector: ".stage",
-        region: { left: 0.1736, top: 0.0819, width: 0.8250, height: 0.3567 },
+        region: { left: 0.1736, top: 0.0390, width: 0.8250, height: 0.3567 },
       },
     },
   },

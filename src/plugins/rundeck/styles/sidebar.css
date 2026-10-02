@@ -1,0 +1,281 @@
+/* ---- Sidebar ------------------------------------------------------------ */
+
+.rnd-side {
+    flex: 0 0 auto;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    padding: var(--space-3) var(--gutter-rail) var(--gutter-rail);
+}
+.rnd-tree-resizer {
+    flex: 0 0 auto;
+    width: 5px;
+    margin: 0 -2px;
+    position: relative;
+    z-index: 1;
+    cursor: col-resize;
+}
+.rnd-tree-resizer::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 2px;
+    width: 1px;
+    background: var(--border);
+    transition: background var(--dur-2) linear;
+}
+.rnd-tree-resizer:hover::after,
+.rnd-tree-resizer:active::after {
+    background: var(--acc);
+}
+
+.rnd-tree {
+    flex: 1 1 auto;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+}
+.rnd-tree-head {
+    display: flex;
+    align-items: center;
+    gap: var(--space-1);
+    padding: var(--space-0) var(--space-1) var(--space-2) var(--space-2);
+    font-size: var(--text-3xs);
+    font-weight: var(--weight-semibold);
+    letter-spacing: var(--tracking-label);
+    text-transform: uppercase;
+    color: var(--text-tertiary);
+}
+.rnd-tree-head > span {
+    flex: 1 1 auto;
+}
+.rnd-tree-tool {
+    width: 22px;
+    height: 22px;
+    display: grid;
+    place-items: center;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--text-tertiary);
+    cursor: pointer;
+}
+.rnd-tree-tool:hover {
+    background: var(--surface-hover);
+    color: var(--text-primary);
+}
+.rnd-tree-rows {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+}
+.rnd-tree-row {
+    display: flex;
+    align-items: stretch;
+    height: 28px;
+    flex: 0 0 auto;
+    cursor: pointer;
+    outline: none;
+}
+.rnd-tree-item {
+    flex: 1 1 auto;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    padding: 0 var(--space-2) 0 var(--space-1);
+    border: 1px solid transparent;
+    border-radius: var(--radius-2);
+    color: var(--text-secondary);
+    transition:
+        background var(--dur-1) linear,
+        color var(--dur-1) linear;
+}
+.rnd-tree-row:hover .rnd-tree-item {
+    background: var(--surface-hover);
+    color: var(--text-primary);
+}
+.rnd-tree-item.on,
+.rnd-tree-row:hover .rnd-tree-item.on {
+    background: var(--surface-selected);
+    border-color: var(--border-selected);
+    color: var(--text-primary);
+}
+.rnd-tree-row:focus-visible .rnd-tree-item {
+    box-shadow: var(--focus-ring);
+}
+.rnd-tree-guide {
+    position: relative;
+    width: 16px;
+    flex: 0 0 auto;
+}
+/* Sits under the parent row's arrow: its border, its left padding, then half the arrow's slot. */
+.rnd-tree-guide::before {
+    content: "";
+    position: absolute;
+    left: 13px;
+    top: 0;
+    bottom: 0;
+    width: 1px;
+    background: color-mix(in oklab, var(--ink) 9%, transparent);
+}
+.rnd-tree-twist {
+    width: 18px;
+    height: 18px;
+    flex: 0 0 auto;
+    display: grid;
+    place-items: center;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--text-tertiary);
+    cursor: pointer;
+}
+button.rnd-tree-twist:hover {
+    background: var(--surface-active);
+    color: var(--text-primary);
+}
+.rnd-tree-twist svg {
+    transition: transform var(--dur-2) var(--ease-out);
+}
+.rnd-tree-twist.open svg {
+    transform: rotate(90deg);
+}
+.rnd-tree-icon {
+    width: 16px;
+    flex: 0 0 auto;
+    display: grid;
+    place-items: center;
+    margin-right: var(--space-2);
+    color: var(--text-tertiary);
+}
+.rnd-tree-item.on .rnd-tree-icon {
+    color: var(--acc);
+}
+.rnd-tree-name {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.rnd-live-dot {
+    width: 6px;
+    height: 6px;
+    flex: 0 0 auto;
+    margin-right: var(--space-2);
+    border-radius: var(--radius-full);
+    background: var(--warn);
+    animation: rnd-pulse 1.4s ease-in-out infinite;
+}
+.rnd-tree-count {
+    min-width: 14px;
+    font-size: var(--text-2xs);
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+    color: var(--text-tertiary);
+}
+.rnd-tree-count.err {
+    color: var(--danger);
+}
+.rnd-tree-hint {
+    padding: var(--space-1) var(--space-2);
+    font-size: var(--text-xs);
+    color: var(--text-tertiary);
+}
+.rnd-tree-hint.err {
+    color: var(--danger);
+}
+
+.rnd-conn-wrap {
+    position: relative;
+    margin-top: var(--space-2);
+}
+.rnd-conn {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1h);
+    width: 100%;
+    padding: var(--space-2) 10px;
+    border: 1px solid var(--border);
+    background: var(--rnd-tint);
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+    transition:
+        background var(--dur-1) linear,
+        border-color var(--dur-1) linear;
+}
+.rnd-conn:hover,
+.rnd-conn.open {
+    background: var(--surface-hover);
+    border-color: var(--border-strong);
+}
+.rnd-conn-top {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+}
+.rnd-conn-host {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-weight: var(--weight-medium);
+}
+.rnd-conn-chev {
+    color: var(--text-tertiary);
+    transform: rotate(-90deg);
+    transition: transform var(--dur-2) var(--ease-out);
+}
+.rnd-conn.open .rnd-conn-chev {
+    transform: rotate(90deg);
+}
+.rnd-conn-sub {
+    font-size: var(--text-2xs);
+    color: var(--text-tertiary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.rnd-conn-meta {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: var(--text-2xs);
+    color: var(--text-secondary);
+}
+.rnd-conn-meta .rnd-status {
+    font-size: var(--text-2xs);
+}
+
+.rnd-pop-scrim {
+    position: fixed;
+    inset: 0;
+    z-index: calc(var(--layer-menu) - 1);
+}
+.rnd-pop {
+    position: absolute;
+    left: 0;
+    bottom: calc(100% + var(--space-1h));
+    z-index: var(--layer-menu);
+    width: max(100%, 300px);
+    border: 1px solid var(--border);
+    background: color-mix(in srgb, var(--surface-overlay) 88%, transparent);
+    backdrop-filter: blur(20px);
+    box-shadow: var(--shadow-3);
+}
+.rnd-pop-body {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-4);
+    padding: var(--space-4);
+}
+.rnd-pop-foot {
+    display: flex;
+    justify-content: flex-end;
+}

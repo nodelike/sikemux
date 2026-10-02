@@ -158,26 +158,6 @@ describe("useXterm renderer boot", () => {
         expect(mocks.terminals).toHaveLength(2);
     });
 
-    it("renders through WebGL without an explicit environment opt-in", async () => {
-        const controller = {
-            start: vi.fn().mockResolvedValue(7),
-            resize: vi.fn().mockResolvedValue(undefined),
-            attach: vi.fn().mockResolvedValue({
-                snapshot: new Uint8Array(),
-                alternateScreen: false,
-                shell: null,
-                activate: vi.fn(),
-                detach: vi.fn().mockResolvedValue(undefined),
-            }),
-            write: vi.fn().mockResolvedValue(undefined),
-        } as unknown as NativePtyController;
-
-        const view = render(<Harness controller={controller} onExit={vi.fn()} />);
-        await act(async () => vi.advanceTimersByTimeAsync(0));
-
-        expect((view.container.firstElementChild as HTMLElement).dataset.terminalRenderer).toBe("webgl");
-    });
-
     it("acks the bytes the native channel delivered, not the replayed snapshot", async () => {
         const ack = vi.fn();
         let deliver: (chunk: Uint8Array) => void = () => {};

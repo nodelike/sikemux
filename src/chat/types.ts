@@ -1,5 +1,6 @@
 import type { ToolDiff } from "./diff";
 import type { ToolOutput } from "./toolOutput";
+import type { SentContext } from "./promptContext";
 
 export interface AcpContentBlock {
     type: string;
@@ -96,12 +97,18 @@ export interface ChatMessage {
     role: "user" | "assistant";
     parts: ChatPart[];
     attachments?: string[];
+    context?: SentContext[];
     /* When the first and last characters of a streamed answer landed, and how
        many arrived between them — what the transcript's speed reading is
        worked out from. A replayed message has none of these. */
     streamStartedAt?: number;
     streamEndedAt?: number;
     streamChars?: number;
+    /* When this side saw the message begin. A replayed message has none, since
+       the history a session replays carries no times. */
+    sentAt?: number;
+    /* When the turn this message closed finished, as this side saw it. */
+    endedAt?: number;
 }
 
 export interface ChatState {
@@ -115,9 +122,6 @@ export interface ChatState {
     plan: unknown;
     usage: ContextUsage | null;
     running: boolean;
-    /* The agent started this turn on its own, woken by a message from another
-       session or a finished background task, so no prompt of ours will end it. */
-    unprompted: boolean;
     suppressUserEcho: boolean;
     error: string | null;
     title: string | null;
@@ -132,7 +136,7 @@ export type ChatAction =
     | { type: "config"; options: unknown }
     | { type: "status"; state: ChatState["connection"] }
     | { type: "ready"; capabilities: Record<string, unknown>; setup: Record<string, unknown> }
-    | { type: "local_prompt"; text: string; paths: string[] }
+    | { type: "local_prompt"; text: string; paths: string[]; context?: SentContext[] }
     | { type: "session_update"; sessionId: string; update: Record<string, unknown> }
     | { type: "saved_usage"; usage: ContextUsage }
     | { type: "turn_started" }

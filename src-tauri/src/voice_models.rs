@@ -1,6 +1,7 @@
-//! The speech models dictation runs on. Every file is fetched from Hugging Face
-//! at the commit recorded when the app was built, checked against the hash
-//! recorded then, and only then moved into place for the voice helper to load.
+//! The speech models dictation runs on, and the helper that runs them. Every
+//! model file is fetched from Hugging Face at the commit recorded when the app
+//! was built, the helper from this version's GitHub release, and each is checked
+//! against the hash recorded then before it is moved into place.
 
 use std::fs::File;
 use std::io::{Read, Write};
@@ -18,6 +19,7 @@ use crate::error::{AppError, AppResult};
 const MANIFEST: &str = include_str!("../voice-models.json");
 /// Holds the hash of the manifest the models were last checked against.
 const VERIFIED_MARKER: &str = "models.verified";
+const HELPER_FILE: &str = "sikemux-voice";
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 const READ_TIMEOUT: Duration = Duration::from_secs(60);
 const PROGRESS_STEP: f64 = 0.005;
@@ -53,24 +55,86 @@ fn manifest_hash() -> String {
     hex::encode(Sha256::digest(MANIFEST.as_bytes()))
 }
 
-pub fn installed(dir: &Path) -> bool {
+/// The helper this build was made with. Builds without one recorded can only
+/// run a helper that sits beside the app, as `make dev` builds do.
+fn published_helper() -> Option<&'static ModelFile> {
+    static HELPER: OnceLock<Option<ModelFile>> = OnceLock::new();
+    HELPER
+        .get_or_init(|| {
+            Some(ModelFile {
+                path: option_env!("SIKEMUX_VOICE_HELPER_ASSET")?.into(),
+                size: option_env!("SIKEMUX_VOICE_HELPER_SIZE")?.parse().ok()?,
+                sha256: option_env!("SIKEMUX_VOICE_HELPER_SHA256")?.into(),
+            })
+        })
+        .as_ref()
+}
+
+pub fn helper_is_published() -> bool {
+    published_helper().is_some()
+}
+
+pub fn helper_path(dir: &Path) -> PathBuf {
+    dir.join(HELPER_FILE)
+}
+
+fn helper_url(helper: &ModelFile) -> String {
+    format!(
+        "https://github.com/nodelike/sikemux/releases/download/v{}/{}",
+        env!("CARGO_PKG_VERSION"),
+        helper.path
+    )
+}
+
+fn models_verified(dir: &Path) -> bool {
     std::fs::read_to_string(dir.join(VERIFIED_MARKER)).is_ok_and(|hash| hash == manifest_hash())
 }
 
+fn helper_matches(dir: &Path, helper: &ModelFile) -> bool {
+    let path = helper_path(dir);
+    std::fs::metadata(&path).is_ok_and(|meta| meta.len() == helper.size)
+        && hash_file(&path).is_ok_and(|hash| hash == helper.sha256)
+}
+
+/// `with_helper` asks for the published helper too, for a build that has no
+/// helper of its own beside the app.
+pub fn installed(dir: &Path, with_helper: bool) -> bool {
+    models_verified(dir)
+        && (!with_helper || published_helper().is_some_and(|helper| helper_matches(dir, helper)))
+}
+
 /// Makes every model file under `dir` match the manifest, downloading the ones
-/// that are missing or differ. `progress` hears the fraction of bytes in place.
-pub async fn ensure(dir: &Path, mut progress: impl FnMut(f64)) -> AppResult<()> {
-    if installed(dir) {
+/// that are missing or differ, and with `with_helper` does the same for the
+/// helper. `progress` hears the fraction of bytes in place.
+pub async fn ensure(dir: &Path, with_helper: bool, mut progress: impl FnMut(f64)) -> AppResult<()> {
+    let helper =
+        if with_helper {
+            Some(published_helper().ok_or_else(|| {
+                AppError::Other("this build has no published voice helper".into())
+            })?)
+        } else {
+            None
+        };
+    let models_ready = models_verified(dir);
+    let helper_to_fetch = match helper {
+        Some(helper) => (!already_matches(&helper_path(dir), helper).await).then_some(helper),
+        None => None,
+    };
+    if models_ready && helper_to_fetch.is_none() {
         return Ok(());
     }
     let manifest = manifest();
-    let total: u64 = manifest
-        .models
+    let models = if models_ready {
+        &[][..]
+    } else {
+        &manifest.models[..]
+    };
+    let model_bytes: u64 = models
         .iter()
         .flat_map(|model| &model.files)
         .map(|file| file.size)
-        .sum::<u64>()
-        .max(1);
+        .sum();
+    let total = (model_bytes + helper_to_fetch.map_or(0, |helper| helper.size)).max(1);
     let mut done = 0u64;
     let mut reported = -1.0;
     let mut report = |bytes: u64| {
@@ -81,7 +145,7 @@ pub async fn ensure(dir: &Path, mut progress: impl FnMut(f64)) -> AppResult<()> 
         }
     };
     report(0);
-    for model in &manifest.models {
+    for model in models {
         let folder = dir.join(plain_relative(&model.folder)?);
         for file in &model.files {
             let destination = folder.join(plain_relative(&file.path)?);
@@ -96,7 +160,22 @@ pub async fn ensure(dir: &Path, mut progress: impl FnMut(f64)) -> AppResult<()> 
             report(done);
         }
     }
-    std::fs::write(dir.join(VERIFIED_MARKER), manifest_hash())?;
+    if !models_ready {
+        std::fs::write(dir.join(VERIFIED_MARKER), manifest_hash())?;
+    }
+    if let Some(helper) = helper_to_fetch {
+        let destination = helper_path(dir);
+        download(&helper_url(helper), &destination, helper, |bytes| {
+            report(done + bytes)
+        })
+        .await?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&destination, std::fs::Permissions::from_mode(0o755))?;
+        }
+        report(done + helper.size);
+    }
     Ok(())
 }
 
@@ -259,5 +338,20 @@ mod tests {
             ..file
         };
         assert!(!already_matches(&path, &tampered).await);
+    }
+
+    #[test]
+    fn only_the_helper_built_with_the_app_counts_as_installed() {
+        let dir = tempfile::tempdir().unwrap();
+        let helper = ModelFile {
+            path: "sikemux-voice-aarch64-apple-darwin".into(),
+            size: 6,
+            sha256: hex::encode(Sha256::digest(b"helper")),
+        };
+        assert!(!helper_matches(dir.path(), &helper));
+        std::fs::write(helper_path(dir.path()), b"helper").unwrap();
+        assert!(helper_matches(dir.path(), &helper));
+        std::fs::write(helper_path(dir.path()), b"helpex").unwrap();
+        assert!(!helper_matches(dir.path(), &helper));
     }
 }

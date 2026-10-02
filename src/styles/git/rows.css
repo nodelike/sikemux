@@ -1,0 +1,151 @@
+.git-row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    height: 26px;
+    padding: 0 6px 0 8px;
+    border: 1px solid transparent;
+    border-radius: var(--radius-2);
+    color: var(--text-secondary);
+    font-size: var(--text-sm);
+    white-space: nowrap;
+    outline: none;
+    cursor: default;
+    user-select: none;
+}
+.git-row:hover:not(.sel) {
+    background: var(--surface-hover);
+    color: var(--text-primary);
+}
+.git-row.sel {
+    background: var(--surface-selected);
+    border-color: var(--border-selected);
+    color: var(--text-primary);
+}
+.git-row:focus-visible {
+    box-shadow: var(--focus-ring);
+}
+.git-row.ranged:not(.sel) {
+    background: color-mix(in srgb, var(--warn) 10%, transparent);
+}
+.git-row .file-glyph {
+    width: 16px;
+    text-align: center;
+    flex: none;
+}
+.git-row-name {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.git-row-dir {
+    margin-left: var(--space-1h);
+    color: var(--text-tertiary);
+    font-size: var(--text-xs);
+}
+.git-row-hint {
+    flex: none;
+    font-family: var(--mono);
+    font-size: var(--text-2xs);
+    color: var(--text-tertiary);
+}
+.git-row-hint.behind {
+    color: var(--git-renamed);
+}
+.git-row-actions {
+    display: none;
+    gap: 2px;
+    flex: none;
+    margin-left: auto;
+}
+/* Only the pointer reveals a row's buttons; each one has a key, so the keyboard never needs them. */
+.git-row:hover .git-row-actions {
+    display: flex;
+}
+.git-row:hover .git-row-hint {
+    display: none;
+}
+.git-row-act {
+    display: grid;
+    place-items: center;
+    width: 22px;
+    height: 22px;
+    padding: 0;
+    border: none;
+    background: transparent;
+    color: var(--text-tertiary);
+    cursor: pointer;
+}
+.git-row-act:hover {
+    background: var(--surface-active);
+    color: var(--text-primary);
+}
+.git-status {
+    flex: none;
+    width: 14px;
+    text-align: center;
+    font-family: var(--mono);
+    font-size: var(--text-2xs);
+    font-weight: var(--weight-semibold);
+}
+.git-status.modified {
+    color: var(--git-modified);
+}
+.git-status.added {
+    color: var(--git-added);
+}
+.git-status.deleted {
+    color: var(--git-deleted);
+}
+.git-status.renamed {
+    color: var(--git-renamed);
+}
+.git-dot {
+    width: 7px;
+    height: 7px;
+    margin: 0 4px;
+    border-radius: 50%;
+    flex: none;
+    background: var(--text-disabled);
+}
+.git-dot.current {
+    background: var(--live);
+    box-shadow: 0 0 0 3px color-mix(in oklab, var(--live) 18%, transparent);
+}
+.git-dot.remote {
+    background: var(--git-renamed);
+}
+.git-branch-row.current .git-row-name {
+    color: var(--text-primary);
+}
+.git-sync-chip {
+    flex: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    height: 20px;
+    padding: 0 6px;
+    border: 1px solid color-mix(in oklab, var(--warn) 32%, transparent);
+    color: var(--warn);
+    font-family: var(--mono);
+    font-size: var(--text-2xs);
+}
+.git-sync-chip:hover {
+    background: color-mix(in oklab, var(--warn) 12%, transparent);
+}
+.git-remote-row .git-row-name {
+    color: var(--text-tertiary);
+    font-size: var(--text-2xs);
+}
+.git-remote-chev {
+    display: flex;
+    flex: none;
+    width: 15px;
+    justify-content: center;
+    color: var(--text-tertiary);
+    transition: transform var(--dur-1);
+}
+.git-remote-chev.open {
+    transform: rotate(90deg);
+}

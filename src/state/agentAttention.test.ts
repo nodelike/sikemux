@@ -30,23 +30,13 @@ function twoProjects(): void {
 beforeEach(twoProjects);
 
 describe("agents awaiting input", () => {
-    it("is empty while nothing is blocked", () => {
-        expect(agentsAwaitingInput(getState())).toEqual([]);
-    });
-
-    it("reports a blocked agent with the project it belongs to", () => {
-        setState({ agentActivity: { a1: blocked() } });
-
-        const found = agentsAwaitingInput(getState());
-
-        expect(found).toHaveLength(1);
-        expect(found[0]).toMatchObject({ agentId: "a1", agentTitle: "claude · api", agentType: "claude" });
-    });
-
     it("gathers blocked agents from every project, not just the active one", () => {
         setState({ agentActivity: { a1: blocked(), a2: blocked() } });
 
-        expect(agentsAwaitingInput(getState()).map((entry) => entry.agentId)).toEqual(["a1", "a2"]);
+        const found = agentsAwaitingInput(getState());
+
+        expect(found.map((entry) => entry.agentId)).toEqual(["a1", "a2"]);
+        expect(found[0]).toMatchObject({ agentTitle: "claude · api", agentType: "claude" });
     });
 
     it("ignores an agent that is merely working", () => {
@@ -56,13 +46,11 @@ describe("agents awaiting input", () => {
     });
 
     it("switches project and opens the agent that was waiting", () => {
-        const first = getState().activeSessionId;
         setState({ agentActivity: { a2: blocked() } });
 
         revealAgent("a2");
 
         expect(getState().activeSessionId).toBe("s2");
-        expect(getState().activeSessionId).not.toBe(first);
         expect(activeAgentId(getState(), getState().sessions.s2)).toBe("a2");
     });
 });

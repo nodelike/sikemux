@@ -1,4 +1,4 @@
-import { IconChevron, IconShield } from "../../../plugin-api/ui";
+import { IconChevron, IconShield, useShortcutLabel, withShortcut } from "../../../plugin-api/ui";
 import type { BruEnv } from "../lib/types";
 import { brunoSetSecret, brunoToggleSecrets, openPalette } from "../state";
 
@@ -14,11 +14,16 @@ interface Props {
 
 export function BrunoEnvSelect({ paneId, envs, showCollection, selected, secretNames, secretVars, secretsOpen }: Props) {
     const active = selected ? envs.find((e) => e.id === selected) : undefined;
+    const shortcut = useShortcutLabel("plugin.run:sikemux.bruno/environment");
     const label = active ? (showCollection ? `${active.collectionName}/${active.name}` : active.name) : "No environment";
 
     return (
         <div className="bruno-env">
-            <button type="button" className="dd-btn bruno-env-dd" title="Environment (⌥E)" onClick={() => openPalette("environmentPalette")}>
+            <button
+                type="button"
+                className="dd-btn bruno-env-dd"
+                title={withShortcut("Environment", shortcut)}
+                onClick={() => openPalette("environmentPalette")}>
                 <span className="dd-val">{label}</span>
                 <IconChevron size={9} className="dd-chev" />
             </button>

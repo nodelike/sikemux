@@ -57,5 +57,6 @@ export const activityApi = {
             sessionId: turn.sessionId ?? null,
             configPath: turn.configPath ?? null,
         }),
-    summary: (): Promise<ActivitySummary> => invoke<ActivitySummary>("activity_summary", { utcOffsetMinutes: -new Date().getTimezoneOffset() }),
+    summary: (project?: string): Promise<ActivitySummary> =>
+        invoke<ActivitySummary>("activity_summary", { utcOffsetMinutes: -new Date().getTimezoneOffset(), project: project ?? null }),
 };

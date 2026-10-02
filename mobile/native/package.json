@@ -1,0 +1,48 @@
+{
+  "name": "@sikemux/native",
+  "version": "0.1.0",
+  "private": true,
+  "description": "The Sikemux core client, compiled from Rust, for the phone app",
+  "license": "SEE LICENSE IN ../../LICENSE",
+  "author": "nodelike <kishore.sensei@gmail.com> (https://github.com/nodelike)",
+  "homepage": "https://github.com/nodelike/sikemux/tree/main/mobile/native",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/nodelike/sikemux.git",
+    "directory": "mobile/native"
+  },
+  "main": "./src/index.tsx",
+  "types": "./src/index.tsx",
+  "react-native": "./src/index.tsx",
+  "scripts": {
+    "ubrn:ios": "node scripts/ubrn.mjs build ios --and-generate",
+    "ubrn:ios:sim": "node scripts/ubrn.mjs build ios --and-generate --sim-only",
+    "ubrn:android": "node scripts/ubrn.mjs build android --and-generate && node scripts/shrink-android-link.mjs",
+    "ubrn:ios:release": "node scripts/ubrn.mjs build ios --and-generate --profile mobile",
+    "ubrn:android:release": "node scripts/ubrn.mjs build android --and-generate --profile mobile && node scripts/shrink-android-link.mjs",
+    "ubrn:clean": "rm -rf cpp/ ios/ android/ src/ build/ *.podspec *.xcframework",
+    "typecheck": "node ../scripts/require-bindings.mjs && tsc"
+  },
+  "peerDependencies": {
+    "react": "*",
+    "react-native": "*"
+  },
+  "dependencies": {
+    "@ubjs/core": "0.31.0-6"
+  },
+  "devDependencies": {
+    "@types/react": "catalog:",
+    "react": "19.2.3",
+    "react-native": "0.86.3",
+    "typescript": "catalog:",
+    "uniffi-bindgen-react-native": "0.31.0-6"
+  },
+  "codegenConfig": {
+    "name": "NativeSikemuxSpec",
+    "type": "modules",
+    "jsSrcsDir": "src",
+    "android": {
+      "javaPackageName": "com.sikemux.client"
+    }
+  }
+}

@@ -39,6 +39,17 @@ pub trait Plugin: Send + Sync {
         Box::pin(async move { Err(PluginError::unknown_method(method)) })
     }
 
+    /// Whether an agent working in a repository with these git remote URLs
+    /// should be offered this plugin's tools. Asked once when the agent starts,
+    /// so a plugin that cannot work there costs the agent nothing.
+    fn offers_agent_tools<'a>(
+        &'a self,
+        _ctx: &'a PluginContext,
+        _remotes: &'a [String],
+    ) -> PluginFuture<'a, bool> {
+        Box::pin(async { Ok(true) })
+    }
+
     fn diagnostics(&self) -> Value {
         Value::Null
     }

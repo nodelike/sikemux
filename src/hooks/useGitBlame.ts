@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import type { EditorView } from "@codemirror/view";
 import { refreshBlame, setBlameContext } from "../editor/gitBlame";
-import { isImagePath } from "../editor/media";
+import { isPreviewPath } from "../editor/viewers/fileKinds";
 import { subscribe } from "../state/bus";
 import { relativePath } from "../lib/paths";
 
@@ -16,7 +16,7 @@ export function useGitBlame(viewGetter: () => EditorView | null, cwd: string, ac
         const view = viewGetter();
         if (!view) return;
         const rel = activePath && cwd ? relativePath(activePath, cwd) : null;
-        if (!activePath || !cwd || isImagePath(activePath) || !rel) {
+        if (!activePath || !cwd || isPreviewPath(activePath) || !rel) {
             setBlameContext(view, null);
             return;
         }
@@ -25,6 +25,6 @@ export function useGitBlame(viewGetter: () => EditorView | null, cwd: string, ac
             if (e.repo !== cwd) return;
             refreshBlame(viewGetter());
         });
-        // eslint-disable-next-line react-hooks/exhaustive-deps
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- callers pass a new getter every render for the same editor
     }, [activePath, cwd]);
 }

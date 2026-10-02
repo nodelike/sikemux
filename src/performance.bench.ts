@@ -1,6 +1,6 @@
 import { describe, test } from "vitest";
 import type { DiffRow } from "./api/git";
-import { layoutRows } from "./components/DiffView";
+import { layoutRows } from "./git/DiffView";
 import { UiActivityTracker } from "./lib/activity";
 import { PerformanceTelemetry } from "./lib/performance";
 import { rankBy } from "./lib/fuzzy";

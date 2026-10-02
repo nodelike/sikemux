@@ -40,9 +40,9 @@ const config = JSON.parse(fs.readFileSync("src-tauri/tauri.conf.json", "utf8"));
 const macConfig = JSON.parse(fs.readFileSync("src-tauri/tauri.macos.conf.json", "utf8"));
 const windowsConfig = JSON.parse(fs.readFileSync("src-tauri/tauri.windows.conf.json", "utf8"));
 const sidecarConfig = JSON.parse(fs.readFileSync("src-tauri/tauri.sidecar.conf.json", "utf8"));
-const voiceConfig = JSON.parse(fs.readFileSync("src-tauri/tauri.voice.conf.json", "utf8"));
 const macBuild = fs.readFileSync("scripts/build-mac.sh", "utf8");
 const sidecarBuild = fs.readFileSync("scripts/build-cli-sidecar.mjs", "utf8");
+const release = fs.readFileSync("scripts/release.sh", "utf8");
 const fail = (message) => { throw new Error(message); };
 
 if (pkg.version !== config.version) fail("package.json and tauri.conf.json versions differ");
@@ -57,15 +57,14 @@ if (JSON.stringify(windowsConfig.bundle?.targets) !== JSON.stringify(["nsis"])) 
 if (windowsConfig.bundle?.createUpdaterArtifacts !== false) fail("unsigned Windows builds must not require updater credentials");
 if (!windowsConfig.bundle?.icon?.includes("icons/icon.ico")) fail("Windows icon is not configured");
 if (windowsConfig.bundle?.windows?.nsis?.installMode !== "currentUser") fail("unexpected Windows install mode");
-if (JSON.stringify(sidecarConfig.bundle?.externalBin) !== JSON.stringify(["binaries/sikemux-editor", "binaries/sikemux-tools-mcp"])) fail("sidecar bundle mapping is incomplete");
-if (JSON.stringify(voiceConfig.bundle?.externalBin) !== JSON.stringify([...sidecarConfig.bundle.externalBin, "binaries/sikemux-voice"])) fail("voice helper bundle mapping must extend the sidecar list");
-if (!macBuild.includes("tauri.voice.conf.json") || !macBuild.includes("build-voice-helper.mjs")) fail("macOS build does not bundle the voice helper");
+if (JSON.stringify(sidecarConfig.bundle?.externalBin) !== JSON.stringify(["binaries/sikemux-editor"])) fail("sidecar bundle mapping is incomplete");
+if (!macBuild.includes("build-voice-helper.mjs")) fail("macOS build does not build the voice helper");
+if (!release.includes('"$SIG" "$VOICE"')) fail("releases do not publish the voice helper the app downloads");
 if (sidecarConfig.bundle?.resources?.["resources/sikemux_pi_tools.ts"] !== "sikemux_pi_tools.ts") fail("Pi browser extension resource mapping is missing");
 if (!pkg.scripts?.["build:windows"]?.includes("build:sidecar")) fail("Windows build does not build sidecars");
 if (!pkg.scripts?.["build:windows"]?.includes("tauri.sidecar.conf.json")) fail("Windows build does not bundle the CLI sidecar");
 if (!macBuild.includes("build-cli-sidecar.mjs")) fail("macOS build does not build the CLI sidecar");
 if (!macBuild.includes("tauri.sidecar.conf.json")) fail("macOS build does not bundle the CLI sidecar");
-if (!sidecarBuild.includes("sikemux-tools-mcp")) fail("sidecar build does not build the browser MCP sidecar");
 if (!sidecarBuild.includes("smokeBrowserSidecar")) fail("sidecar build does not run the browser smoke test");
 const endpoints = config.plugins?.updater?.endpoints;
 if (!Array.isArray(endpoints) || endpoints.length !== 1 || endpoints[0] !== "https://github.com/nodelike/sikemux/releases/latest/download/latest.json") {

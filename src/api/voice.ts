@@ -7,7 +7,7 @@ export interface VoiceStatus {
     reason: string | null;
 }
 
-export type VoiceStage = "download" | "compile" | "vocabulary";
+export type VoiceStage = "download" | "compile";
 
 export type VoiceEvent =
     | { type: "progress"; stage: VoiceStage; fraction: number }
@@ -22,7 +22,7 @@ export type VoiceEvent =
 export const voiceApi = {
     status: () => invoke<VoiceStatus>("voice_status"),
     prepare: () => invoke<void>("voice_prepare"),
-    start: (vocabulary: string[]) => invoke<void>("voice_start", { vocabulary }),
+    start: () => invoke<void>("voice_start"),
     stop: () => invoke<void>("voice_stop"),
     cancel: () => invoke<void>("voice_cancel"),
     shutdown: () => invoke<void>("voice_shutdown"),

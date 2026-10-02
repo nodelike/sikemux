@@ -1,0 +1,44 @@
+/* ---- Tabs: one sunken track, the current tab raised inside it ---- */
+
+.git-tabs {
+    display: flex;
+    gap: 2px;
+    flex: 0 0 auto;
+    margin: var(--space-2) 10px var(--space-1);
+    padding: 2px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-2);
+    background: color-mix(in srgb, var(--surface-sunken) calc(var(--window-opacity, 1) * 100%), transparent);
+}
+.git-tabs button {
+    flex: 1;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-1h);
+    height: 26px;
+    padding: 0 var(--space-2);
+    color: var(--text-tertiary);
+    font-size: var(--text-xs);
+    font-weight: var(--weight-medium);
+    white-space: nowrap;
+    transition:
+        color var(--dur-1),
+        background var(--dur-1);
+}
+.git-tabs button:hover:not(.on) {
+    color: var(--text-secondary);
+}
+.git-tabs button.on {
+    color: var(--text-primary);
+    background: var(--gray-300);
+    box-shadow: var(--shadow-1);
+}
+.git-tabs button.on svg {
+    color: var(--acc);
+}
+.git-tab-count {
+    font-family: var(--mono);
+    font-size: var(--text-2xs);
+    color: var(--text-tertiary);
+}

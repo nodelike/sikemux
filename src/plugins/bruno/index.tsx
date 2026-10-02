@@ -41,7 +41,7 @@ registerFrontendPlugin({
     ],
     open: () => openBrunoSession(),
     openTitle: "Open Bruno",
-    openShortcut: "Alt+KeyB",
+    openShortcut: IS_MACOS ? "Meta+Alt+KeyB" : "Ctrl+Alt+KeyB",
     shortcuts: [
         {
             name: "save",
@@ -64,7 +64,7 @@ registerFrontendPlugin({
             name: "environment",
             label: "Choose environment",
             detail: "Open the Bruno environment picker",
-            defaultBinding: "Alt+KeyE",
+            defaultBinding: `${IS_MACOS ? "Meta" : "Ctrl"}+KeyE`,
             run: inBruno(() => openPalette("environmentPalette")),
         },
     ],

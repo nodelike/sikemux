@@ -140,7 +140,7 @@ fn claim_fetch(root: PathBuf) -> bool {
 }
 
 fn fetch_origin(root: &std::path::Path) {
-    let mut fetch = std::process::Command::new("git");
+    let mut fetch = sikemux_process::user_environment::command("git");
     fetch
         .arg("-C")
         .arg(root)

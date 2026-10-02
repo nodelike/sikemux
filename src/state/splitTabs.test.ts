@@ -3,7 +3,8 @@ import { openGitWorkbench, separatePane, splitWithTab, unsplitTab } from "./comm
 import { collectPanes } from "./layout";
 import { editorPaneOf, expandTabRefs, paneToSeparate, tabRefKey, tabSplitAllowed } from "./selectors";
 import { getState, setState } from "./store";
-import type { LayoutNode, Window } from "./types";
+import { validatePersistedLayout } from "./persistValidation";
+import type { LayoutNode, PaneNode, Window } from "./types";
 
 const initial = getState();
 const pane = (id: string, kind: "terminal" | "agent" | "git" | "search" | "editor" = "terminal"): LayoutNode => ({
@@ -271,6 +272,76 @@ describe("splitting Git and search", () => {
         const remaining = getState().windows.search;
         expect(remaining).toMatchObject({ role: "term", root: { id: "p1" } });
         expect(getState().windows[tabs()[1]]).toMatchObject({ role: "search", root: { id: "s1" } });
+    });
+
+    it("turns a terminal tab left holding Git into a Git tab", () => {
+        place("t", win("t", "term", pane("p1")), win("git", "git", pane("g1", "git")));
+        splitWithTab(sessionId(), { id: "git" }, "right");
+
+        separatePane("t", "p1");
+
+        expect(getState().windows.t).toMatchObject({ role: "git", name: "git", root: { id: "g1" } });
+        expect(getState().windows[tabs()[1]]).toMatchObject({ role: "term", name: "t", root: { id: "p1" } });
+    });
+});
+
+describe("tab names follow their panes out of a split", () => {
+    it("gives a named command's tab to its pane, and the other terminal its own name back", () => {
+        place("dev", win("dev", "named", pane("n1"), { name: "dev server" }), win("t", "term", pane("p1"), { name: "Terminal" }));
+        splitWithTab(sessionId(), { id: "t" }, "right");
+
+        separatePane("dev", "n1");
+
+        expect(getState().windows.dev).toMatchObject({ name: "Terminal", role: "term", root: { id: "p1" } });
+        expect(getState().windows[tabs()[1]]).toMatchObject({ name: "dev server", role: "named", root: { id: "n1" } });
+    });
+
+    it("keeps a renamed tab's name with the pane it was given to", () => {
+        place("a", win("a", "term", pane("p0"), { name: "logs" }), win("t", "term", pane("p1"), { name: "Terminal" }));
+        splitWithTab(sessionId(), { id: "t" }, "right");
+
+        separatePane("a", "p0");
+
+        expect(getState().windows.a).toMatchObject({ name: "Terminal", root: { id: "p1" } });
+        expect(getState().windows[tabs()[1]]).toMatchObject({ name: "logs", root: { id: "p0" } });
+    });
+
+    it("names a tab still split after one of the panes it holds once its own pane leaves", () => {
+        place(
+            "a",
+            win("a", "term", pane("p0"), { name: "Terminal" }),
+            win("g", "git", pane("g1", "git"), { name: "Git" }),
+            win("s", "search", pane("s1", "search")),
+        );
+        splitWithTab(sessionId(), { id: "g" }, "right", "p0");
+        splitWithTab(sessionId(), { id: "s" }, "right", "g1");
+
+        separatePane("a", "p0");
+
+        expect(getState().windows.a).toMatchObject({ name: "Git", role: "git" });
+        expect(collectPanes(getState().windows.a.root).map((p) => p.id)).toEqual(["g1", "s1"]);
+    });
+
+    it("remembers each pane's tab in the saved layout, so it still comes back after a restart", () => {
+        const split: LayoutNode = {
+            type: "split",
+            id: "s",
+            dir: "row",
+            sizes: [0.5, 0.5],
+            children: [
+                { type: "pane", id: "p0", cwd: "/p", kind: "terminal", title: "zsh", tab: { name: "logs", role: "term" } },
+                { type: "pane", id: "g1", cwd: "/p", kind: "git", title: "Git", tab: { name: "Git", role: "git" } },
+            ],
+        };
+        expect(validatePersistedLayout(split).ok).toBe(true);
+        place("a", win("a", "term", split, { name: "logs" }));
+
+        separatePane("a", "p0");
+
+        expect(getState().windows.a).toMatchObject({ name: "Git", role: "git", root: { id: "g1" } });
+        const separated = getState().windows[tabs()[1]];
+        expect(separated).toMatchObject({ name: "logs", role: "term", root: { id: "p0" } });
+        expect((separated.root as PaneNode).tab).toBeUndefined();
     });
 });
 

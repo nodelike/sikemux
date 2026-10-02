@@ -1,0 +1,8 @@
+/* What Android looks up in the module's library by name; everything else stays inside it. */
+{
+  global:
+    JNI_OnLoad;
+    Java_*;
+  local:
+    *;
+};

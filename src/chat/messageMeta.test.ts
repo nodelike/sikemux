@@ -1,6 +1,6 @@
 import { expect, it, vi } from "vitest";
 import { chatReducer, initialChatState } from "./reducer";
-import { rateLabel, rowMeta } from "./messageMeta";
+import { rateLabel, rowMeta, sentLabel, sentTitle } from "./messageMeta";
 import type { ChatState } from "./types";
 
 const update = (state: ChatState, value: Record<string, unknown>) =>
@@ -93,4 +93,54 @@ it("copies a whole answer from where it ends, and offers nothing in the middle o
     const middle = state.messages.findIndex((message) => message.id === "m1");
     expect(rowMeta(state.messages, middle).text).toBe("");
     expect(last(state).text).toBe("Looking now.\n\nWired.");
+});
+
+it("counts no characters for a streamed message that never said how many arrived", () => {
+    const messages = [
+        {
+            id: "m1",
+            role: "assistant" as const,
+            parts: [{ id: "m1-t", kind: "text" as const, text: "hello" }],
+            streamStartedAt: 0,
+            streamEndedAt: 1_000,
+        },
+    ];
+    expect(rowMeta(messages, 0)).toEqual({ text: "hello", rate: null, at: null, took: null });
+});
+
+it("stamps a prompt with when it was sent, and its answer with when the turn finished and how long it took", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 8, 29, 21, 7, 0));
+    let state = chatReducer(initialChatState, { type: "local_prompt", text: "check the build", paths: [] });
+    state = chatReducer(state, { type: "turn_started" });
+    vi.setSystemTime(new Date(2026, 8, 29, 21, 7, 4));
+    state = update(state, chunk("Looking.", "m1"));
+    vi.setSystemTime(new Date(2026, 8, 29, 21, 9, 0));
+    state = update(state, { sessionUpdate: "tool_call", toolCallId: "t1", title: "cargo check", status: "completed" });
+    state = update(state, chunk("It builds.", "m2"));
+    expect(last(state).at).toBeNull();
+
+    vi.setSystemTime(new Date(2026, 8, 29, 21, 11, 52));
+    state = chatReducer(state, { type: "turn_completed" });
+
+    expect(rowMeta(state.messages, 0)).toMatchObject({ at: new Date(2026, 8, 29, 21, 7, 0).getTime(), took: null });
+    expect(last(state)).toMatchObject({ at: new Date(2026, 8, 29, 21, 11, 52).getTime(), took: (4 * 60 + 52) * 1000 });
+    vi.useRealTimers();
+});
+
+it("has no time for history replayed after a reconnect", () => {
+    let state = update(initialChatState, chunk("from before"));
+    state = chatReducer(state, { type: "turn_completed" });
+    expect(state.messages[0].sentAt).toBeUndefined();
+    expect(state.messages[0].endedAt).toBeUndefined();
+    expect(last(state)).toMatchObject({ at: null, took: null });
+});
+
+it("says when with the day, as near as it is", () => {
+    const now = new Date(2026, 8, 29, 23, 30).getTime();
+    expect(sentLabel(new Date(2026, 8, 29, 21, 7).getTime(), now, "en-GB")).toBe("Today, 21:07");
+    expect(sentLabel(new Date(2026, 8, 28, 9, 5).getTime(), now, "en-GB")).toBe("Yesterday, 09:05");
+    expect(sentLabel(new Date(2026, 8, 3, 14, 2).getTime(), now, "en-GB")).toBe("3 Sept, 14:02");
+    expect(sentLabel(new Date(2025, 11, 31, 18, 45).getTime(), now, "en-GB")).toBe("31 Dec 2025, 18:45");
+    expect(sentTitle(new Date(2026, 8, 29, 21, 7, 15).getTime(), "en-GB")).toBe("Tuesday, 29 September 2026 at 21:07:15");
 });

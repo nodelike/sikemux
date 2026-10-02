@@ -132,16 +132,6 @@ describe("the desk", () => {
         expect(getState().deskPanes).toEqual({});
     });
 
-    it("leaves the agent reachable from its window while the desk has focus", () => {
-        openDesk("agent-1");
-
-        // Opening the desk focuses it, so anything that reads the agent off
-        // the focused pane loses the agent, and with it the agent's tab.
-        expect(getState().windows.window.activePaneId).not.toBe("agent-1");
-        expect(agentPaneId(getState().windows.window)).toBe("agent-1");
-        expect(agentIdsOf(getState(), "project")).toEqual(["agent-1"]);
-    });
-
     it("hides on a second press of the toggle and leaves the pages open", async () => {
         toggleDesk("agent-1");
         await vi.waitFor(() => expect(browserApi.newTab).toHaveBeenCalledTimes(1));

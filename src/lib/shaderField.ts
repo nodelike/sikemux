@@ -35,7 +35,7 @@ import { prefersReducedMotion } from "./motion";
 type Shaders = typeof import("@paper-design/shaders");
 
 /*
- * Only the members two presets actually touch.
+ * Only the members the presets actually touch.
  *
  * This narrowness is load-bearing, not tidiness: the package's entry point
  * re-exports all twenty-eight shaders, and each fragment shader is a large
@@ -47,13 +47,14 @@ type Shaders = typeof import("@paper-design/shaders");
 interface Runtime {
     ShaderMount: Shaders["ShaderMount"];
     ditheringFragmentShader: string;
+    imageDitheringFragmentShader: string;
     DitheringShapes: Shaders["DitheringShapes"];
     DitheringTypes: Shaders["DitheringTypes"];
     ShaderFitOptions: Shaders["ShaderFitOptions"];
     getShaderColorFromString: Shaders["getShaderColorFromString"];
 }
 
-export type ShaderFieldPreset = "ambient" | "release";
+export type ShaderFieldPreset = "ambient" | "release" | "image";
 
 /*
  * The panes on the screen being read, plus room for the tour.
@@ -82,6 +83,7 @@ const BATTERY_FRAMES_PER_SECOND = 20;
 
 interface Surface {
     preset: ShaderFieldPreset;
+    image: HTMLImageElement | null;
     mount: InstanceType<Shaders["ShaderMount"]> | null;
     runtime: Runtime | null;
     /** What `advance` multiplies elapsed time by. Zero for a still. */
@@ -243,14 +245,25 @@ function syncTicker(): void {
 
 function loadRuntime(): Promise<Runtime | null> {
     runtimePromise ??= import("@paper-design/shaders")
-        .then(({ ShaderMount, ditheringFragmentShader, DitheringShapes, DitheringTypes, ShaderFitOptions, getShaderColorFromString }): Runtime => ({
-            ShaderMount,
-            ditheringFragmentShader,
-            DitheringShapes,
-            DitheringTypes,
-            ShaderFitOptions,
-            getShaderColorFromString,
-        }))
+        .then(
+            ({
+                ShaderMount,
+                ditheringFragmentShader,
+                imageDitheringFragmentShader,
+                DitheringShapes,
+                DitheringTypes,
+                ShaderFitOptions,
+                getShaderColorFromString,
+            }): Runtime => ({
+                ShaderMount,
+                ditheringFragmentShader,
+                imageDitheringFragmentShader,
+                DitheringShapes,
+                DitheringTypes,
+                ShaderFitOptions,
+                getShaderColorFromString,
+            }),
+        )
         .catch((error: unknown) => {
             console.warn("Paper Shaders unavailable:", error instanceof Error ? error.message : error);
             return null;
@@ -321,7 +334,7 @@ function releaseSkyShader(shader: string): string {
     ]);
 }
 
-const PRESETS: Record<ShaderFieldPreset, (runtime: Runtime, theme: Theme) => Recipe> = {
+const PRESETS: Record<ShaderFieldPreset, (runtime: Runtime, theme: Theme, image: HTMLImageElement | null) => Recipe> = {
     /*
      * The screen's surface: a Bayer grid over simplex noise, so the card being
      * read carries grain instead of a flat fill.
@@ -383,6 +396,30 @@ const PRESETS: Record<ShaderFieldPreset, (runtime: Runtime, theme: Theme) => Rec
             ...sizing(runtime, "none", 1.4),
         },
     }),
+
+    /*
+     * A picture the reader chose, dithered in its own colours. The runtime has
+     * no moving version of this, so it is a still.
+     */
+    image: (runtime, theme, image) => {
+        if (!image) throw new Error("no image to dither");
+        return {
+            fragmentShader: runtime.imageDitheringFragmentShader,
+            speed: 0,
+            uniforms: {
+                u_image: image,
+                u_colorBack: TRANSPARENT,
+                u_colorFront: runtime.getShaderColorFromString(theme.chrome.ink),
+                u_colorHighlight: runtime.getShaderColorFromString(theme.chrome.ink),
+                u_originalColors: true,
+                u_inverted: false,
+                u_type: runtime.DitheringTypes["8x8"],
+                u_pxSize: 2,
+                u_colorSteps: 4,
+                ...sizing(runtime, "cover", 1),
+            },
+        };
+    },
 };
 
 /*
@@ -403,7 +440,7 @@ function prune(): void {
  * surface existing, so every caller has to still work when this quietly does
  * nothing.
  */
-export function mountShaderField(host: HTMLElement, preset: ShaderFieldPreset): void {
+export function mountShaderField(host: HTMLElement, preset: ShaderFieldPreset, image: HTMLImageElement | null = null): void {
     if (surfaces.has(host)) return;
     if (!webglAvailable()) {
         lastRefusal = "no webgl2 context";
@@ -418,7 +455,7 @@ export function mountShaderField(host: HTMLElement, preset: ShaderFieldPreset): 
 
     startFocusWatch();
     // Claimed before the first await so a burst of calls mounts once.
-    surfaces.set(host, { preset, mount: null, runtime: null, speed: 0, origin: FIELD_EPOCH, resize: null });
+    surfaces.set(host, { preset, image, mount: null, runtime: null, speed: 0, origin: FIELD_EPOCH, resize: null });
     void (async () => {
         const runtime = await loadRuntime();
         if (!runtime || surfaces.get(host)?.mount !== null) {
@@ -426,7 +463,7 @@ export function mountShaderField(host: HTMLElement, preset: ShaderFieldPreset): 
             return;
         }
         try {
-            const recipe = PRESETS[preset](runtime, currentTheme());
+            const recipe = PRESETS[preset](runtime, currentTheme(), image);
             // Unmounted while the runtime was loading.
             if (!surfaces.has(host) || !host.isConnected) {
                 surfaces.delete(host);
@@ -457,7 +494,7 @@ export function mountShaderField(host: HTMLElement, preset: ShaderFieldPreset): 
                 hostPixelCap(host),
             );
             const resize = trackHostSize(host, mount);
-            surfaces.set(host, { preset, mount, runtime, speed: animate ? recipe.speed : 0, origin, resize });
+            surfaces.set(host, { preset, image, mount, runtime, speed: animate ? recipe.speed : 0, origin, resize });
             host.dataset.shaderField = preset;
             syncTicker();
         } catch (error) {
@@ -528,7 +565,7 @@ subscribeTheme((theme) => {
     for (const [host, surface] of surfaces) {
         if (!surface.mount || !surface.runtime) continue;
         try {
-            surface.mount.setUniforms(PRESETS[surface.preset](surface.runtime, theme).uniforms);
+            surface.mount.setUniforms(PRESETS[surface.preset](surface.runtime, theme, surface.image).uniforms);
         } catch (error) {
             console.warn(`Paper Shaders: ${surface.preset} re-tint skipped —`, error instanceof Error ? error.message : error);
             unmountShaderField(host);

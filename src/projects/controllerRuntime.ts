@@ -1,6 +1,6 @@
 import { git, type GitWorktree } from "../api/git";
 import { performanceTelemetry } from "../lib/performance";
-import { loadProjectConfig, type ProjectConfigLoadResult } from "../projectConfig";
+import { loadProjectConfig, type ProjectConfigLoadResult } from "./projectConfig";
 import { subscribe as subscribeBus } from "../state/bus";
 import {
     ProjectControllerRegistry,

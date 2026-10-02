@@ -1,0 +1,187 @@
+/* ---- Toolbar ---- */
+
+.git-toolbar {
+    display: flex;
+    align-items: center;
+    gap: var(--space-1h);
+    flex: 0 0 auto;
+    width: 100%;
+    height: 36px;
+    padding: 0 var(--space-1h);
+    border-bottom: 1px solid var(--border);
+    background: var(--s-sunken);
+    overflow: hidden;
+}
+.git-tb-grow {
+    flex: 1 1 auto;
+}
+.git-tb-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    flex: none;
+    height: 18px;
+    padding: 0 6px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-1);
+    color: var(--text-tertiary);
+    font-family: var(--mono);
+    font-size: var(--text-2xs);
+    white-space: nowrap;
+}
+.git-tb-chip.error {
+    color: var(--danger);
+    border-color: color-mix(in oklab, var(--danger) 32%, transparent);
+}
+.git-tb-busy {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    min-width: 0;
+    overflow: hidden;
+    font-size: var(--text-2xs);
+    color: var(--warn);
+    white-space: nowrap;
+}
+.git-tb-busy.error {
+    color: var(--danger);
+}
+
+/* The repo picker keeps the old status line. */
+.git-tb-status {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+    overflow: hidden;
+}
+.git-tb-icon {
+    flex: none;
+    color: var(--live);
+}
+.git-tb-branch {
+    color: var(--text-primary);
+    font-weight: var(--weight-semibold);
+    white-space: nowrap;
+}
+.git-tb-changed {
+    font-size: var(--text-2xs);
+    color: var(--text-tertiary);
+    white-space: nowrap;
+}
+
+/* One bordered button grammar for the whole pane: toolbar, detail cards and the left column's foot. */
+.git-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-1h);
+    flex: 0 0 auto;
+    height: 28px;
+    padding: 0 10px;
+    border: 1px solid var(--border);
+    background: color-mix(in oklab, var(--ink) 5%, transparent);
+    color: var(--text-secondary);
+    font-family: var(--ui);
+    font-size: var(--text-xs);
+    font-weight: var(--weight-medium);
+    white-space: nowrap;
+    cursor: pointer;
+    transition:
+        color var(--dur-1),
+        border-color var(--dur-1),
+        background var(--dur-1);
+}
+.git-btn svg {
+    flex: none;
+    width: 12px;
+    height: 12px;
+    color: var(--text-tertiary);
+}
+.git-btn:hover:not(:disabled) {
+    border-color: var(--border-strong);
+    background: var(--surface-active);
+    color: var(--text-primary);
+}
+.git-btn:disabled {
+    color: var(--text-disabled);
+    cursor: default;
+}
+.git-btn.primary {
+    border-color: var(--border-selected);
+    background: var(--surface-selected);
+    color: var(--text-primary);
+}
+.git-btn.primary svg,
+.git-btn-count {
+    color: var(--acc);
+}
+.git-btn.primary:hover:not(:disabled) {
+    border-color: var(--acc);
+}
+.git-btn.warn {
+    color: var(--warn);
+}
+.git-btn.danger {
+    color: var(--danger);
+}
+.git-btn.warn svg,
+.git-btn.danger svg {
+    color: currentColor;
+}
+.git-btn.icon {
+    width: 28px;
+    padding: 0;
+    justify-content: center;
+}
+/* The toolbar's controls sit at the app's toolbar size, like the top bar's and the browser's. */
+.git-toolbar .git-btn {
+    height: 24px;
+    padding: 0 var(--space-2);
+    gap: 5px;
+}
+.git-toolbar .git-btn.icon {
+    width: 24px;
+    padding: 0;
+}
+.git-btn.wide {
+    width: 100%;
+    justify-content: center;
+    height: 30px;
+}
+.git-btn kbd {
+    font-family: var(--kbd);
+    font-size: var(--text-3xs);
+    color: var(--text-tertiary);
+    padding: 0 4px;
+    border: 1px solid var(--border);
+    margin-left: var(--space-1);
+}
+.git-btn-count {
+    font-variant-numeric: tabular-nums;
+}
+.git-toolbar .git-switch {
+    flex: 0 1 auto;
+    min-width: 0;
+    max-width: 280px;
+    padding: 0 6px 0 8px;
+    color: var(--text-primary);
+}
+.git-switch-name {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-family: var(--ui);
+    font-size: var(--text-xs);
+    font-weight: var(--weight-medium);
+}
+.git-switch > svg:first-child {
+    color: var(--acc);
+}
+.git-btn .git-switch-chev {
+    width: 9px;
+    height: 9px;
+    transform: rotate(90deg);
+}
+.git-back-icon {
+    transform: rotate(180deg);
+}

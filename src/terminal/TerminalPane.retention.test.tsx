@@ -1,6 +1,6 @@
 import { render, waitFor } from "@testing-library/react";
 import { expect, it, vi } from "vitest";
-import { TerminalPane, TERMINAL_RENDERER_RETENTION } from "./TerminalPane";
+import { TerminalPane } from "./TerminalPane";
 
 const { mounted } = vi.hoisted(() => ({ mounted: new Map<string, boolean>() }));
 vi.mock("./usePty", () => ({
@@ -38,7 +38,6 @@ function panes(visible: number[]) {
 }
 
 it("keeps the three most recently hidden terminal renderers warm", async () => {
-    expect(TERMINAL_RENDERER_RETENTION).toEqual({ keepaliveMs: 15_000, maxHidden: 3 });
     const view = render(<>{panes([0, 1, 2, 3, 4])}</>);
     view.rerender(<>{panes([4])}</>);
 

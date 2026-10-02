@@ -39,14 +39,28 @@ pub struct AwsProfile {
     kind: AwsKind,
 }
 
+/// Where the AWS CLI looks, so the profiles listed are the ones it can use.
+fn aws_file(variable: &str, default: &str) -> Option<PathBuf> {
+    let home = std::env::var("HOME").ok();
+    match sikemux_process::user_environment::var(variable).filter(|path| !path.is_empty()) {
+        Some(path) => Some(expand_home(&path, home.as_deref())),
+        None => Some(PathBuf::from(home?).join(".aws").join(default)),
+    }
+}
+
+fn expand_home(path: &str, home: Option<&str>) -> PathBuf {
+    match (path.strip_prefix("~/"), home) {
+        (Some(rest), Some(home)) => PathBuf::from(home).join(rest),
+        _ => PathBuf::from(path),
+    }
+}
+
 fn config_path() -> Option<PathBuf> {
-    let home = std::env::var("HOME").ok()?;
-    Some(PathBuf::from(home).join(".aws/config"))
+    aws_file("AWS_CONFIG_FILE", "config")
 }
 
 fn credentials_path() -> Option<PathBuf> {
-    let home = std::env::var("HOME").ok()?;
-    Some(PathBuf::from(home).join(".aws/credentials"))
+    aws_file("AWS_SHARED_CREDENTIALS_FILE", "credentials")
 }
 
 /// Parse an INI-style AWS config. Supports `[profile X]`, `[default]`, and
@@ -306,5 +320,23 @@ pub(crate) async fn sso_login(profile: String) -> AwsLoginResult {
             stdout: String::new(),
             stderr: e.to_string(),
         },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_path_from_the_shell_may_start_at_home() {
+        assert_eq!(
+            expand_home("~/work/aws-config", Some("/Users/me")),
+            PathBuf::from("/Users/me/work/aws-config")
+        );
+        assert_eq!(
+            expand_home("/etc/aws/config", Some("/Users/me")),
+            PathBuf::from("/etc/aws/config")
+        );
+        assert_eq!(expand_home("~/x", None), PathBuf::from("~/x"));
     }
 }

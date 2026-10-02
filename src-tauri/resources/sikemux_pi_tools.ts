@@ -127,6 +127,11 @@ class McpClient {
   }
 }
 
+function firstSentence(text: string): string {
+  const end = text.search(/\.(\s|$)/);
+  return end === -1 ? text : text.slice(0, end + 1);
+}
+
 function contentFrom(
   result: JsonObject,
 ): Array<
@@ -201,7 +206,7 @@ export default async function sikemuxBrowser(pi: ExtensionAPI): Promise<void> {
         name,
         label: name.replaceAll("_", " "),
         description,
-        promptSnippet: description,
+        promptSnippet: firstSentence(description),
         parameters: Type.Unsafe(inputSchema),
         async execute(_toolCallId, params, signal) {
           const result = await client.request(

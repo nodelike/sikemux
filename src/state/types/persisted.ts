@@ -1,14 +1,17 @@
 import type { Theme } from "../../themes";
 import type { CustomCommand } from "../../commands/registry";
-import type { KeybindingOverrides } from "../../keybindings";
+import type { KeybindingOverrides } from "../../commands/keybindings";
 import type { HeldRelease } from "../../api/releases";
 import type {
     Agent,
     AgentPermissionMode,
+    AgentType,
     ProjectRoot,
+    ProjectSpace,
     ProviderProfile,
     ProviderProfileSelection,
     RailDensity,
+    AgentRailScope,
     RecentEntry,
     Session,
     Window,
@@ -33,6 +36,9 @@ export type PersistedAgent = Pick<
     | "effort"
     | "skipPermissions"
     | "keepAlive"
+    | "renamed"
+    | "worktree"
+    | "ptyId"
 >;
 
 export interface PersistedSnapshot {
@@ -59,6 +65,7 @@ export interface PersistedPrefs {
     customThemes?: Theme[];
     uiTextScale?: number;
     paneShader?: boolean;
+    paneImage?: string | null;
     terminalFontSize?: number;
     chatTextScale?: number;
     editorTextScale?: number;
@@ -75,12 +82,16 @@ export interface PersistedPrefs {
     pluginSettings?: Record<string, unknown>;
     disabledPlugins?: string[];
     restoreAgentTabs?: boolean;
+    spaces?: ProjectSpace[];
+    projectSpaces?: Record<string, string>;
+    activeSpaceId?: string | null;
     agentNotifications?: boolean;
     voiceDictation?: boolean;
-    voiceWords?: string[];
     notificationsIntroduced?: boolean;
-    autoResumeAgents?: boolean;
+    keptRunningNoticeShown?: boolean;
     railDensity?: RailDensity;
+    agentRailAllAgents?: boolean;
+    agentRailScope?: AgentRailScope;
     onboardingComplete?: boolean;
     lastSeenVersion?: string;
     customCommands?: CustomCommand[];
@@ -92,5 +103,7 @@ export interface PersistedPrefs {
     providerProfiles?: ProviderProfile[];
     selectedProviderProfileIds?: ProviderProfileSelection;
     defaultAgentPermissionMode?: AgentPermissionMode;
+    lastAgentType?: AgentType | null;
     languageServerTrust?: Record<string, boolean>;
+    agentWorktreeDefaults?: Record<string, boolean>;
 }

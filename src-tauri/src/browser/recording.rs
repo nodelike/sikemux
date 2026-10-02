@@ -107,6 +107,8 @@ pub async fn start(app: &AppHandle, agent_id: &str, path: Option<String>) -> Res
     }
     let (sender, receiver) = tokio::sync::oneshot::channel();
     view.with_webview(move |platform| {
+        // SAFETY: `with_webview` runs this on the main thread, where `platform.inner()` is
+        // the tab's live WKWebView.
         let size = unsafe { Retained::retain(platform.inner().cast::<WKWebView>()) }
             .map(|webview| webview.frame().size);
         let _ = sender.send(size);
@@ -231,13 +233,15 @@ struct Writer {
 }
 
 fn cf_key(key: &CFString) -> &NSString {
-    // CoreFoundation strings and Foundation strings are the same objects.
+    // SAFETY: CFString and NSString are toll-free bridged, so the same pointer is a
+    // valid NSString for as long as `key` is borrowed.
     unsafe { &*(key as *const CFString).cast::<NSString>() }
 }
 
 impl Writer {
     fn open(path: &Path, width: usize, height: usize) -> Result<Self, String> {
         let url = NSURL::fileURLWithPath(&NSString::from_str(&path.to_string_lossy()));
+        // SAFETY: immutable constant strings AVFoundation sets up when it loads.
         let (file_type, media_type, codec_key, h264, width_key, height_key) = unsafe {
             (
                 AVFileTypeMPEG4,
@@ -261,6 +265,8 @@ impl Writer {
         else {
             return Err("this system has no H.264 video writer".into());
         };
+        // SAFETY: `url` is a file URL and `file_type` is AVFoundation's own constant. The
+        // writer is created and used only on this recording thread.
         let writer = unsafe { AVAssetWriter::assetWriterWithURL_fileType_error(&url, file_type) }
             .map_err(|error| describe(&error))?;
         let (wide, tall) = (
@@ -271,14 +277,18 @@ impl Writer {
             &[codec_key, width_key, height_key],
             &[h264.as_ref(), wide.as_ref(), tall.as_ref()],
         );
+        // SAFETY: `settings` uses AVFoundation's own keys with the NSString and NSNumber
+        // values it documents for them.
         let input = unsafe {
             AVAssetWriterInput::assetWriterInputWithMediaType_outputSettings(
                 media_type,
                 Some(&settings),
             )
         };
+        // SAFETY: `input` is fresh and not yet attached to a writer, so it can still be set up.
         unsafe { input.setExpectsMediaDataInRealTime(true) };
         let format = NSNumber::numberWithUnsignedInt(kCVPixelFormatType_32BGRA);
+        // SAFETY: the kCVPixelBuffer keys are immutable constants CoreVideo sets up when it loads.
         let attributes: Retained<NSDictionary<NSString, AnyObject>> = unsafe {
             NSDictionary::from_slices(
                 &[
@@ -289,12 +299,15 @@ impl Writer {
                 &[format.as_ref(), wide.as_ref(), tall.as_ref()],
             )
         };
+        // SAFETY: `input` is not yet added to the writer, as the adaptor requires.
         let adaptor = unsafe {
             AVAssetWriterInputPixelBufferAdaptor::assetWriterInputPixelBufferAdaptorWithAssetWriterInput_sourcePixelBufferAttributes(
                 &input,
                 Some(&attributes),
             )
         };
+        // SAFETY: this thread alone owns the writer and input. The input is added before
+        // writing starts, and the session starts only once writing has begun.
         unsafe {
             if !writer.canAddInput(&input) {
                 return Err("the video writer refused its input".into());
@@ -322,6 +335,7 @@ impl Writer {
         let mut last: Option<Duration> = None;
         for frame in incoming {
             if last.is_some_and(|last| frame.at <= last)
+                // SAFETY: `input` belongs to this thread and is still attached to the writer.
                 || !unsafe { self.input.isReadyForMoreMediaData() }
             {
                 continue;
@@ -329,7 +343,10 @@ impl Writer {
             let Some(buffer) = self.draw(&frame.image) else {
                 continue;
             };
+            // SAFETY: builds a plain value from two integers.
             let at = unsafe { CMTime::new(frame.at.as_millis() as i64, 1000) };
+            // SAFETY: `buffer` came from the adaptor's own pool, and `at` is later than every
+            // frame already appended.
             if unsafe {
                 self.adaptor
                     .appendPixelBuffer_withPresentationTime(&buffer, at)
@@ -344,19 +361,25 @@ impl Writer {
     /// Draws a picture into a fresh video frame, fitted inside it: a tab that
     /// is resized while recording keeps its proportions.
     fn draw(&self, image: &CGImage) -> Option<CFRetained<CVPixelBuffer>> {
+        // SAFETY: the adaptor's writer has started, so the pool is either ready or nil.
         let pool: Retained<CVPixelBufferPool> = unsafe { self.adaptor.pixelBufferPool() }?;
         let mut raw: *mut CVPixelBuffer = std::ptr::null_mut();
         let created =
+            // SAFETY: `raw` is a valid slot for CoreVideo to write the new buffer's pointer into.
             unsafe { CVPixelBufferPool::create_pixel_buffer(None, &pool, NonNull::from(&mut raw)) };
         if created != kCVReturnSuccess {
             return None;
         }
+        // SAFETY: a successful create gives us one reference in `raw`, which this takes over.
         let buffer = unsafe { CFRetained::from_raw(NonNull::new(raw)?) };
         let flags = CVPixelBufferLockFlags(0);
+        // SAFETY: `buffer` is a live pixel buffer only this thread holds.
         if unsafe { CVPixelBufferLockBaseAddress(&buffer, flags) } != kCVReturnSuccess {
             return None;
         }
         let space = CGColorSpace::new_device_rgb();
+        // SAFETY: the buffer stays locked until after the drawing below, so its memory is
+        // valid. The pool made it `width` by `height`, 32-bit BGRA, at this row stride.
         let context: Option<CFRetained<CGContext>> = unsafe {
             CGBitmapContextCreate(
                 CVPixelBufferGetBaseAddress(&buffer),
@@ -390,6 +413,7 @@ impl Writer {
                 Some(image),
             );
         }
+        // SAFETY: unlocks with the flags it was locked with; nothing draws into it after this.
         unsafe { CVPixelBufferUnlockBaseAddress(&buffer, flags) };
         context.map(|_| buffer)
     }
@@ -399,12 +423,15 @@ impl Writer {
         let block = RcBlock::new(move || {
             let _ = sender.send(());
         });
+        // SAFETY: this thread alone owns the input and writer, and appends no frame after this.
         unsafe {
             self.input.markAsFinished();
             self.writer.finishWritingWithCompletionHandler(&block);
         }
         let _ = finished.recv_timeout(Duration::from_secs(30));
+        // SAFETY: the writer belongs to this thread; reading its status is always allowed.
         if unsafe { self.writer.status() } != AVAssetWriterStatus::Completed {
+            // SAFETY: same writer, same thread.
             return Err(unsafe { self.writer.error() }
                 .map(|error| describe(&error))
                 .unwrap_or_else(|| "the video could not be finished".into()));
@@ -427,13 +454,17 @@ fn capture(
     done: Box<dyn FnOnce(Option<CFRetained<CGImage>>) + Send>,
 ) {
     let (Some(webview), Some(mtm)) = (
+        // SAFETY: `capture` is only called inside `with_webview`, on the main thread, with
+        // the tab's live WKWebView.
         unsafe { Retained::retain(pointer.cast::<WKWebView>()) },
         MainThreadMarker::new(),
     ) else {
         done(None);
         return;
     };
+    // SAFETY: main thread, as `mtm` proves.
     let configuration = unsafe { WKSnapshotConfiguration::new(mtm) };
+    // SAFETY: `configuration` is ours and not yet handed to WebKit.
     unsafe {
         configuration.setSnapshotWidth(Some(&NSNumber::numberWithDouble(width)));
     }
@@ -442,13 +473,17 @@ fn capture(
         let Some(done) = done.lock().ok().and_then(|mut slot| slot.take()) else {
             return;
         };
+        // SAFETY: WebKit passes a live image or nil; `retain` takes our own reference.
         let picture = unsafe { Retained::retain(image) }
+            // SAFETY: a null rect and no context or hints ask for the image at its own size.
             .and_then(|image| unsafe {
                 image.CGImageForProposedRect_context_hints(std::ptr::null_mut(), None, None)
             })
+            // SAFETY: `picture` is a live CGImage; this takes our own reference to it.
             .map(|picture| unsafe { CFRetained::retain(NonNull::from(&*picture)) });
         done(picture);
     });
+    // SAFETY: main thread; WebKit copies the block and holds `configuration` for the call.
     unsafe {
         webview.takeSnapshotWithConfiguration_completionHandler(Some(&configuration), &block)
     };

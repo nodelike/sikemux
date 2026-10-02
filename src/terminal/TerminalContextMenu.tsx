@@ -17,12 +17,15 @@ export function TerminalContextMenu({
     y,
     controller,
     onFind,
+    onSendSelection,
     onClose,
 }: {
     x: number;
     y: number;
     controller: TerminalController;
     onFind: (seed: string) => void;
+    /** Left out where there is no project whose agents could take it. */
+    onSendSelection?: (selection: string) => void;
     onClose: () => void;
 }) {
     useOccludeNativeViews(true);
@@ -61,6 +64,7 @@ export function TerminalContextMenu({
         { label: "Copy", hint: `${primary}C`, disabled: !selection, run: () => controller.copySelection() },
         { label: "Paste", hint: `${primary}V`, run: () => controller.pasteClipboard() },
         { label: "Select All", hint: `${primary}A`, run: () => controller.selectAll() },
+        ...(selection && onSendSelection ? [{ label: "Send Selection to Agent…", run: () => onSendSelection(selection) }] : []),
         { separator: true },
         { label: "Find", hint: `${primary}F`, run: () => onFind(selection) },
         { label: "Copy Scrollback", run: () => controller.copyScrollback() },

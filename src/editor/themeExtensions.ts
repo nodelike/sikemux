@@ -22,7 +22,7 @@ export function buildEditorThemeExtensions(theme: Theme): Extension {
             "&.cm-focused .cm-selectionBackground, .cm-selectionBackground, .cm-content ::selection": { backgroundColor: theme.editor.selection },
             ".cm-activeLine": { backgroundColor: theme.editor.activeLine },
             ".cm-gutters": {
-                backgroundColor: "transparent",
+                backgroundColor: "var(--surface-gutter)",
                 color: theme.editor.gutter,
                 border: "none",
                 borderRight: "1px solid var(--border)",

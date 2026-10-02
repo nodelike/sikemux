@@ -1,12 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import {
-    NAVIGATION_HISTORY_LIMITS,
-    NavigationHistory,
-    parseNavigationLocation,
-    type NavigationHistoryTelemetryEvent,
-    type NavigationHistoryTelemetryMetadata,
-    type NavigationLocationInput,
-} from "./navigationHistory";
+import { NAVIGATION_HISTORY_LIMITS, NavigationHistory, parseNavigationLocation, type NavigationLocationInput } from "./navigationHistory";
 
 function location(path: string, overrides: Partial<NavigationLocationInput> = {}): NavigationLocationInput {
     return { project: "/repo", path, ...overrides };
@@ -157,47 +150,5 @@ describe("NavigationHistory traversal", () => {
         expect(history.push(location("/repo/missing.ts"))).toBe("stale");
         expect(history.push(location("/repo/throws.ts"))).toBe("stale");
         expect(history.getSnapshot()).toMatchObject({ size: 1, current: { path: "/repo/a.ts" } });
-    });
-
-    it("resets all state and remains reusable", () => {
-        const history = new NavigationHistory();
-        history.push(location("/repo/a.ts"));
-        history.push(location("/repo/b.ts"));
-        history.back();
-
-        history.reset();
-        expect(history.getSnapshot()).toEqual({
-            capacity: NAVIGATION_HISTORY_LIMITS.defaultCapacity,
-            size: 0,
-            current: null,
-            backward: [],
-            forward: [],
-            canGoBack: false,
-            canGoForward: false,
-        });
-        expect(history.push(location("/repo/fresh.ts"))).toBe("pushed");
-        expect(history.getSnapshot().current).toMatchObject({ path: "/repo/fresh.ts" });
-    });
-});
-
-describe("NavigationHistory telemetry", () => {
-    it("emits only scalar structural metadata and isolates telemetry failures", () => {
-        const events: Array<{ event: NavigationHistoryTelemetryEvent; metadata: NavigationHistoryTelemetryMetadata }> = [];
-        const telemetry = vi.fn((event: NavigationHistoryTelemetryEvent, metadata: NavigationHistoryTelemetryMetadata) => {
-            events.push({ event, metadata });
-            if (event === "push") throw new Error("observer failed");
-        });
-        const history = new NavigationHistory({ telemetry });
-
-        expect(history.push(location("/private/secret.ts", { symbol: "privateSymbol" }))).toBe("pushed");
-        expect(history.push(location("/private/secret.ts", { symbol: "privateSymbol" }))).toBe("duplicate");
-        history.reset();
-
-        expect(events.map(({ event }) => event)).toEqual(["push", "duplicate", "reset"]);
-        expect(events[0].metadata).toEqual({ size: 1, backwardDepth: 0, forwardDepth: 0, stalePruned: 0 });
-        expect(Object.isFrozen(events[0].metadata)).toBe(true);
-        expect(JSON.stringify(events)).not.toContain("secret.ts");
-        expect(JSON.stringify(events)).not.toContain("privateSymbol");
-        expect(history.getSnapshot().size).toBe(0);
     });
 });

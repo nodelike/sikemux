@@ -2,8 +2,8 @@ import { useEffect, useRef } from "react";
 import type { ISearchResultChangeEvent } from "@xterm/addon-search";
 import type { TerminalController } from "./useXterm";
 import type { TerminalSearchOptions } from "./interactions";
-import { IconArrowDown, IconArrowUp, IconClose } from "../components/Icons";
-import { Tooltip } from "../components/Tooltip";
+import { IconArrowDown, IconArrowUp, IconClose } from "../ui/Icons";
+import { Tooltip } from "../ui/Tooltip";
 
 export function TerminalFindBar({
     controller,

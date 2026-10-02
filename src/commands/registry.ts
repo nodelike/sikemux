@@ -4,7 +4,7 @@ import {
     type KeybindingActionId,
     type KeybindingCategory,
     type KeybindingOverrides,
-} from "../keybindings";
+} from "./keybindings";
 import type { SessionKind } from "../state/types";
 
 export type CommandContext = SessionKind;

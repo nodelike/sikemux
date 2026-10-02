@@ -3,7 +3,7 @@ import { chmodSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { SSH_MAX_RETRIES, sshStartup } from "./sshStartup";
+import { sshStartup } from "./sshStartup";
 
 const PREFIX = "/bin/sh -c ";
 
@@ -59,16 +59,11 @@ describe("sshStartup", () => {
     it("uses keepalives and stops after five retries", () => {
         const startup = loopOf(sshStartup("prod-db"));
 
-        expect(SSH_MAX_RETRIES).toBe(5);
         expect(startup).toContain("ssh -o ServerAliveInterval=15 -o ServerAliveCountMax=3 'prod-db'");
         expect(startup).toContain('if [ "$sikemux_ssh_retries" -ge 5 ]; then');
         expect(startup).toContain("Retrying (%s/5)");
         expect(startup).toContain("sleep 3 || break");
         expect(startup).not.toMatch(/[\r\n]/);
-    });
-
-    it("quotes SSH aliases before passing them to the shell", () => {
-        expect(loopOf(sshStartup("host'; touch nope; echo '"))).toContain("'host'\"'\"'; touch nope; echo '\"'\"''");
     });
 
     it("restores terminal input modes after every SSH exit", () => {

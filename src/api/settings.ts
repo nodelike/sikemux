@@ -26,4 +26,12 @@ export const settingsApi = {
         if (picked == null) return null;
         return Array.isArray(picked) ? (picked[0] ?? null) : picked;
     },
+    pickImage: async (): Promise<string | null> => {
+        const picked = await open({
+            multiple: false,
+            filters: [{ name: "Images", extensions: ["png", "jpg", "jpeg", "webp", "gif", "avif", "heic", "bmp", "tiff"] }],
+        });
+        if (picked == null) return null;
+        return Array.isArray(picked) ? (picked[0] ?? null) : picked;
+    },
 };

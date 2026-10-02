@@ -1,0 +1,84 @@
+{
+  "id": "sikemux.bitbucket",
+  "name": "Bitbucket",
+  "version": "0.1.0",
+  "sikemux": ">=0.4",
+  "callTimeoutSecs": 120,
+  "tools": [
+    {
+      "name": "bitbucket_pulls",
+      "method": "pulls",
+      "description": "Pull requests, most recently updated first, with state, branches and reviewers. owner and name come from the git remote.",
+      "properties": {
+        "owner": { "type": "string", "description": "The workspace." },
+        "name": { "type": "string", "description": "The repository slug." },
+        "state": { "type": "string", "enum": ["open", "closed", "all"], "description": "Default open. closed covers merged, declined and superseded." }
+      },
+      "required": ["owner", "name"]
+    },
+    {
+      "name": "bitbucket_pull_files",
+      "method": "pullFiles",
+      "description": "The files a pull request changes, with status, line counts and any old path. Name paths for their diffs; a long diff comes in parts, with a note on the rest.",
+      "properties": {
+        "owner": { "type": "string", "description": "The workspace." },
+        "name": { "type": "string", "description": "The repository slug." },
+        "number": { "type": "integer", "description": "The pull request's id." },
+        "paths": { "type": "array", "items": { "type": "string" }, "description": "Only these files, each with its patch." },
+        "offset": { "type": "integer", "description": "Patch line to start from, from 0. The note gives the next one." },
+        "lines": { "type": "integer", "description": "Patch lines to return. Default 400, at most 1000; a patch also stops at 32 KB." }
+      },
+      "required": ["owner", "name", "number"]
+    },
+    {
+      "name": "bitbucket_comments",
+      "method": "comments",
+      "description": "What people wrote on a pull request, oldest first.",
+      "properties": {
+        "owner": { "type": "string", "description": "The workspace." },
+        "name": { "type": "string", "description": "The repository slug." },
+        "number": { "type": "integer", "description": "The pull request's id." }
+      },
+      "required": ["owner", "name", "number"]
+    },
+    {
+      "name": "bitbucket_pipelines",
+      "method": "runs",
+      "description": "Recent Pipelines runs, newest first, with status and conclusion.",
+      "properties": {
+        "owner": { "type": "string", "description": "The workspace." },
+        "name": { "type": "string", "description": "The repository slug." },
+        "branch": { "type": "string" },
+        "status": { "type": "string", "enum": ["queued", "in_progress", "waiting", "completed", "success", "failure", "cancelled", "skipped"], "description": "A state or a conclusion." },
+        "headSha": { "type": "string", "description": "A commit." },
+        "perPage": { "type": "integer", "description": "Default 30, at most 100." },
+        "page": { "type": "integer", "description": "From 1." }
+      },
+      "required": ["owner", "name"]
+    },
+    {
+      "name": "bitbucket_pipeline",
+      "method": "run",
+      "description": "One pipeline with its steps and their status, to see which step failed.",
+      "properties": {
+        "owner": { "type": "string", "description": "The workspace." },
+        "name": { "type": "string", "description": "The repository slug." },
+        "runId": { "type": "string", "description": "The {uuid} from bitbucket_pipelines." }
+      },
+      "required": ["owner", "name", "runId"]
+    },
+    {
+      "name": "bitbucket_step_log",
+      "method": "jobLogExcerpt",
+      "description": "The end of one pipeline step's log. Start with the default tail or grep for the error. truncated means earlier lines were left out.",
+      "properties": {
+        "owner": { "type": "string", "description": "The workspace." },
+        "name": { "type": "string", "description": "The repository slug." },
+        "jobId": { "type": "string", "description": "A step's id from bitbucket_pipeline." },
+        "tail": { "type": "integer", "description": "Lines from the end, after grep. Default 200, at most 2000." },
+        "grep": { "type": "string", "description": "Only lines containing this, ignoring case." }
+      },
+      "required": ["owner", "name", "jobId"]
+    }
+  ]
+}

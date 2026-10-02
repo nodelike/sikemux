@@ -36,6 +36,7 @@ mod imp {
         // it goes and the window stops having to guess whether anyone is watching.
         let was = AtomicI8::new(-1);
         let monitor = RcBlock::new(move |event: NonNull<NSEvent>| -> *mut NSEvent {
+            // SAFETY: AppKit hands the monitor a live event for the length of the call.
             let down = touching(unsafe { event.as_ref().phase() });
             if was.swap(i8::from(down), Ordering::Relaxed) != i8::from(down) {
                 let _ = app.emit_to("main", super::TOUCH_EVENT, down);
@@ -43,6 +44,8 @@ mod imp {
             // Handing the event straight back leaves the scroll itself untouched.
             event.as_ptr()
         });
+        // SAFETY: `watch` runs in Tauri's setup, on the main thread, and the block is
+        // never freed (see below), so AppKit can keep calling it.
         unsafe {
             NSEvent::addLocalMonitorForEventsMatchingMask_handler(
                 NSEventMask::ScrollWheel,

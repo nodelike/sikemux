@@ -1,6 +1,6 @@
 import { basename, copyText, files, notify, relativePath, reportError } from "../../plugin-api/host";
 import type { PluginDocuments } from "../../plugin-api";
-import { FILE_MANAGER_NAME } from "../../plugin-api/ui";
+import { currentShortcutLabel, FILE_MANAGER_NAME } from "../../plugin-api/ui";
 import { findRequest } from "./lib/resolve";
 import { useBrunoRuntime } from "./runtime";
 import { brunoCloseTab, brunoReorderTab, brunoSelectRequest, brunoSettings, useBruno, viewOf } from "./state";
@@ -40,7 +40,7 @@ export const brunoDocuments: PluginDocuments = {
         const toRight = index >= 0 ? open.slice(index + 1) : [];
         const { collectionPath } = brunoSettings.get();
         return [
-            { label: "Close", hint: "⌥W", run: () => close([path]) },
+            { label: "Close", hint: currentShortcutLabel("pane.close"), run: () => close([path]) },
             { label: "Close Others", disabled: others.length === 0, run: () => close(others) },
             { label: "Close to the Left", disabled: toLeft.length === 0, run: () => close(toLeft) },
             { label: "Close to the Right", disabled: toRight.length === 0, run: () => close(toRight) },

@@ -13,6 +13,8 @@ export interface MarkdownComponents {
     readonly text?: ComponentType<{ text: string }>;
     readonly table?: ComponentType<{ children: ReactNode }>;
     readonly heading?: ComponentType<{ level: number; children: ReactNode }>;
+    /** `inLink` is set when the picture is itself the content of a link. */
+    readonly img?: ComponentType<{ src: string; alt: string; title?: string; inLink: boolean }>;
 }
 
 export const MARKDOWN_GFM: MarkdownOptions = { gfm: true, htmlAsText: false, fileLinks: false };
@@ -179,8 +181,14 @@ function renderNode(node: MdNode, components: MarkdownComponents, inLink: boolea
                 </a>
             );
         }
-        case "img":
-            return <img key={key} src={node.src} alt={node.alt} title={node.title} />;
+        case "img": {
+            const Img = components.img;
+            return Img ? (
+                <Img key={key} src={node.src} alt={node.alt} title={node.title} inLink={inLink} />
+            ) : (
+                <img key={key} src={node.src} alt={node.alt} title={node.title} />
+            );
+        }
         case "fnref":
             return <sup key={key}>{node.n}</sup>;
     }

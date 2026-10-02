@@ -2,7 +2,11 @@ import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import test from "node:test";
 
-import { signalProcessTree, stopProcessTree } from "./dev-desktop.mjs";
+import {
+  signalProcessTree,
+  stopProcessTree,
+  withoutTerminalSession,
+} from "./dev-desktop.mjs";
 
 test(
   "launcher cleanup stops descendants after their parent exits",
@@ -22,3 +26,22 @@ test(
     }
   },
 );
+
+test("Sikemux Dev started from a Sikemux terminal drops that terminal's identity", () => {
+  const env = withoutTerminalSession({
+    PATH: "/usr/bin",
+    TERM_PROGRAM: "Sikemux",
+    TERM_PROGRAM_VERSION: "0.4.2",
+    SIKEMUX: "1",
+    SIKEMUX_BIN_PATH: "/Applications/Sikemux.app/Contents/MacOS/sikemux-editor",
+    SIKEMUX_CLI_ENDPOINT: "/Users/me/.config/sikemux/cli.json",
+    SIKEMUX_AGENT_ID: "agent-1",
+    SIKEMUX_CORE_SOCKET: "/tmp/core.sock",
+    SIKEMUX_SIDECAR_PATH: "/tmp/sidecar",
+  });
+  assert.deepEqual(env, {
+    PATH: "/usr/bin",
+    SIKEMUX_CORE_SOCKET: "/tmp/core.sock",
+    SIKEMUX_SIDECAR_PATH: "/tmp/sidecar",
+  });
+});

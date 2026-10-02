@@ -50,8 +50,13 @@ export function recallPrompt(
     return { draft: prompts[index], position: { ...position, index } };
 }
 
-/** Up and down move between lines first; only at the top or bottom edge do they move between messages. */
-export function caretAtEdge(text: string, start: number, end: number, direction: "older" | "newer"): boolean {
-    if (start !== end) return false;
-    return direction === "older" ? !text.slice(0, start).includes("\n") : !text.slice(end).includes("\n");
+/**
+ * Whether an arrow steps through sent messages rather than moving the caret:
+ * up from an empty composer, and either way while it still shows a message it
+ * stepped to, untouched. Once anything is typed, the arrows are the text's,
+ * whichever line the caret is on and however the lines wrap.
+ */
+export function arrowsBrowse(text: string, prompts: readonly string[], position: HistoryPosition | null, direction: "older" | "newer"): boolean {
+    if (position !== null && text === prompts[position.index]) return true;
+    return direction === "older" && text.trim() === "";
 }

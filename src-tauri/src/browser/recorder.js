@@ -211,6 +211,11 @@
     };
   }
   window.addEventListener("error", (event) => {
+    // WebKit hides errors from another origin or script world behind this
+    // bare message, and the agent's own tools raise it after every action.
+    const muted =
+      !event.error && !event.filename && event.message === "Script error.";
+    if (muted) return;
     if (event.error || event.message)
       add("uncaught", [event.error || event.message]);
   });

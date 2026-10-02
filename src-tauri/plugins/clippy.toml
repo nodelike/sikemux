@@ -2,3 +2,7 @@ allow-unwrap-in-tests = true
 allow-expect-in-tests = true
 allow-panic-in-tests = true
 allow-indexing-slicing-in-tests = true
+disallowed-methods = [
+    { path = "std::process::Command::new", reason = "use sikemux_process::user_environment::command, so the child gets the user's PATH" },
+    { path = "tokio::process::Command::new", reason = "wrap sikemux_process::user_environment::command, so the child gets the user's PATH" },
+]

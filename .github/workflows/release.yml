@@ -15,13 +15,44 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  pushed-checks:
+    name: Checks already run on this commit
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      actions: read
+    outputs:
+      passed: ${{ steps.wait.outputs.passed }}
+    steps:
+      - name: Wait for the CI run from pushing this commit
+        id: wait
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          runs="repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?event=push&head_sha=$GITHUB_SHA"
+          while :; do
+            run="$(gh api "$runs" --jq '.workflow_runs | sort_by(.created_at) | last | "\(.status) \(.conclusion)"')"
+            case "$run" in
+              "completed success") passed=true; break ;;
+              completed* | "" | "null null") passed=false; break ;;
+            esac
+            sleep 30
+          done
+          echo "passed=$passed" >>"$GITHUB_OUTPUT"
+          echo "CI from the push passed: $passed" >>"$GITHUB_STEP_SUMMARY"
+
   checks:
     name: Checks
+    needs: pushed-checks
+    if: needs.pushed-checks.outputs.passed != 'true'
     uses: ./.github/workflows/ci.yml
 
   release:
     name: Build, verify, and publish
-    needs: checks
+    needs: [pushed-checks, checks]
+    if: >-
+      !cancelled() && needs.pushed-checks.result == 'success' &&
+      (needs.pushed-checks.outputs.passed == 'true' || needs.checks.result == 'success')
     runs-on: macos-26
     timeout-minutes: 90
     environment: release
@@ -45,9 +76,7 @@ jobs:
           cache: pnpm
 
       - name: Setup Rust
-        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
-        with:
-          toolchain: stable
+        run: rustup toolchain install "$(sed -n 's/^channel = "\(.*\)"$/\1/p' rust-toolchain.toml)" --profile minimal --component clippy --component rustfmt --no-self-update
 
       - name: Cache cargo
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
@@ -107,6 +136,7 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          BITBUCKET_OAUTH_SECRET: ${{ secrets.BITBUCKET_OAUTH_SECRET }}
           VERSION: ${{ steps.plan.outputs.version }}
           CHANNEL: ${{ steps.plan.outputs.channel }}
         run: |
@@ -125,4 +155,5 @@ jobs:
             src-tauri/target/release/bundle/macos/*.app.tar.gz
             src-tauri/target/release/bundle/macos/*.app.tar.gz.sig
             src-tauri/target/release/bundle/latest.json
+            src-tauri/binaries/sikemux-voice-*
             latest.json

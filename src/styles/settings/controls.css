@@ -1,0 +1,291 @@
+/* ── controls ───────────────────────────────────────── */
+.settings-input {
+    height: 28px;
+    min-width: 0;
+    padding: 0 var(--space-2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-2);
+    background: var(--s-raised);
+    color: var(--text-primary);
+    font-family: var(--ui);
+    font-size: var(--text-sm);
+    outline: none;
+    transition:
+        border-color var(--dur-1),
+        box-shadow var(--dur-1);
+}
+.settings-input.mono {
+    font-family: var(--mono);
+    font-size: var(--text-xs);
+}
+.settings-input.wide {
+    width: 100%;
+}
+.settings-input::placeholder {
+    color: var(--text-tertiary);
+}
+.settings-input:focus-visible {
+    border-color: var(--border-selected);
+    box-shadow: var(--focus-ring);
+}
+
+.settings-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: var(--space-2);
+}
+.settings-actions.start {
+    justify-content: flex-start;
+}
+
+.settings-hint {
+    max-width: 68ch;
+    margin: 0;
+    color: var(--text-tertiary);
+    font-size: var(--text-xs);
+    line-height: 1.5;
+}
+.settings-hint.danger {
+    color: var(--danger);
+}
+/* An inline mark for a path or a literal inside help copy. */
+.settings-hint em,
+.settings-hint code {
+    padding: 1px 4px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-1);
+    background: var(--s-raised);
+    color: var(--text-secondary);
+    font-family: var(--mono);
+    font-size: var(--text-2xs);
+    font-style: normal;
+}
+
+.settings-empty {
+    padding: var(--space-3);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-3);
+    background: var(--s-raised);
+    color: var(--text-tertiary);
+    font-size: var(--text-xs);
+    line-height: 1.6;
+}
+
+/* ── project roots ──────────────────────────────────── */
+/* One line: the path field takes the slack, the controls keep their size. */
+.settings-add {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    flex-wrap: nowrap;
+}
+.settings-add .settings-input {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+.settings-add .settings-btn,
+.settings-add .settings-depth {
+    flex: 0 0 auto;
+}
+.settings-list {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-3);
+    background: var(--s-raised);
+}
+.settings-list:empty {
+    display: none;
+}
+/* The list is a small table: name it once at the top instead of repeating
+   "index itself" and "depth" on every row. */
+.settings-list-head,
+.settings-list-row {
+    display: grid;
+    /* path | index-itself | depth | remove */
+    grid-template-columns: minmax(0, 1fr) 80px 76px 22px;
+    align-items: center;
+    gap: var(--space-3);
+    padding: var(--space-1) var(--space-3);
+}
+.settings-list-head {
+    min-height: 26px;
+    border-bottom: 1px solid var(--border);
+    color: var(--text-tertiary);
+    font-size: var(--text-3xs);
+    font-weight: var(--weight-semibold);
+    letter-spacing: var(--tracking-label);
+    text-transform: uppercase;
+}
+.settings-list-row {
+    min-height: 36px;
+    transition: background var(--dur-1);
+}
+.settings-list-row + .settings-list-row {
+    border-top: 1px solid var(--border);
+}
+.settings-list-row:hover {
+    background: var(--surface-hover);
+}
+.settings-list-row .settings-depth {
+    justify-self: start;
+}
+/* The box sits under its column heading, not off to one side of it. */
+.settings-list-head > span:nth-child(2),
+.settings-list-row > .cbx {
+    justify-self: center;
+}
+
+/* The add area closes the card, so a folder is entered where the folders are. */
+.settings-list-add {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    padding: var(--space-3);
+}
+.settings-list-head ~ .settings-list-add {
+    border-top: 1px solid var(--border);
+    background: color-mix(in oklab, var(--ink) 3%, transparent);
+}
+.settings-list-path {
+    overflow: hidden;
+    color: var(--text-primary);
+    font-family: var(--mono);
+    font-size: var(--text-xs);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.settings-row-x {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    padding: 0;
+    border: 1px solid transparent;
+    border-radius: var(--radius-2);
+    background: none;
+    color: var(--text-tertiary);
+    cursor: pointer;
+    transition:
+        background var(--dur-1),
+        color var(--dur-1);
+}
+.settings-row-x:hover {
+    background: color-mix(in oklab, var(--danger) 12%, transparent);
+    color: var(--danger);
+}
+.settings-row-x:focus-visible {
+    outline: 0;
+    box-shadow: var(--focus-ring);
+}
+
+.settings-depth {
+    display: inline-flex;
+    align-items: stretch;
+    height: 28px;
+    overflow: hidden;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-2);
+    background: var(--s-raised);
+    transition: border-color var(--dur-1);
+}
+.settings-depth-label {
+    display: flex;
+    align-items: center;
+    padding: 0 var(--space-2);
+    border-right: 1px solid var(--border);
+    color: var(--text-tertiary);
+    font-size: var(--text-3xs);
+    font-weight: var(--weight-semibold);
+    letter-spacing: var(--tracking-label);
+    text-transform: uppercase;
+}
+.settings-depth-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--text-tertiary);
+    font: inherit;
+    font-size: var(--text-md);
+    cursor: pointer;
+    transition:
+        background var(--dur-1),
+        color var(--dur-1);
+}
+.settings-depth-btn:hover:not(:disabled) {
+    background: var(--surface-hover);
+    color: var(--text-primary);
+}
+.settings-depth-btn:disabled {
+    color: var(--text-disabled);
+    cursor: default;
+}
+.settings-depth-input {
+    width: 28px;
+    padding: 0;
+    border: 0;
+    border-left: 1px solid var(--border);
+    border-right: 1px solid var(--border);
+    background: transparent;
+    color: var(--text-primary);
+    font-family: var(--mono);
+    font-size: var(--text-xs);
+    font-variant-numeric: tabular-nums;
+    text-align: center;
+    outline: none;
+}
+.settings-depth:focus-within {
+    border-color: var(--border-selected);
+}
+
+/* ── number field beside a slider ───────────────────── */
+.settings-knob {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 104px;
+    align-items: center;
+    gap: var(--space-3);
+    width: 280px;
+}
+.settings-knob-num {
+    display: flex;
+    align-items: stretch;
+    height: 28px;
+    overflow: hidden;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-2);
+    background: var(--s-raised);
+    transition: border-color var(--dur-1);
+}
+.settings-knob-num:focus-within {
+    border-color: var(--border-selected);
+}
+.settings-knob-val {
+    flex: 1 1 auto;
+    min-width: 0;
+    padding: 0 var(--space-2);
+    border: 0;
+    background: transparent;
+    color: var(--text-primary);
+    font-family: var(--mono);
+    font-size: var(--text-xs);
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+    outline: none;
+}
+.settings-knob-suf {
+    display: flex;
+    align-items: center;
+    padding: 0 var(--space-2);
+    border-left: 1px solid var(--border);
+    color: var(--text-tertiary);
+    font-size: var(--text-3xs);
+    font-weight: var(--weight-semibold);
+    letter-spacing: var(--tracking-label);
+    text-transform: uppercase;
+}

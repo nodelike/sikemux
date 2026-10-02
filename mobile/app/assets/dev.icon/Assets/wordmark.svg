@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Wordmark for the .icon bundle. Square viewBox so Icon Composer can scale
+  it uniformly. Content is centred via shape offsets (not a negative viewBox
+  origin, which actool ignores).
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 420 420">
+  <g transform="translate(0, 30)">
+    <polygon points="257,72 331,29 331,114" fill="#FFFFFF"/>
+    <polygon points="98,199 172,241 98,284" fill="#FFFFFF"/>
+    <path fill="#FFFFFF" d="M108 54
+                            C100 72, 96 90, 98 104
+                            C100 119, 106 133, 121 144
+                            C129 151, 139 158, 151 164
+                            L286 223
+                            C297 228, 306 236, 313 245
+                            C317 250, 320 255, 321 259
+                            C327 246, 331 229, 331 209
+                            C330 201, 328 194, 324 189
+                            C319 181, 314 175, 308 169
+                            C300 162, 290 155, 278 149
+                            L143 90
+                            C137 87, 132 84, 128 80
+                            C122 76, 117 71, 108 54
+                            Z"/>
+  </g>
+</svg>

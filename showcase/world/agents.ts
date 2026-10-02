@@ -1,5 +1,5 @@
 import { AGENTS } from "./workspace";
-import { SIKEMUX } from "./projects";
+import { FRONT, SIKEMUX } from "./projects";
 
 type Update = Record<string, unknown>;
 
@@ -55,7 +55,7 @@ function edit(
   );
 }
 
-const RAIL = `${SIKEMUX}/src/components/AgentRail.tsx`;
+const RAIL = `${SIKEMUX}/src/rail/AgentRail.tsx`;
 const SHELL_CSS = `${SIKEMUX}/src/styles/modern-shell.css`;
 
 export interface AgentScript {
@@ -76,12 +76,12 @@ export const AGENT_SCRIPTS: Record<string, AgentScript> = {
       ),
       tool("search", 'rg "rail-density" src', {
         rawOutput:
-          "src/styles/modern-shell.css:1184\nsrc/components/AgentRail.tsx:212",
+          "src/styles/modern-shell.css:1184\nsrc/rail/AgentRail.tsx:212",
       }),
       tool("read", "src/styles/modern-shell.css", {
         locations: [{ path: SHELL_CSS, line: 1170 }],
       }),
-      tool("read", "src/components/AgentRail.tsx", {
+      tool("read", "src/rail/AgentRail.tsx", {
         locations: [{ path: RAIL, line: 205 }],
       }),
       say(
@@ -97,9 +97,9 @@ export const AGENT_SCRIPTS: Record<string, AgentScript> = {
         `<div className="agent-row" data-state={state}>`,
         `<div className="agent-row" data-state={state} data-density={density}>`,
       ),
-      tool("execute", "pnpm test src/components/AgentRail", {
+      tool("execute", "pnpm test src/rail/AgentRail", {
         rawOutput:
-          " ✓ src/components/AgentRail.test.tsx (24 tests) 311ms\n Test Files  1 passed (1)\n      Tests  24 passed (24)",
+          " ✓ src/rail/AgentRail.test.tsx (24 tests) 311ms\n Test Files  1 passed (1)\n      Tests  24 passed (24)",
       }),
       say(
         "Labels now line up with the project rows at both densities. `AgentRail.test.tsx` passes, and I added a case that measures the label's left edge against a project row.",
@@ -112,12 +112,12 @@ export const AGENT_SCRIPTS: Record<string, AgentScript> = {
       think("Running the rail tests first, then the density snapshot at 2x."),
       tool(
         "execute",
-        "pnpm test src/components/AgentRail src/components/SideRail",
-        { rawOutput: " ✓ src/components/AgentRail.test.tsx (25 tests) 318ms" },
+        "pnpm test src/rail/AgentRail src/rail/SideRail",
+        { rawOutput: " ✓ src/rail/AgentRail.test.tsx (25 tests) 318ms" },
       ),
       tool(
         "execute",
-        "pnpm vitest run src/components/AgentRailDensity.test.tsx",
+        "pnpm vitest run src/rail/AgentRailDensity.test.tsx",
         {},
         "in_progress",
       ),
@@ -127,7 +127,7 @@ export const AGENT_SCRIPTS: Record<string, AgentScript> = {
     usage: { used: 38_000, size: 272_000 },
     history: [
       user(
-        "`usePty.test.tsx > replays the snapshot once` fails about one run in ten on CI. Find out why and fix it without adding sleeps.",
+        "One of the terminal tests fails about one run in ten on CI. Find out why and fix it properly, without just adding a wait.",
       ),
       tool(
         "execute",
@@ -138,7 +138,7 @@ export const AGENT_SCRIPTS: Record<string, AgentScript> = {
         },
       ),
       think(
-        "Two writes means the attach response and the first channel message both carry the snapshot. That happens when the channel is created before attach resolves.",
+        "The screen is being written twice. That happens when new output arrives before the saved screen has finished loading.",
       ),
       tool("read", "src/terminal/ptyController.ts"),
       edit(
@@ -152,15 +152,15 @@ export const AGENT_SCRIPTS: Record<string, AgentScript> = {
         { rawOutput: "✓ replays the snapshot once (100/100)" },
       ),
       say(
-        "The channel could deliver bytes that were already inside the attach snapshot. The controller now drops channel output until the snapshot has been written, which passes 100 out of 100 runs.",
+        "New output could arrive while the saved screen was still loading, so the same text was shown twice. The terminal now waits for the saved screen first. The test passes 100 runs out of 100.",
       ),
       user(
-        "Good. Run the whole terminal suite, then commit it with a message that explains the race.",
+        "Good. Run all the terminal tests, then commit it with a clear message.",
       ),
     ],
     live: [
       think(
-        "Running every terminal test before the commit, since the controller change touches attach and detach.",
+        "Running every terminal test before I commit, since this change affects how terminals reconnect.",
       ),
       tool("execute", "pnpm vitest run src/terminal", {
         rawOutput: " Test Files  14 passed (14)\n      Tests  212 passed (212)",
@@ -173,7 +173,7 @@ export const AGENT_SCRIPTS: Record<string, AgentScript> = {
       ),
       tool(
         "execute",
-        'git commit -m "fix(pty): drop channel bytes the attach snapshot already holds"',
+        'git commit -m "fix(terminal): stop showing the same output twice after reconnecting"',
         {},
         "in_progress",
       ),
@@ -183,48 +183,31 @@ export const AGENT_SCRIPTS: Record<string, AgentScript> = {
     usage: { used: 44_000, size: 200_000 },
     history: [
       user(
-        "Hermes shows as unavailable every time it updates, then comes back later on its own. Find out why, fix it, and open a PR.",
+        "On phones the Download button on the home page is cut off. Fix it, then check the page at phone size.",
       ),
-      tool("read", "src-tauri/src/agents.rs", {
-        locations: [{ path: `${SIKEMUX}/src-tauri/src/agents.rs` }],
-      }),
-      tool("execute", "time hermes --version", {
-        rawOutput: "hermes 0.9.4\nreal 0m9.84s",
+      tool("read", "src/components/Hero.astro", {
+        locations: [{ path: `${FRONT}/src/components/Hero.astro` }],
       }),
       say(
-        "`hermes --version` runs an update check that fetches from upstream, bounded by a 10s timeout and cached for six hours. Our probe gives up after 2s and retries for 8s, so every cache expiry made an installed Hermes look unavailable.",
+        "The two buttons sit side by side with a fixed width, so on a narrow screen the second one runs off the edge. I'll let them stack when there isn't room.",
       ),
       edit(
-        `${SIKEMUX}/src-tauri/src/agents.rs`,
-        'let probe = ["--version"];',
-        'let probe = ["--help"];',
+        `${FRONT}/src/components/Hero.astro`,
+        ".actions {\n    display: flex;\n}",
+        ".actions {\n    display: flex;\n    flex-wrap: wrap;\n    justify-content: center;\n}",
       ),
-      tool(
-        "execute",
-        "cargo test --manifest-path src-tauri/Cargo.toml agents",
-        {
-          rawOutput: "test result: ok. 38 passed; 0 failed",
-        },
-      ),
-      tool(
-        "execute",
-        'gh pr create --title "fix(agents): probe Hermes with --help, not --version" --fill',
-        {
-          rawOutput: "https://github.com/nodelike/sikemux/pull/14",
-        },
-      ),
-      tool("execute", "gh pr merge 14 --squash --delete-branch", {
-        rawOutput: "✓ Squashed and merged pull request nodelike/sikemux#14",
+      tool("execute", "pnpm build", {
+        rawOutput: "✓ Completed in 682ms.\n3 page(s) built",
       }),
       say(
-        "`--help` takes Hermes' fast path: no network, exits 0, and still runs the same wrapper and interpreter that launching the agent does. Opened and merged #14.",
+        "The buttons now wrap onto two lines on small screens and stay side by side on wider ones. The site builds cleanly.",
       ),
-      user("Show me the PR."),
+      user("Show me the page at phone size."),
     ],
     live: [
-      think("Opening the pull request in my tab."),
+      think("Opening the home page in my tab at phone width."),
       tool("fetch", "mcp__sikemux-tools__browser_navigate", {
-        rawInput: { url: "https://github.com/nodelike/sikemux/pull/14" },
+        rawInput: { url: "http://localhost:4321/" },
         durationMs: 1_400,
       }),
       tool(

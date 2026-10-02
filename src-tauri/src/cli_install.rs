@@ -42,7 +42,7 @@ enum DestinationState {
 
 #[tauri::command]
 pub async fn cli_install_status() -> CliInstallStatus {
-    spawn_blocking(|| status_for(crate::cli_server::cli_executable_path()))
+    spawn_blocking(|| status_for(crate::cli_paths::cli_executable_path()))
         .await
         .unwrap_or_else(|_| status_for(None))
 }
@@ -55,7 +55,7 @@ pub async fn cli_install() -> AppResult<CliInstallStatus> {
 }
 
 fn install_cli() -> AppResult<CliInstallStatus> {
-    let executable = crate::cli_server::cli_executable_path().ok_or_else(|| {
+    let executable = crate::cli_paths::cli_executable_path().ok_or_else(|| {
         AppError::State("the packaged Sikemux CLI is unavailable in this build".into())
     })?;
     install_for(&executable)?;
@@ -172,7 +172,7 @@ fn destination_paths(install_dir: &Path) -> (PathBuf, PathBuf) {
 }
 
 fn path_contains(directory: &Path) -> bool {
-    env::var_os("PATH")
+    sikemux_process::user_environment::var_os("PATH")
         .is_some_and(|value| env::split_paths(&value).any(|candidate| candidate == directory))
 }
 

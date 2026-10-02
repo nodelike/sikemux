@@ -3,7 +3,6 @@ import {
     LocalProjectBackend,
     ProjectBackendDisposedError,
     ProjectBackendRegistry,
-    ProjectBackendRegistryDisposedError,
     UnsupportedCapabilityError,
     createProjectCapabilities,
     createProjectLocation,
@@ -183,43 +182,5 @@ describe("ProjectBackendRegistry routing and isolation", () => {
         await first;
         expect(local.dispose).toHaveBeenCalledOnce();
         expect(() => registry.resolve(LOCAL)).toThrow("No trusted project backend");
-    });
-
-    it("propagates cancellation through the router even when a backend has not settled", async () => {
-        const pending = deferred<unknown>();
-        const ssh = fakeBackend("ssh", ["files"], pending.promise);
-        const registry = new ProjectBackendRegistry();
-        registry.registerTrusted(ssh.backend);
-        const controller = new AbortController();
-        const reason = new Error("cancel routed read");
-
-        const reading = registry.files(SSH, REQUEST, { signal: controller.signal });
-        controller.abort(reason);
-
-        await expect(reading).rejects.toBe(reason);
-        expect(ssh.invoke.mock.calls[0][2]).toEqual({ signal: controller.signal });
-        pending.resolve("late result");
-        await registry.dispose();
-    });
-
-    it("keeps independent registries isolated through routing and disposal", async () => {
-        const firstBackend = fakeBackend("local", ["files"], "first");
-        const secondBackend = fakeBackend("local", ["files"], "second");
-        const firstRegistry = new ProjectBackendRegistry();
-        const secondRegistry = new ProjectBackendRegistry();
-        firstRegistry.registerTrusted(firstBackend.backend);
-        secondRegistry.registerTrusted(secondBackend.backend);
-
-        await expect(firstRegistry.files(LOCAL, REQUEST)).resolves.toBe("first");
-        await expect(secondRegistry.files(LOCAL, REQUEST)).resolves.toBe("second");
-        await firstRegistry.dispose();
-
-        expect(firstBackend.dispose).toHaveBeenCalledOnce();
-        expect(secondBackend.dispose).not.toHaveBeenCalled();
-        await expect(firstRegistry.files(LOCAL, REQUEST)).rejects.toBeInstanceOf(ProjectBackendRegistryDisposedError);
-        await expect(secondRegistry.files(LOCAL, REQUEST)).resolves.toBe("second");
-
-        await secondRegistry.dispose();
-        expect(secondBackend.dispose).toHaveBeenCalledOnce();
     });
 });

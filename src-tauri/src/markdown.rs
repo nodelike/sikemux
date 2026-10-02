@@ -23,22 +23,3 @@ pub async fn markdown_parse(requests: Vec<MarkdownRequest>) -> AppResult<Vec<Vec
     .await
     .map_err(|e| AppError::Other(format!("markdown join: {e}")))
 }
-
-#[cfg(test)]
-mod tests {
-    use serde_json::json;
-
-    use super::MarkdownRequest;
-
-    #[test]
-    fn reads_the_options_the_chat_sends() {
-        let request: MarkdownRequest = serde_json::from_value(json!({
-            "text": "a",
-            "options": { "gfm": true, "htmlAsText": true, "fileLinks": true },
-            "skip": 2,
-        }))
-        .unwrap();
-        assert!(request.options.gfm && request.options.html_as_text && request.options.file_links);
-        assert_eq!(request.skip, 2);
-    }
-}

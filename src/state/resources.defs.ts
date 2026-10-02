@@ -1,7 +1,7 @@
 import { agentApi, type AgentInfo, type AgentModelInfo, type AgentSession, type AgentUsage } from "../api/agents";
-import type { AgentRuntimeProfile } from "../agentProfiles";
+import type { AgentRuntimeProfile } from "../agents/agentProfiles";
 import { filesApi } from "../api/files";
-import { git, type DiscoveredRepo, type GitOverview, type GitRemote, type GitRemoteBranch, type GitStash } from "../api/git";
+import { git, type DiscoveredRepo, type GitOverview, type GitRemote, type GitRemoteBranch, type GitStash, type GitWorktree } from "../api/git";
 import { settingsApi, type ProjectEntry } from "../api/settings";
 import { sshApi, type SshHost } from "../api/ssh";
 import type { AgentType, ProjectRoot } from "./types";
@@ -17,6 +17,12 @@ export const gitDiscoveredReposR = resource({
     kind: "git.discoveredRepos",
     fetch: (root: string): Promise<DiscoveredRepo[]> => git.discoverRepos(root),
     staleAfterMs: 5_000,
+});
+
+export const gitWorktreesR = resource({
+    kind: "git.worktrees",
+    fetch: (repo: string): Promise<GitWorktree[]> => git.worktrees(repo),
+    staleAfterMs: 30_000,
 });
 
 export const gitRemotesR = resource({

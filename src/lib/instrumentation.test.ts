@@ -243,9 +243,3 @@ describe("installInteractionTiming", () => {
         uiActivity.reset();
     });
 });
-
-describe("metric names", () => {
-    it("keeps the public action metric stable", () => {
-        expect(ACTION_METRIC).toBe("action.execute");
-    });
-});

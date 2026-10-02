@@ -1,4 +1,5 @@
 import "@testing-library/jest-dom/vitest";
+import { mockConvertFileSrc } from "@tauri-apps/api/mocks";
 import { vi } from "vitest";
 import type { MarkdownRequest } from "../api/markdown";
 
@@ -17,6 +18,13 @@ if (!("ResizeObserver" in globalThis)) {
         disconnect() {}
     } as unknown as typeof ResizeObserver;
 }
+
+// jsdom has no Web Animations, so nothing is ever part way through one.
+if (!Element.prototype.getAnimations) {
+    Element.prototype.getAnimations = () => [];
+}
+
+mockConvertFileSrc("macos");
 
 vi.mock("../api/markdown", async () => {
     const { parseWithFixtures } = await import("./markdownDouble");

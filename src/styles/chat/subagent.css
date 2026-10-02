@@ -1,0 +1,128 @@
+/* ── a subagent's own thread ──────────────────────────────────────── */
+
+/* The card is the record of what a subagent did, so it keeps to itself until
+   it is opened: one line, and a chip saying how it ended. Opened, what it said
+   hangs off the card on a quieter tray. What it is doing right now lives over
+   the composer instead. */
+.chat-subagent {
+    --chat-agent: color-mix(in srgb, var(--acc) 62%, var(--ink-faint));
+    --chat-dock-step: 12px;
+    margin: 6px 0;
+}
+
+.chat-subagent.state-completed {
+    --chat-agent: color-mix(in srgb, var(--live) 58%, var(--ink-faint));
+}
+
+.chat-subagent.state-failed,
+.chat-subagent.state-disconnected {
+    --chat-agent: var(--danger);
+}
+
+.chat-subagent.state-cancelled {
+    --chat-agent: var(--ink-faint);
+}
+
+.chat-subagent summary {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    min-height: 24px;
+    padding: 4px 12px 4px 11px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-2);
+    background: var(--s-raised);
+    font-size: var(--text-2xs);
+    list-style: none;
+    cursor: pointer;
+}
+
+.chat-subagent summary::-webkit-details-marker {
+    display: none;
+}
+
+.chat-subagent summary:hover {
+    background: color-mix(in srgb, var(--ink) 5%, var(--s-raised));
+}
+
+.chat-subagent-chevron {
+    flex: none;
+    opacity: 0.5;
+    transition: transform 120ms;
+}
+
+.chat-subagent[open] .chat-subagent-chevron {
+    transform: rotate(90deg);
+    opacity: 1;
+}
+
+.chat-subagent-mark {
+    display: grid;
+    flex: none;
+    place-items: center;
+    color: var(--chat-agent);
+}
+
+.chat-subagent-name {
+    flex: none;
+    color: var(--ink);
+    font-family: var(--mono);
+    font-size: calc(10.5px * var(--chat-text-em, 1));
+}
+
+.chat-subagent-task {
+    min-width: 0;
+    overflow: hidden;
+    color: var(--ink-faint);
+    font-size: calc(10.5px * var(--chat-text-em, 1));
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.chat-subagent-end {
+    display: flex;
+    flex: none;
+    align-items: center;
+    gap: 7px;
+    margin-left: auto;
+    font-family: var(--mono);
+    font-size: calc(9.5px * var(--chat-text-em, 1));
+}
+
+.chat-subagent-calls {
+    color: color-mix(in oklab, var(--ink-faint) 80%, transparent);
+}
+
+.chat-subagent-state {
+    display: grid;
+    width: 14px;
+    height: 14px;
+    flex: none;
+    place-items: center;
+    color: var(--chat-agent);
+}
+
+.chat-subagent-spinner {
+    box-sizing: border-box;
+    width: 10px;
+    height: 10px;
+    border: 1.4px solid color-mix(in oklab, currentcolor 26%, transparent);
+    border-top-color: currentcolor;
+    border-right-color: currentcolor;
+    border-radius: 50%;
+    animation: chat-activity-spin 0.72s linear infinite;
+}
+
+.chat-subagent-body {
+    margin: 0 var(--chat-dock-step);
+    padding: 4px 10px 8px calc(25px - var(--chat-dock-step));
+    border: 1px solid var(--border);
+    border-top: 0;
+    border-radius: 0 0 var(--radius-2) var(--radius-2);
+    background: color-mix(in srgb, var(--s-raised) 45%, transparent);
+}
+
+.chat-subagent-empty {
+    color: var(--ink-faint);
+    font-size: calc(10.5px * var(--chat-text-em, 1));
+}

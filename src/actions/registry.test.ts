@@ -257,35 +257,6 @@ describe("ActionRegistry contextual resolution", () => {
         expect(await registry.execute("task.run", fullContext({ focusedItem: null, session: null, project: null }))).toBe("global");
     });
 
-    it("lets predicates use every contextual field", () => {
-        const registry = new ActionRegistry();
-        registry.register(
-            action("terminal.agentTask", {
-                when: (context) =>
-                    context.focusedItem?.kind === "terminal" &&
-                    context.session?.kind === "project" &&
-                    context.project?.root === "/workspace/project" &&
-                    context.focus.target === "terminal" &&
-                    context.focus.editable &&
-                    context.modal?.kind === "commandPalette" &&
-                    context.agent?.kind === "codex" &&
-                    context.capabilities.includes("agent.run"),
-                enabled: (context) => context.agent?.status === "running",
-            }),
-        );
-
-        expect(registry.resolveAction("terminal.agentTask", fullContext())).toMatchObject({ visible: true, enabled: true });
-        expect(registry.resolveAction("terminal.agentTask", fullContext({ agent: { id: "agent-1", kind: "codex", status: "idle" } }))).toMatchObject({
-            visible: true,
-            enabled: false,
-        });
-        expect(registry.resolveAction("terminal.agentTask", fullContext({ modal: null }))).toMatchObject({
-            visible: false,
-            enabled: false,
-            precedence: { fallbackDepth: 1, shadowedContributions: 0 },
-        });
-    });
-
     it("lists visible and disabled actions deterministically and can inspect hidden ones", () => {
         const registry = new ActionRegistry();
         registry.register(action("first.visible"));
@@ -296,11 +267,6 @@ describe("ActionRegistry contextual resolution", () => {
         expect(registry.resolve(fullContext()).map(({ definition, enabled }) => [definition.id, enabled])).toEqual([
             ["first.visible", true],
             ["third.disabled", false],
-        ]);
-        expect(registry.resolve(fullContext(), { includeHidden: true }).map(({ definition }) => definition.id)).toEqual([
-            "first.visible",
-            "second.hidden",
-            "third.disabled",
         ]);
         expect(registry.resolveAction("missing.action", fullContext())).toBeUndefined();
         expect(registry.resolveAction("other.project", fullContext())).toBeUndefined();

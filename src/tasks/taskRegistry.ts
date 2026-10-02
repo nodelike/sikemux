@@ -650,6 +650,13 @@ export class TaskController {
         return this.startRun(input);
     }
 
+    /** Takes over a run already going, which `take` hands back without starting anything. */
+    adopt(input: ResolvedTaskDefinition, take: () => TaskRunnerHandle | PromiseLike<TaskRunnerHandle>): Promise<void> {
+        if (this.disposed) return rejected(new TaskControllerDisposedError());
+        if (this.active || this.restartPromise) return rejected(new TaskAlreadyRunningError());
+        return this.startRun(input, take);
+    }
+
     restart(input?: ResolvedTaskDefinition): Promise<void> {
         if (this.disposePromise || this.disposed) return rejected(new TaskControllerDisposedError());
         if (this.restartPromise) return this.restartPromise;
@@ -726,7 +733,10 @@ export class TaskController {
         return this.disposePromise;
     }
 
-    private startRun(input: ResolvedTaskDefinition): Promise<void> {
+    private startRun(
+        input: ResolvedTaskDefinition,
+        start: (task: ResolvedTaskDefinition) => TaskRunnerHandle | PromiseLike<TaskRunnerHandle> = this.runTask,
+    ): Promise<void> {
         if (this.disposed) return rejected(new TaskControllerDisposedError());
         if (this.active) return rejected(new TaskAlreadyRunningError());
 
@@ -747,7 +757,7 @@ export class TaskController {
         this.activeRunId = runId;
         this.status = "running";
 
-        const handle = callAsPromise(() => this.runTask(task)).then(normalizeRunnerHandle);
+        const handle = callAsPromise(() => start(task)).then(normalizeRunnerHandle);
         const run: ActiveTaskRun = {
             id: runId,
             generation,

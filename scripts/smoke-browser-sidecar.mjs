@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-// The built sidecar must start, list its tools, serve its guide, and relay a
-// browser call to a stand-in for the app over the harness socket.
+// The built sidecar, started with --tools-mcp, must list its tools, serve its
+// guide, and relay a browser call to a stand-in for the app over the harness socket.
 
 import { spawn } from "node:child_process";
 import { createInterface } from "node:readline";
@@ -57,7 +57,7 @@ function fakeSikemux(received) {
 }
 
 function session(sidecar, environment) {
-  const child = spawn(sidecar, [], {
+  const child = spawn(sidecar, ["--tools-mcp"], {
     env: environment,
     stdio: ["pipe", "pipe", "inherit"],
   });

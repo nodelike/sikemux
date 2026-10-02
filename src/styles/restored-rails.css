@@ -35,7 +35,16 @@
 }
 .side-rail .proj-child:last-child::before {
     bottom: auto;
-    height: 12.5px;
+    box-sizing: border-box;
+    width: 9px;
+    height: 13px;
+    background: none;
+    border-left: 1px solid var(--tree-spine);
+    border-bottom: 1px solid var(--tree-tick);
+    border-bottom-left-radius: 4px;
+}
+.side-rail .proj-child:last-child .proj-child-tick {
+    background: none;
 }
 .side-rail .proj-child {
     position: relative;

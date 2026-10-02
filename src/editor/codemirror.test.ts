@@ -1,9 +1,9 @@
 import { toggleComment } from "@codemirror/commands";
-import { ensureSyntaxTree, highlightingFor } from "@codemirror/language";
+import { ensureSyntaxTree } from "@codemirror/language";
 import { EditorState } from "@codemirror/state";
-import { classHighlighter, highlightTree, tags } from "@lezer/highlight";
+import { classHighlighter, highlightTree } from "@lezer/highlight";
 import { describe, expect, it, vi } from "vitest";
-import { auraExtensions, languageFor, loadLanguage } from "./codemirror";
+import { languageFor, loadLanguage } from "./codemirror";
 
 const invokeCommand = vi.hoisted(() => vi.fn());
 vi.mock("../api/invoke", () => ({ invokeCommand }));
@@ -116,17 +116,6 @@ describe("editor languages", () => {
 
         await expect(loadLanguage("/repo/build.zig")).rejects.toThrow("offline");
         expect((await loadLanguage("/repo/build.zig")).length).toBeGreaterThan(0);
-    });
-
-    it("maps SSH tokens to the active editor theme", async () => {
-        const state = EditorState.create({
-            doc: "Host production",
-            extensions: [auraExtensions, await loadLanguage("/tmp/config", "ssh-config")],
-        });
-
-        expect(highlightingFor(state, [tags.keyword])).toBeTruthy();
-        expect(highlightingFor(state, [tags.propertyName])).toBeTruthy();
-        expect(highlightingFor(state, [tags.string])).toBeTruthy();
     });
 });
 

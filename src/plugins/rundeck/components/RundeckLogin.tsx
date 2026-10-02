@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { errorMessage, rundeckApi } from "../api";
-import { Checkbox, IconRundeck } from "../../../plugin-api/ui";
+import { Checkbox, IconRundeck, SignInScreen } from "../../../plugin-api/ui";
 
 interface Props {
     initialUrl?: string;
@@ -51,18 +51,18 @@ export function RundeckLogin({ initialUrl = "", initialUser = "", initialAllowIn
     };
 
     return (
-        <div className="rnd-main rnd-login">
-            <form
-                className="rnd-login-card"
-                onSubmit={(e) => {
-                    e.preventDefault();
-                    void submit();
-                }}>
-                <span className="rnd-login-logo">
-                    <IconRundeck size={24} />
-                </span>
-                <h2 className="rnd-login-title">Connect to Rundeck</h2>
-                <div className="rnd-login-modes" role="radiogroup" aria-label="Sign-in method">
+        <div className="rnd-main">
+            <SignInScreen
+                mark={<IconRundeck size={26} />}
+                title="Connect Rundeck"
+                lede="Run jobs and follow their logs for this project, right beside your changes."
+                foot={
+                    <>
+                        {mode === "password" ? "Your password is used once to mint an API token. " : ""}The token lives in <code>~/.rd-config</code>{" "}
+                        and is shared with the <code>rnd</code> CLI.
+                    </>
+                }>
+                <div className="signin-modes" role="radiogroup" aria-label="Sign-in method">
                     <ModeChip mode="password" current={mode} onPick={setMode}>
                         Password
                     </ModeChip>
@@ -70,65 +70,85 @@ export function RundeckLogin({ initialUrl = "", initialUser = "", initialAllowIn
                         API token
                     </ModeChip>
                 </div>
-                <div className="rnd-login-help">
+
+                <form
+                    className="signin-form"
+                    onSubmit={(e) => {
+                        e.preventDefault();
+                        void submit();
+                    }}>
+                    <label className="signin-field">
+                        <span>Rundeck URL</span>
+                        <input
+                            className="signin-input mono"
+                            type="url"
+                            placeholder="http://rundeck.internal:4440"
+                            value={url}
+                            onChange={(e) => setUrl(e.target.value)}
+                            {...textProps}
+                        />
+                    </label>
+
+                    {insecureHttp && (
+                        <div className="signin-callout" data-tone="warn">
+                            <Checkbox checked={allowInsecurePrivateHttp} onChange={setAllowInsecurePrivateHttp}>
+                                Allow plaintext HTTP for this private-subnet host. I understand the{" "}
+                                {mode === "password" ? "password and token are" : "token is"} not protected by TLS. Sikemux will refuse the connection
+                                unless every resolved address is private or loopback.
+                            </Checkbox>
+                        </div>
+                    )}
+
                     {mode === "password" ? (
                         <>
-                            Signs in once to mint an API token, stored at <code>~/.rd-config</code> (chmod&nbsp;600) and shared with the{" "}
-                            <code>rnd</code> CLI. Your password is never saved.
+                            <label className="signin-field">
+                                <span>Username</span>
+                                <input
+                                    className="signin-input"
+                                    type="text"
+                                    autoComplete="username"
+                                    value={user}
+                                    onChange={(e) => setUser(e.target.value)}
+                                    {...textProps}
+                                />
+                            </label>
+                            <label className="signin-field">
+                                <span>Password</span>
+                                <input
+                                    className="signin-input"
+                                    type="password"
+                                    autoComplete="current-password"
+                                    value={password}
+                                    onChange={(e) => setPassword(e.target.value)}
+                                />
+                            </label>
                         </>
                     ) : (
-                        <>
-                            Paste a token from your Rundeck profile page. It is stored at <code>~/.rd-config</code> (chmod&nbsp;600) and shared with
-                            the <code>rnd</code> CLI.
-                        </>
+                        <label className="signin-field">
+                            <span>API token</span>
+                            <input
+                                className="signin-input mono"
+                                type="password"
+                                autoComplete="off"
+                                value={token}
+                                onChange={(e) => setToken(e.target.value)}
+                                {...textProps}
+                            />
+                            <small className="signin-hint">Create one on your Rundeck profile page.</small>
+                        </label>
                     )}
-                </div>
 
-                <label className="rnd-field">
-                    <span>Rundeck URL</span>
-                    <input
-                        type="url"
-                        placeholder="http://rundeck.internal:4440"
-                        value={url}
-                        onChange={(e) => setUrl(e.target.value)}
-                        {...textProps}
-                    />
-                </label>
+                    <button type="submit" className="signin-btn primary" disabled={!canSubmit}>
+                        {busy ? "Signing in…" : "Sign in"}
+                    </button>
+                </form>
 
-                {insecureHttp && (
-                    <div className="rnd-insecure-http">
-                        <Checkbox checked={allowInsecurePrivateHttp} onChange={setAllowInsecurePrivateHttp}>
-                            Allow plaintext HTTP for this private-subnet host. I understand the{" "}
-                            {mode === "password" ? "password and token are" : "token is"} not protected by TLS. Sikemux will refuse the connection
-                            unless every resolved address is private or loopback.
-                        </Checkbox>
+                {error && (
+                    <div className="signin-callout" data-tone="danger">
+                        {error}
                     </div>
                 )}
-
-                {mode === "password" ? (
-                    <>
-                        <label className="rnd-field">
-                            <span>Username</span>
-                            <input type="text" autoComplete="username" value={user} onChange={(e) => setUser(e.target.value)} {...textProps} />
-                        </label>
-                        <label className="rnd-field">
-                            <span>Password</span>
-                            <input type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} />
-                        </label>
-                    </>
-                ) : (
-                    <label className="rnd-field">
-                        <span>API token</span>
-                        <input type="password" autoComplete="off" value={token} onChange={(e) => setToken(e.target.value)} {...textProps} />
-                    </label>
-                )}
-
-                {error && <div className="rnd-login-error">{error}</div>}
-
-                <button type="submit" className="rnd-btn lg primary" disabled={!canSubmit}>
-                    {busy ? "Signing in…" : "Sign in"}
-                </button>
-            </form>
+            </SignInScreen>
         </div>
     );
 }
@@ -136,7 +156,7 @@ export function RundeckLogin({ initialUrl = "", initialUser = "", initialAllowIn
 function ModeChip({ mode, current, onPick, children }: { mode: Mode; current: Mode; onPick: (mode: Mode) => void; children: string }) {
     const on = mode === current;
     return (
-        <button type="button" role="radio" aria-checked={on} className={`rnd-mode-chip${on ? " on" : ""}`} onClick={() => onPick(mode)}>
+        <button type="button" role="radio" aria-checked={on} className="signin-mode" onClick={() => onPick(mode)}>
             {children}
         </button>
     );

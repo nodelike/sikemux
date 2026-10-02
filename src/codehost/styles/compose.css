@@ -1,0 +1,148 @@
+/* ---- Checks, reviews, and writing a new pull request or issue ----------- */
+
+.gha-checks {
+    display: flex;
+    flex-direction: column;
+}
+.gha-check {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    height: 28px;
+    padding: 0 var(--space-2);
+    border: 0;
+    border-radius: var(--radius-2);
+    background: none;
+    color: var(--text-secondary);
+    font: inherit;
+    font-size: var(--text-xs);
+    text-align: left;
+    cursor: pointer;
+    transition:
+        background var(--dur-1) linear,
+        color var(--dur-1) linear;
+}
+.gha-merge-part > .gha-checks {
+    margin-left: 22px;
+}
+.gha-check-took {
+    min-width: 7ch;
+    font-variant-numeric: tabular-nums;
+    color: var(--text-tertiary);
+    text-align: right;
+}
+.gha-check:hover {
+    background: var(--surface-hover);
+    color: var(--text-primary);
+}
+.gha-check:focus-visible {
+    box-shadow: var(--focus-ring);
+    outline: none;
+}
+.gha-check-name {
+    font-weight: var(--weight-medium);
+    color: var(--text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.gha-check-spacer {
+    flex: 1 1 auto;
+}
+.gha-review-state {
+    font-size: var(--text-2xs);
+    color: var(--text-tertiary);
+}
+.gha-review-state[data-state="APPROVED"] {
+    color: var(--live);
+}
+.gha-review-state[data-state="CHANGES_REQUESTED"] {
+    color: var(--danger);
+}
+.gha-detail > .gha-warn-note {
+    padding-top: var(--space-2);
+}
+
+.gha-form {
+    gap: var(--space-2);
+    max-width: 860px;
+}
+.gha-form .gha-title {
+    padding: var(--space-2) 0 var(--space-1);
+}
+.gha-form .gha-detail-actions {
+    gap: var(--space-3);
+}
+.gha-form-row {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+}
+.gha-form-row .gha-input {
+    flex: 0 1 280px;
+    min-width: 160px;
+}
+.gha-form-label {
+    font-size: var(--text-2xs);
+    color: var(--text-tertiary);
+}
+
+.gha-list-count {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-3);
+}
+
+/* ---- Pinning from the repository picker --------------------------------- */
+
+.gha-picker .picker-item-wrap {
+    position: relative;
+}
+.gha-picker .picker-item.sel .picker-sub {
+    visibility: hidden;
+}
+.gha-pick-pin {
+    position: absolute;
+    top: 50%;
+    right: calc(var(--space-1h) - var(--space-0));
+    transform: translateY(-50%);
+    display: grid;
+    place-items: center;
+    padding: var(--space-0);
+    border: 0;
+    background: transparent;
+    color: var(--text-secondary);
+    cursor: pointer;
+}
+.gha-pick-pin:hover {
+    background: var(--surface-hover);
+    color: var(--text-primary);
+}
+.gha-pick-pin[aria-pressed="true"] {
+    color: var(--text-primary);
+}
+.gha-pick-pin:focus-visible {
+    box-shadow: var(--focus-ring);
+    outline: none;
+}
+
+/* Reviewed like Changes: the list fills the column, with no frame of its own. */
+.gha-pull-files {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    min-height: 0;
+}
+.gha-pull-files .merge-file-status {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+}
+.gha-checked-out {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-1);
+    font-size: var(--text-xs);
+    color: var(--live);
+}

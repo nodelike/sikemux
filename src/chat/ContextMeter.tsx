@@ -1,4 +1,4 @@
-import { Tooltip } from "../components/Tooltip";
+import { Tooltip } from "../ui/Tooltip";
 import type { AgentType } from "../state/types";
 import type { ContextUsage } from "./types";
 

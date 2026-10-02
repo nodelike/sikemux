@@ -1,0 +1,119 @@
+/* ---- Commit box ---- */
+
+.git-compose {
+    flex: 0 0 auto;
+    padding: var(--space-2) 10px var(--space-1);
+}
+.git-compose-well {
+    border: 1px solid var(--border);
+    border-radius: var(--radius-2);
+    background: color-mix(in srgb, var(--surface-sunken) calc(var(--window-opacity, 1) * 100%), transparent);
+    transition: border-color var(--dur-1);
+}
+.git-compose-well:focus-within {
+    border-color: var(--border-selected);
+}
+.git-compose-message {
+    display: block;
+    width: 100%;
+    min-height: 64px;
+    max-height: 200px;
+    padding: 9px 10px;
+    resize: none;
+    border: 0;
+    outline: 0;
+    background: transparent;
+    color: var(--text-primary);
+    font-family: var(--ui);
+    font-size: var(--text-sm);
+    line-height: 1.5;
+    overflow-y: auto;
+}
+.shell .git-compose-message {
+    border-radius: 0 !important;
+}
+.git-compose-message::placeholder {
+    color: var(--text-disabled);
+}
+/* The actions read like a pull request's merge row: gapped chips on the left, the one primary button on the right. */
+.git-compose-foot {
+    display: flex;
+    align-items: center;
+    gap: var(--space-1);
+    padding: 6px;
+    border-top: 1px solid var(--border);
+}
+.git-compose-agent,
+.git-compose-agent-pick,
+.git-compose-commit {
+    display: inline-flex;
+    align-items: center;
+    height: 28px;
+    border: 1px solid var(--border);
+    font: inherit;
+    font-size: var(--text-xs);
+    white-space: nowrap;
+    transition:
+        background var(--dur-1),
+        border-color var(--dur-1),
+        color var(--dur-1),
+        opacity var(--dur-1);
+}
+.git-compose-agent,
+.git-compose-agent-pick {
+    gap: var(--space-1h);
+    padding: 0 var(--space-2);
+    min-width: 0;
+    background: none;
+    color: var(--text-secondary);
+    overflow: hidden;
+}
+.git-compose-agent span:last-child {
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.git-compose-agent-pick {
+    flex: none;
+    justify-content: center;
+    width: 28px;
+    padding: 0;
+    color: var(--text-tertiary);
+}
+.git-compose-agent-pick svg {
+    transform: rotate(90deg);
+}
+.git-compose-agent:hover:not(:disabled),
+.git-compose-agent-pick:hover {
+    background: var(--surface-hover);
+    border-color: var(--border-strong);
+    color: var(--text-primary);
+}
+.git-compose-spark {
+    display: inline-flex;
+    flex: none;
+    color: var(--cmd);
+}
+.git-compose-spark.writing {
+    animation: git-spin 0.9s linear infinite;
+}
+@keyframes git-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+.git-compose-commit {
+    flex: none;
+    margin-left: auto;
+    padding: 0 var(--space-3);
+    border-color: var(--acc);
+    background: var(--acc);
+    color: var(--on-accent);
+    font-weight: var(--weight-medium);
+}
+.git-compose-commit:hover:not(:disabled) {
+    filter: brightness(1.08);
+}
+.git-compose-commit:disabled {
+    opacity: 0.45;
+    cursor: default;
+}

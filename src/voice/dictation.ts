@@ -5,7 +5,6 @@ import { setVoiceDictation } from "../state/commands";
 import { useStore } from "../state/store";
 import { focusedTextInsertTarget, insertText } from "../state/textInsertRegistry";
 import { notify } from "../state/toast";
-import { voiceVocabulary } from "./vocabulary";
 
 export type VoicePhase = "off" | "unsupported" | "preparing" | "ready" | "listening" | "transcribing";
 
@@ -119,7 +118,7 @@ function startWhenReady(): void {
     const { phase, stage, fraction } = useVoice.getState();
     if (phase === "ready") {
         recording = true;
-        void voiceApi.start(voiceVocabulary(useStore.getState()));
+        void voiceApi.start();
         return;
     }
     set({ target: null });

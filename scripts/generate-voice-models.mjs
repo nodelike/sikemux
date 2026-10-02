@@ -19,17 +19,6 @@ const MODELS = [
       "parakeet_vocab.json",
     ],
   },
-  {
-    repo: "FluidInference/parakeet-ctc-110m-coreml",
-    revision: "accdafd8cf8a2ff1cabe3c11e54416b405d409aa",
-    folder: "parakeet-ctc-110m-coreml",
-    include: [
-      "MelSpectrogram.mlmodelc/",
-      "AudioEncoder.mlmodelc/",
-      "vocab.json",
-      "tokenizer.json",
-    ],
-  },
 ];
 
 async function fetchOk(url) {

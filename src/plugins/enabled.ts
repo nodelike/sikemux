@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import type { PluginManifest } from "../api/plugins";
 import { getState, useStore } from "../state/store";
 import { frontendPlugin, frontendPlugins, type FrontendPlugin } from "./registry";
 
@@ -13,8 +14,17 @@ export function enabledFrontendPlugins(): readonly FrontendPlugin[] {
     return frontendPlugins().filter((plugin) => isPluginEnabled(plugin.id, disabledPlugins));
 }
 
+export type BuiltPlugin = FrontendPlugin & { readonly manifest: PluginManifest };
+
 /** Plugins compiled into this build on both sides, enabled or not, in the native side's order. */
-export function useBuiltPlugins(): readonly FrontendPlugin[] {
+export function useBuiltPlugins(): readonly BuiltPlugin[] {
     const manifests = useStore((s) => s.pluginManifests);
-    return useMemo(() => manifests.flatMap((manifest) => frontendPlugin(manifest.id) ?? []), [manifests]);
+    return useMemo(
+        () =>
+            manifests.flatMap((manifest) => {
+                const plugin = frontendPlugin(manifest.id);
+                return plugin ? [{ ...plugin, manifest }] : [];
+            }),
+        [manifests],
+    );
 }

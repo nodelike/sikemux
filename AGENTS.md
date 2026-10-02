@@ -20,6 +20,22 @@
 - Do not leave random markdown files in the codebase that are meant to be some way to deliver information to me. If you want to write a markdown file write it in a temporary file, and give me the path and chat and I can read it
 - Never write code that is explicitly backwards compatible. Systems should handle backwards compatibility (like migrations), not logic. If there is some logic that needs to be written otherwise it would appear it would break older users, you MUST make the assumption that no users have ran that code yet and its unreleased, so it would not make sense to consider the side effects that code would produce. This is a safe assumption because the maintainers of this codebase always ensure code that gets shipped is compatbile with the systems that allow for us to not have to explicitly hardcode backwards compatibility
 
+## Mobile app
+
+- The phone app is in `mobile/` (Expo, `mobile/app`) with the core's Rust client bridged
+  in `mobile/native` from `src-tauri/crates/sikemux-mobile`. `mobile/` is its own pnpm
+  workspace: never add it to the root install, scripts or checks.
+- The phone and the core share `sikemux-core`'s protocol. A protocol change must keep
+  `sikemux-mobile` building, and bumps `PROTOCOL_VERSION` once anything already released
+  speaks the old shape.
+- Phone builds need rustup's Rust first on `PATH`; Homebrew's Rust ignores
+  `rust-toolchain.toml` and has no phone targets.
+- The bindings `uniffi-bindgen-react-native` generates are build output; do not commit or
+  hand-edit them.
+- Phone screens are designed in `mobile/design/screens.src.html` before they are built, and
+  it must keep matching the app. Change it in the same commit as the screen it draws; run
+  `pnpm design` in `mobile/` to view it.
+
 ## Website
 
 - sikemux.com is a separate Astro repo, `nodelike/sikemux-front`, checked out at
@@ -28,7 +44,7 @@
   latest release, both at build time and in the visitor's browser. It finds the
   download by the `_aarch64.dmg` suffix, so renaming that asset or leaving it off a
   release breaks every Download button. Nightlies are pre-releases and never show up.
-- The README rounds the download to "about 10 MB" and the site says it is smaller than
+- The README rounds the download to "about 13 MB" and the site says it is smaller than
   Ghostty (33.8 MB). Update both if a release moves the DMG past either.
 - Its screenshots come from this repo:
   `pnpm showcase --site ~/projects/personal/sikemux-front/src/assets/shots`.

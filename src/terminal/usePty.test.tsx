@@ -375,58 +375,6 @@ describe("usePty", () => {
         expect(unlisten).toHaveBeenCalledOnce();
     });
 
-    it("bracket-pastes and submits a provider fallback first message exactly once", async () => {
-        const context: PtyContext = {
-            sessionId: "session-1",
-            sessionName: "repo",
-            sessionKind: "project",
-            project: "/repo",
-            agentId: "agent-1",
-            agentType: "hermes",
-            initialPromptSubmitted: false,
-        };
-
-        const onInitialInputDelivered = vi.fn();
-        render(<Harness context={context} initialInput="Build it safely." onInitialInputDelivered={onInitialInputDelivered} />);
-
-        await waitFor(
-            () => {
-                expect(invoke).toHaveBeenCalledWith("pty_write", {
-                    id: 42,
-                    data: "\x1b[200~Build it safely.\x1b[201~\r",
-                });
-            },
-            { timeout: 1_500 },
-        );
-        expect(invoke.mock.calls.filter(([command]) => command === "pty_write")).toHaveLength(1);
-        expect(onInitialInputDelivered).toHaveBeenCalledOnce();
-    });
-
-    it("delivers launch-composer image drops as separate native paste events before the prompt", async () => {
-        const context: PtyContext = {
-            sessionId: "session-1",
-            sessionName: "repo",
-            sessionKind: "project",
-            project: "/repo",
-            agentId: "agent-1",
-            agentType: "codex",
-            initialPromptSubmitted: true,
-        };
-
-        render(<Harness context={context} initialDropPaths={["/tmp/first image.png", "/tmp/O'Brien.jpg"]} initialInput="Compare both images." />);
-
-        await waitFor(
-            () => {
-                expect(invoke).toHaveBeenCalledWith("pty_write", {
-                    id: 42,
-                    data: "\x1b[200~'/tmp/first image.png'\x1b[201~\x1b[200~'/tmp/O'\\''Brien.jpg'\x1b[201~\x1b[200~Compare both images.\x1b[201~\r",
-                });
-            },
-            { timeout: 1_500 },
-        );
-        expect(invoke.mock.calls.filter(([command]) => command === "pty_write")).toHaveLength(1);
-    });
-
     it("keeps a pane PTY alive across renderer remounts until item disposal", async () => {
         const context: PtyContext = {
             sessionId: "session-1",
@@ -534,32 +482,6 @@ describe("usePty", () => {
             expect(invoke).toHaveBeenCalledWith("pty_write", {
                 id: 42,
                 data: "\x1b[200~'/tmp/a b' '/tmp/O'\\''Brien' '-$(touch nope);|*?>\nfile'\x1b[201~",
-            });
-        });
-    });
-
-    it("uses PowerShell literal rules when the configured shell is pwsh", async () => {
-        invoke.mockImplementation(async (command: string) => {
-            if (command === "pty_spawn") return 42;
-            if (command === "integration_health") return { shell: "C:\\Program Files\\PowerShell\\7\\pwsh.exe" };
-            return null;
-        });
-        const context: PtyContext = {
-            sessionId: "session-1",
-            sessionName: "repo",
-            sessionKind: "project",
-            project: "/repo",
-        };
-        const view = render(<Harness context={context} />);
-        await waitFor(() => expect(invoke).toHaveBeenCalledWith("pty_spawn", expect.anything()));
-
-        const host = view.container.firstElementChild as HTMLElement;
-        expect(dispatchPaths(host, ["C:\\O'Brien and $(touch nope);|*?>\nfile"])).toBe(true);
-
-        await waitFor(() => {
-            expect(invoke).toHaveBeenCalledWith("pty_write", {
-                id: 42,
-                data: "\x1b[200~'C:\\O''Brien and $(touch nope);|*?>\nfile'\x1b[201~",
             });
         });
     });

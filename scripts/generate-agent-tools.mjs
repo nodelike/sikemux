@@ -7,9 +7,16 @@ import { resolve } from "node:path";
 
 const root = resolve(import.meta.dirname, "..");
 const manifestPath = resolve(root, "browser/tools.json");
-const rustOutputPath = resolve(root, "src-tauri/src/generated_agent_tools.rs");
+const rustOutputPath = resolve(
+  root,
+  "src-tauri/crates/sikemux-core/src/cli/methods.rs",
+);
 const browserHandlersPath = resolve(root, "src-tauri/src/browser/tools.rs");
-const harnessHandlersPath = resolve(root, "src/harness/service.ts");
+const windowHandlersPath = resolve(root, "src/harness/service.ts");
+const coreHandlersPath = resolve(
+  root,
+  "src-tauri/crates/sikemux-core/src/server/harness.rs",
+);
 const check = process.argv.includes("--check");
 
 const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
@@ -64,14 +71,24 @@ compare(
   ),
   "src-tauri/src/browser/tools.rs",
 );
+// The core answers some harness methods itself and hands the rest to the
+// window, so a method counts as handled by either side's dispatch.
+const coreSource = await readFile(coreHandlersPath, "utf8");
+const coreDispatch = coreSource.slice(
+  coreSource.indexOf("async fn dispatch("),
+  coreSource.indexOf("\n}\n", coreSource.indexOf("async fn dispatch(")),
+);
 compare(
   harnessMethods,
-  handlersIn(
-    await readFile(harnessHandlersPath, "utf8"),
-    /case ("[a-z]+\.[a-z]+"):/gu,
-    "",
-  ),
-  "src/harness/service.ts",
+  new Set([
+    ...handlersIn(coreDispatch, /((?:"[a-z.]+"\s*\|\s*)*"[a-z.]+")\s*=>/gu, ""),
+    ...handlersIn(
+      await readFile(windowHandlersPath, "utf8"),
+      /case ("[a-z]+\.[a-z]+"):/gu,
+      "",
+    ),
+  ]),
+  "the core's harness dispatch and src/harness/service.ts",
 );
 
 const list = (values) =>

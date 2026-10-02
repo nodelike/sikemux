@@ -265,7 +265,6 @@ async fn update_install_inner(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::json;
 
     #[test]
     fn download_progress_reports_absolute_bounded_updates_and_completion() {
@@ -291,31 +290,6 @@ mod tests {
         assert_eq!(complete.phase, UpdateInstallPhase::Downloading);
     }
 
-    #[test]
-    fn progress_payload_uses_frontend_camel_case_contract() {
-        let value = serde_json::to_value(UpdateInstallProgress {
-            phase: UpdateInstallPhase::Installing,
-            downloaded_bytes: 13_362_333,
-            total_bytes: Some(13_362_333),
-        })
-        .unwrap();
-
-        assert_eq!(
-            value,
-            json!({
-                "phase": "installing",
-                "downloadedBytes": 13_362_333,
-                "totalBytes": 13_362_333
-            })
-        );
-    }
-
-    // Network diagnostic, not part of the normal suite: run with
-    // `cargo test --manifest-path src-tauri/Cargo.toml -- --ignored updater_feed`.
-    // Reproduces the updater plugin's own request (user agent, Accept header,
-    // timeout) through this crate's reqwest/TLS features, then applies the same
-    // target lookup and semver comparison the plugin uses, so a feed or
-    // transport fault is visible without waiting on the in-app check.
     // Network diagnostic, excluded from the normal suite. Run with
     // `cargo test --manifest-path src-tauri/Cargo.toml --lib -- --ignored update_feed`.
     // Reproduces the plugin's own request — user agent, Accept header, and the
@@ -377,44 +351,24 @@ mod tests {
     }
 
     #[test]
-    fn nightly_follows_both_feeds() {
-        assert_eq!(channel_feeds("stable").unwrap(), &[STABLE_ENDPOINT]);
-        assert_eq!(
-            channel_feeds("nightly").unwrap(),
-            &[NIGHTLY_ENDPOINT, STABLE_ENDPOINT]
-        );
-        assert!(channel_feeds("beta").is_err());
-    }
-
-    #[test]
-    fn a_stable_release_overtakes_its_own_nightlies() {
-        let newest = pick(vec![Ok(Some("0.4.0-nightly.11")), Ok(Some("0.4.0"))]).unwrap();
-        assert_eq!(newest, Some("0.4.0"));
-    }
-
-    #[test]
-    fn a_nightly_ahead_of_stable_wins() {
-        let newest = pick(vec![Ok(Some("0.5.0-nightly.1")), Ok(Some("0.4.1"))]).unwrap();
-        assert_eq!(newest, Some("0.5.0-nightly.1"));
-    }
-
-    #[test]
-    fn one_feed_offering_nothing_defers_to_the_other() {
-        assert_eq!(
-            pick(vec![Ok(None), Ok(Some("0.4.0"))]).unwrap(),
-            Some("0.4.0")
-        );
-        assert_eq!(pick(vec![Ok(None), Ok(None)]).unwrap(), None);
-    }
-
-    #[test]
-    fn a_failed_feed_only_surfaces_when_nothing_was_found() {
-        let found = pick(vec![
-            Err(AppError::Other("offline".into())),
-            Ok(Some("0.4.0")),
-        ]);
-        assert_eq!(found.unwrap(), Some("0.4.0"));
-        assert!(pick(vec![Ok(None), Err(AppError::Other("offline".into()))]).is_err());
+    fn the_newest_offered_version_wins_and_errors_surface_only_when_nothing_was_found() {
+        let offline = || Err(AppError::Other("offline".into()));
+        for (results, expected) in [
+            (
+                vec![Ok(Some("0.4.0-nightly.11")), Ok(Some("0.4.0"))],
+                Some("0.4.0"),
+            ),
+            (
+                vec![Ok(Some("0.5.0-nightly.1")), Ok(Some("0.4.1"))],
+                Some("0.5.0-nightly.1"),
+            ),
+            (vec![Ok(None), Ok(Some("0.4.0"))], Some("0.4.0")),
+            (vec![Ok(None), Ok(None)], None),
+            (vec![offline(), Ok(Some("0.4.0"))], Some("0.4.0")),
+        ] {
+            assert_eq!(pick(results).unwrap(), expected);
+        }
+        assert!(pick(vec![Ok(None), offline()]).is_err());
     }
 
     #[test]

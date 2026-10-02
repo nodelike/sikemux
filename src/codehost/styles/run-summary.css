@@ -1,0 +1,236 @@
+/* ---- What a job meant to be read, and what a run cost ------------------- */
+
+.gha-summary {
+    margin-bottom: var(--space-2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-2);
+    background: var(--gha-tint);
+}
+.gha-summary-head {
+    padding: var(--space-1h) var(--space-2);
+    font-size: var(--text-2xs);
+    font-weight: var(--weight-medium);
+    color: var(--text-primary);
+    cursor: pointer;
+    list-style: none;
+}
+.gha-summary-head::-webkit-details-marker {
+    display: none;
+}
+.gha-summary[open] > .gha-summary-head {
+    border-bottom: 1px solid var(--border);
+}
+.gha-summary .prose {
+    padding: 0 var(--space-2) var(--space-2);
+}
+.gha-workflow-file {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+}
+
+/* ---- The run's summary card, graph and menu ----------------------------- */
+
+.gha-graph-spacer,
+.gha-log-spacer {
+    flex: 1 1 auto;
+}
+.gha-avatar {
+    display: inline-block;
+    flex: 0 0 auto;
+    width: 16px;
+    height: 16px;
+    border-radius: var(--radius-full);
+    background: var(--gha-tint);
+}
+.gha-avatar-letter {
+    display: inline-grid;
+    place-items: center;
+    background: color-mix(in oklab, var(--acc) 22%, transparent);
+    color: var(--text-primary);
+    font-size: var(--text-3xs);
+    font-weight: var(--weight-semibold);
+    line-height: 1;
+}
+
+.gha-graph {
+    margin: var(--space-3) var(--space-5) 0;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-2);
+    background: var(--gha-tint);
+}
+.gha-graph-head {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: var(--space-2) var(--space-3);
+    border-bottom: 1px solid var(--border);
+    font-size: var(--text-2xs);
+}
+.gha-graph-file {
+    font-size: var(--text-xs);
+    font-weight: var(--weight-semibold);
+    color: var(--text-primary);
+}
+.gha-graph-empty {
+    padding: var(--space-4) var(--space-3);
+    font-size: var(--text-2xs);
+}
+.gha-graph-stages {
+    display: flex;
+    align-items: center;
+    padding: var(--space-4) var(--space-3);
+    overflow-x: auto;
+}
+.gha-graph-stage {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    flex: 0 0 auto;
+}
+.gha-graph-stage:not([data-first="1"]) {
+    padding-left: var(--space-6);
+}
+.gha-graph-stage:not([data-first="1"])::before {
+    content: "";
+    position: absolute;
+    top: 50%;
+    left: 0;
+    width: var(--space-6);
+    height: 1px;
+    background: var(--border-strong);
+}
+.gha-graph-group {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+    min-width: 200px;
+    max-width: 280px;
+}
+.gha-graph-group[data-titled="1"] {
+    padding: var(--space-2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-2);
+    background: var(--gha-tint);
+}
+.gha-graph-group-title {
+    padding: 0 var(--space-1) var(--space-1);
+    font-size: var(--text-2xs);
+    color: var(--text-tertiary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.gha-graph-job {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    height: 28px;
+    padding: 0 var(--space-2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-2);
+    background: var(--gha-tint);
+    color: var(--text-secondary);
+    font: inherit;
+    font-size: var(--text-xs);
+    text-align: left;
+    cursor: pointer;
+    transition:
+        background var(--dur-1) linear,
+        border-color var(--dur-1) linear,
+        color var(--dur-1) linear;
+}
+.gha-graph-job:hover {
+    background: var(--surface-hover);
+    border-color: var(--border-strong);
+    color: var(--text-primary);
+}
+.gha-graph-job[data-on="1"] {
+    background: var(--surface-selected);
+    border-color: var(--border-selected);
+    color: var(--text-primary);
+}
+.gha-graph-job:focus-visible {
+    box-shadow: var(--focus-ring);
+    outline: none;
+}
+.gha-graph-job-took {
+    flex: 0 0 auto;
+    font-variant-numeric: tabular-nums;
+    color: var(--text-tertiary);
+    white-space: nowrap;
+}
+.gha-graph-job-name {
+    flex: 1 1 auto;
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.gha-graph + .gha-workflow-file {
+    margin: var(--space-2) var(--space-5) 0;
+}
+
+.gha-run-summaries {
+    display: flex;
+    flex-direction: column;
+    padding: var(--space-3) var(--space-5) var(--space-2);
+}
+
+.gha-menu-anchor {
+    position: relative;
+    display: inline-flex;
+}
+.gha-menu {
+    min-width: 200px;
+}
+.gha-menu .env-dd-item.danger {
+    color: var(--danger);
+}
+
+button.gha-step {
+    width: 100%;
+    padding: 0 var(--space-1);
+    border: 1px solid transparent;
+    border-radius: var(--radius-2);
+    background: none;
+    font: inherit;
+    font-size: var(--text-2xs);
+    text-align: left;
+    cursor: pointer;
+}
+button.gha-step:hover {
+    background: var(--surface-hover);
+    color: var(--text-primary);
+}
+button.gha-step:focus-visible {
+    box-shadow: var(--focus-ring);
+    outline: none;
+}
+
+.gha-log-search {
+    width: 180px;
+    height: 22px;
+    padding: 0 var(--space-2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-2);
+    background: var(--gha-tint);
+    color: var(--text-primary);
+    font: inherit;
+    font-size: var(--text-2xs);
+    outline: none;
+}
+.gha-log-search:focus-visible {
+    box-shadow: var(--focus-ring);
+}
+.gha-log-line.hit {
+    background: color-mix(in oklab, var(--warn) 12%, transparent);
+}
+.gha-log-line.anchor {
+    background: var(--surface-selected);
+    box-shadow: inset 0 0 0 1px var(--border-selected);
+}
+.gha-log-line.hit.current {
+    background: color-mix(in oklab, var(--warn) 26%, transparent);
+}

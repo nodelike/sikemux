@@ -136,11 +136,4 @@ describe("voice dictation", () => {
         expect(getState().voiceDictation).toBe(true);
         expect(api.start).not.toHaveBeenCalled();
     });
-
-    it("reports download progress and readiness", () => {
-        handleVoiceEvent({ type: "progress", stage: "download", fraction: 0.25 });
-        expect(useVoice.getState()).toMatchObject({ phase: "preparing", stage: "download", fraction: 0.25 });
-        handleVoiceEvent({ type: "ready" });
-        expect(useVoice.getState()).toMatchObject({ phase: "ready", stage: null });
-    });
 });

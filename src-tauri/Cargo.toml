@@ -1,6 +1,6 @@
 [package]
 name = "sikemux"
-version = "0.4.2"
+version = "0.4.3-nightly.6"
 description = "A GUI terminal multiplexer"
 authors = ["nodelike"]
 edition = "2021"
@@ -20,21 +20,29 @@ string_slice = "deny"
 todo = "deny"
 unimplemented = "deny"
 unreachable = "deny"
+undocumented_unsafe_blocks = "deny"
+
+[lints.clippy]
+undocumented_unsafe_blocks = "deny"
 
 [lib]
 name = "sikemux_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [features]
-default = ["aws", "bruno", "rundeck", "signoz"]
+default = ["aws", "bitbucket", "bruno", "github", "rundeck", "signoz"]
 ipc-command-tests = ["tauri/test"]
 aws = ["dep:sikemux-plugin-aws"]
+bitbucket = ["dep:sikemux-plugin-bitbucket"]
 bruno = ["dep:sikemux-plugin-bruno"]
+github = ["dep:sikemux-plugin-github"]
 rundeck = ["dep:sikemux-plugin-rundeck"]
 signoz = ["dep:sikemux-plugin-signoz"]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
+sha2 = "0.11"
+hex = "0.4"
 
 [dependencies]
 tauri = { version = "2", default-features = false, features = ["macos-private-api", "wry", "unstable", "compression"] }
@@ -71,12 +79,16 @@ futures = "0.3"
 semver = "1"
 sikemux-plugin-api = { path = "crates/sikemux-plugin-api" }
 sikemux-plugin-aws = { path = "plugins/aws", optional = true }
+sikemux-plugin-bitbucket = { path = "plugins/bitbucket", optional = true }
 sikemux-plugin-bruno = { path = "plugins/bruno", optional = true }
+sikemux-plugin-github = { path = "plugins/github", optional = true }
 sikemux-plugin-rundeck = { path = "plugins/rundeck", optional = true }
 sikemux-plugin-signoz = { path = "plugins/signoz", optional = true }
+sikemux-keychain = { path = "crates/sikemux-keychain" }
 sikemux-process = { path = "crates/sikemux-process" }
 sikemux-markdown = { path = "crates/sikemux-markdown" }
-agent-client-protocol = "2.0.0"
+sikemux-pty = { path = "crates/sikemux-pty" }
+sikemux-core = { path = "crates/sikemux-core" }
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "process", "time", "sync", "io-util", "net"] }
 reqwest = { version = "0.13", default-features = false, features = ["json", "rustls-no-provider", "gzip", "stream", "cookies", "multipart"] }
 rustls = { version = "0.23", default-features = false, features = ["ring"] }
@@ -88,6 +100,7 @@ rustix = { version = "1", features = ["fs"] }
 libc = "0.2"
 
 [target.'cfg(target_os = "macos")'.dependencies]
+workspace-hack = { version = "0.1", path = "crates/workspace-hack" }
 objc2 = "0.6"
 objc2-app-kit = { version = "0.3", default-features = false, features = ["NSAlert", "NSApplication", "NSBitmapImageRep", "NSControl", "NSEvent", "NSGraphicsContext", "NSImage", "NSImageRep", "NSPasteboard", "NSResponder", "NSScreen", "NSTextField", "NSView", "NSWindow", "NSWorkspace", "block2", "objc2-core-graphics"] }
 objc2-foundation = { version = "0.3", default-features = false, features = ["NSData", "NSDictionary", "NSError", "NSGeometry", "NSObject", "NSProcessInfo", "NSString", "NSThread", "NSURL", "NSURLResponse", "NSValue"] }
@@ -96,6 +109,7 @@ block2 = "0.6"
 objc2-av-foundation = { version = "0.3", default-features = false, features = ["std", "AVAssetWriter", "AVAssetWriterInput", "AVMediaFormat", "AVVideoSettings", "block2", "objc2-core-media", "objc2-core-video"] }
 objc2-core-foundation = { version = "0.3", default-features = false, features = ["std", "CFCGTypes", "CFString"] }
 objc2-core-graphics = { version = "0.3", default-features = false, features = ["std", "CGBitmapContext", "CGColor", "CGColorSpace", "CGContext", "CGImage", "CGPath"] }
+objc2-quick-look-ui = { version = "0.3", default-features = false, features = ["std", "QLPreviewItem", "QLPreviewView", "objc2-app-kit"] }
 objc2-quartz-core = { version = "0.3", default-features = false, features = ["std", "CALayer", "CAShapeLayer", "CATransaction", "objc2-core-foundation", "objc2-core-graphics"] }
 objc2-core-media = { version = "0.3", default-features = false, features = ["std", "CMTime"] }
 objc2-core-video = { version = "0.3", default-features = false, features = ["std", "CVBase", "CVBuffer", "CVImageBuffer", "CVPixelBuffer", "CVPixelBufferPool", "CVReturn"] }
@@ -113,6 +127,13 @@ debug = "line-tables-only"
 [profile.dev.package."*"]
 opt-level = 3
 
+# The phone app's build: as fast as release, but a panic in one background
+# task fails that task instead of closing the whole app.
+[profile.mobile]
+inherits = "release"
+panic = "unwind"
+opt-level = "z"
+
 [profile.release]
 # Sikemux is latency-sensitive (PTY parsing, Git walks, serialization). The
 # complete app is already small enough that runtime speed wins over a few MB.
@@ -123,15 +144,19 @@ panic = "abort"
 strip = "symbols"
 
 # Crates that never sit on a hot path are built for size. Together they take
-# about 1 MB off the binary; encryption itself stays in `ring` at full speed.
+# well over 1 MB off the binary; encryption itself stays in `ring` at full speed.
 [profile.release.package.sikemux-plugin-aws]
-opt-level = "s"
+opt-level = "z"
+[profile.release.package.sikemux-plugin-bitbucket]
+opt-level = "z"
 [profile.release.package.sikemux-plugin-bruno]
-opt-level = "s"
+opt-level = "z"
+[profile.release.package.sikemux-plugin-github]
+opt-level = "z"
 [profile.release.package.sikemux-plugin-rundeck]
-opt-level = "s"
+opt-level = "z"
 [profile.release.package.sikemux-plugin-signoz]
-opt-level = "s"
+opt-level = "z"
 [profile.release.package.libsqlite3-sys]
 opt-level = "s"
 [profile.release.package.rusqlite]
@@ -151,4 +176,40 @@ opt-level = "s"
 [profile.release.package.rustls]
 opt-level = "s"
 [profile.release.package.rustls-webpki]
+opt-level = "s"
+[profile.release.package.agent-client-protocol]
+opt-level = "s"
+[profile.release.package.serde_with]
+opt-level = "s"
+[profile.release.package.minisign-verify]
+opt-level = "s"
+[profile.release.package.tauri-plugin-notification]
+opt-level = "s"
+[profile.release.package.mac-notification-sys]
+opt-level = "s"
+[profile.release.package.tauri-plugin-dialog]
+opt-level = "s"
+[profile.release.package.rfd]
+opt-level = "s"
+[profile.release.package.infer]
+opt-level = "s"
+[profile.release.package.cfb]
+opt-level = "s"
+[profile.release.package.tar]
+opt-level = "s"
+[profile.release.package.quick-xml]
+opt-level = "s"
+[profile.release.package.toml]
+opt-level = "s"
+[profile.release.package.toml_parser]
+opt-level = "s"
+[profile.release.package.time]
+opt-level = "s"
+[profile.release.package.hyper]
+opt-level = "s"
+[profile.release.package.hyper-util]
+opt-level = "s"
+[profile.release.package.idna]
+opt-level = "s"
+[profile.release.package.regex-syntax]
 opt-level = "s"

@@ -105,7 +105,7 @@ describe("frontend persistence", () => {
         expect(
             applyHydrate(
                 JSON.stringify({
-                    version: 17,
+                    version: 19,
                     sessions: [],
                     itemStates: {},
                 }),
@@ -205,6 +205,45 @@ describe("frontend persistence", () => {
         expect(getState().languageServerTrust).toEqual({ "/trusted": true, "/refused": false });
     });
 
+    it("remembers each project's Worktree switch default", async () => {
+        setState({ agentWorktreeDefaults: { "/code/app": true } });
+        invoke.mockResolvedValue(undefined);
+
+        await expect(flushPersist()).resolves.toBe(true);
+        const saved = JSON.parse(invoke.mock.calls[0][1].data as string);
+        expect(saved.prefs.agentWorktreeDefaults).toEqual({ "/code/app": true });
+
+        setState({ agentWorktreeDefaults: {} });
+        saved.prefs.agentWorktreeDefaults["/odd"] = 1;
+        applyHydrate(JSON.stringify(saved));
+        expect(getState().agentWorktreeDefaults).toEqual({ "/code/app": true });
+    });
+
+    it("remembers the spaces, each project's space and which space is shown", async () => {
+        const work = cmd.createSpace("Work", "💼")!;
+        const side = cmd.createSpace("Side projects")!;
+        cmd.setProjectSpace("/office", work);
+        cmd.setProjectSpace("/side", side);
+        cmd.showSpace(work);
+        invoke.mockResolvedValue(undefined);
+
+        await expect(flushPersist()).resolves.toBe(true);
+        const saved = JSON.parse(invoke.mock.calls[0][1].data as string);
+        expect(saved.prefs.spaces).toEqual([
+            { id: work, name: "Work", icon: "💼" },
+            { id: side, name: "Side projects", icon: "" },
+        ]);
+
+        setState({ spaces: [], projectSpaces: {}, activeSpaceId: null });
+        saved.prefs.projectSpaces["/gone"] = "space-that-was-deleted";
+        saved.prefs.spaces.push({ id: "blank", name: "   ", icon: "" });
+        applyHydrate(JSON.stringify(saved));
+
+        expect(getState().spaces.map((space) => space.name)).toEqual(["Work", "Side projects"]);
+        expect(getState().projectSpaces).toEqual({ "/office": work, "/side": side });
+        expect(getState().activeSpaceId).toBe(work);
+    });
+
     it("persists rail widths and pulls stored ones back inside their bounds", async () => {
         setState({ sideRailWidth: 320, agentRailWidth: 400 });
         invoke.mockResolvedValue(undefined);
@@ -260,6 +299,8 @@ describe("frontend persistence", () => {
             resumeId: "session-123",
             launchState: "live" as const,
             keepAlive: true,
+            renamed: true,
+            worktree: { repo: "/repo", path: "/repo.worktrees/fix", branch: "sikemux/fix", base: "main", startSha: "abc123" },
         };
         setState((s) => {
             const slices = withAgents(s, sid, [agent]);
@@ -274,14 +315,23 @@ describe("frontend persistence", () => {
         expect(raw).not.toContain("malicious saved startup");
         const saved = JSON.parse(raw);
         expect(saved.agents).toEqual([
-            { id: agent.id, type: "codex", title: agent.title, resumeId: agent.resumeId, permissionMode: "workspace-write", keepAlive: true },
+            {
+                id: agent.id,
+                type: "codex",
+                title: agent.title,
+                resumeId: agent.resumeId,
+                permissionMode: "workspace-write",
+                keepAlive: true,
+                renamed: true,
+                worktree: agent.worktree,
+            },
         ]);
         expect(saved.windowsBySession[sid].map((w: { role: string }) => w.role)).toContain("agent");
 
         saved.agents[0].startup = "still malicious";
         applyHydrate(JSON.stringify(saved));
         const restored = getState().agents[agent.id];
-        expect(restored).toMatchObject({ launchState: "dormant", keepAlive: true });
+        expect(restored).toMatchObject({ launchState: "dormant", keepAlive: true, renamed: true, worktree: agent.worktree });
         expect(restored.startup).toMatch(/^codex resume\b/);
         expect(restored.startup).toContain("session-123");
         expect(restored.startup).not.toContain("still malicious");
@@ -376,6 +426,67 @@ describe("frontend persistence", () => {
 
         expect(getState().deskPanes).toEqual({});
         expect(getState().deskRestores).toEqual({});
+    });
+
+    it("saves the core terminal each pane and terminal agent shows, and takes them back", async () => {
+        const sid = getState().activeSessionId;
+        const terminalWindowId = getState().sessions[sid].activeWindowId;
+        const paneId = getState().windows[terminalWindowId].activePaneId;
+        cmd.setPanePty(paneId, 1_759_300_000_001);
+        const agent: Agent = { id: "agent-tui", type: "pi", title: "pi in its terminal", startup: "pi" };
+        setState((s) => {
+            const slices = withAgents(s, sid, [agent]);
+            return { ...slices, sessions: { ...s.sessions, [sid]: { ...s.sessions[sid], kind: "project" } } };
+        });
+        cmd.setAgentPty(agent.id, 1_759_300_000_002);
+        invoke.mockResolvedValue(undefined);
+
+        expect(await flushPersist()).toBe(true);
+        const saved = JSON.parse(invoke.mock.calls[0][1].data as string);
+        expect(saved.agents).toEqual([expect.objectContaining({ id: agent.id, ptyId: 1_759_300_000_002 })]);
+        expect(saved.agents[0]).not.toHaveProperty("resumeId");
+
+        applyHydrate(JSON.stringify(saved));
+        expect(collectPanes(getState().windows[terminalWindowId].root)[0].ptyId).toBe(1_759_300_000_001);
+        expect(getState().agents[agent.id]).toMatchObject({ ptyId: 1_759_300_000_002, launchState: "dormant" });
+        expect(agentIdsOf(getState(), sid)).toEqual([agent.id]);
+    });
+
+    it("forgets terminals saved before v18, which died with the app", async () => {
+        const sid = getState().activeSessionId;
+        const terminalWindowId = getState().sessions[sid].activeWindowId;
+        invoke.mockResolvedValue(undefined);
+        expect(await flushPersist()).toBe(true);
+        const saved = JSON.parse(invoke.mock.calls[0][1].data as string);
+        saved.version = 17;
+        saved.windowsBySession[sid][0].root.ptyId = 42;
+
+        expect(applyHydrate(JSON.stringify(saved))).toBe("applied");
+        expect(collectPanes(getState().windows[terminalWindowId].root)[0].ptyId).toBeUndefined();
+
+        saved.version = 18;
+        saved.windowsBySession[sid][0].root.ptyId = -1;
+        applyHydrate(JSON.stringify(saved));
+        expect(getState().windows[terminalWindowId]).toBeUndefined();
+    });
+
+    it("closes a v16 GitHub session, which lives in the git pane now", async () => {
+        const sid = getState().activeSessionId;
+        invoke.mockResolvedValue(undefined);
+        expect(await flushPersist()).toBe(true);
+        const saved = JSON.parse(invoke.mock.calls[0][1].data as string);
+        const project = saved.sessions.find((row: { id: string }) => row.id === sid);
+        saved.version = 16;
+        saved.sessions.push({ ...project, id: "session-github", kind: "sikemux.github:hub", name: "GitHub" });
+        saved.sessionOrder = [...(saved.sessionOrder ?? []), "session-github"];
+        saved.windowsBySession["session-github"] = [];
+        saved.activeSessionId = "session-github";
+
+        expect(applyHydrate(JSON.stringify(saved))).toBe("applied");
+
+        expect(getState().sessions["session-github"]).toBeUndefined();
+        expect(getState().sessionOrder).not.toContain("session-github");
+        expect(getState().activeSessionId).toBe(sid);
     });
 
     it("moves a v15 browser pane onto a desk with the pages it held", async () => {
@@ -597,7 +708,7 @@ describe("frontend persistence", () => {
 
         await expect(flushPersist()).resolves.toBe(true);
         const saved = JSON.parse(invoke.mock.calls[0][1].data as string);
-        expect(saved.version).toBe(16);
+        expect(saved.version).toBe(18);
         expect(saved.editorViews).toBeUndefined();
         expect(saved.itemStates).toEqual({
             [editorPane.id]: {
@@ -737,7 +848,7 @@ describe("frontend persistence", () => {
         const migrated = invoke.mock.calls[0][1].data as string;
         expect(migrated).not.toContain("legacy-secret");
         expect(migrated).not.toContain("agentBookmarks");
-        expect(JSON.parse(migrated).version).toBe(16);
+        expect(JSON.parse(migrated).version).toBe(18);
     });
 
     /*
@@ -770,7 +881,7 @@ describe("frontend persistence", () => {
         invoke.mockResolvedValue(undefined);
         expect(await flushPersist()).toBe(true);
         const saved = JSON.parse(invoke.mock.calls[0][1].data as string);
-        expect(saved.version).toBe(16);
+        expect(saved.version).toBe(18);
         expect(saved.agents.map((agent: { id: string }) => agent.id)).toEqual(["a1", "a2"]);
         expect(saved).not.toHaveProperty("agentsBySession");
         expect(saved.sessions[0]).not.toHaveProperty("view");
@@ -830,33 +941,6 @@ describe("frontend persistence", () => {
             treeHidden: false,
         });
         expect(getState().sessions[project.id]).not.toHaveProperty("deploy");
-    });
-
-    it("turns v14 Rundeck env folders into group paths and drops folder-based deploy picks", () => {
-        const project = getState().sessions[getState().activeSessionId];
-        const window = getState().windows[project.activeWindowId];
-        applyHydrate(
-            JSON.stringify({
-                version: 14,
-                sessions: [{ ...project, kind: "project" }],
-                windowsBySession: { [project.id]: [window] },
-                sessionOrder: [project.id],
-                activeSessionId: project.id,
-                prefs: {
-                    pluginSettings: {
-                        "sikemux.rundeck": {
-                            activeProject: "ops",
-                            activeEnvFolder: "Prod",
-                            prodEnvs: ["prod", "live"],
-                            deployTargets: { "/repo/api": { project: "ops", folder: "Prod" } },
-                        },
-                    },
-                },
-                itemStates: {},
-            }),
-        );
-
-        expect(rundeckSettings.get()).toMatchObject({ activeProject: "ops", activeGroup: "Prod", prodEnvs: ["prod", "live"], deployTargets: {} });
     });
 
     it("folds v11 Bruno sessions, one per workspace, into the one Bruno session and keeps every folder", () => {
@@ -1021,35 +1105,6 @@ describe("frontend persistence", () => {
         }
     });
 
-    it("replaces the multiline SSH startup from the first reconnect release", () => {
-        const sid = getState().activeSessionId;
-        const session = getState().sessions[sid];
-        const window = getState().windows[session.activeWindowId];
-
-        applyHydrate(
-            JSON.stringify({
-                version: 4,
-                sessions: [{ ...session, kind: "ssh", name: "prod-db" }],
-                windowsBySession: {
-                    [sid]: [
-                        {
-                            ...window,
-                            root: { ...window.root, startup: "(\n  sikemux_ssh_retries=0\n)" },
-                        },
-                    ],
-                },
-                agentsBySession: {},
-                sessionOrder: [sid],
-                activeSessionId: sid,
-                prefs: {},
-            }),
-        );
-
-        const restored = getState().windows[session.activeWindowId].root;
-        expect(restored.type).toBe("pane");
-        if (restored.type === "pane") expect(restored.startup).not.toMatch(/[\r\n]/);
-    });
-
     it("upgrades legacy fixed project terminals to regular numbered tabs", () => {
         const sid = getState().activeSessionId;
         const session = getState().sessions[sid];
@@ -1072,5 +1127,28 @@ describe("frontend persistence", () => {
         const restored = getState().windows[window.id];
         expect(restored).toMatchObject({ name: "Terminal", role: "term" });
         expect(restored.fixed).toBeUndefined();
+    });
+
+    it("makes a legacy fixed Git tab in a project closable", () => {
+        const sid = getState().activeSessionId;
+        const session = getState().sessions[sid];
+        const window = getState().windows[session.activeWindowId];
+
+        applyHydrate(
+            JSON.stringify({
+                version: 4,
+                sessions: [{ ...session, kind: "project", cwd: "/work/demo" }],
+                windowsBySession: {
+                    [sid]: [{ ...window, name: "git", role: "git", root: { ...window.root, kind: "git" }, fixed: true }],
+                },
+                agentsBySession: {},
+                sessionOrder: [sid],
+                activeSessionId: sid,
+                prefs: {},
+            }),
+        );
+
+        expect(getState().windows[window.id]).toMatchObject({ role: "git" });
+        expect(getState().windows[window.id].fixed).toBeUndefined();
     });
 });

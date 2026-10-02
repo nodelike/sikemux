@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { caretAtEdge, recallPrompt, sentPrompts } from "./promptHistory";
+import { arrowsBrowse, recallPrompt, sentPrompts } from "./promptHistory";
 import type { ChatMessage } from "./types";
 
 const said = (role: ChatMessage["role"], text: string): ChatMessage => ({ id: text, role, parts: [{ id: `${text}-t`, kind: "text", text }] });
@@ -13,6 +13,18 @@ describe("the messages ↑ can bring back", () => {
     it("keep a message sent twice in a row once, and skip one that was only files", () => {
         const onlyFiles: ChatMessage = { id: "f", role: "user", parts: [], attachments: ["/a.png"] };
         expect(sentPrompts([said("user", "again"), said("user", "again"), onlyFiles])).toEqual(["again"]);
+    });
+
+    it("read only the words of a message that also carried a picture", () => {
+        const withPicture: ChatMessage = {
+            id: "p",
+            role: "user",
+            parts: [
+                { id: "p-c", kind: "content", content: { type: "image", data: "AAAA", mimeType: "image/png" } },
+                { id: "p-t", kind: "text", text: "what is this" },
+            ],
+        };
+        expect(sentPrompts([withPicture])).toEqual(["what is this"]);
     });
 });
 
@@ -41,15 +53,22 @@ describe("stepping through them", () => {
 });
 
 describe("when the arrows browse instead of moving the caret", () => {
-    it("only from the first line going up and the last line going down", () => {
-        const text = "one\ntwo";
-        expect(caretAtEdge(text, 2, 2, "older")).toBe(true);
-        expect(caretAtEdge(text, 6, 6, "older")).toBe(false);
-        expect(caretAtEdge(text, 6, 6, "newer")).toBe(true);
-        expect(caretAtEdge(text, 2, 2, "newer")).toBe(false);
+    const prompts = ["first", "second"];
+
+    it("goes up into the sent messages only from an empty composer", () => {
+        expect(arrowsBrowse("", prompts, null, "older")).toBe(true);
+        expect(arrowsBrowse("  \n ", prompts, null, "older")).toBe(true);
+        expect(arrowsBrowse("", prompts, null, "newer")).toBe(false);
     });
 
-    it("never while text is selected", () => {
-        expect(caretAtEdge("one", 0, 3, "older")).toBe(false);
+    it("leaves the arrows to the text once anything is typed, on any line", () => {
+        expect(arrowsBrowse("a long line that wraps", prompts, null, "older")).toBe(false);
+        expect(arrowsBrowse("one\ntwo\nthree", prompts, null, "older")).toBe(false);
+    });
+
+    it("keeps browsing while a recalled message is untouched, and stops once it is edited", () => {
+        expect(arrowsBrowse("second", prompts, { index: 1, typed: "" }, "older")).toBe(true);
+        expect(arrowsBrowse("second", prompts, { index: 1, typed: "" }, "newer")).toBe(true);
+        expect(arrowsBrowse("second, but changed", prompts, { index: 1, typed: "" }, "older")).toBe(false);
     });
 });

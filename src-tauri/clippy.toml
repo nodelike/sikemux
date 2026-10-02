@@ -1,0 +1,4 @@
+disallowed-methods = [
+    { path = "std::process::Command::new", reason = "use sikemux_process::user_environment::command, so the child gets the user's PATH" },
+    { path = "tokio::process::Command::new", reason = "wrap sikemux_process::user_environment::command, so the child gets the user's PATH" },
+]

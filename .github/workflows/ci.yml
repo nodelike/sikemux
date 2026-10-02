@@ -15,6 +15,12 @@ concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+# Cargo.toml builds dependencies at full speed so `make dev` feels fast. CI only
+# tests them, and level 1 compiles in about half the time. The cache key carries
+# the level, since cargo rebuilds every dependency when it changes.
+env:
+  DEPS_OPT_LEVEL: 1
+
 jobs:
   frontend:
     name: Frontend quality, build, and tests
@@ -49,6 +55,12 @@ jobs:
       - name: Check the grammar manifest matches the installed grammars
         run: pnpm grammars:check
 
+      - name: Check the generated IPC contracts match the Rust commands
+        run: pnpm ipc:check
+
+      - name: Check the generated agent tool list matches its source
+        run: pnpm agent-tools:check
+
       - name: Run frontend tests with all-source coverage
         run: pnpm test:coverage
 
@@ -72,15 +84,17 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: Setup Rust
-        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
-        with:
-          toolchain: stable
-          components: rustfmt, clippy
+        run: rustup toolchain install "$(sed -n 's/^channel = "\(.*\)"$/\1/p' rust-toolchain.toml)" --profile minimal --component clippy --component rustfmt --no-self-update
+
+      - name: Build dependencies with light optimisation
+        run: printf '[profile.dev.package."*"]\nopt-level = %s\n' "$DEPS_OPT_LEVEL" >>"${CARGO_HOME:-$HOME/.cargo}/config.toml"
 
       - name: Cache cargo
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: src-tauri
+          key: deps-opt-level-${{ env.DEPS_OPT_LEVEL }}
+          cache-on-failure: true
 
       - name: Audit Rust dependencies
         uses: rustsec/audit-check@69366f33c96575abad1ee0dba8212993eecbe998 # v2.0.0
@@ -127,17 +141,20 @@ jobs:
           cache: pnpm
 
       - name: Setup Rust
-        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
-        with:
-          toolchain: stable
+        run: rustup toolchain install "$(sed -n 's/^channel = "\(.*\)"$/\1/p' rust-toolchain.toml)" --profile minimal --component clippy --component rustfmt --no-self-update
+
+      - name: Build dependencies with light optimisation
+        run: printf '[profile.dev.package."*"]\nopt-level = %s\n' "$DEPS_OPT_LEVEL" >>"${CARGO_HOME:-$HOME/.cargo}/config.toml"
 
       - name: Cache cargo
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
-          workspaces: src-tauri
+          workspaces: src-tauri -> target/e2e
+          key: deps-opt-level-${{ env.DEPS_OPT_LEVEL }}
+          cache-on-failure: true
 
       - name: Install frontend dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Launch the built app and open a real editor target
-        run: pnpm test:e2e:desktop
+      - name: Launch the built app, open a real editor target and drive a browser tab
+        run: pnpm test:e2e:desktop --browser

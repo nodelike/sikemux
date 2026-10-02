@@ -111,6 +111,143 @@ textarea:focus,
     padding: var(--gutter-rail) var(--gutter-rail) var(--space-4);
 }
 
+.rail-masthead {
+    display: flex;
+    align-items: center;
+    gap: var(--space-1h);
+    flex: 0 0 auto;
+    height: 40px;
+    padding: 0 var(--space-2) 0 calc(var(--gutter-rail) + var(--space-2));
+    border-bottom: 1px solid var(--border);
+}
+
+.rail-masthead-logo {
+    flex: 0 0 auto;
+    color: var(--acc);
+}
+
+.rail-masthead-name {
+    margin-left: 1px;
+    font-family: var(--ui);
+    font-size: var(--text-sm);
+    font-weight: var(--weight-semibold);
+    color: var(--ink);
+}
+
+.rail-masthead-version {
+    display: flex;
+    align-items: center;
+    gap: var(--space-1);
+    min-width: 0;
+    padding-top: 1px;
+    font-family: var(--mono);
+    font-size: var(--text-3xs);
+    font-variant-numeric: tabular-nums;
+    color: var(--ink-faint);
+    white-space: nowrap;
+}
+
+.rail-masthead-channel {
+    padding: 1px var(--space-1);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-1);
+    font-family: var(--ui);
+    font-size: var(--text-3xs);
+    font-weight: var(--weight-medium);
+    line-height: 1.2;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.rail-masthead-actions {
+    display: flex;
+    gap: 2px;
+    margin-left: auto;
+}
+
+.rail-update {
+    position: relative;
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    flex: 0 0 auto;
+    margin: 0 var(--gutter-rail) var(--space-2);
+    height: 30px;
+    padding: 0 11px;
+    background: var(--surface-selected);
+    border: 1px solid var(--border-selected);
+    color: var(--acc);
+    font-family: var(--mono);
+    font-size: var(--text-2xs);
+    font-weight: var(--weight-semibold);
+    letter-spacing: 0.04em;
+    text-transform: lowercase;
+    text-align: left;
+    transition:
+        background var(--dur-1),
+        border-color var(--dur-1),
+        color var(--dur-1);
+}
+
+.rail-update:hover:not(:disabled) {
+    background: var(--surface-hover);
+    border-color: var(--border-strong);
+}
+
+.rail-update-preparing,
+.rail-update-downloading,
+.rail-update-installing,
+.rail-update-restarting {
+    color: var(--warn);
+    border-color: color-mix(in srgb, var(--warn) 45%, transparent);
+    animation: tb-update-pulse 1.4s ease-in-out infinite;
+    cursor: progress;
+}
+
+.rail-update-error {
+    color: var(--danger);
+    border-color: color-mix(in srgb, var(--danger) 50%, transparent);
+}
+
+.rail-update-error:hover {
+    background: color-mix(in srgb, var(--danger) 12%, transparent);
+}
+
+.rail-update-measured {
+    animation: none;
+}
+
+.rail-update-fill {
+    position: absolute;
+    inset: 0;
+    transform-origin: left center;
+    background: color-mix(in srgb, var(--warn) 20%, transparent);
+    transition: transform 0.18s linear;
+    pointer-events: none;
+}
+
+.rail-update > svg,
+.rail-update-label {
+    position: relative;
+    flex: 0 0 auto;
+}
+
+.rail-update-label {
+    flex: 1 1 auto;
+    min-width: 0;
+    line-height: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .rail-update {
+        animation: none;
+    }
+}
+
 .side-rail .panel-group,
 .workspace-rail .panel-group {
     margin-top: var(--space-4);
@@ -149,7 +286,8 @@ textarea:focus,
 .sess-row,
 .proj-row,
 .proj-child,
-.agent-row {
+.agent-row,
+.gha-side-item {
     display: flex;
     align-items: center;
     min-height: 28px;
@@ -172,7 +310,8 @@ textarea:focus,
 .sess-row:hover,
 .proj-row:hover,
 .proj-child:hover,
-.agent-row:hover {
+.agent-row:hover,
+.gha-side-item:hover {
     background: var(--surface-hover);
     color: var(--text-primary);
 }
@@ -180,7 +319,8 @@ textarea:focus,
 .sess-row.active,
 .proj-row.expanded,
 .proj-child.active,
-.agent-row.active {
+.agent-row.active,
+.gha-side-item[data-on="1"] {
     background: var(--surface-selected);
     box-shadow: inset 0 0 0 1px var(--border-selected);
     color: var(--text-primary);
@@ -611,13 +751,10 @@ textarea:focus,
 }
 
 /*
- * Every tab is a shape; only the selected one is a surface.
+ * Every tab sits on the same ground as the rails; only the selected one is tinted.
  *
- * The edge says where a tab starts and ends, which a bare label leaves the eye
- * to guess. It stays well under the active tab's: a muted hairline and no
- * fill, so a strip of eight reads as a row rather than eight boxes competing
- * with the one that matters. Fill and the accent edge remain the selected
- * tab's alone.
+ * Hover and selection lay their translucent tint over that ground rather than
+ * replacing it, so a tab never turns see-through when you touch it.
  */
 .tabbar.v-agent .tab-wrap,
 .tabbar.v-editor .tab-wrap,
@@ -626,7 +763,7 @@ textarea:focus,
     height: 26px;
     border-right: 0;
     border-radius: var(--radius-2);
-    background: transparent;
+    background: color-mix(in srgb, var(--surface) var(--panel-solidity), transparent);
     /* Full strength rather than 62%: the strip used to sit against the screen
        card's lit top edge, and now it sits against the wallpaper, where a
        hairline at two thirds of --border stopped reading as an edge at all. */
@@ -643,7 +780,7 @@ textarea:focus,
 .tabbar.v-editor .tab-wrap:hover,
 .tabbar.v-desk .tab-wrap:hover,
 .tabbar.v-stack .tab-wrap:hover {
-    background: var(--surface-hover);
+    background-image: linear-gradient(var(--surface-hover), var(--surface-hover));
     box-shadow: inset 0 0 0 1px var(--border);
     color: var(--text-secondary);
 }
@@ -652,7 +789,7 @@ textarea:focus,
 .tabbar.v-editor .tab-wrap.active,
 .tabbar.v-desk .tab-wrap.active,
 .tabbar.v-stack .tab-wrap.active {
-    background: var(--surface-selected);
+    background-image: linear-gradient(var(--surface-selected), var(--surface-selected));
     box-shadow: inset 0 0 0 1px var(--border-selected);
     color: var(--text-primary);
 }
@@ -963,9 +1100,11 @@ html.is-transparent .rail-peek-panel > .workspace-rail {
  *
  * `.tabbar` is deliberately absent. It was listed here once, but a full-width
  * strip is not a control, and the control corner is not the corner it wants.
- * The workspace strip rounds itself at the panel radius, up with its border. */
+ * The workspace strip rounds itself at the panel radius, up with its border.
+ * Neither is a menu's search field: it runs edge to edge with a line under it,
+ * and a corner would bend that line up at both ends. */
 button,
-input,
+input:not(.chat-picker-menu > input),
 select,
 textarea,
 .shell
@@ -982,11 +1121,6 @@ textarea,
         .agent-header-btn,
         .rail-search,
         .agent-row,
-        .git-tbtn,
-        .git-dd-btn,
-        .git-cp-commit,
-        .git-cp-input,
-        .git-commit-input,
         .dlg-input,
         .dlg-btn,
         .tip,
@@ -1018,14 +1152,14 @@ textarea,
 /* Every remaining text field by role, so a sheet does not have to be listed
  * above to stop being square. Range, colour, checkbox and radio opt out —
  * their shape is the control. */
-.shell :where(input, textarea, select):not([type="range"], [type="color"], [type="checkbox"], [type="radio"]) {
+.shell :where(input, textarea, select):not([type="range"], [type="color"], [type="checkbox"], [type="radio"], .chat-picker-menu > input) {
     border-radius: var(--radius-2) !important;
 }
 
 /* Rows that are not buttons. A settings row or a keymap row is a div, so the
  * bare `button` rule above never reaches it and it sat square beside rows that
  * happened to be clickable. */
-.shell :where(.git-dd-item, .git-modal-suggestion, .git-modal-suggestions) {
+.shell :where(.git-modal-suggestion, .git-modal-suggestions) {
     border-radius: var(--radius-2) !important;
 }
 
@@ -1052,6 +1186,8 @@ textarea,
         .custom-command-list,
         .cli-paths,
         .cli-usage,
+        .pairing-code,
+        .pairing-request,
         .provider-profile-layout,
         .theme-editor,
         .theme-preview,
@@ -1067,14 +1203,14 @@ textarea,
  * an ancestor-scoped rule never reaches them — that is how a right-click menu
  * kept square corners while the buttons inside it, matched by the bare
  * `button` rule above, rounded. A float is known by what it is, not by where
- * it happens to be mounted, so `[role="menu"]` catches the ones that move. */
+ * it happens to be mounted, so `[role="menu"]` catches the ones that move.
+ * The address bar's suggestions are the lower half of its field, not a float. */
 :where(
     .picker,
     .command-palette,
     .command-popup,
     .session-switcher,
     .env-dd-menu,
-    .git-dd-menu,
     .dd-menu,
     .tree-ctx-menu,
     .terminal-menu,
@@ -1085,7 +1221,7 @@ textarea,
     .dlg,
     [role="menu"],
     [role="dialog"],
-    [role="listbox"]
+    [role="listbox"]:not(.address-suggestions)
 ) {
     border-radius: var(--radius-4) !important;
 }
@@ -1115,14 +1251,16 @@ textarea,
  * smaller corner to nest inside the one around it. */
 .shell
     :where(
-        .git-kbd,
         .git-menu-key,
+        .git-chip,
+        .git-tabs button,
         .panel-akbd,
         .picker-tag,
         .bruno-tab-count,
         .command-palette-shortcut,
         .tb-git-chip,
         .tb-deploy-chip,
+        .gha-topbar,
         .zoom-pill,
         .voice-pill,
         .agent-view-switch button
@@ -1353,31 +1491,6 @@ textarea,
  * second tint over the one the pane already draws. */
 .terminal-host .xterm-viewport {
     background-color: transparent !important;
-}
-
-/* Rail signature — the app's identity, parked at the foot of the sessions
- * rather than occupying the row above the first project. */
-.rail-sig {
-    display: flex;
-    align-items: center;
-    gap: var(--space-1h);
-    flex: 0 0 auto;
-    padding: 0 var(--gutter-rail) var(--space-2);
-    color: var(--ink-faint);
-}
-.rail-sig svg {
-    opacity: 0.6;
-}
-.rail-sig-name {
-    font-family: var(--ui);
-    font-size: var(--text-2xs);
-    font-weight: var(--weight-medium);
-    letter-spacing: var(--tracking-normal);
-}
-.rail-sig .tb-version {
-    margin-left: auto;
-    font-family: var(--mono);
-    font-size: var(--text-3xs);
 }
 
 /* ---- Rail typography -----------------------------------------------------

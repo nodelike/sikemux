@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { activeTabRef, expandTabRefs, nextInCycle, roleHasTab, selectSwipeOrder, stripOrder, tabRefKey } from "./selectors";
+import { activeTabRef, expandTabRefs, nextInCycle, selectSwipeOrder, stripOrder, tabRefKey } from "./selectors";
 import type { StoreState } from "./store";
 
 const win = (id: string, role: string) =>
@@ -10,43 +10,12 @@ const win = (id: string, role: string) =>
         root: { type: "pane", id: `${id}-pane`, kind: "terminal" },
     }) as unknown as StoreState["windows"][string];
 
-describe("roleHasTab", () => {
-    /*
-     * A diff is opened from a change in the rail and read in place, so a tab
-     * would be a second handle on one surface.
-     */
-    it("denies a window tab to the diff the rail drives", () => {
-        expect(roleHasTab("diff")).toBe(false);
-    });
-
-    it("gives Git and search a tab, so they can be picked from the strip and split", () => {
-        expect(roleHasTab("git")).toBe(true);
-        expect(roleHasTab("search")).toBe(true);
-    });
-
-    /*
-     * An editor is not one surface. The rail browses the tree, but each open
-     * document is its own thing to switch between, so an editor contributes a
-     * tab per document rather than none — see the expandTabRefs cases below.
-     */
-    it("leaves the editor out of the window rule, since it expands per document", () => {
-        expect(roleHasTab("files")).toBe(true);
-    });
-
-    it("keeps a tab for every role nothing else can reach", () => {
-        for (const role of ["term", "aws", "rundeck", "bruno", "ssh-config", "named"]) {
-            expect(roleHasTab(role)).toBe(true);
-        }
-    });
-});
-
 describe("selectSwipeOrder", () => {
     it("skips the windows the strip has no tab for", () => {
         const state = {
             windowsBySession: { s: ["a1", "e1", "d1", "g1", "a2"] },
             windows: { a1: win("a1", "agent"), e1: win("e1", "files"), d1: win("d1", "diff"), g1: win("g1", "git"), a2: win("a2", "agent") },
             editorViews: { "e1-pane": { openTabs: [], activePath: null } },
-            brunoViews: {},
         } as unknown as StoreState;
 
         expect(selectSwipeOrder(state, "s")).toEqual(["a1", "e1", "g1", "a2"]);
@@ -133,7 +102,6 @@ const storeState = (over: Partial<StoreState>): StoreState =>
         windows: {},
         agents: {},
         editorViews: {},
-        brunoViews: {},
         windowsBySession: {},
         ...over,
     }) as unknown as StoreState;

@@ -3,5 +3,13 @@
   "name": "AWS",
   "version": "0.1.0",
   "sikemux": ">=0.4",
-  "callTimeoutSecs": 150
+  "callTimeoutSecs": 150,
+  "environment": [
+    "AWS_CLI",
+    "AWS_CONFIG_FILE",
+    "AWS_SHARED_CREDENTIALS_FILE",
+    "AWS_REGION",
+    "AWS_DEFAULT_REGION",
+    "AWS_CA_BUNDLE"
+  ]
 }

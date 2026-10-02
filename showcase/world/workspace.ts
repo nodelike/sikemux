@@ -4,7 +4,7 @@ import type {
 } from "../../src/state/types/persisted";
 import type { LayoutNode, Window } from "../../src/state/types";
 import { VERSION } from "../../src/state/persist";
-import { DEMO_HOME, FRONT, MOODBOARD, SIKEMUX } from "./projects";
+import { DEMO_HOME, DEMO_PROJECTS, FRONT, MOODBOARD, SIKEMUX } from "./projects";
 
 const pane = (
   id: string,
@@ -38,35 +38,35 @@ export const AGENTS = {
   rail: {
     id: "agent-rail",
     type: "claude",
-    title: "Tighten the rail spacing",
+    title: "Line up the sidebar labels",
     resumeId: "5f0c8a1e-rail",
     cwd: SIKEMUX,
   },
   replay: {
     id: "agent-replay",
     type: "codex",
-    title: "Fix the flaky PTY replay test",
+    title: "Fix a flaky terminal test",
     resumeId: "codex-replay-0192",
     cwd: SIKEMUX,
   },
   hero: {
     id: "agent-hero",
     type: "claude",
-    title: "Fix Hermes going missing",
+    title: "Fix the download button on phones",
     resumeId: "91d2e7b4-hero",
-    cwd: SIKEMUX,
+    cwd: FRONT,
   },
   palette: {
     id: "agent-palette",
     type: "codex",
-    title: "Palette extraction benchmark",
+    title: "Compare two ways to pick colours",
     resumeId: "codex-palette-7731",
     cwd: MOODBOARD,
   },
   notes: {
     id: "agent-notes",
     type: "hermes",
-    title: "Write up the palette results",
+    title: "Write up the colour results",
     resumeId: "hermes-notes-3310",
     cwd: MOODBOARD,
   },
@@ -81,7 +81,7 @@ const agents: PersistedAgent[] = Object.values(AGENTS).map((agent) => ({
   keepAlive: true,
 }));
 
-export const EDITOR_TABS = [`${SIKEMUX}/src/components/AgentRail.tsx`];
+export const EDITOR_TABS = [`${SIKEMUX}/src/rail/AgentRail.tsx`];
 
 export function demoSnapshot(): PersistedSnapshot {
   return {
@@ -191,7 +191,6 @@ export function demoSnapshot(): PersistedSnapshot {
         },
         agentWindow(AGENTS.rail),
         agentWindow(AGENTS.replay),
-        agentWindow(AGENTS.hero),
       ],
       "s-front": [
         terminalWindow(
@@ -199,6 +198,7 @@ export function demoSnapshot(): PersistedSnapshot {
           pane("t-front", FRONT, "terminal", "dev"),
           "t-front",
         ),
+        agentWindow(AGENTS.hero),
       ],
       "s-mood": [
         terminalWindow(
@@ -292,7 +292,10 @@ export function demoSnapshot(): PersistedSnapshot {
     recent: [],
     prefs: {
       projectRoots: [{ path: `${DEMO_HOME}/code`, depth: 1 }],
-      themeId: "aura",
+      languageServerTrust: Object.fromEntries(
+        DEMO_PROJECTS.map((project) => [project.path, true]),
+      ),
+      themeId: "aura-noir",
       windowOpacity: 0.81,
       paneShader: true,
       sideRailWidth: 258,
@@ -311,6 +314,7 @@ export function demoSnapshot(): PersistedSnapshot {
       pluginSettings: {
         "sikemux.rundeck": { activeProject: "platform", activeGroup: null },
         "sikemux.signoz": { minutes: 60, environment: "production" },
+        "sikemux.github": { pinned: [] },
       },
     },
     itemStates: {

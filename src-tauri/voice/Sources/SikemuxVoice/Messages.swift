@@ -3,7 +3,6 @@ import Foundation
 struct Command: Decodable {
     let type: String
     let modelsDir: String?
-    let vocabulary: [String]?
 }
 
 enum Output {

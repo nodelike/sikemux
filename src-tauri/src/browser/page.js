@@ -6,9 +6,13 @@
     if (window.__sikemux) return;
     const INTERACTIVE =
         'a[href], button, input, select, textarea, summary, label, [role="button"], [role="link"], [role="tab"], [role="menuitem"], [role="checkbox"], [role="radio"], [role="option"], [role="switch"], [role="textbox"], [role="combobox"], [contenteditable="true"], [onclick], [tabindex]:not([tabindex="-1"])';
+    // Controls in their own right. Anything else in INTERACTIVE, such as a
+    // label or a div with a click handler, may just be part of a control.
+    const CONTROL = 'a[href], button, input, select, textarea, summary, iframe, frame, [role], [contenteditable="true"]';
     const TEXT_CAP = 2000;
     const FULL_TEXT_CAP = 40000;
     const MAX_FOUND = 30;
+    const MAX_OFFSCREEN = 40;
     const MAX_MARK_SHARE = 0.4;
     const IMPLICIT_ROLES = { A: "link", BUTTON: "button", SUMMARY: "button", SELECT: "combobox", TEXTAREA: "textbox", OPTION: "option" };
     const INPUT_ROLES = { checkbox: "checkbox", radio: "radio", button: "button", submit: "button", reset: "button", image: "button", range: "slider", search: "searchbox" };
@@ -21,6 +25,12 @@
         return style.visibility !== "hidden" && style.display !== "none" && style.opacity !== "0";
     };
     const inViewport = (rect) => rect.bottom > 0 && rect.right > 0 && rect.top < innerHeight && rect.left < innerWidth;
+    const offscreenBy = (rect) => {
+        if (inViewport(rect)) return null;
+        if (rect.bottom <= 0) return { side: "above", distance: -rect.bottom };
+        if (rect.top >= innerHeight) return { side: "below", distance: rect.top - innerHeight };
+        return { side: "to the side", distance: rect.right <= 0 ? -rect.right : rect.left - innerWidth };
+    };
     const isFrame = (element) => element.tagName === "IFRAME" || element.tagName === "FRAME";
     // A frame from the same site can be read; another site's frame cannot.
     const frameDocument = (frame) => {
@@ -145,9 +155,27 @@
         return element;
     };
     const describe = (element) => label(element) || element.tagName.toLowerCase();
+    // Styled switches often hide the real checkbox inside the label or wrapper
+    // a person clicks, so its state is read from there.
+    const toggleOf = (element) => {
+        if (element.tagName === "INPUT" || element.hasAttribute("aria-checked") || element.hasAttribute("aria-pressed")) return element;
+        if (element.tagName === "LABEL" && element.control) return element.control;
+        const inner = element.querySelectorAll('input[type="checkbox"], input[type="radio"], [role="switch"], [role="checkbox"]');
+        return inner.length === 1 ? inner[0] : element;
+    };
+    // What a field holds now, cut short; passwords never leave the page.
+    const currentValue = (element) => {
+        if (element.tagName === "SELECT") return compact(element.selectedOptions && element.selectedOptions[0] ? element.selectedOptions[0].textContent : element.value).slice(0, 80) || null;
+        if (element.tagName !== "INPUT" && element.tagName !== "TEXTAREA") return null;
+        if (["checkbox", "radio", "button", "submit", "reset", "image", "file", "hidden"].includes(element.type)) return null;
+        if (!element.value) return null;
+        if (element.type === "password") return "•".repeat(Math.min(element.value.length, 12));
+        return compact(element.value).slice(0, 80);
+    };
     const label = (element) =>
         compact(
             element.getAttribute("aria-label") ||
+                labelledBy(element) ||
                 (element.labels && element.labels[0] && element.labels[0].innerText) ||
                 element.placeholder ||
                 element.innerText ||
@@ -159,9 +187,30 @@
         ).slice(0, 96);
     // Every name an element goes by, so it can be found by any of them.
     const names = (element) =>
-        [element.getAttribute("aria-label"), element.labels && element.labels[0] && element.labels[0].innerText, element.placeholder, element.innerText, element.value, element.title, element.alt]
+        [
+            element.getAttribute("aria-label"),
+            labelledBy(element),
+            element.labels && element.labels[0] && element.labels[0].innerText,
+            element.placeholder,
+            element.innerText,
+            element.value,
+            element.title,
+            element.alt,
+            element.getAttribute("name"),
+            element.id,
+        ]
             .map((value) => (typeof value === "string" ? compact(value).toLowerCase() : ""))
             .filter(Boolean);
+    const labelledBy = (element) => {
+        const ids = compact(element.getAttribute("aria-labelledby"));
+        if (!ids) return "";
+        return ids
+            .split(" ")
+            .map((id) => element.ownerDocument.getElementById(id))
+            .filter(Boolean)
+            .map((part) => part.innerText || part.textContent || "")
+            .join(" ");
+    };
     const roleOf = (element) => {
         const explicit = compact(element.getAttribute("role")).split(" ")[0];
         if (explicit) return explicit.toLowerCase();
@@ -186,8 +235,53 @@
     const refs = () => window.__sikemuxRefs || new Map();
     const pick = (index) => {
         const element = refs().get(index);
-        if (!element || !element.isConnected) throw new Error(`no element [${index}]; it has left the page, so read browser_state or browser_find again`);
-        return element;
+        if (element && element.isConnected) return element;
+        const numbers = window.__sikemuxNumbers;
+        if (!numbers || index >= numbers.next) {
+            const latest = numbers && numbers.next ? `; this page has handed out [0] to [${numbers.next - 1}]` : "; this page has not been read yet";
+            throw new Error(`no element [${index}]${latest}. Numbers start again on every new page, so read browser_state or browser_find first`);
+        }
+        const was = element ? ` ("${describe(element)}")` : "";
+        throw new Error(`no element [${index}]${was}: it has left the page or is hidden now, so read browser_state or browser_find again`);
+    };
+    // Elements named by a CSS selector, searched through open shadow roots and
+    // same-site frames the way the element list is.
+    const selected = (selector) => {
+        const found = [];
+        const search = (root) => {
+            try {
+                found.push(...root.querySelectorAll(selector));
+            } catch {
+                throw new Error(`"${selector}" is not a valid CSS selector`);
+            }
+            for (const element of root.querySelectorAll("*")) {
+                if (element.shadowRoot) search(element.shadowRoot);
+                if (isFrame(element)) {
+                    const inner = frameDocument(element);
+                    if (inner) search(inner);
+                }
+            }
+        };
+        search(document);
+        return found;
+    };
+    // The one element a selector names, numbered so later calls can use it.
+    const numberFor = (element) => {
+        const numbers = window.__sikemuxNumbers || (window.__sikemuxNumbers = { ids: new WeakMap(), next: 0 });
+        if (!numbers.ids.has(element)) numbers.ids.set(element, numbers.next++);
+        const id = numbers.ids.get(element);
+        const current = window.__sikemuxRefs || (window.__sikemuxRefs = new Map());
+        current.set(id, element);
+        return id;
+    };
+    const bySelector = (selector) => {
+        const found = selected(selector).filter(shown);
+        if (!found.length) throw new Error(`nothing shown matches "${selector}"`);
+        if (found.length > 1) {
+            const lines = found.slice(0, 10).map((element) => entry(numberFor(element), element).line);
+            throw new Error(`${found.length} shown elements match "${selector}"; nothing was done. Pass a narrower selector or one of these numbers:\n${lines.join("\n")}`);
+        }
+        return numberFor(found[0]);
     };
     const entry = (id, element) => {
         const tag = element.tagName.toLowerCase();
@@ -195,24 +289,51 @@
         const text = label(element);
         if (text) parts.push(text);
         if (tag === "a") parts.push(`(${compact(element.getAttribute("href")).slice(0, 80)})`);
-        if (element.checked) parts.push("[checked]");
-        if (element.disabled) parts.push("[disabled]");
+        const filled = currentValue(element);
+        if (filled != null && filled !== text) parts.push(`value="${filled}"`);
+        const toggle = toggleOf(element);
+        const checked = toggle.getAttribute("aria-checked") ?? toggle.getAttribute("aria-pressed");
+        if (toggle.checked || checked === "true") parts.push("[checked]");
+        else if (checked === "mixed") parts.push("[mixed]");
+        else if (toggle.type === "checkbox" || toggle.type === "radio" || checked === "false") parts.push("[unchecked]");
+        const expanded = element.getAttribute("aria-expanded");
+        if (expanded === "true") parts.push("[expanded]");
+        if (expanded === "false") parts.push("[collapsed]");
+        if (element.getAttribute("aria-selected") === "true") parts.push("[selected]");
+        if (element.disabled || element.getAttribute("aria-disabled") === "true") parts.push("[disabled]");
         if (isFrame(element)) parts.push("(another site's frame: its inside cannot be read; click it or use x,y to reach in)");
         const key = parts.join(" ");
-        return { key, line: inViewport(rectOf(element)) ? key : `${key} [offscreen]` };
+        const offscreen = offscreenBy(rectOf(element));
+        return { key, line: offscreen ? `${key} [offscreen]` : key, offscreen };
+    };
+    // Lying under a modal, a banner or a menu, or shut off by the page.
+    const covered = (element) => {
+        if (element.closest("[inert], [aria-hidden='true']")) return true;
+        if (!inViewport(rectOf(element))) return false;
+        const rect = visibleRect(element);
+        return Boolean(rect) && !PROBES.some(([across, down]) => reaches(element, rect.left + rect.width * across, rect.top + rect.height * down));
     };
     // An element keeps its number for as long as it stays on the page, so a
     // number read a moment ago never lands on a neighbour after a re-render.
+    // Covered elements and the parts of a listed control keep a number but are
+    // left out of the list.
     const listing = () => {
         const numbers = window.__sikemuxNumbers || (window.__sikemuxNumbers = { ids: new WeakMap(), next: 0 });
         const listed = new Map();
         const current = new Map();
-        for (const element of interactive(document, [])) {
-            if (!shown(element)) continue;
+        const present = interactive(document, []).filter(shown);
+        const reachable = new Set(present.filter((element) => !covered(element)));
+        const insideReachable = (element) => {
+            for (let node = parentAcross(element); node; node = parentAcross(node)) if (reachable.has(node)) return true;
+            return false;
+        };
+        const partOfAnother = (element) =>
+            (!element.matches(CONTROL) && insideReachable(element)) || (element.tagName === "LABEL" && reachable.has(element.control));
+        for (const element of present) {
             if (!numbers.ids.has(element)) numbers.ids.set(element, numbers.next++);
             const id = numbers.ids.get(element);
             current.set(id, element);
-            listed.set(id, entry(id, element));
+            if (reachable.has(element) && !partOfAnother(element)) listed.set(id, entry(id, element));
         }
         window.__sikemuxRefs = current;
         return listed;
@@ -232,23 +353,46 @@
             return !left;
         });
     };
+    // Every element in view is kept, but only the offscreen ones nearest the
+    // view, so a long page does not flood the report; the rest are counted.
+    const trim = (entries) => {
+        const nearest = entries
+            .filter(([, listedEntry]) => listedEntry.offscreen)
+            .sort(([, a], [, b]) => a.offscreen.distance - b.offscreen.distance);
+        const dropped = new Set(nearest.slice(MAX_OFFSCREEN).map(([id]) => id));
+        return { kept: entries.filter(([id]) => !dropped.has(id)), dropped: nearest.slice(MAX_OFFSCREEN) };
+    };
+    const offscreenNote = (dropped, what) => {
+        const sides = new Map();
+        for (const [, listedEntry] of dropped) sides.set(listedEntry.offscreen.side, (sides.get(listedEntry.offscreen.side) || 0) + 1);
+        const split = ["above", "below", "to the side"].filter((side) => sides.has(side)).map((side) => `${sides.get(side)} ${side}`);
+        return `${dropped.length} more ${what} offscreen and not listed (${split.join(", ")}); scroll toward them or use browser_find`;
+    };
+    // Numbers the agent has not been shown yet are only listed once they come
+    // into view or change, and only numbers it was shown are reported removed.
     const changes = (last, listed, lines) => {
         const found = {};
-        const elements = [...listed].filter(([id, now]) => !last.listed.has(id) || last.listed.get(id).key !== now.key).map(([, now]) => now.line);
-        const removed = [...last.listed.keys()].filter((id) => !listed.has(id));
+        const moved = new Set([...listed].filter(([id, now]) => !last.listed.has(id) || last.listed.get(id).key !== now.key).map(([id]) => id));
+        const unseen = [...listed].filter(([id, now]) => !last.shown.has(id) && (!now.offscreen || moved.has(id)));
+        const { kept, dropped } = trim(unseen);
+        const keptIds = new Set(kept.map(([id]) => id));
+        const elements = [...listed].filter(([id]) => keptIds.has(id) || (last.shown.has(id) && moved.has(id)));
+        const removed = [...last.shown].filter((id) => !listed.has(id));
         const added = without(lines, last.lines).join("\n");
         const gone = without(last.lines, lines).join("\n");
-        if (elements.length) found.elements = elements.join("\n");
+        if (elements.length) found.elements = elements.map(([, now]) => now.line).join("\n");
+        if (dropped.length) found.offscreen = offscreenNote(dropped, "new elements are");
         if (removed.length) found.removed = removed;
         if (added) found.textAdded = clip(added, TEXT_CAP);
         if (gone) found.textRemoved = clip(gone, TEXT_CAP);
-        return Object.keys(found).length ? found : "none";
+        const shown = new Set([...[...last.shown].filter((id) => listed.has(id)), ...elements.map(([id]) => id)]);
+        return { found: Object.keys(found).length ? found : "none", shown };
     };
     const matching = (query, role) => {
         const wanted = compact(query).toLowerCase();
         const wantedRole = role ? compact(role).toLowerCase() : null;
-        listing();
-        const candidates = [...refs()].filter(([, element]) => !wantedRole || roleOf(element) === wantedRole);
+        const listed = listing();
+        const candidates = [...refs()].filter(([id, element]) => listed.has(id) && (!wantedRole || roleOf(element) === wantedRole));
         const exact = candidates.filter(([, element]) => names(element).includes(wanted));
         const found = exact.length ? exact : candidates.filter(([, element]) => names(element).some((name) => name.includes(wanted)));
         return found.filter(([, element]) => !found.some(([, other]) => other !== element && within(other, element)));
@@ -267,7 +411,7 @@
             range.setStart(node, at);
             range.setEnd(node, Math.min(node.data.length, at + wanted.length));
             const rect = range.getBoundingClientRect();
-            if (rect.width < 1 || rect.height < 1) continue;
+            if (rect.width < 1 || rect.height < 1 || rect.right <= 0 || rect.bottom <= 0 || rect.left >= innerWidth) continue;
             const point = { x: Math.round(rect.left + rect.width / 2), y: Math.round(rect.top + rect.height / 2), text: compact(node.parentElement.innerText || node.data).slice(0, 96) };
             if (!inViewport(rect)) point.offscreen = true;
             points.push(point);
@@ -346,6 +490,16 @@
         return note;
     };
 
+    const scrollerOf = (element) => {
+        for (let node = element; node; node = parentAcross(node)) {
+            if (node === document.body || node === document.documentElement) break;
+            const style = getComputedStyle(node);
+            if (/(auto|scroll|overlay)/.test(style.overflowY) && node.scrollHeight > node.clientHeight) return node;
+        }
+        return document.scrollingElement || document.documentElement;
+    };
+    const scrollState = (scroller) => ({ y: Math.round(scroller.scrollTop), height: scroller.scrollHeight, viewport: scroller.clientHeight, atBottom: scroller.scrollTop + scroller.clientHeight >= scroller.scrollHeight - 2 });
+
     window.__sikemux = {
         // "changes" answers with what differs from the previous read of this
         // page, and with everything when there was none.
@@ -353,15 +507,21 @@
             const listed = listing();
             const lines = pageLines();
             const last = window.__sikemuxLast;
-            window.__sikemuxLast = { listed, lines };
             const page = { url: location.href, title: document.title, scroll: { y: Math.round(scrollY), height: document.documentElement.scrollHeight, viewport: innerHeight } };
-            if (mode === "changes" && last) return { ...page, changes: changes(last, listed, lines) };
+            if (mode === "changes" && last) {
+                const { found, shown } = changes(last, listed, lines);
+                window.__sikemuxLast = { listed, lines, shown };
+                return { ...page, changes: found };
+            }
+            const { kept, dropped } = trim([...listed]);
+            window.__sikemuxLast = { listed, lines, shown: new Set(kept.map(([id]) => id)) };
             const text = lines.join("\n");
             const cap = fullText ? FULL_TEXT_CAP : TEXT_CAP;
             return {
                 ...page,
                 viewport: { width: innerWidth, height: innerHeight },
-                elements: [...listed.values()].map((listedEntry) => listedEntry.line).join("\n"),
+                elements: kept.map(([, listedEntry]) => listedEntry.line).join("\n"),
+                ...(dropped.length ? { offscreen: offscreenNote(dropped, "elements are") } : {}),
                 text: clip(text, cap),
                 ...(text.length > cap ? { textLength: text.length } : {}),
             };
@@ -373,8 +533,29 @@
                 const points = textPoints(query);
                 result.note = points.length ? "the words are on the page but on nothing numbered; click one of these points by x and y" : "nothing on the page shows those words";
                 if (points.length) result.points = points;
+                if (role) {
+                    const wantedRole = compact(role).toLowerCase();
+                    const listed = listing();
+                    const sameRole = [...listed].filter(([id]) => roleOf(refs().get(id)) === wantedRole).slice(0, MAX_FOUND);
+                    if (sameRole.length) {
+                        result.note = `no ${wantedRole} is named that way; these are every ${wantedRole} on the page`;
+                        result.elements = sameRole.map(([, listedEntry]) => listedEntry.line).join("\n");
+                    }
+                }
             }
             return result;
+        },
+        // Whether the page shows what an agent is waiting for. Every condition
+        // given must hold at once.
+        check(condition) {
+            const failing = [];
+            const text = () => pageLines().join("\n").toLowerCase();
+            if (condition.text != null && !text().includes(compact(condition.text).toLowerCase())) failing.push(`text "${condition.text}" is not on the page`);
+            if (condition.textGone != null && text().includes(compact(condition.textGone).toLowerCase())) failing.push(`text "${condition.textGone}" is still on the page`);
+            if (condition.selector != null && !selected(condition.selector).some(shown)) failing.push(`nothing shown matches "${condition.selector}"`);
+            if (condition.selectorGone != null && selected(condition.selectorGone).some(shown)) failing.push(`"${condition.selectorGone}" is still shown`);
+            if (condition.url != null && !location.href.includes(condition.url)) failing.push(`the url is ${location.href}, which does not contain "${condition.url}"`);
+            return { met: failing.length === 0, failing };
         },
         locate(text, role) {
             const found = matching(text, role);
@@ -382,35 +563,81 @@
             const scope = role ? ` with role ${role}` : "";
             if (!found.length) throw new Error(`nothing${scope} is labelled "${text}"; try browser_find with part of the words`);
             const listedMatches = found.slice(0, 10).map(([id, element]) => entry(id, element).line);
-            throw new Error(`${found.length} elements${scope} match "${text}"; nothing was clicked. Pass an index, or a role or fuller text:\n${listedMatches.join("\n")}`);
+            throw new Error(`${found.length} elements${scope} match "${text}"; nothing was done. Pass an index, or a role or fuller text:\n${listedMatches.join("\n")}`);
         },
-        point(index, expectLabel) {
+        // The number of the element a call names by `index`, `text` (with an
+        // optional `role`) or `selector`, whichever it gives.
+        resolve(target) {
+            if (target.index != null) return target.index;
+            if (target.selector != null) return bySelector(target.selector);
+            if (target.text != null) return this.locate(target.text, target.role);
+            throw new Error("pass index, text or selector");
+        },
+        point(target, expectLabel) {
+            const index = typeof target === "number" ? target : this.resolve(target);
             const element = pick(index);
             if (expectLabel != null && !names(element).some((name) => name.includes(compact(expectLabel).toLowerCase()))) {
-                throw new Error(`element [${index}] is "${describe(element)}", not "${expectLabel}"; nothing was clicked`);
+                throw new Error(`element [${index}] is "${describe(element)}", not "${expectLabel}"; nothing was done`);
             }
-            element.scrollIntoView({ block: "center", inline: "center" });
+            element.scrollIntoView({ block: "center", inline: "center", behavior: "instant" });
             const point = centre(element);
             const top = elementAt(point.x, point.y);
             const covered = top && !within(top, element) && !within(element, top) ? describe(top) : null;
             return { index, x: point.x, y: point.y, label: label(element), covered };
         },
-        focus(index, text) {
-            const element = index == null ? focused() : pick(index);
-            if (!element || (element === element.ownerDocument.body && !element.isContentEditable)) throw new Error("nothing is focused; pass an element index");
+        // The part of an element a person can see, scrolled into view, for a
+        // picture of just that element.
+        areaOf(target) {
+            const index = this.resolve(target);
+            const element = pick(index);
+            element.scrollIntoView({ block: "nearest", inline: "nearest", behavior: "instant" });
+            const rect = visibleRect(element);
+            if (!rect) throw new Error(`element [${index}] ("${describe(element)}") is hidden or cut off, so there is nothing of it to capture`);
+            return { index, label: describe(element), left: rect.left, top: rect.top, width: rect.width, height: rect.height };
+        },
+        // What a click at a point will land on, so a click by coordinates can
+        // say what it hit.
+        hitAt(x, y, expectLabel) {
+            if (x > innerWidth || y > innerHeight) throw new Error(`${x},${y} is outside the ${innerWidth}×${innerHeight} viewport; nothing was done`);
+            const top = elementAt(x, y);
+            if (!top || top === document.documentElement || top === document.body) {
+                if (expectLabel != null) throw new Error(`nothing but the page itself is at ${x},${y}, not "${expectLabel}"; nothing was done`);
+                return { x, y, hit: null };
+            }
+            let control = top;
+            for (let node = top; node; node = parentAcross(node)) {
+                if (node.matches && node.matches(INTERACTIVE)) {
+                    control = node;
+                    break;
+                }
+            }
+            const numbers = window.__sikemuxNumbers;
+            const index = numbers && numbers.ids.has(control) ? numbers.ids.get(control) : null;
+            const hit = { tag: control.tagName.toLowerCase(), label: describe(control), ...(index != null ? { index } : {}) };
+            if (expectLabel != null) {
+                const wanted = compact(expectLabel).toLowerCase();
+                const named = [...names(control), ...names(top)].some((name) => name.includes(wanted));
+                if (!named) throw new Error(`${x},${y} is on ${hit.tag} "${hit.label}", not "${expectLabel}"; nothing was done`);
+            }
+            return { x, y, hit };
+        },
+        focus(target, text, replace) {
+            const element = target == null ? focused() : pick(typeof target === "number" ? target : this.resolve(target));
+            if (!element || (element === element.ownerDocument.body && !element.isContentEditable)) throw new Error("nothing is focused, so there is nowhere to type; pass the field's index or selector, or click into it first");
             if (element.tagName === "SELECT") {
                 const option = [...element.options].find((option) => option.value === text || compact(option.textContent) === compact(text));
-                if (!option) throw new Error(`no option matching "${text}"`);
+                if (!option) throw new Error(`no option matching "${text}"; the options are: ${[...element.options].map((option) => compact(option.textContent)).slice(0, 20).join(", ")}`);
                 element.value = option.value;
                 element.dispatchEvent(new Event("input", { bubbles: true }));
                 element.dispatchEvent(new Event("change", { bubbles: true }));
                 return { selected: option.value };
             }
-            if (index == null) return { replacing: false };
-            element.scrollIntoView({ block: "center", inline: "center" });
-            if (isFrame(element)) return { replacing: false, clickFirst: centre(element) };
+            const into = describe(element);
+            if (target == null) return { replacing: replace ? selectContents(element) : false, into };
+            element.scrollIntoView({ block: "center", inline: "center", behavior: "instant" });
+            if (isFrame(element)) return { replacing: false, clickFirst: centre(element), into };
             element.focus({ preventScroll: true });
-            return { replacing: selectContents(element) };
+            return { replacing: selectContents(element), into };
         },
         // WebKit only acts on a bare pointer move while its page is active, so
         // when the real move left nothing hovered the page is told by hand.
@@ -433,11 +660,14 @@
             target.dispatchEvent(new MouseEvent("mousemove", init));
             return { hovered: describe(target), note: "Sikemux is in the background, so the page got hover events but CSS :hover styles do not apply" };
         },
-        valueOf(index) {
-            const element = index == null ? focused() : pick(index);
+        // A long value shows its end, where typing lands, with its length.
+        valueOf(target) {
+            const element = target == null ? focused() : pick(typeof target === "number" ? target : this.resolve(target));
             if (!element || isFrame(element)) return { value: null };
-            const value = "value" in element && typeof element.value === "string" ? element.value : element.innerText;
-            return { value: compact(value).slice(0, 400) };
+            const raw = "value" in element && typeof element.value === "string" ? element.value : element.innerText;
+            const value = compact(raw);
+            if (element.type === "password") return { value: "•".repeat(Math.min(value.length, 12)), valueLength: value.length };
+            return value.length > 400 ? { value: `…${value.slice(-400)}`, valueLength: value.length } : { value };
         },
         // A draggable element hands its drag to the system, which a synthesized
         // mouse cannot steer, so these drags are played out as DOM events.
@@ -482,7 +712,7 @@
         annotate(index, x, y, text, durationMs) {
             const element = index == null ? null : pick(index);
             if (element || x != null) {
-                if (element) element.scrollIntoView({ block: "center", inline: "center" });
+                if (element) element.scrollIntoView({ block: "center", inline: "center", behavior: "instant" });
                 const note = box(element, { x, y }, text, "box");
                 overlay.notes.push(note);
                 if (durationMs) setTimeout(() => note.node.remove(), durationMs);
@@ -532,17 +762,41 @@
             if (overlay) overlay.layer.classList.toggle("quiet", !visible);
             return {};
         },
-        scroll(deltaY, index) {
-            const target = index == null ? null : pick(index);
-            if (target) target.scrollBy({ top: deltaY, behavior: "instant" });
-            else scrollBy({ top: deltaY, behavior: "instant" });
-            return { y: Math.round(target ? target.scrollTop : scrollY) };
+        // Moves the page, or the scrolling element a target names, by deltaY
+        // or to its top or bottom; a target with neither is brought into view.
+        scroll(deltaY, target, to) {
+            const element = target == null ? null : pick(this.resolve(target));
+            const page = document.scrollingElement || document.documentElement;
+            const scroller = element && (deltaY != null || to != null) ? scrollerOf(element) : page;
+            if (element && deltaY == null && to == null) {
+                element.scrollIntoView({ block: "center", inline: "nearest", behavior: "instant" });
+                return { revealed: describe(element), onScreen: Boolean(onScreen(element)), ...scrollState(page) };
+            }
+            if (to === "top") scroller.scrollTo({ top: 0, behavior: "instant" });
+            else if (to === "bottom") scroller.scrollTo({ top: scroller.scrollHeight, behavior: "instant" });
+            else scroller.scrollBy({ top: deltaY ?? 600, behavior: "instant" });
+            return scrollState(scroller);
         },
         extract(selector) {
-            const roots = selector ? [...document.querySelectorAll(selector)] : [document.body];
+            const roots = selector ? selected(selector) : [document.body];
             if (selector && roots.length === 0) throw new Error(`nothing matches "${selector}"`);
-            const text = compact(roots.map((root) => root?.innerText || "").join("\n\n"));
-            return { url: location.href, title: document.title, text: text.length > 40000 ? `${text.slice(0, 40000)}…` : text, matches: roots.length };
+            const CAP = 40000;
+            const textOf = (root) => compact((root && (root.innerText || root.textContent)) || "") || compact(root && (root.getAttribute("aria-label") || root.getAttribute("alt") || root.getAttribute("title") || root.value || ""));
+            if (!selector || roots.length === 1) {
+                const text = textOf(roots[0]);
+                return { url: location.href, title: document.title, text: clip(text, CAP), matches: roots.length };
+            }
+            let room = CAP;
+            const parts = [];
+            for (const root of roots) {
+                if (room <= 0) break;
+                const text = clip(textOf(root), Math.min(room, 4000));
+                room -= text.length;
+                parts.push(text || `<${root.tagName.toLowerCase()}> with no text`);
+            }
+            const result = { url: location.href, title: document.title, matches: roots.length, parts };
+            if (parts.length < roots.length) result.note = `the text ran past ${CAP} characters, so only the first ${parts.length} matches are here`;
+            return result;
         },
     };
 })();

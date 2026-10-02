@@ -1,8 +1,8 @@
 import { createContext, useContext, useMemo, useState, type MouseEvent, type ReactNode } from "react";
 import { fsapi } from "../api/fs";
-import { FileIcon } from "../components/FileIcon";
-import { TreeContextMenu, type CtxItem } from "../components/FileTree";
-import { IconFolder } from "../components/Icons";
+import { FileIcon, FileTypeIcon } from "../ui/FileIcon";
+import { TreeContextMenu, type CtxItem } from "../rail/FileTree";
+import { IconFolder } from "../ui/Icons";
 import { copyText } from "../lib/clipboard";
 import { basename, dirname, relativePath } from "../lib/paths";
 import { FILE_MANAGER_NAME } from "../lib/platform";
@@ -94,12 +94,14 @@ export function ChatFileRef({
     label,
     size = 18,
     className = "chat-file-ref",
+    tile = false,
 }: {
     refers: PathRef;
     state: PathState;
     label: ReactNode;
     size?: number;
     className?: string;
+    tile?: boolean;
 }) {
     const { cwd } = usePathRoots();
     const deskAgentId = useContext(DeskOwnerContext);
@@ -115,6 +117,7 @@ export function ChatFileRef({
                 type="button"
                 className={className}
                 data-kind={state}
+                aria-label={tile ? basename(refers.path) : undefined}
                 title={refers.line === undefined ? refers.path : `${refers.path}:${refers.line}`}
                 onClick={(event) => {
                     event.preventDefault();
@@ -131,10 +134,12 @@ export function ChatFileRef({
                     <span className="file-glyph" aria-hidden="true">
                         <IconFolder size={size} />
                     </span>
+                ) : tile ? (
+                    <FileTypeIcon name={basename(refers.path)} size={size} />
                 ) : (
                     <FileIcon name={basename(refers.path)} size={size} />
                 )}
-                <span className="chat-file-ref-name">{label}</span>
+                {!tile && <span className="chat-file-ref-name">{label}</span>}
             </button>
             {menu && <TreeContextMenu x={menu.x} y={menu.y} items={menuItems(refers, state, cwd, deskAgentId)} onClose={() => setMenu(null)} />}
         </>

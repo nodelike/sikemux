@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import { fsapi, type FileBlob } from "../api/fs";
-import { isImagePath } from "../editor/media";
+import { fsapi } from "../api/fs";
+import { isImagePath, previewUrl } from "../editor/viewers/fileKinds";
 
 const MAX_CACHED = 12;
 /* A preview is only ever drawn a few hundred pixels wide, so a picture bigger
@@ -27,10 +27,6 @@ function remember(path: string, src: string | null): string | null {
         previews.delete(oldest);
     }
     return src;
-}
-
-function bytesOf(base64: string) {
-    return Uint8Array.from(atob(base64), (character) => character.charCodeAt(0));
 }
 
 /** Redraws a picture at thumbnail size, or null where the webview cannot. */
@@ -67,31 +63,25 @@ export function sizedSvg(markup: string): string {
     return new XMLSerializer().serializeToString(document);
 }
 
-function base64Of(bytes: Uint8Array): string {
-    let binary = "";
-    for (const byte of bytes) binary += String.fromCharCode(byte);
-    return btoa(binary);
+function svgSource(markup: string): string {
+    return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(sizedSvg(markup))}`;
 }
 
-async function readImage(path: string): Promise<FileBlob | null> {
-    const blob = await fsapi.readFileBase64(path);
-    if (!blob.mime.startsWith("image/")) return null;
-    if (blob.mime !== "image/svg+xml") return blob;
-    const markup = sizedSvg(new TextDecoder().decode(bytesOf(blob.data)));
-    return { ...blob, data: base64Of(new TextEncoder().encode(markup)) };
-}
-
-async function readPreview(path: string): Promise<string | null> {
-    const blob = await readImage(path);
-    if (!blob) return null;
-    if (blob.size <= SHRINK_OVER_BYTES) return `data:${blob.mime};base64,${blob.data}`;
-    return shrink(new Blob([bytesOf(blob.data)], { type: blob.mime }));
+/* Small pictures are shown straight from disk; only an SVG needing a size and
+   a picture big enough to shrink are ever read into the page. */
+async function readSource(path: string, shrinkLarge: boolean): Promise<string | null> {
+    const { mime, size } = await fsapi.previewFile(path);
+    if (!mime.startsWith("image/")) return null;
+    const url = previewUrl(path);
+    if (mime === "image/svg+xml") return svgSource(await (await fetch(url)).text());
+    if (!shrinkLarge || size <= SHRINK_OVER_BYTES) return url;
+    return shrink(await (await fetch(url)).blob());
 }
 
 function loadPreview(path: string): Promise<string | null> {
     const running = pending.get(path);
     if (running) return running;
-    const request = readPreview(path)
+    const request = readSource(path, true)
         .then((src) => remember(path, src))
         .catch(() => remember(path, null))
         .finally(() => pending.delete(path));
@@ -124,8 +114,7 @@ export function previewCacheBytes(): number {
 /** Reads a local image whole, for a viewer that wants it at its own size. */
 export async function readImageSource(path: string): Promise<string | null> {
     try {
-        const blob = await readImage(path);
-        return blob ? `data:${blob.mime};base64,${blob.data}` : null;
+        return await readSource(path, false);
     } catch {
         return null;
     }

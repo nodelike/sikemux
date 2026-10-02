@@ -11,6 +11,8 @@ import { PtyLifecycleController, type PtyApi, type PtyAttachResult, type PtyChan
 import { performanceTelemetry } from "../lib/performance";
 import { subscribePtyShellMetadata, type PtyShellMetadataEvent } from "../api/ptyShell";
 import { taskPtyBindings, type TaskPtyBinding } from "../tasks/nativeRuntime";
+import { coreSessionsApi } from "../api/coreSessions";
+import { noteSpawnedSession, takeResumableSession } from "./sessionResume";
 
 type NativeChannel = Channel<ArrayBuffer>;
 export type NativePtyController = PtyLifecycleController<NativeChannel, PtyContext>;
@@ -58,13 +60,18 @@ function decodeAttachResponse(body: ArrayBuffer): PtyAttachResult {
 }
 
 const nativePtyApi: PtyApi<NativeChannel, PtyContext> = {
-    spawn: (request) => invoke<number>("pty_spawn", { ...request }),
+    spawn: async (request) => {
+        const id = await invoke<number>("pty_spawn", { ...request });
+        noteSpawnedSession(id);
+        return id;
+    },
     write: (id, data) => invoke<void>("pty_write", { id, data }),
     resize: (id, cols, rows) => invoke<void>("pty_resize", { id, cols, rows }),
     kill: (id) => invoke<void>("pty_kill", { id }),
     attach: async (id, channel) => decodeAttachResponse(await invoke<ArrayBuffer>("pty_attach", { id, onEvent: channel })),
     detach: (id, subId) => invoke<void>("pty_unsubscribe", { id, subId }),
     ack: (id, subId, bytes) => invoke<void>("pty_ack", { id, subId, bytes }),
+    resume: async (id) => takeResumableSession(id) && (await coreSessionsApi.list()).some((session) => session.id === id),
 };
 
 const nativeChannels: PtyChannelAdapter<NativeChannel> = {
@@ -183,6 +190,9 @@ export function usePty(opts: {
     externallyOwned?: boolean;
     /** Durable workbench item owner. Omit for popups, agents, and embedded shells. */
     durableItemId?: string;
+    /** The process this terminal showed before the page loaded; read once, when the controller is made. */
+    resumePtyId?: number;
+    onPtySession?: (id: number) => void;
 }): RefObject<NativePtyController | null> {
     const { hostRef, spawnWhen = true, externallyOwned = false } = opts;
     const externalPaneId = externallyOwned ? (opts.context?.paneId ?? null) : null;
@@ -199,6 +209,8 @@ export function usePty(opts: {
     deliveredRef.current = opts.onInitialInputDelivered;
     const shellMetadataRef = useRef(opts.onShellMetadata);
     shellMetadataRef.current = opts.onShellMetadata;
+    const ptySessionRef = useRef(opts.onPtySession);
+    ptySessionRef.current = opts.onPtySession;
     const currentOptionsRef = useRef(opts);
     currentOptionsRef.current = opts;
     const resourceFingerprint = ptyResourceFingerprint(opts, externallyOwned ? taskBinding : null);
@@ -239,6 +251,8 @@ export function usePty(opts: {
                 api: nativePtyApi,
                 channels: nativeChannels,
                 existingPtyId: externallyOwned ? taskBinding!.ptyId : undefined,
+                resumePtyId: externallyOwned ? undefined : initial.resumePtyId,
+                onProcess: (id) => ptySessionRef.current?.(id),
                 cwd: initial.cwd,
                 startup: initial.startup,
                 directCommand: initial.directCommand,

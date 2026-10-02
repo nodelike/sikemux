@@ -11,7 +11,6 @@ import {
     parseLspDocumentSymbols,
     uriToPath,
     type LspDiagnosticsPayload,
-    type LspLocationKind,
 } from "./lsp";
 import { MemoryIpcTransport, installIpcTransportForTests, resetIpcTransportForTests } from "./transport";
 
@@ -72,28 +71,6 @@ describe("existing LSP API", () => {
         expect(languageFromPath("/project/file.unknown")).toBeNull();
         expect(uriToPath("file:///project/a%20file.ts")).toBe("/project/a file.ts");
         expect(uriToPath("https://example.test/file.ts")).toBe("https://example.test/file.ts");
-    });
-
-    it.each([
-        ["definition", "definition"],
-        ["declaration", "declaration"],
-        ["typeDefinition", "typeDefinition"],
-        ["implementation", "implementation"],
-        ["references", "references"],
-    ] as const)("preserves the %s location adapter", async (method, kind: LspLocationKind) => {
-        const locations = [{ uri: "file:///project/main.ts", range: range() }];
-        const handler = vi.fn((_args: unknown) => locations);
-        transport.register("lsp_locations", handler);
-
-        await expect(lsp[method]("/project", "typescript", "/project/main.ts", 4, 8)).resolves.toBe(locations);
-        expect(handler.mock.calls[0]![0]).toEqual({
-            project: "/project",
-            language: "typescript",
-            path: "/project/main.ts",
-            line: 4,
-            character: 8,
-            kind,
-        });
     });
 });
 

@@ -42,7 +42,7 @@ function ownDataRecord(value: unknown): Record<string, unknown> | null {
 }
 
 function validPtyId(value: unknown): value is number {
-    return Number.isSafeInteger(value) && (value as number) >= 0 && (value as number) <= 0xffff_ffff;
+    return Number.isSafeInteger(value) && (value as number) >= 0;
 }
 
 function validExitCode(value: unknown): value is number {

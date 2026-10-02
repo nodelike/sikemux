@@ -13,6 +13,26 @@ const signalExitCodes = {
   SIGTERM: 143,
 };
 
+// A Sikemux terminal names its own app, project and agent in these variables.
+// Sikemux Dev started from one must not take them as its own.
+const KEPT_OVERRIDES = new Set(["SIKEMUX_CORE_SOCKET", "SIKEMUX_SIDECAR_PATH"]);
+
+export function withoutTerminalSession(env) {
+  const clean = { ...env };
+  for (const key of Object.keys(clean)) {
+    if (
+      (key === "SIKEMUX" || key.startsWith("SIKEMUX_")) &&
+      !KEPT_OVERRIDES.has(key)
+    )
+      delete clean[key];
+  }
+  if (clean.TERM_PROGRAM === "Sikemux") {
+    delete clean.TERM_PROGRAM;
+    delete clean.TERM_PROGRAM_VERSION;
+  }
+  return clean;
+}
+
 function delay(milliseconds) {
   return new Promise((resolveDelay) => setTimeout(resolveDelay, milliseconds));
 }
@@ -96,7 +116,7 @@ export async function runDevDesktop() {
     {
       cwd: root,
       detached: process.platform !== "win32",
-      env: process.env,
+      env: withoutTerminalSession(process.env),
       stdio: "inherit",
       windowsHide: false,
     },

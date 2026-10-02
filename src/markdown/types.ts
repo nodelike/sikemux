@@ -27,4 +27,6 @@ export interface MarkdownOptions {
     readonly htmlAsText: boolean;
     /** Keeps `file://` and drive-letter links, which are emptied otherwise. */
     readonly fileLinks: boolean;
+    /** Keeps the pictures in embedded `<img>` tags while the rest of the markup is dropped. */
+    readonly htmlImages?: boolean;
 }

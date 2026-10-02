@@ -1,0 +1,240 @@
+/* ---- Jobs list ---------------------------------------------------------- */
+
+.rnd-table-wrap {
+    flex: 1 1 auto;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    padding: 0 var(--space-3) var(--space-3);
+}
+.rnd-table-wrap > .rnd-table,
+.rnd-table-body {
+    scrollbar-gutter: stable;
+}
+.rnd-table-wrap > .rnd-table {
+    flex: 0 0 auto;
+}
+.rnd-table-body {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+}
+.rnd-table {
+    width: 100%;
+    table-layout: fixed;
+    border-collapse: separate;
+    border-spacing: 0;
+}
+.rnd-table th {
+    padding: var(--space-2) 10px;
+    border-bottom: 1px solid var(--border);
+    font-size: var(--text-2xs);
+    font-weight: var(--weight-medium);
+    color: var(--text-tertiary);
+    text-align: left;
+    white-space: nowrap;
+}
+.rnd-table td {
+    height: 42px;
+    padding: 0 10px;
+    border-top: 1px solid transparent;
+    border-bottom: 1px solid var(--rnd-rule);
+    color: var(--text-secondary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-variant-numeric: tabular-nums;
+}
+.rnd-table :is(th, td).r {
+    text-align: right;
+}
+.rnd-table tbody tr[data-job] {
+    cursor: pointer;
+    outline: none;
+}
+.rnd-table tbody tr[data-job]:hover td {
+    background: var(--surface-hover);
+    color: var(--text-primary);
+}
+.rnd-table tbody tr.sel td {
+    background: var(--surface-selected);
+    border-color: var(--border-selected);
+    color: var(--text-primary);
+}
+.rnd-table tbody tr[data-job] td:first-child {
+    border-left: 1px solid transparent;
+    border-radius: var(--radius-2) 0 0 var(--radius-2);
+}
+.rnd-table tbody tr[data-job] td:last-child {
+    border-right: 1px solid transparent;
+    border-radius: 0 var(--radius-2) var(--radius-2) 0;
+}
+.rnd-table tbody tr.sel td:first-child,
+.rnd-table tbody tr.sel td:last-child {
+    border-color: var(--border-selected);
+}
+.rnd-table tbody tr[data-job]:focus-visible td {
+    background: var(--surface-active);
+}
+.rnd-table tbody tr.dim td {
+    color: var(--text-tertiary);
+}
+.rnd-table tbody tr.dim .rnd-name {
+    color: var(--text-secondary);
+}
+.rnd-section-row td {
+    height: 34px;
+    padding-top: var(--space-2);
+    border-bottom-color: var(--border);
+    font-size: var(--text-2xs);
+    font-weight: var(--weight-medium);
+    color: var(--text-tertiary);
+}
+.rnd-section-row .prod {
+    color: var(--warn);
+}
+.rnd-section-link {
+    height: auto;
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--text-tertiary);
+    font: inherit;
+    cursor: pointer;
+}
+.rnd-section-link:hover {
+    color: var(--text-primary);
+    text-decoration: underline;
+    text-decoration-color: var(--border-strong);
+    text-underline-offset: 3px;
+}
+.rnd-name-row {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    max-width: 100%;
+}
+.rnd-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    color: var(--text-primary);
+    font-weight: var(--weight-medium);
+}
+.rnd-cell-sub {
+    color: var(--text-secondary);
+}
+.rnd-cell-dim {
+    color: var(--text-tertiary) !important;
+}
+.rnd-table td:last-child {
+    padding-right: var(--space-2);
+}
+.rnd-row-deploy {
+    height: 24px;
+    padding: 0 var(--space-2);
+    font-size: var(--text-2xs);
+    opacity: 0;
+}
+tr:hover .rnd-row-deploy,
+tr.sel .rnd-row-deploy,
+.rnd-row-deploy:focus-visible {
+    opacity: 1;
+}
+
+/* ---- Compare folders ---------------------------------------------------- */
+
+.rnd-compare {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 0 var(--space-5) var(--space-5);
+}
+.rnd-compare-grid {
+    display: grid;
+    gap: var(--space-2);
+    align-items: stretch;
+}
+.rnd-compare-head {
+    padding: 0 var(--space-1) var(--space-0);
+    font-size: var(--text-2xs);
+    font-weight: var(--weight-medium);
+    color: var(--text-tertiary);
+}
+.rnd-compare-head.prod {
+    color: var(--warn);
+}
+.rnd-compare-name {
+    display: flex;
+    align-items: center;
+    min-width: 0;
+    padding: 0 var(--space-1);
+    font-weight: var(--weight-medium);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.rnd-compare-cell {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    min-width: 0;
+    padding: 10px var(--space-3);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-3);
+    background: var(--rnd-tint);
+    cursor: pointer;
+    outline: none;
+    transition:
+        background var(--dur-1) linear,
+        border-color var(--dur-1) linear;
+}
+.rnd-compare-cell:hover {
+    background: var(--surface-hover);
+    border-color: var(--border-strong);
+}
+.rnd-compare-cell.sel {
+    background: var(--surface-selected);
+    border-color: var(--border-selected);
+}
+.rnd-compare-cell:focus-visible {
+    box-shadow: var(--focus-ring);
+}
+.rnd-compare-cell.empty {
+    min-height: 64px;
+    border-style: dashed;
+    background: transparent;
+    cursor: default;
+}
+.rnd-compare-top,
+.rnd-compare-foot {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-2);
+    min-width: 0;
+}
+.rnd-compare-foot {
+    min-height: 16px;
+    font-size: var(--text-2xs);
+    color: var(--text-tertiary);
+}
+.rnd-drift {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    color: var(--warn);
+    white-space: nowrap;
+}
+.rnd-compare-deploy {
+    position: absolute;
+    right: var(--space-2);
+    bottom: var(--space-2);
+}
+.rnd-compare-cell:hover .rnd-compare-deploy,
+.rnd-compare-cell:focus-within .rnd-compare-deploy {
+    opacity: 1;
+}
+.rnd-compare-cell:hover .rnd-compare-when {
+    opacity: 0;
+}

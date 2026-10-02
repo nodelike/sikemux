@@ -7,6 +7,7 @@ const CHAT: Options = Options {
     gfm: true,
     html_as_text: false,
     file_links: true,
+    html_images: false,
 };
 
 fn blocks(text: &str, options: Options) -> Value {
@@ -201,6 +202,38 @@ fn markup_is_dropped_unless_it_was_typed() {
             {"t": "p", "c": ["a ", "<b>", "bold", "</b>", " c"]},
             {"t": "p", "c": ["<div>\nblock\n</div>"]},
         ])
+    );
+}
+
+#[test]
+fn an_uploaded_picture_survives_when_asked_for() {
+    let text = "<img width=\"92\" alt=\"A shot\" src=\"https://github.com/user-attachments/assets/1\" />\r\n\r\nUse theme colours, <img src='https://a.dev/2.png'> here.";
+    let prose = Options {
+        html_images: true,
+        ..CHAT
+    };
+    assert_eq!(
+        blocks(text, prose),
+        json!([
+            {"t": "p", "c": [{"t": "img", "src": "https://github.com/user-attachments/assets/1", "alt": "A shot"}]},
+            {"t": "p", "c": ["Use theme colours, ", {"t": "img", "src": "https://a.dev/2.png", "alt": ""}, " here."]},
+        ])
+    );
+    assert_eq!(
+        chat(text),
+        json!([{"t": "p", "c": ["Use theme colours,  here."]}])
+    );
+}
+
+#[test]
+fn a_picture_in_markup_keeps_to_safe_addresses() {
+    let prose = Options {
+        html_images: true,
+        ..CHAT
+    };
+    assert_eq!(
+        blocks("<img src=\"javascript:alert(1)\" alt=\"x\">", prose),
+        json!([])
     );
 }
 

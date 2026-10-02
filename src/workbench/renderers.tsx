@@ -4,8 +4,8 @@ import { isPluginKind } from "../plugins/kinds";
 import { pluginSurface } from "../plugins/registry";
 import * as cmd from "../state/commands";
 import { TerminalPane } from "../terminal/TerminalPane";
-import { AgentPane } from "../components/AgentPane";
-import { DeskHost } from "../components/Desk";
+import { AgentPane } from "../agents/AgentPane";
+import { DeskHost } from "../workspace/Desk";
 
 export interface WorkbenchItemRendererProps {
     pane: PaneNode;
@@ -17,10 +17,10 @@ export interface WorkbenchItemRendererProps {
     painted: boolean;
 }
 
-const EditorPane = lazy(() => import("../components/EditorPane").then((module) => ({ default: module.EditorPane })));
-const GitPane = lazy(() => import("../components/GitPane").then((module) => ({ default: module.GitPane })));
-const DiffPane = lazy(() => import("../components/DiffPane").then((module) => ({ default: module.DiffPane })));
-const SearchPane = lazy(() => import("../components/SearchPane").then((module) => ({ default: module.SearchPane })));
+const EditorPane = lazy(() => import("../editor/EditorPane").then((module) => ({ default: module.EditorPane })));
+const GitPane = lazy(() => import("../git/GitPane").then((module) => ({ default: module.GitPane })));
+const DiffPane = lazy(() => import("../git/DiffPane").then((module) => ({ default: module.DiffPane })));
+const SearchPane = lazy(() => import("../workspace/SearchPane").then((module) => ({ default: module.SearchPane })));
 
 const paneCwd = (pane: PaneNode, session: Session) => pane.cwd || session.cwd;
 const terminalContext = (session: Session, win: WindowT, pane: PaneNode): PtyContext => ({
@@ -51,9 +51,9 @@ export const BUILTIN_ITEM_RENDERERS: Readonly<Record<CorePaneKind, (props: Workb
             />
         </Suspense>
     ),
-    git: ({ pane, session, active }) => (
+    git: ({ pane, session, active, visible }) => (
         <Suspense fallback={<ItemFallback />}>
-            <GitPane paneId={pane.id} cwd={paneCwd(pane, session)} active={active} />
+            <GitPane paneId={pane.id} cwd={paneCwd(pane, session)} active={active} visible={visible} />
         </Suspense>
     ),
     diff: ({ pane, session, active }) => (
@@ -87,6 +87,8 @@ export const BUILTIN_ITEM_RENDERERS: Readonly<Record<CorePaneKind, (props: Workb
             context={terminalContext(session, win, pane)}
             externallyOwned={pane.externalPty === true}
             retainPtyOnUnmount
+            resumePtyId={pane.ptyId}
+            onPtySession={(id) => cmd.setPanePty(pane.id, id)}
             onTitleChange={(title) => cmd.setTerminalTitle(pane.id, title)}
         />
     ),

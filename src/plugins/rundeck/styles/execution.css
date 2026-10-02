@@ -1,0 +1,439 @@
+/* ---- Execution ---------------------------------------------------------- */
+
+.rnd-exec-top {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+    padding: 0 var(--space-5) var(--space-3);
+}
+.rnd-progress {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+}
+.rnd-progress-track {
+    flex: 1 1 auto;
+    display: flex;
+    gap: 2px;
+    height: 6px;
+    overflow: hidden;
+    border-radius: var(--radius-full);
+}
+.rnd-progress-track i {
+    flex: 1 1 0;
+    background: var(--rnd-rule);
+}
+.rnd-progress-track i.ok {
+    background: color-mix(in oklab, var(--live) 75%, transparent);
+}
+.rnd-progress-track i.running {
+    background: var(--warn);
+    animation: rnd-pulse 1.4s ease-in-out infinite;
+}
+.rnd-progress-track i.fail {
+    background: var(--danger);
+}
+.rnd-progress-copy {
+    font-size: var(--text-xs);
+    font-variant-numeric: tabular-nums;
+    color: var(--text-secondary);
+    white-space: nowrap;
+}
+.rnd-metas {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-1h);
+}
+.rnd-meta {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-1h);
+    height: 26px;
+    padding: 0 10px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-2);
+    font-size: var(--text-xs);
+    font-variant-numeric: tabular-nums;
+    color: var(--text-secondary);
+}
+.rnd-meta svg {
+    color: var(--text-tertiary);
+}
+.rnd-exec-body {
+    flex: 1 1 auto;
+    min-height: 0;
+    display: flex;
+    gap: var(--space-3);
+    padding: 0 var(--space-3) var(--space-3);
+}
+.rnd-steps {
+    width: 240px;
+    flex: 0 0 auto;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-0);
+    padding: var(--space-1h);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-3);
+    background: var(--rnd-tint);
+    overflow-y: auto;
+}
+.rnd-steps-head {
+    padding: var(--space-1h) var(--space-2);
+    font-size: var(--text-3xs);
+    font-weight: var(--weight-semibold);
+    letter-spacing: var(--tracking-label);
+    text-transform: uppercase;
+    color: var(--text-tertiary);
+}
+.rnd-step {
+    display: grid;
+    grid-template-columns: 16px minmax(0, 1fr) auto;
+    align-items: center;
+    gap: var(--space-2);
+    height: 34px;
+    flex: 0 0 auto;
+    padding: 0 var(--space-2);
+    border: 1px solid transparent;
+    background: transparent;
+    color: var(--text-secondary);
+    font: inherit;
+    font-size: var(--text-xs);
+    text-align: left;
+    cursor: pointer;
+}
+.rnd-step:hover {
+    background: var(--surface-hover);
+    color: var(--text-primary);
+}
+.rnd-step.on {
+    background: var(--surface-selected);
+    border-color: var(--border-selected);
+    color: var(--text-primary);
+}
+.rnd-step-label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.rnd-step-dur {
+    font-size: var(--text-2xs);
+    font-variant-numeric: tabular-nums;
+    color: var(--text-tertiary);
+}
+.rnd-step-icon {
+    width: 16px;
+    height: 16px;
+    display: grid;
+    place-items: center;
+    border-radius: var(--radius-full);
+}
+.rnd-step-icon.ok {
+    background: color-mix(in oklab, var(--live) 18%, transparent);
+    color: var(--live);
+}
+.rnd-step-icon.fail {
+    background: color-mix(in oklab, var(--danger) 18%, transparent);
+    color: var(--danger);
+}
+.rnd-step-icon.running {
+    background: color-mix(in oklab, var(--warn) 18%, transparent);
+    color: var(--warn);
+}
+.rnd-step-icon.running::after {
+    content: "";
+    width: 6px;
+    height: 6px;
+    border-radius: var(--radius-full);
+    background: currentColor;
+    animation: rnd-pulse 1.4s ease-in-out infinite;
+}
+.rnd-step-icon.pending {
+    border: 1px dashed var(--border-strong);
+}
+.rnd-step-icon.skip::after {
+    content: "";
+    width: 7px;
+    border-top: 1.5px solid var(--text-disabled);
+}
+.rnd-step-icon.all::after {
+    content: "";
+    width: 9px;
+    height: 7px;
+    border-top: 1.5px solid var(--text-tertiary);
+    border-bottom: 1.5px solid var(--text-tertiary);
+}
+
+.rnd-logs {
+    flex: 1 1 auto;
+    min-width: 0;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-3);
+    background: var(--rnd-tint);
+    overflow: hidden;
+}
+.rnd-logs-bar {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    min-height: 40px;
+    padding: var(--space-1h) var(--space-2) var(--space-1h) 14px;
+    border-bottom: 1px solid var(--rnd-rule);
+    font-size: var(--text-2xs);
+    color: var(--text-tertiary);
+}
+.rnd-logs-bar .rnd-seg button {
+    height: 24px;
+    padding: 0 var(--space-2);
+    font-size: var(--text-2xs);
+}
+.rnd-logs-title {
+    font-size: var(--text-xs);
+    color: var(--text-secondary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.rnd-follow {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    font-size: var(--text-2xs);
+    color: var(--text-secondary);
+}
+.rnd-live {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-1h);
+    height: 22px;
+    padding: 0 10px;
+    border: 1px solid color-mix(in oklab, var(--live) 30%, transparent);
+    background: color-mix(in oklab, var(--live) 8%, transparent);
+    color: var(--live);
+    white-space: nowrap;
+}
+.rnd-live i {
+    width: 6px;
+    height: 6px;
+    background: currentColor;
+    animation: rnd-pulse 1.4s ease-in-out infinite;
+}
+.rnd-live.ended {
+    border-color: var(--border);
+    background: transparent;
+    color: var(--text-tertiary);
+}
+.rnd-live.ended i {
+    animation: none;
+    opacity: 0.5;
+}
+.rnd-logs-stream {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: auto;
+    padding: var(--space-2) 0 var(--space-3);
+    font-family: var(--mono);
+    font-size: 11.5px;
+    line-height: 1.7;
+    user-select: text;
+    cursor: text;
+}
+.rnd-log-line {
+    display: grid;
+    grid-template-columns: 62px 22px minmax(0, 1fr);
+    gap: var(--space-3);
+    padding: 0 14px;
+    color: var(--text-secondary);
+    font-variant-numeric: tabular-nums;
+}
+.rnd-logs-stream.multi-node .rnd-log-line {
+    grid-template-columns: 62px 22px minmax(60px, 120px) minmax(0, 1fr);
+}
+.rnd-log-line:hover {
+    background: var(--surface-hover);
+}
+.rnd-log-line.lvl-error {
+    background: color-mix(in oklab, var(--danger) 7%, transparent);
+}
+.rnd-log-line.lvl-warn .rnd-log-text {
+    color: var(--warn);
+}
+.rnd-log-line:is(.lvl-debug, .lvl-verbose) .rnd-log-text {
+    color: var(--text-tertiary);
+}
+.rnd-log-time,
+.rnd-log-step,
+.rnd-log-node {
+    color: var(--text-disabled);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.rnd-log-step {
+    text-align: right;
+}
+.rnd-log-text {
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+.rnd-logs-empty {
+    padding: var(--space-4) 14px;
+    font-family: var(--ui);
+    font-size: var(--text-xs);
+    color: var(--text-tertiary);
+}
+.rnd-logs-foot {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    min-height: 30px;
+    padding: 0 14px;
+    border-top: 1px solid var(--rnd-rule);
+    font-size: var(--text-2xs);
+    color: var(--text-tertiary);
+}
+
+/* ---- Narrow panes ------------------------------------------------------- */
+
+@container rnd-pane (max-width: 1100px) {
+    .rnd-insp {
+        display: none;
+    }
+}
+@container rnd-pane (max-width: 820px) {
+    .rnd-side,
+    .rnd-tree-resizer {
+        display: none;
+    }
+    .rnd-head-row {
+        flex-wrap: wrap;
+    }
+    .rnd-form {
+        grid-template-columns: minmax(0, 1fr);
+    }
+    .rnd-steps {
+        width: 180px;
+    }
+}
+
+/* Colours a job's own output asks for through terminal escape codes. */
+.rnd-log-text {
+    --ansi-0: color-mix(in srgb, var(--ink-faint) 70%, var(--void));
+    --ansi-1: var(--danger);
+    --ansi-2: var(--live);
+    --ansi-3: var(--warn);
+    --ansi-4: #7aa0d6;
+    --ansi-5: #c792ea;
+    --ansi-6: #5fc6c6;
+    --ansi-7: var(--ink-dim);
+    --ansi-8: var(--ink-faint);
+    --ansi-9: color-mix(in srgb, var(--danger) 75%, white);
+    --ansi-10: color-mix(in srgb, var(--live) 75%, white);
+    --ansi-11: color-mix(in srgb, var(--warn) 75%, white);
+    --ansi-12: #a5c2ec;
+    --ansi-13: #ddb3f5;
+    --ansi-14: #92e0e0;
+    --ansi-15: var(--ink);
+}
+.rnd-ansi-fg-0 {
+    color: var(--ansi-0);
+}
+.rnd-ansi-fg-1 {
+    color: var(--ansi-1);
+}
+.rnd-ansi-fg-2 {
+    color: var(--ansi-2);
+}
+.rnd-ansi-fg-3 {
+    color: var(--ansi-3);
+}
+.rnd-ansi-fg-4 {
+    color: var(--ansi-4);
+}
+.rnd-ansi-fg-5 {
+    color: var(--ansi-5);
+}
+.rnd-ansi-fg-6 {
+    color: var(--ansi-6);
+}
+.rnd-ansi-fg-7 {
+    color: var(--ansi-7);
+}
+.rnd-ansi-fg-8 {
+    color: var(--ansi-8);
+}
+.rnd-ansi-fg-9 {
+    color: var(--ansi-9);
+}
+.rnd-ansi-fg-10 {
+    color: var(--ansi-10);
+}
+.rnd-ansi-fg-11 {
+    color: var(--ansi-11);
+}
+.rnd-ansi-fg-12 {
+    color: var(--ansi-12);
+}
+.rnd-ansi-fg-13 {
+    color: var(--ansi-13);
+}
+.rnd-ansi-fg-14 {
+    color: var(--ansi-14);
+}
+.rnd-ansi-fg-15 {
+    color: var(--ansi-15);
+}
+.rnd-ansi-bg-0 {
+    background: color-mix(in srgb, var(--ansi-0) 24%, transparent);
+}
+.rnd-ansi-bg-1 {
+    background: color-mix(in srgb, var(--ansi-1) 24%, transparent);
+}
+.rnd-ansi-bg-2 {
+    background: color-mix(in srgb, var(--ansi-2) 24%, transparent);
+}
+.rnd-ansi-bg-3 {
+    background: color-mix(in srgb, var(--ansi-3) 24%, transparent);
+}
+.rnd-ansi-bg-4 {
+    background: color-mix(in srgb, var(--ansi-4) 24%, transparent);
+}
+.rnd-ansi-bg-5 {
+    background: color-mix(in srgb, var(--ansi-5) 24%, transparent);
+}
+.rnd-ansi-bg-6 {
+    background: color-mix(in srgb, var(--ansi-6) 24%, transparent);
+}
+.rnd-ansi-bg-7 {
+    background: color-mix(in srgb, var(--ansi-7) 24%, transparent);
+}
+.rnd-ansi-bg-8 {
+    background: color-mix(in srgb, var(--ansi-8) 24%, transparent);
+}
+.rnd-ansi-bg-9 {
+    background: color-mix(in srgb, var(--ansi-9) 24%, transparent);
+}
+.rnd-ansi-bg-10 {
+    background: color-mix(in srgb, var(--ansi-10) 24%, transparent);
+}
+.rnd-ansi-bg-11 {
+    background: color-mix(in srgb, var(--ansi-11) 24%, transparent);
+}
+.rnd-ansi-bg-12 {
+    background: color-mix(in srgb, var(--ansi-12) 24%, transparent);
+}
+.rnd-ansi-bg-13 {
+    background: color-mix(in srgb, var(--ansi-13) 24%, transparent);
+}
+.rnd-ansi-bg-14 {
+    background: color-mix(in srgb, var(--ansi-14) 24%, transparent);
+}
+.rnd-ansi-bg-15 {
+    background: color-mix(in srgb, var(--ansi-15) 24%, transparent);
+}
+.rnd-ansi-bold {
+    font-weight: 700;
+}

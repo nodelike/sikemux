@@ -118,10 +118,6 @@ export interface ActionRegistration<Result = unknown> extends ActionContribution
     dispose(): void;
 }
 
-export interface ResolveActionsOptions {
-    readonly includeHidden?: boolean;
-}
-
 export const ACTION_SCOPE_PRECEDENCE = Object.freeze(["focused-item", "session", "project", "global"] as const);
 
 export const ACTION_REGISTRY_LIMITS = Object.freeze({
@@ -507,13 +503,13 @@ export class ActionRegistry {
         return this.resolveCanonical(id, context, fingerprintCanonicalActionContext(context));
     }
 
-    resolve(input: ActionContextInput, options: ResolveActionsOptions = {}): readonly ResolvedAction[] {
+    resolve(input: ActionContextInput): readonly ResolvedAction[] {
         const context = createActionContext(input);
         const fingerprint = fingerprintCanonicalActionContext(context);
         const resolved: { readonly value: ResolvedAction; readonly order: number }[] = [];
         for (const actionId of this.byAction.keys()) {
             const value = this.resolveCanonical(actionId, context, fingerprint);
-            if (!value || (!options.includeHidden && !value.visible)) continue;
+            if (!value?.visible) continue;
             const selected = this.byContribution.get(value.contributionId);
             if (selected) resolved.push({ value, order: selected.registrationOrder });
         }

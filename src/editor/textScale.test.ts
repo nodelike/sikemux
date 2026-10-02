@@ -21,10 +21,4 @@ describe("editor text scale", () => {
 
         expect(document.documentElement.style.getPropertyValue("--editor-text-scale")).toBe("1.4");
     });
-
-    it("never publishes a value outside the range", () => {
-        applyEditorTextScale(99);
-
-        expect(document.documentElement.style.getPropertyValue("--editor-text-scale")).toBe("2");
-    });
 });

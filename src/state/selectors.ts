@@ -1,5 +1,5 @@
 import { pluginDocuments } from "../plugins/documents";
-import type { PaneKind, PaneNode, Session, TabRef, Window, WindowRole } from "./types";
+import type { PaneNode, Session, TabRef, Window, WindowRole } from "./types";
 import type { StoreState } from "./store";
 import { collectPanes, openSides } from "./layout";
 
@@ -92,6 +92,18 @@ export function shownDeskPaneId(state: Pick<StoreState, "deskPanes" | "windows">
 export function activeAgentId(state: Pick<StoreState, "windows">, session: Pick<Session, "activeWindowId"> | undefined): string | null {
     const win = session ? state.windows[session.activeWindowId] : undefined;
     return win?.role === "agent" ? agentPaneId(win) : null;
+}
+
+/** The agent in front, or else the one in this project that worked last: whose desk a browser tab goes on. */
+export function nearestAgentId(
+    state: Pick<StoreState, "sessions" | "activeSessionId" | "windows" | "windowsBySession" | "agentActivity">,
+): string | null {
+    const session = state.sessions[state.activeSessionId];
+    if (session?.kind !== "project") return null;
+    const active = activeAgentId(state, session);
+    if (active) return active;
+    const lastWorked = (id: string) => state.agentActivity[id]?.updatedAt ?? 0;
+    return [...agentIdsOf(state, session.id)].sort((left, right) => lastWorked(right) - lastWorked(left))[0] ?? null;
 }
 
 /** The session a window belongs to. */
@@ -275,31 +287,6 @@ export function nextInCycle(order: StripOrder, delta: number): string | null {
     const index = activeId ? ids.indexOf(activeId) : -1;
     const base = index < 0 ? 0 : index;
     return ids[(base + delta + ids.length) % ids.length] ?? null;
-}
-
-export const selectActiveWindow = (state: StoreState): Window | undefined => {
-    const session = selectActiveSession(state);
-    return session ? state.windows[session.activeWindowId] : undefined;
-};
-
-export type WorkbenchItemState =
-    StoreState["editorViews"][string] | StoreState["gitViews"][string] | StoreState["globalSearchBySession"][string] | undefined;
-
-/** Migration adapter until every item owns its runtime state in a controller. */
-export function selectItemState(state: StoreState, kind: PaneKind, itemId: string, sessionId?: string): WorkbenchItemState {
-    switch (kind) {
-        case "editor":
-            return state.editorViews[itemId];
-        case "git":
-            return state.gitViews[itemId];
-        case "search":
-            return sessionId ? state.globalSearchBySession[sessionId] : undefined;
-        case "terminal":
-        case "agent":
-            return undefined;
-        default:
-            return undefined;
-    }
 }
 
 const EMPTY_IDS: readonly string[] = Object.freeze([]);

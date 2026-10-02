@@ -15,6 +15,17 @@ import type { CodeLine, CodeToken } from "./types";
 let core: Promise<HighlighterCore> | null = null;
 const grammars = new Map<string, Promise<unknown>>();
 const themes = new Map<string, Promise<unknown>>();
+const coloured = new Set<string>();
+
+/* A grammar compiles its patterns the first time it colours anything, and on a
+   busy machine that alone can outlast Shiki's limit for one line, which cuts
+   the line and paints the rest in whatever colour it stopped on. The limit is
+   there for slow lines, not for that, so the first use goes without it. */
+function timeLimitFor(lang: string): number | undefined {
+    if (coloured.has(lang)) return undefined;
+    coloured.add(lang);
+    return 0;
+}
 
 function highlighter(): Promise<HighlighterCore> {
     core ??= createHighlighter({ themes: [], engine: createJavaScriptRegexEngine({ forgiving: true }), warnings: false });
@@ -82,7 +93,7 @@ function codeLines(highlighted: TokensResult): CodeLine[] {
 
 export async function tokenizeCode(text: string, lang: string, theme: Theme, themeName: string): Promise<CodeLine[]> {
     const shiki = await prepare(lang, theme, themeName);
-    return shiki ? codeLines(shiki.codeToTokens(text, { lang, theme: themeName })) : [];
+    return shiki ? codeLines(shiki.codeToTokens(text, { lang, theme: themeName, tokenizeTimeLimit: timeLimitFor(lang) })) : [];
 }
 
 const LINES_PER_SLICE = 200;
@@ -107,7 +118,13 @@ export async function tokenizeLines(
     for (let from = 0; from < lines.length; from += LINES_PER_SLICE) {
         if (stale()) return null;
         const slice = lines.slice(from, from + LINES_PER_SLICE).join("\n");
-        const highlighted = shiki.codeToTokens(slice, { lang, theme: themeName, grammarState, tokenizeMaxLineLength: maxLineLength });
+        const highlighted = shiki.codeToTokens(slice, {
+            lang,
+            theme: themeName,
+            grammarState,
+            tokenizeMaxLineLength: maxLineLength,
+            tokenizeTimeLimit: timeLimitFor(lang),
+        });
         grammarState = highlighted.grammarState;
         out.push(...codeLines(highlighted));
         if (from + LINES_PER_SLICE < lines.length) await new Promise((resume) => setTimeout(resume));

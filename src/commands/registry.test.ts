@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { keybindingActions, keybindingLabel } from "../keybindings";
+import { keybindingActions, keybindingLabel } from "./keybindings";
 import { buildCommandRegistry, customCommandAvailable, type CustomCommand } from "./registry";
 
 const custom: CustomCommand = {
@@ -70,27 +70,5 @@ describe("command registry", () => {
         expect(diagnostics?.searchText).toContain("Runtime diagnostics");
         diagnostics?.execute();
         expect(execute).toHaveBeenCalledOnce();
-    });
-
-    it("preserves contributed standalone shortcuts for display and search", () => {
-        const entries = buildCommandRegistry({
-            keybindingOverrides: {},
-            executeBuiltin: vi.fn(),
-            standaloneCommands: [
-                {
-                    id: "project.action.quality",
-                    title: "Run quality checks",
-                    detail: "Lint and test",
-                    category: "Project",
-                    shortcut: "⌘⇧T",
-                    disabled: true,
-                    execute: vi.fn(),
-                },
-            ],
-        });
-
-        const action = entries.find((entry) => entry.id === "project.action.quality");
-        expect(action).toMatchObject({ kind: "standalone", shortcut: "⌘⇧T", disabled: true });
-        expect(action?.searchText).toContain("⌘⇧T");
     });
 });

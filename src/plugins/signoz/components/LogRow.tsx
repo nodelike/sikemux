@@ -1,3 +1,4 @@
+import type { MouseEvent } from "react";
 import type { LogLine } from "../api";
 
 const clock = new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
@@ -27,13 +28,25 @@ interface Props {
     /** Offered beside each attribute, so a filter is built from the value in front of you. */
     onFilter?: (key: string, value: string, keep: boolean) => void;
     showService?: boolean;
+    selected?: boolean;
+    /** A click with ⌘, Ctrl or Shift held picks lines instead of opening one. */
+    onSelect?: (event: MouseEvent) => void;
+    onMenu?: (event: MouseEvent) => void;
 }
 
-export function LogRow({ line, expanded, onToggle, onOpenTrace, onFilter, showService = true }: Props) {
+export function LogRow({ line, expanded, onToggle, onOpenTrace, onFilter, showService = true, selected = false, onSelect, onMenu }: Props) {
     const attributes = Object.entries(line.attributes).filter(([, value]) => value !== "" && value !== null);
     return (
-        <div className={`sgz-log${expanded ? " open" : ""}`}>
-            <button type="button" className="sgz-log-head" onClick={onToggle} aria-expanded={expanded}>
+        <div className={`sgz-log${expanded ? " open" : ""}${selected ? " selected" : ""}`} onContextMenu={onMenu}>
+            <button
+                type="button"
+                className="sgz-log-head"
+                onClick={(event) => {
+                    if (onSelect && (event.metaKey || event.ctrlKey || event.shiftKey)) onSelect(event);
+                    else onToggle();
+                }}
+                aria-expanded={expanded}
+                aria-pressed={onSelect ? selected : undefined}>
                 <span className="sgz-log-time">{logTime(line.timestamp)}</span>
                 <span className={`sgz-sev ${severityTone(line.severity)}`}>{(line.severity ?? "").slice(0, 5) || "·"}</span>
                 {showService && <span className="sgz-log-service">{line.service ?? "-"}</span>}

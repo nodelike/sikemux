@@ -1,0 +1,68 @@
+/* Find in chat: the terminal's find bar, over the top of the transcript. */
+.chat-find {
+    position: absolute;
+    z-index: 30;
+    top: 7px;
+    right: 12px;
+    display: flex;
+    align-items: center;
+    gap: 3px;
+    padding: 5px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-panel);
+    background: color-mix(in srgb, var(--rail-2) 96%, transparent);
+    font-family: var(--mono);
+}
+.chat-find input {
+    width: min(250px, 28vw);
+    height: 25px;
+    padding: 0 7px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-control);
+    outline: none;
+    color: var(--ink);
+    background: var(--pane);
+    font: 11px var(--mono);
+}
+.chat-find input:focus {
+    border-color: var(--acc-line);
+}
+.chat-find-result {
+    min-width: 52px;
+    color: var(--ink-dim);
+    text-align: center;
+    font-size: 10px;
+}
+.chat-find button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 25px;
+    height: 25px;
+    padding: 0 5px;
+    border: 0;
+    border-radius: var(--radius-control);
+    color: var(--ink-dim);
+    background: transparent;
+    font: 10px var(--mono);
+    cursor: pointer;
+}
+.chat-find button:hover:not(:disabled),
+.chat-find button.active {
+    color: var(--ink);
+    background: var(--acc-soft);
+}
+.chat-find button.active {
+    box-shadow: inset 0 0 0 1px var(--acc-line);
+}
+.chat-find button:disabled {
+    opacity: 0.4;
+    cursor: default;
+}
+::highlight(chat-find) {
+    background-color: color-mix(in srgb, var(--acc) 28%, transparent);
+}
+::highlight(chat-find-current) {
+    background-color: var(--acc);
+    color: var(--on-accent);
+}

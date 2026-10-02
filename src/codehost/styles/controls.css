@@ -1,0 +1,194 @@
+/* ---- Controls ----------------------------------------------------------- */
+
+.gha-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-1h);
+    height: 28px;
+    padding: 0 var(--space-3);
+    flex: 0 0 auto;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-2);
+    background: var(--gha-tint);
+    color: var(--text-secondary);
+    font: inherit;
+    font-size: var(--text-xs);
+    white-space: nowrap;
+    cursor: pointer;
+    transition:
+        background var(--dur-1) linear,
+        border-color var(--dur-1) linear,
+        color var(--dur-1) linear;
+}
+.gha-btn:hover:not(:disabled) {
+    background: var(--surface-hover);
+    border-color: var(--border-strong);
+    color: var(--text-primary);
+}
+.gha-btn:disabled {
+    cursor: default;
+    color: var(--text-disabled);
+}
+.gha-btn:focus-visible {
+    box-shadow: var(--focus-ring);
+    outline: none;
+}
+.gha-btn.primary {
+    background: var(--acc);
+    border-color: var(--acc);
+    color: var(--on-accent);
+    font-weight: var(--weight-medium);
+}
+.gha-btn.primary:disabled {
+    opacity: 0.45;
+    color: var(--on-accent);
+}
+.gha-btn.primary:hover:not(:disabled) {
+    filter: brightness(1.08);
+}
+.gha-btn.danger {
+    border-color: color-mix(in oklab, var(--danger) 40%, transparent);
+    color: var(--danger);
+}
+.gha-btn.danger:hover:not(:disabled) {
+    border-color: var(--danger);
+    color: var(--danger);
+}
+.gha-icon-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    flex: 0 0 auto;
+    padding: 0;
+    border: 1px solid transparent;
+    border-radius: var(--radius-2);
+    background: transparent;
+    color: var(--text-tertiary);
+    cursor: pointer;
+    transition:
+        background var(--dur-1) linear,
+        color var(--dur-1) linear;
+}
+.gha-icon-btn:hover {
+    background: var(--surface-hover);
+    color: var(--text-primary);
+}
+.gha-icon-btn:focus-visible {
+    box-shadow: var(--focus-ring);
+    outline: none;
+}
+.gha-link {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-1);
+    padding: 0;
+    border: none;
+    background: none;
+    color: var(--text-secondary);
+    font: inherit;
+    font-size: var(--text-xs);
+    cursor: pointer;
+}
+.gha-link:hover {
+    color: var(--text-primary);
+    text-decoration: underline;
+    text-decoration-color: var(--border-strong);
+    text-underline-offset: 3px;
+}
+.gha-link:focus-visible {
+    box-shadow: var(--focus-ring);
+    outline: none;
+}
+.gha-input {
+    height: 28px;
+    padding: 0 var(--space-2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-2);
+    background: var(--gha-tint);
+    color: var(--text-primary);
+    font: inherit;
+    font-size: var(--text-xs);
+}
+.gha-input:focus-visible {
+    outline: none;
+    border-color: var(--border-selected);
+    box-shadow: var(--focus-ring);
+}
+
+/* ---- Marks -------------------------------------------------------------- */
+
+.gha-outcome {
+    display: inline-flex;
+    align-items: center;
+    flex: 0 0 auto;
+    color: var(--text-disabled);
+}
+.gha-outcome[data-outcome="success"] {
+    color: var(--live);
+}
+.gha-outcome[data-outcome="failure"] {
+    color: var(--danger);
+}
+.gha-outcome[data-outcome="running"] {
+    color: var(--warn);
+    animation: gha-pulse 1.6s var(--ease-in-out) infinite;
+}
+.gha-outcome[data-outcome="blocked"] {
+    color: var(--warn);
+}
+.gha-outcome:is([data-outcome="queued"], [data-outcome="skipped"], [data-outcome="cancelled"], [data-outcome="unknown"]) {
+    color: var(--text-tertiary);
+}
+@keyframes gha-pulse {
+    50% {
+        opacity: 0.35;
+    }
+}
+@media (prefers-reduced-motion: reduce) {
+    .gha-outcome[data-outcome="running"] {
+        animation: none;
+    }
+}
+.gha-tag {
+    display: inline-flex;
+    align-items: center;
+    height: 18px;
+    max-width: 20ch;
+    padding: 0 var(--space-1h);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-1);
+    background: var(--gha-tint);
+    font-size: var(--text-2xs);
+    font-variant-numeric: tabular-nums;
+    color: var(--text-secondary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.gha-tag[data-size="small"] {
+    height: 16px;
+    max-width: 16ch;
+    padding: 0 var(--space-1);
+    font-size: var(--text-3xs);
+}
+.gha-tag[data-tone="live"] {
+    border-color: color-mix(in oklab, var(--live) 34%, transparent);
+    background: color-mix(in oklab, var(--live) 8%, transparent);
+    color: var(--live);
+}
+.gha-tag[data-tone="danger"] {
+    border-color: color-mix(in oklab, var(--danger) 34%, transparent);
+    background: color-mix(in oklab, var(--danger) 8%, transparent);
+    color: var(--danger);
+}
+.gha-tag[data-tone="latest"] {
+    border-color: color-mix(in oklab, var(--live) 50%, transparent);
+    background: transparent;
+    color: var(--live);
+}
+.gha-tag[data-tone="quiet"] {
+    background: transparent;
+    color: var(--text-tertiary);
+}

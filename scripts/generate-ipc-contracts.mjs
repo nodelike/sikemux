@@ -52,6 +52,7 @@ const capability = {
     "core:window:allow-show",
     "core:window:allow-unminimize",
     "core:window:allow-set-focus",
+    "core:webview:allow-set-webview-focus",
     "core:window:allow-set-badge-count",
     "core:window:allow-request-user-attention",
     ...commands.map((command) => `allow-${command.replaceAll("_", "-")}`),

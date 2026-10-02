@@ -7,16 +7,10 @@ import {
     TaskBackendStopError,
     TaskProcessExitError,
     TaskRuntime,
-    TaskRuntimeAlreadyInstalledError,
     TaskRuntimeCapacityError,
     TaskRuntimeDisposedError,
-    TaskRuntimeNotInstalledError,
     TaskRuntimeTaskNotFoundError,
     TaskTerminalSurfaceError,
-    appTasksForProject,
-    getAppTaskRuntime,
-    installAppTaskRuntime,
-    runAppTask,
     type TaskExecutionBackend,
     type TaskExecutionRequest,
     type TaskProcessExit,
@@ -269,6 +263,29 @@ describe("HeadlessPtyTaskRunner", () => {
 });
 
 describe("TaskRuntime", () => {
+    it("shows a task the core kept as running, opens its terminal quietly, and stops that exact process", async () => {
+        const { runtime, open, stop } = runtimeHarness([definition("dev")]);
+        const exit = deferred<TaskProcessExit>();
+        await runtime.adopt(resolvedTask("dev", { env: {} }), "kept-execution", { ptyId: 555, completion: exit.promise });
+        await flushPromises();
+
+        expect(runtime.getSnapshot("/workspace/project")).toMatchObject({ status: "running", task: { id: "dev" } });
+        expect(open).toHaveBeenCalledWith(expect.objectContaining({ ptyId: 555, executionId: "kept-execution", background: true }));
+
+        await runtime.stop("/workspace/project");
+        expect(stop).toHaveBeenCalledWith(555);
+        expect(runtime.getSnapshot("/workspace/project")?.status).toBe("idle");
+    });
+
+    it("lets a kept task finish on its own", async () => {
+        const { runtime } = runtimeHarness([definition("dev")]);
+        const exit = deferred<TaskProcessExit>();
+        await runtime.adopt(resolvedTask("dev"), "kept-execution", { ptyId: 9, completion: exit.promise });
+        exit.resolve({ code: 0 });
+        await flushPromises();
+        expect(runtime.getSnapshot("/workspace/project")?.status).toBe("idle");
+    });
+
     it("runs one task per project, records recency after start, and observes completion", async () => {
         const harness = runtimeHarness([definition("build"), definition("test")]);
 
@@ -281,25 +298,6 @@ describe("TaskRuntime", () => {
         harness.runs[0]!.exit.resolve({ code: 0 });
         await flushPromises();
         expect(harness.runtime.getSnapshot("/workspace/project")).toMatchObject({ status: "idle", activeRunId: null, task: { id: "build" } });
-        await harness.runtime.dispose();
-    });
-
-    it("restarts by stopping only the old project PTY and ignores its stale exit", async () => {
-        const harness = runtimeHarness([definition("watch"), definition("build")]);
-        await harness.runtime.run("/workspace/project", "watch");
-
-        await harness.runtime.restart("/workspace/project", "build");
-        expect(harness.stop).toHaveBeenCalledOnce();
-        expect(harness.stop).toHaveBeenCalledWith(100);
-        expect(harness.runs).toHaveLength(2);
-        expect(harness.runs[1]!.request.taskId).toBe("build");
-        expect(harness.runtime.getSnapshot("/workspace/project")).toMatchObject({ status: "running", activeRunId: 2, task: { id: "build" } });
-
-        harness.runs[0]!.exit.reject(new Error("stale old exit"));
-        await flushPromises();
-        expect(harness.runtime.getSnapshot("/workspace/project")?.failures).toEqual([]);
-        harness.runs[1]!.exit.resolve({ code: 0 });
-        await flushPromises();
         await harness.runtime.dispose();
     });
 
@@ -322,42 +320,6 @@ describe("TaskRuntime", () => {
         expect(harness.stop).toHaveBeenLastCalledWith(101);
     });
 
-    it("exposes immutable palette commands and a scoped singleton facade", async () => {
-        const harness = runtimeHarness([
-            definition("secret", "/workspace/project", {
-                label: "Safe title",
-                command: "deploy --token super-secret",
-                env: { TOKEN: "super-secret" },
-            }),
-        ]);
-        const uninstall = installAppTaskRuntime(harness.runtime);
-        try {
-            expect(getAppTaskRuntime()).toBe(harness.runtime);
-            expect(() => installAppTaskRuntime(harness.runtime)).toThrow(TaskRuntimeAlreadyInstalledError);
-            const project = appTasksForProject("/workspace/project");
-            const commands = project.commands();
-            expect(Object.isFrozen(project)).toBe(true);
-            expect(Object.isFrozen(commands)).toBe(true);
-            expect(Object.isFrozen(commands[0])).toBe(true);
-            expect(commands[0]).toMatchObject({ title: "Safe title", category: "Tasks" });
-            expect(commands[0]!.detail).not.toContain("super-secret");
-
-            commands[0]!.execute();
-            await flushPromises();
-            expect(harness.runs).toHaveLength(1);
-            expect(project.getSnapshot()?.status).toBe("running");
-            harness.runs[0]!.exit.resolve({ code: 0 });
-            await flushPromises();
-            await runAppTask("/workspace/project", "secret");
-            expect(harness.runs).toHaveLength(2);
-        } finally {
-            uninstall();
-            uninstall();
-            await harness.runtime.dispose();
-        }
-        expect(() => getAppTaskRuntime()).toThrow(TaskRuntimeNotInstalledError);
-    });
-
     it("disposes all exact active PTYs once and rejects later project operations", async () => {
         const harness = runtimeHarness([definition("one", "/workspace/one"), definition("two", "/workspace/two")]);
         await harness.runtime.run("/workspace/one", "one");
@@ -370,6 +332,5 @@ describe("TaskRuntime", () => {
         expect(harness.stop.mock.calls.map(([ptyId]) => ptyId).sort()).toEqual([100, 101]);
         await expect(harness.runtime.run("/workspace/one", "one")).rejects.toBeInstanceOf(TaskRuntimeDisposedError);
         await expect(harness.runtime.stop("/workspace/one")).rejects.toBeInstanceOf(TaskRuntimeDisposedError);
-        expect(() => harness.runtime.commandsForProject("/workspace/one")).toThrow(TaskRuntimeDisposedError);
     });
 });

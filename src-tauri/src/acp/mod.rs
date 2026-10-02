@@ -1,40 +1,36 @@
-mod air;
-mod native;
+//! Chat agents run in the background core, so a turn keeps going when the
+//! window reloads or the app quits. The app prepares each launch — the ACP
+//! adapter it installs, the agent binary, the browser tools and the
+//! environment the agent gets — and forwards every command to the core. The
+//! core's events come back on its connection and reach the page as
+//! `acp_event`.
 
-use agent_client_protocol::schema::v1::{
-    CancelNotification, ContentBlock, Implementation, InitializeRequest, LoadSessionRequest,
-    NewSessionRequest, PromptRequest, RequestPermissionOutcome, RequestPermissionRequest,
-    RequestPermissionResponse, ResourceLink, SelectedPermissionOutcome,
-    SetSessionConfigOptionRequest, SetSessionModeRequest,
-};
-use agent_client_protocol::schema::ProtocolVersion;
-use agent_client_protocol::{AcpAgent, AcpAgentConfig, Agent, ConnectionTo, Responder};
-use dashmap::mapref::entry::Entry;
-use serde::Serialize;
-use serde_json::{json, Value};
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::process::Stdio;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
+
+use serde::Serialize;
+use serde_json::{json, Value};
+use sikemux_core::acp::{bounded_text, native};
+use sikemux_core::client::{ClientError, CoreClient, Reply};
+use sikemux_core::protocol::{
+    ChatAttachment, ChatContext, ChatEvent, ChatEventKind, ChatInfo, ChatLaunch, ChatLauncher,
+    ChatStart, Request, Response,
+};
 use tauri::{AppHandle, Emitter, Manager, State};
-use tokio::sync::{mpsc, oneshot};
-use url::Url;
-use uuid::Uuid;
+
+use crate::pty::PtyManager;
 
 const CLAUDE_ADAPTER: &str = "@agentclientprotocol/claude-agent-acp@0.81.2";
 const CODEX_ADAPTER: &str = "@agentclientprotocol/codex-acp@1.8.0";
 const MAX_AGENT_ID: usize = 200;
-const MAX_PROMPT_BYTES: usize = 2 * 1024 * 1024;
-const MAX_ATTACHMENTS: usize = 32;
-const START_TIMEOUT: Duration = Duration::from_secs(150);
 const INSTALL_TIMEOUT: Duration = Duration::from_secs(120);
 const INSTALL_OUTPUT_LIMIT: usize = 1024 * 1024;
-/// How long a stopped turn may keep running before the adapter is killed. The
-/// agent only reads a cancel between steps, and a wedged tool never gets there.
-const CANCEL_GRACE: Duration = Duration::from_secs(10);
-type ReadySender = Arc<Mutex<Option<oneshot::Sender<Result<AcpStartResponse, String>>>>>;
+/// Streamed updates in one replayed event, so a long chat comes back in a
+/// few script evals rather than one per update.
+const REPLAY_BATCH: usize = 2_000;
 
 #[derive(Clone, Copy)]
 struct AdapterSpec {
@@ -45,44 +41,10 @@ struct AdapterSpec {
 
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-struct AcpEvent {
-    agent_id: String,
-    kind: &'static str,
+struct AcpEvent<'a> {
+    agent_id: &'a str,
+    kind: &'a str,
     payload: Value,
-}
-
-#[derive(Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AcpStartResponse {
-    session_id: String,
-    capabilities: Value,
-    setup: Value,
-}
-
-enum AcpCommand {
-    Prompt {
-        text: String,
-        paths: Vec<String>,
-    },
-    SetPermissionMode {
-        mode: String,
-        reply: oneshot::Sender<Result<(), String>>,
-    },
-    SetConfig {
-        config_id: String,
-        value: String,
-        reply: oneshot::Sender<Result<Value, String>>,
-    },
-    Steer {
-        text: String,
-        paths: Vec<String>,
-        reply: oneshot::Sender<Result<String, String>>,
-    },
-    StopTask {
-        task_id: String,
-    },
-    Cancel,
-    Stop,
 }
 
 /// Names the conversation on disk so the session watcher can leave it alone
@@ -107,158 +69,167 @@ impl StreamMark {
     }
 }
 
-/// Clears the mark for a connection that ends part-way through a turn.
-struct TurnMark(StreamMark);
-
-impl Drop for TurnMark {
-    fn drop(&mut self) {
-        self.0.set(false);
-    }
-}
-
-struct PendingPermission {
-    agent_id: String,
-    option_ids: HashSet<String>,
-    responder: Responder<RequestPermissionResponse>,
-}
-
-#[derive(Clone)]
-struct AcpConnectionHandle {
-    generation: Uuid,
-    commands: mpsc::UnboundedSender<AcpCommand>,
-    abort: tokio::task::AbortHandle,
-    install_cancellation: crate::bounded_process::ProcessCancellation,
-}
-
-#[derive(Clone, Default)]
+#[derive(Default)]
 pub struct AcpManager {
-    connections: Arc<dashmap::DashMap<String, AcpConnectionHandle>>,
-    permissions: Arc<Mutex<HashMap<String, PendingPermission>>>,
-    adapter_installs: Arc<dashmap::DashMap<String, Arc<tokio::sync::Mutex<()>>>>,
+    adapter_installs: dashmap::DashMap<String, Arc<tokio::sync::Mutex<()>>>,
+    /// Launches being prepared, which a stop cancels. The id tells a launch
+    /// from a later one for the same agent.
+    installing: dashmap::DashMap<String, (uuid::Uuid, crate::bounded_process::ProcessCancellation)>,
+    /// The chats this app shows, which hear the core's events for them.
+    shown: Mutex<HashMap<String, StreamMark>>,
 }
 
 impl AcpManager {
-    pub fn drain(&self) {
-        for item in self.connections.iter() {
-            let _ = item.commands.send(AcpCommand::Stop);
-            item.install_cancellation.cancel();
-            item.abort.abort();
-        }
-        self.connections.clear();
-        self.cancel_permissions(None);
-    }
-
-    fn cancel_permissions(&self, agent_id: Option<&str>) {
-        let pending = {
-            let Ok(mut permissions) = self.permissions.lock() else {
-                return;
-            };
-            let ids = permissions
-                .iter()
-                .filter_map(|(id, request)| {
-                    if agent_id.is_none_or(|expected| request.agent_id == expected) {
-                        Some(id.clone())
-                    } else {
-                        None
-                    }
-                })
-                .collect::<Vec<_>>();
-            ids.into_iter()
-                .filter_map(|id| permissions.remove(&id))
-                .collect::<Vec<_>>()
-        };
-        for request in pending {
-            let _ = request.responder.respond(RequestPermissionResponse::new(
-                RequestPermissionOutcome::Cancelled,
-            ));
+    fn show(&self, agent_id: &str, mark: StreamMark, streaming: bool) {
+        mark.set(streaming);
+        if let Ok(mut shown) = self.shown.lock() {
+            if let Some(previous) = shown.insert(agent_id.to_owned(), mark) {
+                previous.set(false);
+            }
         }
     }
-}
 
-fn bounded_text(name: &str, value: &str, max: usize) -> Result<(), String> {
-    if value.is_empty() || value.len() > max || value.contains(['\0', '\r', '\n']) {
-        return Err(format!("{name} must be bounded non-blank text"));
+    fn forget(&self, agent_id: &str) {
+        let mark = self
+            .shown
+            .lock()
+            .ok()
+            .and_then(|mut shown| shown.remove(agent_id));
+        if let Some(mark) = mark {
+            mark.set(false);
+        }
     }
-    Ok(())
+
+    fn mark(&self, agent_id: &str, streaming: bool) {
+        if let Some(mark) = self
+            .shown
+            .lock()
+            .ok()
+            .and_then(|shown| shown.get(agent_id).cloned())
+        {
+            mark.set(streaming);
+        }
+    }
+
+    fn take_shown(&self) -> Vec<String> {
+        let shown = self
+            .shown
+            .lock()
+            .map(|mut shown| std::mem::take(&mut *shown))
+            .unwrap_or_default();
+        shown
+            .into_iter()
+            .map(|(agent_id, mark)| {
+                mark.set(false);
+                agent_id
+            })
+            .collect()
+    }
 }
 
-/// One frame's worth of streamed updates travels as a single event. Each
-/// notification on its own costs a script eval in the webview, and an adapter
-/// sends one per token.
-const SESSION_UPDATE_FLUSH: Duration = Duration::from_millis(16);
-
-fn pending_session_updates() -> &'static Mutex<HashMap<String, Vec<Value>>> {
-    static PENDING: std::sync::OnceLock<Mutex<HashMap<String, Vec<Value>>>> =
-        std::sync::OnceLock::new();
-    PENDING.get_or_init(|| Mutex::new(HashMap::new()))
-}
-
-fn emit_now(app: &AppHandle, agent_id: &str, kind: &'static str, payload: Value) {
+fn emit(app: &AppHandle, agent_id: &str, kind: &str, payload: Value) {
     let _ = app.emit_to(
         "main",
         "acp_event",
         AcpEvent {
-            agent_id: agent_id.to_owned(),
+            agent_id,
             kind,
             payload,
         },
     );
 }
 
-fn flush_session_updates(app: &AppHandle, agent_id: &str) {
-    let batched = pending_session_updates()
-        .lock()
-        .ok()
-        .and_then(|mut pending| pending.remove(agent_id))
-        .filter(|updates| !updates.is_empty());
-    if let Some(updates) = batched {
-        emit_now(
-            app,
-            agent_id,
-            "session_update",
-            json!({ "updates": updates }),
-        );
+fn kind_name(kind: ChatEventKind) -> &'static str {
+    match kind {
+        ChatEventKind::Status => "status",
+        ChatEventKind::Ready => "ready",
+        ChatEventKind::SessionUpdate => "session_update",
+        ChatEventKind::Prompt => "prompt",
+        ChatEventKind::TurnStarted => "turn_started",
+        ChatEventKind::TurnCompleted => "turn_completed",
+        ChatEventKind::PermissionRequest => "permission_request",
+        ChatEventKind::Error => "error",
     }
 }
 
-fn queue_session_update(app: &AppHandle, agent_id: &str, payload: Value) {
-    let first = match pending_session_updates().lock() {
-        Ok(mut pending) => {
-            let batch = pending.entry(agent_id.to_owned()).or_default();
-            batch.push(payload);
-            batch.len() == 1
+/// Hands one event from the core to the page, keeping the session watcher's
+/// marks in step with the turns.
+pub(crate) fn deliver(app: &AppHandle, agent_id: &str, event: ChatEvent) {
+    if let Some(manager) = app.try_state::<AcpManager>() {
+        match event.kind {
+            ChatEventKind::TurnStarted => manager.mark(agent_id, true),
+            ChatEventKind::TurnCompleted => manager.mark(agent_id, false),
+            ChatEventKind::Status
+                if matches!(event.payload["state"].as_str(), Some("stopped" | "error")) =>
+            {
+                manager.forget(agent_id)
+            }
+            _ => {}
         }
-        Err(_) => {
-            emit_now(
+    }
+    emit(app, agent_id, kind_name(event.kind), event.payload);
+}
+
+/// Replays a chat to the page as the events it would have heard, with
+/// streamed updates sent in large batches.
+fn replay(app: &AppHandle, agent_id: &str, events: Vec<ChatEvent>) {
+    let mut updates = Vec::new();
+    let flush = |updates: &mut Vec<Value>| {
+        if !updates.is_empty() {
+            emit(
                 app,
                 agent_id,
                 "session_update",
-                json!({ "updates": [payload] }),
+                json!({ "updates": std::mem::take(updates) }),
             );
-            return;
         }
     };
-    if !first {
-        return;
+    for event in events {
+        if event.kind == ChatEventKind::SessionUpdate {
+            updates.push(event.payload);
+            if updates.len() >= REPLAY_BATCH {
+                flush(&mut updates);
+            }
+            continue;
+        }
+        flush(&mut updates);
+        emit(app, agent_id, kind_name(event.kind), event.payload);
     }
-    let app = app.clone();
-    let agent_id = agent_id.to_owned();
-    tauri::async_runtime::spawn(async move {
-        tokio::time::sleep(SESSION_UPDATE_FLUSH).await;
-        flush_session_updates(&app, &agent_id);
-    });
+    flush(&mut updates);
 }
 
-/// Anything that is not a streamed update reads as a reply to what came before
-/// it, so the batch behind it goes out first and the order the adapter sent
-/// them in survives.
-fn emit(app: &AppHandle, agent_id: &str, kind: &'static str, payload: Value) {
-    if kind == "session_update" {
-        queue_session_update(app, agent_id, payload);
+/// The core went away and came back: the same core still runs every chat
+/// the page shows, which it attaches to again; a new core has none of them.
+pub(crate) async fn reconnected(app: &AppHandle, client: Option<&Arc<CoreClient>>) {
+    let Some(manager) = app.try_state::<AcpManager>() else {
+        return;
+    };
+    let shown = manager.take_shown();
+    if shown.is_empty() {
         return;
     }
-    flush_session_updates(app, agent_id);
-    emit_now(app, agent_id, kind, payload);
+    let live: HashSet<String> = match client {
+        Some(client) => client
+            .acp_list()
+            .await
+            .unwrap_or_default()
+            .into_iter()
+            .map(|chat| chat.agent_id)
+            .collect(),
+        None => HashSet::new(),
+    };
+    for agent_id in shown {
+        if live.contains(&agent_id) {
+            emit(app, &agent_id, "reattach", json!({}));
+        } else {
+            emit(
+                app,
+                &agent_id,
+                "status",
+                json!({ "state": "stopped", "reason": "exited" }),
+            );
+        }
+    }
 }
 
 fn adapter_spec(provider: &str) -> Result<AdapterSpec, String> {
@@ -275,6 +246,15 @@ fn adapter_spec(provider: &str) -> Result<AdapterSpec, String> {
         }),
         _ => Err(format!("{provider} does not have a Sikemux ACP adapter")),
     }
+}
+
+fn adapter_root(app: &AppHandle, spec: AdapterSpec) -> Result<PathBuf, String> {
+    Ok(app
+        .path()
+        .app_cache_dir()
+        .map_err(|error| format!("ACP adapter cache is unavailable: {error}"))?
+        .join("acp-adapters")
+        .join(spec.package_dir))
 }
 
 fn installed_adapter(root: &Path, spec: AdapterSpec) -> PathBuf {
@@ -303,12 +283,7 @@ async fn ensure_adapter(
     cancellation: crate::bounded_process::ProcessCancellation,
 ) -> Result<PathBuf, String> {
     let spec = adapter_spec(provider)?;
-    let root = app
-        .path()
-        .app_cache_dir()
-        .map_err(|error| format!("ACP adapter cache is unavailable: {error}"))?
-        .join("acp-adapters")
-        .join(spec.package_dir);
+    let root = adapter_root(app, spec)?;
     let executable = installed_adapter(&root, spec);
     if executable.is_file() {
         return Ok(executable);
@@ -333,7 +308,7 @@ async fn ensure_adapter(
             .tempdir_in(parent)
             .map_err(|error| error.to_string())?;
         let install_root = staging.path();
-        let mut command = Command::new("npm");
+        let mut command = sikemux_process::user_environment::command("npm");
         command.stdin(Stdio::null());
         command.args([
             "install",
@@ -372,14 +347,22 @@ async fn ensure_adapter(
     Ok(executable)
 }
 
-fn adapter_config(
+/// What starts an agent: a program, its arguments and the environment it
+/// gets on top of the core's.
+struct Program {
+    program: PathBuf,
+    args: Vec<String>,
+    env: BTreeMap<String, String>,
+}
+
+fn adapter_program(
     provider: &str,
     executable: &Path,
     config_path: Option<&str>,
     executable_path: Option<&str>,
     environment_keys: &[String],
-) -> Result<AcpAgentConfig, String> {
-    let mut config = AcpAgentConfig::new("node").arg(executable.to_string_lossy());
+) -> Result<Program, String> {
+    let mut env = forwarded_environment(environment_keys);
     if let Some(path) = config_path {
         bounded_text("config path", path, 4_096)?;
         let path = expand_config_path(path);
@@ -388,7 +371,7 @@ fn adapter_config(
         } else {
             "CODEX_HOME"
         };
-        config = config.env(key, path.to_string_lossy());
+        env.insert(key.into(), path.to_string_lossy().into_owned());
     }
     if let Some(path) = executable_path {
         bounded_text("agent executable", path, 4_096)?;
@@ -397,31 +380,40 @@ fn adapter_config(
         } else {
             "CODEX_PATH"
         };
-        config = config.env(key, path);
+        env.insert(key.into(), path.into());
     }
-    Ok(forward_environment(config, environment_keys))
+    Ok(Program {
+        program: crate::system::find_executable("node").unwrap_or_else(|| PathBuf::from("node")),
+        args: vec![executable.to_string_lossy().into_owned()],
+        env,
+    })
 }
 
-fn native_config(
-    executable: &Path,
-    arguments: &[&str],
-    environment_keys: &[String],
-) -> AcpAgentConfig {
-    let config = AcpAgentConfig::new(executable).args(arguments.iter().copied());
-    forward_environment(config, environment_keys)
+fn native_program(executable: &Path, arguments: &[&str], environment_keys: &[String]) -> Program {
+    Program {
+        program: executable.to_path_buf(),
+        args: arguments
+            .iter()
+            .map(|argument| (*argument).to_owned())
+            .collect(),
+        env: forwarded_environment(environment_keys),
+    }
 }
 
-fn forward_environment(mut config: AcpAgentConfig, environment_keys: &[String]) -> AcpAgentConfig {
+/// The variables the person's profile names, with this app's values, since
+/// the core may have started before they were set.
+fn forwarded_environment(environment_keys: &[String]) -> BTreeMap<String, String> {
     let mut seen = HashSet::new();
+    let mut env = BTreeMap::new();
     for key in environment_keys.iter().take(64) {
         if !seen.insert(key) || !valid_environment_key(key) {
             continue;
         }
         if let Ok(value) = std::env::var(key) {
-            config = config.env(key, value);
+            env.insert(key.clone(), value);
         }
     }
-    config
+    env
 }
 
 fn expand_config_path(value: &str) -> PathBuf {
@@ -453,727 +445,99 @@ fn valid_environment_key(key: &str) -> bool {
         && key.len() <= 128
 }
 
-fn resource_link(path: &str) -> Result<ContentBlock, String> {
-    bounded_text("attachment path", path, 4_096)?;
-    let path = PathBuf::from(path);
-    if !path.is_absolute() {
-        return Err("attachment paths must be absolute".into());
-    }
-    let uri = Url::from_file_path(&path)
-        .map_err(|_| "attachment path cannot be represented as a file URL")?
-        .to_string();
-    let name = path
-        .file_name()
-        .and_then(|value| value.to_str())
-        .filter(|value| !value.is_empty())
-        .unwrap_or("attachment")
-        .to_owned();
-    Ok(ContentBlock::ResourceLink(ResourceLink::new(name, uri)))
+fn failure(error: ClientError) -> String {
+    error.to_string()
 }
 
-fn prompt_blocks(text: String, paths: Vec<String>) -> Result<Vec<ContentBlock>, String> {
-    if text.len() > MAX_PROMPT_BYTES {
-        return Err("prompt is too large".into());
-    }
-    if paths.len() > MAX_ATTACHMENTS {
-        return Err(format!(
-            "a prompt can include at most {MAX_ATTACHMENTS} attachments"
-        ));
-    }
-    let mut blocks = Vec::with_capacity(paths.len() + usize::from(!text.trim().is_empty()));
-    if !text.trim().is_empty() {
-        blocks.push(text.into());
-    }
-    for path in paths {
-        blocks.push(resource_link(&path)?);
-    }
-    if blocks.is_empty() {
-        return Err("prompt is empty".into());
-    }
-    Ok(blocks)
-}
-
-/// The session mode that carries a permission mode. Agents whose modes are not
-/// about permissions get none, and Sikemux answers their requests itself.
-fn permission_mode_id(
-    provider: &str,
-    mode: &str,
-    setup: &Value,
-) -> Result<Option<&'static str>, String> {
-    let expected = match (provider, mode) {
-        ("codex", "bypass") => "agent-full-access",
-        ("codex", "workspace-write") => "read-only",
-        ("claude", "bypass") => "bypassPermissions",
-        ("claude", "workspace-write") => "acceptEdits",
-        ("hermes", "bypass") => "dont_ask",
-        ("hermes", "workspace-write") => "accept_edits",
-        (_, "bypass" | "workspace-write") if native::arguments(provider).is_some() => {
-            return Ok(None)
-        }
-        _ => return Err(format!("Unsupported permission mode: {mode}")),
-    };
-    setup
-        .pointer("/modes/availableModes")
-        .and_then(Value::as_array)
-        .and_then(|modes| {
-            modes
-                .iter()
-                .filter_map(|mode| mode.get("id").and_then(Value::as_str))
-                .find(|id| *id == expected)
-        })
-        .map(|_| Some(expected))
-        .ok_or_else(|| format!("The {provider} adapter does not offer permission mode {expected}"))
-}
-
-/// Native agents still ask before some actions in their most open mode, and
-/// some have no such mode at all, so under bypass the host says yes for the user.
-fn approves_for_user(provider: &str, mode: &str) -> bool {
-    mode == "bypass" && native::arguments(provider).is_some()
-}
-
-/// Carries the chat's saved model and effort into a native agent's session.
-/// A choice the agent no longer offers is skipped, since model lists change
-/// between launches and a stale one should not stop the chat from starting.
-async fn apply_saved_choices(
-    connection: &ConnectionTo<Agent>,
-    session_id: &str,
-    setup: &mut Value,
-    model_outside_config: bool,
-    model: Option<&str>,
-    effort: Option<&str>,
-) {
-    if let Some(model) = model.filter(|model| native::offers(setup, "model", model)) {
-        let applied = if model_outside_config {
-            connection
-                .send_request(native::SetSessionModel {
-                    session_id: session_id.to_owned(),
-                    model_id: model.to_owned(),
-                })
-                .block_task()
-                .await
-                .map(|_| native::select_model(setup, model))
-        } else {
-            connection
-                .send_request(SetSessionConfigOptionRequest::new(
-                    session_id.to_owned(),
-                    "model",
-                    model,
-                ))
-                .block_task()
-                .await
-                .map(|response| {
-                    if let Ok(options) = serde_json::to_value(response.config_options) {
-                        setup["configOptions"] = options;
-                    }
-                })
-        };
-        if let Err(error) = applied {
-            eprintln!("The agent did not take the saved model {model}: {error}");
-        }
-    }
-    let Some(effort) = effort else {
-        return;
-    };
-    let Some(config_id) = native::effort_config_id(setup)
-        .filter(|id| native::offers(setup, id, effort))
-        .map(str::to_owned)
-    else {
-        return;
-    };
-    match connection
-        .send_request(SetSessionConfigOptionRequest::new(
-            session_id.to_owned(),
-            config_id,
-            effort,
-        ))
-        .block_task()
-        .await
-    {
-        Ok(response) => {
-            if let Ok(options) = serde_json::to_value(response.config_options) {
-                setup["configOptions"] = options;
-            }
-        }
-        Err(error) => eprintln!("The agent did not take the saved effort {effort}: {error}"),
-    }
-}
-
-#[tauri::command]
-pub async fn acp_set_permission_mode(
-    manager: State<'_, AcpManager>,
-    agent_id: String,
-    permission_mode: String,
-) -> Result<(), String> {
-    let (reply, response) = oneshot::channel();
-    {
-        let connection = manager
-            .connections
-            .get(&agent_id)
-            .ok_or("ACP session is not running")?;
-        connection
-            .commands
-            .send(AcpCommand::SetPermissionMode {
-                mode: permission_mode,
-                reply,
-            })
-            .map_err(|_| "ACP session stopped")?;
-    }
-    tokio::time::timeout(Duration::from_secs(15), response)
-        .await
-        .map_err(|_| "Permission update timed out")?
-        .map_err(|_| "ACP session stopped")?
-}
-
-#[tauri::command]
-pub async fn acp_set_config(
-    manager: State<'_, AcpManager>,
-    agent_id: String,
-    config_id: String,
-    value: String,
-) -> Result<Value, String> {
-    bounded_text("config id", &config_id, 256)?;
-    bounded_text("config value", &value, 4096)?;
-    let (reply, response) = oneshot::channel();
-    {
-        let connection = manager
-            .connections
-            .get(&agent_id)
-            .ok_or("ACP session is not running")?;
-        connection
-            .commands
-            .send(AcpCommand::SetConfig {
-                config_id,
-                value,
-                reply,
-            })
-            .map_err(|_| "ACP session stopped")?;
-    }
-    response.await.map_err(|_| "ACP session stopped")?
+async fn core(pty: &PtyManager) -> Result<Arc<CoreClient>, String> {
+    pty.client().await.map_err(|error| error.to_string())
 }
 
 #[allow(clippy::too_many_arguments)]
-async fn run_connection(
-    app: AppHandle,
-    manager: AcpManager,
-    agent_id: String,
-    provider: String,
-    cwd: PathBuf,
-    resume_id: Option<String>,
-    permission_mode: String,
-    config_path: Option<String>,
-    executable_path: Option<String>,
-    model: Option<String>,
-    effort: Option<String>,
-    environment_keys: Vec<String>,
-    install_cancellation: crate::bounded_process::ProcessCancellation,
-    mut commands: mpsc::UnboundedReceiver<AcpCommand>,
-    ready: ReadySender,
-) -> Result<(), String> {
+async fn prepare(
+    app: &AppHandle,
+    manager: &AcpManager,
+    agent_id: &str,
+    provider: &str,
+    config_path: Option<&str>,
+    executable_path: Option<&str>,
+    environment_keys: &[String],
+    cancellation: crate::bounded_process::ProcessCancellation,
+) -> Result<Program, String> {
     let agent_executable =
-        crate::agents::resolve_agent_executable(&provider, executable_path.as_deref()).await?;
-    let config = match native::arguments(&provider) {
-        Some(arguments) => {
-            emit(&app, &agent_id, "status", json!({ "state": "starting" }));
-            native_config(&agent_executable, arguments, &environment_keys)
-        }
+        crate::agents::resolve_agent_executable(provider, executable_path).await?;
+    let mut program = match native::arguments(provider) {
+        Some(arguments) => native_program(&agent_executable, arguments, environment_keys),
         None => {
-            let executable =
-                ensure_adapter(&app, &manager, &agent_id, &provider, install_cancellation).await?;
-            emit(&app, &agent_id, "status", json!({ "state": "starting" }));
-            adapter_config(
-                &provider,
-                &executable,
-                config_path.as_deref(),
+            let adapter = ensure_adapter(app, manager, agent_id, provider, cancellation).await?;
+            adapter_program(
+                provider,
+                &adapter,
+                config_path,
                 Some(&agent_executable.to_string_lossy()),
-                &environment_keys,
+                environment_keys,
             )?
         }
     };
-    let agent = AcpAgent::new(config);
-    let approving = Arc::new(AtomicBool::new(approves_for_user(
-        &provider,
-        &permission_mode,
-    )));
-    let permission_approving = approving.clone();
-    let event_app = app.clone();
-    let event_agent_id = agent_id.clone();
-    let permission_app = app.clone();
-    let permission_agent_id = agent_id.clone();
-    let permission_manager = manager.clone();
+    program
+        .env
+        .extend(crate::model_providers::environment(provider).await);
+    program
+        .env
+        .insert(crate::ports::AGENT_ID_ENV.into(), agent_id.to_owned());
+    Ok(program)
+}
 
-    agent_client_protocol::Client
-        .builder()
-        .on_receive_notification(
-            async move |notification: air::SessionUpdate, _connection| {
-                emit(
-                    &event_app,
-                    &event_agent_id,
-                    "session_update",
-                    notification.0,
-                );
-                Ok(())
-            },
-            agent_client_protocol::on_receive_notification!(),
-        )
-        .on_receive_request(
-            async move |request: RequestPermissionRequest, responder, _connection| {
-                if permission_approving.load(Ordering::Acquire) {
-                    if let Some(option) = native::approval(&request.options) {
-                        return responder.respond(RequestPermissionResponse::new(
-                            RequestPermissionOutcome::Selected(SelectedPermissionOutcome::new(
-                                option.option_id.clone(),
-                            )),
-                        ));
-                    }
-                }
-                let request_id = Uuid::new_v4().to_string();
-                let option_ids = request
-                    .options
-                    .iter()
-                    .map(|option| option.option_id.to_string())
-                    .collect();
-                let mut payload = serde_json::to_value(&request).unwrap_or_else(|_| json!({}));
-                if let Some(object) = payload.as_object_mut() {
-                    object.insert("requestId".into(), Value::String(request_id.clone()));
-                }
-                let Ok(mut permissions) = permission_manager.permissions.lock() else {
-                    return responder.respond(RequestPermissionResponse::new(
-                        RequestPermissionOutcome::Cancelled,
-                    ));
-                };
-                permissions.insert(
-                    request_id,
-                    PendingPermission {
-                        agent_id: permission_agent_id.clone(),
-                        option_ids,
-                        responder,
-                    },
-                );
-                emit(
-                    &permission_app,
-                    &permission_agent_id,
-                    "permission_request",
-                    payload,
-                );
-                Ok(())
-            },
-            agent_client_protocol::on_receive_request!(),
-        )
-        .connect_with(agent, move |connection: ConnectionTo<Agent>| {
-            let app = app.clone();
-            let agent_id = agent_id.clone();
-            let ready = ready.clone();
-            async move {
-                emit(
-                    &app,
-                    &agent_id,
-                    "status",
-                    json!({ "state": "initializing" }),
-                );
-                let initialize = connection
-                    .send_request(
-                        InitializeRequest::new(ProtocolVersion::V1)
-                            .client_capabilities(air::client_capabilities())
-                            .client_info(Implementation::new("sikemux", env!("CARGO_PKG_VERSION"))),
-                    )
-                    .block_task()
-                    .await?;
-                let mut capabilities = serde_json::to_value(&initialize.agent_capabilities)?;
-                let initialize_meta = serde_json::to_value(&initialize.meta)?;
-                let steering = air::steering_supported(&initialize_meta);
-                capabilities["steering"] = json!(steering);
+/// One way to start a chat agent that the app offers paired devices.
+pub(crate) struct LauncherSpec {
+    pub id: String,
+    pub provider: String,
+    pub label: String,
+    pub config_path: Option<String>,
+    pub executable_path: Option<String>,
+    pub environment_keys: Vec<String>,
+    pub permission_mode: String,
+}
 
-                // The tools this agent can drive its own browser tabs with.
-                // A session that cannot be told about them still runs.
-                let browser_servers =
-                    match crate::browser::agents::acp_browser_server(&app, &agent_id) {
-                        Ok(server) => vec![server],
-                        Err(error) => {
-                            eprintln!(
-                                "Sikemux browser tools are unavailable to this agent: {error}"
-                            );
-                            Vec::new()
-                        }
-                    };
-                let resumed = resume_id.is_some();
-                let (session_id, mut setup) = if let Some(existing) = resume_id {
-                    if !initialize.agent_capabilities.load_session {
-                        return Err(agent_client_protocol::Error::invalid_params()
-                            .data("This agent cannot load existing sessions"));
-                    }
-                    let response = connection
-                        .send_request(native::LoadSession(
-                            LoadSessionRequest::new(existing.clone(), &cwd)
-                                .mcp_servers(browser_servers),
-                        ))
-                        .block_task()
-                        .await?;
-                    (existing, response.0)
-                } else {
-                    let response = connection
-                        .send_request(native::NewSession(
-                            NewSessionRequest::new(&cwd).mcp_servers(browser_servers),
-                        ))
-                        .block_task()
-                        .await?;
-                    let session_id = response
-                        .0
-                        .get("sessionId")
-                        .and_then(Value::as_str)
-                        .ok_or_else(|| {
-                            agent_client_protocol::Error::invalid_params()
-                                .data("The agent opened a session without an id")
-                        })?
-                        .to_owned();
-                    (session_id, response.0)
-                };
-
-                let model_outside_config = native::models_outside_config(&setup);
-                setup = native::with_model_config(setup);
-
-                let mode_id = permission_mode_id(&provider, &permission_mode, &setup)
-                    .map_err(|error| agent_client_protocol::Error::invalid_params().data(error))?;
-                if let Some(mode_id) = mode_id {
-                    connection
-                        .send_request(SetSessionModeRequest::new(session_id.clone(), mode_id))
-                        .block_task()
-                        .await?;
-                    if let Some(modes) = setup.get_mut("modes").and_then(Value::as_object_mut) {
-                        modes.insert("currentModeId".into(), json!(mode_id));
-                    }
-                }
-
-                if native::arguments(&provider).is_some() {
-                    apply_saved_choices(
-                        &connection,
-                        &session_id,
-                        &mut setup,
-                        model_outside_config,
-                        model.as_deref(),
-                        effort.as_deref(),
-                    )
-                    .await;
-                } else {
-                for (config_id, value) in [
-                    ("model", model.as_deref()),
-                    (
-                        if provider == "claude" {
-                            "effort"
-                        } else {
-                            "reasoning_effort"
-                        },
-                        effort.as_deref(),
-                    ),
-                ] {
-                    if let Some(value) = value {
-                        let response = connection
-                            .send_request(SetSessionConfigOptionRequest::new(
-                                session_id.clone(),
-                                config_id,
-                                value,
-                            ))
-                            .block_task()
-                            .await?;
-                        setup["configOptions"] = serde_json::to_value(response.config_options)?;
-                    }
-                }
-                }
-
-                {
-                    let provider = provider.clone();
-                    let cwd = cwd.to_string_lossy().into_owned();
-                    let session_id = session_id.clone();
-                    let config_path = config_path.clone();
-                    tauri::async_runtime::spawn_blocking(move || {
-                        crate::activity::record_launch(
-                            &provider,
-                            &cwd,
-                            "chat",
-                            resumed.then_some(session_id.as_str()),
-                            config_path.as_deref(),
-                        )
-                    });
-                }
-
-                let start = AcpStartResponse {
-                    session_id: session_id.clone(),
-                    capabilities,
-                    setup: setup.clone(),
-                };
-                if let Ok(mut sender) = ready.lock() {
-                    if let Some(sender) = sender.take() {
-                        let _ = sender.send(Ok(start.clone()));
-                    }
-                }
-                emit(
-                    &app,
-                    &agent_id,
-                    "ready",
-                    serde_json::to_value(&start).unwrap_or_else(|_| json!({})),
-                );
-
-                let stream = StreamMark {
-                    provider: provider.clone(),
-                    cwd: cwd.to_string_lossy().into_owned(),
-                    config_path: config_path.clone(),
-                    session_id: session_id.clone(),
-                };
-                let _turn_mark = TurnMark(stream.clone());
-
-                let running = Arc::new(AtomicBool::new(false));
-                let mut turn: u64 = 0;
-                let (stalled_tx, mut stalled_rx) = mpsc::unbounded_channel::<u64>();
-                let cancelled_turn = Arc::new(AtomicU64::new(0));
-                let (broken_tx, mut broken_rx) = mpsc::unbounded_channel::<()>();
-                loop {
-                    let command = tokio::select! {
-                        command = commands.recv() => match command {
-                            Some(command) => command,
-                            None => break,
-                        },
-                        Some(()) = broken_rx.recv() => {
-                            emit(
-                                &app,
-                                &agent_id,
-                                "error",
-                                json!({ "message": "The agent failed while stopping, so its session was restarted" }),
-                            );
-                            break;
-                        }
-                        Some(stalled) = stalled_rx.recv() => {
-                            if running.load(Ordering::Acquire)
-                                && turn == stalled
-                            {
-                                emit(
-                                    &app,
-                                    &agent_id,
-                                    "error",
-                                    json!({ "message": "The agent did not stop, so its session was restarted" }),
-                                );
-                                break;
-                            }
-                            continue;
-                        }
-                    };
-                    match command {
-                        AcpCommand::Prompt { text, paths } => {
-                            if running.swap(true, Ordering::AcqRel) {
-                                emit(
-                                    &app,
-                                    &agent_id,
-                                    "error",
-                                    json!({ "message": "wait for the current turn to finish" }),
-                                );
-                                continue;
-                            }
-                            let blocks = match prompt_blocks(text, paths) {
-                                Ok(blocks) => blocks,
-                                Err(error) => {
-                                    running.store(false, Ordering::Release);
-                                    emit(&app, &agent_id, "error", json!({ "message": error }));
-                                    continue;
-                                }
-                            };
-                            stream.set(true);
-                            turn += 1;
-                            emit(&app, &agent_id, "turn_started", json!({}));
-                            let response_app = app.clone();
-                            let response_agent_id = agent_id.clone();
-                            let response_running = running.clone();
-                            let response_manager = manager.clone();
-                            let response_stream = stream.clone();
-                            let response_turn = turn;
-                            let response_cancelled = cancelled_turn.clone();
-                            let response_broken = broken_tx.clone();
-                            let sent = connection
-                                .send_request(PromptRequest::new(session_id.clone(), blocks))
-                                .on_receiving_result(async move |result| {
-                                    response_running.store(false, Ordering::Release);
-                                    response_stream.set(false);
-                                    response_manager.cancel_permissions(Some(&response_agent_id));
-                                    match result {
-                                        Ok(response) => emit(
-                                            &response_app,
-                                            &response_agent_id,
-                                            "turn_completed",
-                                            serde_json::to_value(response)
-                                                .unwrap_or_else(|_| json!({})),
-                                        ),
-                                        // Hermes can crash out of a stopped turn and
-                                        // leave its session refusing every prompt after.
-                                        Err(_)
-                                            if response_cancelled.load(Ordering::Acquire)
-                                                == response_turn =>
-                                        {
-                                            let _ = response_broken.send(());
-                                        }
-                                        Err(error) => emit(
-                                            &response_app,
-                                            &response_agent_id,
-                                            "error",
-                                            json!({ "message": error.to_string() }),
-                                        ),
-                                    }
-                                    Ok(())
-                                });
-                            if let Err(error) = sent {
-                                running.store(false, Ordering::Release);
-                                stream.set(false);
-                                emit(
-                                    &app,
-                                    &agent_id,
-                                    "error",
-                                    json!({ "message": error.to_string() }),
-                                );
-                            }
-                        }
-                        AcpCommand::SetPermissionMode { mode, reply } => {
-                            let result = if running.load(Ordering::Acquire) {
-                                Err("Stop the current turn before changing permissions".into())
-                            } else {
-                                match permission_mode_id(&provider, &mode, &setup) {
-                                    Ok(Some(mode_id)) => connection
-                                        .send_request(SetSessionModeRequest::new(
-                                            session_id.clone(),
-                                            mode_id,
-                                        ))
-                                        .block_task()
-                                        .await
-                                        .map(|_| ())
-                                        .map_err(|error| error.to_string()),
-                                    Ok(None) => Ok(()),
-                                    Err(error) => Err(error),
-                                }
-                            };
-                            if result.is_ok() {
-                                approving.store(
-                                    approves_for_user(&provider, &mode),
-                                    Ordering::Release,
-                                );
-                            }
-                            let _ = reply.send(result);
-                        }
-                        AcpCommand::SetConfig {
-                            config_id,
-                            value,
-                            reply,
-                        } => {
-                            let result = if running.load(Ordering::Acquire) {
-                                Err("Stop the current turn before changing the model".into())
-                            } else if config_id == "model" && model_outside_config {
-                                connection
-                                    .send_request(native::SetSessionModel {
-                                        session_id: session_id.clone(),
-                                        model_id: value.clone(),
-                                    })
-                                    .block_task()
-                                    .await
-                                    .map_err(|error| error.to_string())
-                                    .map(|_| {
-                                        native::select_model(&mut setup, &value);
-                                        json!({ "configOptions": setup["configOptions"] })
-                                    })
-                            } else {
-                                connection
-                                    .send_request(SetSessionConfigOptionRequest::new(
-                                        session_id.clone(),
-                                        config_id,
-                                        value.as_str(),
-                                    ))
-                                    .block_task()
-                                    .await
-                                    .map_err(|error| error.to_string())
-                                    .and_then(|response| {
-                                        serde_json::to_value(response)
-                                            .map_err(|error| error.to_string())
-                                    })
-                                    .inspect(|response| {
-                                        setup["configOptions"] = response["configOptions"].clone();
-                                    })
-                            };
-                            let _ = reply.send(result);
-                        }
-                        AcpCommand::Steer { text, paths, reply } => {
-                            let result = if !steering {
-                                Err("this agent cannot take a message mid-turn".to_string())
-                            } else if !running.load(Ordering::Acquire) {
-                                Ok("promptRequired".to_string())
-                            } else {
-                                match prompt_blocks(text, paths) {
-                                    // Answered off the loop, so a stop sent right
-                                    // after a steer is never queued behind it.
-                                    Ok(blocks) => {
-                                        let _ = connection
-                                            .send_request(air::Steer::new(
-                                                session_id.clone(),
-                                                blocks,
-                                            ))
-                                            .on_receiving_result(async move |result| {
-                                                let _ = reply.send(
-                                                    result
-                                                        .map(|response| response.outcome)
-                                                        .map_err(|error| error.to_string()),
-                                                );
-                                                Ok(())
-                                            });
-                                        continue;
-                                    }
-                                    Err(error) => Err(error),
-                                }
-                            };
-                            let _ = reply.send(result);
-                        }
-                        AcpCommand::StopTask { task_id } => {
-                            let stop_app = app.clone();
-                            let stop_agent_id = agent_id.clone();
-                            // A background task outlives the turn that spawned
-                            // it, so stopping one must not wait on the turn.
-                            let sent = connection
-                                .send_request(air::StopAsyncTask {
-                                    session_id: session_id.clone(),
-                                    async_task_id: task_id,
-                                })
-                                .on_receiving_result(async move |result| {
-                                    if let Err(error) = result {
-                                        emit(
-                                            &stop_app,
-                                            &stop_agent_id,
-                                            "error",
-                                            json!({ "message": error.to_string() }),
-                                        );
-                                    }
-                                    Ok(())
-                                });
-                            if let Err(error) = sent {
-                                emit(
-                                    &app,
-                                    &agent_id,
-                                    "error",
-                                    json!({ "message": error.to_string() }),
-                                );
-                            }
-                        }
-                        AcpCommand::Cancel => {
-                            connection
-                                .send_notification(CancelNotification::new(session_id.clone()))?;
-                            if running.load(Ordering::Acquire) {
-                                cancelled_turn.store(turn, Ordering::Release);
-                                let cancelled = turn;
-                                let stalled = stalled_tx.clone();
-                                tauri::async_runtime::spawn(async move {
-                                    tokio::time::sleep(CANCEL_GRACE).await;
-                                    let _ = stalled.send(cancelled);
-                                });
-                            }
-                        }
-                        AcpCommand::Stop => break,
-                    }
-                }
-                Ok(())
+/// What [`acp_start`] would run for `spec`, for the core to start without
+/// the window. Never installs an adapter: one this Mac has not used yet is
+/// left out until it has.
+pub(crate) async fn launcher(app: &AppHandle, spec: LauncherSpec) -> Result<ChatLauncher, String> {
+    let executable =
+        crate::agents::resolve_agent_executable(&spec.provider, spec.executable_path.as_deref())
+            .await?;
+    let mut program = match native::arguments(&spec.provider) {
+        Some(arguments) => native_program(&executable, arguments, &spec.environment_keys),
+        None => {
+            let adapter_spec = adapter_spec(&spec.provider)?;
+            let adapter = installed_adapter(&adapter_root(app, adapter_spec)?, adapter_spec);
+            if !adapter.is_file() {
+                return Err(format!(
+                    "{} has not been started on this Mac yet",
+                    spec.label
+                ));
             }
-        })
-        .await
-        .map_err(|error| error.to_string())
+            adapter_program(
+                &spec.provider,
+                &adapter,
+                spec.config_path.as_deref(),
+                Some(&executable.to_string_lossy()),
+                &spec.environment_keys,
+            )?
+        }
+    };
+    program
+        .env
+        .extend(crate::model_providers::environment(&spec.provider).await);
+    Ok(ChatLauncher {
+        id: spec.id,
+        provider: spec.provider,
+        label: spec.label,
+        program: program.program,
+        args: program.args,
+        env: program.env,
+        permission_mode: spec.permission_mode,
+    })
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1181,6 +545,7 @@ async fn run_connection(
 pub async fn acp_start(
     app: AppHandle,
     manager: State<'_, AcpManager>,
+    pty: State<'_, PtyManager>,
     agent_id: String,
     provider: String,
     cwd: String,
@@ -1191,249 +556,305 @@ pub async fn acp_start(
     model: Option<String>,
     effort: Option<String>,
     environment_keys: Vec<String>,
-) -> Result<AcpStartResponse, String> {
+) -> Result<ChatStart, String> {
     bounded_text("agent id", &agent_id, MAX_AGENT_ID)?;
     bounded_text("provider", &provider, 64)?;
     bounded_text("working directory", &cwd, 4_096)?;
-    if let Some(resume_id) = resume_id.as_deref() {
-        bounded_text("session id", resume_id, 4_096)?;
-    }
-    let cwd = PathBuf::from(cwd);
-    if !cwd.is_absolute() {
-        return Err("ACP working directory must be absolute".into());
-    }
-    let (commands_tx, commands_rx) = mpsc::unbounded_channel();
-    let (ready_tx, ready_rx) = oneshot::channel();
-    let (launch_tx, launch_rx) = oneshot::channel();
-    let ready = Arc::new(Mutex::new(Some(ready_tx)));
-    let generation = Uuid::new_v4();
-    let install_cancellation = crate::bounded_process::ProcessCancellation::new();
-
-    let owned_manager = manager.inner().clone();
-    let task_manager = owned_manager.clone();
-    let task_agent_id = agent_id.clone();
-    let task_app = app.clone();
-    let task_ready = ready.clone();
-    let task_generation = generation;
-    let task_install_cancellation = install_cancellation.clone();
-    let task = tauri::async_runtime::spawn(async move {
-        if launch_rx.await.is_err() {
-            return;
+    let launch_id = uuid::Uuid::new_v4();
+    let cancellation = crate::bounded_process::ProcessCancellation::new();
+    manager
+        .installing
+        .insert(agent_id.clone(), (launch_id, cancellation.clone()));
+    let prepared = prepare(
+        &app,
+        &manager,
+        &agent_id,
+        &provider,
+        config_path.as_deref(),
+        executable_path.as_deref(),
+        &environment_keys,
+        cancellation,
+    )
+    .await;
+    let program = match prepared {
+        Ok(program) => program,
+        Err(error) => {
+            manager
+                .installing
+                .remove_if(&agent_id, |_, (id, _)| *id == launch_id);
+            return Err(error);
         }
-        let result = run_connection(
-            task_app.clone(),
-            task_manager.clone(),
-            task_agent_id.clone(),
-            provider,
-            cwd,
-            resume_id,
-            permission_mode,
-            config_path,
-            executable_path,
-            model,
-            effort,
-            environment_keys,
-            task_install_cancellation,
-            commands_rx,
-            task_ready.clone(),
+    };
+    // The tools this agent can drive its own browser tabs with. A session
+    // that cannot be told about them still runs.
+    let mcp_servers = match crate::browser::agents::acp_browser_server(&app, &agent_id) {
+        Ok(server) => serde_json::to_value(server).into_iter().collect(),
+        Err(error) => {
+            eprintln!("Sikemux browser tools are unavailable to this agent: {error}");
+            Vec::new()
+        }
+    };
+    let launch = ChatLaunch {
+        agent_id: agent_id.clone(),
+        provider: provider.clone(),
+        cwd: PathBuf::from(&cwd),
+        program: program.program,
+        args: program.args,
+        env: program.env,
+        mcp_servers,
+        resume_id: resume_id.clone(),
+        permission_mode,
+        model,
+        effort,
+    };
+    let client = core(&pty).await?;
+    let started = client
+        .submit(
+            Request::AcpStart {
+                launch: Box::new(launch),
+            },
+            |reply| match reply {
+                Ok(Reply::Response(Response::ChatStarted { start })) => Ok(start),
+                Ok(_) => Err(ClientError::UnexpectedReply),
+                Err(error) => Err(error),
+            },
         )
-        .await;
-        if let Err(error) = &result {
-            emit(
-                &task_app,
-                &task_agent_id,
-                "status",
-                json!({ "state": "error" }),
-            );
-            if let Ok(mut sender) = task_ready.lock() {
-                if let Some(sender) = sender.take() {
-                    let _ = sender.send(Err(error.clone()));
-                }
-            }
-            emit(
-                &task_app,
-                &task_agent_id,
-                "error",
-                json!({ "message": error }),
-            );
-        } else {
-            emit(
-                &task_app,
-                &task_agent_id,
-                "status",
-                json!({ "state": "stopped" }),
-            );
-        }
-        task_manager
-            .connections
-            .remove_if(&task_agent_id, |_, handle| {
-                handle.generation == task_generation
-            });
-        task_manager.cancel_permissions(Some(&task_agent_id));
+        .map_err(failure)?;
+    // A stop that came while the launch was prepared reaches the core after
+    // the start, whichever of the two it raced.
+    let stopped = manager
+        .installing
+        .remove_if(&agent_id, |_, (id, _)| *id == launch_id)
+        .is_none();
+    if stopped {
+        let _ = client.acp_stop(agent_id).await;
+        return Err("ACP session stopped before initialization completed".into());
+    }
+    let start = started.await.map_err(failure)?.map_err(failure)?;
+    manager.show(
+        &agent_id,
+        StreamMark {
+            provider: provider.clone(),
+            cwd: cwd.clone(),
+            config_path: config_path.clone(),
+            session_id: start.session_id.clone(),
+        },
+        false,
+    );
+    let session_id = start.session_id.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::activity::record_launch(
+            &provider,
+            &cwd,
+            "chat",
+            resume_id.is_some().then_some(session_id.as_str()),
+            config_path.as_deref(),
+        )
     });
-    let abort = task.inner().abort_handle();
-    match manager.connections.entry(agent_id.clone()) {
-        Entry::Vacant(entry) => {
-            entry.insert(AcpConnectionHandle {
-                generation,
-                commands: commands_tx,
-                abort,
-                install_cancellation,
-            });
-        }
-        Entry::Occupied(_) => {
-            task.abort();
-            return Err("ACP session is already running".into());
-        }
-    }
-    let _ = launch_tx.send(());
+    Ok(start)
+}
 
-    match tokio::time::timeout(START_TIMEOUT, ready_rx).await {
-        Ok(Ok(result)) => result,
-        Ok(Err(_)) => {
-            if let Some((_, connection)) = owned_manager
-                .connections
-                .remove_if(&agent_id, |_, handle| handle.generation == generation)
-            {
-                connection.install_cancellation.cancel();
-                connection.abort.abort();
-            }
-            Err("ACP session stopped before initialization completed".into())
-        }
-        Err(_) => {
-            if let Some((_, connection)) = owned_manager
-                .connections
-                .remove_if(&agent_id, |_, handle| handle.generation == generation)
-            {
-                let _ = connection.commands.send(AcpCommand::Stop);
-                connection.install_cancellation.cancel();
-                connection.abort.abort();
-            }
-            Err("ACP adapter did not become ready within 150 seconds".into())
-        }
+/// What the page hears back from an attach. The replay itself arrives as
+/// `acp_event`s before any live event.
+#[derive(Serialize)]
+#[serde(
+    tag = "status",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+pub enum Attachment {
+    Live {
+        start: ChatStart,
+        permission_mode: String,
+        running: bool,
+        turned: bool,
+    },
+    Missing,
+    Restart,
+}
+
+/// Takes up a chat the core already runs, if it runs one for this agent.
+#[tauri::command]
+pub async fn acp_attach(
+    app: AppHandle,
+    manager: State<'_, AcpManager>,
+    pty: State<'_, PtyManager>,
+    agent_id: String,
+    provider: String,
+    cwd: String,
+    config_path: Option<String>,
+) -> Result<Attachment, String> {
+    bounded_text("agent id", &agent_id, MAX_AGENT_ID)?;
+    let client = core(&pty).await?;
+    let replaying = app.clone();
+    let replay_agent = agent_id.clone();
+    // The replay goes to the page on the connection's reader, before any
+    // event the core sent after it.
+    let replied = client
+        .submit(
+            Request::AcpAttach {
+                agent_id: agent_id.clone(),
+                since: None,
+            },
+            move |reply| match reply {
+                Ok(Reply::Response(Response::ChatAttached { attachment })) => {
+                    Ok(match attachment {
+                        ChatAttachment::Live {
+                            start,
+                            permission_mode,
+                            running,
+                            turned,
+                            replay: events,
+                            ..
+                        } => {
+                            replay(&replaying, &replay_agent, events);
+                            Attachment::Live {
+                                start: *start,
+                                permission_mode,
+                                running,
+                                turned,
+                            }
+                        }
+                        ChatAttachment::Missing => Attachment::Missing,
+                        // Only an attach that names a mark is resumed, and this one names none.
+                        ChatAttachment::Restart | ChatAttachment::Resumed { .. } => {
+                            Attachment::Restart
+                        }
+                    })
+                }
+                Ok(_) => Err(ClientError::UnexpectedReply),
+                Err(error) => Err(error),
+            },
+        )
+        .map_err(failure)?;
+    let attachment = replied.await.map_err(failure)?.map_err(failure)?;
+    if let Attachment::Live { start, running, .. } = &attachment {
+        manager.show(
+            &agent_id,
+            StreamMark {
+                provider,
+                cwd,
+                config_path,
+                session_id: start.session_id.clone(),
+            },
+            *running,
+        );
     }
+    Ok(attachment)
+}
+
+/// The chats the core runs, for the page to stop the ones it no longer shows.
+#[tauri::command]
+pub async fn acp_list(pty: State<'_, PtyManager>) -> Result<Vec<ChatInfo>, String> {
+    core(&pty).await?.acp_list().await.map_err(failure)
 }
 
 #[tauri::command]
-pub fn acp_prompt(
-    manager: State<'_, AcpManager>,
+pub async fn acp_set_permission_mode(
+    pty: State<'_, PtyManager>,
+    agent_id: String,
+    permission_mode: String,
+) -> Result<(), String> {
+    core(&pty)
+        .await?
+        .acp_set_permission_mode(agent_id, permission_mode)
+        .await
+        .map_err(failure)
+}
+
+#[tauri::command]
+pub async fn acp_set_config(
+    pty: State<'_, PtyManager>,
+    agent_id: String,
+    config_id: String,
+    value: String,
+) -> Result<Value, String> {
+    core(&pty)
+        .await?
+        .acp_set_config(agent_id, config_id, value)
+        .await
+        .map_err(failure)
+}
+
+#[tauri::command]
+pub async fn acp_prompt(
+    pty: State<'_, PtyManager>,
     agent_id: String,
     text: String,
     paths: Vec<String>,
+    context: Vec<ChatContext>,
 ) -> Result<(), String> {
-    let Some(connection) = manager.connections.get(&agent_id) else {
-        return Err("ACP session is not running".into());
-    };
-    connection
-        .commands
-        .send(AcpCommand::Prompt { text, paths })
-        .map_err(|_| "ACP session stopped".into())
+    core(&pty)
+        .await?
+        .acp_prompt(agent_id, text, paths, context)
+        .await
+        .map_err(failure)
 }
 
 /// Puts a message into the running turn, answering `promptRequired` when the
 /// turn ended first and the caller should send it as a prompt of its own.
 #[tauri::command]
 pub async fn acp_steer(
-    manager: State<'_, AcpManager>,
+    pty: State<'_, PtyManager>,
     agent_id: String,
     text: String,
     paths: Vec<String>,
+    context: Vec<ChatContext>,
 ) -> Result<String, String> {
-    let (reply, response) = oneshot::channel();
-    {
-        let Some(connection) = manager.connections.get(&agent_id) else {
-            return Err("ACP session is not running".into());
-        };
-        connection
-            .commands
-            .send(AcpCommand::Steer { text, paths, reply })
-            .map_err(|_| "ACP session stopped".to_string())?;
-    }
-    response
+    core(&pty)
+        .await?
+        .acp_steer(agent_id, text, paths, context)
         .await
-        .map_err(|_| "ACP session stopped".to_string())?
+        .map_err(failure)
 }
 
 #[tauri::command]
-pub fn acp_cancel(manager: State<'_, AcpManager>, agent_id: String) -> Result<(), String> {
-    let Some(connection) = manager.connections.get(&agent_id) else {
-        return Err("ACP session is not running".into());
-    };
-    connection
-        .commands
-        .send(AcpCommand::Cancel)
-        .map_err(|_| "ACP session stopped".into())
+pub async fn acp_cancel(pty: State<'_, PtyManager>, agent_id: String) -> Result<(), String> {
+    core(&pty)
+        .await?
+        .acp_cancel(agent_id)
+        .await
+        .map_err(failure)
 }
 
 #[tauri::command]
-pub fn acp_stop_task(
-    manager: State<'_, AcpManager>,
+pub async fn acp_stop_task(
+    pty: State<'_, PtyManager>,
     agent_id: String,
     task_id: String,
 ) -> Result<(), String> {
-    bounded_text("task id", &task_id, 256)?;
-    let Some(connection) = manager.connections.get(&agent_id) else {
-        return Err("ACP session is not running".into());
-    };
-    connection
-        .commands
-        .send(AcpCommand::StopTask { task_id })
-        .map_err(|_| "ACP session stopped".into())
+    core(&pty)
+        .await?
+        .acp_stop_task(agent_id, task_id)
+        .await
+        .map_err(failure)
 }
 
 #[tauri::command]
-pub fn acp_permission_reply(
-    manager: State<'_, AcpManager>,
+pub async fn acp_permission_reply(
+    pty: State<'_, PtyManager>,
     agent_id: String,
     request_id: String,
     option_id: Option<String>,
 ) -> Result<(), String> {
-    let request = {
-        let mut permissions = manager
-            .permissions
-            .lock()
-            .map_err(|_| "ACP permission state is unavailable")?;
-        let Some(request) = permissions.get(&request_id) else {
-            return Err("ACP permission request is no longer pending".into());
-        };
-        if request.agent_id != agent_id {
-            return Err("ACP permission request belongs to another agent".into());
-        }
-        if let Some(option_id) = &option_id {
-            if !request.option_ids.contains(option_id) {
-                return Err("ACP permission option is invalid".into());
-            }
-        }
-        permissions
-            .remove(&request_id)
-            .ok_or("ACP permission request is no longer pending")?
-    };
-    let outcome = match option_id {
-        Some(option_id) => {
-            RequestPermissionOutcome::Selected(SelectedPermissionOutcome::new(option_id))
-        }
-        None => RequestPermissionOutcome::Cancelled,
-    };
-    request
-        .responder
-        .respond(RequestPermissionResponse::new(outcome))
-        .map_err(|error| error.to_string())
+    core(&pty)
+        .await?
+        .acp_permission_reply(agent_id, request_id, option_id)
+        .await
+        .map_err(failure)
 }
 
 #[tauri::command]
-pub fn acp_stop(manager: State<'_, AcpManager>, agent_id: String) -> Result<(), String> {
-    let Some((_, connection)) = manager.connections.remove(&agent_id) else {
-        manager.cancel_permissions(Some(&agent_id));
-        return Ok(());
-    };
-    manager.cancel_permissions(Some(&agent_id));
-    connection.install_cancellation.cancel();
-    let sent = connection
-        .commands
-        .send(AcpCommand::Stop)
-        .map_err(|_| "ACP session already stopped".into());
-    connection.abort.abort();
-    sent
+pub async fn acp_stop(
+    manager: State<'_, AcpManager>,
+    pty: State<'_, PtyManager>,
+    agent_id: String,
+) -> Result<(), String> {
+    if let Some((_, (_, installing))) = manager.installing.remove(&agent_id) {
+        installing.cancel();
+    }
+    manager.forget(&agent_id);
+    core(&pty).await?.acp_stop(agent_id).await.map_err(failure)
 }
 
 #[cfg(test)]
@@ -1441,71 +862,14 @@ mod tests {
     use super::*;
 
     #[test]
-    fn adapter_commands_are_version_pinned() {
-        assert_eq!(adapter_spec("claude").unwrap().package, CLAUDE_ADAPTER);
-        assert_eq!(adapter_spec("codex").unwrap().package, CODEX_ADAPTER);
-    }
-
-    #[test]
     fn adapter_transport_bypasses_package_manager_stdio() {
         let executable = Path::new("/tmp/claude-agent-acp/dist/index.js");
-        let config = adapter_config("claude", executable, None, None, &[]).unwrap();
-        assert_eq!(config.command(), Path::new("node"));
+        let program = adapter_program("claude", executable, None, None, &[]).unwrap();
         assert_eq!(
-            config.arguments(),
-            &[executable.to_string_lossy().to_string()]
+            program.program.file_name().and_then(|name| name.to_str()),
+            Some("node")
         );
-    }
-
-    #[test]
-    fn permissions_use_advertised_provider_modes() {
-        for (provider, normal, bypass) in [
-            ("codex", "read-only", "agent-full-access"),
-            ("claude", "acceptEdits", "bypassPermissions"),
-            ("hermes", "accept_edits", "dont_ask"),
-        ] {
-            let setup =
-                json!({ "modes": { "availableModes": [{ "id": normal }, { "id": bypass }] } });
-            assert_eq!(
-                permission_mode_id(provider, "workspace-write", &setup).unwrap(),
-                Some(normal)
-            );
-            assert_eq!(
-                permission_mode_id(provider, "bypass", &setup).unwrap(),
-                Some(bypass)
-            );
-            assert!(permission_mode_id(provider, "invalid", &setup).is_err());
-            assert!(permission_mode_id(provider, "bypass", &json!({})).is_err());
-        }
-    }
-
-    #[test]
-    fn agents_without_permission_modes_are_answered_by_the_host() {
-        for provider in ["opencode", "omp", "grok"] {
-            assert_eq!(
-                permission_mode_id(provider, "bypass", &json!({})).unwrap(),
-                None
-            );
-            assert_eq!(
-                permission_mode_id(provider, "workspace-write", &json!({})).unwrap(),
-                None
-            );
-            assert!(approves_for_user(provider, "bypass"));
-            assert!(!approves_for_user(provider, "workspace-write"));
-        }
-        assert!(approves_for_user("hermes", "bypass"));
-        assert!(!approves_for_user("claude", "bypass"));
-        assert!(!approves_for_user("codex", "bypass"));
-    }
-
-    #[test]
-    fn native_agents_run_their_own_binary() {
-        let config = native_config(Path::new("/bin/grok"), &["agent", "stdio"], &[]);
-        assert_eq!(config.command(), Path::new("/bin/grok"));
-        assert_eq!(
-            config.arguments(),
-            &["agent".to_string(), "stdio".to_string()]
-        );
+        assert_eq!(program.args, [executable.to_string_lossy().to_string()]);
     }
 
     #[test]
@@ -1514,7 +878,7 @@ mod tests {
             ("codex", "CODEX_PATH", "CODEX_HOME"),
             ("claude", "CLAUDE_CODE_EXECUTABLE", "CLAUDE_CONFIG_DIR"),
         ] {
-            let config = adapter_config(
+            let program = adapter_program(
                 provider,
                 Path::new("/adapter/index.js"),
                 Some("/profile"),
@@ -1523,25 +887,86 @@ mod tests {
             )
             .unwrap();
             assert_eq!(
-                config.environment().get(executable_key).map(String::as_str),
+                program.env.get(executable_key).map(String::as_str),
                 Some("/custom/agent")
             );
             assert_eq!(
-                config.environment().get(config_key).map(String::as_str),
+                program.env.get(config_key).map(String::as_str),
                 Some("/profile")
             );
         }
     }
 
     #[test]
-    fn prompt_rejects_relative_attachment_paths() {
-        let error = prompt_blocks(String::new(), vec!["relative.txt".into()]).unwrap_err();
-        assert_eq!(error, "attachment paths must be absolute");
+    fn native_agents_run_their_own_binary_in_acp_mode() {
+        let program = native_program(
+            Path::new("/bin/grok"),
+            native::arguments("grok").unwrap(),
+            &[],
+        );
+        assert_eq!(program.program, Path::new("/bin/grok"));
+        assert_eq!(program.args, ["agent", "--no-leader", "stdio"]);
     }
 
     #[test]
-    fn prompt_accepts_text_and_resource_links() {
-        let blocks = prompt_blocks("inspect this".into(), vec!["/tmp/example.txt".into()]).unwrap();
-        assert_eq!(blocks.len(), 2);
+    fn only_named_valid_variables_are_forwarded() {
+        let env = forwarded_environment(&["PATH".into(), "PATH".into(), "BAD-KEY".into()]);
+        assert_eq!(env.keys().collect::<Vec<_>>(), ["PATH"]);
+    }
+
+    #[test]
+    fn config_files_name_their_directory() {
+        assert_eq!(
+            expand_config_path("/home/me/.codex/config.toml"),
+            Path::new("/home/me/.codex")
+        );
+        assert_eq!(
+            expand_config_path("/home/me/.claude"),
+            Path::new("/home/me/.claude")
+        );
+    }
+
+    #[test]
+    fn every_event_kind_keeps_the_name_the_page_reads() {
+        for (kind, name) in [
+            (ChatEventKind::Status, "status"),
+            (ChatEventKind::Ready, "ready"),
+            (ChatEventKind::SessionUpdate, "session_update"),
+            (ChatEventKind::TurnStarted, "turn_started"),
+            (ChatEventKind::TurnCompleted, "turn_completed"),
+            (ChatEventKind::PermissionRequest, "permission_request"),
+            (ChatEventKind::Error, "error"),
+        ] {
+            assert_eq!(kind_name(kind), name);
+            assert_eq!(serde_json::to_value(kind).unwrap(), name);
+        }
+    }
+
+    #[test]
+    fn an_attachment_reads_as_the_page_expects() {
+        let live = Attachment::Live {
+            start: ChatStart {
+                session_id: "s".into(),
+                capabilities: json!({}),
+                setup: json!({}),
+            },
+            permission_mode: "bypass".into(),
+            running: true,
+            turned: false,
+        };
+        assert_eq!(
+            serde_json::to_value(live).unwrap(),
+            json!({
+                "status": "live",
+                "start": { "sessionId": "s", "capabilities": {}, "setup": {} },
+                "permissionMode": "bypass",
+                "running": true,
+                "turned": false,
+            })
+        );
+        assert_eq!(
+            serde_json::to_value(Attachment::Restart).unwrap(),
+            json!({ "status": "restart" })
+        );
     }
 }

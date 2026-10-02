@@ -89,6 +89,26 @@ const toolchainPaths = [
 for (const path of new Set(toolchainPaths))
   run("install_name_tool", ["-delete_rpath", path, destination]);
 
+// A release publishes the helper beside the app instead of bundling it, so it is
+// signed here the way the bundler signs what it ships: hardened runtime, and the
+// app's microphone entitlement.
+if (!args.includes("--dev")) {
+  const identity = process.env.APPLE_SIGNING_IDENTITY || "-";
+  run("codesign", [
+    "--force",
+    "--identifier",
+    "com.nodelike.sikemux.voice",
+    "--options",
+    "runtime",
+    "--entitlements",
+    join(tauriDir, "Entitlements.plist"),
+    ...(identity === "-" ? [] : ["--timestamp"]),
+    "--sign",
+    identity,
+    destination,
+  ]);
+}
+
 if (target === hostTriple() || target === "universal-apple-darwin") {
   const version = run(destination, ["--version"], { capture: true });
   if (!version.startsWith(name))

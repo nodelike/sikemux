@@ -1,0 +1,74 @@
+/* A new pull request's column: the two branches, then a message box like the commit box, then the branch's files and commits. */
+.pr-new-head {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    gap: var(--space-1h);
+    min-width: 0;
+    padding: var(--space-2) 10px 0;
+}
+.pr-new-head > .dd:first-child {
+    flex: 0 1 auto;
+    min-width: 0;
+}
+.pr-new-branch.dd-btn {
+    height: 26px;
+    max-width: 100%;
+    overflow: hidden;
+    padding: 0 var(--space-2);
+    gap: var(--space-1h);
+    background: none;
+    font-size: var(--text-xs);
+}
+.pr-new-branch .dd-icon {
+    color: var(--text-tertiary);
+}
+.pr-new-branch .dd-val {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.pr-new-into {
+    flex: none;
+    color: var(--text-tertiary);
+    font-size: var(--text-xs);
+}
+.pr-new-push {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    margin: var(--space-2) 10px 0;
+    padding: 5px 5px 5px 10px;
+    border: 1px solid color-mix(in srgb, var(--warn) 35%, var(--border));
+    border-radius: var(--radius-2);
+    background: color-mix(in srgb, var(--warn) 8%, transparent);
+    color: var(--warn);
+    font-size: var(--text-xs);
+}
+.pr-new-push > .gha-btn {
+    margin-left: auto;
+}
+.pr-new-title {
+    display: block;
+    width: 100%;
+    padding: 9px 10px 2px;
+    border: 0;
+    outline: 0;
+    background: transparent;
+    color: var(--text-primary);
+    font: inherit;
+    font-size: var(--text-sm);
+    font-weight: var(--weight-medium);
+}
+.shell .pr-new-title {
+    border-radius: 0 !important;
+}
+.pr-new-title::placeholder {
+    color: var(--text-disabled);
+}
+.git-compose-message.pr-new-body {
+    min-height: 56px;
+    padding-top: 4px;
+}

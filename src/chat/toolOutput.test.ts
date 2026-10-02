@@ -47,6 +47,35 @@ describe("toolOutput", () => {
         expect(output?.text.startsWith("line 0\n")).toBe(true);
     });
 
+    it("joins what a command wrote to both streams, skipping an empty one", () => {
+        expect(toolOutput(call({ rawOutput: { stdout: "built", stderr: "1 warning" } }))?.text).toBe("built\n1 warning");
+        expect(toolOutput(call({ rawOutput: { stdout: "", stderr: "boom" } }))?.text).toBe("boom");
+    });
+
+    it("reads an error given as text or as an object with a message", () => {
+        expect(toolOutput(call({ rawOutput: { error: "timed out" } }))?.text).toBe("timed out");
+        expect(toolOutput(call({ rawOutput: { error: { message: "denied" } } }))?.text).toBe("denied");
+    });
+
+    it("has nothing to show when the call handed back nothing it can read", () => {
+        expect(toolOutput(call({ rawOutput: { exit_code: 0 } }))).toBeNull();
+        expect(toolOutput(call({ rawOutput: 42 }))).toBeNull();
+        expect(toolOutput(call({ rawOutput: [{ type: "image" }] }))).toBeNull();
+    });
+
+    it("keeps the head of one very long line and says it was cut", () => {
+        const output = toolOutput(call({ rawOutput: "x".repeat(20_000) }));
+        expect(output?.cut).toBe(true);
+        expect(output?.text).toHaveLength(16_000);
+    });
+
+    it("lets go of a picture too big, or not a picture, or with no bytes", () => {
+        const mcp = (content: unknown[]) => toolOutput(call({ title: "mcp__x__shot", kind: "other", content }));
+        expect(mcp([{ type: "content", content: { type: "image", data: "A".repeat(1024 * 1024 + 1), mimeType: "image/png" } }])).toBeNull();
+        expect(mcp([{ type: "content", content: { type: "image", data: "AAAA", mimeType: "text/plain" } }])).toBeNull();
+        expect(mcp([{ type: "content", content: { type: "image", mimeType: "image/png" } }, "stray"])).toBeNull();
+    });
+
     it("leaves reads and edits alone, since their rows already show what they touched", () => {
         expect(toolOutput(call({ kind: "read", title: "src/app.ts", rawOutput: "export {}" }))).toBeNull();
         expect(toolOutput(call({ kind: "edit", title: "src/app.ts", rawOutput: "ok" }))).toBeNull();

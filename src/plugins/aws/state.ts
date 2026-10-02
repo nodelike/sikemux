@@ -48,7 +48,6 @@ export function setAwsService(service: AwsService): void {
 export type AwsSelection = Partial<Record<"cluster" | "service" | "ec2" | "lambda" | "sqs" | "s3" | "month", string>>;
 
 interface AwsView {
-    authModal: { profile: string; ssoStartUrl: string | null } | null;
     /** How far into ECS each profile has drilled. */
     ecsViews: Record<string, EcsLevel>;
     selection: Record<string, AwsSelection>;
@@ -58,15 +57,7 @@ interface AwsView {
     counts: Record<string, Partial<Record<AwsService, string>>>;
 }
 
-export const useAws = create<AwsView>()(() => ({ authModal: null, ecsViews: {}, selection: {}, lambdaLogs: {}, counts: {} }));
-
-export function openAwsAuthModal(profile: string, ssoStartUrl: string | null): void {
-    useAws.setState({ authModal: { profile, ssoStartUrl } });
-}
-
-export function closeAwsAuthModal(): void {
-    useAws.setState({ authModal: null });
-}
+export const useAws = create<AwsView>()(() => ({ ecsViews: {}, selection: {}, lambdaLogs: {}, counts: {} }));
 
 export function setEcsLevel(profile: string, level: EcsLevel): void {
     useAws.setState((state) => ({ ecsViews: { ...state.ecsViews, [profile]: level } }));

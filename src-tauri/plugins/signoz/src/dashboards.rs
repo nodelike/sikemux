@@ -13,6 +13,7 @@ use serde_json::{json, Map, Value};
 use crate::client;
 use crate::error::{SignozError, SignozResult};
 use crate::filter::Scope;
+use crate::query::View;
 
 #[derive(Serialize, Debug, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -110,6 +111,55 @@ pub async fn list(data_dir: &Path) -> SignozResult<Vec<DashboardSummary>> {
 #[derive(Deserialize)]
 pub struct DashboardRequest {
     pub id: String,
+    #[serde(default)]
+    pub view: View,
+}
+
+/// A panel as an agent reads it: enough to pick one and ask for its data.
+#[derive(Serialize, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct PanelSummary {
+    pub id: String,
+    pub title: String,
+    pub kind: String,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub unit: String,
+    pub drawable: bool,
+}
+
+#[derive(Serialize, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct DashboardOutline {
+    pub id: String,
+    pub title: String,
+    pub variables: Vec<Variable>,
+    pub panels: Vec<PanelSummary>,
+}
+
+#[derive(Serialize)]
+#[serde(untagged)]
+pub enum DashboardReply {
+    Full(Dashboard),
+    Outline(DashboardOutline),
+}
+
+fn outline(dashboard: Dashboard) -> DashboardOutline {
+    DashboardOutline {
+        id: dashboard.id,
+        title: dashboard.title,
+        variables: dashboard.variables,
+        panels: dashboard
+            .panels
+            .into_iter()
+            .map(|panel| PanelSummary {
+                id: panel.id,
+                title: panel.title,
+                kind: panel.kind,
+                unit: panel.unit,
+                drawable: panel.drawable,
+            })
+            .collect(),
+    }
 }
 
 fn checked_id(id: &str) -> SignozResult<&str> {
@@ -120,8 +170,16 @@ fn checked_id(id: &str) -> SignozResult<&str> {
     Ok(id)
 }
 
-pub async fn get(data_dir: &Path, request: DashboardRequest) -> SignozResult<Dashboard> {
-    let id = checked_id(&request.id)?;
+pub async fn get(data_dir: &Path, request: DashboardRequest) -> SignozResult<DashboardReply> {
+    let dashboard = fetch(data_dir, &request.id).await?;
+    Ok(match request.view {
+        View::Pane => DashboardReply::Full(dashboard),
+        View::Agent => DashboardReply::Outline(outline(dashboard)),
+    })
+}
+
+async fn fetch(data_dir: &Path, id: &str) -> SignozResult<Dashboard> {
+    let id = checked_id(id)?;
     let answer = client::request(
         data_dir,
         Method::GET,
@@ -427,13 +485,7 @@ pub struct SavedPanel {
 }
 
 pub async fn saved_panel(data_dir: &Path, request: SavedPanelRequest) -> SignozResult<SavedPanel> {
-    let dashboard = get(
-        data_dir,
-        DashboardRequest {
-            id: request.dashboard_id,
-        },
-    )
-    .await?;
+    let dashboard = fetch(data_dir, &request.dashboard_id).await?;
     let panel = dashboard
         .panels
         .into_iter()
@@ -668,6 +720,14 @@ mod tests {
                 options: vec!["dev".into(), "production".into()],
                 selected: "dev".into()
             }]
+        );
+        assert_eq!(
+            serde_json::to_value(outline(dashboard)).unwrap()["panels"],
+            json!([
+                { "id": "a", "title": "Jobs", "kind": "graph", "unit": "ms", "drawable": true },
+                { "id": "b", "title": "Queue", "kind": "value", "drawable": true },
+                { "id": "c", "title": "Spread", "kind": "histogram", "drawable": false },
+            ])
         );
     }
 

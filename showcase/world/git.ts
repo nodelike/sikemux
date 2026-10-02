@@ -25,11 +25,11 @@ export const GIT_STATUS: Record<string, GitStatus> = {
     behind: 0,
     files: [
       staged("src/styles/modern-shell.css"),
-      staged("src/components/AgentRailDensity.test.tsx", "A"),
-      modified("src/components/AgentRail.tsx"),
+      staged("src/rail/AgentRailDensity.test.tsx", "A"),
+      modified("src/rail/AgentRail.tsx"),
       modified("src/styles/tokens.css"),
       modified("DESIGN.md"),
-      untracked("src/components/AgentRailDensity.tsx"),
+      untracked("src/rail/AgentRailDensity.tsx"),
     ],
   },
   [FRONT]: {
@@ -53,7 +53,7 @@ export const GIT_STATUS: Record<string, GitStatus> = {
 
 export const COMMIT_DRAFT: Record<string, string> = {
   [SIKEMUX]:
-    "fix(rail): rows keep one inset and one gap at every density\n\nThe compact density shaved the leading inset but not the gap after the mark, so labels drifted 2px right of the project rows above them.",
+    "fix(sidebar): line up agent names with project names\n\nIn the compact layout the agent names sat 2px to the right of the project names above them. Both now use the same spacing.",
 };
 
 export const BRANCHES: Record<string, string[]> = {

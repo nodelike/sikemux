@@ -4,6 +4,9 @@ set -uo pipefail
 
 cd "$(dirname "$0")/.." || exit 1
 
+# Homebrew's Rust ignores rust-toolchain.toml, so rustup's proxies must come first.
+[ -x "$HOME/.cargo/bin/rustup" ] && PATH="$HOME/.cargo/bin:$PATH"
+
 ZERO='0000000000000000000000000000000000000000'
 BOLD=$'\033[1m'
 DIM=$'\033[2m'
@@ -53,6 +56,14 @@ needs() {
   return 1
 }
 
+rust_toolchain_matches() {
+  pinned="$(sed -n 's/^channel = "\(.*\)"$/\1/p' rust-toolchain.toml)"
+  active="$(rustc -V | cut -d ' ' -f 2)"
+  [ "$active" = "$pinned" ] && return 0
+  printf 'rustc %s is not the %s that rust-toolchain.toml pins and CI builds with; install rustup to get it\n' "$active" "$pinned"
+  return 1
+}
+
 summary() {
   for entry in "${SKIPPED[@]+"${SKIPPED[@]}"}"; do
     printf '%s⚠ unverified: %s%s\n' "$YELLOW" "$entry" "$RESET"
@@ -80,7 +91,7 @@ if [ "${PREPUSH_FULL:-}" = "1" ] || [ -z "$CHANGED" ]; then
   RUST=1 FRONTEND=1 SHELL_SCRIPTS=1 RELEASE=1
 else
   RUST=0 FRONTEND=0 SHELL_SCRIPTS=0 RELEASE=0
-  touches '^src-tauri/' && RUST=1
+  touches '^(src-tauri/|rust-toolchain\.toml$)' && RUST=1
   touches '^(src/|public/|index\.html|package\.json|pnpm-lock\.yaml|vite\.config\.ts|eslint\.config\.js|tsconfig\.json)' && FRONTEND=1
   touches '^scripts/.*\.sh$' && SHELL_SCRIPTS=1
   touches '^(scripts/|package\.json|latest\.json|src-tauri/tauri.*\.conf\.json)' && RELEASE=1
@@ -91,7 +102,9 @@ printf '%sChecking %s commits against the CI gates%s\n' "$BOLD" "$(printf '%s\n'
 # Cheap gates first, so a stray format error does not cost a full test run.
 step 'prettier format' pnpm format:check
 [ "$SHELL_SCRIPTS" = 1 ] && needs shellcheck 'shell lint' && step 'shell lint' shellcheck scripts/*.sh
+[ "$RUST" = 1 ] && step 'rust toolchain' rust_toolchain_matches
 [ "$RUST" = 1 ] && step 'cargo fmt' pnpm rust:fmt:check
+[ "$RUST" = 1 ] && needs cargo-hakari 'workspace-hack' && step 'workspace-hack' pnpm rust:hakari:check
 [ "$RUST" = 1 ] && needs cargo-audit 'rust security audit' && step 'rust security audit' cargo audit --file src-tauri/Cargo.lock
 [ "$FRONTEND" = 1 ] && step 'eslint' pnpm lint
 [ "$FRONTEND" = 1 ] && step 'typescript' pnpm typecheck

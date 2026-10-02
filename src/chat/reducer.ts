@@ -26,7 +26,6 @@ export const initialChatState: ChatState = {
     plan: null,
     usage: null,
     running: false,
-    unprompted: false,
     suppressUserEcho: false,
     error: null,
     title: null,
@@ -141,7 +140,7 @@ function appendChunk(
             contentText !== undefined
                 ? { id: `${messageId}-${partKind}-0`, kind: partKind, text: contentText }
                 : { id: `${messageId}-content-0`, kind: "content", content: boundContent(chunk.content) };
-        const opened: ChatMessage = { id: messageId, role, parts: [part] };
+        const opened: ChatMessage = { id: messageId, role, parts: [part], ...(timed ? { sentAt: Date.now() } : {}) };
         messages.push(stream ? { ...opened, ...timedStream(opened, contentText.length) } : opened);
         nextId += 1;
     } else {
@@ -413,10 +412,15 @@ function contextUsage(update: Record<string, unknown>): ContextUsage | null {
 }
 
 function endTurn(state: ChatState, stopReason: string | null): ChatState {
+    const settled = settleState(state);
+    const last = settled.messages.at(-1);
+    // Only a turn this side watched run has a finish worth stamping.
+    const messages =
+        state.running && last?.role === "assistant" ? [...settled.messages.slice(0, -1), { ...last, endedAt: Date.now() }] : settled.messages;
     return {
-        ...settleState(state),
+        ...settled,
+        messages,
         running: false,
-        unprompted: false,
         suppressUserEcho: false,
         permissions: [],
         stopReason,
@@ -424,27 +428,12 @@ function endTurn(state: ChatState, stopReason: string | null): ChatState {
     };
 }
 
-const TURN_WORK = new Set(["user_message_chunk", "agent_message_chunk", "agent_thought_chunk", "tool_call"]);
-
-/* History a resumed session replays lands before the connection is ready, so
-   work arriving after it with no turn running is the agent answering someone else. */
-function wakeUnprompted(state: ChatState, update: Record<string, unknown>): ChatState {
-    if (state.connection !== "ready" || state.running || !TURN_WORK.has(String(update.sessionUpdate))) return state;
-    return { ...state, running: true, unprompted: true, stopReason: null, error: null, revision: state.revision + 1 };
-}
-
-/* Claude's adapter tags the usage report that closes a turn it ran on its own
-   with where the turn came from. */
-const closesUnpromptedTurn = (state: ChatState, update: Record<string, unknown>): boolean =>
-    state.unprompted && recordOf(update._meta)?.["_claude/origin"] !== undefined;
-
-function sessionUpdate(current: ChatState, sessionId: string, update: Record<string, unknown>): ChatState {
-    const inSubagent = patchSubagent(current, sessionId, (subagent) => {
-        const next = transcriptUpdate(subagent, update, current.running);
+function sessionUpdate(state: ChatState, sessionId: string, update: Record<string, unknown>): ChatState {
+    const inSubagent = patchSubagent(state, sessionId, (subagent) => {
+        const next = transcriptUpdate(subagent, update, state.running);
         return next ? { ...subagent, ...next } : subagent;
     });
     if (inSubagent) return inSubagent;
-    const state = wakeUnprompted(current, update);
 
     if (update.sessionUpdate === "user_message_chunk" && state.suppressUserEcho) return state;
     const streamed = transcriptUpdate(state, update, state.running);
@@ -486,8 +475,7 @@ function sessionUpdate(current: ChatState, sessionId: string, update: Record<str
             return { ...state, setup: { ...state.setup, configOptions: update.configOptions }, revision: state.revision + 1 };
         case "usage_update": {
             const usage = contextUsage(update);
-            const ended = closesUnpromptedTurn(state, update) ? endTurn(state, "end_turn") : state;
-            return usage ? { ...ended, usage, revision: ended.revision + 1 } : ended;
+            return usage ? { ...state, usage, revision: state.revision + 1 } : state;
         }
         case "session_info_update":
             return { ...state, title: typeof update.title === "string" ? update.title : state.title, revision: state.revision + 1 };
@@ -514,7 +502,6 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
                 ...(action.state === "stopped" || action.state === "error" ? settleState(state) : state),
                 connection: action.state,
                 running: action.state === "stopped" || action.state === "error" ? false : state.running,
-                unprompted: action.state === "stopped" || action.state === "error" ? false : state.unprompted,
                 permissions: action.state === "stopped" || action.state === "error" ? [] : state.permissions,
                 tasks: action.state === "stopped" || action.state === "error" ? [] : state.tasks,
                 error: action.state === "error" ? state.error : null,
@@ -530,14 +517,15 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
                     {
                         id,
                         role: "user",
+                        sentAt: Date.now(),
                         parts: action.text.trim() ? [{ id: `${id}-text`, kind: "text", text: action.text }] : [],
                         ...(action.paths.length ? { attachments: action.paths } : {}),
+                        ...(action.context?.length ? { context: action.context.map(({ uri, title }) => ({ uri, title })) } : {}),
                     },
                 ],
                 nextId: state.nextId + 1,
                 suppressUserEcho: true,
                 running: true,
-                unprompted: false,
                 error: null,
                 revision: state.revision + 1,
             };
@@ -549,7 +537,7 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
                 action.update,
             );
         case "turn_started":
-            return { ...state, running: true, unprompted: false, stopReason: null, error: null, revision: state.revision + 1 };
+            return { ...state, running: true, stopReason: null, error: null, revision: state.revision + 1 };
         case "turn_completed":
             return endTurn(state, action.stopReason ?? null);
         case "permission_requested":
@@ -569,7 +557,6 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
                 ...state,
                 connection: state.connection === "ready" ? "ready" : "error",
                 running: false,
-                unprompted: false,
                 permissions: [],
                 error: action.message,
                 revision: state.revision + 1,

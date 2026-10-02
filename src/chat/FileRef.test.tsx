@@ -5,13 +5,14 @@ const mocks = vi.hoisted(() => ({
     pathKinds: vi.fn(),
     revealInFinder: vi.fn(async () => {}),
     requestOpenFile: vi.fn(),
+    openFileOnDesk: vi.fn(),
     copyText: vi.fn(async () => {}),
 }));
 
 vi.mock("../api/fs", () => ({
     fsapi: { pathKinds: mocks.pathKinds, revealInFinder: mocks.revealInFinder },
 }));
-vi.mock("../state/commands", () => ({ requestOpenFile: mocks.requestOpenFile }));
+vi.mock("../state/commands", () => ({ requestOpenFile: mocks.requestOpenFile, openFileOnDesk: mocks.openFileOnDesk }));
 vi.mock("../lib/clipboard", () => ({ copyText: mocks.copyText }));
 
 const { ChatFileRef, PathRootsProvider, useFileRef } = await import("./FileRef");
@@ -79,12 +80,6 @@ describe("files a message names", () => {
         expect(mocks.requestOpenFile).toHaveBeenCalledWith("/work/demo/src/a.ts", 41, undefined);
     });
 
-    it("shows the icon that file has everywhere else", async () => {
-        const { container } = render(<Body text="I edited src/a.ts." />);
-        await screen.findByRole("button", { name: /src\/a\.ts/ });
-        expect(container.querySelector(".chat-file-ref .file-glyph")).not.toBeNull();
-    });
-
     it("leaves the words around it to the sentence", async () => {
         render(<Body text="I edited src/a.ts." />);
         const chip = await screen.findByRole("button", { name: /src\/a\.ts/ });
@@ -102,14 +97,6 @@ describe("files a message names", () => {
     it("gives a path in backticks the same treatment", async () => {
         render(<Body text="Look at `src/a.ts` again." />);
         expect(await screen.findByRole("button", { name: /src\/a\.ts/ })).toBeInTheDocument();
-    });
-
-    it("keeps the look the message gave the name it wrote", async () => {
-        const { rerender } = render(<Body text="Look at `src/a.ts` again." />);
-        expect(await screen.findByRole("button", { name: /src\/a\.ts/ })).toHaveClass("code");
-
-        rerender(<Body text="Look at src/a.ts again." />);
-        expect(await screen.findByRole("button", { name: /src\/a\.ts/ })).toHaveClass("link");
     });
 
     it("puts a name that is not a file back between its backticks", async () => {
@@ -174,5 +161,98 @@ describe("the menu a file opens on right-click", () => {
         fireEvent.contextMenu(screen.getByRole("button", { name: /src\/a\.ts/ }));
         fireEvent.click(screen.getByRole("menuitem", { name: "Copy Path" }));
         expect(mocks.copyText).toHaveBeenCalledWith("/work/demo/src/a.ts");
+    });
+});
+
+describe("a file named in an agent's own chat", () => {
+    function Chip({ raw }: { raw: string | null }) {
+        const file = useFileRef(raw);
+        return file ? <ChatFileRef refers={file.ref} state={file.state} label={raw} /> : <span>plain</span>;
+    }
+
+    function OnDesk({ raw }: { raw: string | null }) {
+        return (
+            <PathRootsProvider cwd={CWD} agentId="agent-1">
+                <Chip raw={raw} />
+            </PathRootsProvider>
+        );
+    }
+
+    it("puts a click on the agent's desk at the named line and column", async () => {
+        render(<OnDesk raw="src/a.ts:12:4" />);
+        const chip = await screen.findByRole("button", { name: /src\/a\.ts/ });
+        expect(chip).toHaveAttribute("title", "/work/demo/src/a.ts:12");
+
+        fireEvent.click(chip, { detail: 1 });
+        expect(mocks.openFileOnDesk).toHaveBeenCalledWith("agent-1", "/work/demo/src/a.ts", 11, 3);
+        expect(mocks.requestOpenFile).not.toHaveBeenCalled();
+    });
+
+    it("opens a double-clicked file in the editor without a second trip to the desk", async () => {
+        render(<OnDesk raw="src/a.ts" />);
+        const chip = await screen.findByRole("button", { name: /src\/a\.ts/ });
+        fireEvent.click(chip, { detail: 1 });
+        fireEvent.click(chip, { detail: 2 });
+        fireEvent.doubleClick(chip);
+
+        expect(mocks.openFileOnDesk).toHaveBeenCalledTimes(1);
+        expect(mocks.requestOpenFile).toHaveBeenCalledWith("/work/demo/src/a.ts", undefined, undefined);
+    });
+
+    it("only reveals a double-clicked folder", async () => {
+        render(<OnDesk raw="src/" />);
+        const chip = await screen.findByRole("button", { name: /src/ });
+        fireEvent.doubleClick(chip);
+
+        expect(mocks.requestOpenFile).not.toHaveBeenCalled();
+        expect(mocks.openFileOnDesk).not.toHaveBeenCalled();
+        expect(chip).toHaveAttribute("data-kind", "dir");
+    });
+
+    it("offers the desk and the editor separately in the menu", async () => {
+        render(<OnDesk raw="src/a.ts" />);
+        fireEvent.contextMenu(await screen.findByRole("button", { name: /src\/a\.ts/ }));
+        fireEvent.click(screen.getByRole("menuitem", { name: "Open on Desk" }));
+        expect(mocks.openFileOnDesk).toHaveBeenCalledWith("agent-1", "/work/demo/src/a.ts", undefined, undefined);
+
+        fireEvent.contextMenu(screen.getByRole("button", { name: /src\/a\.ts/ }));
+        fireEvent.click(screen.getByRole("menuitem", { name: "Open in Editor" }));
+        expect(mocks.requestOpenFile).toHaveBeenCalledWith("/work/demo/src/a.ts", undefined, undefined);
+
+        fireEvent.contextMenu(screen.getByRole("button", { name: /src\/a\.ts/ }));
+        fireEvent.click(screen.getByRole("menuitem", { name: "Open Containing Folder" }));
+        expect(mocks.revealInFinder).toHaveBeenCalledWith("/work/demo/src");
+    });
+
+    it("offers a folder only the ways a folder can be used", async () => {
+        render(<OnDesk raw="src/" />);
+        fireEvent.contextMenu(await screen.findByRole("button", { name: /src/ }));
+
+        expect(screen.getAllByRole("menuitem").map((item) => item.textContent)).toEqual([
+            expect.stringMatching(/^Reveal in /),
+            "Copy Path",
+            "Copy Relative Path",
+            "Copy Name",
+        ]);
+        fireEvent.click(screen.getByRole("menuitem", { name: "Copy Name" }));
+        expect(mocks.copyText).toHaveBeenCalledWith("src");
+    });
+
+    it("copies a file outside the project by its name when asked for its relative path", async () => {
+        EXISTING.add("/etc/hosts");
+        try {
+            render(<OnDesk raw="/etc/hosts" />);
+            fireEvent.contextMenu(await screen.findByRole("button", { name: /\/etc\/hosts/ }));
+            fireEvent.click(screen.getByRole("menuitem", { name: "Copy Relative Path" }));
+            expect(mocks.copyText).toHaveBeenCalledWith("hosts");
+        } finally {
+            EXISTING.delete("/etc/hosts");
+        }
+    });
+
+    it("draws nothing to open for no reference at all", () => {
+        render(<OnDesk raw={null} />);
+        expect(screen.getByText("plain")).toBeInTheDocument();
+        expect(mocks.pathKinds).not.toHaveBeenCalled();
     });
 });

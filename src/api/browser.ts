@@ -1,3 +1,4 @@
+import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { invokeCommand as invoke } from "./invoke";
 import { getIpcTransport } from "./transport";
 
@@ -23,6 +24,24 @@ export interface BrowserSnapshot {
     activeTabId: string | null;
 }
 
+/** A remembered page offered while someone types an address. */
+export interface AddressSuggestion {
+    url: string;
+    title: string;
+    /** The address as the bar writes it: no scheme and no `www.`. */
+    address: string;
+    icon: string | null;
+}
+
+export interface AddressSuggestions {
+    /** A remembered address that begins with what was typed, which the bar finishes in place. */
+    completion: AddressSuggestion | null;
+    pages: AddressSuggestion[];
+    /** Whether the typed text, sent as it is, would be a web search. */
+    searches: boolean;
+    searchUrl: string;
+}
+
 /** A rounded rectangle of the page that the app shows through, in the page's own CSS pixels. */
 export interface BrowserHole {
     x: number;
@@ -41,6 +60,8 @@ export interface BrowserBounds {
     clipLeft: number;
     clipRight: number;
     holes: BrowserHole[];
+    /** How dark a shade to lay over the page, from 0 to 1. */
+    dim?: number;
 }
 
 /** A command chord pressed while a page had keyboard focus. */
@@ -62,6 +83,11 @@ export interface BrowserDownload {
     state: "started" | "finished" | "failed";
 }
 
+/** Pages are webviews of their own, and one that has the keyboard keeps it until the app's webview takes it back. */
+export function takeKeyboardFromPages(): Promise<void> {
+    return getCurrentWebview().setFocus();
+}
+
 export const browserApi = {
     snapshot: (agentId: string, signal?: AbortSignal) => invoke<BrowserSnapshot>("browser_snapshot", { agentId }, signal ? { signal } : undefined),
     newTab: (agentId: string, url?: string) => invoke<string>("browser_new_tab", { agentId, url: url ?? null }),
@@ -69,6 +95,7 @@ export const browserApi = {
     switchTab: (agentId: string, tabId: string) => invoke<void>("browser_switch_tab", { agentId, tabId }),
     closeTab: (agentId: string, tabId: string) => invoke<void>("browser_close_tab", { agentId, tabId }),
     navigate: (agentId: string, url: string) => invoke<void>("browser_navigate", { agentId, url }),
+    suggest: (query: string) => invoke<AddressSuggestions>("browser_suggest", { query }),
     back: (agentId: string) => invoke<void>("browser_back", { agentId }),
     forward: (agentId: string) => invoke<void>("browser_forward", { agentId }),
     reload: (agentId: string) => invoke<void>("browser_reload", { agentId }),

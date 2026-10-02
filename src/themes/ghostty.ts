@@ -1,5 +1,5 @@
 import { contrastRatio, readableColor } from "../lib/themeContrast";
-import { GHOSTTY_THEMES } from "./ghostty.generated";
+import GHOSTTY_THEMES from "./ghostty-themes.json";
 
 const channels = (color: string) => [1, 3, 5].map((at) => parseInt(color.slice(at, at + 2), 16));
 
@@ -88,5 +88,7 @@ export function ghosttyTheme(name: string, encoded: string, accent?: string): Th
 
 /** Ghostty's catalogue, minus any theme whose name matches one in `skipNames` once spaces and punctuation are ignored. */
 export function ghosttyThemes(skipNames: ReadonlySet<string>): ThemeColours[] {
-    return GHOSTTY_THEMES.filter(([name]) => !skipNames.has(slugify(name).replace(/-/g, ""))).map(([name, encoded]) => ghosttyTheme(name, encoded));
+    return Object.entries(GHOSTTY_THEMES)
+        .filter(([name]) => !skipNames.has(slugify(name).replace(/-/g, "")))
+        .map(([name, encoded]) => ghosttyTheme(name, encoded));
 }

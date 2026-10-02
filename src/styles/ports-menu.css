@@ -1,0 +1,107 @@
+.env-dd-menu.tb-ports-menu {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-1);
+    min-width: 260px;
+    max-width: 360px;
+    max-height: 420px;
+    overflow-y: auto;
+    background: var(--surface-overlay);
+    box-shadow: var(--shadow-2);
+}
+.tb-ports-head {
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-2);
+    padding: var(--space-1) var(--space-1h) 0;
+}
+.tb-ports-title {
+    color: var(--text-tertiary);
+    font-size: var(--text-3xs);
+    letter-spacing: var(--tracking-label);
+    text-transform: uppercase;
+}
+.tb-ports-hint {
+    min-width: 0;
+    overflow: hidden;
+    color: var(--text-tertiary);
+    font-size: var(--text-2xs);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.tb-port {
+    display: flex;
+    align-items: center;
+    gap: var(--space-1);
+    min-width: 0;
+}
+.tb-port-open {
+    display: grid;
+    flex: 1 1 auto;
+    gap: 1px;
+    min-width: 0;
+    padding: var(--space-1) var(--space-1h);
+    background: transparent;
+    border: 1px solid transparent;
+    color: var(--text-secondary);
+    text-align: left;
+    cursor: pointer;
+    transition:
+        background var(--dur-1),
+        color var(--dur-1);
+}
+.tb-port-open:hover {
+    background: var(--surface-hover);
+    color: var(--text-primary);
+}
+.tb-port-line {
+    display: flex;
+    align-items: center;
+    gap: var(--space-1h);
+    min-width: 0;
+}
+.tb-port-addr {
+    overflow: hidden;
+    font-family: var(--mono);
+    font-size: var(--text-xs);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.tb-port-tag {
+    padding: 0 var(--space-1);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-1);
+    color: var(--text-tertiary);
+    font-size: var(--text-3xs);
+    line-height: 14px;
+}
+.tb-port-meta {
+    overflow: hidden;
+    color: var(--text-tertiary);
+    font-size: var(--text-2xs);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.tb-port-actions {
+    display: inline-flex;
+    flex: 0 0 auto;
+    gap: var(--space-1);
+}
+.tb-port-action {
+    display: inline-grid;
+    place-items: center;
+    width: 22px;
+    height: 22px;
+    padding: 0;
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text-tertiary);
+    cursor: pointer;
+    transition:
+        background var(--dur-1),
+        color var(--dur-1);
+}
+.tb-port-action:hover {
+    background: var(--surface-hover);
+    color: var(--text-primary);
+}

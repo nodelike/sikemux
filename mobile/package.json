@@ -1,0 +1,28 @@
+{
+  "name": "sikemux-mobile",
+  "private": true,
+  "packageManager": "pnpm@10.33.0",
+  "scripts": {
+    "native:ios:sim": "pnpm --filter @sikemux/native ubrn:ios:sim",
+    "native:ios": "pnpm --filter @sikemux/native ubrn:ios",
+    "native:android": "pnpm --filter @sikemux/native ubrn:android",
+    "native:ios:release": "pnpm --filter @sikemux/native ubrn:ios:release",
+    "native:android:release": "pnpm --filter @sikemux/native ubrn:android:release",
+    "native:clean": "pnpm --filter @sikemux/native ubrn:clean",
+    "clean": "rm -rf app/ios app/android app/.expo && pnpm native:clean",
+    "ios": "pnpm --filter sikemux-app ios",
+    "android": "pnpm --filter sikemux-app android",
+    "ios:release": "pnpm --filter sikemux-app ios:release",
+    "android:release": "pnpm --filter sikemux-app android:release",
+    "start": "pnpm --filter sikemux-app start",
+    "typecheck": "pnpm -r typecheck",
+    "lint": "node scripts/check-mac-imports.mjs && pnpm -r --if-present lint",
+    "test": "pnpm -r --if-present test",
+    "format": "pnpm -r --if-present format",
+    "format:check": "pnpm -r --if-present format:check",
+    "design": "node design/build.mjs --serve",
+    "showcase": "node showcase/capture.mjs",
+    "doctor": "node scripts/doctor.mjs",
+    "check": "pnpm typecheck && pnpm lint && pnpm format:check && pnpm test"
+  }
+}

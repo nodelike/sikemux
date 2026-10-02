@@ -1,0 +1,122 @@
+.rnd-pane {
+    --rnd-tint: color-mix(in oklab, var(--ink) 3%, transparent);
+    --rnd-rule: color-mix(in oklab, var(--ink) 7%, transparent);
+    container: rnd-pane / inline-size;
+    display: flex;
+    width: 100%;
+    height: 100%;
+    min-height: 0;
+    color: var(--text-primary);
+    font-family: var(--ui);
+    font-size: var(--text-sm);
+}
+
+.rnd-main {
+    flex: 1 1 auto;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+.rnd-grow {
+    flex: 1 1 auto;
+}
+.rnd-dim {
+    color: var(--text-tertiary);
+}
+.rnd-pad {
+    padding: 0 var(--space-5);
+}
+.rnd-note {
+    padding: var(--space-3) var(--space-5);
+    font-size: var(--text-xs);
+    color: var(--text-tertiary);
+}
+.rnd-link {
+    height: auto;
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--text-secondary);
+    font: inherit;
+    text-decoration: underline;
+    text-decoration-color: var(--border-strong);
+    text-underline-offset: 3px;
+    cursor: pointer;
+}
+.rnd-link:hover {
+    color: var(--text-primary);
+}
+
+.rnd-loading {
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-2);
+    flex-direction: row;
+    font-size: var(--text-xs);
+    color: var(--text-tertiary);
+}
+.rnd-spinner {
+    width: 14px;
+    height: 14px;
+    border-radius: var(--radius-full);
+    border: 1.5px solid var(--border-strong);
+    border-top-color: var(--text-secondary);
+    animation: rnd-spin 0.8s linear infinite;
+    flex: 0 0 auto;
+}
+.rnd-spinner.inline {
+    width: 11px;
+    height: 11px;
+}
+@keyframes rnd-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+@keyframes rnd-pulse {
+    50% {
+        opacity: 0.35;
+    }
+}
+
+.rnd-banner {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--space-2);
+    margin: 0 var(--space-5) var(--space-3);
+    padding: var(--space-2) 10px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-2);
+    background: var(--rnd-tint);
+    font-size: var(--text-xs);
+    line-height: 1.45;
+    color: var(--text-secondary);
+}
+.rnd-banner svg {
+    flex: 0 0 auto;
+    margin-top: 1px;
+}
+.rnd-banner.warn {
+    border-color: color-mix(in oklab, var(--warn) 32%, transparent);
+    background: color-mix(in oklab, var(--warn) 8%, transparent);
+    color: var(--warn);
+}
+.rnd-banner.danger {
+    border-color: color-mix(in oklab, var(--danger) 30%, transparent);
+    background: color-mix(in oklab, var(--danger) 7%, transparent);
+    color: var(--danger);
+}
+.rnd-banner.muted {
+    color: var(--text-tertiary);
+}
+.rnd-banner b {
+    font-weight: var(--weight-semibold);
+}
+.rnd-form .rnd-banner,
+.rnd-insp .rnd-banner {
+    margin: 0;
+}
+.rnd-banner.rnd-inset {
+    margin: 0 var(--space-3) var(--space-2);
+}

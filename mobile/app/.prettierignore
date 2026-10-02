@@ -1,0 +1,4 @@
+ios/
+android/
+.expo/
+src/**/*.generated.ts

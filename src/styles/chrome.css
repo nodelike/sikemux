@@ -203,60 +203,6 @@
     color: var(--text-tertiary);
 }
 
-.tb-version {
-    font-size: 10px;
-    font-weight: 600;
-    letter-spacing: 0.06em;
-    color: var(--text-tertiary);
-    font-variant-numeric: tabular-nums;
-    text-transform: lowercase;
-}
-
-.tb-update {
-    position: relative;
-    overflow: hidden;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    flex: 0 0 auto;
-    margin: 0 12px 8px;
-    height: 30px;
-    padding: 0 11px;
-    background: var(--surface-selected);
-    border: 1px solid var(--border-selected);
-    color: var(--acc);
-    font-family: var(--mono);
-    font-size: var(--text-2xs);
-    font-weight: 600;
-    letter-spacing: 0.04em;
-    text-transform: lowercase;
-    text-align: left;
-    cursor: pointer;
-    transition:
-        background 0.12s,
-        border-color 0.12s,
-        color 0.12s;
-}
-.tb-update:hover:not(:disabled) {
-    background: var(--surface-hover);
-    border-color: var(--border-strong);
-}
-.tb-update-preparing,
-.tb-update-downloading,
-.tb-update-installing,
-.tb-update-restarting {
-    color: var(--warn);
-    border-color: color-mix(in srgb, var(--warn) 45%, transparent);
-    animation: tb-update-pulse 1.4s ease-in-out infinite;
-    cursor: progress;
-}
-.tb-update-error {
-    color: var(--danger);
-    border-color: color-mix(in srgb, var(--danger) 50%, transparent);
-}
-.tb-update-error:hover {
-    background: color-mix(in srgb, var(--danger) 12%, transparent);
-}
 @keyframes tb-update-pulse {
     0%,
     100% {
@@ -265,34 +211,6 @@
     50% {
         opacity: 0.55;
     }
-}
-/* A known download size earns a real bar, so the pulse stands for waiting only. */
-.tb-update-fill {
-    position: absolute;
-    inset: 0 0 0 0;
-    z-index: 0;
-    transform-origin: left center;
-    background: color-mix(in srgb, var(--warn) 20%, transparent);
-    transition: transform 0.18s linear;
-    pointer-events: none;
-}
-.tb-update-measured {
-    animation: none;
-}
-.tb-update-label {
-    position: relative;
-    z-index: 1;
-    line-height: 1;
-    flex: 1 1 auto;
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-.tb-update > svg {
-    position: relative;
-    z-index: 1;
-    flex: 0 0 auto;
 }
 
 .tb-batt {
@@ -418,6 +336,12 @@
 .sess-icon.aws,
 .icon-aws {
     color: var(--brand-aws);
+}
+.icon-github {
+    color: var(--text-primary);
+}
+.icon-bitbucket {
+    color: var(--brand-bitbucket);
 }
 
 .sess-name {
@@ -911,15 +835,77 @@
 }
 .divider-row:hover::after,
 .divider-row.dragging::after,
-.divider-row:focus-visible::after {
+.divider-row:focus-visible:not(.pointer-focus)::after {
     width: 2px;
     background: var(--acc);
     opacity: 1;
 }
 .divider-column:hover::after,
 .divider-column.dragging::after,
-.divider-column:focus-visible::after {
+.divider-column:focus-visible:not(.pointer-focus)::after {
     height: 2px;
     background: var(--acc);
     opacity: 1;
+}
+.space-switch {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    margin: 0 0 6px;
+}
+.space-options {
+    display: flex;
+    flex: 1;
+    min-width: 0;
+    gap: 2px;
+    padding: 2px;
+    overflow-x: auto;
+    scrollbar-width: none;
+    border-radius: 6px;
+    background: var(--surface-hover);
+}
+.space-options > button {
+    display: flex;
+    flex: 0 0 auto;
+    align-items: center;
+    gap: 5px;
+    max-width: 140px;
+    padding: 3px 8px;
+    border-radius: 4px;
+    font-size: var(--text-2xs);
+    color: var(--text-tertiary);
+    transition:
+        color 0.12s,
+        background 0.12s;
+}
+.space-options > button:hover,
+.space-add:hover {
+    color: var(--text-primary);
+}
+.space-options > button.active {
+    color: var(--text-primary);
+    background: var(--surface);
+    box-shadow: 0 0 0 1px var(--border);
+}
+.space-badge {
+    flex: none;
+    line-height: 1;
+}
+.space-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.space-add {
+    display: flex;
+    flex: none;
+    align-items: center;
+    gap: 5px;
+    padding: 4px 6px;
+    border-radius: 4px;
+    font-size: var(--text-2xs);
+    color: var(--text-tertiary);
+}
+.space-switch.empty .space-add {
+    padding-left: 2px;
 }

@@ -2,42 +2,16 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
-const chat = readFileSync(join(process.cwd(), "src", "styles", "chat.css"), "utf8");
+const stylesDir = join(process.cwd(), "src", "styles");
+const chat = [...readFileSync(join(stylesDir, "chat.css"), "utf8").matchAll(/@import\s+"\.\/([\w/-]+\.css)"/g)]
+    .map((m) => readFileSync(join(stylesDir, m[1]), "utf8"))
+    .join("\n");
 
 function block(selector: string): string {
     const match = chat.match(new RegExp(`(^|\\n)${selector.replace(/[.\\-]/g, "\\$&")}\\s*\\{([^}]*)\\}`));
     expect(match, `${selector} is missing from chat.css`).not.toBeNull();
     return match?.[2] ?? "";
 }
-
-const agents = readFileSync(join(process.cwd(), "src", "styles", "agents.css"), "utf8");
-
-describe("the yolo ring", () => {
-    /* A gradient that moves by its own background position repaints the ring
-       on every frame, and the ring is on screen for as long as the mode is. A
-       strip that slides behind a fixed window is the compositor's work. */
-    it("moves a strip rather than repainting the border", () => {
-        for (const sheet of [chat, agents]) {
-            expect(sheet).not.toMatch(/animation:\s*yolo-flow/);
-            expect(sheet).toMatch(/\.yolo-ring::before\s*\{[^}]*animation:\s*yolo-slide/);
-            expect(sheet).toMatch(/\.yolo-ring\s*\{[^}]*overflow:\s*hidden/);
-        }
-        expect(agents).toMatch(/@keyframes yolo-slide\s*\{[^@]*transform:\s*translateX\(-50%\)/);
-    });
-});
-
-/* The glyph is drawn from a font whose icons are far taller than the letters
-   beside them. Sat on the shared baseline it rode above the words; given a
-   height it pushed the line apart and dropped the full stop after it. */
-describe("the icon on a file reference", () => {
-    it("is centred on the letters rather than stood on the baseline", () => {
-        expect(block(".chat-file-ref .file-glyph")).toMatch(/vertical-align:\s*middle/);
-    });
-
-    it("adds no height of its own to the line it lands in", () => {
-        expect(block(".chat-file-ref .file-glyph")).toMatch(/line-height:\s*0/);
-    });
-});
 
 describe("chat overflow", () => {
     /* A user bubble is sized to its own content, and a box sized that way grows

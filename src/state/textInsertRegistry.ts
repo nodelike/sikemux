@@ -47,6 +47,12 @@ export function focusedTextInsertTarget(): HTMLElement | null {
     return null;
 }
 
+/** The first surface inside `root` that accepts typed text. */
+export function textInsertTargetWithin(root: HTMLElement): HTMLElement | null {
+    for (const el of handlers.keys()) if (root.contains(el)) return el;
+    return null;
+}
+
 export function insertText(el: HTMLElement, text: string): boolean {
     const fn = handlers.get(el);
     if (!fn) return false;

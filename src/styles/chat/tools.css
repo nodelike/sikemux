@@ -1,0 +1,514 @@
+/* ── a run of tool calls ──────────────────────────────────────────────
+ *
+ * The same tree the side rail draws (restored-rails.css): one hairline spine,
+ * a 9px tick per row, a 16px icon slot. Each row paints its own segment of the
+ * spine, and the last row's segment stops at its tick — that is the elbow.
+ * Erasing it instead would need a ground to erase with, and a pane has none.
+ */
+.chat-tools {
+    margin: 7px 0;
+    font-family: var(--mono);
+    font-size: var(--text-2xs);
+}
+
+/* Pulled back by its own padding so the count still starts on the prose's left
+   edge, while the hover pill sits evenly around it. */
+.chat-tools-sum {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    max-width: 100%;
+    height: 22px;
+    margin-left: -6px;
+    padding: 0 6px;
+    border-radius: var(--radius-1);
+    color: var(--ink-dim);
+}
+
+.chat-tools-sum:hover {
+    background: color-mix(in oklab, var(--ink) 6%, transparent);
+    color: var(--ink);
+}
+
+.chat-tools-label {
+    min-width: 0;
+    overflow: hidden;
+    color: var(--ink-dim);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* What Claude said the running command is for reads as a sentence, so it is
+   set a step larger than the count it stands in for. */
+.chat-tools-label.said {
+    font-size: var(--text-xs);
+}
+
+.chat-tools-calls {
+    color: var(--ink-faint);
+}
+
+.chat-tools-sum > :not(.chat-tools-label) {
+    flex: none;
+}
+
+.chat-tools-time,
+.chat-tool-end {
+    color: var(--ink-dim);
+    font-variant-numeric: tabular-nums;
+}
+
+.chat-tools-chevron {
+    opacity: 0.7;
+    transition: transform 120ms;
+}
+
+.chat-tools-sum[aria-expanded="true"] .chat-tools-chevron {
+    transform: rotate(90deg);
+}
+
+.chat-tools-body {
+    margin-left: 6px;
+    padding: 2px 0;
+}
+
+/* flow-root keeps an open detail's bottom margin inside the node, so the spine
+   runs on to the next row instead of breaking under it. */
+.chat-tool-node {
+    position: relative;
+    display: flow-root;
+}
+
+.chat-tool-node::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    width: 1px;
+    background: var(--tree-spine);
+}
+
+.chat-tool-node:last-child::before {
+    bottom: auto;
+    box-sizing: border-box;
+    width: 9px;
+    height: 11.5px;
+    background: none;
+    border-left: 1px solid var(--tree-spine);
+    border-bottom: 1px solid var(--tree-tick);
+    border-bottom-left-radius: 4px;
+}
+
+.chat-tool-node:last-child > .chat-tool > .chat-tool-line > .chat-tool-tick {
+    background: none;
+}
+
+/* The row takes the pointer across the whole width of the run, while the
+   hover fill hugs what is in it: from just before the icon to just past the
+   time, leaving the tick and the spine outside. */
+.chat-tool {
+    display: block;
+    width: 100%;
+    color: var(--ink-dim);
+    text-align: left;
+}
+
+/* A row is a button once it has something to open, and buttons take the sans
+   everywhere else; a command stays in the mono the run is set in. */
+button.chat-tool,
+button.chat-tool-end {
+    font-family: inherit;
+}
+
+.chat-tool-line {
+    position: relative;
+    isolation: isolate;
+    display: grid;
+    grid-template-columns: 9px 16px var(--chat-kind, 46px) minmax(0, max-content) auto;
+    align-items: center;
+    gap: var(--space-2);
+    width: max-content;
+    max-width: 100%;
+    min-height: 22px;
+    padding-right: 6px;
+}
+
+.chat-tool-line::after {
+    content: "";
+    position: absolute;
+    inset: 0 0 0 13px;
+    z-index: -1;
+    border-radius: var(--radius-2);
+    transition: background 90ms;
+}
+
+button.chat-tool:hover > .chat-tool-line::after,
+.chat-tool:has(button.chat-tool-end:hover) > .chat-tool-line::after {
+    background: color-mix(in oklab, var(--ink) 6%, transparent);
+}
+
+.chat-tool-tick {
+    width: 9px;
+    height: 1px;
+    background: var(--tree-tick);
+}
+
+.chat-tool-icon {
+    display: grid;
+    place-items: center;
+    color: var(--ink-dim);
+}
+
+/* A call is coloured by what it did — looked, changed, removed or ran — using
+ * the same status colours a diff already uses, mixed back toward the body text
+ * so a run of six reads as a column of labels rather than a rainbow. Only the
+ * kind and its glyph take the colour; the target it names stays neutral. */
+.chat-tool[data-kind="read"] .chat-tool-icon,
+.chat-tool[data-kind="read"] .chat-tool-kind,
+.chat-tool[data-kind="search"] .chat-tool-icon,
+.chat-tool[data-kind="search"] .chat-tool-kind,
+.chat-tool[data-kind="fetch"] .chat-tool-icon,
+.chat-tool[data-kind="fetch"] .chat-tool-kind {
+    color: color-mix(in oklab, var(--git-renamed) 76%, var(--ink-dim));
+}
+
+.chat-tool[data-kind="edit"] .chat-tool-icon,
+.chat-tool[data-kind="edit"] .chat-tool-kind,
+.chat-tool[data-kind="move"] .chat-tool-icon,
+.chat-tool[data-kind="move"] .chat-tool-kind {
+    color: color-mix(in oklab, var(--git-modified) 76%, var(--ink-dim));
+}
+
+.chat-tool[data-kind="delete"] .chat-tool-icon,
+.chat-tool[data-kind="delete"] .chat-tool-kind {
+    color: color-mix(in oklab, var(--git-deleted) 76%, var(--ink-dim));
+}
+
+.chat-tool[data-kind="execute"] .chat-tool-icon,
+.chat-tool[data-kind="execute"] .chat-tool-kind {
+    color: color-mix(in oklab, var(--cmd) 70%, var(--ink-dim));
+}
+
+/* A call that left the machine entirely, named for the server it went to. */
+.chat-tool[data-kind="mcp"] .chat-tool-icon,
+.chat-tool[data-kind="mcp"] .chat-tool-kind {
+    color: color-mix(in oklab, var(--live) 66%, var(--ink-dim));
+}
+
+/* However it went in, a call that failed says so first. */
+.chat-tool.status-failed .chat-tool-icon,
+.chat-tool.status-failed .chat-tool-kind {
+    color: var(--danger);
+}
+
+/* A call the turn cut off before it answered. */
+.chat-tool.status-cancelled {
+    opacity: 0.6;
+}
+
+.chat-tool-kind {
+    overflow: hidden;
+    color: var(--ink-dim);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* One call, one line — a run of ten stays ten lines however long the commands
+   in it are. The whole of it is on the row's tooltip. */
+.chat-tool-target {
+    min-width: 0;
+    overflow: hidden;
+    color: var(--ink);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.chat-tool-link {
+    color: var(--acc);
+    text-decoration: none;
+}
+
+.chat-tool-link:hover {
+    text-decoration: underline;
+}
+
+.chat-tool-end {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    justify-self: start;
+    font-size: var(--text-3xs);
+}
+
+.chat-tool-stat {
+    display: flex;
+    gap: 5px;
+}
+
+.chat-diff-adds {
+    color: var(--git-added);
+}
+
+.chat-diff-dels {
+    color: var(--git-deleted);
+}
+
+.chat-tool-chevron {
+    opacity: 0.55;
+    transition: transform 120ms;
+}
+
+/* A row that only holds output shows it can open once it is pointed at. */
+.chat-tool-chevron.quiet {
+    opacity: 0;
+}
+
+.chat-tool:hover .chat-tool-chevron.quiet {
+    opacity: 0.55;
+}
+
+.chat-tool[aria-expanded="true"] .chat-tool-chevron,
+.chat-tool [aria-expanded="true"] .chat-tool-chevron {
+    transform: rotate(90deg);
+    opacity: 1;
+}
+
+/* A call still running reads like the Thinking row: the words shimmer, the
+   icon breathes, and the seconds count up where the duration will go. */
+.chat-tool.live .chat-tool-icon {
+    animation: chat-activity-breathe 1.5s ease-in-out infinite;
+}
+
+.chat-tool.live .chat-tool-target,
+.chat-tools-sum.live .chat-tools-label,
+.chat-subagent.state-running .chat-subagent-task,
+.chat-task-agent .chat-task-detail {
+    background: linear-gradient(90deg, var(--ink-faint) 40%, var(--ink) 50%, var(--ink-faint) 60%) 100% 0 / 300% 100%;
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    animation: chat-activity-shimmer 2.2s linear infinite;
+}
+
+.chat-tool.live .chat-tool-target * {
+    color: inherit;
+}
+
+.chat-tool-elapsed {
+    color: color-mix(in srgb, var(--ink-faint) 68%, transparent);
+    font-family: var(--mono);
+    font-size: calc(9.5px * var(--chat-text-em, 1));
+}
+
+.chat-tool-detail {
+    margin: 1px 0 6px 33px;
+}
+
+.chat-tool-out {
+    color: color-mix(in oklab, var(--danger) 78%, var(--ink));
+    font-size: var(--text-2xs);
+    line-height: 1.55;
+    white-space: pre-wrap;
+}
+
+/* ── a command and what it printed ────────────────────────────────── */
+.chat-tool-terminal {
+    overflow: hidden;
+    border: 1px solid var(--line-soft);
+    border-radius: var(--radius-2);
+    background: color-mix(in srgb, var(--void) 62%, transparent);
+    font-size: var(--text-2xs);
+    line-height: 17px;
+}
+
+.chat-tool-terminal pre {
+    margin: 0;
+    font: inherit;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    user-select: text;
+}
+
+.chat-tool-terminal > * + :not(.chat-tool-exit) {
+    border-top: 1px solid var(--line-soft);
+}
+
+.chat-tool-command {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) 18px;
+    align-items: start;
+    gap: 7px;
+    padding: 5px 5px 5px 9px;
+}
+
+.chat-tool-prompt {
+    color: color-mix(in oklab, var(--cmd) 70%, var(--ink-dim));
+    line-height: 18px;
+    user-select: none;
+}
+
+.chat-tool-command pre {
+    padding-top: 1px;
+    color: var(--ink);
+}
+
+.chat-tool-output {
+    position: relative;
+}
+
+.chat-tool-output pre {
+    padding: 6px 30px 7px 9px;
+    color: var(--ink-dim);
+}
+
+.chat-tool-output.folded pre {
+    mask-image: linear-gradient(to bottom, #000 60%, transparent);
+}
+
+.chat-tool-output .copy-btn {
+    position: absolute;
+    top: 5px;
+    right: 5px;
+}
+
+.chat-tool-output.empty,
+.chat-tool-note {
+    padding: 5px 9px;
+    color: var(--ink-faint);
+    font-size: var(--text-3xs);
+}
+
+.chat-tool-more {
+    display: block;
+    width: 100%;
+    height: 22px;
+    padding-left: 9px;
+    color: var(--ink-faint);
+    font-family: var(--mono);
+    font-size: var(--text-3xs);
+    text-align: left;
+}
+
+.chat-tool-more:hover {
+    background: color-mix(in oklab, var(--ink) 6%, transparent);
+    color: var(--ink-dim);
+}
+
+.chat-tool-exit {
+    padding: 0 9px 6px;
+    color: var(--danger);
+    font-size: var(--text-3xs);
+}
+
+.chat-tool-picture {
+    padding: 4px;
+}
+
+.chat-tool-picture .chat-image {
+    width: 300px;
+    max-width: 100%;
+    margin: 0;
+    border-radius: var(--radius-1);
+}
+
+/* ── the hunk an edit made ────────────────────────────────────────── */
+.chat-diff {
+    overflow: hidden;
+    border: 1px solid var(--line-soft);
+    border-radius: var(--radius-2);
+    background: color-mix(in srgb, var(--void) 62%, transparent);
+    font-size: var(--text-2xs);
+    line-height: 17px;
+}
+
+.chat-diff-head {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    height: 22px;
+    padding: 0 9px;
+    border-bottom: 1px solid var(--line-soft);
+    color: var(--ink-faint);
+    font-size: var(--text-3xs);
+}
+
+.chat-diff-head .file-glyph {
+    width: auto;
+    user-select: none;
+}
+
+.chat-diff-path {
+    min-width: 0;
+    overflow: hidden;
+    color: var(--ink-dim);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.chat-diff-head .chat-diff-adds {
+    margin-left: auto;
+}
+
+.chat-diff-body {
+    overflow-x: auto;
+    padding: 3px 0;
+}
+
+.chat-diff-line {
+    display: grid;
+    grid-template-columns: 30px 12px minmax(0, 1fr);
+    white-space: pre;
+}
+
+.chat-diff-ln {
+    padding-right: var(--space-2);
+    color: color-mix(in oklab, var(--ink-faint) 58%, transparent);
+    font-size: var(--text-3xs);
+    text-align: right;
+}
+
+.chat-diff-sign {
+    color: color-mix(in oklab, var(--ink-faint) 70%, transparent);
+}
+
+.chat-diff-line.add {
+    background: color-mix(in oklab, var(--git-added) 9%, transparent);
+}
+
+.chat-diff-line.add .chat-diff-sign {
+    color: var(--git-added);
+}
+
+.chat-diff-line.del {
+    background: color-mix(in oklab, var(--git-deleted) 9%, transparent);
+}
+
+.chat-diff-line.del .chat-diff-sign {
+    color: var(--git-deleted);
+}
+
+.chat-diff-line mark {
+    border-radius: var(--radius-1);
+    background: color-mix(in oklab, var(--git-added) 26%, transparent);
+    color: inherit;
+}
+
+.chat-diff-line.del mark {
+    background: color-mix(in oklab, var(--git-deleted) 26%, transparent);
+}
+
+.chat-diff-gap {
+    width: 100%;
+    height: 20px;
+    padding-left: 42px;
+    color: var(--ink-faint);
+    font-family: var(--mono);
+    font-size: var(--text-3xs);
+    text-align: left;
+}
+
+.chat-diff-gap:hover {
+    background: color-mix(in oklab, var(--ink) 6%, transparent);
+    color: var(--ink-dim);
+}

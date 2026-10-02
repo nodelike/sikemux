@@ -1,0 +1,169 @@
+/* ── agents ─────────────────────────────────────────── */
+.agent-mode-settings {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: var(--space-2);
+}
+.agent-mode-settings button {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+    min-height: 62px;
+    padding: var(--space-2) var(--space-3);
+    border: 1px solid var(--border);
+    background: var(--s-raised);
+    color: var(--text-secondary);
+    text-align: left;
+    cursor: pointer;
+    transition:
+        background var(--dur-1),
+        border-color var(--dur-1),
+        color var(--dur-1);
+}
+.agent-mode-settings button:hover {
+    background: var(--surface-hover);
+    border-color: var(--border-strong);
+}
+.agent-mode-settings button.active {
+    background: var(--surface-selected);
+    border-color: var(--border-selected);
+}
+.agent-mode-settings button.danger.active {
+    border-color: color-mix(in oklab, var(--danger) 52%, transparent);
+    background: color-mix(in oklab, var(--danger) 12%, transparent);
+}
+.agent-mode-settings button:focus-visible {
+    outline: 0;
+    box-shadow: var(--focus-ring);
+}
+.agent-mode-settings span {
+    color: var(--text-primary);
+    font-size: var(--text-sm);
+    font-weight: var(--weight-medium);
+}
+.agent-mode-settings button.danger.active span {
+    color: var(--danger);
+}
+.agent-mode-settings small {
+    color: var(--text-tertiary);
+    font-size: var(--text-xs);
+    line-height: 1.4;
+}
+
+.provider-profile-layout {
+    display: grid;
+    grid-template-columns: minmax(168px, 0.7fr) minmax(280px, 1.4fr);
+    overflow: hidden;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-3);
+    background: var(--s-raised);
+}
+.provider-profile-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-0);
+    padding: var(--space-1h);
+    border-right: 1px solid var(--border);
+}
+.provider-profile-list > button {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    width: 100%;
+    min-height: 40px;
+    padding: var(--space-1) var(--space-2);
+    border: 1px solid transparent;
+    border-radius: var(--radius-2);
+    background: transparent;
+    color: var(--text-secondary);
+    text-align: left;
+    cursor: pointer;
+    transition:
+        background var(--dur-1),
+        border-color var(--dur-1),
+        color var(--dur-1);
+}
+.provider-profile-list > button:hover {
+    background: var(--surface-hover);
+    color: var(--text-primary);
+}
+.provider-profile-list > button.active {
+    background: var(--surface-selected);
+    border-color: var(--border-selected);
+    color: var(--text-primary);
+}
+.provider-profile-list > button:focus-visible {
+    outline: 0;
+    box-shadow: var(--focus-ring);
+}
+.provider-profile-list i {
+    flex: 0 0 4px;
+    width: 4px;
+    height: 22px;
+    border-radius: var(--radius-full);
+}
+.provider-profile-list button > span {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    min-width: 0;
+}
+.provider-profile-list b,
+.provider-profile-list small {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.provider-profile-list b {
+    color: var(--text-primary);
+    font-size: var(--text-sm);
+    font-weight: var(--weight-medium);
+}
+.provider-profile-list small {
+    color: var(--text-tertiary);
+    font-family: var(--mono);
+    font-size: var(--text-2xs);
+}
+.provider-profile-list .provider-profile-new {
+    justify-content: center;
+    min-height: 28px;
+    margin-top: var(--space-1);
+    color: var(--text-tertiary);
+    font-size: var(--text-xs);
+}
+.provider-profile-editor {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+    padding: var(--space-3);
+    background: var(--s-panel);
+}
+.provider-profile-editor .settings-actions {
+    margin-top: auto;
+}
+.provider-profile-editor .settings-rows {
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+}
+.provider-profile-editor .settings-row {
+    padding-inline: 0;
+}
+/* The editor is a narrow column inside a card, so its rows keep the grammar
+   but give the copy back the width the page-wide control column takes. */
+.provider-profile-editor .settings-row.wide {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 220px);
+}
+
+.model-provider-key {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    min-width: 0;
+}
+.model-provider-key .settings-input {
+    flex: 1 1 auto;
+}
+.model-provider-failure {
+    color: var(--danger);
+}

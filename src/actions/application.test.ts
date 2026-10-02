@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import { keybindingLabel } from "../keybindings";
-import type { ProjectAction } from "../projectConfig";
+import { keybindingLabel } from "../commands/keybindings";
+import type { ProjectAction } from "../projects/projectConfig";
 import { ActionNotVisibleError, type ActionContextInput } from "./registry";
 import { ApplicationActionRuntime, StaleProjectActionConfigurationError } from "./application";
 

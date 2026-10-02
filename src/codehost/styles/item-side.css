@@ -1,0 +1,173 @@
+/* Tabs, and the column GitHub keeps down the right of a pull request. */
+.gha-tabs {
+    display: flex;
+    align-items: center;
+    gap: var(--space-1);
+    margin-top: calc(-1 * var(--space-2));
+}
+.gha-tab {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-1h);
+    height: 28px;
+    padding: 0 var(--space-2);
+    border: 1px solid transparent;
+    background: none;
+    color: var(--text-tertiary);
+    font: inherit;
+    font-size: var(--text-xs);
+    cursor: pointer;
+    transition:
+        background var(--dur-1) linear,
+        color var(--dur-1) linear;
+}
+.gha-tab:hover {
+    background: var(--surface-hover);
+    color: var(--text-primary);
+}
+.gha-tab[data-on="1"] {
+    border-color: var(--border-selected);
+    background: var(--surface-selected);
+    color: var(--text-primary);
+}
+.gha-tab-count {
+    min-width: 18px;
+    padding: 0 var(--space-1);
+    border-radius: var(--radius-full);
+    background: var(--gha-tint);
+    font-size: var(--text-3xs);
+    font-variant-numeric: tabular-nums;
+    text-align: center;
+    color: var(--text-secondary);
+}
+.gha-pull-body {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 220px;
+    gap: var(--space-6);
+    align-items: start;
+}
+@container (max-width: 900px) {
+    .gha-pull-body {
+        grid-template-columns: minmax(0, 1fr);
+    }
+    .gha-pull-side {
+        order: -1;
+    }
+}
+.gha-pull-side {
+    display: flex;
+    flex-direction: column;
+}
+.gha-side-part {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1h);
+    padding: var(--space-3) 0;
+    border-bottom: 1px solid var(--gha-rule);
+    font-size: var(--text-2xs);
+    color: var(--text-secondary);
+}
+.gha-side-part:first-child {
+    padding-top: 0;
+}
+.gha-side-title {
+    font-weight: var(--weight-medium);
+    color: var(--text-tertiary);
+}
+.gha-side-none {
+    color: var(--text-tertiary);
+}
+.gha-side-person {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    color: var(--text-primary);
+}
+.gha-side-faces {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-1);
+}
+.gha-side-faces .gha-avatar {
+    width: 22px;
+    height: 22px;
+}
+.gha-page-sentence {
+    gap: var(--space-1h);
+    flex-wrap: wrap;
+}
+.gha-copy-branch {
+    width: 22px;
+    height: 22px;
+}
+.gha-commits {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+}
+.gha-commit {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    padding: var(--space-2) var(--space-3);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-2);
+    background: var(--gha-tint);
+}
+.gha-commit-main {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+.gha-commit-message {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-weight: var(--weight-medium);
+    color: var(--text-primary);
+}
+.gha-commit-sub {
+    font-size: var(--text-2xs);
+    color: var(--text-tertiary);
+}
+.gha-commit-sha {
+    font-family: var(--mono);
+    font-size: var(--text-3xs);
+}
+.gha-comment-box {
+    height: auto;
+    padding: var(--space-2);
+    resize: vertical;
+    font-family: inherit;
+}
+.gha-composer {
+    border: 1px solid var(--border);
+    border-radius: var(--radius-2);
+    background: var(--gha-tint);
+    transition: border-color var(--dur-1) linear;
+}
+.gha-composer:focus-within {
+    border-color: var(--border-selected);
+}
+.gha-composer-box {
+    display: block;
+    width: 100%;
+    min-height: 76px;
+    padding: var(--space-2) var(--space-3);
+    border: 0;
+    background: none;
+    color: var(--text-primary);
+    font: inherit;
+    resize: vertical;
+    outline: none;
+}
+.gha-composer-foot {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: var(--space-2);
+    border-top: 1px solid var(--gha-rule);
+    font-size: var(--text-2xs);
+}

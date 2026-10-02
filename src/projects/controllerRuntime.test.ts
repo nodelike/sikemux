@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { GitWorktree } from "../api/git";
 import { performanceTelemetry } from "../lib/performance";
-import type { ProjectConfigLoadResult } from "../projectConfig";
+import type { ProjectConfigLoadResult } from "./projectConfig";
 import { ProjectControllerRuntime, type ProjectControllerRuntimeServices } from "./controllerRuntime";
 
 function watchToken(sequence: number): string {

@@ -1,30 +1,37 @@
 mod acp;
 mod activity;
-mod agent_detection;
 mod agents;
+#[cfg(target_os = "macos")]
+mod app_menu;
 mod autopsy;
 mod browser;
-mod cli_auth;
 pub mod cli_client;
 mod cli_install;
-mod cli_protocol;
-mod cli_server;
+mod cli_open;
+mod cli_paths;
+mod deep_link;
 mod diff;
+mod document_preview;
 mod error;
 mod external;
+mod file_serving;
 mod files;
 mod fs;
 mod fs_watch;
-mod generated_agent_tools;
 mod git;
 mod grammars;
 mod harness;
+mod login_item;
 mod lsp;
 mod markdown;
+mod model_providers;
 pub mod observability;
 mod plugins;
+mod ports;
+mod preview;
 mod pty;
 mod release_credits;
+mod remote;
 mod search;
 mod settings;
 mod ssh;
@@ -47,6 +54,17 @@ use pty::PtyManager;
 use sikemux_process as bounded_process;
 use tauri::Manager;
 use voice::VoiceManager;
+
+/// The build of this app and of the sidecar bundled with it, which runs the
+/// background core. Both are compiled with the same build script output.
+pub fn build_identity() -> sikemux_core::protocol::BuildIdentity {
+    sikemux_core::protocol::BuildIdentity::new(
+        env!("CARGO_PKG_VERSION"),
+        env!("SIKEMUX_BUILD_COMMIT"),
+        env!("SIKEMUX_BUILD_TIME").parse().unwrap_or(0),
+        env!("SIKEMUX_BUILD_SOURCE"),
+    )
+}
 
 // reqwest is built without a TLS crypto backend of its own, so every HTTP
 // client in the app and its plugins uses the one installed here.
@@ -72,9 +90,13 @@ fn main_window_navigation_guard<R: tauri::Runtime>() -> tauri::plugin::TauriPlug
         .build()
 }
 
+static MAIN_PAGE_LOADED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 pub fn run() {
     install_tls_crypto();
     system::normalize_user_environment();
+    #[cfg(target_os = "linux")]
+    system::avoid_webkit_dmabuf_renderer_on_nvidia();
 
     // Raise our open-file-descriptor limit FIRST, before any subsystem
     // opens an fd. macOS launchd hands GUI apps a soft RLIMIT_NOFILE of 256;
@@ -84,23 +106,21 @@ pub fn run() {
     // all start failing with "Too many open files".
     system::raise_fd_limit();
 
-    // Inherit the user's shell PATH so spawned subprocesses (hermes for
-    // AI commits, rnd CLI, aws CLI, claude, etc.) resolve the same way
-    // they do in `make dev`. macOS GUI launches otherwise get a minimal
-    // PATH that's missing ~/.local/bin, /opt/homebrew/bin, etc.
-    system::fix_path_from_login_shell();
-    cli_server::put_cli_on_path();
+    // Children get the user's shell PATH so hermes, rnd, aws, claude, etc.
+    // resolve the way they do in `make dev`. Reading the login shell takes as
+    // long as the user's rc files, so it runs while the window is created.
+    cli_paths::link_cli_for_children();
+    sikemux_process::user_environment::provide(system::user_environment);
+    std::thread::spawn(sikemux_process::user_environment::warm);
 
-    // Warm the profile-environment cache here, on the startup thread, while
-    // we are already paying for a login shell. It is first *needed* inside
-    // `pty_spawn`, which is an async command — initialising it there would
-    // block an async runtime worker for up to the capture deadline, and
-    // concurrent spawns during session restore would serialise behind the
-    // same one-time initialisation. An rc file that runs something slow like
-    // `fastfetch` makes that delay visible on the first pane.
-    system::warm_login_shell_environment();
-
-    tauri::Builder::default()
+    let builder = tauri::Builder::default();
+    #[cfg(target_os = "macos")]
+    let builder = builder.menu(app_menu::build).on_menu_event(|app, event| {
+        if event.id() == app_menu::QUIT_AND_STOP_EVERYTHING {
+            pty::quit_and_stop_everything(app);
+        }
+    });
+    builder
         // Must be the first plugin: subsequent GUI launches focus the primary
         // process instead of creating a second workspace/CLI broker.
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
@@ -121,74 +141,71 @@ pub fn run() {
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .on_window_event(|window, event| {
-            // Drain every live PTY on close so we don't leave orphan
-            // shells, agents, or `tail`s alive after the user quits.
-            // The OS reaps eventually, but explicit kill avoids the
-            // "still using AI tokens" surprise from a backgrounded agent.
+            // Terminals, terminal agents, tasks and chat agents live in the
+            // core and keep running after the window closes; the next launch
+            // reattaches them.
             if let tauri::WindowEvent::CloseRequested { .. } = event {
                 use tauri::Manager;
                 if let Some(watchdog) = window.try_state::<UiWatchdogState>() {
                     watchdog.suspend();
                 }
                 if let Some(mgr) = window.try_state::<PtyManager>() {
-                    mgr.drain();
+                    mgr.detach_all();
+                }
+                if let Some(harness) = window.try_state::<harness::HarnessBroker>() {
+                    harness.fail_all("Sikemux's window closed before it answered");
                 }
                 if let Some(browser) = window.try_state::<BrowserManager>() {
-                    browser.drain();
+                    browser.drain("the window closed");
                 }
                 if let Some(plugins) = window.try_state::<PluginHost>() {
                     plugins.drain();
-                }
-                if let Some(acp) = window.try_state::<AcpManager>() {
-                    acp.drain();
                 }
                 lsp::drain_all();
             }
         })
         .on_page_load(|webview, payload| {
             // Context-menu reload starts a new page without closing the
-            // native window, so React cleanup is not a reliable place to
-            // kill PTYs. Initial startup has no PTYs yet; reload does.
+            // native window, so React cleanup never runs. Terminals and chat
+            // agents keep running in the core and the new page reattaches them.
             // Browser tabs are webviews too, and a page loading in one of
-            // them is not the app reloading.
+            // them is not the app reloading. Nor is the window's first page:
+            // an agent may already have opened a tab before it commits.
             if webview.label() == "main"
                 && payload.event() == tauri::webview::PageLoadEvent::Started
+                && MAIN_PAGE_LOADED.swap(true, std::sync::atomic::Ordering::AcqRel)
             {
                 use tauri::Manager;
                 autopsy::forget_web_content_pid();
+                document_preview::clear(webview.app_handle());
                 if let Some(watchdog) = webview.try_state::<UiWatchdogState>() {
                     watchdog.suspend();
                 }
                 if let Some(mgr) = webview.try_state::<PtyManager>() {
-                    mgr.drain();
+                    mgr.detach_all();
+                    mgr.update_core_if_stale();
+                }
+                if let Some(harness) = webview.try_state::<harness::HarnessBroker>() {
+                    harness.fail_all("Sikemux's window reloaded before it answered");
                 }
                 if let Some(browser) = webview.try_state::<BrowserManager>() {
-                    browser.drain();
+                    browser.drain(&format!("the window started loading {}", payload.url()));
                 }
                 if let Some(plugins) = webview.try_state::<PluginHost>() {
                     plugins.drain();
-                }
-                if let Some(acp) = webview.try_state::<AcpManager>() {
-                    acp.drain();
                 }
                 lsp::drain_all();
             }
         })
         .setup(|_app| {
             _app.manage(UiWatchdogState::start()?);
+            model_providers::init(_app.path().app_data_dir()?.join("model-providers.json"));
             _app.manage(PluginHost::with_builtins(
                 &_app.path().app_data_dir()?.join("plugins"),
                 &_app.package_info().version,
             )?);
             wheel::watch(_app.handle());
-            let cli_broker = match cli_server::CliBroker::start(_app.handle().clone()) {
-                Ok(cli_broker) => Some(cli_broker),
-                Err(error) => {
-                    eprintln!("Sikemux CLI integration is unavailable: {error}");
-                    None
-                }
-            };
-            _app.manage(cli_server::CliBrokerState(cli_broker));
+            _app.state::<PtyManager>().start(_app.handle());
             // See-through window — same recipe as nackle (NSWindow opaque=NO,
             // CGS background blur via private API). No NSVisualEffectView
             // because its frosted look is heavier than the gaussian CGS blur
@@ -199,6 +216,8 @@ pub fn run() {
                 use tauri::Manager;
                 if let Some(window) = _app.get_window("main") {
                     if let Ok(handle) = window.ns_window() {
+                        // SAFETY: `ns_window()` is the main window's live NSWindow, and
+                        // Tauri runs setup on the main thread.
                         unsafe {
                             transparency::apply(handle, 0);
                         }
@@ -207,12 +226,23 @@ pub fn run() {
             }
             Ok(())
         })
+        .manage(deep_link::DeepLinks::default())
         .manage(PtyManager::default())
+        .manage(harness::HarnessBroker::default())
+        .manage(cli_open::CliOpens::default())
         .manage(AcpManager::default())
+        .manage(remote::PublishedWorkspace::default())
+        .manage(remote::PublishedChats::default())
+        .manage(remote::PublishedPalette::default())
+        .manage(remote::PublishedBackdrop::default())
         .manage(BrowserManager::default())
         .manage(VoiceManager::default())
+        .manage(preview::Previews::default())
+        .register_asynchronous_uri_scheme_protocol(preview::SCHEME, preview::handle)
         .invoke_handler(tauri::generate_handler![
             acp::acp_start,
+            acp::acp_attach,
+            acp::acp_list,
             acp::acp_prompt,
             acp::acp_set_permission_mode,
             acp::acp_set_config,
@@ -221,25 +251,41 @@ pub fn run() {
             acp::acp_stop_task,
             acp::acp_permission_reply,
             acp::acp_stop,
-            pty::pty_spawn,
-            pty::task_spawn,
-            pty::pty_subscribe,
-            pty::pty_unsubscribe,
-            pty::pty_ack,
-            pty::pty_attach,
-            pty::pty_write,
-            pty::pty_resize,
-            pty::pty_reset_modes,
-            pty::pty_kill,
-            pty::agent_detection_explain,
-            pty::agent_detection_manifests,
-            pty::agent_detection_reload,
+            pty::commands::pty_spawn,
+            pty::commands::task_spawn,
+            pty::commands::pty_subscribe,
+            pty::commands::pty_unsubscribe,
+            pty::commands::pty_ack,
+            pty::commands::pty_attach,
+            pty::commands::pty_write,
+            pty::commands::pty_resize,
+            pty::commands::pty_reset_modes,
+            pty::commands::pty_kill,
+            ports::listening_ports,
+            pty::commands::pty_sessions,
+            remote::remote_status,
+            remote::remote_set_enabled,
+            remote::remote_set_device_access,
+            remote::remote_revoke_device,
+            remote::remote_open_pairing,
+            remote::remote_close_pairing,
+            remote::remote_answer_pairing,
+            remote::remote_publish_workspace,
+            remote::remote_publish_chats,
+            remote::remote_publish_palette,
+            remote::remote_publish_backdrop,
+            pty::commands::task_watch,
+            pty::commands::app_quit_and_stop_everything,
+            pty::commands::agent_detection_explain,
+            pty::commands::agent_detection_manifests,
+            pty::commands::agent_detection_reload,
             browser::browser_snapshot,
             browser::browser_new_tab,
             browser::browser_close_agent,
             browser::browser_switch_tab,
             browser::browser_close_tab,
             browser::browser_navigate,
+            browser::browser_suggest,
             browser::browser_back,
             browser::browser_forward,
             browser::browser_reload,
@@ -261,14 +307,16 @@ pub fn run() {
             grammars::grammar_load,
             state::state_load,
             state::state_save,
-            agents::available_agents,
-            agents::agent_models,
-            agents::agent_usage,
-            agents::agent_sessions,
-            agents::agent_session_context,
-            agents::live_agent_sessions,
-            agents::agent_sessions_watch_start,
-            agents::agent_sessions_watch_stop,
+            agents::executable::available_agents,
+            agents::models::agent_models,
+            agents::usage::agent_usage,
+            agents::sessions::agent_sessions,
+            agents::sessions::recent::agent_recent_sessions,
+            agents::sessions::context::agent_session_context,
+            agents::sessions::rename::agent_session_rename,
+            agents::sessions::live_agent_sessions,
+            agents::watch::agent_sessions_watch_start,
+            agents::watch::agent_sessions_watch_stop,
             activity::activity_turn_started,
             activity::activity_turn_ended,
             activity::activity_summary,
@@ -278,7 +326,10 @@ pub fn run() {
             fs::read_file,
             fs::read_file_versioned,
             fs::read_text_file_limited,
-            fs::read_file_base64,
+            fs::open_in_default_app,
+            preview::preview_file,
+            document_preview::document_preview_show,
+            document_preview::document_preview_hide,
             fs::write_file,
             fs::write_file_versioned,
             fs::write_file_new,
@@ -294,60 +345,62 @@ pub fn run() {
             fs::delete_path,
             fs_watch::repo_watch_start,
             fs_watch::repo_watch_stop,
-            git::git_status,
-            git::git_discover_repos,
-            git::git_diff,
-            git::git_stage,
-            git::git_unstage,
-            git::git_stage_paths,
-            git::git_unstage_paths,
-            git::git_stage_all,
-            git::git_unstage_all,
-            git::git_branches,
-            git::git_worktree_list,
-            git::git_worktree_create,
-            git::git_worktree_remove,
-            git::git_checkout,
-            git::git_checkout_smart,
-            git::git_branch_create,
-            git::git_branch_delete,
-            git::git_branch_rename,
-            git::git_merge,
-            git::git_merge_squash,
-            git::git_reset,
-            git::git_revert,
-            git::git_log,
-            git::git_overview,
-            git::git_show,
-            git::git_file_at,
-            git::git_file_diff,
-            git::git_commit_files,
-            git::git_blame,
-            git::git_commit,
-            git::git_push,
-            git::git_pull,
-            git::git_ai_commit,
-            git::git_ai_message,
-            git::pr_open,
-            git::git_discard_file,
-            git::git_discard_files,
-            git::git_stash_list,
-            git::git_stash_push,
-            git::git_stash_apply,
-            git::git_stash_pop,
-            git::git_stash_drop,
-            git::git_stash_branch,
-            git::git_stash_rename,
-            git::git_remotes,
-            git::git_remote_add,
-            git::git_remote_remove,
-            git::git_remote_rename,
-            git::git_remote_set_url,
-            git::git_fetch,
-            git::git_remote_branches,
-            git::git_checkout_remote_branch,
-            git::git_delete_remote_branch,
-            git::git_set_upstream,
+            git::status::git_status,
+            git::status::git_discover_repos,
+            git::changes::git_diff,
+            git::changes::git_stage,
+            git::changes::git_unstage,
+            git::changes::git_stage_paths,
+            git::changes::git_unstage_paths,
+            git::changes::git_stage_all,
+            git::changes::git_unstage_all,
+            git::branches::git_branches,
+            git::worktree::git_worktree_list,
+            git::worktree::git_worktree_create,
+            git::worktree::git_worktree_remove,
+            git::branches::git_checkout,
+            git::branches::git_checkout_smart,
+            git::branches::git_branch_create,
+            git::branches::git_branch_delete,
+            git::branches::git_branch_rename,
+            git::branches::git_merge,
+            git::branches::git_merge_squash,
+            git::branches::git_reset,
+            git::branches::git_revert,
+            git::log::git_log,
+            git::log::git_overview,
+            git::revisions::git_show,
+            git::revisions::git_file_at,
+            git::revisions::git_file_diff,
+            git::revisions::git_commit_files,
+            git::revisions::git_compare,
+            git::blame::git_blame,
+            git::commit::git_commit,
+            git::commit::git_push,
+            git::commit::git_pull,
+            git::ai::git_ai_commit,
+            git::ai::git_ai_message,
+            git::remote::pr_open,
+            git::changes::git_discard_file,
+            git::changes::git_discard_files,
+            git::stash::git_stash_list,
+            git::stash::git_stash_push,
+            git::stash::git_stash_apply,
+            git::stash::git_stash_pop,
+            git::stash::git_stash_drop,
+            git::stash::git_stash_branch,
+            git::stash::git_stash_rename,
+            git::remote::git_remotes,
+            git::remote::git_remote_add,
+            git::remote::git_remote_remove,
+            git::remote::git_remote_rename,
+            git::remote::git_remote_set_url,
+            git::remote::git_fetch,
+            git::remote::git_fetch_ref,
+            git::remote::git_remote_branches,
+            git::remote::git_checkout_remote_branch,
+            git::remote::git_delete_remote_branch,
+            git::remote::git_set_upstream,
             lsp::lsp_install_server,
             lsp::lsp_start,
             lsp::lsp_stop,
@@ -363,6 +416,9 @@ pub fn run() {
             files::list_project_files,
             files::list_project_files_snapshot,
             settings::scan_project_roots,
+            model_providers::model_providers,
+            model_providers::model_provider_connect,
+            model_providers::model_provider_disconnect,
             settings::expand_path,
             settings::is_directory,
             wallpaper::wallpaper_image,
@@ -384,12 +440,14 @@ pub fn run() {
             harness::harness_resolve_path,
             harness::harness_claim,
             harness::harness_reply,
-            pty::harness_task_output,
-            cli_server::cli_frontend_ready,
-            cli_server::cli_claim_open_requests,
-            cli_server::cli_open_result,
-            cli_server::cli_editor_tabs_closed,
-            cli_server::cli_runtime_info,
+            harness::harness_awaiting_trust,
+            harness::harness_stop_runs,
+            cli_open::cli_frontend_ready,
+            cli_open::cli_claim_open_requests,
+            cli_open::cli_open_result,
+            cli_open::cli_editor_tabs_closed,
+            cli_paths::cli_runtime_info,
+            deep_link::take_deep_links,
             cli_install::cli_install_status,
             cli_install::cli_install,
             voice::voice_status,
@@ -402,30 +460,31 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building sikemux")
         .run(|app_handle, event| {
-            // The window-close and reload hooks above only fire on their
-            // specific events. An in-app update relaunches via the process
-            // plugin's `relaunch()` → `app.restart()`, which raises
-            // RunEvent::ExitRequested then RunEvent::Exit but NO window
-            // CloseRequested — so without this hook an update would restart
-            // the process while every live shell/agent is abandoned to the
-            // kernel's PTY hangup (and anything ignoring SIGHUP would leak).
-            // RunEvent::Exit fires on EVERY teardown route — quit, `exit()`,
-            // and restart — and runs before the process is actually replaced.
+            #[cfg(target_os = "macos")]
+            if let tauri::RunEvent::Opened { urls } = &event {
+                deep_link::receive(app_handle, urls);
+            }
+            // RunEvent::Exit fires on every teardown route: quit, `exit()`,
+            // and the restart after an in-app update, which raises no window
+            // CloseRequested. Terminals and chat agents stay in the core on
+            // all of them; only "Quit and Stop Everything" stops them, before
+            // it exits.
             if let tauri::RunEvent::Exit = event {
                 use tauri::Manager;
                 if let Some(watchdog) = app_handle.try_state::<UiWatchdogState>() {
                     watchdog.suspend();
                 }
-                if let Some(state) = app_handle.try_state::<cli_server::CliBrokerState>() {
-                    if let Some(broker) = &state.0 {
-                        broker.shutdown();
-                    }
+                if let Some(harness) = app_handle.try_state::<harness::HarnessBroker>() {
+                    harness.fail_all("Sikemux quit before it answered");
+                }
+                if let Some(opens) = app_handle.try_state::<cli_open::CliOpens>() {
+                    opens.shutdown();
                 }
                 if let Some(mgr) = app_handle.try_state::<PtyManager>() {
-                    mgr.drain();
+                    mgr.release();
                 }
                 if let Some(browser) = app_handle.try_state::<BrowserManager>() {
-                    browser.drain();
+                    browser.drain("Sikemux is quitting");
                 }
                 if let Some(plugins) = app_handle.try_state::<PluginHost>() {
                     plugins.drain();

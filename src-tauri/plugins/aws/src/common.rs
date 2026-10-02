@@ -6,7 +6,6 @@
 //   describe_in_chunks  — run N AWS calls in parallel, splitting `arns` into
 //                         chunks (AWS describe-* commands cap at 10/100/etc)
 
-use std::process::Command;
 use std::time::Duration;
 
 use futures::future::try_join_all;
@@ -31,7 +30,7 @@ pub(crate) fn cli_value(value: &str) -> AwsResult<&str> {
 }
 
 pub(crate) fn aws_bin() -> String {
-    std::env::var("AWS_CLI").unwrap_or_else(|_| "aws".to_string())
+    sikemux_process::user_environment::var("AWS_CLI").unwrap_or_else(|| "aws".to_string())
 }
 
 fn run_aws_cli(
@@ -40,7 +39,7 @@ fn run_aws_cli(
     cancellation: &ProcessCancellation,
 ) -> AwsResult<(bool, String, String)> {
     let bin = aws_bin();
-    let mut cmd = Command::new(&bin);
+    let mut cmd = sikemux_process::user_environment::command(&bin);
     if let Some(p) = profile {
         cmd.env("AWS_PROFILE", p);
     }

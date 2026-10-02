@@ -11,7 +11,7 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const tauriDir = join(root, "src-tauri");
 const binariesDir = join(tauriDir, "binaries");
 const args = process.argv.slice(2);
-const sidecars = ["sikemux-editor", "sikemux-tools-mcp"];
+const sidecars = ["sikemux-editor"];
 
 function fail(message) {
   console.error(`Sidecar build failed: ${message}`);
@@ -104,7 +104,7 @@ const runnable =
   requestedTarget === hostTriple() ||
   requestedTarget === "universal-apple-darwin";
 if (runnable && !args.includes("--skip-smoke")) {
-  const browser = shipped.get("sikemux-tools-mcp");
+  const browser = shipped.get("sikemux-editor");
   try {
     await smokeBrowserSidecar(browser);
   } catch (error) {

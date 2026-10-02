@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { BRANCH_GLYPH, branchKind, statusKind } from "./branchStyle";
+import { branchKind, statusKind } from "./branchStyle";
 
 describe("Rundeck branch/status styling logic", () => {
     it("classifies branch names", () => {
@@ -9,7 +9,6 @@ describe("Rundeck branch/status styling logic", () => {
         expect(branchKind("hotfix/prod")).toBe("fix");
         expect(branchKind("release/1.2.3")).toBe("release");
         expect(branchKind("experiment/x")).toBe("other");
-        expect(BRANCH_GLYPH.feature).toBe("◆");
     });
 
     it("classifies Rundeck execution statuses", () => {

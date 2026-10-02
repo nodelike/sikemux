@@ -11,7 +11,9 @@ use dashmap::DashMap;
 use semver::Version;
 use serde::Serialize;
 use serde_json::Value;
-use sikemux_plugin_api::{AgentTool, Manifest, Plugin, PluginContext, PluginError, StreamSink};
+use sikemux_plugin_api::{
+    AgentTool, Manifest, Plugin, PluginContext, PluginError, PluginResult, StreamSink,
+};
 use tauri::ipc::Channel;
 use tokio::runtime::{Handle, Runtime};
 use tokio::task::JoinHandle;
@@ -26,6 +28,7 @@ struct Loaded {
 
 const PLUGIN_THREADS: usize = 2;
 const CALL_TIMEOUT: Duration = Duration::from_secs(60);
+const AGENT_CHECK_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// Plugins run on threads of their own, so one that blocks or spins starves
 /// other plugins but never the terminals and agents on the app's runtime.
@@ -37,6 +40,14 @@ pub struct PluginHost {
     spawner: Handle,
     /// Switched off in Settings: still built in, but nothing reaches them.
     disabled: RwLock<HashSet<String>>,
+}
+
+/// Every shell variable a built-in plugin reads.
+pub fn shell_variables() -> Vec<String> {
+    builtin::plugins()
+        .iter()
+        .flat_map(|plugin| plugin.manifest().environment.clone())
+        .collect()
 }
 
 impl PluginHost {
@@ -133,8 +144,45 @@ impl PluginHost {
     /// Every tool the loaded plugins offer agents, beside the plugin that answers
     /// it. When two plugins name the same tool, the first keeps it.
     pub fn agent_tools(&self) -> Vec<(&str, &AgentTool)> {
+        self.tools_of(|id| self.is_enabled(id))
+    }
+
+    /// The tools an agent in a repository with these git remotes can use: only
+    /// those of plugins that say they would work there.
+    pub async fn agent_tools_for(&self, remotes: &[String]) -> Vec<(&str, &AgentTool)> {
+        let remotes: Arc<[String]> = remotes.into();
+        let checks: Vec<(&str, JoinHandle<PluginResult<bool>>)> = self
+            .plugins
+            .iter()
+            .filter(|(id, loaded)| {
+                self.is_enabled(id) && !loaded.plugin.manifest().tools.is_empty()
+            })
+            .map(|(id, loaded)| {
+                let plugin = Arc::clone(&loaded.plugin);
+                let context = Arc::clone(&loaded.context);
+                let remotes = Arc::clone(&remotes);
+                let check = self
+                    .spawner
+                    .spawn(async move { plugin.offers_agent_tools(&context, &remotes).await });
+                (id.as_str(), check)
+            })
+            .collect();
+        let mut offering = HashSet::new();
+        for (id, mut check) in checks {
+            match tokio::time::timeout(AGENT_CHECK_TIMEOUT, &mut check).await {
+                Ok(Ok(Ok(true))) => {
+                    offering.insert(id);
+                }
+                Ok(_) => {}
+                Err(_) => check.abort(),
+            }
+        }
+        self.tools_of(|id| offering.contains(id))
+    }
+
+    fn tools_of(&self, include: impl Fn(&str) -> bool) -> Vec<(&str, &AgentTool)> {
         let mut offered: Vec<(&str, &AgentTool)> = Vec::new();
-        for (id, loaded) in self.plugins.iter().filter(|(id, _)| self.is_enabled(id)) {
+        for (id, loaded) in self.plugins.iter().filter(|(id, _)| include(id)) {
             for tool in &loaded.plugin.manifest().tools {
                 if offered.iter().all(|(_, kept)| kept.name != tool.name) {
                     offered.push((id.as_str(), tool));
@@ -353,6 +401,20 @@ mod tests {
     }
 
     #[test]
+    #[cfg(all(feature = "github", feature = "signoz"))]
+    fn collects_the_shell_variables_plugins_read() {
+        let names = shell_variables();
+        for name in [
+            "GH_TOKEN",
+            "GH_ENTERPRISE_TOKEN",
+            "GH_HOST",
+            "SIGNOZ_API_KEY",
+        ] {
+            assert!(names.iter().any(|found| found == name), "{name} is missing");
+        }
+    }
+
+    #[test]
     fn skips_incompatible_and_duplicate_plugins() {
         let host = host(vec![
             Echo::plugin("test.echo", ">=0.4"),
@@ -443,6 +505,86 @@ mod tests {
 
         host.set_disabled(Vec::new());
         assert!(host.call("test.echo", "echo", Value::Null).await.is_ok());
+        assert_eq!(host.agent_tools().len(), 1);
+    }
+
+    /// Offers its tools only to agents whose repository has a remote on `host`.
+    struct Picky {
+        manifest: Manifest,
+        host: &'static str,
+    }
+
+    impl Picky {
+        fn plugin(id: &str, host: &'static str) -> Arc<dyn Plugin> {
+            let manifest = Manifest::from_json(
+                &json!({
+                    "id": id, "name": "Picky", "version": "1.0.0", "sikemux": "*",
+                    "tools": [{ "name": "picky_look", "method": "look", "description": "Look." }],
+                })
+                .to_string(),
+            )
+            .expect("test manifest parses");
+            Arc::new(Self { manifest, host })
+        }
+    }
+
+    impl Plugin for Picky {
+        fn manifest(&self) -> &Manifest {
+            &self.manifest
+        }
+
+        fn call<'a>(
+            &'a self,
+            _ctx: &'a PluginContext,
+            method: &'a str,
+            _params: Value,
+        ) -> PluginFuture<'a, Value> {
+            Box::pin(async move { Err(PluginError::unknown_method(method)) })
+        }
+
+        fn offers_agent_tools<'a>(
+            &'a self,
+            _ctx: &'a PluginContext,
+            remotes: &'a [String],
+        ) -> PluginFuture<'a, bool> {
+            Box::pin(async move { Ok(remotes.iter().any(|remote| remote.contains(self.host))) })
+        }
+    }
+
+    fn offered_to(host: &PluginHost, remotes: &[&str]) -> Vec<String> {
+        let remotes: Vec<String> = remotes.iter().map(|remote| (*remote).to_owned()).collect();
+        tauri::async_runtime::block_on(host.agent_tools_for(&remotes))
+            .into_iter()
+            .map(|(plugin, _)| plugin.to_owned())
+            .collect()
+    }
+
+    #[test]
+    fn an_agent_is_offered_only_the_tools_that_would_work_in_its_repository() {
+        let host = host(vec![
+            Picky::plugin("test.github", "github.com"),
+            Picky::plugin("test.bitbucket", "bitbucket.org"),
+        ]);
+        assert_eq!(
+            offered_to(&host, &["git@bitbucket.org:team/app.git"]),
+            ["test.bitbucket"]
+        );
+        assert!(offered_to(&host, &[]).is_empty());
+
+        host.set_disabled(vec!["test.bitbucket".into()]);
+        assert!(offered_to(&host, &["git@bitbucket.org:team/app.git"]).is_empty());
+    }
+
+    #[test]
+    fn a_tool_name_passes_to_the_next_plugin_when_the_first_is_not_offered() {
+        let host = host(vec![
+            Picky::plugin("test.a", "github.com"),
+            Picky::plugin("test.b", "bitbucket.org"),
+        ]);
+        assert_eq!(
+            offered_to(&host, &["https://bitbucket.org/team/app"]),
+            ["test.b"]
+        );
         assert_eq!(host.agent_tools().len(), 1);
     }
 

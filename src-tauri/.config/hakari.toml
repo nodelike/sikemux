@@ -1,0 +1,21 @@
+# Keeps every workspace build on one set of dependency features, so `-p` runs
+# reuse the app's compiled dependencies instead of building their own copies.
+# Regenerate with `pnpm rust:hakari` after changing dependencies.
+
+hakari-package = "workspace-hack"
+dep-format-version = "4"
+resolver = "2"
+platforms = ["aarch64-apple-darwin"]
+
+# Build scripts and macros run on the Mac and keep their own features, so the
+# app never picks up features only they need.
+unify-target-host = "none"
+
+# The phone library builds only for phone targets, in its own target folders.
+[traversal-excludes]
+workspace-members = ["sikemux-mobile"]
+
+# Tests turn on test-only features of these; unifying them would ship those
+# features in the app.
+[final-excludes]
+third-party = [{ name = "tauri" }, { name = "tokio" }]

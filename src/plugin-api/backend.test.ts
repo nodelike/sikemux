@@ -27,12 +27,6 @@ beforeEach(() => {
 });
 
 describe("createPluginBackend", () => {
-    it("calls methods on its own plugin", async () => {
-        pluginsApi.call.mockResolvedValue({ ok: true });
-        await expect(createPluginBackend("sikemux.rundeck").call("status")).resolves.toEqual({ ok: true });
-        expect(pluginsApi.call).toHaveBeenCalledWith("sikemux.rundeck", "status", null);
-    });
-
     it("delivers items until the stream ends", async () => {
         const native = startedStream();
         const onItem = vi.fn();

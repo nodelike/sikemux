@@ -2,6 +2,7 @@
   "reviewBy": "2026-11-01",
   "allowedRustWarnings": {
     "RUSTSEC-2024-0370": "Build-time macro dependency reached only through Tauri's Linux GTK3 graph; no supported bundle includes it.",
-    "RUSTSEC-2024-0429": "Unsound GLib iterator is in Tauri's Linux-only GTK3 graph; no supported macOS or Windows bundle links GLib."
+    "RUSTSEC-2024-0429": "Unsound GLib iterator is in Tauri's Linux-only GTK3 graph; no supported macOS or Windows bundle links GLib.",
+    "RUSTSEC-2024-0436": "Unmaintained build-time macro reached only through iroh's Linux network monitor (netlink); the macOS bundle does not compile it."
   }
 }

@@ -1,0 +1,196 @@
+/* ── main ───────────────────────────────────────────── */
+.settings-main {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    min-height: 0;
+    background: var(--s-sunken);
+}
+.settings-topbar {
+    display: flex;
+    flex: 0 0 auto;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-3);
+    height: 44px;
+    padding: 0 var(--space-3) 0 var(--space-5);
+    border-bottom: 1px solid var(--border);
+}
+.settings-topbar-title {
+    overflow: hidden;
+    color: var(--text-primary);
+    font-size: var(--text-md);
+    font-weight: var(--weight-semibold);
+    letter-spacing: var(--tracking-tight);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.settings-topbar-close {
+    display: grid;
+    flex: 0 0 auto;
+    place-items: center;
+    width: var(--control-hit);
+    height: var(--control-hit);
+    border: 1px solid transparent;
+    border-radius: var(--radius-2);
+    background: transparent;
+    color: var(--text-tertiary);
+    cursor: pointer;
+    transition:
+        background var(--dur-1),
+        color var(--dur-1);
+}
+.settings-topbar-close:hover {
+    background: var(--surface-hover);
+    color: var(--text-primary);
+}
+.settings-topbar-close:focus-visible {
+    outline: 0;
+    box-shadow: var(--focus-ring);
+}
+
+.settings-scroll {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+}
+.settings-scroll::-webkit-scrollbar {
+    width: 10px;
+}
+.settings-scroll::-webkit-scrollbar-thumb {
+    background: var(--border);
+    background-clip: padding-box;
+    border: 3px solid transparent;
+    border-radius: var(--radius-full);
+}
+
+/* ── page and section ───────────────────────────────── */
+/* Centred, not left-hugging: at a real window width a column pinned to the
+   left leaves a third of the pane as dead black, which reads as broken
+   rather than as restraint. */
+.settings-page {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-6);
+    width: 100%;
+    max-width: 880px;
+    margin-inline: auto;
+    padding: var(--space-5) var(--space-5) var(--space-6);
+}
+.settings-section {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+}
+.settings-section-head {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+}
+.settings-section-topline {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--space-3);
+}
+.settings-section-title {
+    margin: 0;
+    color: var(--text-primary);
+    font-size: var(--text-md);
+    font-weight: var(--weight-semibold);
+    letter-spacing: var(--tracking-tight);
+}
+/* Counts are the machine talking, and they are not selection — so mono, and
+   not the accent. */
+.settings-section-meta {
+    flex: 0 0 auto;
+    color: var(--text-tertiary);
+    font-family: var(--mono);
+    font-size: var(--text-2xs);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+.settings-section-sub {
+    max-width: 68ch;
+    margin: 0;
+    color: var(--text-tertiary);
+    font-size: var(--text-xs);
+    line-height: 1.5;
+}
+.settings-section-body {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+}
+
+/* ── the setting row ────────────────────────────────── */
+/* A section's rows sit in one card. Loose rows on the page ground gave a
+   heading nothing to own, so every page read as a single flat list. */
+.settings-rows {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-3);
+    background: var(--s-raised);
+}
+.settings-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, auto);
+    align-items: center;
+    gap: var(--space-2) var(--space-4);
+    min-height: 40px;
+    padding: var(--space-2) var(--space-3);
+}
+.settings-rows > .settings-row + .settings-row {
+    border-top: 1px solid var(--border);
+}
+label.settings-row {
+    cursor: pointer;
+}
+.settings-row-copy {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+.settings-row-label {
+    color: var(--text-primary);
+    font-size: var(--text-sm);
+    font-weight: var(--weight-medium);
+    letter-spacing: var(--tracking-normal);
+}
+.settings-row-desc {
+    color: var(--text-tertiary);
+    font-size: var(--text-xs);
+    line-height: 1.45;
+}
+.settings-row-control {
+    display: flex;
+    align-items: center;
+    justify-self: end;
+    gap: var(--space-2);
+    min-width: 0;
+}
+/* One width for every control that is not a switch or a button, so the right
+   column lines up from page to page instead of hugging each control. */
+.settings-row.wide {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 300px);
+}
+.settings-row.wide .settings-row-control {
+    width: 100%;
+}
+.settings-row.wide .settings-row-control > * {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+.settings-row.stack {
+    grid-template-columns: minmax(0, 1fr);
+}
+.settings-row.stack .settings-row-control {
+    justify-self: stretch;
+}
+.settings-row.stack .settings-row-control > * {
+    flex: 1 1 auto;
+    min-width: 0;
+}

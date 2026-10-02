@@ -4,8 +4,6 @@
 // saved. A signed-in session keeps only its refresh token there.
 
 use std::path::{Path, PathBuf};
-use std::process::Command;
-use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
@@ -13,8 +11,6 @@ use crate::error::{SignozError, SignozResult};
 
 pub const API_KEY_SERVICE: &str = "signoz-api";
 pub const SESSION_SERVICE: &str = "sikemux-signoz-session";
-const KEYCHAIN_TIMEOUT: Duration = Duration::from_secs(10);
-const KEYCHAIN_OUTPUT_LIMIT: usize = 64 * 1024;
 
 #[derive(Serialize, Deserialize, Clone, Copy, Default, PartialEq, Eq, Debug)]
 #[serde(rename_all = "camelCase")]
@@ -49,8 +45,8 @@ pub fn load(data_dir: &Path) -> SignozConfig {
         .ok()
         .and_then(|bytes| serde_json::from_slice(&bytes).ok())
         .unwrap_or_default();
-    match std::env::var("SIGNOZ_URL") {
-        Ok(url) if !url.trim().is_empty() => with_url_override(config, &url),
+    match sikemux_process::user_environment::var("SIGNOZ_URL") {
+        Some(url) if !url.trim().is_empty() => with_url_override(config, &url),
         _ => config,
     }
 }
@@ -124,71 +120,28 @@ pub fn validate_account(raw: &str) -> SignozResult<String> {
     Ok(account.to_string())
 }
 
-/// Secrets reach `security -i` on a command line it splits on spaces, so
-/// anything that could end the value early is refused rather than escaped.
-fn validate_secret(raw: &str) -> SignozResult<String> {
-    let secret = raw.trim();
-    let allowed =
-        |c: char| c.is_ascii_alphanumeric() || matches!(c, '+' | '/' | '=' | '_' | '-' | '.' | '~');
-    if secret.is_empty() || secret.len() > 4096 || !secret.chars().all(allowed) {
-        return Err(SignozError::BadArg(
-            "that does not look like a SigNoz key or token".into(),
-        ));
+fn keychain_error(error: sikemux_keychain::KeychainError) -> SignozError {
+    match error {
+        sikemux_keychain::KeychainError::Invalid(message) => SignozError::BadArg(message),
+        sikemux_keychain::KeychainError::Failed(message) => SignozError::Keychain(message),
     }
-    Ok(secret.to_string())
-}
-
-fn run_security(args: &[&str], input: Option<&[u8]>) -> SignozResult<std::process::Output> {
-    let mut command = Command::new("security");
-    command.args(args);
-    sikemux_process::run(
-        &mut command,
-        input,
-        KEYCHAIN_TIMEOUT,
-        KEYCHAIN_OUTPUT_LIMIT,
-        None,
-    )
-    .map_err(|error| SignozError::Keychain(error.to_string()))
 }
 
 pub fn keychain_read(service: &str, account: &str) -> SignozResult<Option<String>> {
-    let output = run_security(
-        &["find-generic-password", "-s", service, "-a", account, "-w"],
-        None,
-    )?;
-    if !output.status.success() {
-        return Ok(None);
-    }
-    let secret = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    Ok((!secret.is_empty()).then_some(secret))
+    sikemux_keychain::read(service, account).map_err(keychain_error)
 }
 
-/// `security -i` reads the command from stdin, so the secret never shows up
-/// in the process list the way an argument would.
 pub fn keychain_write(service: &str, account: &str, secret: &str) -> SignozResult<()> {
     let account = validate_account(account)?;
-    let secret = validate_secret(secret)?;
-    let line = format!("add-generic-password -U -s {service} -a {account} -w {secret}\n");
-    let output = run_security(&["-i"], Some(line.as_bytes()))?;
-    if !output.status.success() {
-        return Err(SignozError::Keychain(
-            "the Keychain refused to save it".into(),
-        ));
-    }
-    Ok(())
+    sikemux_keychain::write(service, &account, secret).map_err(keychain_error)
 }
 
 pub fn keychain_delete(service: &str, account: &str) -> SignozResult<()> {
-    run_security(
-        &["delete-generic-password", "-s", service, "-a", account],
-        None,
-    )?;
-    Ok(())
+    sikemux_keychain::delete(service, account).map_err(keychain_error)
 }
 
 pub fn env_api_key() -> Option<String> {
-    std::env::var("SIGNOZ_API_KEY")
-        .ok()
+    sikemux_process::user_environment::var("SIGNOZ_API_KEY")
         .map(|key| key.trim().to_string())
         .filter(|key| !key.is_empty())
 }
@@ -219,10 +172,6 @@ mod tests {
     fn keeps_keychain_arguments_to_safe_characters() {
         assert!(validate_account("work").is_ok());
         assert!(validate_account("a b").is_err());
-        assert!(validate_secret("eyJhbGciOi.J9-_~+/=").is_ok());
-        assert!(validate_secret("abc def").is_err());
-        assert!(validate_secret("abc\n-a other").is_err());
-        assert!(validate_secret("a\"b").is_err());
     }
 
     #[test]

@@ -317,6 +317,15 @@
     overflow: hidden;
     text-overflow: ellipsis;
 }
+/* Grey on purpose: the mark says where the code lives without every row turning a brand colour. */
+.picker-host {
+    display: inline-flex;
+    flex: none;
+    color: var(--text-tertiary);
+}
+.picker-host > svg {
+    color: inherit;
+}
 .picker-tags {
     flex: 0 0 auto;
     display: grid;
@@ -501,6 +510,13 @@
     text-align: right;
     text-overflow: ellipsis;
     white-space: nowrap;
+}
+
+.new-tab-shortcut {
+    flex: none;
+    color: var(--text-tertiary);
+    font-family: var(--mono);
+    font-size: var(--text-2xs);
 }
 
 .new-tab-item:disabled {

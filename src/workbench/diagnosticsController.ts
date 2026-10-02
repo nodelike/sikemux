@@ -48,13 +48,8 @@ export interface DiagnosticsControllerSnapshot {
     readonly activeServers: number;
     readonly documents: number;
     readonly problems: number;
-    readonly connected: boolean;
     readonly disposed: boolean;
 }
-
-export type DiagnosticsDeliveryListener = (payload: LspDiagnosticsPayload, serverGeneration: DiagnosticsServerGeneration) => void;
-
-export type DiagnosticsSourceSubscribe = (listener: DiagnosticsDeliveryListener) => (() => void) | PromiseLike<() => void>;
 
 export const DIAGNOSTICS_CONTROLLER_LIMITS = Object.freeze({
     maxServers: 32,
@@ -204,15 +199,6 @@ function once(callback: () => void): () => void {
     };
 }
 
-function safeDispose(callback: (() => void) | null): void {
-    if (!callback) return;
-    try {
-        callback();
-    } catch {
-        // Subscription teardown must never prevent controller cleanup.
-    }
-}
-
 /** Project-scoped owner for bounded, generation-aware LSP diagnostics. */
 export class DiagnosticsController {
     private readonly servers = new Map<string, ServerState>();
@@ -223,14 +209,9 @@ export class DiagnosticsController {
     private revision = 0;
     private problemsCache: readonly DiagnosticProblem[] | null = null;
     private documentsCache: readonly DiagnosticsDocumentView[] | null = null;
-    private startPromise: Promise<void> | null = null;
-    private unsubscribeSource: (() => void) | null = null;
     private disposed = false;
 
-    constructor(
-        readonly project: string,
-        private readonly sourceSubscribe?: DiagnosticsSourceSubscribe,
-    ) {
+    constructor(readonly project: string) {
         requireProject(project);
     }
 
@@ -241,7 +222,6 @@ export class DiagnosticsController {
             activeServers: Array.from(this.servers.values()).filter((server) => server.active).length,
             documents: Array.from(this.documents.values()).filter((document) => document.diagnostics.length > 0).length,
             problems: this.totalDiagnostics,
-            connected: this.unsubscribeSource !== null,
             disposed: this.disposed,
         });
 
@@ -254,40 +234,6 @@ export class DiagnosticsController {
         this.listeners.add(listener);
         return once(() => this.listeners.delete(listener));
     };
-
-    start(): Promise<void> {
-        if (this.disposed) return Promise.reject(new Error("cannot start a disposed diagnostics controller"));
-        if (!this.sourceSubscribe || this.unsubscribeSource) return Promise.resolve();
-        if (this.startPromise) return this.startPromise;
-
-        let subscription: (() => void) | PromiseLike<() => void>;
-        try {
-            subscription = this.sourceSubscribe((payload, generation) => {
-                this.publish(payload, generation);
-            });
-        } catch (error) {
-            const rejected = Promise.reject(error);
-            void rejected.catch(() => {});
-            return rejected;
-        }
-
-        const pending = Promise.resolve(subscription).then((unsubscribe) => {
-            if (typeof unsubscribe !== "function") throw new TypeError("diagnostics source must return an unsubscribe function");
-            const guarded = once(unsubscribe);
-            if (this.disposed) {
-                safeDispose(guarded);
-                return;
-            }
-            this.unsubscribeSource = guarded;
-            this.commitMutation();
-        });
-        const tracked = pending.finally(() => {
-            if (this.startPromise === tracked) this.startPromise = null;
-        });
-        this.startPromise = tracked;
-        void tracked.catch(() => {});
-        return tracked;
-    }
 
     activateServer(languageInput: string, generationInput: DiagnosticsServerGeneration): boolean {
         if (this.disposed) throw new Error("cannot activate a server on a disposed diagnostics controller");
@@ -425,9 +371,6 @@ export class DiagnosticsController {
     dispose(): void {
         if (this.disposed) return;
         this.disposed = true;
-        const unsubscribe = this.unsubscribeSource;
-        this.unsubscribeSource = null;
-        safeDispose(unsubscribe);
         this.servers.clear();
         this.documents.clear();
         this.totalDiagnostics = 0;

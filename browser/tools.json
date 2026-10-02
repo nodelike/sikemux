@@ -3,14 +3,14 @@
   "guide": {
     "file": "SIKEMUX_GUIDE.md",
     "name": "guide",
-    "description": "Read this before your first task launch or browser click: cursors, idempotency, UI opens, and the tab model.",
+    "description": "Read before your first task launch or browser click. Pass a topic for one area in depth.",
     "comment": "Served by the sidecar from its own bundle, so it has no harness method."
   },
   "tools": [
     {
       "name": "browser_navigate",
       "method": "browser.navigate",
-      "description": "Open a URL in this tab, or a new one with newTab, and wait for the load.",
+      "description": "Open a URL (newTab for a new tab), or go back, forward or reload, and wait for the page. A hard reload skips the cache.",
       "properties": {
         "url": {
           "type": "string",
@@ -18,6 +18,55 @@
         },
         "newTab": {
           "type": "boolean"
+        },
+        "go": {
+          "enum": [
+            "back",
+            "forward",
+            "reload"
+          ]
+        },
+        "hard": {
+          "type": "boolean"
+        },
+        "waitFor": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "text": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 500
+            },
+            "textGone": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 500
+            },
+            "selector": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 512
+            },
+            "selectorGone": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 512
+            },
+            "url": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 2048
+            },
+            "networkIdle": {
+              "type": "boolean"
+            },
+            "timeoutMs": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 60000
+            }
+          }
         },
         "report": {
           "enum": [
@@ -27,17 +76,19 @@
           ]
         }
       },
-      "required": [
-        "url"
-      ]
+      "required": []
     },
     {
       "name": "browser_state",
       "method": "browser.state",
-      "description": "Read the tab: url, title, numbered elements, text and tabs.",
+      "description": "Read the tab: url, title, numbered elements, text and tabs. A selector reads only the text of the parts it matches.",
       "properties": {
         "fullText": {
           "type": "boolean"
+        },
+        "selector": {
+          "type": "string",
+          "maxLength": 512
         }
       },
       "required": []
@@ -65,16 +116,11 @@
     {
       "name": "browser_click",
       "method": "browser.click",
-      "description": "Click a numbered element, a labelled one by text, or an x,y point.",
+      "description": "Click an element by number, text or selector, or a point.",
       "properties": {
         "index": {
           "type": "integer",
           "minimum": 0
-        },
-        "expectLabel": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 500
         },
         "text": {
           "type": "string",
@@ -85,6 +131,16 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 40
+        },
+        "selector": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "expectLabel": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500
         },
         "x": {
           "type": "number",
@@ -113,15 +169,23 @@
     {
       "name": "browser_type",
       "method": "browser.type",
-      "description": "Type into a numbered element, replacing its value, or at the caret.",
+      "description": "Type into a field, replacing its value, or at the caret.",
       "properties": {
         "index": {
           "type": "integer",
           "minimum": 0
         },
+        "selector": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
         "text": {
           "type": "string",
           "maxLength": 20000
+        },
+        "replace": {
+          "type": "boolean"
         },
         "submit": {
           "type": "boolean"
@@ -159,6 +223,74 @@
       "required": [
         "key"
       ]
+    },
+    {
+      "name": "browser_act",
+      "method": "browser.act",
+      "description": "Run clicks, typing and keys in one call.",
+      "properties": {
+        "steps": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 20,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "action": {
+                "enum": ["click", "type", "press"]
+              },
+              "index": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "text": {
+                "type": "string",
+                "maxLength": 20000
+              },
+              "role": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 40
+              },
+              "selector": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 512
+              },
+              "replace": {
+                "type": "boolean"
+              },
+              "expectLabel": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 500
+              },
+              "x": {
+                "type": "number",
+                "minimum": 0
+              },
+              "y": {
+                "type": "number",
+                "minimum": 0
+              },
+              "submit": {
+                "type": "boolean"
+              },
+              "key": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 24
+              }
+            },
+            "required": ["action"]
+          }
+        },
+        "report": {
+          "enum": ["outcome", "changes", "full"]
+        }
+      },
+      "required": ["steps"]
     },
     {
       "name": "browser_drag",
@@ -202,7 +334,7 @@
     {
       "name": "browser_upload",
       "method": "browser.upload",
-      "description": "Give files to a file input, as if picked in its chooser.",
+      "description": "Give files to a file input.",
       "properties": {
         "paths": {
           "type": "array",
@@ -287,25 +419,34 @@
     {
       "name": "browser_scroll",
       "method": "browser.scroll",
-      "description": "Scroll the page, or a numbered element, by deltaY pixels.",
+      "description": "Scroll to an element, by deltaY, or to the top or bottom.",
       "properties": {
         "deltaY": {
           "type": "number"
         },
+        "to": {
+          "enum": [
+            "top",
+            "bottom"
+          ]
+        },
         "index": {
           "type": "integer",
           "minimum": 0
-        }
-      },
-      "required": []
-    },
-    {
-      "name": "browser_extract",
-      "method": "browser.extract",
-      "description": "Read the page's text, or the parts matching a CSS selector.",
-      "properties": {
+        },
+        "text": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500
+        },
+        "role": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 40
+        },
         "selector": {
           "type": "string",
+          "minLength": 1,
           "maxLength": 512
         }
       },
@@ -314,12 +455,17 @@
     {
       "name": "browser_evaluate",
       "method": "browser.evaluate",
-      "description": "Run JavaScript in the page; the result comes back as JSON.",
+      "description": "Run JavaScript in the page, given as script; returns JSON.",
       "properties": {
         "script": {
           "type": "string",
           "minLength": 1,
           "maxLength": 20000
+        },
+        "timeoutMs": {
+          "type": "integer",
+          "minimum": 1000,
+          "maximum": 60000
         }
       },
       "required": [
@@ -329,7 +475,7 @@
     {
       "name": "browser_network",
       "method": "browser.network",
-      "description": "List page loads and fetch/XHR calls with status, timing and body.",
+      "description": "List page loads and fetch/XHR calls with status and body.",
       "properties": {
         "limit": {
           "type": "integer",
@@ -340,9 +486,26 @@
           "type": "string",
           "maxLength": 200
         },
+        "method": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 10
+        },
+        "status": {
+          "type": "string",
+          "pattern_comment": "",
+          "minLength": 1,
+          "maxLength": 8
+        },
+        "id": {
+          "type": "integer",
+          "minimum": 1
+        },
         "since": {
           "type": "string",
-          "enum": ["navigation"]
+          "enum": [
+            "navigation"
+          ]
         }
       },
       "required": []
@@ -366,13 +529,32 @@
     {
       "name": "browser_screenshot",
       "method": "browser.screenshot",
-      "description": "Capture the tab; fullPage for the whole page, annotate to number elements.",
+      "description": "Capture the tab, the whole page, or with element numbers.",
       "properties": {
         "fullPage": {
           "type": "boolean"
         },
         "annotate": {
           "type": "boolean"
+        },
+        "index": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "text": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500
+        },
+        "role": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 40
+        },
+        "selector": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
         }
       },
       "required": []
@@ -432,8 +614,41 @@
     {
       "name": "browser_wait",
       "method": "browser.wait",
-      "description": "Wait ms milliseconds, then for any load to finish.",
+      "description": "Wait for text, a selector, a url or a quiet network.",
       "properties": {
+        "text": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500
+        },
+        "textGone": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500
+        },
+        "selector": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "selectorGone": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "url": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048
+        },
+        "networkIdle": {
+          "type": "boolean"
+        },
+        "timeoutMs": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 60000
+        },
         "ms": {
           "type": "integer",
           "minimum": 0,
@@ -447,43 +662,6 @@
           ]
         }
       },
-      "required": []
-    },
-    {
-      "name": "browser_back",
-      "method": "browser.back",
-      "description": "Go back in this tab's history.",
-      "properties": {
-        "report": {
-          "enum": [
-            "outcome",
-            "changes",
-            "full"
-          ]
-        }
-      },
-      "required": []
-    },
-    {
-      "name": "browser_forward",
-      "method": "browser.forward",
-      "description": "Go forward in this tab's history.",
-      "properties": {
-        "report": {
-          "enum": [
-            "outcome",
-            "changes",
-            "full"
-          ]
-        }
-      },
-      "required": []
-    },
-    {
-      "name": "browser_list_tabs",
-      "method": "browser.tabs",
-      "description": "List this agent's browser tabs with their ids.",
-      "properties": {},
       "required": []
     },
     {
@@ -517,17 +695,32 @@
     {
       "name": "workspace_inspect",
       "method": "workspace.inspect",
-      "description": "Inspect this agent's open project, panes, configured tasks, runs, and event cursor.",
+      "description": "Inspect the open project: tasks, runs, listening ports and the event cursor.",
       "properties": {},
       "required": []
     },
     {
       "name": "task_start",
       "method": "task.start",
-      "description": "Start a configured project task in a managed terminal.",
+      "description": "Start a sikemux.json task or any shell command in a managed terminal.",
       "properties": {
         "taskId": {
           "type": "string"
+        },
+        "command": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "cwd": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "label": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
         },
         "idempotencyKey": {
           "type": "string",
@@ -540,7 +733,6 @@
         }
       },
       "required": [
-        "taskId",
         "idempotencyKey"
       ]
     },
@@ -615,7 +807,7 @@
     {
       "name": "ui_open",
       "method": "ui.open",
-      "description": "Open a project file, diff, task terminal, or the configured preview.",
+      "description": "Open a project file, diff, task terminal or the preview.",
       "properties": {
         "kind": {
           "enum": [
@@ -663,6 +855,22 @@
       "required": [
         "cursor"
       ]
+    },
+    {
+      "name": "app_console",
+      "method": "app.console",
+      "description": "Read the Sikemux app's own console and errors.",
+      "properties": {
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 200
+        },
+        "errors": {
+          "type": "boolean"
+        }
+      },
+      "required": []
     }
   ]
 }

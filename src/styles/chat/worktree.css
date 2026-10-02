@@ -1,0 +1,93 @@
+.worktree-toggle.on {
+    color: var(--ink);
+}
+
+/* Locked on: it still says where the chat works, so it does not fade out. */
+.worktree-toggle.on:disabled {
+    opacity: 1;
+}
+
+.worktree-branch {
+    max-width: 180px;
+    overflow: hidden;
+    font-family: var(--mono);
+    letter-spacing: 0;
+    text-overflow: ellipsis;
+    text-transform: none;
+    white-space: nowrap;
+}
+
+/* Lines up with the text in a message, like the activity line below it. */
+.chat-worktree-note {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: min(calc(100% - 44px), 756px);
+    min-width: 0;
+    margin-inline: auto;
+    padding-top: 10px;
+    color: var(--ink-faint);
+    font-size: var(--text-2xs);
+}
+
+.chat-worktree-note code {
+    color: var(--ink-dim);
+    font-family: var(--mono);
+}
+
+.chat-worktree-path {
+    min-width: 0;
+    overflow: hidden;
+    font-family: var(--mono);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.agent-pull-badge,
+.agent-worktree-remove {
+    display: inline-flex;
+    align-items: center;
+    flex: none;
+    gap: 5px;
+    height: var(--control-h);
+    padding: 0 8px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-control);
+    background: transparent;
+    color: var(--ink-faint);
+    font-family: var(--ui);
+    font-size: calc(10.5px * var(--chat-text-em, 1));
+    white-space: nowrap;
+    transition:
+        color 100ms,
+        border-color 100ms,
+        background 100ms;
+}
+
+.agent-pull-badge {
+    font-variant-numeric: tabular-nums;
+}
+
+.agent-pull-badge[data-state="open"] {
+    border-color: color-mix(in oklab, var(--live) 34%, transparent);
+    color: var(--live);
+}
+
+.agent-pull-badge[data-state="merged"] {
+    border-color: color-mix(in oklab, var(--acc) 34%, transparent);
+    color: var(--acc);
+}
+
+.agent-pull-badge[data-state="closed"] {
+    color: var(--danger);
+}
+
+.agent-pull-badge:hover,
+.agent-worktree-remove:hover {
+    border-color: var(--border-strong);
+    background: var(--surface-hover);
+}
+
+.agent-worktree-remove:hover {
+    color: var(--ink);
+}
