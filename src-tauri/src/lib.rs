@@ -95,6 +95,8 @@ static MAIN_PAGE_LOADED: std::sync::atomic::AtomicBool = std::sync::atomic::Atom
 pub fn run() {
     install_tls_crypto();
     system::normalize_user_environment();
+    #[cfg(target_os = "linux")]
+    system::avoid_webkit_dmabuf_renderer_on_nvidia();
 
     // Raise our open-file-descriptor limit FIRST, before any subsystem
     // opens an fd. macOS launchd hands GUI apps a soft RLIMIT_NOFILE of 256;

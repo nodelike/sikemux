@@ -222,6 +222,19 @@ pub fn normalize_user_environment() {
     }
 }
 
+/// With NVIDIA's driver, WebKitGTK's DMA-BUF renderer closes the window about a
+/// second after it opens on Wayland, and leaves it blank on X11.
+#[cfg(target_os = "linux")]
+pub fn avoid_webkit_dmabuf_renderer_on_nvidia() {
+    if std::env::var_os("WEBKIT_DISABLE_DMABUF_RENDERER").is_some()
+        || !Path::new("/proc/driver/nvidia/version").exists()
+    {
+        return;
+    }
+    // SAFETY: run() calls this before the Tauri runtime starts threads.
+    unsafe { std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1") };
+}
+
 /// Raise this process's open-file-descriptor soft limit toward its hard
 /// limit. See the call site in `lib.rs` for the why: macOS `launchd` hands
 /// GUI-launched apps a soft `RLIMIT_NOFILE` of 256, but sikemux holds one
