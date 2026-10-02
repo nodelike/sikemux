@@ -5585,7 +5585,7 @@ dependencies = [
 
 [[package]]
 name = "sikemux"
-version = "0.4.3-nightly.6"
+version = "0.4.3"
 dependencies = [
  "base64 0.23.1",
  "block2",
