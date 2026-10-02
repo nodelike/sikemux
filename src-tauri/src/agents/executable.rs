@@ -366,6 +366,7 @@ mod tests {
         let mut permissions = healthy.as_file().metadata().unwrap().permissions();
         permissions.set_mode(0o755);
         healthy.as_file().set_permissions(permissions).unwrap();
+        let healthy = healthy.into_temp_path();
 
         let mut broken = tempfile::NamedTempFile::new().unwrap();
         writeln!(
@@ -376,21 +377,20 @@ mod tests {
         let mut permissions = broken.as_file().metadata().unwrap().permissions();
         permissions.set_mode(0o755);
         broken.as_file().set_permissions(permissions).unwrap();
+        let broken = broken.into_temp_path();
 
-        assert!(probe_agent_executable("codex", healthy.path())
-            .await
-            .is_ok());
-        assert!(probe_agent_executable("codex", broken.path())
+        assert!(probe_agent_executable("codex", &healthy).await.is_ok());
+        assert!(probe_agent_executable("codex", &broken)
             .await
             .unwrap_err()
             .contains("saved launcher missing"));
 
         let (selected, failures) = first_healthy_agent_candidate(
             "codex",
-            vec![broken.path().to_path_buf(), healthy.path().to_path_buf()],
+            vec![broken.to_path_buf(), healthy.to_path_buf()],
         )
         .await;
-        assert_eq!(selected.as_deref(), Some(healthy.path()));
+        assert_eq!(selected, Some(healthy.to_path_buf()));
         assert_eq!(failures.len(), 1);
     }
 
@@ -437,11 +437,12 @@ mod tests {
         let mut permissions = busy.as_file().metadata().unwrap().permissions();
         permissions.set_mode(0o755);
         busy.as_file().set_permissions(permissions).unwrap();
+        let busy = busy.into_temp_path();
 
         assert_eq!(
             probe_agent_executable_with_timeout(
                 "claude",
-                busy.path(),
+                &busy,
                 std::time::Duration::from_millis(20)
             )
             .await
