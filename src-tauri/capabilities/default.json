@@ -241,6 +241,9 @@
     "allow-voice-start",
     "allow-voice-stop",
     "allow-voice-cancel",
-    "allow-voice-shutdown"
+    "allow-voice-shutdown",
+    "allow-sim-status",
+    "allow-sim-prepare",
+    "allow-sim-call"
   ]
 }

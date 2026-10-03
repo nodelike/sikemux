@@ -250,10 +250,11 @@ TAR="$BUNDLE/macos/${APP_NAME}.app.tar.gz"
 SIG="$TAR.sig"
 APP="$BUNDLE/macos/${APP_NAME}.app"
 VOICE="$ROOT/src-tauri/binaries/sikemux-voice-$(rustc -vV | sed -n 's/^host: //p')"
+SIM="$ROOT/src-tauri/binaries/sikemux-sim-$(rustc -vV | sed -n 's/^host: //p')"
 # Remove stale outputs before the one release build. Their absence afterwards
 # is stronger evidence of freshness than directory mtimes, which do not change
 # when a bundler updates files in place.
-rm -rf "$APP" "$TAR" "$SIG" "$BUNDLE/dmg" "$VOICE"
+rm -rf "$APP" "$TAR" "$SIG" "$BUNDLE/dmg" "$VOICE" "$SIM"
 echo "→ Building updater-signed v$VERSION"
 TAURI_SIGNING_PRIVATE_KEY="$UPDATER_KEY" TAURI_SIGNING_PRIVATE_KEY_PASSWORD="$UPDATER_KEY_PASSWORD" \
   REQUIRE_VALID_SIGNATURE=1 REQUIRE_SIGNED_APP="$NOTARIZED" "$ROOT/scripts/build-mac.sh"
@@ -298,6 +299,10 @@ ARCHS="$(/usr/bin/lipo -archs "$ARCHIVE_APP/Contents/MacOS/$EXECUTABLE_NAME")"
 VOICE_SHA256="$(/usr/bin/shasum -a 256 "$VOICE" | cut -d ' ' -f 1)"
 /usr/bin/grep -aqF "$VOICE_SHA256" "$ARCHIVE_APP/Contents/MacOS/$EXECUTABLE_NAME" || \
   fail "the app does not expect the voice helper about to be published"
+[[ -x "$SIM" ]] || fail "simulator helper was not produced"
+SIM_SHA256="$(/usr/bin/shasum -a 256 "$SIM" | cut -d ' ' -f 1)"
+/usr/bin/grep -aqF "$SIM_SHA256" "$ARCHIVE_APP/Contents/MacOS/$EXECUTABLE_NAME" || \
+  fail "the app does not expect the simulator helper about to be published"
 APP_CDHASH="$(/usr/bin/codesign -dv --verbose=4 "$APP" 2>&1 | /usr/bin/sed -n 's/^CDHash=//p')"
 ARCHIVE_CDHASH="$(/usr/bin/codesign -dv --verbose=4 "$ARCHIVE_APP" 2>&1 | /usr/bin/sed -n 's/^CDHash=//p')"
 [[ -n "$APP_CDHASH" && "$ARCHIVE_CDHASH" == "$APP_CDHASH" ]] || fail "updater archive does not contain the exact signed app"
@@ -369,8 +374,8 @@ python3 -m json.tool "$MANIFEST" >/dev/null
 snapshot_expected
 
 [[ "$(git rev-parse HEAD)" == "$HEAD_SHA" ]] || fail "HEAD moved during the release; rebuild from a settled tree"
-STABLE_GH_CMD=(gh release create "v$VERSION" --target "$HEAD_SHA" --title "v$VERSION" --notes "$NOTES" "$DMG" "$TAR" "$SIG" "$VOICE" "$MANIFEST")
-NIGHTLY_GH_CMD=(gh release create "v$VERSION" --target "$HEAD_SHA" --title "v$VERSION" --notes "$NOTES" --prerelease "$DMG" "$TAR" "$SIG" "$VOICE")
+STABLE_GH_CMD=(gh release create "v$VERSION" --target "$HEAD_SHA" --title "v$VERSION" --notes "$NOTES" "$DMG" "$TAR" "$SIG" "$VOICE" "$SIM" "$MANIFEST")
+NIGHTLY_GH_CMD=(gh release create "v$VERSION" --target "$HEAD_SHA" --title "v$VERSION" --notes "$NOTES" --prerelease "$DMG" "$TAR" "$SIG" "$VOICE" "$SIM")
 POINTER_NOTES="Update feed for the nightly channel.
 
 The installable build for this feed is [v$VERSION](https://github.com/nodelike/sikemux/releases/tag/v$VERSION).
@@ -396,6 +401,7 @@ else
   echo "  $TAR"
   echo "  $SIG"
   echo "  $VOICE"
+  echo "  $SIM"
   echo "  $MANIFEST"
   echo "To publish:"
   if [[ "$CHANNEL" == "stable" ]]; then

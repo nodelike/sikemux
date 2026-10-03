@@ -89,6 +89,10 @@ jobs:
       - name: Fetch Rust dependencies
         run: cargo fetch --manifest-path src-tauri/Cargo.toml --locked
 
+      - name: Install XcodeGen
+        # The simulator helper builds FBControlCore with it.
+        run: brew install xcodegen
+
       - name: Resolve version, channel, and notes
         id: plan
         run: |
@@ -156,4 +160,5 @@ jobs:
             src-tauri/target/release/bundle/macos/*.app.tar.gz.sig
             src-tauri/target/release/bundle/latest.json
             src-tauri/binaries/sikemux-voice-*
+            src-tauri/binaries/sikemux-sim-*
             latest.json

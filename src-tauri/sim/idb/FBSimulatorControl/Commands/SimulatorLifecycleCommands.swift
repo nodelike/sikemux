@@ -1,0 +1,130 @@
+/*
+ * Copyright (c) Meta Platforms, Inc. and affiliates.
+ *
+ * This source code is licensed under the MIT license found in the
+ * LICENSE file in the root directory of this source tree.
+ */
+
+import AppKit
+@preconcurrency import CoreSimulator
+@preconcurrency import FBControlCore
+@preconcurrency import Foundation
+
+private let openURLRetries = 2
+
+public enum SimulatorLifecycleError: Error {
+  case focusUnsupportedForCustomDeviceSet(deviceSetPath: String)
+  case focusAmbiguous(runningApplications: String)
+  case focusFailed(applicationDescription: String)
+  case openURLFailed(url: URL, simulatorDescription: String, underlying: Error?)
+}
+
+extension SimulatorLifecycleError: LocalizedError {
+  public var errorDescription: String? {
+    switch self {
+    case let .focusUnsupportedForCustomDeviceSet(deviceSetPath):
+      return "Focusing on the Simulator App for a simulator in a custom device set (\(deviceSetPath)) is not supported"
+    case let .focusAmbiguous(runningApplications):
+      return "More than one SimulatorApp \(runningApplications) running, focus is ambiguous"
+    case let .focusFailed(applicationDescription):
+      return "Failed to focus \(applicationDescription)"
+    case let .openURLFailed(url, simulatorDescription, underlying):
+      guard let underlying else {
+        return "Failed to open URL \(url) on simulator \(simulatorDescription)"
+      }
+      return "Failed to open URL \(url) on simulator \(simulatorDescription): \(underlying)"
+    }
+  }
+}
+
+public struct SimulatorLifecycleCommands: LifecycleCommands, Sendable {
+
+  private let simulator: Simulator
+
+  init(simulator: Simulator) {
+    self.simulator = simulator
+  }
+
+  public func boot(_ configuration: SimulatorBootConfiguration) async throws {
+    try await SimulatorBootStrategy.boot(simulator, with: configuration)
+  }
+
+  public func resolveState(_ state: TargetState) async throws {
+    try await TargetResolveState(simulator, state)
+  }
+
+  public func resolveLeavesState(_ state: TargetState) async throws {
+    try await CoreSimulatorNotifier.resolveLeavesState(state, for: simulator.device)
+  }
+
+  /// Waits until the Simulator is usable: it reports itself `.booted` while still coming up, so
+  /// the two are not the same moment. This is the wait `SimulatorBootOptions.verifyUsable`
+  /// performs during `boot`, available on its own for a caller that took the state first.
+  ///
+  /// - Parameter deadline: How long to wait for. Waits indefinitely when `nil`.
+  public func resolveUsable(deadline: PollDeadline? = nil) async throws {
+    try await verifySimulatorIsBooted(simulator, deadline: deadline)
+  }
+
+  public func focus() async throws {
+    // The Simulator host app (Simulator.app, or DeviceHub.app on Xcode 27+) only displays
+    // simulators in the default device set, so 'focus' is unsupported for a custom device set.
+    // This is also why Xcode parallel testing — which clones into a non-default device set — is
+    // not visible in DeviceHub (Apple known issue 176809181).
+    if let deviceSetPath = simulator.customDeviceSetPath {
+      throw SimulatorLifecycleError.focusUnsupportedForCustomDeviceSet(deviceSetPath: deviceSetPath)
+    }
+
+    // Find the running instances of the Simulator host app. Xcode 27 renamed Simulator.app
+    // (com.apple.iphonesimulator) to DeviceHub.app (com.apple.dt.Devices); match either.
+    let apps = NSWorkspace.shared.runningApplications
+    let simulatorAppBundleIDs: Set<String> = ["com.apple.iphonesimulator", "com.apple.dt.Devices"]
+    let simulatorApps = apps.filter { app in
+      guard let bundleIdentifier = app.bundleIdentifier else { return false }
+      return simulatorAppBundleIDs.contains(bundleIdentifier)
+    }
+
+    guard let simulatorApp = simulatorApps.first else {
+      try await SimulatorLifecycleCommands.launchSimulatorApplicationForDefaultDeviceSet()
+      return
+    }
+
+    if simulatorApps.count > 1 {
+      throw SimulatorLifecycleError.focusAmbiguous(runningApplications: CollectionInformation.oneLineDescription(from: simulatorApps))
+    }
+
+    if !simulatorApp.activate() {
+      throw SimulatorLifecycleError.focusFailed(applicationDescription: String(describing: simulatorApp))
+    }
+  }
+
+  private static func launchSimulatorApplicationForDefaultDeviceSet() async throws {
+    let applicationBundle = XcodeConfiguration.simulatorApp
+    let applicationURL = URL(fileURLWithPath: applicationBundle.path)
+    let configuration = NSWorkspace.OpenConfiguration()
+    configuration.activates = true
+    try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+      NSWorkspace.shared.openApplication(at: applicationURL, configuration: configuration) { _, error in
+        if let error {
+          continuation.resume(throwing: error)
+        } else {
+          continuation.resume()
+        }
+      }
+    }
+  }
+
+  public func open(_ url: URL) async throws {
+    var lastError: NSError?
+    for _ in 0...openURLRetries {
+      lastError = nil
+      do {
+        try simulator.device.open(url)
+        return
+      } catch {
+        lastError = error as NSError
+      }
+    }
+    throw SimulatorLifecycleError.openURLFailed(url: url, simulatorDescription: String(describing: simulator), underlying: lastError)
+  }
+}

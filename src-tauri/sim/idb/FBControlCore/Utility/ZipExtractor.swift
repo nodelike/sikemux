@@ -1,0 +1,268 @@
+/*
+ * Copyright (c) Meta Platforms, Inc. and affiliates.
+ *
+ * This source code is licensed under the MIT license found in the
+ * LICENSE file in the root directory of this source tree.
+ */
+
+import Foundation
+import os
+import zlib
+
+public enum ZipExtractorError: Error, Equatable {
+  /// A zip this extractor does not read, though another extractor may.
+  case unsupported(String)
+  case corrupt(String)
+}
+
+/// Extracts a complete zip file from its central directory, writing several
+/// files at once: an app bundle is tens of thousands of small files, and
+/// creating them one after another, as `bsdtar` does, takes about twice as
+/// long.
+///
+/// What it writes matches `bsdtar -xp --no-mac-metadata` of the same file:
+/// modes are applied, symlinks are made, and `__MACOSX` and AppleDouble entries
+/// for another entry are skipped. The exception is the AppleDouble entry for a
+/// symlink, which `bsdtar` writes out as a file, and which is skipped here too.
+public enum ZipExtractor {
+
+  @discardableResult
+  public static func extract(archiveAtPath archivePath: String, to root: String, overrideModificationTime: Bool = false) throws -> ArchiveExtractionSummary {
+    let plan = try Plan(ZipCentralDirectory(archiveAtPath: archivePath).entries)
+    let archive = open(archivePath, O_RDONLY | O_CLOEXEC)
+    guard archive >= 0 else {
+      throw POSIXError.current
+    }
+    defer { close(archive) }
+
+    for directory in plan.directoriesToCreate {
+      try ArchiveExtraction.makeDirectory((root as NSString).appendingPathComponent(directory))
+    }
+    let width = ArchiveExtraction.writerCount
+    let failure = OSAllocatedUnfairLock<Error?>(initialState: nil)
+    let written = OSAllocatedUnfairLock(initialState: ArchiveExtractionSummary(files: 0, bytes: 0))
+    DispatchQueue.concurrentPerform(iterations: width) { worker in
+      for index in stride(from: worker, to: plan.files.count, by: width) {
+        guard failure.withLock({ $0 == nil }) else {
+          return
+        }
+        do {
+          let file = plan.files[index]
+          if try writeFile(file, from: archive, under: root, overrideModificationTime: overrideModificationTime) {
+            written.withLock {
+              $0.files += 1
+              $0.bytes += file.entry.size
+            }
+          }
+        } catch {
+          failure.withLock { $0 = $0 ?? error }
+        }
+      }
+    }
+    if let error = failure.withLock({ $0 }) {
+      throw error
+    }
+    // Last, so that nothing is written through one.
+    for (entry, relative) in plan.symlinks {
+      var target = Data()
+      try decode(entry, from: archive) { target.append(contentsOf: $0) }
+      guard let destination = String(data: target, encoding: .utf8) else {
+        throw ZipExtractorError.corrupt("symlink target of \(relative)")
+      }
+      guard symlink(destination, (root as NSString).appendingPathComponent(relative)) == 0 else {
+        throw POSIXError.current
+      }
+    }
+    // Deepest first, as a directory's mode may deny writing into it, and after
+    // everything else, as writing into a directory changes its time.
+    for (entry, relative) in plan.directories.sorted(by: { $0.relative.count > $1.relative.count }) {
+      let path = (root as NSString).appendingPathComponent(relative)
+      if !overrideModificationTime, let modified = entry.modified {
+        try ArchiveExtraction.setTimes(modified) { utimes(path, $0) }
+      }
+      if let mode = entry.mode, mode != 0 {
+        guard chmod(path, mode & 0o7777) == 0 else {
+          throw POSIXError.current
+        }
+      }
+    }
+    return written.withLock { $0 }
+  }
+
+  // MARK: - Private
+
+  private struct Plan {
+    var directories: [(entry: ZipCentralDirectory.Entry, relative: String)] = []
+    var files: [(entry: ZipCentralDirectory.Entry, relative: String, appleDoubleCandidate: Bool)] = []
+    var symlinks: [(entry: ZipCentralDirectory.Entry, relative: String)] = []
+    var directoriesToCreate: [String] = []
+
+    init(_ entries: [ZipCentralDirectory.Entry]) throws {
+      let paths = Set(entries.map { ZipCentralDirectory.trimmingTrailingSlash($0.path) })
+      var create: Set<String> = []
+      func createAncestors(of relative: String) {
+        var parent = (relative as NSString).deletingLastPathComponent
+        while !parent.isEmpty, create.insert(parent).inserted {
+          parent = (parent as NSString).deletingLastPathComponent
+        }
+      }
+      for entry in entries {
+        let relative = try ZipCentralDirectory.safeRelativePath(entry.path)
+        if relative.isEmpty || ArchiveExtraction.isMacMetadata(relative) {
+          continue
+        }
+        guard entry.flags & 1 == 0 else {
+          throw ZipExtractorError.unsupported("\(relative) is encrypted")
+        }
+        let type = (entry.mode ?? 0) & S_IFMT
+        if entry.path.hasSuffix("/") || type == S_IFDIR {
+          directories.append((entry, relative))
+          create.insert(relative)
+          createAncestors(of: relative)
+          continue
+        }
+        guard entry.method == 0 || entry.method == 8 else {
+          throw ZipExtractorError.unsupported("\(relative) uses compression method \(entry.method)")
+        }
+        switch type {
+        case S_IFLNK:
+          symlinks.append((entry, relative))
+        case S_IFREG, 0:
+          files.append((entry, relative, ZipCentralDirectory.isAppleDouble(relative, alongside: paths)))
+        default:
+          throw ZipExtractorError.unsupported("\(relative) has file type \(type)")
+        }
+        createAncestors(of: relative)
+      }
+      directoriesToCreate = create.sorted { $0.count < $1.count }
+    }
+  }
+
+  /// Returns whether the file was written, rather than skipped as AppleDouble.
+  private static func writeFile(
+    _ file: (entry: ZipCentralDirectory.Entry, relative: String, appleDoubleCandidate: Bool),
+    from archive: Int32,
+    under root: String,
+    overrideModificationTime: Bool
+  ) throws -> Bool {
+    let path = (root as NSString).appendingPathComponent(file.relative)
+    if file.appleDoubleCandidate {
+      var contents = Data()
+      try decode(file.entry, from: archive) { contents.append(contentsOf: $0) }
+      if contents.starts(with: ZipCentralDirectory.appleDoubleMagic) {
+        return false
+      }
+      try write(to: path, entry: file.entry, overrideModificationTime: overrideModificationTime) { output in
+        try contents.withUnsafeBytes { try output($0) }
+      }
+      return true
+    }
+    try write(to: path, entry: file.entry, overrideModificationTime: overrideModificationTime) { output in
+      try decode(file.entry, from: archive, into: output)
+    }
+    return true
+  }
+
+  private static func write(
+    to path: String,
+    entry: ZipCentralDirectory.Entry,
+    overrideModificationTime: Bool,
+    contents: ((UnsafeRawBufferPointer) throws -> Void) throws -> Void
+  ) throws {
+    // Exclusive: a zip naming a path twice is left to an extractor with an opinion on it.
+    let fd = open(path, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0o644)
+    guard fd >= 0 else {
+      throw POSIXError.current
+    }
+    defer { close(fd) }
+    try contents { buffer in
+      guard let base = buffer.baseAddress else {
+        return
+      }
+      var offset = 0
+      while offset < buffer.count {
+        let written = Darwin.write(fd, base + offset, buffer.count - offset)
+        guard written > 0 else {
+          throw POSIXError.current
+        }
+        offset += written
+      }
+    }
+    if let mode = entry.mode, mode & 0o7777 != 0 {
+      guard fchmod(fd, mode & 0o7777) == 0 else {
+        throw POSIXError.current
+      }
+    }
+    if !overrideModificationTime, let modified = entry.modified {
+      try ArchiveExtraction.setTimes(modified) { futimes(fd, $0) }
+    }
+  }
+
+  /// Calls `output` with the entry's contents in order, checking their size and CRC.
+  private static func decode(_ entry: ZipCentralDirectory.Entry, from archive: Int32, into output: (UnsafeRawBufferPointer) throws -> Void) throws {
+    var header = [UInt8](repeating: 0, count: 30)
+    guard pread(archive, &header, 30, off_t(entry.localHeaderOffset)) == 30, Data(header).uint32(at: 0) == ZipSignature.localHeader else {
+      throw ZipExtractorError.corrupt("no local header for \(entry.path)")
+    }
+    let dataOffset = entry.localHeaderOffset + 30 + UInt64(Data(header).uint16(at: 26)) + UInt64(Data(header).uint16(at: 28))
+    var crc = crc32(0, nil, 0)
+    var size: UInt64 = 0
+    func emit(_ buffer: UnsafeRawBufferPointer) throws {
+      crc = crc32(crc, buffer.bindMemory(to: Bytef.self).baseAddress, uInt(buffer.count))
+      size += UInt64(buffer.count)
+      try output(buffer)
+    }
+    switch entry.method {
+    case 0:
+      try readCompressed(entry, at: dataOffset, from: archive, into: emit)
+    case 8:
+      try inflate(entry, at: dataOffset, from: archive, into: emit)
+    default:
+      throw ZipExtractorError.unsupported("compression method \(entry.method)")
+    }
+    guard size == entry.size, UInt32(crc) == entry.crc32 else {
+      throw ZipExtractorError.corrupt("\(entry.path) does not match its size or CRC")
+    }
+  }
+
+  private static let chunkSize = 1 << 20
+
+  private static func readCompressed(_ entry: ZipCentralDirectory.Entry, at offset: UInt64, from archive: Int32, into output: (UnsafeRawBufferPointer) throws -> Void) throws {
+    var buffer = [UInt8](repeating: 0, count: min(chunkSize, max(Int(entry.compressedSize), 1)))
+    var remaining = entry.compressedSize
+    var position = offset
+    while remaining > 0 {
+      let count = pread(archive, &buffer, Int(min(UInt64(buffer.count), remaining)), off_t(position))
+      guard count > 0 else {
+        throw ZipExtractorError.corrupt("\(entry.path) is truncated")
+      }
+      try buffer.withUnsafeBytes { try output(UnsafeRawBufferPointer(rebasing: $0[0..<count])) }
+      remaining -= UInt64(count)
+      position += UInt64(count)
+    }
+  }
+
+  private static func inflate(_ entry: ZipCentralDirectory.Entry, at offset: UInt64, from archive: Int32, into output: (UnsafeRawBufferPointer) throws -> Void) throws {
+    guard let inflater = Inflater(.deflate) else {
+      throw ZipExtractorError.corrupt("cannot inflate \(entry.path)")
+    }
+    var decompressed = [UInt8](repeating: 0, count: chunkSize)
+    var finished = false
+    try readCompressed(entry, at: offset, from: archive) { compressed in
+      var remaining = compressed
+      var filled: Bool
+      repeat {
+        guard let step = decompressed.withUnsafeMutableBytes({ inflater.inflate(remaining, into: $0) }) else {
+          throw ZipExtractorError.corrupt("\(entry.path) does not inflate")
+        }
+        remaining = UnsafeRawBufferPointer(rebasing: remaining[step.consumed...])
+        try decompressed.withUnsafeBytes { try output(UnsafeRawBufferPointer(rebasing: $0[0..<step.produced])) }
+        finished = step.ended
+        filled = step.produced == decompressed.count
+      } while filled && !finished
+    }
+    guard finished || entry.size == 0 else {
+      throw ZipExtractorError.corrupt("\(entry.path) is truncated")
+    }
+  }
+}

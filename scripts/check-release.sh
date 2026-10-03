@@ -20,6 +20,7 @@ node --check scripts/smoke-browser-sidecar.mjs
 node --check scripts/build-voice-helper.mjs
 node --check scripts/build-notch-helper.mjs
 node scripts/generate-notch-icons.mjs --check
+node --check scripts/build-sim-helper.mjs
 /usr/bin/plutil -lint src-tauri/Info.plist >/dev/null
 
 if RELEASE_CHANNEL=preview scripts/release.sh 0.2.0-beta.1 fixture >/dev/null 2>&1; then
@@ -66,6 +67,8 @@ if (!macBuild.includes("build-notch-helper.mjs")) fail("macOS build does not bui
 if (!macBuild.includes("tauri.notch.conf.json")) fail("macOS build does not bundle the notch helper");
 if (notchConfig.bundle?.macOS?.files?.["Helpers/Sikemux Notch.app"] !== "binaries/notch/Sikemux Notch.app") fail("the macOS bundle must carry the notch helper app");
 if (!release.includes('"$SIG" "$VOICE"')) fail("releases do not publish the voice helper the app downloads");
+if (!macBuild.includes("build-sim-helper.mjs")) fail("macOS build does not build the simulator helper");
+if (!release.includes('"$VOICE" "$SIM"')) fail("releases do not publish the simulator helper the app downloads");
 if (sidecarConfig.bundle?.resources?.["resources/sikemux_pi_tools.ts"] !== "sikemux_pi_tools.ts") fail("Pi browser extension resource mapping is missing");
 if (!pkg.scripts?.["build:windows"]?.includes("build:sidecar")) fail("Windows build does not build sidecars");
 if (!pkg.scripts?.["build:windows"]?.includes("tauri.sidecar.conf.json")) fail("Windows build does not bundle the CLI sidecar");

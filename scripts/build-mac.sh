@@ -49,10 +49,12 @@ if [[ -n "$TARGET" ]]; then
   node "$ROOT/scripts/build-cli-sidecar.mjs" --target "$TARGET"
   node "$ROOT/scripts/build-voice-helper.mjs" --target "$TARGET"
   node "$ROOT/scripts/build-notch-helper.mjs" --target "$TARGET"
+  node "$ROOT/scripts/build-sim-helper.mjs" --target "$TARGET"
 else
   node "$ROOT/scripts/build-cli-sidecar.mjs"
   node "$ROOT/scripts/build-voice-helper.mjs"
   node "$ROOT/scripts/build-notch-helper.mjs"
+  node "$ROOT/scripts/build-sim-helper.mjs"
 fi
 printf '→ pnpm tauri build --no-bundle'
 printf ' %q' "${BUILD_ARGS[@]}"
@@ -141,6 +143,14 @@ NOTCH_EXECUTABLE="$NOTCH_APP/Contents/MacOS/sikemux-notch"
 /usr/bin/codesign --verify --strict "$NOTCH_APP" || fail "notch helper signature is invalid"
 NOTCH_ARCHS="$(/usr/bin/lipo -archs "$NOTCH_EXECUTABLE")"
 [[ "$(sorted_archs "$NOTCH_ARCHS")" == "$(sorted_archs "$ARCHS")" ]] || fail "notch helper architecture ($NOTCH_ARCHS) differs from app ($ARCHS)"
+# The simulator helper is published and downloaded the same way.
+SIM_EXECUTABLE="$ROOT/src-tauri/binaries/sikemux-sim-$VOICE_TARGET"
+[[ -x "$SIM_EXECUTABLE" ]] || fail "simulator helper is missing or not executable"
+[[ ! -e "$APP_PATH/Contents/MacOS/sikemux-sim" ]] || fail "the simulator helper is bundled in the app"
+/usr/bin/codesign --verify --strict "$SIM_EXECUTABLE" || fail "simulator helper signature is invalid"
+grep -q 'flags=.*runtime' <<<"$(/usr/bin/codesign -dv "$SIM_EXECUTABLE" 2>&1)" || fail "simulator helper lacks the hardened runtime"
+SIM_ARCHS="$(/usr/bin/lipo -archs "$SIM_EXECUTABLE")"
+[[ "$(sorted_archs "$SIM_ARCHS")" == "$(sorted_archs "$ARCHS")" ]] || fail "simulator helper architecture ($SIM_ARCHS) differs from app ($ARCHS)"
 
 # Packaged apps must never depend on libraries from the build machine's
 # Homebrew/MacPorts installation. Such binaries pass codesign verification but
@@ -160,6 +170,11 @@ if grep -Eq '^[[:space:]]+(/opt/homebrew|/usr/local|/opt/local)/' <<<"$VOICE_DYN
   echo "$VOICE_DYNAMIC_LIBS" >&2
   fail "voice helper links to a package-manager library"
 fi
+SIM_DYNAMIC_LIBS="$(/usr/bin/otool -L "$SIM_EXECUTABLE")"
+if grep -Eq '^[[:space:]]+(/opt/homebrew|/usr/local|/opt/local)/' <<<"$SIM_DYNAMIC_LIBS"; then
+  echo "$SIM_DYNAMIC_LIBS" >&2
+  fail "simulator helper links to a package-manager library"
+fi
 
 # Bundling is what gives the sidecar the hardened runtime, so only starting the
 # bundled copy proves it survives signing: the copy built beside it is signed
@@ -174,6 +189,9 @@ fi
 # The signed voice helper must still start under the hardened runtime.
 if [[ "$VOICE_ARCHS" == *"$(uname -m)"* ]]; then
   "$VOICE_EXECUTABLE" --version | grep -Fq "sikemux-voice" || fail "signed voice helper does not start"
+fi
+if [[ "$SIM_ARCHS" == *"$(uname -m)"* ]]; then
+  "$SIM_EXECUTABLE" --version | grep -Fq "sikemux-sim" || fail "signed simulator helper does not start"
 fi
 
 # Every normal build is ad-hoc signed when no Apple identity is configured.
@@ -194,6 +212,7 @@ if [[ "${REQUIRE_SIGNED_APP:-0}" == "1" ]]; then
   grep -q '^TeamIdentifier=' <<<"$SIGNING_INFO" || fail "release app has no TeamIdentifier"
   VOICE_SIGNING_INFO="$(/usr/bin/codesign -dv --verbose=4 "$VOICE_EXECUTABLE" 2>&1)"
   grep -q '^Authority=' <<<"$VOICE_SIGNING_INFO" || fail "release voice helper has no certificate authority (ad-hoc signature)"
+  grep -q '^Authority=' <<<"$(/usr/bin/codesign -dv --verbose=4 "$SIM_EXECUTABLE" 2>&1)" || fail "release simulator helper has no certificate authority (ad-hoc signature)"
 fi
 
 echo ""
@@ -203,3 +222,4 @@ echo "  version: $APP_VERSION"
 echo "  architectures: $ARCHS"
 echo "  cli: $CLI_EXECUTABLE ($CLI_ARCHS)"
 echo "  voice helper: $VOICE_EXECUTABLE ($VOICE_ARCHS)"
+echo "  simulator helper: $SIM_EXECUTABLE ($SIM_ARCHS)"

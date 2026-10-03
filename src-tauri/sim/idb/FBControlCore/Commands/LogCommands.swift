@@ -1,0 +1,23 @@
+/*
+ * Copyright (c) Meta Platforms, Inc. and affiliates.
+ *
+ * This source code is licensed under the MIT license found in the
+ * LICENSE file in the root directory of this source tree.
+ */
+
+import Foundation
+
+/// A long-lived operation that can be awaited for completion or cancelled.
+public protocol LogOperation: AnyObject {
+
+  /// The data consumer attached to the underlying log stream.
+  var consumer: any DataConsumer { get }
+
+  /// Cancelling the calling task terminates the operation.
+  func waitUntilCompleted() async throws
+}
+
+public protocol LogCommands {
+
+  func tail(arguments: [String], consumer: any DataConsumer) async throws -> any LogOperation
+}
