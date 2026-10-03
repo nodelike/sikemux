@@ -13,6 +13,7 @@ import {
     fileKey,
     isShown,
     shownDeskItem,
+    simulatorKey,
     terminalKey,
     type DeskItem,
 } from "../desks";
@@ -71,7 +72,8 @@ export function toggleDesk(agentId: string): void {
         return;
     }
     openDesk(agentId);
-    if (getState().desks[agentId]?.terminals.length || getState().editorViews[deskEditorId(agentId)]?.openTabs.length) return;
+    const desk = getState().desks[agentId];
+    if (desk?.terminals.length || desk?.simulators.length || getState().editorViews[deskEditorId(agentId)]?.openTabs.length) return;
     void browserApi
         .snapshot(agentId)
         .then((snapshot) => (snapshot.tabs.length === 0 ? browserApi.newTab(agentId) : undefined))
@@ -347,6 +349,33 @@ export function openDeskTerminal(
     return id;
 }
 
+/** Shows the iOS Simulator on the agent's desk; a desk has one, which the person and the agent share. */
+export function openDeskSimulator(agentId: string, opts: { focus?: boolean } = {}): string {
+    let id = "";
+    openDesk(agentId, { focus: opts.focus ?? true });
+    mutate((d) => {
+        const desk = ensureDesk(d, agentId);
+        let simulator = desk.simulators[0];
+        if (!simulator) {
+            simulator = { id: newId("desk-simulator"), udid: null, deviceName: null };
+            desk.simulators.push(simulator);
+            desk.order.push(simulatorKey(simulator.id));
+        }
+        desk.active = simulatorKey(simulator.id);
+        id = simulator.id;
+    });
+    return id;
+}
+
+export function setDeskSimulatorDevice(agentId: string, id: string, device: { udid: string; name: string } | null): void {
+    mutate((d) => {
+        const simulator = d.desks[agentId]?.simulators.find((candidate) => candidate.id === id);
+        if (!simulator) return;
+        simulator.udid = device?.udid ?? null;
+        simulator.deviceName = device?.name ?? null;
+    });
+}
+
 export function showDeskTerminal(agentId: string, id: string): void {
     revealDesk(agentId);
     setDeskActive(agentId, terminalKey(id));
@@ -392,6 +421,15 @@ export function closeDeskItem(agentId: string, item: DeskItem): void {
     }
     if (item.kind === "file") {
         emit({ type: "close-file", paneId: deskEditorId(agentId), path: item.path });
+        return;
+    }
+    if (item.kind === "simulator") {
+        mutate((d) => {
+            const current = d.desks[agentId];
+            if (!current) return;
+            current.simulators = current.simulators.filter((simulator) => simulator.id !== item.simulator.id);
+            current.order = current.order.filter((key) => key !== item.key);
+        });
         return;
     }
     taskPtyBindings.release(item.terminal.id);

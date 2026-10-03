@@ -5,7 +5,7 @@ import { agentWindowId, nearestAgentId, selectTabRefs } from "../selectors";
 import { getState, useStore } from "../store";
 import { notify } from "../toast";
 import { addAgent } from "./agents";
-import { newBrowserTab, toggleDesk } from "./desk";
+import { newBrowserTab, openDeskSimulator, toggleDesk } from "./desk";
 import { createCommandSession, newSshTerminal } from "./sessions";
 import { newWindow, selectTab, selectWindowId } from "./tabs";
 import { openAgentPalette, openPicker } from "./ui";
@@ -78,6 +78,11 @@ function bringAgentForward(): string | null {
 export function newDeskBrowserTab(): void {
     const agentId = bringAgentForward();
     if (agentId) newBrowserTab(agentId);
+}
+
+export function newDeskSimulator(): void {
+    const agentId = bringAgentForward();
+    if (agentId) openDeskSimulator(agentId);
 }
 
 export function toggleNearestDesk(): void {

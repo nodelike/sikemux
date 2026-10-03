@@ -1,6 +1,17 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { browserApi } from "../api/browser";
-import { closeDeskItem, openDesk, openDeskTerminal, openFileOnDesk, removeDeskPane, revealDesk, selectDeskItem, toggleDesk } from "./commands";
+import {
+    closeDeskItem,
+    openDesk,
+    openDeskSimulator,
+    openDeskTerminal,
+    openFileOnDesk,
+    removeDeskPane,
+    revealDesk,
+    selectDeskItem,
+    setDeskSimulatorDevice,
+    toggleDesk,
+} from "./commands";
 import { deskEditorId, deskItemsOf, shownDeskItem } from "./desks";
 import { taskPtyBindings } from "../tasks/nativeRuntime";
 import { collectPanes } from "./layout";
@@ -225,6 +236,32 @@ describe("the desk", () => {
         expect(getState().desks["agent-1"].terminals).toEqual([]);
         const items = deskItemsOf(getState(), "agent-1");
         expect(shownDeskItem(getState().desks["agent-1"], items)).toBe("file:/code/a.ts");
+    });
+
+    it("puts one iOS Simulator on the desk, which every open brings back", () => {
+        const first = openDeskSimulator("agent-1");
+        const second = openDeskSimulator("agent-1");
+
+        expect(second).toBe(first);
+        expect(getState().desks["agent-1"].simulators).toEqual([{ id: first, udid: null, deviceName: null }]);
+        expect(getState().desks["agent-1"].active).toBe(`simulator:${first}`);
+        expect(collectPanes(getState().windows.window.root).map((pane) => pane.kind)).toEqual(["agent", "desk"]);
+    });
+
+    it("remembers the device a simulator tab shows, and lets the tab go with its neighbour shown", () => {
+        openFileOnDesk("agent-1", "/code/a.ts");
+        setState({ editorViews: { [deskEditorId("agent-1")]: { openTabs: ["/code/a.ts"], activePath: "/code/a.ts" } } } as never);
+        const id = openDeskSimulator("agent-1");
+        setDeskSimulatorDevice("agent-1", id, { udid: "UDID-1", name: "iPhone 17" });
+        expect(getState().desks["agent-1"].simulators[0]).toMatchObject({ udid: "UDID-1", deviceName: "iPhone 17" });
+
+        closeDeskItem(
+            "agent-1",
+            deskItemsOf(getState(), "agent-1").find((item) => item.kind === "simulator")!,
+        );
+
+        expect(getState().desks["agent-1"].simulators).toEqual([]);
+        expect(shownDeskItem(getState().desks["agent-1"], deskItemsOf(getState(), "agent-1"))).toBe("file:/code/a.ts");
     });
 
     it("shows a file that is picked from the strip in the desk's editor", () => {

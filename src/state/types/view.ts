@@ -30,15 +30,23 @@ export interface DeskTerminal {
     cwd: string;
 }
 
+/** The iOS Simulator on a desk, and the device it shows once one is picked. */
+export interface DeskSimulator {
+    id: string;
+    udid: string | null;
+    deviceName: string | null;
+}
+
 /**
  * Keys in `order` and `active` name what they point at: `browser:<tab id>`,
- * `file:<path>` or `terminal:<id>`. The browser has one page on screen at a
+ * `file:<path>`, `terminal:<id>` or `simulator:<id>`. The browser has one page on screen at a
  * time, so `active` is just `browser` when a page is showing.
  */
 export interface Desk {
     order: string[];
     active: string | null;
     terminals: DeskTerminal[];
+    simulators: DeskSimulator[];
     /** The latest file the agent or the person asked to see, and where in it. */
     reveal: DeskReveal | null;
 }

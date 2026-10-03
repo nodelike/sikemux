@@ -5,7 +5,8 @@ import { nearestAgentId } from "../state/selectors";
 import { useShortcutLabel } from "../commands/useShortcutLabel";
 import { useModalFocus } from "../hooks/useModalFocus";
 import { useMouseActive } from "../hooks/useMouseActive";
-import { IconAgent, IconCommand, IconCommit, IconEditor, IconGlobe, IconSearch } from "../ui/Icons";
+import { IconAgent, IconCommand, IconCommit, IconEditor, IconGlobe, IconPhone, IconSearch } from "../ui/Icons";
+import { IS_MACOS } from "../lib/platform";
 import { leavingOverlay } from "../lib/motion";
 
 interface TabChoice {
@@ -64,6 +65,19 @@ export function NewTabPalette() {
             open: cmd.newDeskBrowserTab,
             disabled: !browserAgent,
         },
+        ...(IS_MACOS
+            ? [
+                  {
+                      id: "simulator",
+                      label: "iOS Simulator",
+                      detail: browserAgent ? `Drive an iPhone on ${browserAgent.title}'s desk` : "Start an agent to use its desk",
+                      icon: <IconPhone size={14} />,
+                      shortcut: "",
+                      open: cmd.newDeskSimulator,
+                      disabled: !browserAgent,
+                  },
+              ]
+            : []),
         {
             id: "editor",
             label: "File",

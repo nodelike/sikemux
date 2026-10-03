@@ -1,9 +1,9 @@
 import { BLANK_URL, type BrowserSnapshot, type BrowserTab } from "../api/browser";
 import { DESK_PERSISTENCE_LIMITS } from "../workbench/registry";
-import type { Desk, DeskTerminal, DeskView } from "./types";
+import type { Desk, DeskSimulator, DeskTerminal, DeskView } from "./types";
 import { getState, setState, type StoreState } from "./store";
 
-export const EMPTY_DESK: Desk = { order: [], active: null, terminals: [], reveal: null };
+export const EMPTY_DESK: Desk = { order: [], active: null, terminals: [], simulators: [], reveal: null };
 export const EMPTY_STRIP: BrowserSnapshot = { tabs: [], activeTabId: null };
 const NO_FILES: readonly string[] = [];
 
@@ -14,11 +14,13 @@ export const BROWSER_ACTIVE = "browser";
 export const browserKey = (tabId: string): string => `browser:${tabId}`;
 export const fileKey = (path: string): string => `file:${path}`;
 export const terminalKey = (id: string): string => `terminal:${id}`;
+export const simulatorKey = (id: string): string => `simulator:${id}`;
 
 export type DeskItem =
     | { key: string; kind: "browser"; tab: BrowserTab }
     | { key: string; kind: "file"; path: string }
-    | { key: string; kind: "terminal"; terminal: DeskTerminal };
+    | { key: string; kind: "terminal"; terminal: DeskTerminal }
+    | { key: string; kind: "simulator"; simulator: DeskSimulator };
 
 /** Everything on a desk, in the order it arrived. */
 export function deskItems(desk: Desk, strip: BrowserSnapshot, files: readonly string[]): DeskItem[] {
@@ -26,6 +28,7 @@ export function deskItems(desk: Desk, strip: BrowserSnapshot, files: readonly st
     for (const tab of strip.tabs) items.set(browserKey(tab.id), { key: browserKey(tab.id), kind: "browser", tab });
     for (const path of files) items.set(fileKey(path), { key: fileKey(path), kind: "file", path });
     for (const terminal of desk.terminals) items.set(terminalKey(terminal.id), { key: terminalKey(terminal.id), kind: "terminal", terminal });
+    for (const simulator of desk.simulators) items.set(simulatorKey(simulator.id), { key: simulatorKey(simulator.id), kind: "simulator", simulator });
     const ordered = desk.order.filter((key) => items.has(key));
     const placed = new Set(ordered);
     for (const key of items.keys()) if (!placed.has(key)) ordered.push(key);

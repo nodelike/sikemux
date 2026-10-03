@@ -38,10 +38,10 @@ struct Model {
 }
 
 #[derive(Deserialize)]
-struct ModelFile {
-    path: String,
-    size: u64,
-    sha256: String,
+pub(crate) struct ModelFile {
+    pub(crate) path: String,
+    pub(crate) size: u64,
+    pub(crate) sha256: String,
 }
 
 fn manifest() -> &'static Manifest {
@@ -205,7 +205,7 @@ async fn already_matches(path: &Path, file: &ModelFile) -> bool {
     matches!(hash, Ok(Ok(hash)) if hash == file.sha256)
 }
 
-fn hash_file(path: &Path) -> std::io::Result<String> {
+pub(crate) fn hash_file(path: &Path) -> std::io::Result<String> {
     let mut reader = File::open(path)?;
     let mut hasher = Sha256::new();
     let mut buffer = vec![0u8; 1 << 20];
@@ -218,7 +218,7 @@ fn hash_file(path: &Path) -> std::io::Result<String> {
     }
 }
 
-async fn download(
+pub(crate) async fn download(
     url: &str,
     destination: &Path,
     file: &ModelFile,

@@ -998,6 +998,7 @@ export function applyHydrate(raw: string): HydrationResult {
                     order: view.files.map(fileKey),
                     active: view.tabs.length > 0 ? BROWSER_ACTIVE : view.files[0] ? fileKey(view.files[0]) : null,
                     terminals: [],
+                    simulators: [],
                     reveal: null,
                 };
             }

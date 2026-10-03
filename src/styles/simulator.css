@@ -1,0 +1,80 @@
+.desk-simulator {
+    display: flex;
+    min-width: 0;
+    min-height: 0;
+}
+
+.sim-pane {
+    display: grid;
+    flex: 1;
+    grid-template-rows: auto auto minmax(0, 1fr);
+    min-width: 0;
+    min-height: 0;
+}
+
+.sim-bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 8px;
+    border-bottom: 1px solid var(--border);
+}
+
+.sim-chips {
+    display: flex;
+    gap: 4px;
+}
+
+.sim-chip {
+    padding: 3px 8px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-2);
+    font-size: var(--text-xs);
+    color: var(--text-secondary);
+}
+
+.sim-chip:hover:not(:disabled) {
+    color: var(--text-primary);
+    background: var(--surface-hover);
+}
+
+.sim-chip:disabled {
+    opacity: 0.5;
+}
+
+.sim-fps {
+    margin-left: auto;
+    font-family: var(--mono);
+    font-size: var(--text-2xs);
+    color: var(--text-tertiary);
+}
+
+.sim-problem {
+    padding: 4px 10px;
+    font-size: var(--text-xs);
+    color: var(--danger);
+}
+
+.sim-stage {
+    display: grid;
+    place-items: center;
+    min-width: 0;
+    min-height: 0;
+    padding: 12px;
+}
+
+.sim-screen {
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: contain;
+    border-radius: 18px;
+    box-shadow: 0 0 0 1px var(--border);
+    touch-action: none;
+    cursor: default;
+}
+
+.sim-screen:focus-visible {
+    outline: none;
+    box-shadow: var(--focus-ring);
+}
