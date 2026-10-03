@@ -8,7 +8,7 @@ use std::time::Duration;
 
 use serde_json::Value;
 pub use sikemux_core::cli::protocol::HarnessRequest;
-use sikemux_core::cli::protocol::{is_browser_method, is_plugin_method};
+use sikemux_core::cli::protocol::{is_browser_method, is_plugin_method, is_sim_method};
 use sikemux_core::protocol::{CallId, RunSelector, WindowAnswer, WindowCall};
 use tauri::{AppHandle, Emitter, Manager, State};
 
@@ -122,6 +122,9 @@ fn run(app: &AppHandle, request: HarnessRequest) -> Result<Value, String> {
     if is_browser_method(&request.method) {
         return crate::browser::tools::execute(app, &request);
     }
+    if is_sim_method(&request.method) {
+        return crate::simulator::tools::execute(app, &request);
+    }
     if is_plugin_method(&request.method) {
         return crate::plugins::agent::execute(
             app,
@@ -132,6 +135,7 @@ fn run(app: &AppHandle, request: HarnessRequest) -> Result<Value, String> {
     }
     let id = request.id.clone();
     let method = request.method.clone();
+    let agent_id = request.agent_id.clone();
     let focus =
         method == "ui.open" && request.params.get("focus").and_then(Value::as_bool) == Some(true);
     let broker = app.state::<HarnessBroker>();
@@ -152,6 +156,12 @@ fn run(app: &AppHandle, request: HarnessRequest) -> Result<Value, String> {
                 (value.as_object_mut(), crate::cli_paths::cli_command_path())
             {
                 object.insert("cli".into(), cli.to_string_lossy().into());
+            }
+            if let Some(object) = value.as_object_mut() {
+                object.insert(
+                    "simulator".into(),
+                    crate::simulator::tools::inspect(&app.state(), agent_id.as_deref()),
+                );
             }
             Ok(value)
         }

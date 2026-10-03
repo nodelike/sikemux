@@ -33,7 +33,8 @@ pub fn run() -> i32 {
         }
     };
     watch_parent();
-    serve(Arc::new(Manifest::load()), agent_id);
+    let simulator = std::env::var_os("SIKEMUX_TOOLS_SIMULATOR").is_some();
+    serve(Arc::new(Manifest::load().offering(simulator)), agent_id);
     0
 }
 
@@ -312,7 +313,7 @@ fn answer(name: &str, result: Result<Value, String>) -> Value {
 /// A screenshot is the one answer an agent reads as a picture rather than as
 /// JSON, so it travels as an image block with the page's name beside it.
 fn content_for(name: &str, value: &Value) -> Vec<Value> {
-    if name == "browser_screenshot" {
+    if name == "browser_screenshot" || name == "sim_screenshot" {
         if let Some(data) = value.get("data").and_then(Value::as_str) {
             let field = |key: &str| value.get(key).and_then(Value::as_str).unwrap_or_default();
             let mime_type = value

@@ -25,6 +25,12 @@ struct Request: Decodable {
     let scale: Double?
     let format: String?
     let wait: Double?
+    let phase: String?
+    let x2: Double?
+    let y2: Double?
+    let orientation: String?
+    let pointSize: Bool?
+    let mask: String?
 }
 
 /// One moment of a touch path: where the finger is, or both fingers for a pinch, `t` seconds after it starts.
@@ -34,6 +40,10 @@ struct TouchPoint: Decodable {
     let x2: Double?
     let y2: Double?
     let t: Double
+}
+
+enum TouchPhase: String {
+    case down, move, up
 }
 
 struct Failure: Error {

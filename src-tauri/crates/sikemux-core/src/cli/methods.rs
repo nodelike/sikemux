@@ -23,6 +23,26 @@ pub const BROWSER_METHODS: &[&str] = &[
     "browser.tab.close",
 ];
 
+pub const SIM_METHODS: &[&str] = &[
+    "sim.devices",
+    "sim.attach",
+    "sim.state",
+    "sim.tap",
+    "sim.swipe",
+    "sim.type",
+    "sim.button",
+    "sim.rotate",
+    "sim.screenshot",
+    "sim.launch",
+    "sim.terminate",
+    "sim.install",
+    "sim.openUrl",
+    "sim.touchPath",
+    "sim.touch2Path",
+    "sim.logs",
+    "sim.detach",
+];
+
 pub const HARNESS_METHODS: &[&str] = &[
     "workspace.inspect",
     "task.start",

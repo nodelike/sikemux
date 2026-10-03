@@ -78,7 +78,7 @@ describe("the app's reader of the browser strips", () => {
     it("adds new pages to the end of the desk and brings the page the agent moved to forward", async () => {
         setState({
             browserStrips: { "agent-one": strip([], null) },
-            desks: { "agent-one": { order: ["file:/repo/a.ts"], active: "file:/repo/a.ts", terminals: [], reveal: null } },
+            desks: { "agent-one": { order: ["file:/repo/a.ts"], active: "file:/repo/a.ts", terminals: [], simulators: [], reveal: null } },
         } as never);
         await refreshBrowserStrip("agent-one");
         expect(getState().desks["agent-one"]).toMatchObject({ order: ["file:/repo/a.ts", "browser:tab-one"], active: "browser" });

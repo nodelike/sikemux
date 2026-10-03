@@ -24,7 +24,7 @@ enum Keyboard {
         for (offset, digit) in "1234567890".enumerated() { table[digit] = (UInt32(30 + offset), false) }
         for (offset, symbol) in "!@#$%^&*()".enumerated() { table[symbol] = (UInt32(30 + offset), true) }
         let plain: [(Character, UInt32)] = [
-            ("\n", 40), ("\t", 43), (" ", 44), ("-", 45), ("=", 46), ("[", 47), ("]", 48), ("\\", 49),
+            ("\n", 40), ("\u{8}", 42), ("\t", 43), (" ", 44), ("-", 45), ("=", 46), ("[", 47), ("]", 48), ("\\", 49),
             (";", 51), ("'", 52), ("`", 53), (",", 54), (".", 55), ("/", 56),
         ]
         let shifted: [(Character, UInt32)] = [

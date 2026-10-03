@@ -38,6 +38,7 @@ mod remote;
 mod search;
 mod settings;
 mod sim;
+mod simulator;
 mod ssh;
 mod state;
 mod system;
@@ -57,6 +58,7 @@ use plugins::PluginHost;
 use pty::PtyManager;
 use sikemux_process as bounded_process;
 use sim::SimManager;
+use simulator::SimulatorManager;
 use tauri::Manager;
 use voice::VoiceManager;
 
@@ -211,6 +213,17 @@ pub fn run() {
                 &_app.path().app_data_dir()?.join("plugins"),
                 &_app.package_info().version,
             )?);
+            let sim = SimManager::default();
+            _app.manage(sim.clone());
+            _app.manage(SimulatorManager::for_app(_app.handle().clone(), sim));
+            if simulator::capable() {
+                let app = _app.handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    if let Err(error) = sim::executable(&app).await {
+                        eprintln!("{error}");
+                    }
+                });
+            }
             wheel::watch(_app.handle());
             _app.state::<PtyManager>().start(_app.handle());
             // See-through window — same recipe as nackle (NSWindow opaque=NO,
@@ -246,9 +259,10 @@ pub fn run() {
         .manage(remote::PublishedBackdrop::default())
         .manage(BrowserManager::default())
         .manage(VoiceManager::default())
-        .manage(SimManager::default())
+        .manage(simulator::view::Views::default())
         .manage(preview::Previews::default())
         .register_asynchronous_uri_scheme_protocol(preview::SCHEME, preview::handle)
+        .register_asynchronous_uri_scheme_protocol(simulator::view::SCHEME, simulator::view::handle)
         .invoke_handler(tauri::generate_handler![
             acp::acp_start,
             acp::acp_attach,
@@ -477,6 +491,19 @@ pub fn run() {
             sim::sim_status,
             sim::sim_prepare,
             sim::sim_call,
+            simulator::view::simulator_view_open,
+            simulator::view::simulator_view_close,
+            simulator::view::simulator_input,
+            simulator::view::simulator_devices,
+            simulator::view::simulator_available,
+            simulator::view::simulator_set_enabled,
+            simulator::view::simulator_rotate,
+            simulator::view::simulator_orientation,
+            simulator::view::simulator_setup,
+            simulator::view::simulator_preferred,
+            simulator::view::simulator_attach,
+            simulator::view::simulator_shutdown,
+            simulator::view::simulator_save_screenshot,
         ])
         .build(tauri::generate_context!())
         .expect("error while building sikemux")

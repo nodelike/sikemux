@@ -5,7 +5,7 @@ import { browserApi, BLANK_URL, type BrowserBounds, type BrowserHole, type Brows
 import { onStageFrame, stageMoving, useNativeViewHoles, useNativeViewsOccluded, useStageMoving, type NativeViewHole } from "../state/nativeViews";
 import type { AgentType, PtyContext, Session, Window as WindowT } from "../state/types";
 import { reportError } from "../state/toast";
-import { AgentIcon, IconChevron, IconPlus, IconRefresh, WindowIcon } from "../ui/Icons";
+import { AgentIcon, IconChevron, IconPhone, IconPlus, IconRefresh, WindowIcon } from "../ui/Icons";
 import { FileIcon } from "../ui/FileIcon";
 import { SiteIcon } from "../ui/SiteIcon";
 import { AddressBar } from "./AddressBar";
@@ -23,10 +23,12 @@ import {
     EMPTY_STRIP,
     isShown,
     shownDeskItem,
+    simulatorKey,
     takeDeskRestore,
     terminalKey,
 } from "../state/desks";
 import { TerminalPane } from "../terminal/TerminalPane";
+import { SimulatorView } from "./SimulatorView";
 import { basename } from "../lib/paths";
 import * as cmd from "../state/commands";
 import { useShortcutLabel, withShortcut } from "../commands/useShortcutLabel";
@@ -303,6 +305,19 @@ function DeskSession({
                 dirty: dirty.includes(item.path),
             };
         }
+        if (item.kind === "simulator") {
+            return {
+                id: item.key,
+                label: item.simulator.name,
+                title: `${item.simulator.name} (${item.simulator.os})`,
+                active: tabActive,
+                icon: (
+                    <span className="agent-glyph term">
+                        <IconPhone size={13} />
+                    </span>
+                ),
+            };
+        }
         return {
             id: item.key,
             label: item.terminal.label,
@@ -375,6 +390,10 @@ function DeskSession({
                         </Suspense>
                     </div>
                 )}
+                {desk.simulators.map((simulator) => {
+                    const showing = shown === simulatorKey(simulator.udid);
+                    return <SimulatorView key={simulator.udid} agentId={agentId} simulator={simulator} hidden={!showing} live={visible && showing} />;
+                })}
                 {desk.terminals.map((terminal) => {
                     const showing = shown === terminalKey(terminal.id);
                     return (

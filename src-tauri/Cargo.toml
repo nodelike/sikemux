@@ -90,7 +90,9 @@ sikemux-process = { path = "crates/sikemux-process" }
 sikemux-markdown = { path = "crates/sikemux-markdown" }
 sikemux-pty = { path = "crates/sikemux-pty" }
 sikemux-core = { path = "crates/sikemux-core" }
+futures-util = { version = "0.3", default-features = false }
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "process", "time", "sync", "io-util", "net"] }
+tokio-websockets = { version = "0.13", default-features = false, features = ["client", "getrandom", "sha1_smol"] }
 reqwest = { version = "0.13", default-features = false, features = ["json", "form", "rustls-no-provider", "gzip", "stream", "cookies", "multipart"] }
 rustls = { version = "0.23", default-features = false, features = ["ring"] }
 open = "5"

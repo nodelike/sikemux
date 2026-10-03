@@ -130,7 +130,8 @@
 }
 
 .tabbar.v-desk .tab-add,
-.browser-toolbar button {
+.browser-toolbar button,
+.simulator-controls button {
     display: grid;
     place-items: center;
     flex: none;
@@ -148,7 +149,8 @@
 }
 
 .tabbar.v-desk .tab-add:hover,
-.browser-toolbar button:hover {
+.browser-toolbar button:hover,
+.simulator-controls button:hover {
     background: var(--surface-hover);
     color: var(--ink);
 }
@@ -472,4 +474,78 @@
 
 .address-float .address-suggestions li {
     height: 32px;
+}
+
+.desk-simulator {
+    display: grid;
+    grid-template-rows: 34px minmax(0, 1fr) auto;
+}
+
+.simulator-toolbar {
+    display: flex;
+    align-items: center;
+    padding: 0 8px;
+}
+
+/* The device's name reads as a title that opens the list, not as a field. */
+.simulator-picker.dd-btn {
+    padding: 0 8px;
+    border-color: transparent;
+    background: transparent;
+    font-size: var(--text-md);
+}
+
+.simulator-picker .dd-trailing,
+.simulator-status {
+    color: var(--ink-faint);
+}
+
+/* The device keeps its own proportions, centred, with the margins around it
+   left empty; clicks there do nothing. */
+.simulator-stage {
+    position: relative;
+    display: grid;
+    place-items: center;
+    min-height: 0;
+    margin: 8px 12px 0;
+    outline: none;
+    touch-action: none;
+    user-select: none;
+}
+
+/* Focus taken by a click on the device keeps typing there without ringing the stage. */
+.simulator-stage.pointer-focus:focus-visible {
+    box-shadow: none;
+}
+
+.simulator-bezel,
+.simulator-screen {
+    position: absolute;
+    pointer-events: none;
+}
+
+.simulator-bezel {
+    width: 100%;
+    height: 100%;
+}
+
+/* One rounded bar of round buttons, spaced apart rather than divided. */
+.simulator-controls {
+    display: flex;
+    gap: 4px;
+    justify-self: center;
+    margin: 12px 0 16px;
+    padding: 4px;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+}
+
+.simulator-controls button {
+    width: 38px;
+    height: 38px;
+    border-radius: 50%;
+}
+
+.simulator-status {
+    margin: 0;
 }

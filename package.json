@@ -54,6 +54,8 @@
     "build:voice": "node scripts/build-voice-helper.mjs",
     "build:notch": "node scripts/build-notch-helper.mjs",
     "build:sim": "node scripts/build-sim-helper.mjs",
+    "build:sim-fixture": "node scripts/build-sim-fixture.mjs",
+    "test:sim": "swift test --package-path src-tauri/sim",
     "build:mac": "./scripts/build-mac.sh",
     "build:windows": "pnpm build:sidecar && tauri build --bundles nsis --config src-tauri/tauri.sidecar.conf.json",
     "build:linux": "pnpm build:sidecar && tauri build --bundles deb,rpm,appimage --config src-tauri/tauri.sidecar.conf.json",

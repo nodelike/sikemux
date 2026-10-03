@@ -4,7 +4,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use super::methods::{BROWSER_METHODS, HARNESS_METHODS};
+use super::methods::{BROWSER_METHODS, HARNESS_METHODS, SIM_METHODS};
 
 pub const CLI_PROTOCOL_VERSION: u16 = 2;
 pub const MAX_CLI_FRAME_BYTES: u64 = 64 * 1024;
@@ -207,6 +207,10 @@ pub fn is_browser_method(method: &str) -> bool {
     BROWSER_METHODS.contains(&method)
 }
 
+pub fn is_sim_method(method: &str) -> bool {
+    SIM_METHODS.contains(&method)
+}
+
 pub fn is_plugin_method(method: &str) -> bool {
     PLUGIN_METHODS.contains(&method)
 }
@@ -228,6 +232,7 @@ impl HarnessRequest {
         }
         if !HARNESS_METHODS.contains(&self.method.as_str())
             && !is_browser_method(&self.method)
+            && !is_sim_method(&self.method)
             && !is_plugin_method(&self.method)
         {
             return Err("unknown harness method".into());

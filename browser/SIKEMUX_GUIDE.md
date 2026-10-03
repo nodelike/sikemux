@@ -65,6 +65,7 @@ Pass one of these as `topic`:
 - `browser-pages` — navigating, reloading, waiting, local files, viewport sizes, tabs
 - `browser-evidence` — `browser_screenshot`, `browser_annotate`, `browser_record`
 - `browser-debugging` — `browser_network`, loads, `browser_console`, `app_console`, `browser_evaluate`
+- `simulator` — the iOS Simulator: attaching, reading the screen, tapping, typing, apps
 - `shell` — the `sikemux tool` CLI for scripts and tasks
 
 ## config: Writing sikemux.json
@@ -523,6 +524,89 @@ input, and `browser_wait` for waiting, rather than a polling loop in a script.
 A script that reloads or leaves the page loses its result; use
 `browser_navigate` with `go: "reload"` for that. It runs with the page's own session, so `fetch` of
 the site's API returns what the signed-in person would get.
+
+## simulator: Driving the iOS Simulator
+
+The `sim_*` tools drive the iOS simulators that Xcode installs on this Mac.
+They are listed only when this Mac has Xcode. `sim_attach` puts the device
+live on your desk in Sikemux, beside the person, who watches what you do and
+can tap it too, so there is nothing else to open to show it: do not look for
+Simulator.app or open screenshots in another app. Its absence does not mean
+Xcode is broken; from Xcode 27 its window is DeviceHub. `workspace_inspect`
+reports `simulator`: whether this Mac can run them, and the device you have
+attached.
+
+`sim_attach` comes first. It takes a device name or udid from `sim_devices`,
+boots the device if it is off, and waits until its screen can be read.
+Without a `device` it takes the iPhone that is already booted, else an iPhone
+on the newest iOS. A cold boot can take a minute; when it runs past the reply
+time the boot carries on, so call `sim_attach` again. Each agent attaches
+its own device, and every other `sim_*` tool acts on that one.
+
+`sim_state` reads the screen: the frontmost `app`, which is `Home Screen` when
+its icons show and `System` for what iOS draws over an app, such as a
+permission alert, Control Center or the lock screen, and numbered `elements`, each with its role, label, value, identifier
+and centre point, as in `3 Button "General" at (201, 418)`. Coordinates are
+device points, the same for every tool. Element numbers belong to the latest
+read only.
+
+Tools that act report on the screen afterwards, and `report` chooses how much,
+as for the browser. `"changes"`, the default, returns the app and `changes`:
+`elements` lists what appeared or changed, numbered as the screen now is, and
+`removed` what went away; `changes: "none"` means nothing moved. A different
+app in front, or no earlier read, gets the whole screen instead. `"outcome"`
+returns only the device and app, for a run of steps you check afterwards, and
+`"full"` the whole screen, as `sim_state` does.
+
+`sim_tap` takes an element `index`, a `label`, or `x` and `y`. A `label`
+matches the accessibility label or identifier, exact matches first, and fails
+when two elements match equally; tap one of them by number instead. Prefer a
+number or label over a point read off a screenshot. `duration` holds the
+touch, for a long press.
+
+`sim_type` types into the focused field, so tap the field first. While a
+field is focused the keyboard covers the bottom of the screen, and a swipe across
+it types a word, as sliding a finger over the keys does; press Return (`\n`) or
+tap outside the field before you swipe there to scroll. It types
+the characters of a US keyboard; other characters fail and are named.
+`sim_swipe` drags from one point to another; a swipe that starts within
+10 points of a screen edge is a system gesture: up from the bottom goes home,
+in from the left goes back, down from the top opens Notification Center. Its
+result carries a `warning` saying so; to scroll, start inside the content. `sim_button` presses `home`, `lock`,
+`side`, `siri`, `volumeUp`, `volumeDown` or `applePay`.
+
+`sim_rotate` turns the device to `portrait`, `landscapeLeft` or
+`landscapeRight` and reads the screen, which is then wider than tall; an app
+that only runs upright, such as Settings, stays as it was. Coordinates always
+follow the screen as it is turned, so read it again after turning.
+
+`sim_touch_path` puts one finger down on the first of its `points`, moves it
+through the rest evenly over `duration` seconds and lifts it on the last: a
+long-press drag, reordering a list or drawing. `sim_touch2_path` does the same
+with two fingers, each point naming both (`x1`, `y1`, `x2`, `y2`): spread them
+to zoom in, bring them together to zoom out, or turn them around a centre.
+
+Acting tools wait until two reads of the screen agree before they return, so
+an animation or an app's launch has finished. Content an app loads from the
+network can arrive later; read again with `sim_state`. `sim_screenshot` returns the screen as an image at
+its size in points; read `sim_state` rather than a screenshot to decide what
+to tap.
+
+To try an app: build it for the simulator with a task (`xcodebuild` with
+`-sdk iphonesimulator`), then `sim_install` the `.app` it produced (a
+relative path is read from the project) and `sim_launch` it by bundle id,
+with optional `arguments` and `environment`. `sim_launch` relaunches an app
+that is running. `sim_terminate` quits it, and `sim_open_url` opens a URL or
+a deep link.
+
+`sim_logs` reads the device's log, kept from when you attached it, by
+`cursor`: start at `0` and pass back the `cursor` it returns, as with
+`task_read`. It holds what apps log themselves, through `Logger`, `os_log`
+or `NSLog`; Apple's frameworks are left out. Ask for your app by `process`, its
+executable name: its lines are kept apart, and that cursor counts only them. `limit` caps the
+lines in one read; `more` says lines are waiting, and `dropped` that older ones
+went before you read them. `sim_detach`
+lets go of the device and closes it on your desk; it keeps running.
 
 ## shell: The same operations from a shell
 

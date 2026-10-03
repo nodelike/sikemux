@@ -127,7 +127,7 @@ fn absolute_command(command: &str) -> AppResult<PathBuf> {
 /// What the MCP sidecar reads once the host spawns it. The sidecar inherits
 /// this through the agent process, so it never appears in a config file.
 fn base_environment(agent_id: &str) -> AppResult<Vec<(String, String)>> {
-    Ok(vec![
+    let mut environment = vec![
         ("SIKEMUX_TOOLS_AGENT_ID".into(), agent_id.to_owned()),
         (
             "SIKEMUX_CLI_ENDPOINT".into(),
@@ -136,7 +136,11 @@ fn base_environment(agent_id: &str) -> AppResult<Vec<(String, String)>> {
                 .to_string_lossy()
                 .into_owned(),
         ),
-    ])
+    ];
+    if crate::simulator::offered() {
+        environment.push(("SIKEMUX_TOOLS_SIMULATOR".into(), "1".into()));
+    }
+    Ok(environment)
 }
 
 fn mcp_server_document(launch: &BrowserMcpLaunch) -> Value {

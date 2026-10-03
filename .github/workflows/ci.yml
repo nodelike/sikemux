@@ -131,6 +131,43 @@ jobs:
         run: cargo clippy -p sikemux --no-default-features --all-targets -- -D warnings
         working-directory: src-tauri
 
+  simulator-helper:
+    name: iOS Simulator helper
+    # idb's simulator libraries need Xcode 26 or newer.
+    runs-on: macos-26
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Build the helper
+        run: node scripts/build-sim-helper.mjs --dev
+
+      - name: Run the helper's tests
+        run: swift test --package-path src-tauri/sim
+
+      - name: Note the Xcode and idb it was checked against
+        run: |
+          echo "Checked with $(xcodebuild -version | head -1), idb $(cut -c1-12 src-tauri/sim/idb/COMMIT)" >>"$GITHUB_STEP_SUMMARY"
+
+      - name: Build the app the end-to-end test drives
+        run: node scripts/build-sim-fixture.mjs
+
+      - name: Setup Rust
+        run: rustup toolchain install "$(sed -n 's/^channel = "\(.*\)"$/\1/p' rust-toolchain.toml)" --profile minimal --no-self-update
+
+      - name: Prepare Tauri resource placeholder
+        run: mkdir -p src-tauri/icons/build && touch src-tauri/icons/build/Assets.car
+
+      - name: Drive a real simulator and the fixture app as an agent would
+        working-directory: src-tauri
+        env:
+          SIKEMUX_SIM_EXECUTABLE: ${{ github.workspace }}/src-tauri/target/debug/sikemux-sim
+          SIKEMUX_SIM_FIXTURE: ${{ github.workspace }}/src-tauri/sim/.build/fixture/Build/Products/Debug-iphonesimulator/SimFixture.app
+        run: cargo test --lib simulator -- --ignored
+
   desktop-e2e:
     name: macOS launched desktop E2E
     runs-on: macos-latest

@@ -244,6 +244,19 @@
     "allow-voice-shutdown",
     "allow-sim-status",
     "allow-sim-prepare",
-    "allow-sim-call"
+    "allow-sim-call",
+    "allow-simulator-view-open",
+    "allow-simulator-view-close",
+    "allow-simulator-input",
+    "allow-simulator-devices",
+    "allow-simulator-available",
+    "allow-simulator-set-enabled",
+    "allow-simulator-rotate",
+    "allow-simulator-orientation",
+    "allow-simulator-setup",
+    "allow-simulator-preferred",
+    "allow-simulator-attach",
+    "allow-simulator-shutdown",
+    "allow-simulator-save-screenshot"
   ]
 }

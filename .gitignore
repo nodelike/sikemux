@@ -15,6 +15,7 @@ src-tauri/binaries/sikemux-sim-*
 src-tauri/sim/.build/
 src-tauri/sim/Frameworks/
 src-tauri/sim/FBControlCore.xcodeproj/
+src-tauri/sim/Fixture/SimFixture.xcodeproj/
 .env
 .design/
 

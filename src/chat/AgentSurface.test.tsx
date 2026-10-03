@@ -7,13 +7,21 @@ import { deliverToAgent } from "../agents/agentInbox";
 const mocks = vi.hoisted(() => ({
     chatPane: vi.fn(() => null),
     toggleDesk: vi.fn(),
+    openDeskSimulator: vi.fn(),
+    simulatorsAvailable: false,
     renameAgent: vi.fn(),
     typed: vi.fn(),
     addAgent: vi.fn(),
     relaunch: vi.fn(async () => {}),
     clearRecovery: vi.fn(),
     resume: { recovery: null as null | { phase: "resuming" } | { phase: "failed"; detail: string | null }, generation: 0 },
-    state: { deskPanes: {} as Record<string, string>, windows: {} as Record<string, unknown>, keybindingOverrides: {} },
+    state: {
+        deskPanes: {} as Record<string, string>,
+        desks: {},
+        iosSimulator: true,
+        windows: {} as Record<string, unknown>,
+        keybindingOverrides: {},
+    },
 }));
 
 vi.mock("./AgentChatPane", () => ({ AgentChatPane: mocks.chatPane }));
@@ -30,9 +38,16 @@ vi.mock("../agents/tuiResume", () => ({
     relaunchTuiAgent: mocks.relaunch,
     clearTuiRecovery: mocks.clearRecovery,
 }));
+vi.mock("../state/simulatorAvailable", () => ({ useSimulatorsAvailable: () => mocks.simulatorsAvailable }));
+vi.mock("../api/simulator", () => ({
+    simulatorApi: {
+        preferred: vi.fn(async () => ({ udid: "U1", name: "iPhone 17", os: "iOS 27.0", booted: false, screen: { width: 402, height: 874 } })),
+    },
+}));
 vi.mock("../state/commands", () => ({
     addAgent: mocks.addAgent,
     toggleDesk: mocks.toggleDesk,
+    openDeskSimulator: mocks.openDeskSimulator,
     renameAgent: mocks.renameAgent,
     toggleAgentSkipPermissions: vi.fn(),
     agentSupportsSkipPermissions: () => true,
@@ -57,7 +72,7 @@ afterEach(() => {
     mocks.addAgent.mockClear();
     mocks.relaunch.mockClear();
     mocks.resume = { recovery: null, generation: 0 };
-    mocks.state = { deskPanes: {}, windows: {}, keybindingOverrides: {} };
+    mocks.state = { deskPanes: {}, desks: {}, iosSimulator: true, windows: {}, keybindingOverrides: {} };
 });
 
 /* The window layer keeps a live agent mounted so it keeps its process. The
@@ -80,6 +95,8 @@ it("shows the desk toggle as off while the agent's desk is hidden", () => {
 it("shows the desk toggle as on while the agent's desk is in the layout", () => {
     mocks.state = {
         keybindingOverrides: {},
+        desks: {},
+        iosSimulator: true,
         deskPanes: { "desk-1": "agent-1" },
         windows: {
             "window-1": {
@@ -161,4 +178,42 @@ it("shows no resume state in the chat view", () => {
     render(<AgentSurface agent={agent} session={session} visible />);
     expect(screen.queryByText("Couldn't resume this agent")).not.toBeInTheDocument();
     expect(screen.queryByText("Resuming…")).not.toBeInTheDocument();
+});
+
+it("offers the iOS Simulator only on a Mac that can run it", () => {
+    mocks.simulatorsAvailable = false;
+    render(<AgentSurface agent={agent} session={session} visible />);
+    expect(screen.queryByRole("button", { name: "iOS Simulator" })).toBeNull();
+});
+
+it("opens the agent's desk on the simulator it would use", async () => {
+    mocks.simulatorsAvailable = true;
+    render(<AgentSurface agent={agent} session={session} visible />);
+
+    fireEvent.click(screen.getByRole("button", { name: "iOS Simulator" }));
+
+    await vi.waitFor(() =>
+        expect(mocks.openDeskSimulator).toHaveBeenCalledWith("agent-1", {
+            udid: "U1",
+            name: "iPhone 17",
+            os: "iOS 27.0",
+            screen: { width: 402, height: 874 },
+        }),
+    );
+    mocks.simulatorsAvailable = false;
+});
+
+it("leaves the iOS Simulator out once the person turns it off in Settings", () => {
+    mocks.simulatorsAvailable = true;
+    mocks.state = { ...mocks.state, iosSimulator: false };
+    render(<AgentSurface agent={agent} session={session} visible />);
+    expect(screen.queryByRole("button", { name: "iOS Simulator" })).toBeNull();
+    mocks.simulatorsAvailable = false;
+});
+
+it("leaves the iOS Simulator out of an SSH session, whose agent works on another machine", () => {
+    mocks.simulatorsAvailable = true;
+    render(<AgentSurface agent={agent} session={{ ...session, kind: "ssh" }} visible />);
+    expect(screen.queryByRole("button", { name: "iOS Simulator" })).toBeNull();
+    mocks.simulatorsAvailable = false;
 });

@@ -177,7 +177,7 @@ fn parse_reply(line: &str) -> Option<(u64, Reply)> {
 }
 
 /// A helper built alongside the app, as `make dev` does.
-fn local_helper() -> Option<PathBuf> {
+pub(crate) fn local_helper() -> Option<PathBuf> {
     if let Some(path) = std::env::var_os("SIKEMUX_SIM_EXECUTABLE") {
         return Some(PathBuf::from(path));
     }
@@ -186,7 +186,7 @@ fn local_helper() -> Option<PathBuf> {
 }
 
 /// The helper published beside this release, which the app downloads the first time it is needed.
-fn published_helper() -> Option<ModelFile> {
+pub(crate) fn published_helper() -> Option<ModelFile> {
     Some(ModelFile {
         path: option_env!("SIKEMUX_SIM_HELPER_ASSET")?.into(),
         size: option_env!("SIKEMUX_SIM_HELPER_SIZE")?.parse().ok()?,
@@ -208,7 +208,7 @@ fn matches(path: &Path, helper: &ModelFile) -> bool {
         && voice_models::hash_file(path).is_ok_and(|hash| hash == helper.sha256)
 }
 
-fn installed(app: &AppHandle) -> bool {
+pub(crate) fn installed(app: &AppHandle) -> bool {
     local_helper().is_some()
         || published_helper()
             .zip(downloaded_helper(app).ok())
@@ -216,7 +216,7 @@ fn installed(app: &AppHandle) -> bool {
 }
 
 /// The helper to run, downloading the published one first if this build has none beside it.
-async fn executable(app: &AppHandle) -> AppResult<PathBuf> {
+pub(crate) async fn executable(app: &AppHandle) -> AppResult<PathBuf> {
     if let Some(local) = local_helper() {
         return Ok(local);
     }
@@ -252,7 +252,7 @@ async fn executable(app: &AppHandle) -> AppResult<PathBuf> {
     Ok(destination)
 }
 
-fn unsupported_reason() -> Option<String> {
+pub(crate) fn unsupported_reason() -> Option<String> {
     if !cfg!(target_os = "macos") {
         return Some("The iOS Simulator is only available on macOS.".into());
     }

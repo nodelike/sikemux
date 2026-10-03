@@ -227,6 +227,19 @@ export const IPC_COMMANDS = [
     "sim_status",
     "sim_prepare",
     "sim_call",
+    "simulator_view_open",
+    "simulator_view_close",
+    "simulator_input",
+    "simulator_devices",
+    "simulator_available",
+    "simulator_set_enabled",
+    "simulator_rotate",
+    "simulator_orientation",
+    "simulator_setup",
+    "simulator_preferred",
+    "simulator_attach",
+    "simulator_shutdown",
+    "simulator_save_screenshot",
 ] as const;
 
 export type IpcCommand = (typeof IPC_COMMANDS)[number];

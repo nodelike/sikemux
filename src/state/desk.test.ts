@@ -1,6 +1,17 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { browserApi } from "../api/browser";
-import { closeDeskItem, openDesk, openDeskTerminal, openFileOnDesk, removeDeskPane, revealDesk, selectDeskItem, toggleDesk } from "./commands";
+import {
+    closeDeskItem,
+    openDesk,
+    openDeskSimulator,
+    openDeskTerminal,
+    openFileOnDesk,
+    removeDeskPane,
+    revealDesk,
+    selectDeskItem,
+    switchDeskSimulator,
+    toggleDesk,
+} from "./commands";
 import { deskEditorId, deskItemsOf, shownDeskItem } from "./desks";
 import { taskPtyBindings } from "../tasks/nativeRuntime";
 import { collectPanes } from "./layout";
@@ -235,5 +246,47 @@ describe("the desk", () => {
 
         expect(getState().desks["agent-1"].active).toBe("file:/code/b.ts");
         expect(getState().editorViews[deskEditorId("agent-1")].activePath).toBe("/code/b.ts");
+    });
+});
+
+describe("a simulator on the desk", () => {
+    const iPhone = { udid: "U1", name: "iPhone 18 Pro", os: "iOS 27.0", screen: { width: 402, height: 874 } };
+
+    it("comes forward on the agent's desk when the agent attaches it, once however often it attaches", () => {
+        openDeskSimulator("agent-1", iPhone);
+        openDeskSimulator("agent-1", { ...iPhone, os: "iOS 27.1" });
+
+        expect(shownDeskPaneId(getState(), "agent-1")).not.toBeNull();
+        const items = deskItemsOf(getState(), "agent-1");
+        expect(items).toEqual([{ key: "simulator:U1", kind: "simulator", simulator: { ...iPhone, os: "iOS 27.1" } }]);
+        expect(shownDeskItem(getState().desks["agent-1"], items)).toBe("simulator:U1");
+    });
+
+    it("closes without touching any terminal", () => {
+        openDeskTerminal("agent-1", { terminalKey: "dev", label: "Dev server", cwd: "/code" });
+        openDeskSimulator("agent-1", iPhone);
+        const release = vi.spyOn(taskPtyBindings, "release");
+
+        const simulator = deskItemsOf(getState(), "agent-1").find((item) => item.kind === "simulator");
+        closeDeskItem("agent-1", simulator!);
+
+        expect(release).not.toHaveBeenCalled();
+        expect(getState().desks["agent-1"].simulators).toEqual([]);
+        expect(deskItemsOf(getState(), "agent-1").map((item) => item.kind)).toEqual(["terminal"]);
+    });
+
+    it("shows a newly picked device in the same tab, where the old one was", () => {
+        const ipad = { udid: "U3", name: "iPad Air", os: "iOS 27.0", screen: { width: 820, height: 1180 } };
+        openDeskSimulator("agent-1", iPhone);
+        openDeskSimulator("agent-1", ipad);
+        selectDeskItem("agent-1", deskItemsOf(getState(), "agent-1")[0]);
+        const seventeen = { udid: "U2", name: "iPhone 17", os: "iOS 26.0", screen: { width: 402, height: 874 } };
+
+        switchDeskSimulator("agent-1", "U1", seventeen);
+
+        const items = deskItemsOf(getState(), "agent-1");
+        expect(items.map((item) => item.key)).toEqual(["simulator:U2", "simulator:U3"]);
+        expect(getState().desks["agent-1"].simulators).toEqual([seventeen, ipad]);
+        expect(shownDeskItem(getState().desks["agent-1"], items)).toBe("simulator:U2");
     });
 });

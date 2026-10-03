@@ -87,6 +87,7 @@ export interface PersistedPrefs {
     agentNotifications?: boolean;
     notch?: unknown;
     voiceDictation?: boolean;
+    iosSimulator?: boolean;
     notificationsIntroduced?: boolean;
     keptRunningNoticeShown?: boolean;
     railDensity?: RailDensity;

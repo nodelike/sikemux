@@ -14,7 +14,7 @@ use sikemux_pty::output_log::{OutputPage, OutputQuery};
 use tokio::sync::watch;
 use tokio::time::Instant;
 
-use crate::cli::protocol::{is_browser_method, is_plugin_method, HarnessRequest};
+use crate::cli::protocol::{is_browser_method, is_plugin_method, is_sim_method, HarnessRequest};
 use crate::harness::command::{command_cwd, command_label, command_task_id, COMMAND_TASK_PREFIX};
 use crate::harness::journal::{JournalRecord, Journals};
 use crate::harness::runs::{CommandLaunch, Launch, Run, RunStatus, Runs, RunsRecord};
@@ -309,6 +309,7 @@ fn purpose(method: &str) -> &'static str {
         "app.console" => "read its console",
         "task.start" | "task.restart" => "start tasks",
         method if is_browser_method(method) => "use the browser",
+        method if is_sim_method(method) => "drive the iOS Simulator",
         method if is_plugin_method(method) => "use plugin tools",
         _ => "use this tool",
     }

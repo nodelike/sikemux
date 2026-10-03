@@ -210,6 +210,26 @@ export const IconPhone = makeSvgIcon(
         <path d="M7.2 11.8h1.6" />
     </>,
 );
+export const IconCamera = makeSvgIcon(
+    <>
+        <path d="M2.5 5.5a1 1 0 0 1 1-1h1.8l1-1.5h3.4l1 1.5h1.8a1 1 0 0 1 1 1v6.5a1 1 0 0 1-1 1h-9a1 1 0 0 1-1-1Z" />
+        <circle cx="8" cy="8.5" r="2.2" />
+    </>,
+);
+export const IconPower = makeSvgIcon(
+    <>
+        <path d="M8 2.5v5" />
+        <path d="M4.9 4.6a4.6 4.6 0 1 0 6.2 0" />
+    </>,
+);
+export const IconRotate = makeSvgIcon(
+    <>
+        <rect x="5" y="2.5" width="6" height="11" rx="1.4" transform="rotate(-90 8 8)" />
+        <path d="M3.2 4.2A5.6 5.6 0 0 1 12 3.4" />
+        <path d="M12.4 1.6v2.2h-2.2" />
+    </>,
+);
+export const IconHome = makeSvgIcon(<path d="M2.8 7.4 8 3l5.2 4.4v5.8a.8.8 0 0 1-.8.8H3.6a.8.8 0 0 1-.8-.8Z" />);
 export const IconLock = makeSvgIcon(
     <>
         <rect x="3.5" y="7" width="9" height="6.5" rx="1.5" />

@@ -52,5 +52,11 @@ let package = Package(
                 )
             ]
         ),
+        .testTarget(
+            name: "SikemuxSimTests",
+            dependencies: ["SikemuxSim"],
+            path: "Tests/SikemuxSimTests",
+            swiftSettings: [simulatorFrameworks]
+        ),
     ]
 )

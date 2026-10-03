@@ -204,7 +204,9 @@ const budgets = [
     // Includes the JetBrainsMono Nerd Font @font-face rules: a base face per
     // weight/style plus an icons face, each carrying an explicit
     // unicode-range so the ~930 KB icons file only downloads once a PUA
-    // glyph is actually rendered. Plugin panes bring their own sheets.
+    // glyph is actually rendered. Plugin panes bring their own sheets. The
+    // simulator's desk tab added about 1 KB, most of it selectors joined to
+    // the desk's existing toolbar and page rules.
     label: "application CSS",
     pattern: /^index-.*\.css$/,
     raw: 223_000,

@@ -30,15 +30,25 @@ export interface DeskTerminal {
     cwd: string;
 }
 
+/** An iOS simulator an agent attached, shown live on its desk. */
+export interface DeskSimulator {
+    udid: string;
+    name: string;
+    os: string;
+    /** In points, the unit the simulator takes touches in. */
+    screen: { width: number; height: number } | null;
+}
+
 /**
  * Keys in `order` and `active` name what they point at: `browser:<tab id>`,
- * `file:<path>` or `terminal:<id>`. The browser has one page on screen at a
- * time, so `active` is just `browser` when a page is showing.
+ * `file:<path>`, `terminal:<id>` or `simulator:<udid>`. The browser has one
+ * page on screen at a time, so `active` is just `browser` when a page is showing.
  */
 export interface Desk {
     order: string[];
     active: string | null;
     terminals: DeskTerminal[];
+    simulators: DeskSimulator[];
     /** The latest file the agent or the person asked to see, and where in it. */
     reveal: DeskReveal | null;
 }

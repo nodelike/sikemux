@@ -12,6 +12,7 @@ const rustOutputPath = resolve(
   "src-tauri/crates/sikemux-core/src/cli/methods.rs",
 );
 const browserHandlersPath = resolve(root, "src-tauri/src/browser/tools.rs");
+const simulatorHandlersPath = resolve(root, "src-tauri/src/simulator/tools.rs");
 const windowHandlersPath = resolve(root, "src/harness/service.ts");
 const coreHandlersPath = resolve(
   root,
@@ -33,8 +34,9 @@ if (new Set(names).size !== names.length)
 const browserMethods = methods.filter((method) =>
   method.startsWith("browser."),
 );
+const simulatorMethods = methods.filter((method) => method.startsWith("sim."));
 const harnessMethods = methods.filter(
-  (method) => !method.startsWith("browser."),
+  (method) => !method.startsWith("browser.") && !method.startsWith("sim."),
 );
 
 // A Rust arm may list several methods ("browser.back" | "browser.forward" => ...),
@@ -42,7 +44,7 @@ const harnessMethods = methods.filter(
 function handlersIn(source, pattern, prefix) {
   const handled = new Set();
   for (const match of source.matchAll(pattern)) {
-    for (const [, method] of match[1].matchAll(/"([a-z.]+)"/gu)) {
+    for (const [, method] of match[1].matchAll(/"([a-zA-Z0-9.]+)"/gu)) {
       if (method.startsWith(prefix)) handled.add(method);
     }
   }
@@ -71,6 +73,15 @@ compare(
   ),
   "src-tauri/src/browser/tools.rs",
 );
+compare(
+  simulatorMethods,
+  handlersIn(
+    await readFile(simulatorHandlersPath, "utf8"),
+    /((?:"[a-zA-Z0-9.]+"\s*\|\s*)*"[a-zA-Z0-9.]+")\s*=>/gu,
+    "sim.",
+  ),
+  "src-tauri/src/simulator/tools.rs",
+);
 // The core answers some harness methods itself and hands the rest to the
 // window, so a method counts as handled by either side's dispatch.
 const coreSource = await readFile(coreHandlersPath, "utf8");
@@ -98,6 +109,10 @@ pub const BROWSER_METHODS: &[&str] = &[
 ${list(browserMethods)}
 ];
 
+pub const SIM_METHODS: &[&str] = &[
+${list(simulatorMethods)}
+];
+
 pub const HARNESS_METHODS: &[&str] = &[
 ${list(harnessMethods)}
 ];
@@ -118,5 +133,5 @@ if (actual !== rustOutput) {
 }
 
 console.log(
-  `✓ ${methods.length} agent tools: ${browserMethods.length} browser, ${harnessMethods.length} harness`,
+  `✓ ${methods.length} agent tools: ${browserMethods.length} browser, ${simulatorMethods.length} simulator, ${harnessMethods.length} harness`,
 );

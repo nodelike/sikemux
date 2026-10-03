@@ -1,0 +1,19 @@
+# An iOS app the simulator tests drive: a counter, a text field, a long list and
+# a view that pinches, each easy to find by its accessibility identifier.
+name: SimFixture
+options:
+  deploymentTarget:
+    iOS: "17.0"
+targets:
+  SimFixture:
+    type: application
+    platform: iOS
+    sources: [Sources]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.nodelike.sikemux.simfixture
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        INFOPLIST_KEY_UISupportedInterfaceOrientations: "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
+        SWIFT_VERSION: "6.0"
+        CODE_SIGNING_ALLOWED: NO

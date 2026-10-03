@@ -13,6 +13,7 @@ import {
     fileKey,
     isShown,
     shownDeskItem,
+    simulatorKey,
     terminalKey,
     type DeskItem,
 } from "../desks";
@@ -22,7 +23,7 @@ import { holdStageMotion } from "../nativeViews";
 import { canAnimate } from "../../lib/motion";
 import { activeAgentId, shownDeskPaneId } from "../selectors";
 import { collectPanes, computeLayout, findSplit, makePane, newId, removePane, setSplitSizes, splitPane } from "../layout";
-import type { Desk, LayoutNode, SplitNode } from "../types";
+import type { Desk, DeskSimulator, LayoutNode, SplitNode } from "../types";
 import { setEditorView } from "./editor";
 import { dirtyPathsForPane, dropDeskPaneState, guardDiscardDirty } from "./shared";
 
@@ -347,6 +348,40 @@ export function openDeskTerminal(
     return id;
 }
 
+/**
+ * Shows a simulator the agent attached on its desk, in front. Attaching the same
+ * device again comes back to its tab.
+ */
+export function openDeskSimulator(agentId: string, simulator: DeskSimulator): void {
+    mutate((d) => {
+        const desk = ensureDesk(d, agentId);
+        const key = simulatorKey(simulator.udid);
+        const known = desk.simulators.findIndex((candidate) => candidate.udid === simulator.udid);
+        if (known >= 0) desk.simulators[known] = simulator;
+        else desk.simulators.push(simulator);
+        if (!desk.order.includes(key)) desk.order.push(key);
+        desk.active = key;
+    });
+    revealDesk(agentId);
+}
+
+/** Shows another device in a simulator's tab, where that tab already is on the desk. */
+export function switchDeskSimulator(agentId: string, previousUdid: string, simulator: DeskSimulator): void {
+    mutate((d) => {
+        const desk = d.desks[agentId];
+        if (!desk) return;
+        const previous = simulatorKey(previousUdid);
+        const next = simulatorKey(simulator.udid);
+        desk.simulators = desk.simulators.filter((candidate) => candidate.udid !== simulator.udid);
+        const at = desk.simulators.findIndex((candidate) => candidate.udid === previousUdid);
+        if (at >= 0) desk.simulators[at] = simulator;
+        else desk.simulators.push(simulator);
+        desk.order = desk.order.filter((key) => key !== next).map((key) => (key === previous ? next : key));
+        if (!desk.order.includes(next)) desk.order.push(next);
+        if (desk.active === previous || desk.active === null) desk.active = next;
+    });
+}
+
 export function showDeskTerminal(agentId: string, id: string): void {
     revealDesk(agentId);
     setDeskActive(agentId, terminalKey(id));
@@ -394,6 +429,15 @@ export function closeDeskItem(agentId: string, item: DeskItem): void {
         emit({ type: "close-file", paneId: deskEditorId(agentId), path: item.path });
         return;
     }
+    if (item.kind === "simulator") {
+        mutate((d) => {
+            const current = d.desks[agentId];
+            if (!current) return;
+            current.simulators = current.simulators.filter((simulator) => simulator.udid !== item.simulator.udid);
+            current.order = current.order.filter((key) => key !== item.key);
+        });
+        return;
+    }
     taskPtyBindings.release(item.terminal.id);
     mutate((d) => {
         const current = d.desks[agentId];
@@ -403,7 +447,7 @@ export function closeDeskItem(agentId: string, item: DeskItem): void {
     });
 }
 
-/** Closes the page, file or terminal the desk is showing; false when it shows nothing. */
+/** Closes the page, file, terminal or simulator the desk is showing; false when it shows nothing. */
 export function closeShownDeskTab(agentId: string): boolean {
     const state = getState();
     const items = deskItemsOf(state, agentId);

@@ -121,7 +121,7 @@ fn every_served_tool_comes_from_the_manifest() {
 
 #[test]
 fn schemas_stay_lean_so_prose_lives_in_the_guide() {
-    let served = declarations();
+    let served = Manifest::load().offering(false).declarations();
     let mut prose = 0;
     for tool in &served {
         let description = field(tool, "description");
@@ -135,6 +135,54 @@ fn schemas_stay_lean_so_prose_lives_in_the_guide() {
     assert!(
         prose <= 1800,
         "tool descriptions are paid on every request; explain it in SIKEMUX_GUIDE.md instead"
+    );
+}
+
+/// The simulator tools reach only agents on a Mac that can run them, so like a
+/// plugin they answer to their own budget rather than the one every agent pays.
+#[test]
+fn the_simulator_tools_are_listed_only_where_they_work_and_stay_within_budget() {
+    let names = |manifest: Manifest| -> Vec<String> {
+        manifest
+            .declarations()
+            .iter()
+            .map(|tool| field(tool, "name").to_owned())
+            .collect()
+    };
+    let everywhere = names(Manifest::load().offering(false));
+    let with_xcode = names(Manifest::load().offering(true));
+    assert!(everywhere.iter().all(|name| !name.starts_with("sim_")));
+    assert!(with_xcode.iter().any(|name| name == "sim_attach"));
+    assert!(!Manifest::load()
+        .offering(false)
+        .instructions()
+        .contains("sim_"));
+    assert!(Manifest::load()
+        .offering(true)
+        .instructions()
+        .contains("sim_attach"));
+    assert!(Manifest::load()
+        .offering(true)
+        .instructions()
+        .contains("live on your desk"));
+
+    let simulator: Vec<Value> = Manifest::load()
+        .offering(true)
+        .declarations()
+        .into_iter()
+        .filter(|tool| field(tool, "name").starts_with("sim_"))
+        .collect();
+    for tool in &simulator {
+        assert!(
+            field(tool, "description").len() <= 160,
+            "{} description belongs in the guide",
+            field(tool, "name")
+        );
+    }
+    let bytes = Value::Array(simulator).to_string().len();
+    assert!(
+        bytes <= 5600,
+        "the simulator tools send {bytes} bytes of schema on every request"
     );
 }
 
