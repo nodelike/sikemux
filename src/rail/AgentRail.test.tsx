@@ -292,7 +292,7 @@ describe("agent rail", () => {
         act(() => acceptDialog(useDialogs.getState().dialog!.id));
 
         await waitFor(() => expect(screen.queryByRole("button", { name: /Fix terminal focus/ })).not.toBeInTheDocument());
-        expect(mocks.deleteSession).toHaveBeenCalledWith("claude", "/code/sikemux", "older", undefined);
+        expect(mocks.deleteSession).toHaveBeenCalledWith("claude", "/code/sikemux", "older", "claude", undefined);
         expect(screen.getByRole("button", { name: /Build launch page/ })).toBeInTheDocument();
     });
 

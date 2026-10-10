@@ -507,7 +507,7 @@ export async function deleteAgentSession(session: SavedSession, title: string): 
     });
     if (!confirmed) return false;
     try {
-        await agentApi.deleteSession(session.type, session.cwd, session.sessionId, session.configPath);
+        await agentApi.deleteSession(session.type, session.cwd, session.sessionId, session.executablePath, session.configPath);
     } catch (error) {
         reportError("delete chat")(error);
         return false;

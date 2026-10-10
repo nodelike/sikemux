@@ -65,7 +65,14 @@ export function RecentChatList({ recent, providers }: { recent: RecentChats; pro
     };
 
     const remove = (chat: RecentChat) => {
-        const session = { type: chat.agent, cwd: chat.project, sessionId: chat.id, configPath: providerOf(chat)?.configPath ?? undefined };
+        const provider = providerOf(chat);
+        const session = {
+            type: chat.agent,
+            cwd: chat.project,
+            sessionId: chat.id,
+            configPath: provider?.configPath ?? undefined,
+            executablePath: provider?.command,
+        };
         void cmd.deleteAgentSession(session, chat.title).then((deleted) => {
             if (deleted) recent.forget(chat.agent, chat.id);
         });
