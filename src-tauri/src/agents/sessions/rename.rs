@@ -47,7 +47,10 @@ pub async fn agent_session_rename(
     }
 }
 
-fn agent_executable(agent: AgentKind, configured: Option<&str>) -> Result<PathBuf, String> {
+pub(super) fn agent_executable(
+    agent: AgentKind,
+    configured: Option<&str>,
+) -> Result<PathBuf, String> {
     configured
         .map(expand_user_path)
         .or_else(|| crate::system::find_executable(agent.as_str()))

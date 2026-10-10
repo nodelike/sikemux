@@ -262,8 +262,12 @@ mod tests {
         repo.to_string_lossy().into_owned()
     }
 
+    /// Test repositories commit without signing, whatever the person's own Git config asks for.
+    const UNSIGNED: [&str; 4] = ["-c", "commit.gpgsign=false", "-c", "tag.gpgsign=false"];
+
     pub(super) fn git(repo: &Path, args: &[&str]) -> String {
         let out = sikemux_process::user_environment::command("git")
+            .args(UNSIGNED)
             .arg("-C")
             .arg(repo)
             .args(args)
@@ -281,6 +285,7 @@ mod tests {
 
     pub(super) fn git_at(repo: &Path, stamp: &str, args: &[&str]) -> String {
         let out = sikemux_process::user_environment::command("git")
+            .args(UNSIGNED)
             .arg("-C")
             .arg(repo)
             .args(args)

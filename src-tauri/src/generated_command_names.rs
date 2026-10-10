@@ -88,6 +88,7 @@ pub const IPC_COMMANDS: &[&str] = &[
     "agent_recent_sessions",
     "agent_session_context",
     "agent_session_rename",
+    "agent_session_delete",
     "live_agent_sessions",
     "agent_sessions_watch_start",
     "agent_sessions_watch_stop",
