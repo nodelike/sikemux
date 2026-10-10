@@ -1,6 +1,7 @@
 mod claude;
 mod codex;
 pub(crate) mod context;
+pub(crate) mod delete;
 mod grok;
 mod hermes;
 mod omp;

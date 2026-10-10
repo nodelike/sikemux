@@ -4,6 +4,7 @@ import { profileOfLauncher } from "../../remote/workspace";
 import { agentSupportsChat, isAgentType, MAX_AGENT_MODEL_LENGTH, normalizePermissionMode, type ChatAgentType } from "../../agents/agentLaunch";
 import { emit } from "../bus";
 import { reduceAgentState } from "../agentStatus";
+import { confirmDialog } from "../dialog";
 import { invalidate, peekResource } from "../resources";
 import { agentSessionsR } from "../resources.defs";
 import { getState, mutate, type StoreState } from "../store";
@@ -494,6 +495,25 @@ export function renameAgent(id: string, title: string): void {
 export function renameAgentSession(session: SavedSession, title: string): void {
     const name = sessionName(title);
     if (name) void saveSessionName(session, name).catch(reportError("rename chat"));
+}
+
+/** Deletes a chat that is not open from the provider's own session storage, once the person confirms. */
+export async function deleteAgentSession(session: SavedSession, title: string): Promise<boolean> {
+    const confirmed = await confirmDialog({
+        title: "Delete this chat?",
+        body: `“${title}” will be removed from disk for good and can no longer be resumed.`,
+        confirmLabel: "Delete",
+        destructive: true,
+    });
+    if (!confirmed) return false;
+    try {
+        await agentApi.deleteSession(session.type, session.cwd, session.sessionId, session.configPath);
+    } catch (error) {
+        reportError("delete chat")(error);
+        return false;
+    }
+    invalidate((kind) => kind === "agents.sessions");
+    return true;
 }
 
 /* Stands in until the provider titles the conversation, which Claude only does

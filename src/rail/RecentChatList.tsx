@@ -4,6 +4,7 @@ import { selectedProviderProfile } from "../agents/agentProfiles";
 import { AgentTitleInput } from "../agents/AgentTitleInput";
 import * as cmd from "../state/commands";
 import { useStore } from "../state/store";
+import type { AgentType } from "../state/types";
 import { AgentIcon } from "../ui/Icons";
 import { Panel, PanelHeader } from "../ui/Panel";
 import { TreeContextMenu } from "./FileTree";
@@ -19,6 +20,8 @@ function ago(unixSecs: number): string {
 }
 
 const chatKey = (chat: RecentChat) => `${chat.agent}\0${chat.id}`;
+
+const DELETABLE: ReadonlySet<AgentType> = new Set(["claude", "codex"]);
 
 /** Saved chats, each resumed in the project it ran in. */
 export function RecentChatList({ recent, providers }: { recent: RecentChats; providers: AgentInfo[] }) {
@@ -59,6 +62,13 @@ export function RecentChatList({ recent, providers }: { recent: RecentChats; pro
             title,
         );
         recent.retitle(chat.agent, chat.id, title);
+    };
+
+    const remove = (chat: RecentChat) => {
+        const session = { type: chat.agent, cwd: chat.project, sessionId: chat.id, configPath: providerOf(chat)?.configPath ?? undefined };
+        void cmd.deleteAgentSession(session, chat.title).then((deleted) => {
+            if (deleted) recent.forget(chat.agent, chat.id);
+        });
     };
 
     return (
@@ -107,6 +117,7 @@ export function RecentChatList({ recent, providers }: { recent: RecentChats; pro
                     items={[
                         { label: "Open", run: () => open(menu.chat) },
                         { label: "Rename…", run: () => setRenaming(chatKey(menu.chat)) },
+                        ...(DELETABLE.has(menu.chat.agent) ? [{ sep: true }, { label: "Delete…", danger: true, run: () => remove(menu.chat) }] : []),
                     ]}
                     onClose={() => setMenu(null)}
                 />

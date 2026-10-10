@@ -362,6 +362,7 @@ pub fn run() {
             agents::sessions::recent::agent_recent_sessions,
             agents::sessions::context::agent_session_context,
             agents::sessions::rename::agent_session_rename,
+            agents::sessions::delete::agent_session_delete,
             agents::sessions::live_agent_sessions,
             agents::watch::agent_sessions_watch_start,
             agents::watch::agent_sessions_watch_stop,

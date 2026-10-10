@@ -106,6 +106,7 @@
     "allow-agent-recent-sessions",
     "allow-agent-session-context",
     "allow-agent-session-rename",
+    "allow-agent-session-delete",
     "allow-live-agent-sessions",
     "allow-agent-sessions-watch-start",
     "allow-agent-sessions-watch-stop",
