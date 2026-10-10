@@ -30,7 +30,7 @@ name = "sikemux_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [features]
-default = ["aws", "bitbucket", "bruno", "database", "github", "gitlab", "jira", "rundeck", "signoz"]
+default = ["aws", "bitbucket", "bruno", "database", "github", "gitlab", "jira", "rundeck", "signoz", "slack"]
 ipc-command-tests = ["tauri/test"]
 aws = ["dep:sikemux-plugin-aws"]
 bitbucket = ["dep:sikemux-plugin-bitbucket"]
@@ -41,6 +41,7 @@ github = ["dep:sikemux-plugin-github"]
 jira = ["dep:sikemux-plugin-jira"]
 rundeck = ["dep:sikemux-plugin-rundeck"]
 signoz = ["dep:sikemux-plugin-signoz"]
+slack = ["dep:sikemux-plugin-slack"]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
@@ -89,6 +90,7 @@ sikemux-plugin-github = { path = "plugins/github", optional = true }
 sikemux-plugin-jira = { path = "plugins/jira", optional = true }
 sikemux-plugin-rundeck = { path = "plugins/rundeck", optional = true }
 sikemux-plugin-signoz = { path = "plugins/signoz", optional = true }
+sikemux-plugin-slack = { path = "plugins/slack", optional = true }
 sikemux-keychain = { path = "crates/sikemux-keychain" }
 sikemux-process = { path = "crates/sikemux-process" }
 sikemux-markdown = { path = "crates/sikemux-markdown" }
@@ -167,6 +169,8 @@ opt-level = "z"
 [profile.release.package.sikemux-plugin-rundeck]
 opt-level = "z"
 [profile.release.package.sikemux-plugin-signoz]
+opt-level = "z"
+[profile.release.package.sikemux-plugin-slack]
 opt-level = "z"
 [profile.release.package.libsqlite3-sys]
 opt-level = "s"

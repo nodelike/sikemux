@@ -5793,6 +5793,7 @@ dependencies = [
  "sikemux-plugin-jira",
  "sikemux-plugin-rundeck",
  "sikemux-plugin-signoz",
+ "sikemux-plugin-slack",
  "sikemux-process",
  "sikemux-pty",
  "tauri",
@@ -6051,6 +6052,21 @@ dependencies = [
  "sikemux-process",
  "tokio",
  "url",
+ "workspace-hack",
+]
+
+[[package]]
+name = "sikemux-plugin-slack"
+version = "0.1.0"
+dependencies = [
+ "futures",
+ "reqwest",
+ "rustls",
+ "serde",
+ "serde_json",
+ "sikemux-keychain",
+ "sikemux-plugin-api",
+ "tokio",
  "workspace-hack",
 ]
 

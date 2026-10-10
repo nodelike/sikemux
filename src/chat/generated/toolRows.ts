@@ -191,4 +191,8 @@ export const TOOL_ROWS = {
         plugin: "sikemux.signoz",
     },
     signoz_fields: { verb: "fields", kind: "search", icon: "search", target: ["{name}", "“{search}”", "{signal}"], plugin: "sikemux.signoz" },
+    slack_thread: { verb: "read", kind: "read", icon: "message", target: ["{link}", "{channel} {ts}"], plugin: "sikemux.slack" },
+    slack_search: { verb: "search", kind: "search", icon: "search", target: ["{query}"], plugin: "sikemux.slack" },
+    slack_post: { verb: "post", kind: "edit", icon: "message", target: ["reply to {link}", "{channel}"], plugin: "sikemux.slack" },
+    slack_user: { verb: "find", kind: "search", icon: "search", target: ["{who}"], plugin: "sikemux.slack" },
 } satisfies Record<string, ToolRowSpec>;

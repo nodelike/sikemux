@@ -1,0 +1,58 @@
+{
+  "id": "sikemux.slack",
+  "name": "Slack",
+  "version": "0.1.0",
+  "sikemux": ">=0.4",
+  "callTimeoutSecs": 60,
+  "tools": [
+    {
+      "name": "slack_thread",
+      "row": {"verb": "read", "kind": "read", "icon": "message", "target": ["{link}", "{channel} {ts}"]},
+      "method": "thread",
+      "description": "A Slack thread, oldest first, with names and mentions resolved. Pass the message link the person shared, from any message in the thread.",
+      "properties": {
+        "link": { "type": "string", "description": "A Slack message link, https://<team>.slack.com/archives/C…/p…" },
+        "channel": { "type": "string", "description": "Without a link: the channel id." },
+        "ts": { "type": "string", "description": "Without a link: the thread's ts." },
+        "workspace": { "type": "string", "description": "Team id. Default: the link's workspace, else the default one." }
+      }
+    },
+    {
+      "name": "slack_search",
+      "row": {"verb": "search", "kind": "search", "icon": "search", "target": ["{query}"]},
+      "method": "search",
+      "description": "Search Slack messages, newest first, with Slack's syntax: words, from:@name, in:#channel, after:2026-10-01. Each match has its permalink.",
+      "properties": {
+        "query": { "type": "string" },
+        "limit": { "type": "integer", "description": "Default 20, at most 100." },
+        "workspace": { "type": "string", "description": "Team id. Default: the default workspace." }
+      },
+      "required": ["query"]
+    },
+    {
+      "name": "slack_post",
+      "row": {"verb": "post", "kind": "edit", "icon": "message", "target": ["reply to {link}", "{channel}"]},
+      "method": "post",
+      "description": "Post as the person: a reply in the thread of a message link, or a message in a channel. Plain text with Slack markup. Say only what they asked for.",
+      "properties": {
+        "text": { "type": "string" },
+        "link": { "type": "string", "description": "Reply in this message's thread." },
+        "channel": { "type": "string", "description": "Without a link: the channel id to post in." },
+        "threadTs": { "type": "string", "description": "With channel: the thread to reply in." },
+        "workspace": { "type": "string", "description": "Team id. Default: the link's workspace, else the default one." }
+      },
+      "required": ["text"]
+    },
+    {
+      "name": "slack_user",
+      "row": {"verb": "find", "kind": "search", "icon": "search", "target": ["{who}"]},
+      "method": "people",
+      "description": "Who someone is in Slack: by user id, email or name. Gives their name, handle, title, email and time zone.",
+      "properties": {
+        "who": { "type": "string", "description": "A user id like U01AB, an email, or a name." },
+        "workspace": { "type": "string", "description": "Team id. Default: the default workspace." }
+      },
+      "required": ["who"]
+    }
+  ]
+}
