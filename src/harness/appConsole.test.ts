@@ -23,11 +23,10 @@ describe("app console", () => {
         expect(all.messages.map((entry) => [entry.level, entry.text.split("\n")[0]])).toEqual([
             ["log", 'hello {"id":1}'],
             ["warn", "careful"],
-            ["uncaught", "Error: boom"],
+            ["uncaught", "Error: boom (app.js:3:9)"],
             ["unhandled rejection", "nope"],
             ["swallowed", "avatar fetch: TypeError: Load failed"],
         ]);
-        expect(all.messages[2].text).toContain("(app.js:3:9)");
         expect(all.messages[0].at).toMatch(/^\d{4}-\d\d-\d\dT/);
         const errors = recorder.read({ errors: true, limit: 2 });
         expect(errors).toMatchObject({ recorded: 5, matched: 4 });
