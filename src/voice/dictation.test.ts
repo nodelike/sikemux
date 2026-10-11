@@ -12,7 +12,7 @@ const api = vi.hoisted(() => ({
 }));
 vi.mock("../api/voice", () => ({ voiceApi: api }));
 
-const { handleVoiceEvent, onVoiceKeyDown, onVoiceKeyUp, toggleDictation, useVoice } = await import("./dictation");
+const { finishDictationInto, handleVoiceEvent, onVoiceKeyDown, onVoiceKeyUp, toggleDictation, useVoice } = await import("./dictation");
 const { getState, setState } = await import("../state/store");
 
 const key = (type: "keydown" | "keyup", code: string, init: KeyboardEventInit = {}) => new KeyboardEvent(type, { code, ...init });
@@ -39,6 +39,25 @@ describe("voice dictation", () => {
         vi.useRealTimers();
         vi.clearAllMocks();
         document.body.replaceChildren();
+    });
+
+    it("stops the mic writing into a pane so a send can wait for the words, and says so", () => {
+        const { host } = mountTarget();
+        const box = document.createElement("textarea");
+        host.append(box);
+        expect(finishDictationInto(host)).toBe(false);
+
+        toggleDictation(host);
+        handleVoiceEvent({ type: "listening" });
+        expect(finishDictationInto(document.body.appendChild(document.createElement("div")))).toBe(false);
+        expect(finishDictationInto(host)).toBe(true);
+        expect(api.stop).toHaveBeenCalledOnce();
+        expect(useVoice.getState().phase).toBe("transcribing");
+        expect(finishDictationInto(host)).toBe(true);
+        expect(api.stop).toHaveBeenCalledOnce();
+
+        handleVoiceEvent({ type: "transcript", text: "and the tests" });
+        expect(finishDictationInto(host)).toBe(false);
     });
 
     it("records while right Option is held and types the transcript where focus was", () => {

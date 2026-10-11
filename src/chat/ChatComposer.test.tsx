@@ -1,5 +1,5 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { createRef } from "react";
+import { createRef, type RefObject } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Agent } from "../state/types";
 import { ChatComposer } from "./ChatComposer";
@@ -7,6 +7,8 @@ import { PathRootsProvider } from "./FileRef";
 import type { TrackedList } from "../codehost/tracked";
 import { deliverToAgent } from "../agents/agentInbox";
 import type { WorktreeSwitchState } from "./worktreeSwitch";
+import { handleVoiceEvent, toggleDictation, useVoice } from "../voice/dictation";
+import { setState } from "../state/store";
 
 const repo = { provider: "github", owner: "o", name: "r", account: null };
 
@@ -28,6 +30,16 @@ vi.mock("../codehost/tracked", async (importOriginal) => ({
     loadTrackedContext: mocks.load,
 }));
 vi.mock("@tauri-apps/plugin-dialog", () => ({ open: vi.fn(async () => null) }));
+const voice = vi.hoisted(() => ({
+    status: vi.fn(async () => ({ supported: true, installed: true, reason: null })),
+    prepare: vi.fn(async () => {}),
+    start: vi.fn(async () => {}),
+    stop: vi.fn(async () => {}),
+    cancel: vi.fn(async () => {}),
+    shutdown: vi.fn(async () => {}),
+    subscribe: vi.fn(async () => () => {}),
+}));
+vi.mock("../api/voice", () => ({ voiceApi: voice }));
 
 const agent: Agent = {
     id: "composer-agent",
@@ -38,12 +50,12 @@ const agent: Agent = {
     launchState: "live",
 };
 
-function renderComposer(worktree?: { state: WorktreeSwitchState; toggle: () => void }) {
+function renderComposer(worktree?: { state: WorktreeSwitchState; toggle: () => void }, paneRef: RefObject<HTMLDivElement | null> = createRef()) {
     render(
         <PathRootsProvider cwd="/repo">
             <ChatComposer
                 agent={agent}
-                paneRef={createRef()}
+                paneRef={paneRef}
                 visible
                 connection="ready"
                 running={false}
@@ -184,5 +196,40 @@ describe("ChatComposer Worktree switch", () => {
         fireEvent.keyDown(editor, { key: "Enter" });
         expect(mocks.onSend).not.toHaveBeenCalled();
         expect((await screen.findByRole("button", { name: "worktree" })).title).toBe("Running Install…");
+    });
+});
+
+describe("sending while dictating", () => {
+    it("stops the mic and sends what was typed together with what was said", async () => {
+        const pane = document.createElement("div");
+        document.body.append(pane);
+        const paneRef = { current: pane };
+        setState({ voiceDictation: true });
+        useVoice.setState({ phase: "ready", reason: null, stage: null, fraction: 0, target: null, partial: "" });
+        const editor = renderComposer(undefined, paneRef);
+        type(editor, "fix the");
+
+        act(() => toggleDictation(pane));
+        act(() => handleVoiceEvent({ type: "listening" }));
+        fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+        expect(voice.stop).toHaveBeenCalledOnce();
+        expect(mocks.onSend).not.toHaveBeenCalled();
+
+        act(() => handleVoiceEvent({ type: "transcript", text: "login redirect" }));
+        await waitFor(() => expect(mocks.onSend).toHaveBeenCalledWith({ text: "fix the login redirect", paths: [], context: [] }, false));
+        pane.remove();
+    });
+
+    it("lets a message that is only spoken be sent", () => {
+        const pane = document.createElement("div");
+        document.body.append(pane);
+        setState({ voiceDictation: true });
+        useVoice.setState({ phase: "ready", reason: null, stage: null, fraction: 0, target: null, partial: "" });
+        renderComposer(undefined, { current: pane });
+        expect(screen.getByRole("button", { name: "Send message" })).toBeDisabled();
+        act(() => toggleDictation(pane));
+        act(() => handleVoiceEvent({ type: "listening" }));
+        expect(screen.getByRole("button", { name: "Send message" })).toBeEnabled();
+        pane.remove();
     });
 });

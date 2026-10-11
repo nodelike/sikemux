@@ -19,6 +19,7 @@ import { useImagePreview } from "./imagePreview";
 import { YoloToggle } from "./YoloToggle";
 import type { WorktreeSwitchState } from "./worktreeSwitch";
 import { DictateButton } from "./DictateButton";
+import { finishDictationInto, useVoice, writesInto } from "../voice/dictation";
 import { ContextMeter } from "./ContextMeter";
 import { imagesInClipboard, savePastedClipboard } from "./pasteImage";
 import { arrowsBrowse, recallPrompt, type HistoryPosition } from "./promptHistory";
@@ -422,7 +423,10 @@ export function ChatComposer({
     const drafted = Boolean(draft.trim()) || attachments.length > 0 || contexts.length > 0;
 
     // Send and stop are one button: when it changes job, the new icon turns in rather than swapping in place.
-    const stopping = running && !drafted;
+    const dictating = useVoice(
+        (state) => (state.phase === "listening" || state.phase === "transcribing") && writesInto(state.target, paneRef.current),
+    );
+    const stopping = running && !drafted && !dictating;
     const sendButton = useRef<HTMLButtonElement>(null);
     const wasStopping = useRef(stopping);
     useLayoutEffect(() => {
@@ -452,7 +456,20 @@ export function ChatComposer({
         setHistoryPosition(null);
     };
 
+    // Sending while the mic is on stops it first, then sends once what was said is in the box.
+    const sendAfterDictation = useRef<boolean | null>(null);
+    useEffect(() => {
+        if (dictating || sendAfterDictation.current === null) return;
+        const steerNow = sendAfterDictation.current;
+        sendAfterDictation.current = null;
+        send(steerNow);
+    });
+
     const send = (steerNow = false) => {
+        if (finishDictationInto(paneRef.current)) {
+            sendAfterDictation.current = steerNow;
+            return;
+        }
         const text = draft.trim();
         if (!drafted || blocked || reading) return;
         const paths = attachments;
@@ -641,7 +658,7 @@ export function ChatComposer({
                                   ? `Queues behind this turn — ${PRIMARY_SHORTCUT}↵ steers into it`
                                   : undefined
                         }
-                        disabled={blocked || reading || !drafted}
+                        disabled={blocked || reading || (!drafted && !dictating)}
                         onClick={() => send()}>
                         <IconArrowUp size={15} />
                     </button>

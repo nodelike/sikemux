@@ -154,6 +154,25 @@ function endHold(): void {
     if (recording) finishRecording();
 }
 
+/** Whether the mic is writing into `element`, or into something inside it such as its text box. */
+export function writesInto(target: HTMLElement | null, element: HTMLElement | null): boolean {
+    return !!target && !!element && (target === element || element.contains(target));
+}
+
+/**
+ * Stops dictating into `element` so what was said is typed into it. Says whether
+ * words are on their way, so a send can wait for them rather than leave them behind.
+ */
+export function finishDictationInto(element: HTMLElement | null): boolean {
+    const { target, phase } = useVoice.getState();
+    if (!writesInto(target, element)) return false;
+    if (recording) {
+        finishRecording();
+        return true;
+    }
+    return phase === "transcribing";
+}
+
 /** Click once to start dictating into `into`, and again to type what was said. */
 export function toggleDictation(into: HTMLElement): void {
     if (!useStore.getState().voiceDictation) {
