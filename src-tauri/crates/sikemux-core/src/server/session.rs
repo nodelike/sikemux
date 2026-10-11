@@ -15,7 +15,7 @@ use sikemux_pty::screen::{
     MAX_ATTACH_SNAPSHOT_BYTES, PARSER_SCROLLBACK,
 };
 use sikemux_pty::shell::ShellLaunchIntegration;
-use sikemux_pty::shell_protocol::{PtyShellMetadataEvent, ShellProtocolParser};
+use sikemux_pty::shell_protocol::ShellProtocolParser;
 use sikemux_pty::task::TaskProcessExit;
 use sikemux_pty::validate_pty_dimensions;
 use tokio::io::unix::AsyncFd;
@@ -800,9 +800,7 @@ fn broadcast_output(core: &Arc<Core>, session: &Session, bytes: &[u8]) {
     send_to_subscribers(session, bytes);
     drop(parser);
     if let Some(update) = shell_output.ready {
-        core.broadcast_event(&Event::ShellMetadata(PtyShellMetadataEvent::from_update(
-            session.id, update,
-        )));
+        core.broadcast_event(&Event::ShellMetadata(update.into_event(session.id)));
     }
 }
 

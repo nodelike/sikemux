@@ -1,15 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-    attachmentName,
-    decodedFenceName,
-    formatDetail,
-    groupParts,
-    groupTasks,
-    runningSubagents,
-    subagentActivity,
-    subagentTask,
-    taskDetail,
-} from "./transcript";
+import { attachmentName, decodedFenceName, formatDetail, groupParts, groupTasks, runningSubagents, subagentActivity, taskDetail } from "./transcript";
 import type { AcpAsyncTask, AcpSubagent, ChatMessage, ChatPart } from "./types";
 
 const text = (id: string): ChatPart => ({ id, kind: "text", text: id });
@@ -35,10 +25,6 @@ const task = (overrides: Partial<AcpAsyncTask>): AcpAsyncTask => ({
 });
 
 describe("formatDetail", () => {
-    it("pretty-prints a value", () => {
-        expect(formatDetail({ a: 1 })).toBe('{\n  "a": 1\n}');
-    });
-
     it("falls back to String for what JSON cannot write", () => {
         expect(formatDetail(undefined)).toBe("undefined");
         const circular: Record<string, unknown> = {};
@@ -66,10 +52,6 @@ describe("attachmentName", () => {
 });
 
 describe("decodedFenceName", () => {
-    it("decodes a percent-encoded name", () => {
-        expect(decodedFenceName("my%20file.ts")).toBe("my file.ts");
-    });
-
     it("keeps a name that does not decode", () => {
         expect(decodedFenceName("100%.ts")).toBe("100%.ts");
     });
@@ -90,16 +72,6 @@ describe("groupParts", () => {
         };
         const groups = groupParts([tool("a"), shown, tool("b")]);
         expect(groups.map((group) => ("tools" in group ? group.tools.map((part) => part.id) : group.id))).toEqual([["a"], "p", ["b"]]);
-    });
-
-    it("names a tool group after its first call", () => {
-        expect(groupParts([tool("b"), tool("c")])[0].id).toBe("b");
-    });
-});
-
-describe("subagentTask", () => {
-    it("keeps the first line, trimmed", () => {
-        expect(subagentTask("  Find the bug  \nThen explain it")).toBe("Find the bug");
     });
 });
 

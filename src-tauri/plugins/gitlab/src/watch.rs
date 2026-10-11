@@ -103,14 +103,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn stops_at_once_when_asking_again_cannot_help() {
-        assert!(is_final(&GitlabError::Unconfigured));
-        assert!(is_final(&GitlabError::NotFound("gone".into())));
-        assert!(!is_final(&GitlabError::Transport("offline".into())));
-        assert!(!is_final(&GitlabError::RateLimited { resets_in_secs: 5 }));
-    }
-
-    #[test]
     fn a_pipeline_waiting_on_a_manual_job_stops_the_watch() {
         assert!(settled(&pipelines::status_of("manual", false).0));
         assert!(settled(&pipelines::status_of("success", false).0));

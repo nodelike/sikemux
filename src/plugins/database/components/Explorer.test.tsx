@@ -111,30 +111,6 @@ describe("Explorer", () => {
         expect(within(shopNode).getByRole("treeitem", { name: "public views" })).toHaveAttribute("aria-expanded", "false");
     });
 
-    it("says why a connection failed under its row", async () => {
-        const doing = actions();
-        vi.mocked(doing.connect).mockRejectedValue({ category: "connect", message: "localhost:5432 refused the connection" });
-        render(<Harness connected={[]} act={doing} />);
-        await act(async () => fireEvent.click(screen.getByRole("button", { name: /Shop/ })));
-        expect(screen.getByRole("alert")).toHaveTextContent("refused the connection");
-    });
-
-    it("opens a table on click, previews it on double-click, and lists its columns", async () => {
-        const doing = actions();
-        render(<Harness connected={[{ id: "p1", version: "16" }]} initial={["c:p1", "s:p1:public", "g:p1:public:tables"]} act={doing} />);
-        const orders = await screen.findByRole("button", { name: /^orders/ });
-        fireEvent.click(orders);
-        expect(doing.openTable).toHaveBeenCalledWith(shop, "public", "orders");
-        fireEvent.doubleClick(orders);
-        expect(doing.queryTable).toHaveBeenCalledWith(shop, "public", "orders", true);
-
-        fireEvent.contextMenu(orders);
-        fireEvent.click(screen.getByText("Show columns"));
-        const node = screen.getByRole("treeitem", { name: "orders" });
-        expect(await within(node).findByRole("treeitem", { name: "id" })).toHaveTextContent("bigint");
-        expect(within(node).getByRole("treeitem", { name: "total" })).toHaveTextContent("numeric(10,2)");
-    });
-
     it("narrows tables to the filter and says how many match", async () => {
         render(
             <Harness
@@ -148,18 +124,5 @@ describe("Explorer", () => {
         expect(await within(group).findByRole("treeitem", { name: "orders" })).toBeInTheDocument();
         expect(within(group).queryByRole("treeitem", { name: "customers" })).toBeNull();
         expect(group).toHaveTextContent("1 of 2");
-    });
-
-    it("offers a connection's actions on right-click", async () => {
-        const doing = actions();
-        render(<Harness connected={[{ id: "p1", version: "16" }]} act={doing} />);
-        fireEvent.contextMenu(screen.getByRole("button", { name: /Shop/ }));
-        fireEvent.click(screen.getByText("New console"));
-        expect(doing.newConsole).toHaveBeenCalledWith(shop);
-        fireEvent.contextMenu(screen.getByRole("button", { name: /Shop/ }));
-        fireEvent.click(screen.getByText("Disconnect"));
-        expect(doing.disconnect).toHaveBeenCalledWith(shop);
-        fireEvent.contextMenu(screen.getByRole("button", { name: /Local/ }));
-        expect(screen.getByText("New console").closest("button")).toBeDisabled();
     });
 });

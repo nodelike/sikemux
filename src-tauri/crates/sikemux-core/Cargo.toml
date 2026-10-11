@@ -13,12 +13,14 @@ serde_json = { version = "1", features = ["preserve_order"] }
 semver = "1"
 sha2 = "0.11"
 sikemux-pty = { path = "../sikemux-pty" }
+sikemux-wire = { path = "../sikemux-wire" }
 thiserror = "1"
 url = "2"
 uuid = { version = "1", features = ["v4"] }
 
 [target.'cfg(unix)'.dependencies]
 base64 = "0.22"
+sikemux-client = { path = "../sikemux-client" }
 futures-util = { version = "0.3", default-features = false, features = ["sink"] }
 iroh = { version = "1.3", default-features = false, features = ["tls-ring"] }
 libc = "0.2"

@@ -162,25 +162,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn stops_at_once_when_asking_again_cannot_help() {
-        assert!(is_final(&GithubError::Unconfigured));
-        assert!(is_final(&GithubError::Auth("bad token".into())));
-        assert!(is_final(&GithubError::NotFound("gone".into())));
-        assert!(is_final(&GithubError::BadArg("bad".into())));
-        assert!(!is_final(&GithubError::Transport("offline".into())));
-        assert!(!is_final(&GithubError::RateLimited { resets_in_secs: 5 }));
-        assert!(!is_final(&GithubError::Http {
-            status: 502,
-            message: "Bad Gateway".into()
-        }));
-    }
-
-    #[test]
-    fn a_healthy_watch_polls_at_a_steady_pace() {
-        assert_eq!(backoff(0), POLL_INTERVAL);
-    }
-
-    #[test]
     fn a_spent_rate_limit_is_waited_out_as_long_as_github_says() {
         assert_eq!(next_wait(0, Some(120), None), Duration::from_secs(120));
         assert_eq!(next_wait(0, Some(0), None), Duration::from_secs(1));

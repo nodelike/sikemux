@@ -452,6 +452,29 @@
     font-style: italic;
 }
 
+.chat-work {
+    width: min(100%, 800px);
+    margin: 8px auto 4px;
+    padding: 0 22px;
+    font-size: calc(12.5px * var(--chat-text-em, 1));
+}
+
+.chat-work::after {
+    content: "";
+    display: block;
+    height: 1px;
+    margin-top: 4px;
+    background: var(--line);
+}
+
+.chat-work-calls {
+    color: var(--ink-faint);
+}
+
+.chat-work-dot {
+    margin-inline: -2px;
+}
+
 .chat-plan {
     margin: 8px 0;
     color: var(--ink-dim);

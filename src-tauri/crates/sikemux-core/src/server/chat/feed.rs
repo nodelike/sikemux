@@ -192,6 +192,23 @@ fn is_kept(kind: ChatEventKind) -> bool {
     !matches!(kind, ChatEventKind::Status | ChatEventKind::Ready)
 }
 
+fn is_turn_edge(kind: ChatEventKind) -> bool {
+    matches!(
+        kind,
+        ChatEventKind::TurnStarted | ChatEventKind::TurnCompleted | ChatEventKind::Error
+    )
+}
+
+/// When a turn's edges happened, so a client rebuilding the chat later can
+/// tell how long each turn took.
+fn stamp(payload: &mut Value) {
+    if let Some(fields) = payload.as_object_mut() {
+        fields
+            .entry("at")
+            .or_insert_with(|| json!(crate::server::remote::unix_ms()));
+    }
+}
+
 fn asks(event: &ChatEvent, request_id: &str) -> bool {
     event.kind == ChatEventKind::PermissionRequest
         && event.payload.get("requestId").and_then(Value::as_str) == Some(request_id)
@@ -763,10 +780,13 @@ impl Feed {
     /// Anything that is not a streamed update reads as a reply to what came
     /// before it, so the batch behind it goes out first and the order the
     /// agent sent them in survives.
-    pub(crate) fn emit(self: &Arc<Self>, kind: ChatEventKind, payload: Value) {
+    pub(crate) fn emit(self: &Arc<Self>, kind: ChatEventKind, mut payload: Value) {
         let Ok(mut inner) = self.inner.lock() else {
             return;
         };
+        if is_turn_edge(kind) {
+            stamp(&mut payload);
+        }
         let bytes = inner.replay.push(kind, &payload);
         if kind == ChatEventKind::SessionUpdate {
             if let Some(title) = session_title(&payload) {
@@ -818,6 +838,7 @@ impl Feed {
         if let Some(message_id) = message_id {
             payload["messageId"] = json!(message_id);
         }
+        stamp(&mut payload);
         inner.replay.push(ChatEventKind::Prompt, &payload);
         self.flush_locked(&mut inner);
         self.broadcast_except(&mut inner, ChatEventKind::Prompt, payload, Some(from));

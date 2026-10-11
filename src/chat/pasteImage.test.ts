@@ -118,8 +118,4 @@ describe("pasting a picture into the composer", () => {
         expect(await savePastedClipboard(finderCopy)).toEqual([]);
         expect(fsapi.saveClipboardImage).not.toHaveBeenCalled();
     });
-
-    it("attaches nothing when neither the event nor AppKit has a picture", async () => {
-        expect(await savePastedClipboard({ files: [], items: [] } as unknown as DataTransfer)).toEqual([]);
-    });
 });

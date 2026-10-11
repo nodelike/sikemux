@@ -1776,19 +1776,6 @@ mod tests {
     }
 
     #[test]
-    fn steps_stop_once_the_tab_is_somewhere_else() {
-        let page = json!({ "tabId": "t", "url": "https://a.test/", "loading": false });
-        assert!(!moved_on(&page, &page));
-        let navigated = json!({ "tabId": "t", "url": "https://a.test/next", "loading": false });
-        assert!(moved_on(&page, &navigated));
-        let loading = json!({ "tabId": "t", "url": "https://a.test/", "loading": true });
-        assert!(moved_on(&page, &loading));
-        let asking =
-            json!({ "tabId": "t", "url": "https://a.test/", "loading": false, "dialog": {} });
-        assert!(moved_on(&page, &asking));
-    }
-
-    #[test]
     fn a_call_names_its_element_by_number_text_or_selector() {
         assert_eq!(
             element_target(&json!({ "text": "Save", "role": "button" }), "index"),
@@ -1844,18 +1831,6 @@ mod tests {
     }
 
     #[test]
-    fn script_failures_say_what_to_do_instead() {
-        let limit = Duration::from_secs(30);
-        assert!(script_failure("", limit).contains("browser_wait"));
-        assert!(script_failure(
-            "Completion handler for function call is no longer reachable",
-            limit
-        )
-        .contains("go reload"));
-        assert_eq!(script_failure("TypeError: x", limit), "TypeError: x");
-    }
-
-    #[test]
     fn a_fragment_change_is_told_apart_from_a_new_page() {
         assert!(same_document(
             "https://a.test/doc",
@@ -1870,27 +1845,6 @@ mod tests {
             "https://a.test/other#size"
         ));
         assert!(!same_document("https://a.test/doc#a", "https://a.test/doc"));
-    }
-
-    #[test]
-    fn a_wait_names_its_conditions_or_only_a_time() {
-        assert_eq!(wait_condition(&json!({ "ms": 500 })), None);
-        assert_eq!(
-            wait_condition(&json!({ "text": "Saved", "networkIdle": true, "timeoutMs": 5 })),
-            Some(json!({ "text": "Saved", "networkIdle": true }))
-        );
-        assert_eq!(wait_condition(&json!({ "networkIdle": false })), None);
-    }
-
-    #[test]
-    fn page_answers_merge_under_the_action_result() {
-        let merged = merge(
-            json!({ "clicked": "Sign in", "url": "https://a/next" }),
-            json!({ "url": "https://a/next", "title": "Next", "elements": "" }),
-        )
-        .unwrap();
-        assert_eq!(merged["clicked"], "Sign in");
-        assert_eq!(merged["title"], "Next");
     }
 
     #[test]

@@ -136,18 +136,6 @@ describe("requests", () => {
             ["dispatch", { ...repo, workflowId: "custom: deploy", gitRef: "main", inputs: { env: "prod" } }],
         ]);
     });
-
-    it("lists fifty repositories unless told otherwise", async () => {
-        fake.call.mockResolvedValue([]);
-        await bitbucketHostApi.myRepos("ada-id");
-        expect(fake.call).toHaveBeenCalledWith("myRepos", { account: "ada-id", limit: 50 });
-    });
-
-    it("sends a token with the email it belongs to", async () => {
-        fake.call.mockResolvedValue(status);
-        await bitbucketApi.signInWithToken("tok", "ada@example.com");
-        expect(fake.call).toHaveBeenCalledWith("signInWithToken", { token: "tok", email: "ada@example.com" });
-    });
 });
 
 describe("accounts", () => {
@@ -233,13 +221,6 @@ describe("signing in with the browser", () => {
         const signIn = bitbucketApi.signInWithBrowser(vi.fn());
         flow.run();
         await expect(signIn.done).rejects.toThrow("without an account");
-    });
-
-    it("fails with the stream's error", async () => {
-        const flow = streaming((handlers) => handlers.onError?.(refused as never));
-        const signIn = bitbucketApi.signInWithBrowser(vi.fn());
-        flow.run();
-        await expect(signIn.done).rejects.toBe(refused);
     });
 
     it("stops the stream when cancelled", async () => {

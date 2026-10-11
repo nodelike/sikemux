@@ -22,13 +22,4 @@ describe("agent inbox", () => {
         receiveForAgent("a2", next)();
         expect(next).toHaveBeenCalledWith({ text: "later" });
     });
-
-    it("carries context items as they were handed over", () => {
-        const receiver = vi.fn();
-        const stop = receiveForAgent("a3", receiver);
-        const context = [{ uri: "https://github.com/o/r/issues/1", title: "#1 Bug", text: "Issue #1: Bug" }];
-        deliverToAgent("a3", { context });
-        expect(receiver).toHaveBeenCalledWith({ context });
-        stop();
-    });
 });

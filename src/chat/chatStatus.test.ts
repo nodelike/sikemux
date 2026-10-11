@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { activityText, backendState, composerPlaceholder, connectingLabel, knownEffort, permissionModeOf } from "./chatStatus";
+import { activityText, backendState, permissionModeOf } from "./chatStatus";
 import type { Agent } from "../state/types";
 import type { AcpPermissionRequest, ChatMessage, ChatState } from "./types";
 
@@ -15,18 +15,6 @@ describe("permissionModeOf", () => {
     it("reads the old skip flag when no mode was chosen", () => {
         expect(permissionModeOf(agent({ skipPermissions: true }))).toBe("bypass");
         expect(permissionModeOf(agent({}))).toBe("workspace-write");
-    });
-});
-
-describe("knownEffort", () => {
-    it("keeps an effort level the app knows", () => {
-        expect(knownEffort("high")).toBe("high");
-        expect(knownEffort("off")).toBe("off");
-    });
-
-    it("drops one it does not", () => {
-        expect(knownEffort("turbo")).toBeUndefined();
-        expect(knownEffort(undefined)).toBeUndefined();
     });
 });
 
@@ -50,19 +38,6 @@ describe("backendState", () => {
     });
 });
 
-describe("connectingLabel", () => {
-    it("describes each step of coming up", () => {
-        expect(connectingLabel("starting")).toBe("Starting agent…");
-        expect(connectingLabel("connecting")).toBe("Connecting to agent session…");
-        expect(connectingLabel("initializing")).toBe("Connecting to agent session…");
-    });
-
-    it("says nothing once the session is up or down", () => {
-        expect(connectingLabel("ready")).toBeNull();
-        expect(connectingLabel("error")).toBeNull();
-    });
-});
-
 describe("activityText", () => {
     const state = (overrides: Partial<ChatState>) =>
         ({ permissions: [], running: false, messages: [], connection: "ready", ...overrides }) as ChatState;
@@ -83,28 +58,5 @@ describe("activityText", () => {
 
     it("leaves an empty transcript to the connection card", () => {
         expect(activityText(state({ connection: "starting" }), null)).toBeNull();
-    });
-});
-
-describe("composerPlaceholder", () => {
-    const quiet = { resuming: false, disconnected: false };
-
-    it("invites a prompt, or a queued one mid-turn, when ready", () => {
-        expect(composerPlaceholder({ connection: "ready", running: false }, quiet)).toBe("Ask about this project, or type / for commands");
-        expect(composerPlaceholder({ connection: "ready", running: true }, quiet)).toBe("Send to queue behind the running turn");
-    });
-
-    it("explains a dropped session", () => {
-        expect(composerPlaceholder({ connection: "error", running: false }, { resuming: true, disconnected: true })).toBe(
-            "Resuming — this message sends as soon as the session is back",
-        );
-        expect(composerPlaceholder({ connection: "stopped", running: false }, { resuming: false, disconnected: true })).toBe(
-            "Reconnect to continue this conversation",
-        );
-    });
-
-    it("describes each step of coming up", () => {
-        expect(composerPlaceholder({ connection: "starting", running: false }, quiet)).toBe("Starting agent…");
-        expect(composerPlaceholder({ connection: "initializing", running: false }, quiet)).toBe("Connecting to agent session…");
     });
 });

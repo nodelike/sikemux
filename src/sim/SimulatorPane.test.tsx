@@ -144,13 +144,17 @@ describe("the simulator pane", () => {
         await waitFor(() => expect(simApi.orientation).toHaveBeenCalledWith("UDID-1", "landscapeRight"));
     });
 
-    it("puts its controls and running mark in the desk's strip", async () => {
+    it("says it is shutting down while the device winds down, and shows why a shutdown failed", async () => {
         const slots = chrome();
         await showScreen(slots);
+        vi.mocked(simApi.devices).mockResolvedValue([{ udid: "UDID-1", name: "iPhone 17", state: "busy", runtime: "iOS 26.0", model: "iPhone18,1" }]);
+        vi.mocked(simApi.shutdown).mockRejectedValue({ category: "internal", message: "The device would not shut down." });
 
-        expect(slots.tools.querySelector('[aria-label="Shut down"]')).not.toBeNull();
-        expect(slots.tools.querySelector('[aria-label="Home"]')).not.toBeNull();
-        expect(slots.dot.querySelector(".sim-live")).not.toBeNull();
+        fireEvent.click(slots.tools.querySelector('[aria-label="Shut down"]')!);
+
+        expect(await screen.findByText("Shutting down iPhone 17…")).toBeInTheDocument();
+        expect(slots.tools.querySelector('[aria-label="Shutting down…"]')).not.toBeNull();
+        expect(screen.getByText("The device would not shut down.")).toBeInTheDocument();
     });
 
     it("marks its screen as somewhere keys go, so the app's own single-key shortcuts stay out", async () => {

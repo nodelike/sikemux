@@ -20,6 +20,21 @@
 - Do not leave random markdown files in the codebase that are meant to be some way to deliver information to me. If you want to write a markdown file write it in a temporary file, and give me the path and chat and I can read it
 - Never write code that is explicitly backwards compatible. Systems should handle backwards compatibility (like migrations), not logic. If there is some logic that needs to be written otherwise it would appear it would break older users, you MUST make the assumption that no users have ran that code yet and its unreleased, so it would not make sense to consider the side effects that code would produce. This is a safe assumption because the maintainers of this codebase always ensure code that gets shipped is compatbile with the systems that allow for us to not have to explicitly hardcode backwards compatibility
 
+## Tests
+
+- Do not write unit or integration tests on your own initiative. A test an agent writes
+  is only its own reading of the task, the same reading the code came from, so it
+  catches nothing the code would get wrong. Write one only when asked, or to reproduce
+  a bug that actually happened.
+- Never write a test that restates the implementation: same branches, same constants,
+  mocks of everything it calls.
+- Keep the checks that hold things we decided: the stale-output checks in `pnpm check`
+  (`ipc:check`, `grammars:check`, `file-icons:check`, `release:check`, the notch icons,
+  the server protocol), contract tests such as `mobile/app/test/updatePaths.test.ts`,
+  and the end-to-end runs. Do not weaken or delete them to get a change through.
+- When a change breaks an existing test, decide whether the behaviour it pins was meant
+  to change. Update the test only if so; otherwise fix the code.
+
 ## Releasing
 
 - Follow `docs/releasing.md`. Releases publish only from the Release workflow, started by
@@ -39,9 +54,15 @@
 - The phone app is in `mobile/` (Expo, `mobile/app`) with the core's Rust client bridged
   in `mobile/native` from `src-tauri/crates/sikemux-mobile`. `mobile/` is its own pnpm
   workspace: never add it to the root install, scripts or checks.
-- The phone and the core share `sikemux-core`'s protocol. A protocol change must keep
+- The phone and the core share `sikemux-wire`'s protocol. A protocol change must keep
   `sikemux-mobile` building, and bumps `PROTOCOL_VERSION` once anything already released
   speaks the old shape.
+- The phone links only `sikemux-wire` and `sikemux-client`, so their code, not the
+  core's, decides when a phone needs a store build rather than an over-the-air update.
+  Keep them to data and transport: never make either depend on `sikemux-core`,
+  `sikemux-pty` or `workspace-hack`. Feature logic the phone needs goes in TypeScript it
+  shares with the Mac, and a new field rides inside JSON the bridge already passes through
+  rather than on a typed UniFFI record. ADR 0010 records why.
 - Phone builds need rustup's Rust first on `PATH`; Homebrew's Rust ignores
   `rust-toolchain.toml` and has no phone targets.
 - The bindings `uniffi-bindgen-react-native` generates are build output; do not commit or

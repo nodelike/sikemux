@@ -10,14 +10,6 @@ export type StatusFilter = (typeof STATUS_FILTERS)[number];
 export const SECTIONS = ["pulls", "actions", "issues", "releases", "inbox"] as const;
 export type Section = (typeof SECTIONS)[number];
 
-export function isSection(value: unknown): value is Section {
-    return typeof value === "string" && (SECTIONS as readonly string[]).includes(value);
-}
-
-export function needsRepo(section: Section): boolean {
-    return section !== "inbox";
-}
-
 export interface HostSettings {
     pinned: string[];
     /** A repository picked by hand for a project folder, which wins over what its remote says. */

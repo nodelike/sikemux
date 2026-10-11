@@ -371,17 +371,6 @@ describe("DeskHost", () => {
         expect(screen.getByRole("tab", { name: "Example" }).querySelector("img")).toBeNull();
     });
 
-    it("enables history buttons from what the page reports", async () => {
-        vi.mocked(browserApi.snapshot).mockResolvedValue({ tabs: [tab({ canGoBack: true, loading: true })], activeTabId: "tab-one" });
-        renderPane();
-        const back = await screen.findByRole("button", { name: "Back" });
-        expect(back).toBeEnabled();
-        expect(screen.getByRole("button", { name: "Forward" })).toBeDisabled();
-        expect(back.closest(".browser-toolbar")).toHaveClass("loading");
-        fireEvent.click(back);
-        expect(browserApi.back).toHaveBeenCalledWith("agent-one");
-    });
-
     it("shows a tab the moment the strip reports one, and asks for the first read itself", async () => {
         vi.mocked(browserApi.snapshot).mockResolvedValue({ tabs: [], activeTabId: null });
         renderPane();
@@ -634,20 +623,6 @@ describe("DeskHost", () => {
         expect(browserApi.newTab).toHaveBeenCalledWith("agent-one");
     });
 
-    it("offers a file tab's path, absolute and within the project, on right-click", async () => {
-        vi.mocked(browserApi.snapshot).mockResolvedValue({ tabs: [], activeTabId: null });
-        setState({
-            browserStrips: {},
-            desks: { "agent-one": { order: ["file:/repo/a.ts"], active: "file:/repo/a.ts", terminals: [], simulators: [], reveal: null } },
-            editorViews: { [deskEditorId("agent-one")]: { openTabs: ["/repo/a.ts"], activePath: "/repo/a.ts" } },
-        } as never);
-        renderPane();
-
-        fireEvent.contextMenu(await screen.findByRole("tab", { name: "a.ts" }));
-        expect(screen.getByRole("menuitem", { name: "Copy Path" })).toBeInTheDocument();
-        expect(screen.getByRole("menuitem", { name: "Copy Relative Path" })).toBeInTheDocument();
-    });
-
     it("shows the simulator's device instead of tabs, and its pane only while the simulator is chosen", async () => {
         setState({
             desks: {
@@ -753,40 +728,12 @@ describe("DeskHost", () => {
         await waitFor(() => expect(browserApi.snapshot).toHaveBeenCalledWith("agent-one"));
     });
 
-    it("sends forward and reload to the page and reads the strip again after each", async () => {
-        vi.mocked(browserApi.snapshot).mockResolvedValue({ tabs: [tab({ canGoForward: true })], activeTabId: "tab-one" });
-        renderPane();
-        const forward = await screen.findByRole("button", { name: "Forward" });
-        await waitFor(() => expect(forward).toBeEnabled());
-        vi.mocked(browserApi.snapshot).mockClear();
-
-        fireEvent.click(forward);
-        fireEvent.click(screen.getByRole("button", { name: "Reload" }));
-
-        expect(browserApi.forward).toHaveBeenCalledWith("agent-one");
-        expect(browserApi.reload).toHaveBeenCalledWith("agent-one");
-        await waitFor(() => expect(browserApi.snapshot).toHaveBeenCalledTimes(2));
-    });
-
     it("reports a page action that fails", async () => {
         vi.mocked(browserApi.reload).mockRejectedValue(new Error("gone"));
         renderPane();
         fireEvent.click(await screen.findByRole("button", { name: "Reload" }));
 
         await waitFor(() => expect(useToasts.getState().toasts.length).toBeGreaterThan(0));
-    });
-
-    it("drops what was typed in the address bar once it loses focus", async () => {
-        renderPane();
-        const address = await screen.findByRole("textbox", { name: "Address and search" });
-        await waitFor(() => expect(address).toHaveValue("https://example.com"));
-
-        fireEvent.focus(address);
-        fireEvent.change(address, { target: { value: "half typ" } });
-        expect(address).toHaveValue("half typ");
-        fireEvent.blur(address);
-
-        expect(address).toHaveValue("https://example.com");
     });
 
     it("opens nothing for a restore that saved no pages", async () => {

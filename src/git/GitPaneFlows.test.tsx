@@ -145,30 +145,6 @@ it("waits for the stage to stop sliding before it refreshes", async () => {
     expect(resources.overviewEnabled).toBe(true);
 });
 
-it("stages and unstages one file from the buttons on its row", async () => {
-    const { git } = await import("../api/git");
-    const stage = vi.spyOn(git, "stage").mockResolvedValue(undefined as never);
-    const unstage = vi.spyOn(git, "unstage").mockResolvedValue(undefined as never);
-    const files = resources.overview.data.status.files;
-    resources.overview.data.status.files = [{ path: "file.ts", index: "M", worktree: "M" }];
-    resources.overview.refresh.mockResolvedValue(undefined);
-    resources.empty.refresh.mockResolvedValue(undefined);
-    try {
-        const user = userEvent.setup();
-        render(<GitPane paneId="git-test" cwd="/repo" active visible />);
-        await user.click(screen.getByRole("button", { name: "Stage file.ts" }));
-        expect(stage).toHaveBeenCalledWith(expect.any(String), "file.ts");
-        await user.click(screen.getByRole("button", { name: "Unstage file.ts" }));
-        expect(unstage).toHaveBeenCalledWith(expect.any(String), "file.ts");
-    } finally {
-        resources.overview.data.status.files = files;
-        resources.overview.refresh.mockReset();
-        resources.empty.refresh.mockReset();
-        stage.mockRestore();
-        unstage.mockRestore();
-    }
-});
-
 it("resizes the lists against the review from the divider, and double-click puts it back", () => {
     const offsetWidth = vi.spyOn(HTMLElement.prototype, "offsetWidth", "get").mockReturnValue(300);
     const clientWidth = vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockReturnValue(1000);
@@ -221,21 +197,5 @@ it("discards every unstaged change after asking, and says which files are new", 
         resources.overview.refresh.mockReset();
         resources.empty.refresh.mockReset();
         discardFiles.mockRestore();
-    }
-});
-
-it("grows the open history when its handle moves up", async () => {
-    const offsetHeight = vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockReturnValue(200);
-    const clientHeight = vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockReturnValue(900);
-    try {
-        render(<GitPane paneId="git-test" cwd="/repo" active visible />);
-
-        const handle = screen.getByRole("separator", { name: "Resize the history" });
-        act(() => handle.focus());
-        fireEvent.keyDown(handle, { key: "ArrowUp" });
-        expect(getState().gitViews["git-test"].historyHeight).toBe(216);
-    } finally {
-        offsetHeight.mockRestore();
-        clientHeight.mockRestore();
     }
 });

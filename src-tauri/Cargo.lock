@@ -5741,7 +5741,7 @@ dependencies = [
 
 [[package]]
 name = "sikemux"
-version = "0.5.1-nightly.3"
+version = "0.5.1-nightly.4"
 dependencies = [
  "base64 0.23.1",
  "block2",
@@ -5757,6 +5757,7 @@ dependencies = [
  "ignore",
  "libc",
  "linked-hash-map",
+ "mac-notification-sys",
  "notify",
  "objc2",
  "objc2-app-kit",
@@ -5813,6 +5814,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "sikemux-client"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "hex",
+ "iroh",
+ "semver",
+ "serde",
+ "serde_json",
+ "sikemux-wire",
+ "thiserror 1.0.69",
+ "tokio",
+ "tokio-rustls",
+ "url",
+ "webpki-roots",
+]
+
+[[package]]
 name = "sikemux-core"
 version = "0.1.0"
 dependencies = [
@@ -5828,8 +5847,10 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.11.0",
+ "sikemux-client",
  "sikemux-process",
  "sikemux-pty",
+ "sikemux-wire",
  "tempfile",
  "thiserror 1.0.69",
  "tokio",
@@ -5882,7 +5903,9 @@ dependencies = [
  "rustls-platform-verifier",
  "serde",
  "serde_json",
+ "sikemux-client",
  "sikemux-core",
+ "sikemux-wire",
  "tempfile",
  "thiserror 1.0.69",
  "tokio",
@@ -6072,11 +6095,21 @@ dependencies = [
  "serde",
  "serde_json",
  "sikemux-process",
+ "sikemux-wire",
  "tempfile",
  "thiserror 1.0.69",
  "url",
  "vt100",
  "workspace-hack",
+]
+
+[[package]]
+name = "sikemux-wire"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "tokio",
 ]
 
 [[package]]

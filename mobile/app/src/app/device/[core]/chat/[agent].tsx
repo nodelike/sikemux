@@ -16,7 +16,9 @@ import { FlashList, type FlashListRef } from '@shopify/flash-list';
 
 import { activityText, composerPlaceholder } from '@mac/chat/chatStatus';
 import { sentPrompts } from '@mac/chat/promptHistory';
+import { rowMeta } from '@mac/chat/messageMeta';
 import { activeToolLabel } from '@mac/chat/toolLabels';
+import { workFolds } from '@mac/chat/transcript';
 import type { ChatMessage, ChatState } from '@mac/chat/types';
 import { ChatMenu } from '@/chat/ChatMenu';
 import { askTitle, Composer, RecentSheet } from '@/chat/Composer';
@@ -24,7 +26,7 @@ import { FoldsContext } from '@/chat/folds';
 import { LiveSheet, LiveStrip } from '@/chat/Live';
 import { hasLiveWork, liveKey, liveWork } from '@/chat/liveWork';
 import { stripMeta, stripOwner } from '@/chat/messageMeta';
-import { Activity, Earlier, Message, ProviderContext, Queued } from '@/chat/Transcript';
+import { Activity, Earlier, Message, ProviderContext, Queued, WorkSummary } from '@/chat/Transcript';
 import { useChat } from '@/chat/useChat';
 import { retry as reconnect, useDevices, useLive, type Live } from '@/devices/hub';
 import { dismissCardsFor } from '@/notify/cards';
@@ -134,9 +136,17 @@ function ChatScreen({ core, agentId }: { core: string; agentId: string }) {
     const owner = stripOwner(state.messages, message.id);
     setOpen((shown) => (shown === owner ? undefined : owner));
   };
+  const folds = useMemo(() => workFolds(state.messages, state.running), [state.messages, state.running]);
+  const [openWork, setOpenWork] = useState<ReadonlySet<string>>(() => new Set());
+  const toggleWork = (id: string) =>
+    setOpenWork((shown) => {
+      const next = new Set(shown);
+      if (!next.delete(id)) next.add(id);
+      return next;
+    });
   const marks = useMemo(
-    () => [chat.replayed, chat.unsent, chat.sentFiles, liveId, open, openStrip],
-    [chat.replayed, chat.unsent, chat.sentFiles, liveId, open, openStrip],
+    () => [chat.replayed, chat.unsent, chat.sentFiles, liveId, open, openStrip, folds, openWork],
+    [chat.replayed, chat.unsent, chat.sentFiles, liveId, open, openStrip, folds, openWork],
   );
   const fresh = useMemo(() => liveWork(state, chat.queued), [state, chat.queued]);
   // The strip redraws, and with it the composer, only when what it counts changes, not on every word streamed.
@@ -240,18 +250,37 @@ function ChatScreen({ core, agentId }: { core: string; agentId: string }) {
                   keyExtractor={(message) => message.id}
                   getItemType={(message) => message.role}
                   extraData={marks}
-                  renderItem={({ item }) => (
-                    <Message
-                      message={item}
-                      live={item.id === liveId}
-                      untimed={chat.replayed.has(item.id)}
-                      unsent={chat.unsent.get(item.id)}
-                      onRetry={session.retrySend}
-                      onTap={onTap}
-                      strip={item.id === open ? openStrip : undefined}
-                      sentFiles={chat.sentFiles}
-                    />
-                  )}
+                  renderItem={({ item, index }) => {
+                    const fold = folds.get(index);
+                    const workId = fold ? state.messages[fold.start].id : '';
+                    const folded = fold !== undefined && !openWork.has(workId);
+                    const summary =
+                      fold && index === fold.start ? (
+                        <WorkSummary
+                          took={rowMeta(state.messages, fold.end).took}
+                          calls={fold.calls}
+                          open={!folded}
+                          onToggle={() => toggleWork(workId)}
+                        />
+                      ) : null;
+                    if (fold && folded && index < fold.end) return summary ?? <View />;
+                    return (
+                      <>
+                        {summary}
+                        <Message
+                          message={item}
+                          live={item.id === liveId}
+                          untimed={chat.replayed.has(item.id)}
+                          unsent={chat.unsent.get(item.id)}
+                          onRetry={session.retrySend}
+                          onTap={onTap}
+                          strip={item.id === open ? openStrip : undefined}
+                          sentFiles={chat.sentFiles}
+                          from={fold && folded ? fold.from : 0}
+                        />
+                      </>
+                    );
+                  }}
                   ListHeaderComponent={
                     chat.hasEarlier ? <Earlier failed={chat.earlier === 'failed'} onRetry={session.loadEarlier} /> : null
                   }

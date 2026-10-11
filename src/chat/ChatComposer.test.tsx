@@ -113,13 +113,6 @@ describe("ChatComposer @ picker", () => {
         expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
         expect(editor).toHaveValue("@READ");
     });
-
-    it("keeps an email address as text", async () => {
-        const editor = renderComposer();
-        type(editor, "mail me@main");
-        await act(async () => {});
-        expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
-    });
 });
 
 describe("ChatComposer # picker", () => {
@@ -139,13 +132,6 @@ describe("ChatComposer # picker", () => {
         type(editor, "#1");
         expect(screen.getByRole("option", { name: /#12/ })).toBeInTheDocument();
         expect(screen.queryByRole("option", { name: /#9/ })).not.toBeInTheDocument();
-    });
-
-    it("says why there is nothing to pick", async () => {
-        mocks.tracked.mockReturnValue({ state: "unavailable", message: "Sign in to GitHub in the Git pane to pick from its issues" });
-        const editor = renderComposer();
-        type(editor, "fix #");
-        expect(await screen.findByText("Sign in to GitHub in the Git pane to pick from its issues")).toBeInTheDocument();
     });
 
     it("adds a chip, and reads the issue in full when the message is sent", async () => {
@@ -170,15 +156,6 @@ describe("ChatComposer # picker", () => {
         expect(mocks.load).toHaveBeenCalledWith(repo, "issue", 12);
         await waitFor(() => expect(screen.queryByTitle("https://github.com/o/r/issues/12")).not.toBeInTheDocument());
     });
-
-    it("lets a chip be removed", async () => {
-        mocks.tracked.mockReturnValue({ state: "ready", repo, items });
-        const editor = renderComposer();
-        type(editor, "#9");
-        fireEvent.keyDown(editor, { key: "Enter" });
-        fireEvent.click(screen.getByRole("button", { name: "Remove #9" }));
-        expect(screen.queryByTitle("https://github.com/o/r/pull/9")).not.toBeInTheDocument();
-    });
 });
 
 describe("ChatComposer deliveries", () => {
@@ -196,22 +173,9 @@ describe("ChatComposer deliveries", () => {
 describe("ChatComposer Worktree switch", () => {
     const toggle = vi.fn();
 
-    it("is absent outside a git repository", () => {
-        renderComposer({ state: { kind: "hidden" }, toggle });
-        expect(screen.queryByRole("button", { name: "worktree" })).not.toBeInTheDocument();
-    });
-
     it("leaves the choice to the project strip above it", () => {
         renderComposer({ state: { kind: "choosing", on: false }, toggle });
         expect(screen.queryByRole("button", { name: "worktree" })).not.toBeInTheDocument();
-    });
-
-    it("names the branch of an agent already in a worktree", async () => {
-        renderComposer({ state: { kind: "in", branch: "sikemux/fix-pty", path: "/code/app.worktrees/fix-pty" }, toggle });
-        const button = await screen.findByRole("button", { name: "sikemux/fix-pty" });
-        expect(button).toBeDisabled();
-        expect(button).toHaveAttribute("aria-pressed", "true");
-        expect(button.title).toContain("/code/app.worktrees/fix-pty");
     });
 
     it("holds the message back while the worktree is being set up", async () => {

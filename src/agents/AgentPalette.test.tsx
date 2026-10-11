@@ -217,7 +217,7 @@ describe("AgentPalette", () => {
         invalidate((kind) => kind === "agents.catalog" || kind === "agents.sessions");
         render(<AgentPalette />);
 
-        expect(await screen.findByText("signed out · start to sign in")).toBeInTheDocument();
+        expect(await screen.findByText("signed out")).toBeInTheDocument();
         expect(screen.getByRole("button", { name: "+ new Codex in Normal mode" })).toBeEnabled();
     });
 
@@ -241,22 +241,25 @@ describe("AgentPalette", () => {
         });
     });
 
-    it("toggles to YOLO and skips unsupported rows during keyboard navigation", async () => {
+    it("opens agents without YOLO support in safe mode while YOLO is on", async () => {
         const user = userEvent.setup();
         render(<AgentPalette />);
 
-        const search = await screen.findByRole("textbox", { name: "Search agent sessions" });
+        await screen.findByRole("textbox", { name: "Search agent sessions" });
         const yolo = screen.getByRole("radio", { name: "yolo" });
         yolo.focus();
         fireEvent.keyDown(yolo, { key: "Enter" });
         expect(agentIdsOf(getState(), "sess-project")).toEqual([]);
         await user.click(yolo);
         expect(yolo).toBeChecked();
-        expect(screen.getByRole("button", { name: "+ new Pi in YOLO mode" })).toBeDisabled();
-        fireEvent.keyDown(search, { key: "ArrowDown" });
-        expect(screen.getByRole("button", { name: "+ new Hermes in YOLO mode" })).toHaveClass("sel");
-        fireEvent.keyDown(search, { key: "ArrowDown" });
-        expect(await screen.findByRole("button", { name: "Generate a commit message in YOLO mode" })).toHaveClass("sel");
+        expect(screen.getByRole("button", { name: "+ new Hermes in YOLO mode" })).toBeEnabled();
+        const pi = screen.getByRole("button", { name: "+ new Pi in Normal mode" });
+        expect(pi).toHaveTextContent("opens safe");
+
+        await user.click(pi);
+
+        const id = agentIdsOf(getState(), "sess-project")[0];
+        expect(getState().agents[id]).toMatchObject({ type: "pi", permissionMode: "workspace-write" });
     });
 
     it("filters sessions and opens the selected row with Enter", async () => {

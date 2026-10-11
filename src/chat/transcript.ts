@@ -48,6 +48,41 @@ export function groupParts(parts: ChatPart[]): PartGroup[] {
     return groups;
 }
 
+/* A finished answer is a run of assistant messages: the work, then the reply it
+   closed with. `from` is where that reply starts in the run's last message. */
+export interface WorkFold {
+    start: number;
+    end: number;
+    from: number;
+    calls: number;
+}
+
+const isReply = (part: ChatPart) => part.kind === "text" || part.kind === "content";
+
+function workFold(messages: ChatMessage[], start: number, end: number): WorkFold | null {
+    const parts = messages[end].parts;
+    let from = parts.length;
+    while (from > 0 && isReply(parts[from - 1])) from -= 1;
+    if (!parts.slice(from).some((part) => part.kind === "text")) return null;
+    const work = [...messages.slice(start, end).flatMap((message) => message.parts), ...parts.slice(0, from)];
+    if (work.every(isReply)) return null;
+    return { start, end, from, calls: work.filter((part) => part.kind === "tool").length };
+}
+
+/** Every finished answer worth folding, by the index of each message in it. */
+export function workFolds(messages: ChatMessage[], running: boolean): Map<number, WorkFold> {
+    const folds = new Map<number, WorkFold>();
+    for (let start = 0; start < messages.length; start += 1) {
+        if (messages[start].role !== "assistant") continue;
+        let end = start;
+        while (messages[end + 1]?.role === "assistant") end += 1;
+        const fold = running && end === messages.length - 1 ? null : workFold(messages, start, end);
+        if (fold) for (let index = start; index <= end; index += 1) folds.set(index, fold);
+        start = end;
+    }
+    return folds;
+}
+
 /* A subagent is handed a whole prompt as its task, and a prompt is paragraphs.
    The row is one line, so it opens with the first line and the tooltip keeps
    the rest. */

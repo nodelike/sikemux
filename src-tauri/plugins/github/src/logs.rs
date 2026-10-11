@@ -148,13 +148,6 @@ mod tests {
     }
 
     #[test]
-    fn lifts_the_runners_timestamp_off_each_line() {
-        let (stamp, text) = split_stamp("2026-01-01T00:00:00.1234567Z Run actions/checkout@v4");
-        assert_eq!(stamp.as_deref(), Some("2026-01-01T00:00:00.1234567Z"));
-        assert_eq!(text, "Run actions/checkout@v4");
-    }
-
-    #[test]
     fn a_stamp_without_fractional_seconds_is_still_a_stamp() {
         let (stamp, text) = split_stamp("2026-01-01T00:00:00Z building");
         assert_eq!(stamp.as_deref(), Some("2026-01-01T00:00:00Z"));

@@ -291,6 +291,7 @@ export const ChatMessageRow = memo(function ChatMessageRow({
     took,
     onEdit,
     canRestoreFiles = false,
+    from = 0,
 }: {
     message: ChatMessage;
     live: boolean;
@@ -301,6 +302,8 @@ export const ChatMessageRow = memo(function ChatMessageRow({
     /** Given when the person may write this message again. */
     onEdit?: (message: ChatMessage, text: string, restoreFiles: boolean) => void;
     canRestoreFiles?: boolean;
+    /** Where the shown parts start, when the work before them is folded away. */
+    from?: number;
 }) {
     const { parts, context } = useMemo(() => sentParts(message), [message]);
     const [editing, setEditing] = useState(false);
@@ -338,7 +341,7 @@ export const ChatMessageRow = memo(function ChatMessageRow({
                         ))}
                     </div>
                 )}
-                <PartGroups parts={parts} live={live} typed={message.role === "user"} />
+                <PartGroups parts={from > 0 ? parts.slice(from) : parts} live={live} typed={message.role === "user"} />
                 {copyable && (
                     <div className="chat-message-meta">
                         {onEdit && context.length === 0 && (

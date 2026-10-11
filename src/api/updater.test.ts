@@ -2,16 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { getState, setState, type PendingUpdate } from "../state/store";
 import { useToasts } from "../state/toast";
 import { MemoryIpcTransport, installIpcTransportForTests, resetIpcTransportForTests } from "./transport";
-import {
-    checkForUpdate,
-    checkForUpdateNow,
-    installPendingUpdate,
-    isUpdateBusy,
-    parseUpdateInstallProgress,
-    updateCheckLabel,
-    updateDownloadPercent,
-    updateStatusLabel,
-} from "./updater";
+import { checkForUpdate, checkForUpdateNow, installPendingUpdate, parseUpdateInstallProgress, updateDownloadPercent } from "./updater";
 
 const mocks = vi.hoisted(() => ({ relaunch: vi.fn(() => Promise.resolve()) }));
 
@@ -67,17 +58,6 @@ describe("updater progress", () => {
         expect(updateDownloadPercent(availableUpdate({ downloadedBytes: 51, totalBytes: 100 }))).toBe(51);
         expect(updateDownloadPercent(availableUpdate({ downloadedBytes: 110, totalBytes: 100 }))).toBe(100);
         expect(updateDownloadPercent(availableUpdate())).toBeNull();
-    });
-
-    it("labels every update phase accurately", () => {
-        expect(updateStatusLabel(availableUpdate())).toBe("Update · v0.2.1");
-        expect(updateStatusLabel(availableUpdate({ state: "preparing" }))).toBe("Preparing update…");
-        expect(updateStatusLabel(availableUpdate({ state: "downloading", downloadedBytes: 25, totalBytes: 100 }))).toBe("Downloading · 25%");
-        expect(updateStatusLabel(availableUpdate({ state: "installing" }))).toBe("Verifying & installing…");
-        expect(updateStatusLabel(availableUpdate({ state: "restarting" }))).toBe("Restarting…");
-        expect(updateStatusLabel(availableUpdate({ state: "error" }))).toBe("Update failed — retry");
-        expect(isUpdateBusy("downloading")).toBe(true);
-        expect(isUpdateBusy("available")).toBe(false);
     });
 
     it("does not let polling erase an active installation", async () => {
@@ -202,13 +182,5 @@ describe("update checks", () => {
         expect(handler).toHaveBeenCalledOnce();
         expect(getState().pendingUpdate).toMatchObject({ version: "0.3.0", state: "available" });
         expect(useToasts.getState().toasts).toMatchObject([{ kind: "success", text: "Update v0.3.0 is ready to install." }]);
-    });
-
-    it("labels the last check outcome for the About page", () => {
-        const at = new Date("2026-08-17T06:02:47Z").getTime();
-        expect(updateCheckLabel({ at, channel: "stable", error: null })).toBe(`Checked stable at ${new Date(at).toLocaleTimeString()}.`);
-        expect(updateCheckLabel({ at, channel: "nightly", error: "boom" })).toBe(
-            `Last nightly check failed at ${new Date(at).toLocaleTimeString()} — boom`,
-        );
     });
 });

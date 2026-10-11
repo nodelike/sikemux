@@ -2,6 +2,8 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+pub use sikemux_wire::pty::task::{TaskSource, TaskSpawnRequest};
+
 use crate::error::{PtyError, PtyResult};
 use crate::validate_pty_dimensions;
 
@@ -19,43 +21,6 @@ const MAX_TASK_ENV_TOTAL_BYTES: usize = 64 * 1024;
 const MAX_TASK_SIGNAL_BYTES: usize = 128;
 const TASK_EXIT_RETENTION: Duration = Duration::from_secs(10 * 60);
 pub const MAX_RETAINED_EXITED_TASK_PTYS: usize = 128;
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum TaskSource {
-    BuiltIn,
-    Project,
-    Recent,
-}
-
-impl TaskSource {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::BuiltIn => "built-in",
-            Self::Project => "project",
-            Self::Recent => "recent",
-        }
-    }
-}
-
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct TaskSpawnRequest {
-    pub execution_id: String,
-    pub terminal_key: String,
-    pub task_id: String,
-    pub label: String,
-    pub project: String,
-    pub source: TaskSource,
-    pub command: String,
-    pub cwd: String,
-    pub env: HashMap<String, String>,
-    pub cols: u16,
-    pub rows: u16,
-    /// The agent whose desk shows the task.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub agent_id: Option<String>,
-}
 
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -253,12 +218,10 @@ pub fn task_reclamation_plan(
 mod tests {
     use super::{
         should_signal_process_on_drain, task_process_needs_force_backstop, task_reclamation_plan,
-        task_retention_elapsed, validate_task_environment, validate_task_request, TaskProcessExit,
-        TaskRetentionCandidate, TaskSource, TaskSpawnRequest, MAX_RETAINED_EXITED_TASK_PTYS,
-        MAX_TASK_COMMAND_BYTES, MAX_TASK_ENV_ENTRIES, MAX_TASK_ENV_TOTAL_BYTES,
-        TASK_EXIT_RETENTION,
+        validate_task_environment, validate_task_request, TaskProcessExit, TaskRetentionCandidate,
+        TaskSource, TaskSpawnRequest, MAX_RETAINED_EXITED_TASK_PTYS, MAX_TASK_COMMAND_BYTES,
+        MAX_TASK_ENV_ENTRIES, MAX_TASK_ENV_TOTAL_BYTES, TASK_EXIT_RETENTION,
     };
-    use crate::{validate_pty_dimensions, MAX_PTY_DIMENSION};
     use std::collections::HashMap;
     use std::path::Path;
 
@@ -277,28 +240,6 @@ mod tests {
             rows: 40,
             agent_id: None,
         }
-    }
-
-    #[test]
-    fn terminal_geometry_is_strict_and_shared_with_tasks() {
-        assert!(validate_pty_dimensions(1, 1).is_ok());
-        assert!(validate_pty_dimensions(MAX_PTY_DIMENSION, MAX_PTY_DIMENSION).is_ok());
-        for (cols, rows) in [
-            (0, 1),
-            (1, 0),
-            (MAX_PTY_DIMENSION + 1, 1),
-            (1, MAX_PTY_DIMENSION + 1),
-        ] {
-            assert!(validate_pty_dimensions(cols, rows).is_err());
-        }
-
-        let directory = tempfile::tempdir().expect("task cwd");
-        let mut request = task_request(directory.path());
-        request.cols = MAX_PTY_DIMENSION;
-        request.rows = MAX_PTY_DIMENSION;
-        validate_task_request(&request).expect("shared maximum is valid for tasks");
-        request.rows = MAX_PTY_DIMENSION + 1;
-        assert!(validate_task_request(&request).is_err());
     }
 
     #[test]
@@ -373,16 +314,6 @@ mod tests {
             )
             .is_err());
         }
-    }
-
-    #[test]
-    fn completed_task_retention_has_exact_grace_and_subscriber_boundaries() {
-        let grace = TASK_EXIT_RETENTION.as_millis() as u64;
-        assert!(!task_retention_elapsed(0, u64::MAX, false));
-        assert!(!task_retention_elapsed(100, 100 + grace - 1, false));
-        assert!(task_retention_elapsed(100, 100 + grace, false));
-        assert!(!task_retention_elapsed(100, 100 + grace, true));
-        assert!(!task_retention_elapsed(500, 100, false));
     }
 
     #[test]

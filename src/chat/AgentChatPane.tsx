@@ -14,7 +14,8 @@ import { ChatWelcome } from "./ChatWelcome";
 import { FoldMemoryContext, newFoldMemory } from "./longText";
 import { sentPrompts } from "./promptHistory";
 import { activeToolLabel } from "./toolLabels";
-import { formatDetail, runningSubagents } from "./transcript";
+import { formatDetail, runningSubagents, workFolds } from "./transcript";
+import { WorkSummary } from "./WorkSummary";
 import { activityText, backendState, composerPlaceholder as placeholderFor, connectingLabel, knownEffort } from "./chatStatus";
 import { ChatAgentContext, ReaderScrollContext } from "./chatAgent";
 import { ChatMessageRow, warmTranscript } from "./ChatMessageRow";
@@ -143,6 +144,14 @@ export function AgentChatPane({
 
     const { atBottom, onScroll, jumpToBottom } = useStickToBottom({ scrollRef, contentRef: scrollContentRef, visible });
     const firstRow = useOlderRows(displayState.messages.length);
+    const folds = useMemo(() => workFolds(displayState.messages, displayState.running), [displayState.messages, displayState.running]);
+    const [openWork, setOpenWork] = useState<ReadonlySet<string>>(() => new Set());
+    const toggleWork = (id: string) =>
+        setOpenWork((open) => {
+            const next = new Set(open);
+            if (!next.delete(id)) next.add(id);
+            return next;
+        });
 
     useEffect(() => {
         if (!active) return;
@@ -370,9 +379,28 @@ export function AgentChatPane({
                                     {displayState.messages.slice(firstRow).map((message, offset) => {
                                         const index = firstRow + offset;
                                         const meta = rowMeta(displayState.messages, index);
+                                        const fold = folds.get(index);
+                                        const workId = fold ? displayState.messages[fold.start].id : "";
+                                        const folded = fold !== undefined && findRequest === 0 && !openWork.has(workId);
+                                        const summary = fold && index === Math.max(fold.start, firstRow) && (
+                                            <WorkSummary
+                                                took={rowMeta(displayState.messages, fold.end).took}
+                                                calls={fold.calls}
+                                                open={!folded}
+                                                onToggle={() => toggleWork(workId)}
+                                            />
+                                        );
+                                        if (fold && folded && index < fold.end)
+                                            return (
+                                                <div key={message.id} data-index={index} className="chat-row">
+                                                    {summary}
+                                                </div>
+                                            );
                                         return (
                                             <div key={message.id} data-index={index} className="chat-row">
+                                                {summary}
                                                 <ChatMessageRow
+                                                    from={fold && folded ? fold.from : 0}
                                                     message={message}
                                                     live={displayState.running && index === displayState.messages.length - 1}
                                                     copyable={meta.text}

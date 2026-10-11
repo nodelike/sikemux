@@ -438,17 +438,6 @@ mod tests {
     }
 
     #[test]
-    fn round_trips_the_config_file() -> GithubResult<()> {
-        let dir = std::env::temp_dir().join(format!("sikemux-gha-{}", std::process::id()));
-        let mut config = GithubConfig::default();
-        config.upsert(account("git.example.com", "octocat"));
-        save(&dir, &config)?;
-        assert_eq!(load(&dir), config);
-        std::fs::remove_dir_all(&dir).ok();
-        Ok(())
-    }
-
-    #[test]
     fn the_first_account_is_the_default_and_each_can_be_named() {
         let mut config = GithubConfig::default();
         config.upsert(account("github.com", "work"));

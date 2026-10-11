@@ -1,6 +1,4 @@
 import { describe, expect, it } from "vitest";
-import { stateOf } from "./Bits";
-import { reasonLabel } from "./InboxView";
 import { reviewVerdict } from "./PullsView";
 import { latestOf } from "./ReleasesView";
 import type { Release } from "../api";
@@ -27,24 +25,6 @@ describe("reviewVerdict", () => {
 
     it("ignores a review that was dismissed", () => {
         expect(reviewVerdict([review("a", "APPROVED"), review("b", "DISMISSED")])).toBe("Approved");
-    });
-});
-
-describe("reasonLabel", () => {
-    it("makes an unknown reason readable rather than dropping it", () => {
-        expect(reasonLabel("something_new")).toBe("something new");
-    });
-});
-
-describe("stateOf", () => {
-    it("reads a draft as its own state rather than as open", () => {
-        expect(stateOf("open", true)).toBe("draft");
-        expect(stateOf("open", false)).toBe("open");
-    });
-
-    it("leaves a finished one alone, draft flag or not", () => {
-        expect(stateOf("merged", false)).toBe("merged");
-        expect(stateOf("closed", true)).toBe("closed");
     });
 });
 

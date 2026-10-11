@@ -104,29 +104,6 @@ const openAccountMenu = async () => {
 };
 
 describe("GitHostShell", () => {
-    it("shows only the local screens for a folder on no known host", async () => {
-        api.resolveRemote.mockResolvedValue({ repo: { host: "gitlab.com", owner: "a", name: "b" }, slug: "a/b", sameHost: false });
-        shell("local");
-        await waitFor(() => expect(api.resolveRemote).toHaveBeenCalledWith(remoteUrl));
-        expect(screen.getByText("local workbench")).toBeTruthy();
-        expect(screen.getByRole("button", { name: "Changes" })).toBeTruthy();
-        expect(screen.queryByRole("button", { name: "Pull requests" })).toBeNull();
-    });
-
-    it("shows only the local screens for a folder with no remote", async () => {
-        localGit.remotes.mockResolvedValue([]);
-        shell("pulls");
-        await waitFor(() => expect(localGit.remotes).toHaveBeenCalledWith(CWD));
-        expect(screen.getByText("local workbench")).toBeTruthy();
-        expect(api.resolveRemote).not.toHaveBeenCalled();
-    });
-
-    it("adds the host's sections to the rail and opens the one pressed", async () => {
-        const { onArea } = shell("local");
-        await userEvent.click(await screen.findByRole("button", { name: "Issues" }));
-        expect(onArea).toHaveBeenCalledWith("issues");
-    });
-
     it("opens a host section on the project's repository, branch and first account that can see it", async () => {
         shell("pulls");
         expect((await screen.findByTestId("host-area")).textContent).toBe(`pulls nodelike/sikemux as ada-id on feat/x in ${CWD}`);

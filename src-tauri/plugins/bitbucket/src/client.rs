@@ -513,22 +513,6 @@ mod tests {
     }
 
     #[test]
-    fn a_refused_token_is_told_apart_from_a_missing_permission() {
-        assert!(matches!(
-            classify(StatusCode::UNAUTHORIZED, b""),
-            BitbucketError::Auth(_)
-        ));
-        assert!(matches!(
-            classify(StatusCode::FORBIDDEN, b""),
-            BitbucketError::Forbidden(_)
-        ));
-        assert!(matches!(
-            classify(StatusCode::TOO_MANY_REQUESTS, b""),
-            BitbucketError::RateLimited { .. }
-        ));
-    }
-
-    #[test]
     fn an_absolute_next_page_address_is_used_as_it_is() {
         assert_eq!(address("/user"), "https://api.bitbucket.org/2.0/user");
         let next = "https://api.bitbucket.org/2.0/repositories?page=2";

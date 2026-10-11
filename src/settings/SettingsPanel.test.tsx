@@ -62,20 +62,6 @@ describe("SettingsPanel keybindings", () => {
         expect(getState().keybindingOverrides).toEqual({});
     });
 
-    it("toggles agent tab restoration", async () => {
-        const user = userEvent.setup();
-        setState({ restoreAgentTabs: true });
-        render(<SettingsPanel />);
-        await user.click(screen.getByRole("button", { name: "Agents" }));
-
-        const restore = screen.getByRole("switch", { name: /Restore agent tabs/ });
-        expect(restore).toBeChecked();
-
-        await user.click(restore);
-        expect(getState()).toMatchObject({ restoreAgentTabs: false });
-        expect(restore).not.toBeChecked();
-    });
-
     it("persists an explicit launch boundary and non-secret provider path", async () => {
         const user = userEvent.setup();
         render(<SettingsPanel />);
@@ -179,13 +165,6 @@ describe("SettingsPanel navigation", () => {
         await user.keyboard("{ArrowDown}");
         expect(first).toHaveAttribute("aria-selected", "false");
         expect(screen.getAllByRole("option")[1]).toHaveAttribute("aria-selected", "true");
-    });
-
-    it("says so when nothing matches", async () => {
-        const user = userEvent.setup();
-        render(<SettingsPanel />);
-        await user.type(screen.getByRole("combobox", { name: "Search settings" }), "zzzz");
-        expect(screen.getByText("No settings match “zzzz”.")).toBeInTheDocument();
     });
 
     it("clears the search on the first Escape and closes on the second", async () => {

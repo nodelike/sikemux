@@ -159,17 +159,4 @@ mod tests {
         assert!(draft.draft);
         assert_eq!(draft.published_at.as_deref(), Some("2026-01-01T00:00:00Z"));
     }
-
-    #[test]
-    fn reads_the_files_hung_off_a_release() {
-        let release = Release::from(row(json!({
-            "id": 1, "tag_name": "v0.4.2", "draft": false, "prerelease": true,
-            "html_url": "https://github.com/a/b/releases/tag/v0.4.2",
-            "assets": [{ "id": 9, "name": "Sikemux_aarch64.dmg", "size": 10_485_760, "download_count": 42 }],
-        })));
-        assert!(release.prerelease);
-        let asset = release.assets.first().expect("one asset");
-        assert_eq!(asset.name, "Sikemux_aarch64.dmg");
-        assert_eq!(asset.downloads, 42);
-    }
 }

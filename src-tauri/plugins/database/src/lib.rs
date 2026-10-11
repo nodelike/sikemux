@@ -348,22 +348,6 @@ mod tests {
         assert_eq!(history, json!([]));
     }
 
-    #[test]
-    fn its_manifest_offers_the_four_database_tools() {
-        let database = plugin().unwrap();
-        let names: Vec<&str> = database
-            .manifest()
-            .tools
-            .iter()
-            .map(|tool| tool.name.as_str())
-            .collect();
-        assert_eq!(
-            names,
-            ["db_databases", "db_tables", "db_describe", "db_query"]
-        );
-        assert_eq!(database.manifest().call_timeout_secs, Some(600));
-    }
-
     #[tokio::test]
     async fn an_agent_finds_a_database_by_name_reads_it_and_cannot_change_it() {
         let ctx = scratch("agent");

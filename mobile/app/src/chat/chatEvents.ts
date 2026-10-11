@@ -26,7 +26,13 @@ export function actions(event: CoreChatEvent): ChatAction[] {
     case 'turn_started':
       return [{ type: 'turn_started' }];
     case 'turn_completed':
-      return [{ type: 'turn_completed', stopReason: typeof payload.stopReason === 'string' ? payload.stopReason : undefined }];
+      return [
+        {
+          type: 'turn_completed',
+          stopReason: typeof payload.stopReason === 'string' ? payload.stopReason : undefined,
+          at: typeof payload.at === 'number' ? payload.at : undefined,
+        },
+      ];
     case 'permission_request': {
       const request = permissionRequest(payload);
       return request ? [{ type: 'permission_requested', request }] : [];

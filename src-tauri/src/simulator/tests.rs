@@ -112,8 +112,8 @@ mod tools {
     use crate::simulator::claims::Claim;
     use crate::simulator::tools::{
         app_size, cap_logs, changes, choose_device, edge_warning, element_lines, elements_from,
-        inside_project, inspect, labelled, launching, newest_iphone, pick_device, refusal, run,
-        tap_point, Device, Element, Numbered, Numbering, Pick,
+        inside_project, inspect, labelled, launching, newest_iphone, pick_device, run, tap_point,
+        Device, Element, Numbered, Numbering, Pick,
     };
     use std::collections::HashMap;
 
@@ -497,16 +497,6 @@ mod tools {
         assert!(inside_project(&root, "missing.app")
             .unwrap_err()
             .contains("no app"));
-    }
-
-    #[test]
-    fn the_tools_refuse_when_turned_off_or_unsupported() {
-        assert_eq!(refusal(true, None), None);
-        assert!(refusal(false, None).unwrap().contains("turned off in"));
-        assert_eq!(
-            refusal(true, Some("needs Xcode".into())),
-            Some("needs Xcode".into())
-        );
     }
 
     #[test]

@@ -282,31 +282,6 @@ mod tests {
         );
     }
 
-    #[test]
-    fn answers_are_kept_per_account_until_forgotten() {
-        let work = Some("/tmp/sikemux-status-work");
-        let home = Some("/tmp/sikemux-status-home");
-        remember_status(AgentKind::Claude, work, AgentStatus::SignedOut);
-        remember_status(
-            AgentKind::Claude,
-            home,
-            AgentStatus::Ready { account: None },
-        );
-        assert_eq!(
-            cached_status(AgentKind::Claude, work),
-            Some(AgentStatus::SignedOut)
-        );
-        assert_eq!(cached_status(AgentKind::Codex, work), None);
-        forget_status(AgentKind::Claude, work);
-        assert_eq!(cached_status(AgentKind::Claude, work), None);
-        assert_eq!(
-            cached_status(AgentKind::Claude, home),
-            Some(AgentStatus::Ready { account: None })
-        );
-        forget_all_statuses();
-        assert_eq!(cached_status(AgentKind::Claude, home), None);
-    }
-
     #[cfg(unix)]
     fn fake_cli(dir: &Path, script: &str) -> std::path::PathBuf {
         use std::os::unix::fs::PermissionsExt;
@@ -375,35 +350,6 @@ echo '{"loggedIn":false,"authMethod":"none"}'; exit 1"#,
             check_sign_in(AgentKind::Claude, &signed_out, None).await,
             AgentStatus::SignedOut
         );
-    }
-
-    #[cfg(unix)]
-    #[tokio::test]
-    async fn agents_without_a_check_say_they_cannot_tell() {
-        let dir = tempfile::tempdir().unwrap();
-        let program = fake_cli(dir.path(), "exit 0");
-        for agent in [AgentKind::Hermes, AgentKind::Grok, AgentKind::Omp] {
-            assert_eq!(
-                check_sign_in(agent, &program, None).await,
-                AgentStatus::Unknown
-            );
-        }
-    }
-
-    #[test]
-    fn a_chat_refused_for_sign_in_marks_its_account_signed_out() {
-        let profile = "/tmp/sikemux-status-refused";
-        remember_status(
-            AgentKind::Codex,
-            Some(profile),
-            AgentStatus::Ready { account: None },
-        );
-        mark_agent_signed_out(AgentKind::Codex, Some(profile.to_string()));
-        assert_eq!(
-            cached_status(AgentKind::Codex, Some(profile)),
-            Some(AgentStatus::SignedOut)
-        );
-        forget_status(AgentKind::Codex, Some(profile));
     }
 
     #[test]

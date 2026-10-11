@@ -96,7 +96,10 @@ pub(super) fn replay(
     let mut announced: Vec<Announced> = Vec::new();
     for turn in turns {
         let mut first_message = true;
+        let seconds = |field: &str| turn[field].as_u64().map(|at| at * 1000);
+        let (started, completed) = (seconds("startedAt"), seconds("completedAt"));
         for item in turn["items"].as_array().into_iter().flatten() {
+            let from = out.len();
             match item["type"].as_str() {
                 Some("subAgentActivity") => {
                     replay_activity(session, item, children, ancestry, read, &mut announced, out);
@@ -121,6 +124,18 @@ pub(super) fn replay(
                         .into_iter()
                         .map(|update| (session.to_owned(), update)),
                 ),
+            }
+            let at = if item["type"] == "userMessage" {
+                started
+            } else {
+                completed
+            };
+            if let Some(at) = at {
+                for (target, update) in &mut out[from..] {
+                    if target == session {
+                        super::super::stamp_replayed(update, at);
+                    }
+                }
             }
         }
     }

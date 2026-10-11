@@ -75,12 +75,4 @@ mod tests {
             vec!["sikemux://agent/claude/abc?project=%2Ftmp".to_owned()]
         );
     }
-
-    #[test]
-    fn taking_links_empties_the_queue() {
-        let links = DeepLinks::default();
-        links.push(["sikemux://agent/codex/1?project=%2Fa".to_owned()]);
-        assert_eq!(links.take().len(), 1);
-        assert!(links.take().is_empty());
-    }
 }

@@ -123,10 +123,10 @@
 }
 
 /* A live label's sweep (see Shimmer.tsx). Each band is three labels wide and
-   slides one label's width per pass while its copy slides back the same
-   distance, so the text holds still and only the masks move. The two masks
-   add up to one, and plus-lighter sums the copies into the gradient a single
-   label would take. */
+   slides one label's width per pass while its copy, just as wide, slides back
+   the same distance, so the text holds still and only the masks move. The
+   masks add up to one, and plus-lighter sums the copies into the gradient a
+   single label would take. */
 .chat-shimmer {
     position: relative;
     isolation: isolate;
@@ -155,12 +155,17 @@
     mix-blend-mode: plus-lighter;
 }
 
-/* Painted through background-clip like the gradient it replaces, which draws
-   glyphs lighter than plain coloured text does. A third of the band comes out
-   a fraction of a pixel under the label's width in WebKit, which ellipsizes a
-   label that fits, so the copy gets a pixel of slack and its slide back loses
-   the two that adds. */
 .chat-shimmer-copy {
+    display: block;
+    height: 100%;
+    animation: chat-shimmer-copy 2.2s linear infinite;
+}
+
+/* Painted through background-clip, which draws glyphs lighter than plain
+   coloured text does. A third of the band comes out a fraction of a pixel
+   under the label's width in WebKit, which would ellipsize a label that fits,
+   so the text gets a pixel of slack. */
+.chat-shimmer-text {
     display: block;
     width: calc(100% / 3 + 1px);
     height: 100%;
@@ -169,25 +174,24 @@
     white-space: nowrap;
     -webkit-background-clip: text;
     background-clip: text;
-    animation: chat-shimmer-copy 2.2s linear infinite;
 }
 
-.chat-shimmer-band.dim > .chat-shimmer-copy {
+.chat-shimmer-band.dim .chat-shimmer-text {
     background-image: linear-gradient(var(--ink-faint), var(--ink-faint));
 }
 
-.chat-shimmer-band.lit > .chat-shimmer-copy {
+.chat-shimmer-band.lit .chat-shimmer-text {
     background-image: linear-gradient(var(--ink), var(--ink));
 }
 
-.chat-shimmer .chat-shimmer-copy * {
+.chat-shimmer .chat-shimmer-text * {
     border-color: transparent;
     background: none;
     box-shadow: none;
     color: transparent;
 }
 
-.chat-shimmer-copy :is(svg, img) {
+.chat-shimmer-text :is(svg, img) {
     visibility: hidden;
 }
 
@@ -202,7 +206,7 @@
 
 @keyframes chat-shimmer-copy {
     from {
-        transform: translateX(calc(200% - 2px));
+        transform: translateX(calc(200% / 3));
     }
     to {
         transform: none;

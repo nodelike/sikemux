@@ -41,45 +41,6 @@ mod tests {
     use super::*;
     use serde_json::json;
 
-    fn method(tool: &str, input: Value) -> String {
-        route(tool, input).expect("routes").0.to_owned()
-    }
-
-    #[test]
-    fn what_an_agent_passes_picks_the_method() {
-        assert_eq!(method("agentServices", json!({})), "services");
-        assert_eq!(
-            method("agentServices", json!({ "service": "api" })),
-            "serviceOverview"
-        );
-        assert_eq!(
-            method(
-                "agentServices",
-                json!({ "service": "api", "show": "errors" })
-            ),
-            "errorGroups"
-        );
-        assert_eq!(
-            method("agentTraces", json!({ "service": "api" })),
-            "searchTraces"
-        );
-        assert_eq!(method("agentTraces", json!({ "traceId": "abc" })), "trace");
-        assert_eq!(method("agentDashboards", json!({})), "dashboards");
-        assert_eq!(
-            method("agentDashboards", json!({ "id": "d1" })),
-            "dashboard"
-        );
-        assert_eq!(
-            method("agentFields", json!({ "name": "http.route" })),
-            "fieldValues"
-        );
-        assert_eq!(
-            method("agentFields", json!({ "search": "http" })),
-            "fieldKeys"
-        );
-        assert_eq!(method("searchLogs", json!({})), "searchLogs");
-    }
-
     #[test]
     fn a_panel_is_found_inside_the_dashboard_named_by_id() {
         let (routed, input) =

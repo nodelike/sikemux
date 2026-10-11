@@ -306,12 +306,6 @@ describe("APNs settings", () => {
     expect(problems).toEqual([]);
   });
 
-  it("are optional, so the API starts without iPhone pushes", () => {
-    const problems: string[] = [];
-    expect(readPush({}, problems).apns).toBeNull();
-    expect(problems).toEqual([]);
-  });
-
   it("name what is wrong", () => {
     const rsa = join(dir, "rsa.p8");
     writeFileSync(

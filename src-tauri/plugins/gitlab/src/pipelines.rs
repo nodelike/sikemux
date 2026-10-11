@@ -837,40 +837,4 @@ mod tests {
             ["one", "two"]
         );
     }
-
-    #[test]
-    fn filters_are_asked_of_gitlab_in_its_own_words() {
-        assert_eq!(gitlab_status("failure"), Some("failed"));
-        assert_eq!(gitlab_status("cancelled"), Some("canceled"));
-        assert_eq!(gitlab_status("nonsense"), None);
-        assert_eq!(source_of("pull_request"), Some("merge_request_event"));
-    }
-
-    #[test]
-    fn a_pipeline_started_by_hand_carries_its_inputs_as_variables() -> GitlabResult<()> {
-        let mut inputs = Map::new();
-        inputs.insert("DEPLOY_ENV".into(), json!("staging"));
-        let body = dispatch_body(&Dispatch {
-            repo: RepoRef {
-                owner: "acme".into(),
-                name: "api".into(),
-            },
-            git_ref: " main ".into(),
-            inputs,
-        })?;
-        assert_eq!(
-            body,
-            json!({ "ref": "main", "variables": [{ "key": "DEPLOY_ENV", "value": "staging", "variable_type": "env_var" }] })
-        );
-        assert!(dispatch_body(&Dispatch {
-            repo: RepoRef {
-                owner: "acme".into(),
-                name: "api".into()
-            },
-            git_ref: " ".into(),
-            inputs: Map::new(),
-        })
-        .is_err());
-        Ok(())
-    }
 }

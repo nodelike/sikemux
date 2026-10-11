@@ -67,7 +67,7 @@ Every phone screen is drawn first in `mobile/design/screens.src.html`, with the 
 
 `server/` holds the backend behind phone sign-in and the device list: the API at api.sikemux.com and the web app at app.sikemux.com. Like `mobile/`, it is a pnpm workspace of its own. [ADR 0009](docs/architecture/0009-accounts-and-backend.md) records the design.
 
-- `server/protocol` is the contract. Its JSON Schema in `schema/` and the routes in `routes.json` generate the TypeScript types, a bundled schema the API validates with, an OpenAPI document, and the Rust types in `src-tauri/crates/sikemux-core/src/accounts/protocol.rs`. Change the schema, then run `pnpm protocol:generate`; never edit the generated files. Every definition needs an example in `fixtures/`, which both the TypeScript and the Rust tests read.
+- `server/protocol` is the contract. Its JSON Schema in `schema/` and the routes in `routes.json` generate the TypeScript types, a bundled schema the API validates with, an OpenAPI document, and the Rust types in `src-tauri/crates/sikemux-wire/src/accounts/protocol.rs`. Change the schema, then run `pnpm protocol:generate`; never edit the generated files. Every definition needs an example in `fixtures/`, which both the TypeScript and the Rust tests read.
 - `server/api` is the API (Hono on Node, Postgres through Kysely). Schema changes are numbered SQL files in `api/migrations`; a shipped one is never edited, only followed by a new one.
 - `server/app` is the web app (Vite and React).
 - `server/deploy` is what runs it on the server: the systemd unit, the Caddy sites, the one-time setup and the script that installs a release.
@@ -92,11 +92,10 @@ make check            # every gate, regardless of what changed
 pnpm build            # production frontend build
 ```
 
-`make check` runs Prettier in check mode, ShellCheck, ESLint, TypeScript, frontend tests with coverage, the performance budget, `cargo audit`, `cargo fmt --check`, Clippy with warnings denied, Rust tests, and credential-free release-tooling checks. It also checks that generated files (IPC contracts, agent tools, grammars) match their sources. These are the same quality gates enforced by CI.
+`make check` runs Prettier in check mode, ShellCheck, ESLint, TypeScript, frontend tests, the performance budget, `cargo audit`, `cargo fmt --check`, Clippy with warnings denied, Rust tests, and credential-free release-tooling checks. It also checks that generated files (IPC contracts, agent tools, grammars) match their sources. These are the same quality gates enforced by CI.
 
 Some gates are floors that only move one way. Raise them when you beat them; never lower them to get a change through:
 
-- **Test coverage:** the thresholds in `vite.config.ts` under `test.coverage.thresholds`. When a change lifts coverage, set each threshold to the new measured value, rounded down.
 - **`!important` in CSS:** the budget in `scripts/check-css-important.mjs`, checked by `pnpm lint`. Remove one and lower the budget to match.
 - **Bundle size:** the ceilings checked by `pnpm perf:budget` (see below).
 

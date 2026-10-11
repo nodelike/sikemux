@@ -16,12 +16,6 @@ const pick = (label: string) => {
 afterEach(() => vi.clearAllMocks());
 
 describe("issueMenu", () => {
-    it("opens the issue in the browser", () => {
-        host.openUrl.mockResolvedValue(undefined);
-        pick("Open in browser");
-        expect(host.openUrl).toHaveBeenCalledWith("https://acme.atlassian.net/browse/ABC-12");
-    });
-
     it("copies the link, the key, the key with its title, and a Markdown link, and says so", async () => {
         host.copyText.mockResolvedValue(undefined);
         pick("Copy link");

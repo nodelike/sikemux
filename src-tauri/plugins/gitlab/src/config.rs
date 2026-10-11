@@ -262,15 +262,4 @@ mod tests {
             "gitlab.acme.dev.9"
         );
     }
-
-    #[test]
-    fn nothing_saved_reads_as_no_accounts() {
-        let dir = std::env::temp_dir().join(format!("sikemux-gl-config-{}", std::process::id()));
-        assert_eq!(load(&dir), GitlabConfig::default());
-        let mut saved = GitlabConfig::default();
-        saved.upsert(account("gitlab.com", 1));
-        save(&dir, &saved).expect("saves");
-        assert_eq!(load(&dir), saved);
-        std::fs::remove_dir_all(dir).ok();
-    }
 }

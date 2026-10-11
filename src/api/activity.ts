@@ -13,6 +13,10 @@ export interface ActivityTotals {
     cacheRead: number;
     cacheWrite: number;
     firstAtMs: number | null;
+    /** What the tokens would cost at API prices. Subscription plans bill separately. */
+    costUsd: number;
+    cacheSavingsUsd: number;
+    unpricedTokens: number;
 }
 
 export interface ActivityDay {
@@ -22,6 +26,7 @@ export interface ActivityDay {
     agentMs: number;
     commits: number;
     tokens: number;
+    costUsd: number;
 }
 
 export interface ActivityShare {
@@ -30,6 +35,32 @@ export interface ActivityShare {
     agentMs: number;
     commits: number;
     tokens: number;
+    costUsd: number;
+}
+
+export interface ActivityModel {
+    model: string;
+    agent: AgentType;
+    input: number;
+    output: number;
+    cacheRead: number;
+    cacheWrite: number;
+    costUsd: number;
+    fastCostUsd: number;
+    priced: boolean;
+}
+
+export interface ActivityPricing {
+    status: "fresh" | "cached" | "unavailable";
+    fetchedAtMs: number | null;
+}
+
+/** USD per million tokens. Cache rates fall back to the input rate. */
+export interface PriceOverride {
+    input: number;
+    output: number;
+    cacheRead?: number;
+    cacheWrite?: number;
 }
 
 export interface ActivitySummary {
@@ -37,6 +68,8 @@ export interface ActivitySummary {
     days: ActivityDay[];
     agents: ActivityShare[];
     projects: ActivityShare[];
+    models: ActivityModel[];
+    pricing: ActivityPricing;
 }
 
 export interface ActivityTurnEnd {
@@ -57,6 +90,10 @@ export const activityApi = {
             sessionId: turn.sessionId ?? null,
             configPath: turn.configPath ?? null,
         }),
-    summary: (project?: string): Promise<ActivitySummary> =>
-        invoke<ActivitySummary>("activity_summary", { utcOffsetMinutes: -new Date().getTimezoneOffset(), project: project ?? null }),
+    summary: (project?: string, prices?: Record<string, PriceOverride>): Promise<ActivitySummary> =>
+        invoke<ActivitySummary>("activity_summary", {
+            utcOffsetMinutes: -new Date().getTimezoneOffset(),
+            project: project ?? null,
+            prices: prices ?? null,
+        }),
 };

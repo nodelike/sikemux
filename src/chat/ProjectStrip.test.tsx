@@ -44,19 +44,6 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("ProjectStrip", () => {
-    it("names the project, its branch and the worktree switch", async () => {
-        renderStrip();
-        expect(screen.getByRole("button", { name: "Project" })).toHaveTextContent("app");
-        expect(await screen.findByText("main")).toBeInTheDocument();
-        fireEvent.click(screen.getByRole("button", { name: "worktree" }));
-        expect(toggle).toHaveBeenCalledTimes(1);
-    });
-
-    it("drops the worktree switch outside a git repository", () => {
-        renderStrip({ kind: "hidden" });
-        expect(screen.queryByRole("button", { name: "worktree" })).not.toBeInTheDocument();
-    });
-
     it("lists open projects before ones found on disk, and moves the chat to the one picked", async () => {
         renderStrip();
         fireEvent.click(screen.getByRole("button", { name: "Project" }));

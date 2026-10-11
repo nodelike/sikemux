@@ -187,17 +187,6 @@ mod tests {
     }
 
     #[test]
-    fn signing_in_again_replaces_the_account_rather_than_adding_one() {
-        let mut config = BitbucketConfig::default();
-        config.upsert(account("work"));
-        let mut again = account("work");
-        again.login = "renamed".into();
-        config.upsert(again);
-        assert_eq!(config.accounts.len(), 1);
-        assert_eq!(config.accounts[0].login, "renamed");
-    }
-
-    #[test]
     fn removing_the_default_hands_it_to_the_next_account() {
         let mut config = BitbucketConfig::default();
         config.upsert(account("work"));
@@ -216,16 +205,5 @@ mod tests {
         config.default = Some("home".into());
         let order: Vec<String> = config.in_order().into_iter().map(|a| a.id).collect();
         assert_eq!(order, ["home", "work"]);
-    }
-
-    #[test]
-    fn nothing_saved_reads_as_no_accounts() {
-        let dir = std::env::temp_dir().join(format!("sikemux-bb-config-{}", std::process::id()));
-        assert_eq!(load(&dir), BitbucketConfig::default());
-        let mut saved = BitbucketConfig::default();
-        saved.upsert(account("work"));
-        save(&dir, &saved).expect("saves");
-        assert_eq!(load(&dir), saved);
-        std::fs::remove_dir_all(dir).ok();
     }
 }

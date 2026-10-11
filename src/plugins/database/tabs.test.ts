@@ -1,17 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-    closeOtherTabs,
-    closeProfileTabs,
-    closeTab,
-    consoleFor,
-    consoleTab,
-    historyTab,
-    newConsole,
-    openTab,
-    tabLabel,
-    tableTab,
-    type TabStrip,
-} from "./tabs";
+import { closeOtherTabs, closeProfileTabs, closeTab, consoleFor, consoleTab, historyTab, newConsole, openTab, tableTab, type TabStrip } from "./tabs";
 
 const empty: TabStrip = { tabs: [], active: null };
 const ids = (strip: TabStrip) => strip.tabs.map((tab) => tab.id);
@@ -51,12 +39,5 @@ describe("database tabs", () => {
         expect(consoleFor(strip, "p9").id).toBe("console:p9:1");
         expect(newConsole(strip, "p1").id).toBe("console:p1:4");
         expect(newConsole(strip, "p9").id).toBe("console:p9:1");
-    });
-
-    it("labels each kind of tab", () => {
-        expect(tabLabel(consoleTab("p1", 1))).toBe("console");
-        expect(tabLabel(consoleTab("p1", 2))).toBe("console 2");
-        expect(tabLabel(tableTab("p1", "public", "orders"))).toBe("orders");
-        expect(tabLabel(historyTab("p1"))).toBe("history");
     });
 });

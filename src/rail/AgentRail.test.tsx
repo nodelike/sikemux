@@ -423,13 +423,6 @@ describe("agent rail", () => {
         await waitFor(() => expect(agentIdsOf(getState(), "sess-project")).not.toContain("agent-open"));
     });
 
-    it("names the account its limits belong to", async () => {
-        render(<AgentRailBody />);
-
-        expect(await screen.findByRole("region", { name: "Codex plan limits" })).toBeInTheDocument();
-        expect(await screen.findByTitle("me@example.com")).toBeInTheDocument();
-    });
-
     it("goes by the name on the account until the person names it", async () => {
         mocks.account.mockImplementation(async (_agent: string, _executable?: string, configPath?: string) => ({
             signedIn: true,

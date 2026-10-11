@@ -1,9 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
-    MemoryIpcTransport,
     createIpcTransport,
     getIpcTransport,
-    installIpcTransportForTests,
     productionIpcTransport,
     resetIpcTransportForTests,
     type IpcEventListener,
@@ -167,28 +165,3 @@ describe("production IPC transport", () => {
 async function productionBindingSubscribe<Payload>(event: string, listener: IpcEventListener<Payload>, nativeOptions?: unknown): Promise<() => void> {
     return mocks.listen(event, listener, nativeOptions) as Promise<() => void>;
 }
-
-describe("IPC test installation seam", () => {
-    it("installs one isolated override and restores the production default explicitly", async () => {
-        const memory = new MemoryIpcTransport();
-        memory.register("ping", async () => "pong");
-        const reset = installIpcTransportForTests(memory);
-
-        expect(getIpcTransport()).toBe(memory);
-        await expect(getIpcTransport().invoke("ping")).resolves.toBe("pong");
-        expect(() => installIpcTransportForTests(new MemoryIpcTransport())).toThrow("already installed");
-
-        reset();
-        reset();
-        expect(getIpcTransport()).toBe(productionIpcTransport);
-
-        const staleReset = installIpcTransportForTests(memory);
-        resetIpcTransportForTests();
-        expect(getIpcTransport()).toBe(productionIpcTransport);
-
-        const currentReset = installIpcTransportForTests(memory);
-        staleReset();
-        expect(getIpcTransport()).toBe(memory);
-        currentReset();
-    });
-});

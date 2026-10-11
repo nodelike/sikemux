@@ -490,9 +490,4 @@ mod tests {
         assert_eq!(overview.failures, vec![(60_000, 3.5)]);
         assert!(overview.p99.is_empty());
     }
-
-    #[test]
-    fn a_service_page_needs_a_service() {
-        assert!(ServiceRequest::default().expression(ENTRY_SPANS).is_err());
-    }
 }

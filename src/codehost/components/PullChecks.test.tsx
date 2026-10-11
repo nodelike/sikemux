@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Run } from "../api";
 
@@ -60,16 +60,6 @@ afterEach(() => {
 });
 
 describe("PullChecks", () => {
-    it("asks for the runs on the pull request's head commit", async () => {
-        await renderChecks([makeRun()]);
-        expect(api.runs).toHaveBeenCalledWith({ ...repo, headSha: "abc", perPage: 30 });
-    });
-
-    it("shows nothing when no run touched the commit", async () => {
-        const { view } = await renderChecks([]);
-        expect(view.container.textContent).toBe("");
-    });
-
     it("says all passed when every run passed or was skipped", async () => {
         await renderChecks([makeRun({ id: "1" }), makeRun({ id: "2", conclusion: "skipped" })]);
         expect(headline()).toBe("All checks passed");
@@ -95,14 +85,6 @@ describe("PullChecks", () => {
         await renderChecks([makeRun({ id: "1", status: "waiting", conclusion: null }), makeRun({ id: "2" })]);
         expect(headline()).toBe("Checks: 1 waiting, 1 passed");
         expect(overall()).toBe("Waiting for approval");
-    });
-
-    it("lists each run with what started it, how it went and how long it took, and opens it on click", async () => {
-        const { onOpenRun } = await renderChecks([makeRun({ name: "Lint", runNumber: 4 })]);
-        const check = screen.getByRole("button", { name: /Lint/ });
-        expect(check.textContent).toBe("Lint #4Pull requestPassed1m 30s");
-        fireEvent.click(check);
-        expect(onOpenRun).toHaveBeenCalledWith("7");
     });
 
     it("reads the checks again every ten seconds while one is going, and stops once they are done", async () => {

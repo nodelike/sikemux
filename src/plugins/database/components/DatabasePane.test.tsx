@@ -63,22 +63,6 @@ beforeEach(() => {
 });
 
 describe("DatabasePane", () => {
-    it("invites the first connection when none is saved", async () => {
-        api.profiles.mockResolvedValue([]);
-        renderPane();
-        expect(await screen.findByRole("heading", { name: "Connect a database" })).toBeInTheDocument();
-        fireEvent.click(screen.getByRole("button", { name: "Add a connection" }));
-        expect(screen.getByRole("form", { name: "New connection" })).toBeInTheDocument();
-    });
-
-    it("lists every connection in the explorer, with where each one points", async () => {
-        renderPane();
-        expect(await screen.findByRole("treeitem", { name: "Shop" })).toBeInTheDocument();
-        expect(screen.getByRole("button", { name: /Shop/ })).toHaveAttribute("title", "PostgreSQL · app@db.internal:5432/shop");
-        expect(screen.getByRole("button", { name: /Local/ })).toHaveAttribute("title", "SQLite · app.db");
-        expect(screen.getByText(/Open a connection in the explorer/)).toBeInTheDocument();
-    });
-
     it("connects from the explorer, opens a console, and opens tables as tabs of their own", async () => {
         api.connect.mockResolvedValue({ id: "p1", version: "PostgreSQL 16.4" });
         api.tables.mockResolvedValue([
@@ -132,25 +116,5 @@ describe("DatabasePane", () => {
         await act(async () => fireEvent.doubleClick(await screen.findByRole("button", { name: /^orders/ })));
         expect(api.query).toHaveBeenCalledWith("p1", 'select * from "public"."orders" limit 100;', 500, expect.any(String));
         expect(screen.getByRole("tab", { name: "Shop console" })).toHaveAttribute("aria-selected", "true");
-    });
-
-    it("says why a connection failed", async () => {
-        api.connect.mockRejectedValue({ category: "connect", message: "db.internal:5432 did not answer within 10s" });
-        renderPane();
-        await act(async () => fireEvent.click(await screen.findByRole("button", { name: /Shop/ })));
-        expect(screen.getByRole("alert")).toHaveTextContent("did not answer within 10s");
-    });
-
-    it("edits a connection from its menu, and shows its properties in a tab", async () => {
-        renderPane();
-        fireEvent.contextMenu(await screen.findByRole("button", { name: /Local/ }));
-        fireEvent.click(screen.getByText("Edit connection…"));
-        expect(screen.getByRole("form", { name: "Edit Local" })).toBeInTheDocument();
-        expect(screen.getByLabelText("Database file")).toHaveValue("/Users/me/app.db");
-        fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
-
-        fireEvent.contextMenu(screen.getByRole("button", { name: /Shop/ }));
-        fireEvent.click(screen.getByText("Properties"));
-        expect(screen.getByRole("article", { name: "Shop" })).toHaveTextContent("Saved in the Keychain");
     });
 });

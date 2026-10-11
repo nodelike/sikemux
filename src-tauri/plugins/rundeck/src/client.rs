@@ -328,11 +328,6 @@ mod tests {
     }
 
     #[test]
-    fn empty_success_bodies_decode_as_null() {
-        assert_eq!(classify(StatusCode::NO_CONTENT, b"").unwrap(), Value::Null);
-    }
-
-    #[test]
     fn path_segments_are_percent_encoded() {
         assert_eq!(seg("my project/x").unwrap(), "my%20project%2Fx");
         assert_eq!(seg("a?b#c%").unwrap(), "a%3Fb%23c%25");

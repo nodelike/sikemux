@@ -40,8 +40,8 @@
     font-style: normal;
     font-display: swap;
     unicode-range:
-        U+E000-E00A, U+E200-E2A9, U+E300-E3E3, U+E5FA-E6B8, U+E700-E8EF, U+EA60-EA88, U+EA8A-EA8C, U+EA8F-EAC7, U+EAC9, U+EACC-EB09, U+EB0B-EB4E,
-        U+EB50-EC1E, U+ED00-EFCE, U+F000-F381, U+F400-F533, U+F0001-F1AF0;
+        U+E200-E2A9, U+E5FA-E6B8, U+E700-E8EF, U+EA60-EA88, U+EA8A-EA8C, U+EA8F-EAC7, U+EAC9, U+EACC-EB09, U+EB0B-EB4E, U+EB50-EC1E, U+ED00-EFCE,
+        U+F000-F381, U+F400-F533, U+F0001-F1AF0;
 }
 @font-face {
     font-family: "JetBrainsMono Nerd Font";
@@ -74,8 +74,8 @@
     font-style: normal;
     font-display: swap;
     unicode-range:
-        U+E000-E00A, U+E200-E2A9, U+E300-E3E3, U+E5FA-E6B8, U+E700-E8EF, U+EA60-EA88, U+EA8A-EA8C, U+EA8F-EAC7, U+EAC9, U+EACC-EB09, U+EB0B-EB4E,
-        U+EB50-EC1E, U+ED00-EFCE, U+F000-F381, U+F400-F533, U+F0001-F1AF0;
+        U+E200-E2A9, U+E5FA-E6B8, U+E700-E8EF, U+EA60-EA88, U+EA8A-EA8C, U+EA8F-EAC7, U+EAC9, U+EACC-EB09, U+EB0B-EB4E, U+EB50-EC1E, U+ED00-EFCE,
+        U+F000-F381, U+F400-F533, U+F0001-F1AF0;
 }
 @font-face {
     font-family: "JetBrainsMono Nerd Font";
@@ -108,8 +108,8 @@
     font-style: italic;
     font-display: swap;
     unicode-range:
-        U+E000-E00A, U+E200-E2A9, U+E300-E3E3, U+E5FA-E6B8, U+E700-E8EF, U+EA60-EA88, U+EA8A-EA8C, U+EA8F-EAC7, U+EAC9, U+EACC-EB09, U+EB0B-EB4E,
-        U+EB50-EC1E, U+ED00-EFCE, U+F000-F381, U+F400-F533, U+F0001-F1AF0;
+        U+E200-E2A9, U+E5FA-E6B8, U+E700-E8EF, U+EA60-EA88, U+EA8A-EA8C, U+EA8F-EAC7, U+EAC9, U+EACC-EB09, U+EB0B-EB4E, U+EB50-EC1E, U+ED00-EFCE,
+        U+F000-F381, U+F400-F533, U+F0001-F1AF0;
 }
 @font-face {
     font-family: "JetBrainsMono Nerd Font";
@@ -142,8 +142,8 @@
     font-style: italic;
     font-display: swap;
     unicode-range:
-        U+E000-E00A, U+E200-E2A9, U+E300-E3E3, U+E5FA-E6B8, U+E700-E8EF, U+EA60-EA88, U+EA8A-EA8C, U+EA8F-EAC7, U+EAC9, U+EACC-EB09, U+EB0B-EB4E,
-        U+EB50-EC1E, U+ED00-EFCE, U+F000-F381, U+F400-F533, U+F0001-F1AF0;
+        U+E200-E2A9, U+E5FA-E6B8, U+E700-E8EF, U+EA60-EA88, U+EA8A-EA8C, U+EA8F-EAC7, U+EAC9, U+EACC-EB09, U+EB0B-EB4E, U+EB50-EC1E, U+ED00-EFCE,
+        U+F000-F381, U+F400-F533, U+F0001-F1AF0;
 }
 @font-face {
     font-family: "Figtree";

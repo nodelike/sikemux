@@ -50,9 +50,16 @@ Notifications.setNotificationHandler({
   handleNotification: async () => ({ shouldShowBanner: true, shouldShowList: true, shouldPlaySound: true, shouldSetBadge: false }),
 });
 
+/** A push's `data` is only the `body` part of what it carries, so the card the extension adds is read from the whole of it. */
+function cardData(request: Notifications.NotificationRequest): Record<string, unknown> {
+  const { trigger } = request;
+  if (trigger && 'type' in trigger && trigger.type === 'push' && trigger.payload) return trigger.payload;
+  return request.content.data ?? {};
+}
+
 function respond(response: Notifications.NotificationResponse) {
   const { request } = response.notification;
-  const tap = cardTap(request.content.data ?? {}, response.actionIdentifier, request.identifier);
+  const tap = cardTap(cardData(request), response.actionIdentifier, request.identifier);
   if (!tap) return;
   if (tap.path) router.push(tap.path as Href);
   if (tap.answer) answerTask(tap.answer).catch((error: unknown) => console.warn('sikemux: could not answer from the notification', error));

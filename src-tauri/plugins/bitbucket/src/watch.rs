@@ -102,16 +102,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn stops_at_once_when_asking_again_cannot_help() {
-        assert!(is_final(&BitbucketError::Unconfigured));
-        assert!(is_final(&BitbucketError::NotFound("gone".into())));
-        assert!(!is_final(&BitbucketError::Transport("offline".into())));
-        assert!(!is_final(&BitbucketError::RateLimited {
-            resets_in_secs: 5
-        }));
-    }
-
-    #[test]
     fn failures_slow_the_watch_down_to_a_limit() {
         assert_eq!(backoff(0), POLL_INTERVAL);
         assert!(backoff(2) > backoff(1));

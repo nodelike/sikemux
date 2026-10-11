@@ -14,12 +14,15 @@ hex = "0.4"
 iroh = { version = "1.3", default-features = false, features = ["tls-ring"] }
 serde = "1"
 serde_json = "1"
-sikemux-core = { path = "../sikemux-core" }
+sikemux-client = { path = "../sikemux-client" }
+sikemux-wire = { path = "../sikemux-wire" }
 thiserror = "1"
 tokio = { version = "1", features = ["fs", "rt-multi-thread", "sync", "time"] }
 uniffi = "0.31"
 
 [dev-dependencies]
+# Only the loopback tests run a real core; the phone never links it.
+sikemux-core = { path = "../sikemux-core" }
 tempfile = "3"
 
 [lints.clippy]

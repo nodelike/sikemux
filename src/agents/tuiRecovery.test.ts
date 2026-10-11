@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { RESUME_WINDOW_MS } from "../chat/sessionRecovery";
-import { afterAgentExit, describeAgentExit, readAgentExit, type AgentProcessExit } from "./tuiRecovery";
+import { afterAgentExit, readAgentExit, type AgentProcessExit } from "./tuiRecovery";
 
 const exit = (code: number | null, signal: string | null = null, killed = false): AgentProcessExit => ({ code, signal, killed });
 
@@ -81,13 +81,5 @@ describe("afterAgentExit", () => {
 
     it("resumes again once the last resume is more than 30 seconds old", () => {
         expect(afterAgentExit({ ...base, lastResumeAt: base.now - RESUME_WINDOW_MS })).toBe("resume");
-    });
-});
-
-describe("describeAgentExit", () => {
-    it("says how the process ended", () => {
-        expect(describeAgentExit(exit(1, "Segmentation fault: 11"))).toBe("The agent was stopped by Segmentation fault: 11.");
-        expect(describeAgentExit(exit(1))).toBe("The agent exited with code 1.");
-        expect(describeAgentExit(exit(null))).toBe("The agent stopped and its exit status could not be read.");
     });
 });

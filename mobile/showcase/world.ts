@@ -170,12 +170,19 @@ export const SESSIONS = [
   { id: 13n, project: 'p-api', task: { label: 'api', command: 'pnpm start', cwd: `${HOME}/payments-api`, project: 'p-api' } },
 ];
 
+/* A real chat's history says when each part of it happened, which is how a
+   finished turn knows how long it worked. The demo's arrive nine seconds apart. */
+function recorded(history: Update[]): Update[] {
+  const start = Date.now() - history.length * 9_000;
+  return history.map((update, index) => ({ ...update, _meta: { sikemux: { at: start + index * 9_000 } } }));
+}
+
 export function chatEvents(chat: DemoChat): { kind: string; payload: Record<string, unknown> }[] {
   const sessionId = `session-${chat.agentId}`;
   const events: { kind: string; payload: Record<string, unknown> }[] = [
     { kind: 'ready', payload: { capabilities: {}, setup: { configOptions: MODELS[chat.provider] ?? [] } } },
     { kind: 'status', payload: { state: 'ready' } },
-    ...chat.history.map((update) => ({ kind: 'session_update', payload: { sessionId, update } })),
+    ...recorded(chat.history).map((update) => ({ kind: 'session_update', payload: { sessionId, update } })),
   ];
   if (chat.running) events.push({ kind: 'turn_started', payload: {} });
   const asking = permissionPayload(chat);

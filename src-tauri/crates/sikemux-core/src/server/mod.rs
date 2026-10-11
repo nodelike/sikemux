@@ -799,11 +799,7 @@ async fn poll_sessions(core: Arc<Core>) {
                     .and_then(|shell| shell.take_due_event(now))
             });
             if let Some(update) = update {
-                core.broadcast_event(&Event::ShellMetadata(
-                    sikemux_pty::shell_protocol::PtyShellMetadataEvent::from_update(
-                        session.id, update,
-                    ),
-                ));
+                core.broadcast_event(&Event::ShellMetadata(update.into_event(session.id)));
             }
         }
     }

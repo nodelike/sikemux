@@ -72,9 +72,10 @@ export function playBip(): void {
     tone.stop(start + 0.16);
 }
 
-export async function postNotification(title: string, body: string): Promise<void> {
+export async function postNotification(title: string, body: string, agentId?: string): Promise<void> {
     if ((await invoke<string>("plugin:notification|request_permission")) !== "granted") return;
-    await invoke("plugin:notification|notify", { options: { title, body } });
+    if (agentId) await invoke("notify_agent", { agentId, title, body });
+    else await invoke("plugin:notification|notify", { options: { title, body } });
     playBip();
 }
 
@@ -119,7 +120,7 @@ export function installAgentNotifications(hasFocus: () => boolean = () => docume
         const alerts = newAgentAlerts(previous, next);
         if (alerts.length === 0) return;
         getCurrentWindow().requestUserAttention(UserAttentionType.Informational).catch(swallow("bounce dock icon"));
-        for (const alert of alerts) postNotification(alert.title, alert.body).catch(swallow("agent notification"));
+        for (const alert of alerts) postNotification(alert.title, alert.body, alert.agentId).catch(swallow("agent notification"));
     });
     return () => {
         window.removeEventListener("pointerdown", wakeAudio, { capture: true });

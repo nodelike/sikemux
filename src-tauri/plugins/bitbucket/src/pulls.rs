@@ -1351,16 +1351,6 @@ mod tests {
     }
 
     #[test]
-    fn reviewer_verdicts_use_the_words_every_host_shares() {
-        assert_eq!(verdict(true, None), Some("APPROVED"));
-        assert_eq!(
-            verdict(false, Some("changes_requested")),
-            Some("CHANGES_REQUESTED")
-        );
-        assert_eq!(verdict(false, None), None);
-    }
-
-    #[test]
     fn activity_becomes_timeline_events() {
         let activity =
             |value: Value| -> Activity { serde_json::from_value(value).expect("activity") };

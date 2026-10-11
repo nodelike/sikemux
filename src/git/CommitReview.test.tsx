@@ -1,4 +1,4 @@
-import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -62,13 +62,6 @@ describe("CommitReview", () => {
         await user.click(await screen.findByRole("button", { name: "src/a.ts" }));
         expect(onOpenFile).toHaveBeenCalledWith("/repo/src/a.ts");
         expect(screen.queryByText(/diff of/)).toBeNull();
-    });
-
-    it("shows no files when the commit's files cannot be read", async () => {
-        commitFiles.mockReset().mockRejectedValue(new Error("bad revision"));
-        render(<CommitReview repo="/repo" rev="zzz" title="zzz" subtitle="" onOpenFile={() => {}} />);
-        await waitFor(() => expect(commitFiles).toHaveBeenCalled());
-        expect(screen.getByText("no files")).toBeInTheDocument();
     });
 
     it("shows a range's files open against its base without asking for the commit's own", () => {

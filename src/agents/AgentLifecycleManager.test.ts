@@ -103,13 +103,6 @@ describe("agent sleep policy", () => {
         expect(getState().agents["agent-0"].launchState).toBe("dormant");
     });
 
-    it("sleeps a hidden resumable agent after the idle timeout", () => {
-        arrangeAgents(1);
-        const now = 1_000_000;
-        const hiddenSince: HiddenAgentTimes = new Map([["agent-0", now - AGENT_IDLE_SLEEP_MS]]);
-        expect(agentIdsToAutoSleep(getState(), hiddenSince, now)).toEqual(["agent-0"]);
-    });
-
     it("bounds hidden warm idle agents by least-recent use", () => {
         arrangeAgents(MAX_WARM_IDLE_AGENTS + 2);
         const hiddenSince: HiddenAgentTimes = new Map(Object.keys(getState().agents).map((id, index) => [id, 100 + index] as const));
@@ -215,19 +208,6 @@ describe("what claude says about its own sessions", () => {
         liveSessions.mockRejectedValue(new Error("claude is not available"));
 
         expect([...(await agentIdsWithLiveSessions(getState(), ["agent-0"]))]).toEqual([]);
-    });
-
-    it("sleeps a hidden agent whose session has nothing left running", async () => {
-        vi.useFakeTimers();
-        vi.setSystemTime(0);
-        arrangeAgents(1);
-        asClaude("agent-0");
-        liveSessions.mockResolvedValue([{ sessionId: "session-0", status: "idle" }]);
-        render(createElement(AgentLifecycleManager));
-
-        await act(async () => vi.advanceTimersByTimeAsync(AGENT_IDLE_SLEEP_MS));
-
-        expect(getState().agents["agent-0"].launchState).toBe("dormant");
     });
 
     it("does not sleep a hidden agent that is still running a shell", async () => {

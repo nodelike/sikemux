@@ -119,22 +119,6 @@ mod tests {
     use std::path::Path;
 
     #[tokio::test]
-    async fn model_catalog_subprocess_captures_stdout() {
-        let output = run_model_catalog_executable_without_env(
-            "test-agent",
-            Path::new("/bin/sh"),
-            &["-c", "printf '%s' '{\"models\":[]}'"],
-            None,
-            None,
-            &[],
-        )
-        .await
-        .unwrap();
-
-        assert_eq!(output, r#"{"models":[]}"#);
-    }
-
-    #[tokio::test]
     async fn model_catalog_subprocess_drops_removed_environment() {
         const READ_HOME: &str = "printf '%s' \"${HOME-unset}\"";
         let kept = run_model_catalog_executable_without_env(

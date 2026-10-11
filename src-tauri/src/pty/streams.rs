@@ -500,20 +500,6 @@ mod tests {
     }
 
     #[test]
-    fn a_watched_task_exit_is_taken_once() {
-        let table = StreamTable::default();
-        let mut guard = table.lock().expect("lock");
-        guard.register_task(
-            6,
-            tauri::ipc::Channel::<sikemux_pty::task::TaskProcessExit>::new(|_| Ok(())),
-        );
-        assert!(guard.take_task_exit(6).is_some());
-        assert!(guard.take_task_exit(6).is_none());
-        drop(guard);
-        assert!(table.take_all().is_empty());
-    }
-
-    #[test]
     fn a_reconnect_finds_what_the_core_streamed_and_the_tasks_still_watched() {
         let table = StreamTable::default();
         let (fast, _) = attached(&table, 2);

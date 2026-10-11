@@ -11,12 +11,24 @@ mod session;
 
 use std::sync::Arc;
 
+use serde_json::{json, Value};
 use tokio::sync::mpsc;
 
 use crate::protocol::ChatLaunch;
 
 use super::rebind::{Outcome, Rebind};
 use super::{Chat, ChatCommand};
+
+/// When a replayed update first happened, in Unix milliseconds, so a client
+/// rebuilding the chat can tell how long each turn took.
+fn stamp_replayed(update: &mut Value, at: u64) {
+    if let Some(fields) = update.as_object_mut() {
+        let meta = fields.entry("_meta").or_insert_with(|| json!({}));
+        if let Some(meta) = meta.as_object_mut() {
+            meta.insert("sikemux".into(), json!({ "at": at }));
+        }
+    }
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Kind {

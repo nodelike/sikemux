@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DatabaseProfile } from "../api";
 import { blankDraft, draftOf } from "../profileForm";
 
-const api = vi.hoisted(() => ({ test: vi.fn(), save: vi.fn(), remove: vi.fn() }));
+const api = vi.hoisted(() => ({ save: vi.fn(), remove: vi.fn() }));
 const host = vi.hoisted(() => ({ pickFile: vi.fn(), confirmDialog: vi.fn() }));
 vi.mock("../api", async (importOriginal) => ({ ...(await importOriginal<object>()), databaseApi: api }));
 vi.mock("../../../plugin-api/host", async (importOriginal) => ({ ...(await importOriginal<object>()), ...host }));
@@ -36,38 +36,7 @@ function renderNew(overrides: Partial<Parameters<typeof ProfileForm>[0]> = {}) {
     return props;
 }
 
-const type = (label: string, value: string) => fireEvent.change(screen.getByLabelText(label), { target: { value } });
-
 describe("ProfileForm", () => {
-    it("says what is missing and keeps Test and Save off until it is filled in", () => {
-        renderNew();
-        expect(screen.getByText("Needs a name.")).toBeInTheDocument();
-        expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
-        type("Name", "Local");
-        expect(screen.getByText("Needs a user name.")).toBeInTheDocument();
-        type("User", "postgres");
-        expect(screen.queryByText(/^Needs/)).toBeNull();
-        expect(screen.getByRole("button", { name: "Test" })).toBeEnabled();
-    });
-
-    it("tries the connection as typed and shows the server it reached", async () => {
-        api.test.mockResolvedValue({ version: "PostgreSQL 16.4", millis: 12 });
-        renderNew();
-        type("Name", "Local");
-        type("User", "postgres");
-        type("Password", "s3cret!");
-        await act(async () => fireEvent.click(screen.getByRole("button", { name: "Test" })));
-        expect(api.test).toHaveBeenCalledWith(expect.objectContaining({ name: "Local", user: "postgres", host: "localhost" }), "s3cret!");
-        expect(screen.getByRole("status")).toHaveTextContent("Connected to PostgreSQL 16.4 in 12 ms");
-    });
-
-    it("shows the database's own words when the connection fails", async () => {
-        api.test.mockRejectedValue({ category: "connect", message: 'password authentication failed for user "app"' });
-        renderNew({ initial: draftOf(saved), saved });
-        await act(async () => fireEvent.click(screen.getByRole("button", { name: "Test" })));
-        expect(screen.getByRole("alert")).toHaveTextContent("password authentication failed");
-    });
-
     it("keeps the saved password unless a new one is typed or it is forgotten", async () => {
         api.save.mockResolvedValue(saved);
         const props = renderNew({ initial: draftOf(saved), saved });

@@ -189,7 +189,7 @@ function paneKindAt(node: LayoutNode, paneId: string): string | null {
     return null;
 }
 
-export function focusedPaneKind(): string | null {
+function focusedPaneKind(): string | null {
     const state = getState();
     const session = state.sessions[state.activeSessionId];
     const window = session ? state.windows[session.activeWindowId] : undefined;

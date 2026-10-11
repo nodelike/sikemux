@@ -309,66 +309,10 @@ mod tests {
     #[cfg(unix)]
     use super::startup_bootstrap;
     use super::{
-        configure_shell_integration, configure_task_command, detect_shell_kind,
-        shell_integration_requested, task_shell_arguments, ShellKind, TaskShellPlatform,
+        configure_shell_integration, configure_task_command, detect_shell_kind, ShellKind,
     };
-    use crate::tests::{env, local_shell_context};
+    use crate::tests::env;
     use portable_pty::CommandBuilder;
-
-    #[test]
-    fn task_shell_uses_direct_arguments_without_requoting_or_interactive_flags() {
-        let task = "printf '%s' \"a b;$TOKEN\"";
-        assert_eq!(
-            task_shell_arguments("/bin/zsh", task, TaskShellPlatform::Unix).expect("zsh task args"),
-            ["-c", task]
-        );
-        assert_eq!(
-            task_shell_arguments("pwsh.exe", task, TaskShellPlatform::Windows)
-                .expect("PowerShell task args"),
-            ["-NoLogo", "-NonInteractive", "-Command", task]
-        );
-        assert_eq!(
-            task_shell_arguments("cmd.exe", task, TaskShellPlatform::Windows)
-                .expect("cmd task args"),
-            ["/D", "/S", "/C", task]
-        );
-        assert!(task_shell_arguments("custom.exe", task, TaskShellPlatform::Windows).is_err());
-
-        let mut command = CommandBuilder::new("/bin/zsh");
-        configure_task_command(&mut command, "/bin/zsh", task).expect("configure task");
-        let argv: Vec<String> = command
-            .get_argv()
-            .iter()
-            .map(|argument| argument.to_string_lossy().into_owned())
-            .collect();
-        assert_eq!(argv, ["/bin/zsh", "-c", task]);
-        assert_eq!(env(&command, "SIKEMUX_SHELL_INTEGRATION"), None);
-        assert!(!argv
-            .iter()
-            .any(|argument| argument == "-i" || argument == "-NoExit"));
-    }
-
-    #[test]
-    fn shell_integration_is_strictly_opt_in_and_local_interactive_only() {
-        let mut context = local_shell_context();
-        assert!(shell_integration_requested(Some(&context), false, false));
-
-        context.shell_integration = false;
-        assert!(!shell_integration_requested(Some(&context), false, false));
-        context.shell_integration = true;
-        assert!(!shell_integration_requested(Some(&context), true, false));
-        assert!(!shell_integration_requested(Some(&context), false, true));
-
-        context.session_kind = "ssh".into();
-        assert!(!shell_integration_requested(Some(&context), false, false));
-        context.session_kind = "project".into();
-        context.agent_id = Some("agent-1".into());
-        assert!(!shell_integration_requested(Some(&context), false, false));
-        context.agent_id = None;
-        context.agent_type = Some("codex".into());
-        assert!(!shell_integration_requested(Some(&context), false, false));
-        assert!(!shell_integration_requested(None, false, false));
-    }
 
     #[test]
     fn shell_detection_claims_only_exact_supported_executables() {

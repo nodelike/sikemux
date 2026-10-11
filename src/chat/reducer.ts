@@ -282,6 +282,18 @@ function transcriptUpdate(transcript: Transcript, update: Record<string, unknown
     }
 }
 
+/* History the agent kept says when each part of it happened. A turn this
+   side watched is timed as it runs; one rebuilt from history takes its prompt's
+   time and its answer's last. */
+function recordedTime(transcript: Transcript, update: Record<string, unknown>, timed: boolean): Transcript {
+    const at = recordOf(recordOf(update._meta)?.sikemux)?.at;
+    const last = transcript.messages.at(-1);
+    if (timed || typeof at !== "number" || !last) return transcript;
+    if (last.role === "user" && last.sentAt !== undefined) return transcript;
+    const stamped = last.role === "user" ? { ...last, sentAt: at } : { ...last, endedAt: at };
+    return { ...transcript, messages: [...transcript.messages.slice(0, -1), stamped] };
+}
+
 const TOOL_ENDED = ["completed", "failed", "cancelled"];
 
 /* The agent sends no last word for work it was cut off in, so it would spin
@@ -465,12 +477,11 @@ function contextUsage(update: Record<string, unknown>): ContextUsage | null {
 
 /* A cancelled turn takes its subagents with it, and the agent says so itself;
    settling them here as well covers one that does not. */
-function endTurn(state: ChatState, stopReason: string | null): ChatState {
+function endTurn(state: ChatState, stopReason: string | null, at = Date.now()): ChatState {
     const settled = settleState(state, stopReason === "cancelled");
     const last = settled.messages.at(-1);
     // Only a turn this side watched run has a finish worth stamping.
-    const messages =
-        state.running && last?.role === "assistant" ? [...settled.messages.slice(0, -1), { ...last, endedAt: Date.now() }] : settled.messages;
+    const messages = state.running && last?.role === "assistant" ? [...settled.messages.slice(0, -1), { ...last, endedAt: at }] : settled.messages;
     return {
         ...settled,
         messages,
@@ -491,7 +502,7 @@ function sessionUpdate(state: ChatState, sessionId: string, update: Record<strin
 
     if (update.sessionUpdate === "user_message_chunk" && state.suppressUserEcho) return state;
     const streamed = transcriptUpdate(state, update, state.running);
-    if (streamed) return { ...state, ...streamed, suppressUserEcho: false, revision: state.revision + 1 };
+    if (streamed) return { ...state, ...recordedTime(streamed, update, state.running), suppressUserEcho: false, revision: state.revision + 1 };
 
     switch (update.sessionUpdate) {
         case "subagent_spawned":
@@ -597,7 +608,7 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
                         id,
                         role: "user",
                         ...(action.messageId ? { promptId: action.messageId } : {}),
-                        sentAt: Date.now(),
+                        sentAt: action.at ?? Date.now(),
                         parts: action.text.trim() ? [{ id: `${id}-text`, kind: "text", text: action.text }] : [],
                         ...(action.paths.length ? { attachments: action.paths } : {}),
                         ...(action.context?.length ? { context: action.context.map(({ uri, title }) => ({ uri, title })) } : {}),
@@ -622,7 +633,7 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         case "turn_started":
             return { ...state, running: true, stopReason: null, error: null, failure: null, revision: state.revision + 1 };
         case "turn_completed":
-            return endTurn(state, action.stopReason ?? null);
+            return endTurn(state, action.stopReason ?? null, action.at);
         case "permission_requested":
             return {
                 ...state,

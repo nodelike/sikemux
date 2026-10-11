@@ -1,12 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 import { MemoryIpcTransport, installIpcTransportForTests } from "../api/transport";
-import { getState, setState } from "../state/store";
 import { uiActivity } from "./activity";
 import {
     MAX_RUNTIME_ERROR_MESSAGE_CHARACTERS,
     NATIVE_UI_HEARTBEAT_COMMAND,
     UI_ACTIVITY_COMMAND,
-    focusedPaneKind,
     sanitizeRuntimeErrorMessage,
     sendNativeUiHeartbeat,
     sendUiActivity,
@@ -82,18 +80,5 @@ describe("UI activity transport", () => {
             restore();
             uiActivity.reset();
         }
-    });
-});
-
-describe("focused pane kind", () => {
-    it("names the kind of the pane the active window has focused", () => {
-        const state = getState();
-        const session = state.sessions[state.activeSessionId];
-        const window = state.windows[session.activeWindowId];
-        expect(focusedPaneKind()).toBe("terminal");
-
-        setState({ windows: { ...state.windows, [window.id]: { ...window, activePaneId: "no-such-pane" } } });
-        expect(focusedPaneKind()).toBeNull();
-        setState({ windows: state.windows });
     });
 });

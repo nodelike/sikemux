@@ -21,13 +21,13 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const CORE_PROTOCOL_VERSION = Number(
   (
     await readFile(
-      join(root, "src-tauri/crates/sikemux-core/src/protocol.rs"),
+      join(root, "src-tauri/crates/sikemux-wire/src/protocol.rs"),
       "utf8",
     )
   ).match(/pub const PROTOCOL_VERSION: u32 = (\d+);/)?.[1],
 );
 if (!Number.isInteger(CORE_PROTOCOL_VERSION))
-  throw new Error("could not read PROTOCOL_VERSION from sikemux-core");
+  throw new Error("could not read PROTOCOL_VERSION from sikemux-wire");
 const executableSuffix = process.platform === "win32" ? ".exe" : "";
 const appExecutable = resolve(
   process.env.SIKEMUX_E2E_APP ??

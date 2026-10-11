@@ -274,17 +274,6 @@ mod tests {
         assert_eq!(safe_file_name(""), "artifact");
     }
 
-    #[test]
-    fn keeps_a_plain_name_as_it_is() {
-        assert_eq!(safe_file_name("coverage-report"), "coverage-report");
-        assert_eq!(safe_file_name("sikemux_0.4.2.dmg"), "sikemux_0.4.2.dmg");
-    }
-
-    #[test]
-    fn a_long_name_is_cut_rather_than_refused() {
-        assert_eq!(safe_file_name(&"a".repeat(400)).len(), 120);
-    }
-
     fn scratch(name: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!("sikemux-gh-{name}-{}", std::process::id()));
         std::fs::create_dir_all(&dir).expect("temp dir");

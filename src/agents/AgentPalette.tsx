@@ -140,12 +140,11 @@ export function AgentPalette() {
             items
                 .map((item, index) => {
                     const type = typeForItem(item);
-                    const available = agents.find((agent) => agent.type === type)?.available !== false;
-                    return { index, supported: available && (mode === NORMAL || cmd.agentSupportsSkipPermissions(type)) };
+                    return { index, available: agents.find((agent) => agent.type === type)?.available !== false };
                 })
-                .filter(({ supported }) => supported)
+                .filter(({ available }) => available)
                 .map(({ index }) => index),
-        [agents, items, mode],
+        [agents, items],
     );
     const firstResumeIndex = items.findIndex((item) => item.kind === "resume");
 
@@ -156,6 +155,10 @@ export function AgentPalette() {
     function chooseMode(nextMode: AgentPermissionMode) {
         setMode(nextMode);
         window.requestAnimationFrame(() => inputRef.current?.focus());
+    }
+
+    function launchMode(type: AgentType): AgentPermissionMode {
+        return mode === YOLO && !cmd.agentSupportsSkipPermissions(type) ? NORMAL : mode;
     }
 
     function moveSelection(delta: number) {
@@ -170,11 +173,10 @@ export function AgentPalette() {
         const type = typeForItem(item);
         const provider = agents.find((agent) => agent.type === type);
         if (!provider || provider.available === false) return;
-        if (mode === YOLO && !cmd.agentSupportsSkipPermissions(type)) return;
         const selectedProfile = selectedProviderProfile(type, profiles, profileSelections);
         const resume = item.kind === "resume" ? item.row : undefined;
         cmd.addAgent(type, resume?.id, resume?.title, {
-            permissionMode: mode,
+            permissionMode: launchMode(type),
             profileId: selectedProfile?.id,
             detectedExecutablePath: provider.command,
             cwd: origin.current.cwd,
@@ -222,7 +224,7 @@ export function AgentPalette() {
                         ref={inputRef}
                         className="picker-input"
                         aria-label="Search agent sessions"
-                        placeholder={agents.length ? `search agent sessions — ${agents.map((agent) => agent.label).join(" · ")}...` : emptyMessage}
+                        placeholder={agents.length ? "search agents" : emptyMessage}
                         value={query}
                         onChange={(event) => {
                             setQuery(event.target.value);
@@ -264,7 +266,6 @@ export function AgentPalette() {
                         const type = typeForItem(item);
                         const provider = agents.find((agent) => agent.type === type);
                         const available = provider?.available !== false;
-                        const supported = available && (mode === NORMAL || cmd.agentSupportsSkipPermissions(type));
                         const key = item.kind === "new" ? `new-${type}` : `${type}-${item.row.id}`;
                         const name = item.kind === "new" ? `+ new ${labelForType(type, agents)}` : item.row.title;
                         return (
@@ -273,10 +274,10 @@ export function AgentPalette() {
                                 <button
                                     type="button"
                                     className={`picker-item${index === selected ? " sel" : ""}`}
-                                    disabled={!supported}
-                                    aria-label={`${name} in ${mode === YOLO ? "YOLO" : "Normal"} mode`}
+                                    disabled={!available}
+                                    aria-label={`${name} in ${launchMode(type) === YOLO ? "YOLO" : "Normal"} mode`}
                                     onMouseEnter={() => {
-                                        if (mouseActive.current && supported) setSelected(index);
+                                        if (mouseActive.current && available) setSelected(index);
                                     }}
                                     onClick={() => activate(item)}>
                                     <span className={`picker-icon agent-glyph ${type}`}>
@@ -286,12 +287,12 @@ export function AgentPalette() {
                                     <span className="picker-sub">
                                         {!available
                                             ? provider?.error || "Agent executable is unavailable"
-                                            : !supported
-                                              ? "Normal mode only"
+                                            : launchMode(type) !== mode
+                                              ? "opens safe"
                                               : item.kind === "new"
                                                 ? provider?.status?.state === "signedOut"
-                                                    ? "signed out · start to sign in"
-                                                    : "start agent"
+                                                    ? "signed out"
+                                                    : ""
                                                 : `${labelForType(type, agents)} · ${ago(item.row.mtime)}`}
                                     </span>
                                 </button>

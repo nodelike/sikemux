@@ -1,0 +1,21 @@
+[package]
+name = "sikemux-wire"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "What the core and its clients send each other"
+
+# The phone links this crate, so it stays out of workspace-hack: the desktop
+# app's dependencies must not decide when the phone needs a store build.
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+
+[target.'cfg(unix)'.dependencies]
+tokio = { version = "1", features = ["io-util"] }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt"] }
+
+[lints.clippy]
+undocumented_unsafe_blocks = "deny"

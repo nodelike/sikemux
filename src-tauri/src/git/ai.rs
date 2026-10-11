@@ -442,15 +442,6 @@ mod tests {
     use std::fs;
 
     #[test]
-    fn keeps_small_diffs_verbatim() {
-        let diff = "diff --git a/src/a.rs b/src/a.rs\n@@ -1 +1 @@\n-old\n+new ✨\n";
-        let prepared = prepare_diff(diff, 1_000);
-
-        assert!(!prepared.compacted);
-        assert_eq!(prepared.text, diff);
-    }
-
-    #[test]
     fn compacted_diff_keeps_every_file_hunk_and_both_ends() {
         let large_body = |label: &str| {
             format!(

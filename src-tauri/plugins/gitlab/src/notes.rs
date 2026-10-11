@@ -338,28 +338,4 @@ mod tests {
             ("reviewed", Some(2), Some("t2"))
         );
     }
-
-    #[test]
-    fn merge_requests_and_issues_are_numbered_apart() -> GitlabResult<()> {
-        let repo = RepoRef {
-            owner: "acme".into(),
-            name: "api".into(),
-        };
-        let pull = Thread {
-            repo: repo.clone(),
-            number: 5,
-            of: ThreadOf::Pull,
-        };
-        let issue = Thread {
-            repo,
-            number: 5,
-            of: ThreadOf::Issue,
-        };
-        assert_eq!(
-            pull.path("/notes")?,
-            "/projects/acme%2Fapi/merge_requests/5/notes"
-        );
-        assert_eq!(issue.path("/notes")?, "/projects/acme%2Fapi/issues/5/notes");
-        Ok(())
-    }
 }

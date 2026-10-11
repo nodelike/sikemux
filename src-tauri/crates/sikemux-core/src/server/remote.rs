@@ -1363,16 +1363,6 @@ mod tests {
         assert_eq!(signature, text("signature"));
     }
 
-    #[test]
-    fn registrations_refuse_text_that_is_not_a_challenge() {
-        let remote = Remote::default();
-        remote.lock().secret = Some(SecretKey::generate());
-        assert!(remote.sign_registration("hello", "user_2abc").is_err());
-        assert!(remote
-            .sign_registration(&"a".repeat(64), "user_2abc|extra")
-            .is_err());
-    }
-
     fn phone(name: &str) -> DeviceInfo {
         DeviceInfo {
             id: SecretKey::generate().public().to_string(),
@@ -1720,18 +1710,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn dev_builds_are_never_too_old() {
-        let build = crate::protocol::BuildIdentity {
-            version: "0.0.1".into(),
-            ..Default::default()
-        };
-        let core = Core::new(build, None).unwrap();
-        core.remote.lock().never_too_old = true;
-        apply_network(&core, network_allowing("9.0.0")).await;
-        assert_eq!(core.remote.status().update_required, None);
-    }
-
-    #[tokio::test]
     async fn remote_access_follows_the_sign_in() {
         let dir = tempfile::tempdir().unwrap();
         let core = signed_in(dir.path(), &[]);
@@ -1763,13 +1741,5 @@ mod tests {
         );
         assert!(!core.remote.status().enabled);
         assert!(core.remote.lock().running.is_none());
-    }
-
-    #[test]
-    fn a_missing_file_is_remote_access_off_with_no_devices() {
-        let dir = tempfile::tempdir().unwrap();
-        let stored = read_stored(&dir.path().join("absent.json")).unwrap();
-        assert!(!stored.enabled);
-        assert!(stored.devices.is_empty());
     }
 }

@@ -180,6 +180,7 @@ export function useAcpSession({
                 dispatch({
                     type: "turn_completed",
                     stopReason: typeof event.payload.stopReason === "string" ? event.payload.stopReason : undefined,
+                    at: typeof event.payload.at === "number" ? event.payload.at : undefined,
                 });
             } else if (event.kind === "permission_request") {
                 const request = permissionRequest(event.payload);

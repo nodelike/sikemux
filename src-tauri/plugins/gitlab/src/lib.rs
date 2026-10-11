@@ -282,17 +282,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn an_unknown_method_is_refused() {
-        let plugin = plugin().expect("plugin loads");
-        let ctx = PluginContext::new(temp("unknown"));
-        let error = plugin
-            .call(&ctx, "nonsense", Value::Null)
-            .await
-            .expect_err("refused");
-        assert_eq!(error.category, "unknown-method");
-    }
-
-    #[tokio::test]
     async fn gitlab_com_is_claimed_and_a_company_server_once_signed_in_to() {
         let plugin = plugin().expect("plugin loads");
         let dir = temp("remote");

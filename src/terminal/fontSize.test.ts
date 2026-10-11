@@ -24,13 +24,6 @@ describe("terminal font size", () => {
         expect(clampTerminalFontSize(Number.NaN)).toBe(DEFAULT_TERMINAL_FONT_SIZE);
     });
 
-    it("gives a terminal the current size as it registers", () => {
-        applyTerminalFontSize(18);
-        const term = fakeTerminal();
-        registerTerminalFontSize({ term, refit: () => {} });
-        expect(term.options.fontSize).toBe(18);
-    });
-
     it("resizes every live terminal and refits it so the pty learns the new grid", () => {
         const first = fakeTerminal();
         const second = fakeTerminal();

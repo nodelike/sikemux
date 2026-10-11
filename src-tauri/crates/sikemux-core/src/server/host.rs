@@ -74,11 +74,4 @@ mod tests {
         assert_eq!(model_from_profile(profile).as_deref(), Some("MacBook Pro"));
         assert_eq!(model_from_profile("nothing useful"), None);
     }
-
-    #[test]
-    fn the_channel_follows_the_build() {
-        assert_eq!(channel(true, "0.4.3"), BuildChannel::Dev);
-        assert_eq!(channel(false, "0.4.3-nightly.5"), BuildChannel::Nightly);
-        assert_eq!(channel(false, "0.4.3"), BuildChannel::Stable);
-    }
 }

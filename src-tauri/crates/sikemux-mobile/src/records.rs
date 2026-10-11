@@ -4,7 +4,7 @@
 
 use std::collections::HashMap;
 
-use sikemux_core::protocol as core;
+use sikemux_wire::protocol as core;
 
 #[derive(uniffi::Record)]
 pub struct ProjectInfo {

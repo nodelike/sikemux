@@ -49,7 +49,7 @@ try {
     [join(protocol, "generated/openapi.json")]: JSON.stringify(
       openapi(definitions, routes),
     ),
-    [join(repo, "src-tauri/crates/sikemux-core/src/accounts/protocol.rs")]:
+    [join(repo, "src-tauri/crates/sikemux-wire/src/accounts/protocol.rs")]:
       rust(definitions),
   };
 } catch (error) {

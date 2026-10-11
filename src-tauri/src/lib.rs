@@ -1,6 +1,7 @@
 mod account;
 mod acp;
 mod activity;
+mod agent_notification;
 mod agents;
 #[cfg(target_os = "macos")]
 mod app_menu;
@@ -372,6 +373,7 @@ pub fn run() {
             fs::read_dir,
             fs::read_dirs,
             fs::path_kinds,
+            fs::keep_dropped_paths,
             fs::read_file,
             fs::read_file_versioned,
             fs::read_text_file_limited,
@@ -473,6 +475,7 @@ pub fn run() {
             settings::expand_path,
             settings::is_directory,
             wallpaper::wallpaper_image,
+            agent_notification::notify_agent,
             search::project_search,
             search::project_search_cancel,
             search::project_search_replace,

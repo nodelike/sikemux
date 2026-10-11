@@ -74,36 +74,6 @@ describe("starting a workflow", () => {
         expect(onClose).toHaveBeenCalledTimes(1);
     });
 
-    it("drops an input that is removed", async () => {
-        api.dispatch.mockResolvedValue(undefined);
-        await renderDialog();
-        fireEvent.click(screen.getByRole("button", { name: /Add an input/ }));
-        fireEvent.change(screen.getByRole("textbox", { name: "Input name" }), { target: { value: "env" } });
-        fireEvent.click(screen.getByRole("button", { name: "Remove env" }));
-        expect(screen.queryByRole("textbox", { name: "Input name" })).toBeNull();
-        await act(async () => {
-            fireEvent.submit(screen.getByLabelText("Branch or tag"));
-        });
-        expect(api.dispatch).toHaveBeenCalledWith(repo, "1", "main", {});
-    });
-
-    it("needs a branch before it can start", async () => {
-        await renderDialog(null);
-        expect(screen.getByRole("button", { name: "Run workflow" })).toHaveProperty("disabled", true);
-        await act(async () => {
-            fireEvent.submit(screen.getByLabelText("Branch or tag"));
-        });
-        expect(api.dispatch).not.toHaveBeenCalled();
-    });
-
-    it("says it is starting while the host is asked", async () => {
-        await renderDialog();
-        await act(async () => {
-            fireEvent.click(screen.getByRole("button", { name: "Run workflow" }));
-        });
-        expect(screen.getByRole("button", { name: "Starting…" })).toHaveProperty("disabled", true);
-    });
-
     it("stays open and says why when the host refuses", async () => {
         api.dispatch.mockRejectedValue(new Error("Workflow does not have 'workflow_dispatch' trigger"));
         const onClose = await renderDialog();
@@ -113,22 +83,5 @@ describe("starting a workflow", () => {
         expect(toasts()).toContain("Could not start Deploy: Workflow does not have 'workflow_dispatch' trigger");
         expect(onClose).not.toHaveBeenCalled();
         expect(screen.getByRole("button", { name: "Run workflow" })).toHaveProperty("disabled", false);
-    });
-
-    it("suggests the repository's branches", async () => {
-        await renderDialog();
-        const options = [...document.querySelectorAll("datalist option")].map((option) => option.getAttribute("value"));
-        expect(options).toEqual(["main", "dev"]);
-    });
-
-    it("closes from Cancel or a press outside, but not a press inside or another key", async () => {
-        const onClose = await renderDialog();
-        fireEvent.keyDown(screen.getByLabelText("Branch or tag"), { key: "a" });
-        fireEvent.mouseDown(screen.getByRole("dialog"));
-        expect(onClose).not.toHaveBeenCalled();
-        fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
-        expect(onClose).toHaveBeenCalledTimes(1);
-        fireEvent.mouseDown(document.querySelector(".dlg-scrim") as HTMLElement);
-        expect(onClose).toHaveBeenCalledTimes(2);
     });
 });

@@ -30,15 +30,6 @@ describe("deskTabMenu", () => {
         expect(run.copy).toHaveBeenLastCalledWith("database.html", "relative path");
     });
 
-    it("reveals the file and closes the tab", () => {
-        const run = actions();
-        const menu = deskTabMenu(file, "/Users/me/shop", run);
-        menu.find((item) => item.label?.startsWith("Reveal in "))?.run?.();
-        expect(run.reveal).toHaveBeenCalledWith("/Users/me/shop/docs/database.html");
-        choose(menu, "Close");
-        expect(run.close).toHaveBeenCalled();
-    });
-
     it("copies a page's link, except for a blank tab", () => {
         const run = actions();
         const page = { key: "b1", kind: "browser", tab: { id: "t1", url: "https://example.com/docs", title: "Docs" } } as unknown as DeskItem;

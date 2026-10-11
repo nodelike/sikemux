@@ -15,8 +15,8 @@ use tokio::sync::watch;
 use tokio::time::Instant;
 
 use crate::cli::protocol::{
-    is_browser_method, is_plugin_method, is_sim_method, HarnessRequest, PLUGINS_CHANGED_METHOD,
-    SIM_CANCEL_METHOD, SIM_OFFERED_METHOD,
+    is_browser_method, is_plugin_method, is_sim_method, validate_harness, HarnessRequest,
+    PLUGINS_CHANGED_METHOD, SIM_CANCEL_METHOD, SIM_OFFERED_METHOD,
 };
 use crate::harness::command::{command_cwd, command_label, command_task_id, COMMAND_TASK_PREFIX};
 use crate::harness::journal::{JournalRecord, Journals};
@@ -366,7 +366,7 @@ async fn forward(core: &Core, request: HarnessRequest) -> Result<Value, String> 
 
 /// Answers one tool call. The call is counted whether or not it succeeds.
 pub(crate) async fn call(core: &Arc<Core>, request: HarnessRequest) -> Result<Value, String> {
-    request.validate()?;
+    validate_harness(&request)?;
     let tool = tool_name(&request);
     let result = dispatch(core, request).await;
     if let (Some(tool), Some(path)) = (tool, core.harness.tool_calls.clone()) {

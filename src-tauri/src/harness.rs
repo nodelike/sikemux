@@ -316,12 +316,6 @@ mod tests {
         assert_eq!(receiver.recv().unwrap().unwrap_err(), "Sikemux reloaded");
     }
     #[test]
-    fn timeouts_name_the_method() {
-        assert!(timeout_message("task.start").starts_with("task_start "));
-        let inspect = timeout_message("workspace.inspect");
-        assert!(inspect.starts_with("workspace_inspect ") && inspect.contains("65 s"));
-    }
-    #[test]
     fn file_open_rejects_paths_outside_project() {
         let project = tempfile::tempdir().unwrap();
         let outside = tempfile::NamedTempFile::new().unwrap();

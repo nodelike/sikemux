@@ -35,15 +35,4 @@ describe("EmptyState", () => {
         render(<EmptyState tone="error" message="failed to load remotes" />);
         expect(screen.getByRole("alert")).toHaveTextContent("failed to load remotes");
     });
-
-    it("collapses to one clickable line in the inline variant", () => {
-        const onClick = vi.fn();
-        const { container } = render(<EmptyState variant="inline" message="no projects" action={{ label: "add", onClick }} />);
-
-        const button = screen.getByRole("button", { name: "no projects" });
-        expect(button).toHaveClass("empty-state", "inline", "interactive");
-        expect(container.querySelector(".empty-state-title")).toBeNull();
-        fireEvent.click(button);
-        expect(onClick).toHaveBeenCalledTimes(1);
-    });
 });

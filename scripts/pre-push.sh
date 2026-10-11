@@ -95,7 +95,7 @@ else
   touches '^(src/|public/|index\.html|package\.json|pnpm-lock\.yaml|vite\.config\.ts|eslint\.config\.js|tsconfig\.json)' && FRONTEND=1
   touches '^scripts/.*\.sh$' && SHELL_SCRIPTS=1
   touches '^(scripts/|package\.json|latest\.json|src-tauri/tauri.*\.conf\.json)' && RELEASE=1
-  touches '^(server/|src-tauri/crates/sikemux-core/src/accounts/)' && SERVER=1
+  touches '^(server/|src-tauri/crates/sikemux-(core|wire)/src/accounts/)' && SERVER=1
 fi
 
 printf '%sChecking %s commits against the CI gates%s\n' "$BOLD" "$(printf '%s\n' "$CHANGED" | wc -l | tr -d ' ')" "$RESET"
@@ -119,16 +119,7 @@ fi
 
 [ "$RUST" = 1 ] && step 'clippy' pnpm rust:clippy
 [ "$RUST" = 1 ] && step 'rust tests' pnpm rust:test
-# Several agents share this checkout, and a coverage run wipes its own report
-# directory as it starts. Two of them pointed at the same one take turns
-# deleting each other's half-written files, which kills a worker and fails a
-# test that has nothing wrong with it. The gate only wants a pass or a fail,
-# so it keeps its report somewhere of its own and throws it away after.
-if [ "$FRONTEND" = 1 ]; then
-  COVERAGE_DIR="$(mktemp -d)"
-  trap 'rm -rf "$COVERAGE_DIR"' EXIT
-  step 'frontend tests' pnpm test:coverage --coverage.reportsDirectory="$COVERAGE_DIR"
-fi
+[ "$FRONTEND" = 1 ] && step 'frontend tests' pnpm test
 [ "$FRONTEND" = 1 ] && step 'frontend build' pnpm build
 [ "$FRONTEND" = 1 ] && step 'performance budget' pnpm perf:budget
 [ "$RELEASE" = 1 ] && step 'release tooling' pnpm release:check

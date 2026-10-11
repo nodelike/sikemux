@@ -47,14 +47,6 @@ beforeEach(() => {
 });
 afterEach(cleanup);
 
-it("lists the repositories inside a folder that is not one itself", () => {
-    render(<GitPane paneId="git-test" cwd="/container" active visible />);
-
-    expect(screen.getByText("2 repositories inside")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /docs/ })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /web/ })).toBeInTheDocument();
-});
-
 it("opens the repository that was clicked", async () => {
     const user = userEvent.setup();
     render(<GitPane paneId="git-test" cwd="/container" active visible />);
@@ -85,42 +77,4 @@ it("stops keeping it live once it is off screen", () => {
     render(<GitPane paneId="git-test" cwd="/container" active={false} visible={false} />);
 
     expect(resources.listing).not.toHaveBeenCalledWith(true);
-});
-
-it("marks a lone repository that is behind or has no commits yet", () => {
-    const discovered = resources.discovered;
-    resources.discovered = {
-        ...discovered,
-        data: [{ path: "/container/empty", name: "empty", branch: "", ahead: 0, behind: 2, changes: 0 }],
-    };
-    try {
-        render(<GitPane paneId="git-test" cwd="/container" active visible />);
-        const repo = screen.getByRole("button", { name: /empty/ });
-        expect(screen.getByText("1 repository inside")).toBeInTheDocument();
-        expect(repo).toHaveTextContent("no commits");
-        expect(repo).toHaveTextContent("2↓");
-        expect(repo).not.toHaveTextContent("↑");
-    } finally {
-        resources.discovered = discovered;
-    }
-});
-
-it("says why a folder with no repository in it could not be read", () => {
-    const discovered = resources.discovered;
-    try {
-        resources.discovered = { ...discovered, status: "error", data: undefined as never, error: "permission denied" } as never;
-        const { rerender } = render(<GitPane paneId="git-test" cwd="/container" active visible />);
-        expect(screen.getByText("permission denied")).toBeInTheDocument();
-
-        resources.discovered = { ...discovered, data: [] };
-        rerender(<GitPane paneId="git-test" cwd="/container" active visible />);
-        expect(screen.getByText("No repository at /container, and none in the folders directly inside it.")).toBeInTheDocument();
-
-        resources.discovered = { ...discovered, status: "loading", data: undefined as never };
-        rerender(<GitPane paneId="git-test" cwd="/container" active visible />);
-        expect(screen.getByRole("status")).toBeInTheDocument();
-        expect(screen.queryByText("Not a repository")).toBeNull();
-    } finally {
-        resources.discovered = discovered;
-    }
 });

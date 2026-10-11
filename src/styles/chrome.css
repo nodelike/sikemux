@@ -838,6 +838,12 @@
     position: absolute;
     z-index: 10;
 }
+/* The centre line is the divider's only highlight, focus included. A drag focuses
+   the handle so the arrow keys keep working, which would otherwise leave the app's
+   focus ring drawn round the whole grab area. */
+.divider[tabindex]:focus-visible {
+    box-shadow: none;
+}
 .divider-row {
     width: 11px;
     transform: translateX(-50%);

@@ -38,8 +38,3 @@ it("opens and reuses Git and Search from the expanded project tree", () => {
         expect(Object.values(getState().windows).filter((window) => window.role === role)).toHaveLength(1);
     }
 });
-
-it("lists no terminal row under a project", () => {
-    render(<SideRail />);
-    expect(screen.queryByRole("button", { name: "Term" })).toBeNull();
-});

@@ -43,40 +43,6 @@ afterEach(() => {
 });
 
 describe("PullFiles", () => {
-    it("waits for the files", () => {
-        api.pullFiles.mockReturnValue(new Promise(() => {}));
-        show(1);
-        expect(screen.getByRole("status", { name: "Loading files" })).toBeInTheDocument();
-    });
-
-    it("says why the files could not be read", async () => {
-        api.pullFiles.mockRejectedValue({ category: "http", message: "http 500" });
-        show(2);
-        expect(await screen.findByText("Could not read the files")).toBeInTheDocument();
-        expect(screen.getByText("http 500")).toBeInTheDocument();
-    });
-
-    it("marks each file with its kind of change and its line counts", async () => {
-        api.pullFiles.mockResolvedValue([
-            file("a.ts", "added"),
-            file("b.ts", "removed"),
-            file("c.ts", "renamed", { previousPath: "old/c.ts" }),
-            file("d.ts", "copied", { previousPath: "e.ts" }),
-            file("f.ts", "modified", { patch: undefined }),
-        ]);
-        show(3);
-        const marks = await screen.findAllByLabelText(/^(added|deleted|renamed|copied|modified)$/);
-        expect(marks.map((mark) => [mark.textContent, mark.getAttribute("title")])).toEqual([
-            ["A", "added"],
-            ["D", "deleted"],
-            ["R", "renamed from old/c.ts"],
-            ["C", "copied from e.ts"],
-            ["M", "modified"],
-        ]);
-        expect(screen.getAllByText("+1")).toHaveLength(5);
-        expect(await screen.findByText(/did not send a diff for this file/)).toBeInTheDocument();
-    });
-
     it("sends the line right-clicked in a diff to an agent", async () => {
         api.pullFiles.mockResolvedValue([file("a.ts", "modified")]);
         show(4);

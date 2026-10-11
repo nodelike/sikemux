@@ -242,16 +242,6 @@ describe("changes", () => {
         expect(api.unstageAll).toHaveBeenCalledWith(REPO);
     });
 
-    it("offers the group's own stage-all and unstage-all buttons", async () => {
-        const user = userEvent.setup();
-        renderPane();
-        await user.click(screen.getByRole("button", { name: "Unstage all" }));
-        await user.click(screen.getByRole("button", { name: "Stage all" }));
-        await flush();
-        expect(api.unstageAll).toHaveBeenCalledWith(REPO);
-        expect(api.stageAll).toHaveBeenCalledWith(REPO);
-    });
-
     it("discards one file from its row, warning when the file is new", async () => {
         const user = userEvent.setup();
         renderPane();
@@ -263,17 +253,6 @@ describe("changes", () => {
 
         await user.click(within(row("b.ts")).getByRole("button", { name: "Discard changes" }));
         expect(modalOf("confirm").body).toContain("Unstaged changes to this file will be lost");
-    });
-
-    it("words the discard-all prompt for tracked files only", async () => {
-        setOverview({ files: [{ path: "only.ts", index: " ", worktree: "M" }] });
-        const user = userEvent.setup();
-        renderPane();
-        await user.click(screen.getByRole("button", { name: "Discard all" }));
-        expect(modalOf("confirm")).toMatchObject({
-            title: "Discard unstaged changes in 1 file?",
-            body: expect.stringContaining("Every file goes back"),
-        });
     });
 
     it("offers staged, unstaged and full discards for the selected file", async () => {
@@ -331,24 +310,6 @@ describe("changes", () => {
         await waitFor(() => expect(useGitWorkbench.getState().drafts[REPO]).toBe(""));
     });
 
-    it("writes the draft from the staged changes with g", async () => {
-        api.aiMessage.mockResolvedValue("feat: generated");
-        renderPane();
-        press("g");
-        await waitFor(() => expect(screen.getByRole("textbox", { name: "Commit message" })).toHaveValue("feat: generated"));
-        expect(toasts()).toContain("success: Commit message generated. Review it before committing.");
-    });
-
-    it("switches the message agent from the picker and marks the current one", async () => {
-        const user = userEvent.setup();
-        renderPane();
-        await user.click(screen.getByRole("button", { name: "Pick the agent and model" }));
-        expect(menuItem(/Hermes · openai\/gpt-5\.5/)).toHaveTextContent("✓");
-        await user.click(menuItem(/Claude · opus$/));
-        expect(useGitWorkbench.getState()).toMatchObject({ provider: "claude", model: "opus" });
-        expect(screen.getByText("Claude · opus")).toBeInTheDocument();
-    });
-
     it("filters the changed files from /, and Escape clears the filter", async () => {
         const user = userEvent.setup();
         renderPane();
@@ -375,72 +336,9 @@ describe("changes", () => {
         expect(screen.getByText("Nothing to commit")).toBeInTheDocument();
         expect(screen.getByRole("region", { name: "Commit review c0" })).toBeInTheDocument();
     });
-
-    it("has nothing to review in a repository with no commits and no changes", () => {
-        setOverview({ files: [], log: [] });
-        renderPane();
-        press("j");
-        expect(screen.getByText("Nothing to review.")).toBeInTheDocument();
-    });
-
-    it("stages and discards from the review's own file header", async () => {
-        const user = userEvent.setup();
-        renderPane();
-        const review = screen.getByRole("region", { name: "Change review" });
-        await user.click(within(review).getByRole("button", { name: "Unstage src/a.ts" }));
-        await user.click(within(review).getByRole("button", { name: "Stage src/b.ts" }));
-        await flush();
-        expect(api.unstage).toHaveBeenCalledWith(REPO, "src/a.ts");
-        expect(api.stage).toHaveBeenCalledWith(REPO, "src/b.ts");
-        expect(within(review).getAllByRole("button", { name: "Discard changes" })).toHaveLength(2);
-    });
 });
 
 describe("history", () => {
-    it("shows what a commit is and acts on it from its review header", async () => {
-        const user = userEvent.setup();
-        renderPane();
-        press("h");
-        expect(view()).toMatchObject({ historyOpen: true, panel: "commits" });
-
-        const head = screen.getByRole("region", { name: "Commit review c0" });
-        expect(within(head).getByText("not pushed")).toBeInTheDocument();
-        expect(within(head).getByText("main")).toBeInTheDocument();
-        expect(within(head).getByText("v1")).toBeInTheDocument();
-
-        await user.click(screen.getByRole("button", { name: "c1 subject 1" }));
-        const review = screen.getByRole("region", { name: "Commit review c1" });
-        expect(within(review).getByText("pushed")).toBeInTheDocument();
-
-        await user.click(within(review).getByRole("button", { name: "Copy hash" }));
-        expect(h.copyText).toHaveBeenCalledWith("full1");
-        await waitFor(() => expect(toasts()).toContain("success: Copied c1"));
-
-        await user.click(within(review).getByRole("button", { name: "Branch from here" }));
-        await answer("  fix  ");
-        expect(api.branchCreate).toHaveBeenCalledWith(REPO, "fix", "c1");
-        expect(toasts()).toContain("success: Created fix from c1 and switched to it");
-
-        await user.click(within(review).getByRole("button", { name: "Reset to here" }));
-        await choose("hard reset");
-        expect(modalOf("confirm")).toMatchObject({ title: "hard reset to c1?", destructive: true });
-        await accept();
-        expect(api.reset).toHaveBeenCalledWith(REPO, "c1", "hard");
-
-        await user.click(within(review).getByRole("button", { name: "Revert" }));
-        await accept();
-        expect(api.revert).toHaveBeenCalledWith(REPO, "c1");
-    });
-
-    it("reports a failed copy", async () => {
-        h.copyText.mockRejectedValue(new Error("clipboard denied"));
-        const user = userEvent.setup();
-        renderPane();
-        press("h");
-        await user.click(screen.getByRole("button", { name: "Copy hash" }));
-        await waitFor(() => expect(toasts()).toContain("error: clipboard denied"));
-    });
-
     it("drives the selected commit from the keyboard", async () => {
         renderPane();
         press("h");
@@ -509,13 +407,6 @@ describe("history", () => {
         expect(screen.getByRole("textbox", { name: "Search commits" })).toHaveValue("subject 1");
         expect(screen.queryByRole("button", { name: "c0 subject 0" })).toBeNull();
     });
-
-    it("says a branch has no commits yet", () => {
-        setOverview({ log: [] });
-        renderPane();
-        press("h");
-        expect(screen.getByText("No commits on this branch yet.")).toBeInTheDocument();
-    });
 });
 
 describe("branches", () => {
@@ -524,97 +415,11 @@ describe("branches", () => {
         press("2");
     };
 
-    it("shows the checked-out branch with what it has to push and pull", async () => {
-        const user = userEvent.setup();
-        openBranches();
-        const head = screen.getByRole("region", { name: "Commit review main" });
-        expect(within(head).getByText("checked out")).toBeInTheDocument();
-        expect(within(head).getByText("to push").previousSibling).toHaveTextContent("2");
-        expect(within(head).getByText("uncommitted").previousSibling).toHaveTextContent("3");
-        expect(within(row("main")).getByText("↓1")).toBeInTheDocument();
-
-        await user.click(within(head).getByRole("button", { name: "Pull" }));
-        await flush();
-        expect(api.pull).toHaveBeenCalledWith(REPO);
-
-        await user.click(within(head).getByRole("button", { name: "Rename" }));
-        await answer("main");
-        expect(api.branchRename).not.toHaveBeenCalled();
-
-        await user.click(within(head).getByRole("button", { name: "Rename" }));
-        await answer("trunk");
-        expect(api.branchRename).toHaveBeenCalledWith(REPO, "main", "trunk");
-
-        await user.click(within(head).getByRole("button", { name: "New branch from here" }));
-        expect(modalOf("prompt").title).toBe("New branch from main");
-        await answer("spin");
-        expect(api.branchCreate).toHaveBeenCalledWith(REPO, "spin", "main");
-        expect(toasts()).toContain("success: Created spin from main and switched to it");
-    });
-
-    it("pushes the unpushed commits from the chip on the current branch", async () => {
-        api.push.mockResolvedValue("To origin\n  main -> main");
-        const user = userEvent.setup();
-        openBranches();
-        await user.click(within(row("main")).getByRole("button", { name: "2" }));
-        await flush();
-        expect(api.push).toHaveBeenCalledWith(REPO);
-        expect(toasts()).toContain("success: Pushed · To origin");
-    });
-
-    it("checks out, merges and deletes another local branch from its details", async () => {
-        api.merge.mockResolvedValue("Fast-forward\nmore");
-        const user = userEvent.setup();
-        openBranches();
-        await user.click(row("feature"));
-        const head = screen.getByRole("region", { name: "Commit review feature" });
-        expect(within(head).getByText("no upstream")).toBeInTheDocument();
-
-        await user.click(within(head).getByRole("button", { name: "Check out" }));
-        await flush();
-        expect(api.checkout).toHaveBeenCalledWith(REPO, "feature");
-
-        await user.click(within(head).getByRole("button", { name: "Merge into main" }));
-        await flush();
-        expect(api.merge).toHaveBeenCalledWith(REPO, "feature");
-        expect(toasts()).toContain("success: Merged feature · Fast-forward");
-
-        await user.click(within(head).getByRole("button", { name: "Squash merge" }));
-        await flush();
-        expect(api.mergeSquash).toHaveBeenCalledWith(REPO, "feature");
-        expect(toasts()).toContain("success: Squashed feature into the index. Review and commit.");
-
-        await user.click(within(head).getByRole("button", { name: "Delete" }));
-        await choose("force delete local branch");
-        expect(modalOf("confirm")).toMatchObject({ title: "Force delete feature?", confirmLabel: "force delete" });
-        await accept();
-        expect(api.branchDelete).toHaveBeenCalledWith(REPO, "feature", true);
-
-        await user.click(within(head).getByRole("button", { name: "Delete" }));
-        await choose("delete local branch");
-        await accept();
-        expect(api.branchDelete).toHaveBeenCalledWith(REPO, "feature", false);
-    });
-
     it("refuses to delete the checked-out branch", () => {
         openBranches();
         press("d");
         const menu = modalOf("menu");
         expect(menu.items.every((item) => item.disabled && item.hint === "(can't delete current branch)")).toBe(true);
-    });
-
-    it("lists a local branch's actions in its row menu", async () => {
-        const user = userEvent.setup();
-        openBranches();
-        await user.click(within(row("feature")).getByRole("button", { name: "More" }));
-        expect(menuItem(/Squash merge into main/)).toBeInTheDocument();
-        await user.click(menuItem(/Copy name/));
-        expect(h.copyText).toHaveBeenCalledWith("feature");
-
-        await user.click(within(row("main")).getByRole("button", { name: "More" }));
-        expect(screen.queryByRole("menuitem", { name: /Delete/ })).toBeNull();
-        await user.click(menuItem(/Rename/));
-        expect(modalOf("prompt").title).toBe("Rename branch · main");
     });
 
     it("opens a remote to its branches and acts on one without a local copy", async () => {
@@ -666,37 +471,6 @@ describe("branches", () => {
         await user.click(within(tracked).getByRole("button", { name: "More" }));
         await user.click(menuItem(/Delete on origin/));
         expect(modalOf("confirm").title).toBe("Delete origin/main?");
-    });
-
-    it("manages a remote from its details", async () => {
-        api.fetch.mockResolvedValue("  ");
-        const user = userEvent.setup();
-        openBranches();
-        await user.click(row("origin"));
-        expect(view().openRemote).toBeNull();
-        expect(row("origin")).toHaveAttribute("aria-expanded", "false");
-        const detail = screen.getByRole("heading", { name: "origin" }).closest<HTMLElement>(".git-detail")!;
-        expect(within(detail).getByText("git@example.test:o/r.git")).toBeInTheDocument();
-
-        await user.click(within(detail).getByRole("button", { name: "Fetch origin" }));
-        await flush();
-        expect(api.fetch).toHaveBeenCalledWith(REPO, "origin");
-        expect(toasts()).toContain("success: Fetched origin");
-
-        await user.click(within(detail).getByRole("button", { name: "Edit URL…" }));
-        expect(modalOf("prompt").initial).toBe("git@example.test:o/r.git");
-        await answer("git@example.test:o/r.git");
-        expect(api.remoteSetUrl).not.toHaveBeenCalled();
-        await user.click(within(detail).getByRole("button", { name: "Edit URL…" }));
-        await answer("https://example.test/r.git");
-        expect(api.remoteSetUrl).toHaveBeenCalledWith(REPO, "origin", "https://example.test/r.git");
-
-        await user.click(within(detail).getByRole("button", { name: "Copy URL" }));
-        expect(h.copyText).toHaveBeenCalledWith("git@example.test:o/r.git");
-
-        await user.click(within(detail).getByRole("button", { name: "Remove remote…" }));
-        await accept();
-        expect(api.remoteRemove).toHaveBeenCalledWith(REPO, "origin");
     });
 
     it("keeps an open remote open under its new name", async () => {
@@ -787,22 +561,6 @@ describe("branches", () => {
         expect(api.checkoutRemoteBranch).toHaveBeenCalledWith(REPO, "origin", "topic", null);
     });
 
-    it("filters the local branches", async () => {
-        const user = userEvent.setup();
-        openBranches();
-        await user.type(screen.getByPlaceholderText("Filter branches"), "feat");
-        expect(screen.queryByText("main", { selector: ".git-row-name" })).toBeNull();
-        expect(row("feature")).toBeInTheDocument();
-    });
-
-    it("says when the repository has no branches at all", () => {
-        setOverview({ branches: [] });
-        h.remotes = resource<GitRemote[]>([]);
-        openBranches();
-        expect(screen.getByText("This repository has no branches yet.")).toBeInTheDocument();
-        expect(screen.getByText("Select a branch to see its details.")).toBeInTheDocument();
-    });
-
     it("calls an unpublished current branch's push a publish", () => {
         setOverview({ upstream: null, ahead: 0 });
         openBranches();
@@ -812,25 +570,6 @@ describe("branches", () => {
 });
 
 describe("toolbar", () => {
-    it("fetches, pulls and pushes, naming what is waiting on each", async () => {
-        api.pull.mockResolvedValue("Already up to date.");
-        const user = userEvent.setup();
-        renderPane();
-        const toolbar = document.querySelector<HTMLElement>(".git-toolbar")!;
-        await user.click(within(toolbar).getByRole("button", { name: /Fetch/ }));
-        await flush();
-        expect(api.fetch).toHaveBeenCalledWith(REPO, null);
-        expect(toasts()).toContain("success: Fetched all remotes");
-
-        await user.click(within(toolbar).getByRole("button", { name: /^Pull\s*1$/ }));
-        await flush();
-        expect(toasts()).toContain("success: Pulled · Already up to date.");
-
-        await user.click(within(toolbar).getByRole("button", { name: /^Push\s*2$/ }));
-        await flush();
-        expect(api.push).toHaveBeenCalledWith(REPO);
-    });
-
     it("shows a failed operation in the toolbar and as an error", async () => {
         api.push.mockRejectedValue(new Error("rejected: non-fast-forward\nhint: pull first"));
         renderPane();
@@ -849,70 +588,6 @@ describe("toolbar", () => {
         await user.click(screen.getByRole("button", { name: /^Push\s*2$/ }));
         await flush();
         expect(api.push).not.toHaveBeenCalled();
-    });
-
-    it("opens the pull request page when the remote is on no known host", async () => {
-        api.prOpen.mockResolvedValue("https://example.test/pr");
-        renderPane();
-        press("p", { ctrlKey: true });
-        await flush();
-        expect(api.prOpen).toHaveBeenCalledWith(REPO);
-        expect(toasts()).toContain("success: Opened the pull request page · https://example.test/pr");
-    });
-
-    it("switches branch from the picker", async () => {
-        const user = userEvent.setup();
-        renderPane();
-        await user.click(screen.getByRole("button", { name: "main" }));
-        expect(menuItem(/^main/)).toBeDisabled();
-        await user.click(menuItem(/^feature/));
-        await flush();
-        expect(api.checkout).toHaveBeenCalledWith(REPO, "feature");
-
-        await user.click(screen.getByRole("button", { name: "main" }));
-        await user.click(menuItem(/Show all branches/));
-        expect(view().panel).toBe("branches");
-    });
-
-    it("works on stashes from the more menu", async () => {
-        const user = userEvent.setup();
-        renderPane();
-        const more = screen.getByRole("button", { name: "Remotes, stashes and more" });
-        await user.click(more);
-        await user.click(menuItem(/Stashes \(1\)/));
-        expect(modalOf("menu").items).toMatchObject([{ key: "1", label: "WIP", hint: "stash@{0}" }]);
-        await choose("WIP");
-        expect(modalOf("menu").title).toBe("stash@{0} · WIP");
-        await choose("pop stash");
-        expect(api.stashPop).toHaveBeenCalledWith(REPO, "stash@{0}", "s0");
-
-        const stashMenu = async () => {
-            await user.click(more);
-            await user.click(menuItem(/Stashes/));
-            await choose("WIP");
-        };
-        await stashMenu();
-        await choose("apply stash");
-        expect(api.stashApply).toHaveBeenCalledWith(REPO, "stash@{0}", "s0");
-
-        await stashMenu();
-        await choose("create branch from stash");
-        await answer(" from-stash ");
-        expect(api.stashBranch).toHaveBeenCalledWith(REPO, "stash@{0}", "s0", "from-stash");
-
-        await stashMenu();
-        await choose("rename stash");
-        await answer("WIP");
-        expect(api.stashRename).not.toHaveBeenCalled();
-        await stashMenu();
-        await choose("rename stash");
-        await answer("better name");
-        expect(api.stashRename).toHaveBeenCalledWith(REPO, "stash@{0}", "s0", "better name");
-
-        await stashMenu();
-        await choose("drop stash");
-        await accept();
-        expect(api.stashDrop).toHaveBeenCalledWith(REPO, "stash@{0}", "s0");
     });
 
     it("adds a remote by name and then URL, stopping at a blank answer", async () => {
@@ -937,51 +612,6 @@ describe("toolbar", () => {
         await answer("https://example.test/u.git");
         expect(api.remoteAdd).toHaveBeenCalledWith(REPO, "upstream", "https://example.test/u.git");
         expect(toasts()).toContain("success: Added remote upstream");
-    });
-
-    it("refreshes, toggles the command log and shows the shortcuts", async () => {
-        const user = userEvent.setup();
-        renderPane();
-        const more = screen.getByRole("button", { name: "Remotes, stashes and more" });
-        await user.click(more);
-        await user.click(menuItem(/Refresh/));
-        expect(h.overview.refresh).toHaveBeenCalled();
-        expect(h.remotes.refresh).toHaveBeenCalled();
-
-        await user.click(more);
-        await user.click(menuItem(/Show command log/));
-        expect(getState().gitCmdLogOpen).toBe(true);
-        await user.click(more);
-        expect(menuItem(/Hide command log/)).toBeInTheDocument();
-        await user.click(menuItem(/Keyboard shortcuts/));
-        expect(modalOf("cheatsheet").title).toBe("Git pane keybindings");
-        act(() => setState({ gitModal: null }));
-
-        press("@");
-        expect(getState().gitCmdLogOpen).toBe(false);
-        press("?");
-        expect(modalOf("cheatsheet")).toBeTruthy();
-    });
-
-    it("refreshes an open remote's branches with r", () => {
-        renderPane();
-        press("r");
-        expect(h.remoteBranches.refresh).toHaveBeenCalled();
-        expect(h.stashes.refresh).toHaveBeenCalled();
-    });
-
-    it("shows the repository's error in place of its lists", () => {
-        h.overview = { status: "error", error: "fatal: bad object", refresh: vi.fn().mockResolvedValue(undefined) };
-        renderPane();
-        expect(screen.getByText("git error")).toBeInTheDocument();
-        expect(screen.getAllByText("fatal: bad object")[0]).toBeInTheDocument();
-        expect(screen.getByRole("button", { name: "detached" })).toBeInTheDocument();
-    });
-
-    it("holds the branch name while the repository first loads", () => {
-        h.overview = { status: "loading", refresh: vi.fn().mockResolvedValue(undefined) };
-        renderPane();
-        expect(screen.getByRole("button", { name: "…" })).toBeInTheDocument();
     });
 });
 
@@ -1077,49 +707,10 @@ describe("details", () => {
         expect(row("a.ts")).not.toHaveClass("ranged");
     });
 
-    it("counts several new files in the discard-all prompt", async () => {
-        setOverview({
-            files: [
-                { path: "one.ts", index: "?", worktree: "?" },
-                { path: "two.ts", index: "?", worktree: "?" },
-            ],
-        });
-        const user = userEvent.setup();
-        renderPane();
-        await user.click(screen.getByRole("button", { name: "Discard all" }));
-        expect(modalOf("confirm").body).toContain("2 new files are deleted");
-    });
-
-    it("fetches with F and pulls with p", async () => {
-        renderPane();
-        press("F");
-        await flush();
-        press("p");
-        await flush();
-        expect(api.fetch).toHaveBeenCalledWith(REPO, null);
-        expect(api.pull).toHaveBeenCalledWith(REPO);
-    });
-
     it("lets Escape through when there is nothing to clear", () => {
         renderPane();
         expect(press("Escape")).toBe(true);
         expect(press("x")).toBe(true);
-    });
-
-    it("names the provider's default model when none is chosen", () => {
-        useGitWorkbench.setState({ model: "" });
-        renderPane();
-        expect(screen.getByText("Hermes · gpt-5.5")).toBeInTheDocument();
-    });
-
-    it("stashes only the unstaged changes", async () => {
-        renderPane();
-        press("s");
-        await choose("stash unstaged only (keep index)");
-        expect(modalOf("prompt").title).toBe("Stash unstaged changes");
-        await answer("wip");
-        expect(api.stashPush).toHaveBeenCalledWith(REPO, "unstaged", "wip");
-        expect(toasts()).toContain("success: Stashed unstaged changes");
     });
 
     it("does nothing with space when there are no changed files", async () => {

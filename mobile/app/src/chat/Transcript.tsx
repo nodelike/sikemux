@@ -248,6 +248,7 @@ export function Message({
   onTap,
   strip,
   sentFiles,
+  from = 0,
 }: {
   message: ChatMessage;
   live?: boolean;
@@ -259,6 +260,8 @@ export function Message({
   /** The strip under this message, while it is shown. */
   strip?: RowMeta | null;
   sentFiles: ReadonlyMap<string, Attachment>;
+  /** Where the shown parts start, when the work before them is folded away. */
+  from?: number;
 }) {
   const colors = useColors();
   const styles = useStyles(makeStyles);
@@ -307,9 +310,42 @@ export function Message({
   }
   return (
     <Pressable onPress={tap} onLongPress={keepLongPress} accessibilityHint={tap ? 'Tap for copy and how long it took' : undefined}>
-      <Parts id={message.id} parts={message.parts} untimed={untimed} live={live} />
+      <Parts id={message.id} parts={from > 0 ? message.parts.slice(from) : message.parts} untimed={untimed} live={live} />
       {strip ? <Strip meta={strip} mine={false} /> : null}
     </Pressable>
+  );
+}
+
+/** A finished answer's work, folded above the reply it closed with, as on the Mac. */
+export function WorkSummary({ took, calls, open, onToggle }: { took: number | null; calls: number; open: boolean; onToggle: () => void }) {
+  const colors = useColors();
+  const styles = useStyles(makeStyles);
+  const worked = took === null ? 'Worked' : `Worked for ${durationLabel(took)}`;
+  const counted = `${calls} tool call${calls === 1 ? '' : 's'}`;
+  return (
+    <View style={styles.work}>
+      <Pressable
+        onPress={() => {
+          haptics.select();
+          onToggle();
+        }}
+        style={styles.workSum}
+        hitSlop={6}
+        accessibilityRole="button"
+        accessibilityLabel={calls > 0 ? `${worked}, ${counted}` : worked}
+        accessibilityState={{ expanded: open }}>
+        <Text style={styles.workText}>{worked}</Text>
+        {calls > 0 ? (
+          <>
+            <Text style={[styles.workCalls, styles.workDot]}>·</Text>
+            <Text style={styles.workCalls}>{counted}</Text>
+          </>
+        ) : null}
+        <View style={[styles.workChevron, open && { transform: [{ rotate: '90deg' }] }]}>
+          <Icon name="IconChevron" size={11} color={colors.inkDim} />
+        </View>
+      </Pressable>
+    </View>
   );
 }
 
@@ -427,6 +463,18 @@ const makeStyles = (colors: Palette) => {
     retry: { color: colors.ink, fontFamily: fonts.uiMedium },
     queued: { alignItems: 'flex-end', alignSelf: 'stretch', opacity: 0.55, marginBottom: 6 },
     queuedLabel: { fontFamily: fonts.ui, fontSize: 11, color: colors.inkFaint, marginTop: 4 },
+    work: {
+      marginTop: 8,
+      marginBottom: 4,
+      paddingBottom: 4,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: colors.border,
+    },
+    workSum: { flexDirection: 'row', alignItems: 'center', gap: 8, minHeight: 24, alignSelf: 'flex-start' },
+    workText: { fontFamily: fonts.ui, fontSize: 12.5, color: colors.inkDim },
+    workCalls: { fontFamily: fonts.ui, fontSize: 12.5, color: colors.inkFaint },
+    workDot: { marginHorizontal: -2 },
+    workChevron: { opacity: 0.7 },
     strip: { flexDirection: 'row', alignItems: 'center', gap: 8, height: 24, marginTop: 6 },
     stripMine: { justifyContent: 'flex-end' },
     stripCopy: { width: 24, height: 24 },

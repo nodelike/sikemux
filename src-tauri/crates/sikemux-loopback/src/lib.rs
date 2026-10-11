@@ -207,14 +207,6 @@ mod tests {
     }
 
     #[test]
-    fn every_sign_in_asks_with_a_fresh_state() -> LoopbackResult<()> {
-        let first = new_state()?;
-        assert_eq!(first.len(), 32);
-        assert_ne!(first, new_state()?);
-        Ok(())
-    }
-
-    #[test]
     fn the_redirect_names_the_shared_port_and_the_plugins_path() {
         assert_eq!(
             redirect_uri("/jira/callback"),

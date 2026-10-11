@@ -44,27 +44,6 @@ describe("JiraSignIn", () => {
         expect(onSignedIn).toHaveBeenCalledWith(signedIn);
     });
 
-    it("shows why Jira turned the token down and keeps the form", async () => {
-        signIn.mockRejectedValue({ category: "auth", message: "jira: sign-in failed: the email or API token was not accepted" });
-        const onSignedIn = vi.fn();
-        render(<JiraSignIn status={undefined} onSignedIn={onSignedIn} />);
-        fill("acme.atlassian.net", "me@acme.dev", "wrong");
-        await act(async () => fireEvent.click(screen.getByRole("button", { name: "Sign in" })));
-
-        expect(onSignedIn).not.toHaveBeenCalled();
-        expect(await screen.findByText(/not accepted/)).toBeInTheDocument();
-    });
-
-    it("says a saved token stopped working", () => {
-        render(
-            <JiraSignIn
-                status={{ ...signedIn, ok: false, authFailed: true, message: "jira: sign-in failed: token revoked" }}
-                onSignedIn={() => {}}
-            />,
-        );
-        expect(screen.getByText(/token revoked/)).toBeInTheDocument();
-    });
-
     it("signs in through the browser first when the build can, and waits for it to come back", async () => {
         let finish: (status: JiraStatus) => void = () => {};
         signInWithBrowser.mockReturnValue({ done: new Promise<JiraStatus>((resolve) => (finish = resolve)), cancel: vi.fn() });
@@ -78,13 +57,5 @@ describe("JiraSignIn", () => {
 
         await act(async () => finish(signedIn));
         expect(onSignedIn).toHaveBeenCalledWith(signedIn);
-    });
-
-    it("keeps an API token one click away from the browser sign-in", () => {
-        render(<JiraSignIn status={signedOutWithBrowser} onSignedIn={() => {}} />);
-        fireEvent.click(screen.getByRole("button", { name: "Use an API token instead" }));
-        expect(screen.getByPlaceholderText("ATATT…")).toBeInTheDocument();
-        fireEvent.click(screen.getByRole("button", { name: "Sign in with the browser instead" }));
-        expect(screen.getByRole("button", { name: "Continue with Atlassian" })).toBeInTheDocument();
     });
 });

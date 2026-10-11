@@ -3,8 +3,8 @@ import { outputText } from "./toolOutput";
 import { sikemuxToolName } from "./toolRows";
 import type { AcpToolCall } from "./types";
 
-export const PAGE_MIN_HEIGHT = 48;
-export const PAGE_MAX_HEIGHT = 2400;
+const PAGE_MIN_HEIGHT = 48;
+const PAGE_MAX_HEIGHT = 2400;
 export const PAGE_DEFAULT_HEIGHT = 320;
 
 export function clampPageHeight(height: number): number {

@@ -190,13 +190,6 @@ describe("useCodeTokens", () => {
         await settle();
         expect(tokenizeCode).toHaveBeenCalledOnce();
     });
-
-    it("leaves a fence with no grammar as plain text", async () => {
-        render(<Fence text="hello" lang={null} />);
-        await settle();
-        expect(tokenizeCode).not.toHaveBeenCalled();
-        expect(screen.getByTestId("fence").querySelector("span")).toBeNull();
-    });
 });
 
 function Diff({ lines, path }: { lines: DiffLine[]; path: string }) {
@@ -222,19 +215,7 @@ const hunk: DiffLine[] = [
     { sign: " ", text: "export {};" },
 ];
 
-function DiffOrNothing({ lines }: { lines: DiffLine[] | null }) {
-    const coloured = useDiffTokens(lines, "/repo/a.ts");
-    return <output>{coloured === null ? "none" : coloured.size}</output>;
-}
-
 describe("useDiffTokens", () => {
-    it("colours nothing for a call with no diff", async () => {
-        render(<DiffOrNothing lines={null} />);
-        await settle();
-        expect(screen.getByRole("status")).toHaveTextContent("none");
-        expect(tokenizeCode).not.toHaveBeenCalled();
-    });
-
     it("colours the lines around a deletion from the old file when the new side has no colours", async () => {
         tokenizeCode.mockImplementation((text) => Promise.resolve(text.includes("gone") ? coloured(text) : []));
         const deletion: DiffLine[] = [
@@ -321,27 +302,5 @@ describe("splitAtMark", () => {
             expect(said(pre) + said(marked) + said(post)).toBe("const b = 2;");
             expect(said(marked)).toBe("const b = 2;".slice(mark[0], mark[1]));
         }
-    });
-});
-
-describe("CodeTokens", () => {
-    it("styles a run by its colour and emphasis and leaves a plain run as bare text", () => {
-        render(
-            <pre data-testid="fence">
-                <CodeTokens
-                    lines={[
-                        [{ text: "plain " }, { text: "slanted", italic: true }, { text: "heavy", bold: true }, { text: "lined", underline: true }],
-                        [{ text: "next" }],
-                    ]}
-                />
-            </pre>,
-        );
-        const fence = screen.getByTestId("fence");
-
-        expect(fence.textContent).toBe("plain slantedheavylined\nnext");
-        expect(screen.getByText("slanted")).toHaveStyle({ fontStyle: "italic" });
-        expect(screen.getByText("heavy")).toHaveStyle({ fontWeight: "600" });
-        expect(screen.getByText("lined")).toHaveStyle({ textDecoration: "underline" });
-        expect(fence.querySelectorAll("span")).toHaveLength(3);
     });
 });

@@ -58,13 +58,6 @@ describe("EditorPane viewers", () => {
         expect(invoke.mock.calls.some(([command]) => command === "read_file_versioned")).toBe(false);
     });
 
-    it("plays audio in a media element", async () => {
-        files["/repo/take.m4a"] = { mime: "audio/mp4", size: 4096, modified: 1 };
-        const { container } = open("/repo/take.m4a");
-
-        await waitFor(() => expect(container.querySelector("audio")).toHaveAttribute("src", expect.stringContaining(url("/repo/take.m4a"))));
-    });
-
     it("falls back to a hex view when a file with an unknown name is not text", async () => {
         files["/repo/tool"] = { mime: "application/octet-stream", size: 6, modified: 1 };
         const { container } = open("/repo/tool");

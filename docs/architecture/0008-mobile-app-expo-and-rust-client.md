@@ -38,9 +38,9 @@ core every time the protocol changes.
   Android NDK and `cargo-ndk`. Homebrew's Rust has no phone targets.
 - The generated bindings and native libraries are build output, made by
   `pnpm native:ios` and `pnpm native:android`, not committed.
-- `sikemux-mobile` compiles all of `sikemux-core`, including the server it never runs. If
-  that becomes a size or linking problem on a phone, the server moves behind a Cargo
-  feature.
+- `sikemux-mobile` links only `sikemux-wire` and `sikemux-client`, not the core's server,
+  so server changes do not change the phone's native code
+  ([ADR 0010](./0010-phone-links-only-the-wire-and-client.md)).
 - The phone and the core share one protocol version, so a mismatched pair says so at the
   handshake instead of misreading each other.
 

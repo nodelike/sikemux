@@ -76,8 +76,13 @@ export const SETTINGS_INDEX: SettingsEntry[] = [
 
     section("keybindings", "Shortcuts", "keybindings hotkeys keys keyboard remap"),
 
-    section("activity", "Overview", "stats statistics analytics dashboard profile usage totals sessions tokens commits hours"),
+    section(
+        "activity",
+        "Overview",
+        "stats statistics analytics dashboard profile usage totals sessions tokens commits hours cost spend dollars money",
+    ),
     section("activity", "Calendar", "heatmap contributions streak days year"),
+    section("activity", "By model", "cost price pricing spend opus sonnet gpt models"),
     section("activity", "By agent", "claude codex share breakdown"),
     section("activity", "By project", "repositories share breakdown"),
 

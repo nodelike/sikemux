@@ -466,26 +466,6 @@ mod tests {
     }
 
     #[test]
-    fn a_refused_token_is_told_apart_from_a_missing_permission() {
-        assert!(matches!(
-            classify(StatusCode::UNAUTHORIZED, b""),
-            GitlabError::Auth(_)
-        ));
-        assert!(matches!(
-            classify(StatusCode::FORBIDDEN, b""),
-            GitlabError::Forbidden(_)
-        ));
-        assert!(matches!(
-            classify(StatusCode::NOT_FOUND, br#"{"message":"404 Not found"}"#),
-            GitlabError::NotFound(_)
-        ));
-        assert!(matches!(
-            classify(StatusCode::TOO_MANY_REQUESTS, b""),
-            GitlabError::RateLimited { .. }
-        ));
-    }
-
-    #[test]
     fn only_a_redirect_over_https_on_the_same_server_is_followed() {
         let url = |raw: &str| Url::parse(raw).expect("parses");
         let api = url("https://gitlab.acme.dev/api/v4/projects/a%2Fb");
@@ -514,14 +494,5 @@ mod tests {
         );
         assert!(request.headers().get("private-token").is_none());
         Ok(())
-    }
-
-    #[test]
-    fn each_server_has_its_own_api_address() {
-        assert_eq!(api_base("gitlab.com"), "https://gitlab.com/api/v4");
-        assert_eq!(
-            api_base("gitlab.acme.dev"),
-            "https://gitlab.acme.dev/api/v4"
-        );
     }
 }

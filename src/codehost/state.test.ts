@@ -6,9 +6,7 @@ import {
     filterBy,
     forgetAccount,
     hostSettings,
-    isSection,
     leaveRun,
-    needsRepo,
     openRunFrom,
     refOf,
     setListState,
@@ -16,7 +14,6 @@ import {
     sameRepo,
     setFollowBranch,
     setProjectAccount,
-    setProjectRepo,
     showRun,
     togglePinned,
     updateView,
@@ -60,22 +57,6 @@ describe("hostSettings", () => {
         expect(settings.get().followBranch).toBe(false);
         settings.update(() => ({}) as unknown as HostSettings);
         expect(settings.get().followBranch).toBe(true);
-    });
-
-    it("pins and unpins the same repository with one call", () => {
-        settings.update(() => ({}) as unknown as HostSettings);
-        togglePinned(HOST, "a/b");
-        expect(settings.get().pinned).toEqual(["a/b"]);
-        togglePinned(HOST, "a/b");
-        expect(settings.get().pinned).toEqual([]);
-    });
-
-    it("forgets a project's repository when it is cleared", () => {
-        settings.update(() => ({}) as unknown as HostSettings);
-        setProjectRepo(HOST, "/work", "a/b");
-        expect(settings.get().repoByProject).toEqual({ "/work": "a/b" });
-        setProjectRepo(HOST, "/work", null);
-        expect(settings.get().repoByProject).toEqual({});
     });
 
     it("keeps each host's settings apart", () => {
@@ -147,19 +128,6 @@ describe("the pull request and issue lists", () => {
     });
 });
 
-describe("sections", () => {
-    it("knows its own section names and nothing else", () => {
-        expect(isSection("actions")).toBe(true);
-        expect(isSection("wiki")).toBe(false);
-        expect(isSection(3)).toBe(false);
-    });
-
-    it("needs a repository for every section but the inbox", () => {
-        expect(needsRepo("inbox")).toBe(false);
-        expect(needsRepo("releases")).toBe(true);
-    });
-});
-
 describe("sameRepo", () => {
     const ref = { provider: HOST, owner: "nodelike", name: "sikemux" };
 
@@ -167,11 +135,6 @@ describe("sameRepo", () => {
         expect(sameRepo(ref, { ...ref, account: "work" })).toBe(true);
         expect(sameRepo(ref, { ...ref, provider: "other.host" })).toBe(false);
         expect(sameRepo(ref, { ...ref, name: "tool" })).toBe(false);
-    });
-
-    it("never matches a missing repository", () => {
-        expect(sameRepo(null, ref)).toBe(false);
-        expect(sameRepo(ref, null)).toBe(false);
     });
 });
 

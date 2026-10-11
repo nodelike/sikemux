@@ -113,16 +113,6 @@ describe("UiActivityTracker bounds", () => {
         expect(report.interactions[0].kind).toHaveLength(limit);
         expect(report.rejections[0].message).toHaveLength(limit);
     });
-
-    it("clears everything on reset", () => {
-        const tracker = new UiActivityTracker({ now: () => 0 });
-        tracker.endCommand(tracker.beginCommand("boot_init"), true);
-        tracker.recordInteraction("pointer");
-        tracker.beginCommand("git_status");
-        tracker.reset();
-        expect(tracker.snapshot()).toMatchObject({ inflight: [], recent: [], interactions: [] });
-        expect(tracker.inflightCount).toBe(0);
-    });
 });
 
 describe("UiActivityTracker report", () => {

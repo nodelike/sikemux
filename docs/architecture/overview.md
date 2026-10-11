@@ -230,7 +230,9 @@ Internal crates in `src-tauri/crates/`:
 | `sikemux-keychain`   | Reads and writes secrets in the system keychain; used by the GitHub, GitLab, Bitbucket, Database, Jira and SigNoz plugins                                                                                                                                                                                   |
 | `sikemux-loopback`   | Waits for the browser to come back from a sign-in, on one port where each plugin has its own path; used by the Bitbucket and Jira plugins                                                                                                                                                                   |
 | `sikemux-pty`        | The terminal engine without Tauri: the per-PTY screen, shell integration, the configured shell and login-shell environment, the `SIKEMUX_*` environment, task checks, task output paging, and `agent_detection/`, which reads an agent's screen against `manifests/*.json` to tell working, blocked or idle |
-| `sikemux-core`       | The background core (`sikemux core`): its Unix-socket server, wire protocol and client; terminals, tasks and chat agents; the harness, journal and tool endpoint; updating in place                                                                                                                         |
+| `sikemux-wire`       | What the core and its clients send each other: the frames, requests and events, the types the accounts server generates, and the terminal and CLI shapes they carry. The phone links it, so it holds data and nothing that acts on it                                                                       |
+| `sikemux-client`     | Talking to a core: the connection and its requests, reaching a paired core over iroh, the phone's side of joining a host, and what a device signs for the accounts server. The phone links it with `sikemux-wire` and nothing else of the core                                                              |
+| `sikemux-core`       | The background core (`sikemux core`): its Unix-socket server and the client the app starts it with; terminals, tasks and chat agents; the harness, journal and tool endpoint; updating in place                                                                                                             |
 
 ## Plugins
 
@@ -356,7 +358,6 @@ pre-push hook.
 
 | Check              | Where                                                                                | How to move it                                                                                                        |
 | ------------------ | ------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------- |
-| Test coverage      | `test.coverage.thresholds` in `vite.config.ts`                                       | Raise the numbers after `pnpm test:coverage` shows coverage went up. Never lower them.                                |
 | `!important` count | `BUDGET` in `scripts/check-css-important.mjs`                                        | Lower it when you remove one. Only goes down.                                                                         |
 | Bundle size        | `scripts/check-performance-budget.mjs`, run by `pnpm perf:budget` after `pnpm build` | Every ceiling needs 10% headroom. Prefer lazy imports; raise a ceiling only with measured output and a stated reason. |
 | Plugin boundaries  | `scripts/check-plugin-boundaries.mjs`                                                | Not a number: add what a plugin needs to `src/plugin-api`.                                                            |

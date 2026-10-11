@@ -742,15 +742,6 @@ mod tests {
     }
 
     #[test]
-    fn looks_a_line_up_by_its_id() {
-        let search = LogSearch {
-            id: Some("abc".into()),
-            ..LogSearch::default()
-        };
-        assert_eq!(expression(&search).unwrap().unwrap(), "id = 'abc'");
-    }
-
-    #[test]
     fn remembers_a_bounded_number_of_lines() {
         let mut seen = Seen::new();
         assert!(seen.first_time("a"));

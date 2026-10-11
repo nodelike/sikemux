@@ -173,12 +173,12 @@ export type ChatAction =
     | { type: "config"; options: unknown }
     | { type: "status"; state: ChatState["connection"] }
     | { type: "ready"; capabilities: Record<string, unknown>; setup: Record<string, unknown> }
-    | { type: "local_prompt"; text: string; paths: string[]; context?: SentContext[]; messageId?: string }
+    | { type: "local_prompt"; text: string; paths: string[]; context?: SentContext[]; messageId?: string; at?: number }
     | { type: "rewind"; messageId: string }
     | { type: "session_update"; sessionId: string; update: Record<string, unknown> }
     | { type: "saved_usage"; usage: ContextUsage }
     | { type: "turn_started" }
-    | { type: "turn_completed"; stopReason?: string }
+    | { type: "turn_completed"; stopReason?: string; at?: number }
     | { type: "permission_requested"; request: AcpPermissionRequest }
     | { type: "permission_cleared"; requestId: string }
     | { type: "error"; message: string; failure?: ChatFailure };

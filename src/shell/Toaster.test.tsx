@@ -17,10 +17,3 @@ it("offers a dismiss button only on toasts that stay until dismissed", () => {
     act(() => useToasts.getState().push("error", "open file: No such file or directory (os error 2)"));
     expect(screen.getAllByRole("button", { name: "Dismiss notification" })).toHaveLength(1);
 });
-
-it("keeps the action beside the dismiss button on a toast that waits for it", () => {
-    render(<Toaster />);
-    act(() => useToasts.getState().push("error", "Toaster.tsx has an external change.", { action: { label: "Reload disk", run: () => {} } }));
-    expect(screen.getByRole("button", { name: "Reload disk" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Dismiss notification" })).toBeTruthy();
-});

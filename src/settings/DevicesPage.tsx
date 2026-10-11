@@ -17,7 +17,7 @@ const DELETE_ACCOUNT_URL = import.meta.env.DEV ? "http://localhost:5173/delete-a
 export const PHONE_URL = "https://sikemux.com/phone";
 
 /** How a phone's notifications from this host read beside its name, or nothing when it asked for none. */
-export function notificationNote(state: NotificationState | undefined): string | null {
+function notificationNote(state: NotificationState | undefined): string | null {
     switch (state) {
         case "on":
             return "notifications on";
@@ -47,14 +47,14 @@ export function seenLabel(at: number | null, now: number): string {
 }
 
 /** How the live connection to the account reads under the account's email. */
-export function accountLine(link: AccountLink | null): string {
+function accountLine(link: AccountLink | null): string {
     if (link?.state === "connecting") return "Connecting to your account";
     if (link?.state === "offline") return "Can't reach your account, retrying";
     return "Signed in to Sikemux";
 }
 
 /** Why this host is signed out, when the account let it go rather than the person here. */
-export function removalNote(link: AccountLink | null): string | null {
+function removalNote(link: AccountLink | null): string | null {
     if (link?.state !== "removed") return null;
     if (link.reason === "account_deleted") return "Your account was deleted. Phones already allowed stay allowed.";
     if (link.reason === "signed_out") return "This computer was signed out of your account. Phones already allowed stay allowed.";

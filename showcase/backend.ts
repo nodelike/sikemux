@@ -91,6 +91,18 @@ const OTHER_ACCOUNTS: Record<string, { email: string; used: number }> = {
   ".claude-client": { email: "edon@northwind.io", used: 9 },
 };
 
+/* A real chat's history says when each part of it happened, which is how a
+   finished turn knows how long it worked. The demo's arrive nine seconds apart. */
+function recorded(
+  history: Record<string, unknown>[],
+): Record<string, unknown>[] {
+  const start = Date.now() - history.length * 9_000;
+  return history.map((update, index) => ({
+    ...update,
+    _meta: { sikemux: { at: start + index * 9_000 } },
+  }));
+}
+
 export class ShowcaseBackend implements IpcTransport {
   readonly unhandled = new Map<string, number>();
   private readonly listeners = new Map<
@@ -529,7 +541,7 @@ export class ShowcaseBackend implements IpcTransport {
         agentId,
         kind: "session_update",
         payload: batch([
-          ...script.history,
+          ...recorded(script.history),
           { sessionUpdate: "usage_update", ...script.usage },
         ]),
       });

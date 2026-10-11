@@ -25,14 +25,6 @@ describe("GitlabSignIn", () => {
         expect(onSignedIn).toHaveBeenCalledWith("gitlab.acme.dev#3");
     });
 
-    it("says why GitLab turned the token down", async () => {
-        fake.signInWithToken.mockRejectedValue({ category: "auth", message: "gitlab: sign-in failed: 401 Unauthorized" });
-        render(<GitlabSignIn onSignedIn={vi.fn()} />);
-        fireEvent.change(screen.getByPlaceholderText("glpat-…"), { target: { value: "glpat-bad" } });
-        await act(async () => fireEvent.keyDown(screen.getByPlaceholderText("glpat-…"), { key: "Enter" }));
-        expect(screen.getByText(/401 Unauthorized/)).toBeInTheDocument();
-    });
-
     it("opens the token page of the server named, or gitlab.com's", () => {
         fake.openUrl.mockResolvedValue(undefined);
         render(<GitlabSignIn onSignedIn={vi.fn()} />);

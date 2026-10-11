@@ -779,7 +779,11 @@ pub fn replay(records: &[Value], session_id: &str, cwd: &Path) -> Vec<(String, V
             }
         }
         let message_id = message_id_for_grouping(record);
-        for update in replay.convert(&content, role, message_id.as_deref()) {
+        let at = str_field(record, "timestamp").and_then(crate::accounts::live::parse_rfc3339);
+        for mut update in replay.convert(&content, role, message_id.as_deref()) {
+            if let Some(at) = at {
+                super::super::stamp_replayed(&mut update, at);
+            }
             replay.updates.push((target.clone(), update));
         }
     }

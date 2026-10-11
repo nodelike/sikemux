@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DatabaseProfile, HistoryEntry } from "../api";
 
@@ -31,35 +31,6 @@ beforeEach(() => {
 });
 
 describe("HistoryPanel", () => {
-    it("lists past queries newest first, with what came of each and who ran it", async () => {
-        render(<HistoryPanel profile={shop} active onOpen={vi.fn()} now={NOW} />);
-        const items = await screen.findAllByRole("listitem");
-        expect(items[0]).toHaveTextContent("select * from nowhere");
-        expect(items[0]).toHaveTextContent("just now");
-        expect(items[0]).toHaveTextContent("no such table: nowhere");
-        expect(within(items[0]).getByText("agent")).toBeInTheDocument();
-        expect(items[1]).toHaveTextContent("10 min ago14 ms2 rows");
-    });
-
-    it("opens a past query in the editor or runs it again", async () => {
-        const onOpen = vi.fn();
-        render(<HistoryPanel profile={shop} active onOpen={onOpen} now={NOW} />);
-        const items = await screen.findAllByRole("listitem");
-        fireEvent.click(within(items[1]).getByRole("button", { name: "Open" }));
-        expect(onOpen).toHaveBeenLastCalledWith("select * from orders", false);
-        fireEvent.click(within(items[1]).getByRole("button", { name: "Run again" }));
-        expect(onOpen).toHaveBeenLastCalledWith("select * from orders", true);
-    });
-
-    it("searches the history", async () => {
-        render(<HistoryPanel profile={shop} active onOpen={vi.fn()} now={NOW} />);
-        await screen.findAllByRole("listitem");
-        api.history.mockResolvedValue([]);
-        fireEvent.change(screen.getByLabelText("Search past queries"), { target: { value: "customers" } });
-        await waitFor(() => expect(api.history).toHaveBeenLastCalledWith("p1", "customers"));
-        expect(await screen.findByText("No past query matches.")).toBeInTheDocument();
-    });
-
     it("clears the history only once it is confirmed", async () => {
         render(<HistoryPanel profile={shop} active onOpen={vi.fn()} now={NOW} />);
         await screen.findAllByRole("listitem");

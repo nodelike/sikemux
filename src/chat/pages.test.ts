@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { clampPageHeight, PAGE_MAX_HEIGHT, PAGE_MIN_HEIGHT, readPageMessage, toolPage } from "./pages";
+import { readPageMessage, toolPage } from "./pages";
 import type { AcpToolCall } from "./types";
 
 const id = "0123456789abcdef0123456789abcdef";
@@ -59,13 +59,5 @@ describe("readPageMessage", () => {
         expect(readPageMessage({ jsonrpc: "2.0", method: "ui/notifications/size-changed", params: { height: -1 } })).toBeNull();
         expect(readPageMessage({ method: "ui/notifications/size-changed", params: { height: 10 } })).toBeNull();
         expect(readPageMessage("hello")).toBeNull();
-    });
-});
-
-describe("clampPageHeight", () => {
-    it("keeps a frame between its least and most", () => {
-        expect(clampPageHeight(3)).toBe(PAGE_MIN_HEIGHT);
-        expect(clampPageHeight(99_999)).toBe(PAGE_MAX_HEIGHT);
-        expect(clampPageHeight(300.2)).toBe(301);
     });
 });

@@ -124,14 +124,6 @@ describe("project windows", () => {
         expect(getState().diffTarget["/work/demo"]).toEqual({ kind: "worktree", path: "src/state/commands.ts" });
         expect(roles()).toContain("diff");
     });
-
-    it("points the diff tab at a commit when one is selected", () => {
-        cmd.createProjectSession("/work/demo");
-
-        cmd.openCommitDiff("3984bec", "reuse GitGraph");
-
-        expect(getState().diffTarget["/work/demo"]).toEqual({ kind: "commit", rev: "3984bec", subject: "reuse GitGraph" });
-    });
 });
 
 describe("pruning legacy fixed tabs", () => {

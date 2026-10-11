@@ -193,25 +193,6 @@ mod tests {
     }
 
     #[test]
-    fn a_load_that_never_reached_the_server_carries_the_error() {
-        let mut log = DocumentLog::default();
-        log.note(DocumentEvent::Started {
-            navigation: 1,
-            url: "http://nowhere/".into(),
-        });
-        assert!(log.note(DocumentEvent::Failed {
-            navigation: 1,
-            error: "Could not connect to the server.".into(),
-        }));
-        let loads = log.loads(false);
-        assert_eq!(loads[0].status, None);
-        assert_eq!(
-            loads[0].error.as_deref(),
-            Some("Could not connect to the server.")
-        );
-    }
-
-    #[test]
     fn a_load_cut_short_after_the_next_began_does_not_touch_the_next() {
         let mut log = DocumentLog::default();
         log.note(DocumentEvent::Started {

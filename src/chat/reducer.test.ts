@@ -819,12 +819,6 @@ describe("chat reducer", () => {
         expect(chatReducer(reported, { type: "saved_usage", usage: { used: 5, size: 100 } })).toBe(reported);
     });
 
-    it("stores config options sent outside a session update", () => {
-        const state = chatReducer(initialChatState, { type: "config", options: [{ id: "effort" }] });
-
-        expect(state.setup).toEqual({ configOptions: [{ id: "effort" }] });
-    });
-
     it("keeps a running turn through a starting status but ends it on an error", () => {
         const request = { requestId: "p1", sessionId: ROOT_SESSION, toolCall: { toolCallId: "t1", title: "Run" }, options: [] };
         const busy = replay(chatReducer(chatReducer(initialChatState, { type: "turn_started" }), { type: "permission_requested", request }), [

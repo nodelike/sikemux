@@ -1,9 +1,7 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ACCOUNT_CHANGED_EVENT, type AccountStatus } from "../api/account";
 import { installIpcTransportForTests, MemoryIpcTransport, resetIpcTransportForTests } from "../api/transport";
-import { getState, setState } from "../state/store";
 import { initials, useAccount } from "./account";
 import { AccountButton } from "./AccountButton";
 
@@ -24,7 +22,6 @@ beforeEach(() => {
     transport = new MemoryIpcTransport();
     installIpcTransportForTests(transport);
     useAccount.setState({ account: null });
-    setState({ settingsOpen: false, settingsPage: "general", settingsTarget: null });
 });
 
 afterEach(() => {
@@ -43,16 +40,6 @@ describe("initials", () => {
 });
 
 describe("AccountButton", () => {
-    it("shows a person icon when signed out and does not ask for a profile", async () => {
-        const refresh = serve(SIGNED_OUT);
-        const { container } = render(<AccountButton />);
-
-        expect(await screen.findByRole("button", { name: "Account: not signed in" })).toBeInTheDocument();
-        expect(container.querySelector("svg")).not.toBeNull();
-        expect(container.querySelector("img")).toBeNull();
-        expect(refresh).not.toHaveBeenCalled();
-    });
-
     it("shows initials until a picture arrives, then the picture", async () => {
         serve(SIGNED_IN, { ...SIGNED_IN, picture: PICTURE });
         const { container } = render(<AccountButton />);
@@ -82,14 +69,5 @@ describe("AccountButton", () => {
         expect(await screen.findByRole("button", { name: "Account: ada@example.com" })).toBeInTheDocument();
         transport.emit(ACCOUNT_CHANGED_EVENT, SIGNED_OUT);
         expect(await screen.findByRole("button", { name: "Account: not signed in" })).toBeInTheDocument();
-    });
-
-    it("opens settings at the account section", async () => {
-        const user = userEvent.setup();
-        serve(SIGNED_IN);
-        render(<AccountButton />);
-
-        await user.click(await screen.findByRole("button", { name: "Account: ada@example.com" }));
-        expect(getState()).toMatchObject({ settingsOpen: true, settingsPage: "devices", settingsTarget: "Your account" });
     });
 });

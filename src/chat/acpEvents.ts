@@ -42,6 +42,7 @@ export function promptAction(payload: Record<string, unknown>): ChatAction | nul
         text: payload.text,
         paths,
         ...(typeof payload.messageId === "string" ? { messageId: payload.messageId } : {}),
+        ...(typeof payload.at === "number" ? { at: payload.at } : {}),
     };
 }
 

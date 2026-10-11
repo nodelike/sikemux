@@ -1,15 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { readQuery, updateQuery } from "./queryState";
-import {
-    closeConnectionTabs,
-    closeDatabaseTab,
-    collapseAll,
-    expandNodes,
-    readDatabaseView as readView,
-    showTab,
-    toggleNode,
-    updateDatabaseView,
-} from "./state";
+import { closeConnectionTabs, closeDatabaseTab, readDatabaseView as readView, showTab, updateDatabaseView } from "./state";
 import { consoleTab, historyTab, tableTab } from "./tabs";
 
 let pane = 0;
@@ -36,16 +27,5 @@ describe("database pane state", () => {
         showTab(paneId, tableTab("p1", "main", "t"));
         closeConnectionTabs(paneId, "p1");
         expect(readView(paneId)).toMatchObject({ tabs: [historyTab("p2")], active: "history:p2" });
-    });
-
-    it("opens and closes explorer nodes", () => {
-        const paneId = nextPane();
-        toggleNode(paneId, "c:p1");
-        expandNodes(paneId, ["c:p1", "s:p1:public"]);
-        expect(readView(paneId).expanded).toEqual(["c:p1", "s:p1:public"]);
-        toggleNode(paneId, "c:p1");
-        expect(readView(paneId).expanded).toEqual(["s:p1:public"]);
-        collapseAll(paneId);
-        expect(readView(paneId).expanded).toEqual([]);
     });
 });

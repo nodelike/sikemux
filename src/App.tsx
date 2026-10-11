@@ -48,6 +48,7 @@ import { useSimulatorReveal } from "./state/simulatorReveal";
 import { simApi } from "./api/sim";
 import { useBrowserStrips } from "./state/browserStrips";
 import { filesApi } from "./api/files";
+import { fsapi } from "./api/fs";
 import { emit } from "./state/bus";
 import * as cmd from "./state/commands";
 import { offerSavedSessions, restoreCoreSessions } from "./workspace/restoreCoreSessions";
@@ -936,18 +937,17 @@ export default function App() {
             }
 
             showPathDropHover(null);
-            const paths = e.payload.paths;
-            if (!paths || paths.length === 0) {
-                clearTreeHover();
-                return;
-            }
-            if (pathTarget && dispatchPaths(pathTarget, paths)) {
+            const dropped = e.payload.paths;
+            if (!dropped || dropped.length === 0) {
                 clearTreeHover();
                 return;
             }
             const target = resolveTreeDropTarget(at);
-            if (target) dispatchFolder(target.dropEl, paths);
             clearTreeHover();
+            void fsapi.keepDroppedPaths(dropped).then((paths) => {
+                if (pathTarget && dispatchPaths(pathTarget, paths)) return;
+                if (target) dispatchFolder(target.dropEl, paths);
+            }, reportError("Could not take the dropped files"));
         });
         return () => {
             showPathDropHover(null);

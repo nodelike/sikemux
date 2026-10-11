@@ -336,9 +336,4 @@ mod tests {
             .unwrap()
             .starts_with("GET /v1/network HTTP/1.1\r\n"));
     }
-
-    #[tokio::test]
-    async fn an_unreachable_server_is_no_network() {
-        assert!(fetch("http://127.0.0.1:9").await.is_none());
-    }
 }

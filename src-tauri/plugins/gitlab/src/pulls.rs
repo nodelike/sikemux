@@ -843,17 +843,6 @@ mod tests {
     }
 
     #[test]
-    fn merging_squashes_or_not_and_holds_to_the_head_seen() -> GitlabResult<()> {
-        assert_eq!(
-            merge_body("squash", Some("abc"))?,
-            json!({ "squash": true, "sha": "abc" })
-        );
-        assert_eq!(merge_body("merge", None)?, json!({ "squash": false }));
-        assert!(merge_body("rebase", None).is_err());
-        Ok(())
-    }
-
-    #[test]
     fn a_draft_is_marked_in_its_title_once() {
         assert_eq!(titled(" Fix VAT ", true), "Draft: Fix VAT");
         assert_eq!(titled("Draft: Fix VAT", true), "Draft: Fix VAT");

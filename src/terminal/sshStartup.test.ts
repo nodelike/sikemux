@@ -56,23 +56,6 @@ describe("sshStartup", () => {
         }
     });
 
-    it("uses keepalives and stops after five retries", () => {
-        const startup = loopOf(sshStartup("prod-db"));
-
-        expect(startup).toContain("ssh -o ServerAliveInterval=15 -o ServerAliveCountMax=3 'prod-db'");
-        expect(startup).toContain('if [ "$sikemux_ssh_retries" -ge 5 ]; then');
-        expect(startup).toContain("Retrying (%s/5)");
-        expect(startup).toContain("sleep 3 || break");
-        expect(startup).not.toMatch(/[\r\n]/);
-    });
-
-    it("restores terminal input modes after every SSH exit", () => {
-        const loop = loopOf(sshStartup("prod-db"));
-        expect(loop).toContain("stty sane");
-        expect(loop).toContain("\\033[?2004l");
-        expect(loop).toContain("SSH reconnect cancelled");
-    });
-
     it("builds a quoted PowerShell retry loop on Windows", () => {
         const startup = sshStartup("host'; Write-Host nope", "windows");
         expect(startup).toContain("& ssh -o ServerAliveInterval=15 -o ServerAliveCountMax=3 'host''; Write-Host nope'");

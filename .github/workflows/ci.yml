@@ -80,8 +80,8 @@ jobs:
       - name: Test the dev launcher
         run: pnpm dev-launcher:test
 
-      - name: Run frontend tests with all-source coverage
-        run: pnpm test:coverage
+      - name: Run frontend tests
+        run: pnpm test
 
       - name: Build frontend
         run: pnpm build

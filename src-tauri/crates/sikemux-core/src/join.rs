@@ -5,61 +5,22 @@
 //! phone: the ticket only gets the phone as far as the question.
 
 use std::collections::BTreeMap;
-use std::time::Duration;
 
-use iroh::{Endpoint, EndpointAddr};
-use serde::de::DeserializeOwned;
-use serde::{Deserialize, Serialize};
-use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
+pub use sikemux_client::join::*;
 
 use crate::accounts::protocol::JoinTicket;
-use crate::protocol::{encode_control, read_frame_within, DeviceAccess, FrameKind};
 
-pub const JOIN_ALPN: &[u8] = b"sikemux/join/1";
 /// How far the host's clock may disagree with the server's.
 pub const CLOCK_SKEW_SECS: i64 = 60;
 pub const MAX_LIFETIME_SECS: i64 = 600;
 /// How long after a revocation a ticket issued before it could still arrive
 /// within its life.
 pub const REVOCATION_MEMORY_MS: u64 = ((MAX_LIFETIME_SECS + 2 * CLOCK_SKEW_SECS) * 1000) as u64;
-/// How long the host waits for the person at it to answer.
-pub const APPROVAL_TIMEOUT: Duration = Duration::from_secs(120);
-const STEP_TIMEOUT: Duration = Duration::from_secs(15);
-/// Every join message is a few hundred bytes. Either side reads them before
-/// it knows who sent them, so nothing larger is accepted.
-const MAX_MESSAGE_BYTES: usize = 4096;
 
 const PRODUCTION_KEYS: &[(&str, &str)] = &[(
     "prod-1",
     "7f72791233bdb262c930822cce460eb36483842ae8053f44193a4b3e3dc9ff6c",
 )];
-
-/// What the phone sends: the ticket, with what the phone calls itself beside
-/// it. The name and platform are not signed, so nothing vouches for them.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct JoinHello {
-    #[serde(flatten)]
-    pub ticket: JoinTicket,
-    #[serde(default, skip_serializing_if = "String::is_empty")]
-    pub name: String,
-    #[serde(default, skip_serializing_if = "String::is_empty")]
-    pub platform: String,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "result", rename_all = "camelCase")]
-pub enum JoinReply {
-    /// Also the answer to a phone that is already paired, with the access it
-    /// has.
-    Allowed {
-        access: DeviceAccess,
-    },
-    Denied,
-    Refused {
-        reason: String,
-    },
-}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Refusal {
@@ -230,57 +191,6 @@ pub fn check(
     Ok(())
 }
 
-pub(crate) async fn send(
-    writer: &mut (impl AsyncWrite + Unpin),
-    message: &impl Serialize,
-) -> std::io::Result<()> {
-    writer.write_all(&encode_control(message)?).await
-}
-
-pub(crate) async fn receive<T: DeserializeOwned>(
-    reader: &mut (impl AsyncRead + Unpin),
-    limit: Duration,
-) -> std::io::Result<T> {
-    let frame = tokio::time::timeout(limit, read_frame_within(reader, MAX_MESSAGE_BYTES))
-        .await
-        .map_err(|_| std::io::Error::new(std::io::ErrorKind::TimedOut, "no answer in time"))??
-        .ok_or_else(|| std::io::Error::from(std::io::ErrorKind::UnexpectedEof))?;
-    if frame.kind != FrameKind::Control {
-        return Err(std::io::Error::other("unexpected frame"));
-    }
-    Ok(serde_json::from_slice(&frame.payload)?)
-}
-
-#[derive(Debug, thiserror::Error)]
-pub enum JoinError {
-    #[error("could not reach the host: {0}")]
-    Connection(String),
-}
-
-fn connection_error(error: impl std::fmt::Display) -> JoinError {
-    JoinError::Connection(error.to_string())
-}
-
-/// Hands `hello` to the host at `host` and waits while the person there
-/// decides. Dropping the future withdraws the request.
-pub async fn join(
-    endpoint: &Endpoint,
-    host: EndpointAddr,
-    hello: &JoinHello,
-) -> Result<JoinReply, JoinError> {
-    let connection = endpoint
-        .connect(host, JOIN_ALPN)
-        .await
-        .map_err(connection_error)?;
-    let (mut writer, mut reader) = connection.open_bi().await.map_err(connection_error)?;
-    send(&mut writer, hello).await.map_err(connection_error)?;
-    let reply = receive(&mut reader, APPROVAL_TIMEOUT + STEP_TIMEOUT)
-        .await
-        .map_err(connection_error)?;
-    connection.close(0u32.into(), b"answered");
-    Ok(reply)
-}
-
 /// The shared vector the server's tests check too, and a signer with its key.
 #[cfg(test)]
 pub(crate) mod vector {
@@ -348,6 +258,7 @@ pub(crate) mod vector {
 mod tests {
     use super::vector::vector;
     use super::*;
+    use crate::protocol::DeviceAccess;
 
     #[test]
     fn the_shared_vector_signs_the_text_the_server_signs_and_checks_out() {

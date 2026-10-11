@@ -6,7 +6,7 @@ export interface GitStatusDecoration {
     label: string;
 }
 
-export function gitStatusDecoration(raw: string): GitStatusDecoration | null {
+function gitStatusDecoration(raw: string): GitStatusDecoration | null {
     const code = raw.trim();
     if (!code) return null;
     if (code === "?" || code === "U") return { letter: "U", cls: "u", label: code === "?" ? "untracked" : "unmerged" };

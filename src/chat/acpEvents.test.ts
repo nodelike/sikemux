@@ -1,41 +1,10 @@
 import { describe, expect, it } from "vitest";
 import type { AcpEvent } from "../api/acp";
-import { eventMessage, permissionRequest, promptAction, recordOf, statusFromEvent } from "./acpEvents";
+import { permissionRequest, promptAction, statusFromEvent } from "./acpEvents";
 
 const event = (kind: AcpEvent["kind"], payload: Record<string, unknown>): AcpEvent => ({ agentId: "a1", kind, payload });
 
-describe("recordOf", () => {
-    it("takes a plain object as it is", () => {
-        const value = { a: 1 };
-        expect(recordOf(value)).toBe(value);
-    });
-
-    it("refuses arrays, null and primitives", () => {
-        expect(recordOf([1, 2])).toBeNull();
-        expect(recordOf(null)).toBeNull();
-        expect(recordOf("text")).toBeNull();
-        expect(recordOf(3)).toBeNull();
-        expect(recordOf(undefined)).toBeNull();
-    });
-});
-
-describe("eventMessage", () => {
-    it("reads the message the adapter sent", () => {
-        expect(eventMessage(event("error", { message: "rate limited" }))).toBe("rate limited");
-    });
-
-    it("falls back when the message is missing or not text", () => {
-        expect(eventMessage(event("error", {}))).toBe("ACP session failed");
-        expect(eventMessage(event("error", { message: 42 }))).toBe("ACP session failed");
-    });
-});
-
 describe("statusFromEvent", () => {
-    it("passes every known state through", () => {
-        for (const state of ["starting", "initializing", "ready", "stopped", "error"] as const)
-            expect(statusFromEvent(event("status", { state }))).toBe(state);
-    });
-
     it("reads anything else as still connecting", () => {
         expect(statusFromEvent(event("status", { state: "warming" }))).toBe("connecting");
         expect(statusFromEvent(event("status", {}))).toBe("connecting");

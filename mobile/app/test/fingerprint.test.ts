@@ -69,8 +69,7 @@ describe('the Rust client in the fingerprint', () => {
 
   it('counts the crates sikemux-mobile links in this workspace, and none the desktop app alone uses', () => {
     const sources = rustClientSources(new URL('../../../src-tauri', import.meta.url).pathname);
-    expect(sources.crates).toEqual(expect.arrayContaining(['sikemux-core', 'sikemux-mobile', 'workspace-hack']));
-    expect(sources.crates.some((dir: string) => dir.startsWith('sikemux-plugin') || dir === 'sikemux-keychain')).toBe(false);
+    expect(sources.crates).toEqual(['sikemux-client', 'sikemux-mobile', 'sikemux-wire']);
     expect(sources.locked).toMatch(/^iroh /m);
     expect(sources.locked).not.toMatch(/^(tauri|wry|tao) /m);
     expect(sources.settings).not.toMatch(/^version = /m);
@@ -82,8 +81,9 @@ describe('the Rust client in the fingerprint', () => {
     expect(named).toEqual(
       expect.arrayContaining([
         '../../rust-toolchain.toml',
+        '../../src-tauri/crates/sikemux-client',
         '../../src-tauri/crates/sikemux-mobile',
-        '../../src-tauri/crates/workspace-hack',
+        '../../src-tauri/crates/sikemux-wire',
         'rust/locked',
         'rust/workspace',
       ]),

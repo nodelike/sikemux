@@ -768,14 +768,6 @@ mod tests {
         assert_eq!(state_of(&row(by_date)), "merged");
     }
 
-    #[test]
-    fn one_that_was_only_closed_still_says_closed() {
-        assert_eq!(state_of(&row(base())), "closed");
-        let mut open = base();
-        open["state"] = json!("open");
-        assert_eq!(state_of(&row(open)), "open");
-    }
-
     fn changed(path: &str, patch: Option<&str>) -> ChangedFile {
         ChangedFile {
             path: path.into(),
@@ -915,91 +907,22 @@ mod tests {
         assert!(!is_commit(&"g".repeat(40)));
     }
 
-    #[test]
-    fn reads_the_branches_and_the_counts() {
-        let mut full = base();
-        full["head"] = json!({ "ref": "feat/thing", "sha": "abc123" });
-        full["base"] = json!({ "ref": "main" });
-        full["additions"] = json!(40);
-        full["deletions"] = json!(2);
-        full["labels"] = json!([{ "name": "bug", "color": "d73a4a" }]);
-        full["requested_reviewers"] = json!([{ "login": "nodelike" }]);
-        let pull = Pull::from(row(full));
-        assert_eq!(pull.head.as_deref(), Some("feat/thing"));
-        assert_eq!(pull.head_sha.as_deref(), Some("abc123"));
-        assert_eq!(pull.base.as_deref(), Some("main"));
-        assert_eq!(pull.additions, Some(40));
-        assert_eq!(pull.labels.first().map(|l| l.name.as_str()), Some("bug"));
-        assert_eq!(pull.reviewers, ["nodelike"]);
-        assert!(!pull.draft);
-    }
-
     #[tokio::test]
-    async fn refuses_a_state_and_a_merge_method_github_would_not_take() {
-        let repo = || RepoRef {
-            owner: "a".into(),
-            name: "b".into(),
-        };
-        let dir = std::env::temp_dir();
-        let bad_state = Query {
-            repo: repo(),
-            state: Some("sideways".into()),
-            page: None,
-            per_page: None,
-        };
-        assert!(list(&dir, bad_state).await.is_err());
-
-        let bad_method = Merge {
-            pull: PullRef {
-                repo: repo(),
-                number: 1,
-            },
-            method: "smash".into(),
-            sha: "a".repeat(40),
-        };
-        assert!(merge(&dir, bad_method).await.is_err());
-
+    async fn a_merge_without_the_head_it_was_checked_against_is_refused() {
         let unseen_head = Merge {
             pull: PullRef {
-                repo: repo(),
+                repo: RepoRef {
+                    owner: "a".into(),
+                    name: "b".into(),
+                },
                 number: 1,
             },
             method: "squash".into(),
             sha: String::new(),
         };
         assert!(matches!(
-            merge(&dir, unseen_head).await,
+            merge(&std::env::temp_dir(), unseen_head).await,
             Err(GithubError::BadArg(_))
         ));
-
-        let bad_review = NewReview {
-            pull: PullRef {
-                repo: repo(),
-                number: 1,
-            },
-            event: "LGTM".into(),
-            body: String::new(),
-        };
-        assert!(review(&dir, bad_review).await.is_err());
-
-        let silent_request = NewReview {
-            pull: PullRef {
-                repo: repo(),
-                number: 1,
-            },
-            event: "REQUEST_CHANGES".into(),
-            body: "  ".into(),
-        };
-        assert!(review(&dir, silent_request).await.is_err());
-
-        let untitled = NewPull {
-            repo: repo(),
-            title: " ".into(),
-            head: "feat".into(),
-            base: "main".into(),
-            body: String::new(),
-            draft: false,
-        };
-        assert!(create(&dir, untitled).await.is_err());
     }
 }

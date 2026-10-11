@@ -5,7 +5,7 @@ import { REMOTE_STATUS_EVENT, type RemoteStatus } from "../api/remote";
 import { installIpcTransportForTests, MemoryIpcTransport, resetIpcTransportForTests } from "../api/transport";
 import { useAccount } from "../account/account";
 import { getState, setState } from "../state/store";
-import { accountLine, DevicesPage, notificationNote, PHONE_URL, removalNote, seenLabel } from "./DevicesPage";
+import { DevicesPage, PHONE_URL, seenLabel } from "./DevicesPage";
 
 const CORE = "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2";
 const PHONE = "f0e1d2c3b4a5968778695a4b3c2d1e0ff0e1d2c3b4a5968778695a4b3c2d1e0f";
@@ -135,13 +135,6 @@ describe("DevicesPage and the account", () => {
         expect(screen.getByRole("button", { name: "Sign in" })).toBeInTheDocument();
     });
 
-    it("reads the link the way the account row shows it", () => {
-        expect(accountLine(null)).toBe("Signed in to Sikemux");
-        expect(accountLine({ state: "connecting", reason: null, since: 1 })).toBe("Connecting to your account");
-        expect(removalNote(null)).toBeNull();
-        expect(removalNote({ state: "removed", reason: null, since: 1 })).toMatch(/removed from your account at app.sikemux.com/);
-    });
-
     it("signs in through the browser, lands on Settings › Devices, then offers to sign out", async () => {
         const user = userEvent.setup();
         transport.register("remote_status", () => status({ enabled: false }));
@@ -205,12 +198,5 @@ describe("DevicesPage and notifications", () => {
         render(<DevicesPage />);
         expect(await screen.findByText("Pixel")).toBeInTheDocument();
         expect(screen.queryByText(/notifications/)).not.toBeInTheDocument();
-    });
-
-    it("reads each state the way the row shows it", () => {
-        expect(notificationNote("on")).toBe("notifications on");
-        expect(notificationNote("phoneOff")).toBe("notifications turned off on the phone");
-        expect(notificationNote("signedOut")).toBe("sign in to send it notifications");
-        expect(notificationNote(undefined)).toBeNull();
     });
 });

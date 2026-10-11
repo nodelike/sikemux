@@ -8,15 +8,14 @@ use std::collections::{BTreeMap, HashMap};
 use std::io::{self, Read};
 use std::path::PathBuf;
 
+use crate::cli::{CliOpenRequest, HarnessRequest};
+use crate::pty::agent_detection::{DetectionExplain, ManifestReloadReport};
+use crate::pty::launch::{PtyContext, PtyDirectCommand};
+use crate::pty::output_log::{OutputPage, OutputQuery};
+use crate::pty::shell_protocol::{PtyShellMetadataEvent, ShellMetadataSnapshot};
+use crate::pty::task::{TaskSource, TaskSpawnRequest};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use sikemux_pty::agent_detection::{DetectionExplain, ManifestReloadReport};
-use sikemux_pty::launch::{PtyContext, PtyDirectCommand};
-use sikemux_pty::output_log::{OutputPage, OutputQuery};
-use sikemux_pty::shell_protocol::{PtyShellMetadataEvent, ShellMetadataSnapshot};
-use sikemux_pty::task::{TaskSource, TaskSpawnRequest};
-
-use crate::cli::protocol::{CliOpenRequest, HarnessRequest};
 
 pub const PROTOCOL: &str = "sikemux-core";
 pub const PROTOCOL_VERSION: u32 = 10;

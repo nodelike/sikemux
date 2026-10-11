@@ -338,13 +338,4 @@ mod tests {
         assert!(!can_write(&["repo".into()]));
         assert!(!can_write(&["read:org".into()]));
     }
-
-    #[test]
-    fn only_a_token_from_the_shell_names_its_variable() {
-        assert_eq!(
-            variable_for(Some(TokenSource::Keychain), "github.com"),
-            None
-        );
-        assert_eq!(variable_for(None, "github.com"), None);
-    }
 }

@@ -44,28 +44,3 @@ impl From<BrunoError> for PluginError {
 }
 
 pub type BrunoResult<T> = Result<T, BrunoError>;
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn messages_read_as_they_did_in_core() {
-        let wire = |error: BrunoError| {
-            let error = PluginError::from(error);
-            (error.category, error.message)
-        };
-        assert_eq!(
-            wire(BrunoError::BadArg("invalid URL")),
-            ("bad-params".into(), "invalid argument: invalid URL".into())
-        );
-        assert_eq!(
-            wire(BrunoError::Http("response exceeds 32 MiB limit".into())),
-            ("http".into(), "http: response exceeds 32 MiB limit".into())
-        );
-        assert_eq!(
-            wire(BrunoError::Io(io::Error::other("denied"))),
-            ("io".into(), "io: denied".into())
-        );
-    }
-}

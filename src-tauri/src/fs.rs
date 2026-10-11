@@ -174,6 +174,45 @@ fn mark_ignored(listings: &mut [DirListing]) {
     }
 }
 
+/// A screenshot dragged straight from the macOS thumbnail lives in a folder
+/// only the app it was dropped on may open, and only until the thumbnail goes.
+fn is_screenshot_thumbnail(path: &str) -> bool {
+    path.contains("/TemporaryItems/NSIRD_screencaptureui_")
+}
+
+/// Copy dropped screenshot thumbnails somewhere an agent can read them, and
+/// answer every path with the one to hand on.
+#[tauri::command]
+pub async fn keep_dropped_paths(paths: Vec<String>) -> AppResult<Vec<String>> {
+    spawn_blocking(move || {
+        let dir = std::env::temp_dir().join("sikemux-drops");
+        paths
+            .into_iter()
+            .map(|path| {
+                if !is_screenshot_thumbnail(&path) {
+                    return path;
+                }
+                keep_copy(Path::new(&path), &dir).unwrap_or(path)
+            })
+            .collect()
+    })
+    .await
+    .map_err(|e| AppError::Other(format!("keep_dropped_paths join: {e}")))
+}
+
+fn keep_copy(source: &Path, dir: &Path) -> Option<String> {
+    let name = source.file_name()?;
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()?
+        .as_millis();
+    let target_dir = dir.join(stamp.to_string());
+    fs::create_dir_all(&target_dir).ok()?;
+    let target = target_dir.join(name);
+    fs::copy(source, &target).ok()?;
+    Some(target.to_string_lossy().into_owned())
+}
+
 /// How many paths one batch may ask about. A transcript on screen mentions
 /// far fewer than this; the cap is what stops a runaway caller.
 const PATH_KINDS_MAX: usize = 256;

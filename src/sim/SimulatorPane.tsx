@@ -28,7 +28,7 @@ import { confirmDialog } from "../state/dialog";
 import { useSimulatorActing, useSimulatorAttachments } from "../state/simulatorAgents";
 import { getState, useStore } from "../state/store";
 import type { DeskSimulator } from "../state/types";
-import { notify, reportError } from "../state/toast";
+import { errMessage as message, notify, reportError } from "../state/toast";
 import { Dropdown } from "../ui/Dropdown";
 import { IconCamera, IconHome, IconLock, IconPhone, IconPower, IconRotate, IconTablet } from "../ui/Icons";
 import { EmptyState } from "../ui/Panel";
@@ -55,8 +55,6 @@ export interface CanvasBox {
     height: number;
     rect: { left: number; top: number; width: number; height: number };
 }
-
-const message = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
 export const isIosDevice = (device: SimDevice): boolean => /^(iOS|iPadOS)\b/.test(device.runtime);
 
@@ -249,7 +247,12 @@ export function SimulatorPane({
     const device = devices?.find((candidate) => candidate.udid === simulator.udid) ?? null;
     const udid = device?.udid ?? null;
     const booted = device?.state === "booted";
-    const starting = power === "booting" || device?.state === "busy";
+    const lastSettled = useRef<{ udid: string; booted: boolean } | null>(null);
+    if (device && device.state !== "busy") lastSettled.current = { udid: device.udid, booted };
+    const wasBooted = lastSettled.current?.udid === udid && lastSettled.current.booted;
+    const transition = power ?? (device?.state === "busy" ? (wasBooted ? "shuttingDown" : "booting") : null);
+    const starting = transition === "booting";
+    const stopping = transition === "shuttingDown";
     const agentType = useStore((state) => state.agents[agentId]?.type);
     const agentName = agentType ? AGENT_NAMES[agentType] : "The agent";
     const attachments = useSimulatorAttachments();
@@ -496,7 +499,7 @@ export function SimulatorPane({
     };
 
     const togglePower = async () => {
-        if (!udid || power || starting) return;
+        if (!udid || transition) return;
         setActionProblem(null);
         const holder = Object.values(attachments).find((attachment) => attachment.udid === udid);
         if (booted && holder) {
@@ -534,7 +537,6 @@ export function SimulatorPane({
         action(() => simApi.screenshot(udid, path).then(() => notify("success", "Screenshot saved to the Desktop")));
     };
 
-    const busy = !!power || starting;
     const chromeParts = (
         <>
             {chrome.dot && booted && createPortal(<span className="sim-live" aria-label="Running" />, chrome.dot)}
@@ -555,8 +557,8 @@ export function SimulatorPane({
                         </SimTool>
                         <span className="sim-tools-gap" />
                         <SimTool
-                            label={starting ? "Booting…" : power === "shuttingDown" ? "Shutting down…" : booted ? "Shut down" : "Boot"}
-                            disabled={!udid || busy}
+                            label={starting ? "Booting…" : stopping ? "Shutting down…" : booted ? "Shut down" : "Boot"}
+                            disabled={!udid || !!transition}
                             onClick={() => void togglePower()}>
                             <IconPower size={14} />
                         </SimTool>
@@ -709,8 +711,11 @@ export function SimulatorPane({
                             )
                         )}
                     </>
-                ) : starting ? (
-                    <EmptyState icon={<span className="loading-ring" />} message={`Booting ${device?.name ?? "the device"}…`} />
+                ) : transition ? (
+                    <EmptyState
+                        icon={<span className="loading-ring" />}
+                        message={`${starting ? "Booting" : "Shutting down"} ${device?.name ?? "the device"}…`}
+                    />
                 ) : (
                     <EmptyState
                         message={device ? `${device.name} is not running.` : "Pick a device."}

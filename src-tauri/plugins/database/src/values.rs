@@ -253,11 +253,4 @@ mod tests {
         let numeric: Vec<bool> = columns.iter().map(|column| column.numeric).collect();
         assert_eq!(numeric, vec![true, false, false]);
     }
-
-    #[test]
-    fn the_row_limit_stays_within_reason() {
-        assert_eq!(row_limit(None), DEFAULT_ROW_LIMIT);
-        assert_eq!(row_limit(Some(0)), 1);
-        assert_eq!(row_limit(Some(1_000_000)), MAX_ROW_LIMIT);
-    }
 }

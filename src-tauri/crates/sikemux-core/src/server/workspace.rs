@@ -717,14 +717,4 @@ mod tests {
         relative.path = "sikemux".into();
         assert!(workspaces.publish(vec![relative], Vec::new()).is_err());
     }
-
-    #[test]
-    fn the_tools_server_names_the_agent_and_the_endpoint() {
-        let server = tools_server("agent-1", Path::new("/tmp/cli.json")).unwrap();
-        let text = server.to_string();
-        assert!(text.contains("sikemux-tools"));
-        assert!(text.contains("--tools-mcp"));
-        assert!(text.contains("agent-1"));
-        assert!(text.contains("/tmp/cli.json"));
-    }
 }

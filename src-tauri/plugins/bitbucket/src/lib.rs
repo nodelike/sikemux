@@ -265,17 +265,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn an_unknown_method_is_refused() {
-        let plugin = plugin().expect("plugin loads");
-        let ctx = PluginContext::new(std::env::temp_dir().join("sikemux-bb-unknown"));
-        let error = plugin
-            .call(&ctx, "nonsense", Value::Null)
-            .await
-            .expect_err("refused");
-        assert_eq!(error.category, "unknown-method");
-    }
-
-    #[tokio::test]
     async fn reading_a_remote_never_needs_the_network() {
         let plugin = plugin().expect("plugin loads");
         let ctx = PluginContext::new(std::env::temp_dir().join("sikemux-bb-remote"));

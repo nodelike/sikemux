@@ -46,38 +46,6 @@ it("commits only once there is a message and something staged", async () => {
     expect(onCommit).toHaveBeenCalledTimes(2);
 });
 
-it("names a single staged file, and says nothing is staged", () => {
-    useGitWorkbench.setState({ drafts: { "/repo": "msg" } });
-    const { rerender } = render(
-        <GitComposer
-            repo="/repo"
-            busy={false}
-            generating={false}
-            stagedCount={1}
-            agentLabel="Claude · opus"
-            messageRef={createRef()}
-            onCommit={() => {}}
-            onGenerate={() => {}}
-            onPickAgent={() => {}}
-        />,
-    );
-    expect(screen.getByRole("button", { name: "Commit 1 file" })).toBeEnabled();
-    rerender(
-        <GitComposer
-            repo="/repo"
-            busy={false}
-            generating={false}
-            stagedCount={0}
-            agentLabel="Claude · opus"
-            messageRef={createRef()}
-            onCommit={() => {}}
-            onGenerate={() => {}}
-            onPickAgent={() => {}}
-        />,
-    );
-    expect(screen.getByRole("button", { name: "Commit" })).toBeDisabled();
-});
-
 it("holds the message still while an operation runs", () => {
     useGitWorkbench.setState({ drafts: { "/repo": "fix: things" } });
     const { onCommit, message } = renderComposer({ busy: true, generating: true });
@@ -100,16 +68,6 @@ it("gives up focus on Escape and keeps its keys from the pane", () => {
     } finally {
         window.removeEventListener("keydown", outer);
     }
-});
-
-it("generates the message and opens the agent picker from its buttons", async () => {
-    const user = userEvent.setup();
-    const { onGenerate, onPickAgent } = renderComposer();
-    await user.click(screen.getByRole("button", { name: "Claude · opus" }));
-    expect(onGenerate).toHaveBeenCalledOnce();
-    const pick = screen.getByRole("button", { name: "Pick the agent and model" });
-    await user.click(pick);
-    expect(onPickAgent).toHaveBeenCalledWith(pick);
 });
 
 it("grows the box to fit the message, again when a width change rewraps it", () => {

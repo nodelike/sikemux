@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { ChatState, type ChatInfo } from '@/core/protocol';
-import { age, ago, chatState, chatTitle, folder, providerName } from '@/devices/words';
+import { age, ago, chatState, folder } from '@/devices/words';
 
 function chat(overrides: Partial<ChatInfo> = {}): ChatInfo {
   return {
@@ -19,38 +19,13 @@ function chat(overrides: Partial<ChatInfo> = {}): ChatInfo {
   };
 }
 
-describe('providerName', () => {
-  it('names the agents the host knows', () => {
-    expect(providerName('claude')).toBe('Claude Code');
-    expect(providerName('omp')).toBe('OMP');
-  });
-
-  it('shows an unknown provider as it came', () => {
-    expect(providerName('aider')).toBe('aider');
-  });
-});
-
 describe('folder', () => {
-  it('is the last part of a path', () => {
-    expect(folder('/Users/me/project')).toBe('project');
-  });
-
   it('ignores a trailing slash', () => {
     expect(folder('/Users/me/project/')).toBe('project');
   });
 
   it('keeps the root as it is', () => {
     expect(folder('/')).toBe('/');
-  });
-});
-
-describe('chatTitle', () => {
-  it("uses the agent's title", () => {
-    expect(chatTitle(chat({ title: 'Fix the build' }))).toBe('Fix the build');
-  });
-
-  it('names an untitled chat after its agent', () => {
-    expect(chatTitle(chat({ provider: 'codex' }))).toBe('New Codex chat');
   });
 });
 

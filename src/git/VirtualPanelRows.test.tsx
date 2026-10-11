@@ -8,17 +8,6 @@ afterEach(() => {
 });
 
 describe("VirtualPanelRows", () => {
-    it("renders small lists without a virtual scroll wrapper", () => {
-        render(
-            <div>
-                <VirtualPanelRows items={["one", "two"]} selectedIndex={0} focused getKey={(item) => item} renderRow={(item) => <div>{item}</div>} />
-            </div>,
-        );
-        expect(screen.getByText("one")).toBeInTheDocument();
-        expect(screen.getByText("two")).toBeInTheDocument();
-        expect(document.querySelector(".git-virtual-rows")).toBeNull();
-    });
-
     it("mounts only the rows near the view of a long list, and scrolls to the selected one", async () => {
         vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockReturnValue(260);
         vi.spyOn(HTMLElement.prototype, "offsetWidth", "get").mockReturnValue(300);

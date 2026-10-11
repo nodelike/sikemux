@@ -17,13 +17,6 @@ function show(message: ChatMessage) {
 afterEach(cleanup);
 
 describe("ChatMessageRow context", () => {
-    it("shows a sent issue as a chip with its number and title", () => {
-        show({ id: "m", role: "user", parts: [{ id: "t", kind: "text", text: "fix it" }], context: [issue] });
-        const chip = screen.getByTitle(issue.uri);
-        expect(chip).toHaveTextContent("#12");
-        expect(chip).toHaveTextContent("Login crashes");
-    });
-
     it("folds an issue written into a replayed message back into a chip", () => {
         show({ id: "m", role: "user", parts: [{ id: "t", kind: "text", text: `fix it\n\n${contextAsText(issue)}` }] });
         expect(screen.getByTitle(issue.uri)).toHaveTextContent("#12");

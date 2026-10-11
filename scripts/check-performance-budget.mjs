@@ -143,11 +143,12 @@ const budgets = [
     // agent built and shows sits in its reply too. The transcript lays itself
     // out from the bottom, and tool rows draw an icon for what each call does.
     // A sent message can be opened again, edited and sent in its place.
-    // GitLab's agent tools add their rows.
+    // GitLab's agent tools add their rows. A finished answer folds its work
+    // under how long it took.
     label: "ACP chat lazy chunk",
     pattern: /^AgentSurface-.*\.js$/,
-    raw: 136_000,
-    gzip: 42_000,
+    raw: 139_000,
+    gzip: 43_000,
   },
   {
     // Shiki, its JavaScript regex engine and vscode-textmate, with no
@@ -200,14 +201,15 @@ const budgets = [
     // transcripts, background tasks, queued messages, the reconnect states,
     // code block copy buttons, the composer microphone, a tool call's output,
     // context chips, the resuming states, a terminal agent's among them,
-    // attached files drawn as cards, the agent header floated as pills, and
-    // the editor a sent message opens in to be written again. It
+    // attached files drawn as cards, the agent header floated as pills, the
+    // editor a sent message opens in to be written again, and the line a
+    // finished answer's work folds under. It
     // is one lazily loaded sheet behind an agent pane, so this buys those rows
     // room without touching what the app loads at startup.
     // Lightning CSS, Vite's minifier, keeps the spaces inside color-mix().
     label: "ACP chat CSS",
     pattern: /^AgentSurface-.*\.css$/,
-    raw: 50_500,
+    raw: 51_500,
     gzip: 9_300,
   },
   {

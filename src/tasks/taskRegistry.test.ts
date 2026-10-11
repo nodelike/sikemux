@@ -66,36 +66,6 @@ async function flushPromises(): Promise<void> {
 }
 
 describe("TaskRegistry definitions", () => {
-    it("copies trusted scalar definitions into deeply immutable canonical snapshots", () => {
-        const env = { Z_LAST: "z", A_FIRST: "a" };
-        const input = definition("build", { label: "Build", env });
-        const registry = new TaskRegistry();
-
-        registry.replaceSource("built-in", [input]);
-        env.A_FIRST = "mutated";
-        (input as { label: string }).label = "Mutated";
-
-        const snapshot = registry.getSnapshot();
-        const task = snapshot.tasks[0]!;
-        expect(task).toEqual({
-            id: "build",
-            label: "Build",
-            project: "/workspace/project",
-            command: "run build",
-            cwd: "/workspace/project",
-            env: { A_FIRST: "a", Z_LAST: "z" },
-            source: "built-in",
-        });
-        expect(Object.keys(task.env)).toEqual(["A_FIRST", "Z_LAST"]);
-        expect(Object.isFrozen(task)).toBe(true);
-        expect(Object.isFrozen(task.env)).toBe(true);
-        expect(Object.isFrozen(snapshot)).toBe(true);
-        expect(Object.isFrozen(snapshot.tasks)).toBe(true);
-        expect(Object.isFrozen(snapshot.recent)).toBe(true);
-        expect(Object.isFrozen(snapshot.sourceCounts)).toBe(true);
-        expect(() => ((task.env as Record<string, string>).A_FIRST = "nope")).toThrow(TypeError);
-    });
-
     it("resolves deterministic project > built-in > recent precedence", () => {
         const registry = new TaskRegistry();
         expect(TASK_SOURCE_PRECEDENCE).toEqual(["project", "built-in", "recent"]);

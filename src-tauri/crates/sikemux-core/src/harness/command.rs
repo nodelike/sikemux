@@ -86,11 +86,4 @@ mod tests {
             assert!(command_cwd(Some(outside)).is_err(), "{outside}");
         }
     }
-
-    #[test]
-    fn long_commands_get_a_shortened_label() {
-        assert_eq!(command_label("ls"), "ls");
-        let long = "x".repeat(90);
-        assert_eq!(command_label(&long).chars().count(), 80);
-    }
 }

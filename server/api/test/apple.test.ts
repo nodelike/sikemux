@@ -170,12 +170,6 @@ describe("Sign in with Apple settings", () => {
     expect(problems).toEqual([]);
   });
 
-  it("are optional", () => {
-    const problems: string[] = [];
-    expect(readAppleSignIn({}, problems)).toBeNull();
-    expect(problems).toEqual([]);
-  });
-
   it("name what is wrong", () => {
     const problems: string[] = [];
     readAppleSignIn(

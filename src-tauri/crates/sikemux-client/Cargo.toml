@@ -1,0 +1,28 @@
+[package]
+name = "sikemux-client"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Talking to a core: on this machine, from a paired device, and joining a host"
+
+# The phone links this crate, so it stays out of workspace-hack: the desktop
+# app's dependencies must not decide when the phone needs a store build.
+[dependencies]
+base64 = "0.22"
+iroh = { version = "1.3", default-features = false, features = ["tls-ring"] }
+semver = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+sikemux-wire = { path = "../sikemux-wire" }
+thiserror = "1"
+tokio = { version = "1", features = ["io-util", "net", "rt", "sync", "time"] }
+tokio-rustls = { version = "0.26", default-features = false, features = ["logging", "ring"] }
+url = "2"
+webpki-roots = "1"
+
+[dev-dependencies]
+hex = "0.4"
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+
+[lints.clippy]
+undocumented_unsafe_blocks = "deny"

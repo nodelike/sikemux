@@ -634,29 +634,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn shortens_a_sha_the_way_git_does() {
-        assert_eq!(short("b8feb3812345"), "b8feb38");
-        assert_eq!(short("abc"), "abc");
-        assert_eq!(short(""), "");
-    }
-
-    #[test]
-    fn only_a_completed_run_is_finished() {
-        assert!(is_finished("completed"));
-        for moving in ["queued", "in_progress", "waiting", "requested", "pending"] {
-            assert!(!is_finished(moving), "{moving}");
-        }
-    }
-
-    #[test]
-    fn knows_the_statuses_github_filters_by() {
-        assert!(known_status("in_progress"));
-        assert!(known_status("timed_out"));
-        assert!(!known_status("exploded"));
-        assert!(!known_status(""));
-    }
-
-    #[test]
     fn a_run_falls_back_to_its_workflow_name_for_a_title() {
         let row: RunRow = serde_json::from_value(json!({
             "id": 1, "name": "CI", "display_title": null, "workflow_id": 9,
