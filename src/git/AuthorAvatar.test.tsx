@@ -16,13 +16,6 @@ describe("initials", () => {
 describe("AuthorAvatar", () => {
     const withPictures = (pictures: AuthorPictures, node: ReactNode) => <AuthorPicturesProvider value={pictures}>{node}</AuthorPicturesProvider>;
 
-    it("shows initials on the author's own colour without a code host", () => {
-        const { container } = render(<AuthorAvatar name="Ada Lovelace" email="ada@example.test" />);
-        const avatar = container.querySelector(".gg-avatar")!;
-        expect(avatar).toHaveTextContent("AL");
-        expect(avatar).toHaveStyle({ background: authorColor("ada@example.test") });
-    });
-
     it("swaps in the host's picture once it loads, and reuses it without loading again", async () => {
         const pictures = { pictureFor: vi.fn(() => "https://host.test/ada.png"), load: vi.fn(async () => "data:image/png;base64,ADA") };
         const first = render(withPictures(pictures, <AuthorAvatar name="Ada" email="ada@example.test" />));

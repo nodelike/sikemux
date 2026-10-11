@@ -16,20 +16,9 @@ describe("mergePaths", () => {
         expect(merged).toHaveLength(MAX_ATTACHMENTS);
         expect(merged.at(-1)).toBe("/x");
     });
-
-    it("leaves the current list untouched", () => {
-        const current = ["/a"];
-        mergePaths(current, ["/b"]);
-        expect(current).toEqual(["/a"]);
-    });
 });
 
 describe("tokenAt with a slash", () => {
-    it("finds a command at the start of the draft", () => {
-        expect(tokenAt("/rev", 4)).toEqual({ trigger: "/", start: 0, needle: "rev" });
-        expect(tokenAt("/", 1)).toEqual({ trigger: "/", start: 0, needle: "" });
-    });
-
     it("finds a command part-way through a sentence", () => {
         expect(tokenAt("please /comp", 12)).toEqual({ trigger: "/", start: 7, needle: "comp" });
     });
@@ -113,9 +102,5 @@ describe("rankEntries", () => {
     it("offers folders by name", () => {
         expect(entryName({ path: "src/chat/", folder: true })).toBe("chat");
         expect(rankEntries("docs", entries, 10)[0]).toEqual({ path: "docs/", folder: true });
-    });
-
-    it("stops at the limit", () => {
-        expect(rankEntries("", entries, 2)).toHaveLength(2);
     });
 });

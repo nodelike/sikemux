@@ -2,12 +2,12 @@ import { useEffect, useMemo, useSyncExternalStore } from 'react';
 import { AppState } from 'react-native';
 import { CoreEvent, MobileError, type ConnectionLike, type CoreListener } from '@sikemux/native';
 
-import { channelName, type Snapshot } from '@/core/protocol';
+import { keepUnchanged, readHost, readView, type Snapshot } from '@/core/protocol';
 import { goOffline, thisDevice } from '@/device/identity';
 import { onNetworkChange } from '@/network/connectivity';
 import { dismissHostCards, reconcileCards } from '@/notify/cards';
-import { shareKey, withdrawKey, type Shared } from '@/notify/keys';
-import { forgetDevice, pairedDevices, pairedListDamaged, startOver, updateDevice, type PairedDevice } from './paired';
+import { shareKey, withdrawKey } from '@/notify/keys';
+import { forgetDevice, pairedDevices, pairedListDamaged, readAgain, updateDevice, type PairedDevice } from './paired';
 import { hostStatus, type HostStatus } from './status';
 
 export type Live =
@@ -22,21 +22,19 @@ export type Outdated = 'host' | 'phone';
 /** One of a chat's events as the host numbered it. */
 export type ChatDelivery = { agentId: string; seq: bigint; eventJson: string };
 
-export type { HostStatus } from './status';
-
 /** A device nobody is looking at keeps its connection this long, for a quick return. */
 const LINGER_MS = 30_000;
 const RETRY_MS = [1000, 3000, 8000, 15_000, 30_000];
 /** A connection that lasted this long dropped by chance; one that drops sooner counts as another failed try. */
 const STEADY_MS = 20_000;
+/** Tries a dropped connection gets before the host is shown as unreachable; until then it reads as reconnecting. */
+const PATIENT_TRIES = 3;
 /** A host that does not answer the unpair in this time is forgotten on the phone anyway. */
 const UNPAIR_WAIT_MS = 3000;
 /** Glancing at another app keeps the connections; staying away longer lets them go. */
 const AWAY_MS = 10_000;
 /** After the phone changes network, a connection that cannot answer in this time is replaced. */
 const CHECK_MS = 5000;
-/** Terminal output that arrives within this long is handed over together. */
-const OUTPUT_FRAME_MS = 16;
 
 const UNPAIRED = 'This host no longer knows this phone. Forget it, then connect again.';
 const DAMAGED = "The list of paired hosts couldn't be read, so it was started again. Connect your hosts again.";
@@ -49,15 +47,14 @@ type Entry = {
   openedAt?: number;
   /** Why the last try failed, until one succeeds or the connection is let go on purpose. */
   failure?: string;
+  /** A connection that was up dropped without the phone asking, and it is being made again. */
+  recovering?: boolean;
   opening?: Promise<void>;
   /** The connection being made or held; a listener of any other is ignored. */
   current?: object;
   retrying?: ReturnType<typeof setTimeout>;
   lingering?: ReturnType<typeof setTimeout>;
   chats: Set<(deliveries: ChatDelivery[]) => void>;
-  output: Set<(session: bigint, bytes: ArrayBuffer) => void>;
-  pendingOutput: Map<bigint, Uint8Array[]>;
-  flushing?: ReturnType<typeof setTimeout>;
 };
 
 const CONNECTING: Live = { status: 'connecting' };
@@ -108,8 +105,6 @@ function entry(core: string): Entry {
       watchers: 0,
       attempt: 0,
       chats: new Set(),
-      output: new Set(),
-      pendingOutput: new Map(),
     };
     if (!forgotten.has(core)) entries.set(core, found);
   }
@@ -153,21 +148,15 @@ export async function reloadDevices() {
   changed();
 }
 
-/** Clears a damaged list of paired hosts, and the problem it showed. */
-export async function startDevicesOver() {
-  await startOver();
+/** Reads the list of paired hosts from disk again, clearing the problem it showed if it now reads cleanly. */
+export async function readDevicesAgain() {
+  await readAgain();
   await reloadDevices();
 }
 
 function stopTimers(found: Entry) {
   clearTimeout(found.retrying);
   clearTimeout(found.lingering);
-}
-
-function stopOutput(found: Entry) {
-  clearTimeout(found.flushing);
-  found.flushing = undefined;
-  found.pendingOutput.clear();
 }
 
 function scheduleRetry(core: string, found: Entry) {
@@ -178,56 +167,48 @@ function scheduleRetry(core: string, found: Entry) {
   found.retrying = setTimeout(() => open(core), wait * (0.8 + Math.random() * 0.4));
 }
 
-function release(found: Entry) {
+function release(core: string, found: Entry) {
   stopTimers(found);
-  stopOutput(found);
   found.current = undefined;
-  if (found.live.status === 'open') found.live.connection.close();
+  if (found.live.status === 'open') {
+    found.live.connection.close();
+    // "Seen 5m ago" means when the phone last had the host, which is when a live connection ends.
+    if (!forgotten.has(core)) updateDevice(core, { lastSeen: Date.now() }).then(reloadDevices, () => {});
+  }
   if (found.openedAt !== undefined && Date.now() - found.openedAt >= STEADY_MS) found.attempt = 0;
   found.openedAt = undefined;
 }
 
 function drop(core: string, reason: string, error?: unknown) {
   const found = entry(core);
-  release(found);
+  release(core, found);
   const unpaired = MobileError.Unpaired.instanceOf(error);
+  const outdatedBy = outdated(error);
   found.failure = reason;
-  set(core, found, { status: 'closed', problem: reason, outdated: outdated(error), unpaired, snapshot: found.live.snapshot });
+  const holding = !!found.recovering && !unpaired && !outdatedBy && found.attempt < PATIENT_TRIES && found.watchers > 0 && !away;
+  if (!holding) found.recovering = false;
+  set(
+    core,
+    found,
+    holding
+      ? { status: 'connecting', snapshot: found.live.snapshot }
+      : { status: 'closed', problem: reason, outdated: outdatedBy, unpaired, snapshot: found.live.snapshot },
+  );
   if (!settled(found)) scheduleRetry(core, found);
-}
-
-function flushOutput(found: Entry) {
-  found.flushing = undefined;
-  const pending = [...found.pendingOutput];
-  found.pendingOutput.clear();
-  for (const [session, chunks] of pending) {
-    const bytes = new Uint8Array(chunks.reduce((length, chunk) => length + chunk.byteLength, 0));
-    chunks.reduce((at, chunk) => {
-      bytes.set(chunk, at);
-      return at + chunk.byteLength;
-    }, 0);
-    found.output.forEach((listen) => listen(session, bytes.buffer));
-  }
 }
 
 function listener(core: string, found: Entry, attempt: object): CoreListener {
   const current = () => found.current === attempt && entries.get(core) === found;
+  let fresh = true;
   return {
-    output(session, bytes) {
-      if (!current() || !found.output.size) return;
-      const chunks = found.pendingOutput.get(session);
-      if (chunks) chunks.push(new Uint8Array(bytes));
-      else found.pendingOutput.set(session, [new Uint8Array(bytes)]);
-      found.flushing ??= setTimeout(() => flushOutput(found), OUTPUT_FRAME_MS);
-    },
     events(events) {
       if (!current()) return;
       const chats: ChatDelivery[] = [];
-      let view: Snapshot | undefined;
+      let viewJson: string | undefined;
       for (const event of events) {
         if (CoreEvent.Chat.instanceOf(event)) chats.push(event.inner);
         // Each view is whole, so of several in one batch only the last matters.
-        else if (CoreEvent.View.instanceOf(event)) view = event.inner.view;
+        else if (CoreEvent.View.instanceOf(event)) viewJson = event.inner.viewJson;
       }
       if (chats.length) {
         found.chats.forEach((listen) => {
@@ -238,13 +219,17 @@ function listener(core: string, found: Entry, attempt: object): CoreListener {
           }
         });
       }
-      if (!view) return;
+      if (viewJson === undefined) return;
+      const view = keepUnchanged(found.live.snapshot, readView(viewJson));
       // The host sends its view as soon as it lets the phone in, which can be before `connect` answers.
       set(core, found, { ...found.live, snapshot: view });
-      reconcileCards(core, view);
+      reconcileCards(core, view, fresh);
+      fresh = false;
     },
     closed() {
-      if (current() && found.live.status === 'open') drop(core, 'The connection closed.');
+      if (!current() || found.live.status !== 'open') return;
+      found.recovering = true;
+      drop(core, 'The connection closed.');
     },
   };
 }
@@ -260,7 +245,7 @@ function open(core: string): Promise<void> {
 
 async function connect(core: string, found: Entry) {
   clearTimeout(found.retrying);
-  set(core, found, { status: 'connecting', problem: found.failure, snapshot: found.live.snapshot });
+  set(core, found, { status: 'connecting', problem: found.recovering ? undefined : found.failure, snapshot: found.live.snapshot });
   const attempt = {};
   found.current = attempt;
   let connection: ConnectionLike;
@@ -281,19 +266,25 @@ async function connect(core: string, found: Entry) {
   }
   found.openedAt = Date.now();
   found.failure = undefined;
+  found.recovering = false;
   set(core, found, { status: 'open', connection, snapshot: found.live.snapshot });
   if (AppState.currentState !== 'active') connection.setForeground(false).catch(() => {});
-  shareKey(core, connection).then((shared) => noteNotifications(core, shared));
+  shareKey(core, connection).then(() => withdrawIfForgotten(core));
   connection
     .host()
-    .then((host) => updateDevice(core, { name: host.name, model: host.model, channel: channelName(host.channel), lastSeen: Date.now() }))
-    .then(reloadDevices)
+    .then(readHost)
+    .then((host) => {
+      const known = devices.find((device) => device.core === core);
+      if (known?.name === host.name && known.model === host.model && known.channel === host.channel) return;
+      return updateDevice(core, { name: host.name, model: host.model, channel: host.channel }).then(reloadDevices);
+    })
     .catch(() => {});
 }
 
 function close(core: string, found: Entry, reason: string) {
-  release(found);
+  release(core, found);
   found.failure = undefined;
+  found.recovering = false;
   set(core, found, { status: 'closed', problem: reason, snapshot: found.live.snapshot });
 }
 
@@ -301,6 +292,7 @@ function close(core: string, found: Entry, reason: string) {
 function reconnect(core: string, found: Entry, reason: string) {
   close(core, found, reason);
   found.attempt = 0;
+  found.recovering = true;
   open(core);
 }
 
@@ -319,20 +311,9 @@ export function watch(core: string) {
   };
 }
 
-/** Whether each host took this phone's notification key on its last connection. */
-const notifications = new Map<string, Shared>();
-
-function noteNotifications(core: string, shared: Shared) {
-  if (forgotten.has(core)) {
-    withdrawKey(core, undefined);
-    return;
-  }
-  notifications.set(core, shared);
-  changed();
-}
-
-export function useNotificationsAt(core: string): Shared | undefined {
-  return useSyncExternalStore(subscribe, () => notifications.get(core));
+/** A host forgotten while it was taking the notification key gets it withdrawn again. */
+function withdrawIfForgotten(core: string) {
+  if (forgotten.has(core)) withdrawKey(core, undefined);
 }
 
 /** The hosts this phone holds a connection to now. */
@@ -346,7 +327,7 @@ export function openConnections(): [string, ConnectionLike][] {
 
 /** Gives every connected host the notification key again, as when notifications were just turned on. */
 export function shareKeys() {
-  openConnections().forEach(([core, connection]) => shareKey(core, connection).then((shared) => noteNotifications(core, shared)));
+  openConnections().forEach(([core, connection]) => shareKey(core, connection).then(() => withdrawIfForgotten(core)));
 }
 
 function tellForeground(foreground: boolean) {
@@ -366,7 +347,11 @@ AppState.addEventListener('change', (state) => {
     clearTimeout(leaving);
     leaving = setTimeout(() => {
       away = true;
-      entries.forEach((found, core) => close(core, found, 'Paused while the app is away.'));
+      entries.forEach((found, core) => {
+        const wasOpen = found.live.status === 'open';
+        close(core, found, 'Paused while the app is away.');
+        found.recovering = wasOpen;
+      });
       goOffline();
     }, AWAY_MS);
     return;
@@ -381,7 +366,10 @@ AppState.addEventListener('change', (state) => {
   away = false;
   entries.forEach((found, core) => {
     // A connection the phone held while it slept may be dead without having noticed yet.
-    if (found.live.status === 'open' && (wasAway || !found.live.connection.isOpen())) close(core, found, 'Reconnecting.');
+    if (found.live.status === 'open' && (wasAway || !found.live.connection.isOpen())) {
+      close(core, found, 'Reconnecting.');
+      found.recovering = true;
+    }
     if (found.watchers === 0 || found.live.status === 'open') return;
     if (found.live.status === 'closed' && found.live.unpaired) return;
     found.attempt = 0;
@@ -442,48 +430,18 @@ function useHost<T>(core: string, read: () => T): T {
   return useSyncExternalStore((listener) => subscribeHost(core, listener), read);
 }
 
-/** One device's live state; the device stays connected while this is mounted. Only that host's changes re-render. */
-export function useLive(core: string): Live {
-  useEffect(() => watch(core), [core]);
+/**
+ * One device's live state; the device stays connected while this is mounted and `watching`. Only that host's
+ * changes re-render.
+ */
+export function useLive(core: string, watching = true): Live {
+  useEffect(() => (watching ? watch(core) : undefined), [core, watching]);
   return useHost(core, () => liveOf(core));
 }
 
-function same(a: unknown, b: unknown): boolean {
-  if (Object.is(a, b)) return true;
-  if (typeof a !== 'object' || typeof b !== 'object' || a === null || b === null) return false;
-  if (a instanceof Map || b instanceof Map) {
-    if (!(a instanceof Map && b instanceof Map) || a.size !== b.size) return false;
-    return [...a].every(([key, value]) => b.has(key) && same(value, b.get(key)));
-  }
-  if (Array.isArray(a) !== Array.isArray(b)) return false;
-  const keys = Object.keys(a);
-  if (keys.length !== Object.keys(b).length) return false;
-  return keys.every((key) => same((a as Record<string, unknown>)[key], (b as Record<string, unknown>)[key]));
-}
-
-export type ChatInfo = Snapshot['chats'][number];
-
-/** The last answer for each chat, kept while new views leave it as it was so its screen does not re-render. */
-const chatInfos = new Map<string, ChatInfo | undefined>();
-
-function chatInfoOf(core: string, agentId: string): ChatInfo | undefined {
-  const key = `${core}/${agentId}`;
-  const now = liveOf(core).snapshot?.chats.find((chat) => chat.agentId === agentId);
-  const last = chatInfos.get(key);
-  if (chatInfos.has(key) && same(last, now)) return last;
-  chatInfos.set(key, now);
-  return now;
-}
-
-/** The host's latest view of one chat; re-renders only when that chat changes. */
-export function useChatInfo(core: string, agentId: string): ChatInfo | undefined {
-  useEffect(() => watch(core), [core]);
-  return useHost(core, () => chatInfoOf(core, agentId));
-}
-
-/** How a host is doing, worded as the screens show it; the device stays connected while this is mounted. */
-export function useHostStatus(core: string): HostStatus {
-  const live = useLive(core);
+/** How a host is doing, worded as the screens show it; the device stays connected while this is mounted and `watching`. */
+export function useHostStatus(core: string, watching = true): HostStatus {
+  const live = useLive(core, watching);
   const device = useSyncExternalStore(subscribe, () => devices.find((known) => known.core === core));
   return useMemo(() => hostStatus(live, device), [live, device]);
 }
@@ -502,10 +460,8 @@ export async function forget(core: string) {
   })().catch(() => {});
   await Promise.race([goodbye, new Promise((settle) => setTimeout(settle, UNPAIR_WAIT_MS))]);
   dismissHostCards(core);
-  notifications.delete(core);
-  [...chatInfos.keys()].filter((key) => key.startsWith(`${core}/`)).forEach((key) => chatInfos.delete(key));
   if (found) {
-    release(found);
+    release(core, found);
     found.live = FORGOTTEN;
   }
   entries.delete(core);
@@ -537,14 +493,5 @@ export function onChatEvents(core: string, listen: (deliveries: ChatDelivery[]) 
   found.chats.add(listen);
   return () => {
     found.chats.delete(listen);
-  };
-}
-
-/** A terminal's output from this host, gathered into one call per session for each short frame. */
-export function onOutput(core: string, listen: (session: bigint, bytes: ArrayBuffer) => void) {
-  const found = entry(core);
-  found.output.add(listen);
-  return () => {
-    found.output.delete(listen);
   };
 }

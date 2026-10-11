@@ -11,9 +11,11 @@ platforms = ["aarch64-apple-darwin"]
 # app never picks up features only they need.
 unify-target-host = "none"
 
-# The phone library builds only for phone targets, in its own target folders.
+# The phone library builds only for phone targets, in its own target folders,
+# and what it links stays out of workspace-hack so desktop dependencies never
+# change the phone's native code.
 [traversal-excludes]
-workspace-members = ["sikemux-mobile"]
+workspace-members = ["sikemux-client", "sikemux-mobile", "sikemux-wire"]
 
 # Tests turn on test-only features of these; unifying them would ship those
 # features in the app.

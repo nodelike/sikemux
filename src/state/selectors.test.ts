@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { getState, setState } from "./store";
-import { selectActiveSession, selectSession, selectSessionIds, selectWindowIds } from "./selectors";
+import { selectSession, selectSessionIds, selectWindowIds } from "./selectors";
 
 describe("narrow store selectors", () => {
     it("returns stable entity and index references across unrelated updates", () => {
@@ -16,10 +16,5 @@ describe("narrow store selectors", () => {
         expect(selectSession(sessionId)(after)).toBe(session);
         expect(selectSessionIds(after)).toBe(sessionIds);
         expect(selectWindowIds(sessionId)(after)).toBe(windowIds);
-    });
-
-    it("derives the active session without projecting whole maps", () => {
-        const state = getState();
-        expect(selectActiveSession(state)?.id).toBe(state.activeSessionId);
     });
 });

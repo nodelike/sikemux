@@ -1,4 +1,5 @@
 import { pluginDocuments } from "../../plugins/documents";
+import { forgetAgentDeliveries } from "../../agents/agentInbox";
 import { browserApi } from "../../api/browser";
 import { basename } from "../../lib/paths";
 import { taskPtyBindings } from "../../tasks/nativeRuntime";
@@ -251,6 +252,7 @@ export function disposePaneState(d: StoreState, paneId: string): void {
     dropDeskPaneState(d, paneId);
     delete d.terminalTitles[paneId];
     delete d.agents[paneId];
+    forgetAgentDeliveries(paneId);
     delete d.agentActivity[paneId];
     delete d.agentBackgroundWork[paneId];
     delete d.agentSubagents[paneId];

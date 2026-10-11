@@ -1,10 +1,10 @@
-import { useState } from 'react';
+import { memo, useEffect, useRef, useState } from 'react';
 import { Animated, Pressable, StyleSheet, Text, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import MaskedView from '@react-native-masked-view/masked-view';
 import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
 
-import type { ChatInfo, ProjectInfo, RecentInfo, SessionInfo, Snapshot } from '@/core/protocol';
+import type { Attention, ChatInfo, ProjectInfo, RecentInfo, SessionInfo, Snapshot } from '@/core/protocol';
 import { problem as problemOf, reloadDevices, retry, useDevices, useHostStatus, useLive } from '@/devices/hub';
 import { deviceName, type PairedDevice, updateDevice } from '@/devices/paired';
 import { ForgetSheet, useForget } from '@/devices/ForgetSheet';
@@ -14,12 +14,12 @@ import { summary } from '@/devices/status';
 import { age, chatState, chatTitle, folder } from '@/devices/words';
 import { Wants } from '@/screens/Wants';
 import { haptics } from '@/ui/haptics';
-import { useScrollPause } from '@/ui/motion';
+import { useMinute, useScrollPause } from '@/ui/motion';
 import { AgentIcon, Icon } from '@/ui/Icon';
 import { Button, IconButton } from '@/ui/controls';
 import { Row, Rows, SectionLabel } from '@/ui/list';
 import { Nav, Screen, useBottomGap } from '@/ui/screen';
-import { NeedsYou, SubagentCount, Working } from '@/ui/status';
+import { NeedsYou, StillRunning, SubagentCount, Working } from '@/ui/status';
 import { fonts, isLight, type Palette, typeFor, useColors, useStyles, useType, translucent } from '@/ui/theme';
 
 type Tab = 'agents' | 'terminals';
@@ -70,6 +70,7 @@ function ProjectTail({ snapshot, project }: { snapshot: Snapshot; project: Proje
 function ChatStatus({ chat }: { chat: ChatInfo }) {
   if (chat.pendingPermissions.length) return <NeedsYou />;
   if (chat.running) return <Working />;
+  if (chat.tasks || chat.subagents) return <StillRunning />;
   return null;
 }
 
@@ -100,15 +101,14 @@ function Recent({
   hostName: string;
 }) {
   const styles = useStyles(makeStyles);
-  const type = useType();
   const live = useLive(core);
+  const minute = useMinute();
   const [all, setAll] = useState(false);
   const [resuming, setResuming] = useState<string>();
   const [note, setNote] = useState<{ text: string; failed: boolean }>();
   const chats = snapshot.recent.filter(
     (chat) => (!scope || chat.project === scope.id) && (provider === 'all' || chat.provider === provider),
   );
-  if (!chats.length) return null;
   const shown = all ? chats : chats.slice(0, RECENT_SHOWN);
   const projectOf = (chat: RecentInfo) =>
     snapshot.workspace.projects.find((project) => project.id === chat.project)?.name ?? folder(chat.cwd);
@@ -139,18 +139,26 @@ function Recent({
     }
   };
 
+  // The rows only redraw when their own chat does, so they call the latest resume through a ref.
+  const latestResume = useRef(resume);
+  useEffect(() => {
+    latestResume.current = resume;
+  });
+  const onResume = (chat: RecentInfo) => void latestResume.current(chat);
+
+  if (!chats.length) return null;
   return (
     <>
       <SectionLabel>Recent</SectionLabel>
       <Rows>
         {shown.map((chat) => (
-          <Row
+          <RecentRow
             key={chat.id}
-            mark={<AgentIcon provider={chat.provider} size={20} />}
-            title={chat.title}
-            detail={scope ? undefined : projectOf(chat)}
-            end={resuming === chat.id ? <Working /> : <Text style={[type.meta, styles.age]}>{age(Number(chat.activeAt))}</Text>}
-            onPress={() => void resume(chat)}
+            chat={chat}
+            place={scope ? undefined : projectOf(chat)}
+            resuming={resuming === chat.id}
+            minute={minute}
+            onResume={onResume}
           />
         ))}
         {shown.length < chats.length ? (
@@ -187,10 +195,9 @@ function Agents({
   hostName: string;
 }) {
   const styles = useStyles(makeStyles);
-  const open = (agentId: string) => router.push(`/device/${core}/chat/${agentId}`);
   const scoped = snapshot.chats.filter((chat) => !scope || inProject(scope, chat.cwd));
   const chats = scoped.filter((chat) => provider === 'all' || chat.provider === provider);
-  const where = (chat: ChatInfo, state: string) => (scope ? state : `${projectName(snapshot, chat.cwd)} · ${state}`);
+  const placeOf = (chat: ChatInfo) => (scope ? undefined : projectName(snapshot, chat.cwd));
   const asking = chats.filter((chat) => chat.pendingPermissions.length);
   const attentionOf = (chat: ChatInfo) => snapshot.attentions.find((known) => known.agentId === chat.agentId && askingOf(known));
   const idle = chats.filter((chat) => !chat.pendingPermissions.length);
@@ -200,23 +207,7 @@ function Agents({
       {asking.length ? (
         <Rows style={styles.asking}>
           {asking.map((chat) => (
-            <Row
-              key={chat.agentId}
-              bright
-              mark={<AgentIcon provider={chat.provider} size={20} />}
-              title={chatTitle(chat)}
-              detail={
-                attentionOf(chat) ? (
-                  <>
-                    Needs input · <Wants attention={attentionOf(chat)} />
-                  </>
-                ) : (
-                  where(chat, 'Needs input')
-                )
-              }
-              end={<ChatEnd chat={chat} />}
-              onPress={() => open(chat.agentId)}
-            />
+            <ChatRow key={chat.agentId} core={core} chat={chat} place={placeOf(chat)} attention={attentionOf(chat)} />
           ))}
         </Rows>
       ) : null}
@@ -225,14 +216,7 @@ function Agents({
           <SectionLabel>Open</SectionLabel>
           <Rows>
             {idle.map((chat) => (
-              <Row
-                key={chat.agentId}
-                mark={<AgentIcon provider={chat.provider} size={20} />}
-                title={chatTitle(chat)}
-                detail={where(chat, chatState(chat))}
-                end={<ChatEnd chat={chat} />}
-                onPress={() => open(chat.agentId)}
-              />
+              <ChatRow key={chat.agentId} core={core} chat={chat} place={placeOf(chat)} />
             ))}
           </Rows>
         </>
@@ -257,10 +241,91 @@ function terminalDetail(session: SessionInfo): string {
   return session.exit?.code != null ? `exited ${session.exit.code}` : 'exited';
 }
 
-function Terminals({ snapshot, scope }: { snapshot: Snapshot; scope?: ProjectInfo }) {
+/* A host sends its whole view several times a second while an agent works; each row redraws only when its own
+   item changed, which the hub keeps as the same object otherwise. */
+const ChatRow = memo(function ChatRow({
+  core,
+  chat,
+  place,
+  attention,
+}: {
+  core: string;
+  chat: ChatInfo;
+  place?: string;
+  attention?: Attention;
+}) {
+  const asking = chat.pendingPermissions.length > 0;
+  const state = asking ? 'Needs input' : chatState(chat);
+  return (
+    <Row
+      mark={<AgentIcon provider={chat.provider} size={20} />}
+      title={chatTitle(chat)}
+      place={asking && attention ? undefined : place}
+      detail={
+        asking && attention ? (
+          <>
+            Needs input · <Wants attention={attention} />
+          </>
+        ) : (
+          state
+        )
+      }
+      end={<ChatEnd chat={chat} />}
+      onPress={() => router.push(`/device/${core}/chat/${chat.agentId}`)}
+    />
+  );
+});
+
+const RecentRow = memo(function RecentRow({
+  chat,
+  place,
+  resuming,
+  minute,
+  onResume,
+}: {
+  chat: RecentInfo;
+  place?: string;
+  resuming: boolean;
+  /** Ages the "5m" label once a minute. */
+  minute: number;
+  onResume: (chat: RecentInfo) => void;
+}) {
+  const styles = useStyles(makeStyles);
+  const type = useType();
+  return (
+    <Row
+      mark={<AgentIcon provider={chat.provider} size={20} />}
+      title={chat.title}
+      place={place}
+      end={resuming ? <Working /> : <Text style={[type.meta, styles.age]}>{age(Number(chat.activeAt), minute * 60_000)}</Text>}
+      onPress={() => onResume(chat)}
+    />
+  );
+});
+
+const TerminalRow = memo(function TerminalRow({ session }: { session: SessionInfo }) {
   const colors = useColors();
   const styles = useStyles(makeStyles);
   const type = useType();
+  return (
+    <Row
+      dim={!session.running}
+      mark={
+        <Icon
+          name={session.task ? 'IconRun' : 'IconCommand'}
+          size={session.task ? 15 : 18}
+          color={session.running ? colors.secondary : colors.tertiary}
+        />
+      }
+      title={terminalTitle(session)}
+      detail={<Text style={type.mono}>{terminalDetail(session)}</Text>}
+      end={session.running ? session.task ? <Working /> : <View style={styles.liveDot} /> : null}
+    />
+  );
+});
+
+function Terminals({ snapshot, scope }: { snapshot: Snapshot; scope?: ProjectInfo }) {
+  const styles = useStyles(makeStyles);
   const groups = new Map<string, SessionInfo[]>();
   for (const session of snapshot.sessions) {
     if (scope && session.project !== scope.id) continue;
@@ -275,20 +340,7 @@ function Terminals({ snapshot, scope }: { snapshot: Snapshot; scope?: ProjectInf
           {scope ? <View style={{ height: 8 }} /> : <SectionLabel>{project}</SectionLabel>}
           <Rows>
             {sessions.map((session) => (
-              <Row
-                key={session.id}
-                dim={!session.running}
-                mark={
-                  <Icon
-                    name={session.task ? 'IconRun' : 'IconCommand'}
-                    size={session.task ? 15 : 18}
-                    color={session.running ? colors.secondary : colors.tertiary}
-                  />
-                }
-                title={terminalTitle(session)}
-                detail={<Text style={type.mono}>{terminalDetail(session)}</Text>}
-                end={session.running ? session.task ? <Working /> : <View style={styles.liveDot} /> : null}
-              />
+              <TerminalRow key={session.id} session={session} />
             ))}
           </Rows>
         </View>

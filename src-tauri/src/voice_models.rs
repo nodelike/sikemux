@@ -38,10 +38,10 @@ struct Model {
 }
 
 #[derive(Deserialize)]
-struct ModelFile {
-    path: String,
-    size: u64,
-    sha256: String,
+pub(crate) struct ModelFile {
+    pub(crate) path: String,
+    pub(crate) size: u64,
+    pub(crate) sha256: String,
 }
 
 fn manifest() -> &'static Manifest {
@@ -205,7 +205,7 @@ async fn already_matches(path: &Path, file: &ModelFile) -> bool {
     matches!(hash, Ok(Ok(hash)) if hash == file.sha256)
 }
 
-fn hash_file(path: &Path) -> std::io::Result<String> {
+pub(crate) fn hash_file(path: &Path) -> std::io::Result<String> {
     let mut reader = File::open(path)?;
     let mut hasher = Sha256::new();
     let mut buffer = vec![0u8; 1 << 20];
@@ -218,18 +218,44 @@ fn hash_file(path: &Path) -> std::io::Result<String> {
     }
 }
 
-async fn download(
+pub(crate) async fn download(
+    url: &str,
+    destination: &Path,
+    file: &ModelFile,
+    progress: impl FnMut(u64),
+) -> AppResult<()> {
+    download_as(url, destination, file, progress, false).await
+}
+
+/// Downloads a program, which can be run the moment it appears at `destination`.
+pub(crate) async fn download_executable(
+    url: &str,
+    destination: &Path,
+    file: &ModelFile,
+    progress: impl FnMut(u64),
+) -> AppResult<()> {
+    download_as(url, destination, file, progress, true).await
+}
+
+async fn download_as(
     url: &str,
     destination: &Path,
     file: &ModelFile,
     mut progress: impl FnMut(u64),
+    executable: bool,
 ) -> AppResult<()> {
     let parent = destination
         .parent()
         .ok_or_else(|| AppError::Other(format!("{} has no parent", destination.display())))?;
     std::fs::create_dir_all(parent)?;
     let partial = PathBuf::from(format!("{}.partial", destination.display()));
-    let result = write_verified(url, &partial, file, &mut progress).await;
+    let mut result = write_verified(url, &partial, file, &mut progress).await;
+    #[cfg(unix)]
+    if executable && result.is_ok() {
+        use std::os::unix::fs::PermissionsExt;
+        result = std::fs::set_permissions(&partial, std::fs::Permissions::from_mode(0o755))
+            .map_err(Into::into);
+    }
     if result.is_err() {
         let _ = std::fs::remove_file(&partial);
     }

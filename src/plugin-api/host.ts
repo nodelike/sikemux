@@ -15,6 +15,7 @@ export { gitOverviewR } from "../state/resources.defs";
 export { usePluginOverlay } from "../plugins/overlays";
 export { useModalFocus } from "../hooks/useModalFocus";
 export { notify, reportError, swallow } from "../state/toast";
+export { postNotification as notifyDesktop } from "../agents/agentNotifications";
 
 export function openUrl(url: string): Promise<void> {
     return invokeCommand<void>("open_url", { url, app: null, shortcut: null });
@@ -60,6 +61,12 @@ export function activeSurfacePane(kind: PluginKind): string | null {
 /** Asks the person for a folder; null when they cancel. */
 export async function pickFolder(title: string): Promise<string | null> {
     const picked = await openDialog({ directory: true, multiple: false, title });
+    return typeof picked === "string" ? picked : null;
+}
+
+/** Asks the person for a file, offering only these extensions when any are given; null when they cancel. */
+export async function pickFile(title: string, filter?: { name: string; extensions: string[] }): Promise<string | null> {
+    const picked = await openDialog({ directory: false, multiple: false, title, filters: filter ? [filter] : undefined });
     return typeof picked === "string" ? picked : null;
 }
 

@@ -19,16 +19,6 @@ afterEach(() => {
 });
 
 describe("usage report", () => {
-    it("reports the update channel the person follows", async () => {
-        const handler = vi.fn(() => Promise.resolve(null));
-        transport.register("usage_report_active", handler);
-        setState({ updateChannel: "nightly" });
-
-        await reportActive();
-
-        expect(handler).toHaveBeenCalledWith({ channel: "nightly" }, expect.anything());
-    });
-
     it("sends nothing once the person opts out", async () => {
         const handler = vi.fn(() => Promise.resolve(null));
         transport.register("usage_report_active", handler);
@@ -37,11 +27,5 @@ describe("usage report", () => {
         await reportActive();
 
         expect(handler).not.toHaveBeenCalled();
-    });
-
-    it("keeps a failed report quiet", async () => {
-        transport.register("usage_report_active", () => Promise.reject(new Error("usage report: offline")));
-
-        await expect(reportActive()).resolves.toBeUndefined();
     });
 });

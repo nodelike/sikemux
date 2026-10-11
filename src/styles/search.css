@@ -336,13 +336,6 @@
 .sp-err {
     color: var(--danger);
 }
-
-.sp-thread {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-    min-width: 0;
-}
 .sp-thread-who {
     display: flex;
     align-items: center;

@@ -1,0 +1,746 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Tool tree branches</title>
+<!-- View by serving the repo root (python3 -m http.server) and opening /src/chat/design/tool-tree-branches.html. -->
+<style>
+:root{--background:#100e16;--foreground:#e7e5ef;--muted-foreground:#8b8898;--faint-foreground:#736f80;--card:#15121d;--border:#262130;--accent:#a277ff;--destructive:#ff6767;--radius:8px;--font-sans:"Figtree",-apple-system,sans-serif;--font-mono:ui-monospace,monospace}
+@font-face{font-family:"Figtree";src:url(../../../public/fonts/Figtree-latin-wght-normal.woff2) format("woff2");font-weight:300 900}
+body{margin:0;padding:28px;max-width:760px;background:var(--background);color:var(--foreground);font:14px var(--font-sans)}
+header h1{font-size:15px;margin:0 0 6px} header p{color:var(--muted-foreground);font-size:12.5px;line-height:1.55;margin:0 0 14px}
+@font-face{font-family:"JetBrainsMono Nerd Font";src:url(../../../public/fonts/JetBrainsMonoNerdFontMono-Regular-Base.woff2) format("woff2")}
+:root{--ink:var(--foreground);--ink-dim:var(--muted-foreground);--ink-faint:var(--faint-foreground);--acc:var(--accent);--line:var(--border);
+--git-modified:#e2c08d;--git-deleted:#d75f47;--git-renamed:#6c8cd5;--git-added:#61ffca;--cmd:#ff6ac1;--live:#61ffca;--danger:var(--destructive);
+--mono:"JetBrainsMono Nerd Font",var(--font-mono);--space-2:8px;--radius-1:4px;--radius-2:6px;--text-3xs:10px;--text-2xs:11px;--text-xs:12px;
+--tree-spine:color-mix(in srgb,var(--acc) 52%,var(--line));--tree-tick:color-mix(in srgb,var(--acc) 72%,transparent)}
+*{box-sizing:border-box}
+/* ── a run of tool calls ──────────────────────────────────────────────
+ *
+ * The same tree the side rail draws (restored-rails.css): one hairline spine,
+ * a 9px tick per row, a 16px icon slot. Each row paints its own segment of the
+ * spine, and the last row's segment stops at its tick — that is the elbow.
+ * Erasing it instead would need a ground to erase with, and a pane has none.
+ */
+.chat-tools {
+    margin: 7px 0;
+    font-family: var(--mono);
+    font-size: var(--text-2xs);
+}
+
+/* Pulled back by its own padding so the count still starts on the prose's left
+   edge, while the hover pill sits evenly around it. */
+.chat-tools-sum {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    max-width: 100%;
+    height: 22px;
+    margin-left: -6px;
+    padding: 0 6px;
+    border-radius: var(--radius-1);
+    color: var(--ink-dim);
+}
+
+.chat-tools-sum:hover {
+    background: color-mix(in oklab, var(--ink) 6%, transparent);
+    color: var(--ink);
+}
+
+.chat-tools-label {
+    min-width: 0;
+    overflow: hidden;
+    color: var(--ink-dim);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* What Claude said the running command is for reads as a sentence, so it is
+   set a step larger than the count it stands in for. */
+.chat-tools-label.said {
+    font-size: var(--text-xs);
+}
+
+.chat-tools-calls {
+    color: var(--ink-faint);
+}
+
+.chat-tools-sum > :not(.chat-tools-label) {
+    flex: none;
+}
+
+.chat-tools-time,
+.chat-tool-end {
+    color: var(--ink-dim);
+    font-variant-numeric: tabular-nums;
+}
+
+.chat-tools-chevron {
+    opacity: 0.7;
+    transition: transform 120ms;
+}
+
+.chat-tools-sum[aria-expanded="true"] .chat-tools-chevron {
+    transform: rotate(90deg);
+}
+
+.chat-tools-body {
+    margin-left: 6px;
+    padding: 2px 0;
+}
+
+/* flow-root keeps an open detail's bottom margin inside the node, so the spine
+   runs on to the next row instead of breaking under it. */
+.chat-tool-node {
+    position: relative;
+    display: flow-root;
+}
+
+.chat-tool-node::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    width: 1px;
+    background: var(--tree-spine);
+}
+
+.chat-tool-node:last-child::before {
+    bottom: auto;
+    box-sizing: border-box;
+    width: 9px;
+    height: 11.5px;
+    background: none;
+    border-left: 1px solid var(--tree-spine);
+    border-bottom: 1px solid var(--tree-tick);
+    border-bottom-left-radius: 4px;
+}
+
+.chat-tool-node:last-child > .chat-tool > .chat-tool-line > .chat-tool-tick {
+    background: none;
+}
+
+/* The row takes the pointer across the whole width of the run, while the
+   hover fill hugs what is in it: from just before the icon to just past the
+   time, leaving the tick and the spine outside. */
+.chat-tool {
+    display: block;
+    width: 100%;
+    color: var(--ink-dim);
+    text-align: left;
+}
+
+/* A row is a button once it has something to open, and buttons take the sans
+   everywhere else; a command stays in the mono the run is set in. */
+button.chat-tool,
+button.chat-tool-end {
+    font-family: inherit;
+}
+
+.chat-tool-line {
+    position: relative;
+    isolation: isolate;
+    display: grid;
+    grid-template-columns: 9px 16px var(--chat-kind, 46px) minmax(0, max-content) auto;
+    align-items: center;
+    gap: var(--space-2);
+    width: max-content;
+    max-width: 100%;
+    min-height: 22px;
+    padding-right: 6px;
+}
+
+.chat-tool-line::after {
+    content: "";
+    position: absolute;
+    inset: 0 0 0 13px;
+    z-index: -1;
+    border-radius: var(--radius-2);
+    transition: background 90ms;
+}
+
+button.chat-tool:hover > .chat-tool-line::after,
+.chat-tool:has(button.chat-tool-end:hover) > .chat-tool-line::after {
+    background: color-mix(in oklab, var(--ink) 6%, transparent);
+}
+
+.chat-tool-tick {
+    width: 9px;
+    height: 1px;
+    background: var(--tree-tick);
+}
+
+.chat-tool-icon {
+    display: grid;
+    place-items: center;
+    color: var(--ink-dim);
+}
+
+/* A call is coloured by what it did — looked, changed, removed or ran — using
+ * the same status colours a diff already uses, mixed back toward the body text
+ * so a run of six reads as a column of labels rather than a rainbow. Only the
+ * kind and its glyph take the colour; the target it names stays neutral. */
+.chat-tool[data-kind="read"] .chat-tool-icon,
+.chat-tool[data-kind="read"] .chat-tool-kind,
+.chat-tool[data-kind="search"] .chat-tool-icon,
+.chat-tool[data-kind="search"] .chat-tool-kind,
+.chat-tool[data-kind="fetch"] .chat-tool-icon,
+.chat-tool[data-kind="fetch"] .chat-tool-kind {
+    color: color-mix(in oklab, var(--git-renamed) 76%, var(--ink-dim));
+}
+
+.chat-tool[data-kind="edit"] .chat-tool-icon,
+.chat-tool[data-kind="edit"] .chat-tool-kind,
+.chat-tool[data-kind="move"] .chat-tool-icon,
+.chat-tool[data-kind="move"] .chat-tool-kind {
+    color: color-mix(in oklab, var(--git-modified) 76%, var(--ink-dim));
+}
+
+.chat-tool[data-kind="delete"] .chat-tool-icon,
+.chat-tool[data-kind="delete"] .chat-tool-kind {
+    color: color-mix(in oklab, var(--git-deleted) 76%, var(--ink-dim));
+}
+
+.chat-tool[data-kind="execute"] .chat-tool-icon,
+.chat-tool[data-kind="execute"] .chat-tool-kind {
+    color: color-mix(in oklab, var(--cmd) 70%, var(--ink-dim));
+}
+
+/* A call that left the machine entirely, named for the server it went to. */
+.chat-tool[data-kind="mcp"] .chat-tool-icon,
+.chat-tool[data-kind="mcp"] .chat-tool-kind {
+    color: color-mix(in oklab, var(--live) 66%, var(--ink-dim));
+}
+
+/* However it went in, a call that failed says so first. */
+.chat-tool.status-failed .chat-tool-icon,
+.chat-tool.status-failed .chat-tool-kind {
+    color: var(--danger);
+}
+
+/* A call the turn cut off before it answered. */
+.chat-tool.status-cancelled {
+    opacity: 0.6;
+}
+
+.chat-tool-kind {
+    overflow: hidden;
+    color: var(--ink-dim);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* One call, one line — a run of ten stays ten lines however long the commands
+   in it are. The whole of it is on the row's tooltip. */
+.chat-tool-target {
+    min-width: 0;
+    overflow: hidden;
+    color: var(--ink);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* A call with nothing to name, like a screenshot of the whole page, would
+   otherwise leave an empty column and a double gap before its time. */
+.chat-tool-target:empty {
+    display: none;
+}
+
+.chat-tool-arg {
+    margin-left: 1ch;
+    color: var(--ink-dim);
+}
+
+.chat-tool-link {
+    color: var(--acc);
+    text-decoration: none;
+}
+
+.chat-tool-link:hover {
+    text-decoration: underline;
+}
+
+.chat-tool-end {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    justify-self: start;
+    font-size: var(--text-3xs);
+}
+
+.chat-tool-stat {
+    display: flex;
+    gap: 5px;
+}
+
+.chat-diff-adds {
+    color: var(--git-added);
+}
+
+.chat-diff-dels {
+    color: var(--git-deleted);
+}
+
+.chat-tool-chevron {
+    opacity: 0.55;
+    transition: transform 120ms;
+}
+
+/* A row that only holds output shows it can open once it is pointed at. */
+.chat-tool-chevron.quiet {
+    opacity: 0;
+}
+
+.chat-tool:hover .chat-tool-chevron.quiet {
+    opacity: 0.55;
+}
+
+.chat-tool[aria-expanded="true"] .chat-tool-chevron,
+.chat-tool [aria-expanded="true"] .chat-tool-chevron {
+    transform: rotate(90deg);
+    opacity: 1;
+}
+
+/* A call still running reads like the Thinking row: the words shimmer, the
+   icon breathes, and the seconds count up where the duration will go. */
+.chat-tool.live .chat-tool-icon {
+    animation: chat-activity-breathe 1.5s ease-in-out infinite;
+}
+
+.chat-tool.live .chat-tool-target * {
+    color: inherit;
+}
+
+.chat-tool-elapsed {
+    color: color-mix(in srgb, var(--ink-faint) 68%, transparent);
+    font-family: var(--mono);
+    font-size: calc(9.5px * var(--chat-text-em, 1));
+}
+
+.chat-tool-detail {
+    margin: 1px 0 6px 33px;
+}
+
+.chat-tool-out {
+    color: color-mix(in oklab, var(--danger) 78%, var(--ink));
+    font-size: var(--text-2xs);
+    line-height: 1.55;
+    white-space: pre-wrap;
+}
+
+/* ── a command and what it printed ────────────────────────────────── */
+.chat-tool-terminal {
+    overflow: hidden;
+    border: 1px solid var(--line-soft);
+    border-radius: var(--radius-2);
+    background: color-mix(in srgb, var(--void) 62%, transparent);
+    font-size: var(--text-2xs);
+    line-height: 17px;
+}
+
+.chat-tool-terminal pre {
+    margin: 0;
+    font: inherit;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    user-select: text;
+}
+
+.chat-tool-terminal > * + :not(.chat-tool-exit) {
+    border-top: 1px solid var(--line-soft);
+}
+
+.chat-tool-command {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) 18px;
+    align-items: start;
+    gap: 7px;
+    padding: 5px 5px 5px 9px;
+}
+
+.chat-tool-prompt {
+    color: color-mix(in oklab, var(--cmd) 70%, var(--ink-dim));
+    line-height: 18px;
+    user-select: none;
+}
+
+.chat-tool-command pre {
+    padding-top: 1px;
+    color: var(--ink);
+}
+
+.chat-tool-output {
+    position: relative;
+}
+
+.chat-tool-output pre {
+    padding: 6px 30px 7px 9px;
+    color: var(--ink-dim);
+}
+
+.chat-tool-output.folded pre {
+    mask-image: linear-gradient(to bottom, #000 60%, transparent);
+}
+
+.chat-tool-output .copy-btn {
+    position: absolute;
+    top: 5px;
+    right: 5px;
+}
+
+.chat-tool-output.empty,
+.chat-tool-note {
+    padding: 5px 9px;
+    color: var(--ink-faint);
+    font-size: var(--text-3xs);
+}
+
+.chat-tool-more {
+    display: block;
+    width: 100%;
+    height: 22px;
+    padding-left: 9px;
+    color: var(--ink-faint);
+    font-family: var(--mono);
+    font-size: var(--text-3xs);
+    text-align: left;
+}
+
+.chat-tool-more:hover {
+    background: color-mix(in oklab, var(--ink) 6%, transparent);
+    color: var(--ink-dim);
+}
+
+.chat-tool-exit {
+    padding: 0 9px 6px;
+    color: var(--danger);
+    font-size: var(--text-3xs);
+}
+
+.chat-tool-picture {
+    padding: 4px;
+}
+
+.chat-tool-picture .chat-image {
+    width: 300px;
+    max-width: 100%;
+    margin: 0;
+    border-radius: var(--radius-1);
+}
+
+/* ── the hunk an edit made ────────────────────────────────────────── */
+.chat-diff {
+    overflow: hidden;
+    border: 1px solid var(--line-soft);
+    border-radius: var(--radius-2);
+    background: color-mix(in srgb, var(--void) 62%, transparent);
+    font-size: var(--text-2xs);
+    line-height: 17px;
+}
+
+.chat-diff-head {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    height: 22px;
+    padding: 0 9px;
+    border-bottom: 1px solid var(--line-soft);
+    color: var(--ink-faint);
+    font-size: var(--text-3xs);
+}
+
+.chat-diff-head .file-glyph {
+    width: auto;
+    user-select: none;
+}
+
+.chat-diff-path {
+    min-width: 0;
+    overflow: hidden;
+    color: var(--ink-dim);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.chat-diff-head .chat-diff-adds {
+    margin-left: auto;
+}
+
+.chat-diff-body {
+    overflow-x: auto;
+    padding: 3px 0;
+}
+
+.chat-diff-line {
+    display: grid;
+    grid-template-columns: 30px 12px minmax(0, 1fr);
+    white-space: pre;
+}
+
+.chat-diff-ln {
+    padding-right: var(--space-2);
+    color: color-mix(in oklab, var(--ink-faint) 58%, transparent);
+    font-size: var(--text-3xs);
+    text-align: right;
+}
+
+.chat-diff-sign {
+    color: color-mix(in oklab, var(--ink-faint) 70%, transparent);
+}
+
+.chat-diff-line.add {
+    background: color-mix(in oklab, var(--git-added) 9%, transparent);
+}
+
+.chat-diff-line.add .chat-diff-sign {
+    color: var(--git-added);
+}
+
+.chat-diff-line.del {
+    background: color-mix(in oklab, var(--git-deleted) 9%, transparent);
+}
+
+.chat-diff-line.del .chat-diff-sign {
+    color: var(--git-deleted);
+}
+
+.chat-diff-line mark {
+    border-radius: var(--radius-1);
+    background: color-mix(in oklab, var(--git-added) 26%, transparent);
+    color: inherit;
+}
+
+.chat-diff-line.del mark {
+    background: color-mix(in oklab, var(--git-deleted) 26%, transparent);
+}
+
+.chat-diff-gap {
+    width: 100%;
+    height: 20px;
+    padding-left: 42px;
+    color: var(--ink-faint);
+    font-family: var(--mono);
+    font-size: var(--text-3xs);
+    text-align: left;
+}
+
+.chat-diff-gap:hover {
+    background: color-mix(in oklab, var(--ink) 6%, transparent);
+    color: var(--ink-dim);
+}
+
+.chat-tool[data-kind="think"] .chat-tool-icon,.chat-tool[data-kind="think"] .chat-tool-kind{color:var(--ink-dim)}
+.chat-tool-icon svg{display:block}
+.chat-tools-chevron.open{transform:rotate(90deg)}
+.two .chat-tool-line{grid-template-columns:9px 27px var(--chat-kind,46px) minmax(0,max-content) auto}
+.pair{display:flex;align-items:center;gap:5px}
+.pair .area{display:block;line-height:0;color:var(--ink-dim)}
+.pair .area svg{display:block}
+.area-head .chat-tool-icon{color:var(--ink-dim)}
+.area-name{color:var(--ink)!important}
+.area-count{color:var(--ink-dim)!important}
+.chat-tools-body.nested{margin-left:25px;padding:0;--chat-kind:calc(10ch + 1px - 25px)}
+:root{--tree-spine:color-mix(in srgb,var(--acc) 26%,var(--line));--tree-tick:color-mix(in srgb,var(--acc) 34%,transparent)}
+.area-head .chat-tool-icon{color:var(--ink-faint)}
+.area-head .area-name{color:var(--ink-dim)!important;font-family:var(--sans,var(--font-sans));font-size:11.5px;font-weight:500;letter-spacing:.01em}
+.area-head .area-count{color:var(--ink-faint)!important}
+.area-chev{margin-left:6px;opacity:.55;transition:transform .12s}
+.area-head.open .area-chev{transform:rotate(90deg)}
+.chat-tool-icon img,.chat-tool-icon svg{display:block}
+.vA,.vB,.vC{--guide:color-mix(in oklab,var(--foreground) 16%,transparent)}
+.vA > .chat-tools-body,.vB > .chat-tools-body{margin-left:-17px}
+/* timeline through the icon column */
+.t{--ln:color-mix(in oklab,var(--foreground) 20%,transparent);--lnd:color-mix(in oklab,var(--foreground) 30%,transparent);--style:solid;--in:solid}
+.t.tint{--ln:color-mix(in oklab,var(--accent) 45%,transparent);--lnd:color-mix(in oklab,var(--accent) 65%,transparent)}
+.t .nested::before,.t .nested::after{display:none!important}
+.t .nested > .chat-tool-node{position:relative}
+.t .nested > .chat-tool-node::before,.t .nested > .chat-tool-node::after{display:none;content:"";position:absolute;left:25px;width:0;height:auto;background:none;border:0;border-radius:0;border-left:1px dashed var(--ln)}
+.t.inner .nested > .chat-tool-node::before,.t.inner .nested > .chat-tool-node::after{display:block}
+.t .nested > .chat-tool-node::before{top:0;bottom:auto;height:3px}
+.t .nested > .chat-tool-node::after{top:19px;bottom:0}
+.t .nested > .chat-tool-node:first-child::before,.t .nested > .chat-tool-node:last-child::after{display:none!important}
+.t > .chat-tools-body > .chat-tool-node{position:relative}
+.t > .chat-tools-body > .chat-tool-node::before,.t > .chat-tools-body > .chat-tool-node::after{content:"";display:block;position:absolute;left:25px;width:0;height:auto;background:none;border:0;border-radius:0;border-left:1px var(--style) var(--ln)}
+.t > .chat-tools-body > .chat-tool-node::before{top:0;bottom:auto;height:3px}
+.t > .chat-tools-body > .chat-tool-node::after{top:19px;bottom:0}
+.t > .chat-tools-body > .chat-tool-node:has(.nested)::after{border-left-style:var(--in)}
+.t > .chat-tools-body > .chat-tool-node:first-child::before,.t > .chat-tools-body > .chat-tool-node:last-child::after{display:none}
+.t.dash{--style:dashed;--in:dashed;--ln:var(--lnd)}
+.t.mix{--in:dashed}
+.t.ticks .nested .chat-tool-tick{visibility:visible!important;width:8px;height:0;background:none;border-top:1px var(--in) var(--ln)}
+.t.beads .nested .chat-tool-tick{visibility:visible!important;width:3px;height:3px;border-radius:50%;background:var(--lnd);margin-left:-1px}
+.t.curve .nested .chat-tool-tick{visibility:visible!important;width:8px;height:7px;align-self:start;margin-top:4px;background:none;border-left:1px var(--in) var(--ln);border-bottom:1px var(--in) var(--ln);border-bottom-left-radius:5px;margin-left:-0.5px}
+.t.end > .chat-tools-body > .chat-tool-node:has(.nested) .nested{position:relative}
+.t.end .nested > .chat-tool-node:last-child{position:relative}
+.t .nested > .chat-tool-node:last-child .chat-tool-tick{position:relative}
+.t.enddot .nested > .chat-tool-node:last-child .chat-tool-tick::before{content:"";position:absolute;left:-3px;top:-3px;width:5px;height:5px;border-radius:50%;background:var(--lnd)}
+.t.live > .chat-tools-body > .chat-tool-node:last-child .chat-tool-icon{animation:breathe 1.5s ease-in-out infinite}
+.t.live > .chat-tools-body > .chat-tool-node:last-child .chat-tool-target{background:linear-gradient(90deg,var(--ink) 30%,var(--ink-faint) 50%,var(--ink) 70%);background-size:200% 100%;-webkit-background-clip:text;color:transparent!important;animation:shimmer 1.6s linear infinite}
+@keyframes breathe{50%{opacity:.35}} @keyframes shimmer{to{background-position:-200% 0}}
+.t.acc{--ln:color-mix(in oklab,var(--accent) 55%,transparent);--lnd:color-mix(in oklab,var(--accent) 80%,transparent)}
+.t.enddot .nested > .chat-tool-node:last-child .chat-tool-tick::before{display:none}
+.t .nested .chat-tool-line::before{content:"";position:absolute;left:-2px;top:calc(50% - 2.5px);width:5px;height:5px;border-radius:50%;background:var(--lnd);display:none}
+.t.enddot .nested > .chat-tool-node:last-child .chat-tool-line::before{display:block}
+.t.joints .nested .chat-tool-line::before{display:block}
+/* outer + nested guides */
+.g{--gl:color-mix(in oklab,var(--foreground) 18%,transparent);--gd:color-mix(in oklab,var(--foreground) 26%,transparent)}
+.g > .chat-tools-body{margin-left:6px;position:relative}
+.g > .chat-tools-body::before{content:"";position:absolute;left:0;top:-2px;bottom:11px;width:0;border-left:1px solid var(--gl)}
+.g .nested::before{background:none!important;width:0;border-left:1px solid var(--gl);top:-3px;bottom:11px}
+.g > .chat-tools-body::after,.g .nested::after{content:"";position:absolute;left:-2px;bottom:9px;width:5px;height:5px;border-radius:50%;background:var(--gd)}
+.g.od > .chat-tools-body::before{border-left-style:dashed;border-color:var(--gd)}
+.g.nd .nested::before{border-left-style:dashed;border-color:var(--gd)}
+.g.nodot > .chat-tools-body::after,.g.nodot .nested::after{display:none}
+.g.nodot > .chat-tools-body::before,.g.nodot .nested::before{bottom:11.5px}
+.g.bead .chat-tool-tick{visibility:visible!important;width:3px;height:3px;border-radius:50%;background:var(--gd);margin-left:-1px}
+.g.bead > .chat-tools-body::after,.g.bead .nested::after{display:none}
+.g.tick .chat-tool-tick{visibility:visible!important;width:7px;height:0;background:none;border-top:1px solid var(--gl)}
+.g.tick.od .chat-tool-tick,.g.tick.nd .nested .chat-tool-tick{border-top-style:dashed;border-color:var(--gd)}
+.g.tint{--gl:color-mix(in oklab,var(--accent) 40%,transparent);--gd:color-mix(in oklab,var(--accent) 60%,transparent)}
+/* variations, all on top of A */
+.tint .nested::before{background:color-mix(in oklab,var(--accent) 45%,transparent)}
+.cap .nested::after{content:"";position:absolute;left:-2px;bottom:3px;width:5px;height:5px;border-radius:50%;background:var(--guide)}
+.cap .nested::before{bottom:8px}
+.dots .nested::before{background:none;border-left:1px dashed color-mix(in oklab,var(--foreground) 22%,transparent)}
+.air .area-head{margin-top:5px} .air .nested{margin-bottom:5px}
+.air .chat-tool-line{min-height:23px}
+.well .nested::before{display:none}
+.well .nested{margin:1px 0 3px 17px;padding:2px 0;border-radius:var(--radius-2);background:color-mix(in oklab,var(--foreground) 4%,transparent);--chat-kind:calc(10ch + 1px - 17px)}
+.well .nested .chat-tool-line::after{display:none}
+.bare .nested .chat-tool-icon{visibility:hidden}
+.bare .nested{--chat-kind:calc(10ch + 1px - 25px)}
+.head .area-name{color:var(--ink)!important;font-weight:600}
+.head .area-head .chat-tool-icon{color:var(--ink-dim)}
+.head .nested::before{left:0}
+.rule .area-head .chat-tool-target.area-count{display:flex;align-items:center;gap:8px}
+.rule .area-head .chat-tool-line{width:100%;grid-template-columns:9px 16px var(--chat-kind,46px) minmax(0,1fr) auto}
+.rule .area-head .chat-tool-target.area-count::after{content:"";flex:1;height:1px;background:var(--guide)}
+.under .nested{margin-left:41px;--chat-kind:calc(6ch + 1px)}
+.under .nested::before{left:-1px}
+/* A: indent guides only */
+.vA .chat-tool-node::before{display:none}
+.vA .chat-tool-tick{visibility:hidden}
+.vA .nested{position:relative}
+.vA .nested::before{content:"";position:absolute;left:0;top:-3px;bottom:5px;width:1px;background:var(--guide)}
+/* B: soft branches on children only */
+.vB .chat-tool-node::before{display:none}
+.vB .chat-tool-tick{visibility:hidden}
+.vB .nested > .chat-tool-node{position:relative}
+.vB .nested > .chat-tool-node::before{display:block;content:"";position:absolute;left:0;top:0;width:12px;height:11.5px;bottom:auto;background:none;border-left:1px solid var(--guide);border-bottom:1px solid var(--guide);border-bottom-left-radius:6px;box-sizing:border-box}
+.vB .nested > .chat-tool-node:not(:last-child)::after{content:"";position:absolute;left:0;top:11px;bottom:0;width:1px;background:var(--guide)}
+.vB .nested > .chat-tool-node:first-child::before{top:-4px;height:15.5px}
+/* C: today's tree, neutral and lighter */
+.vC{--tree-spine:var(--guide);--tree-tick:var(--guide)}
+.opts{display:grid;gap:10px}
+.opt{padding:10px 12px 4px;border:1px solid var(--border);border-radius:var(--radius);background:var(--card)}
+.opt.pick{border-color:color-mix(in srgb,var(--accent) 60%,var(--border));background:color-mix(in srgb,var(--accent) 6%,var(--card))}
+.opt b{font-size:12.5px} .opt p{margin:2px 0 0;color:var(--muted-foreground);font-size:11.5px;line-height:1.5}
+
+.t .nested{position:relative}
+.bridge{position:absolute;left:-3px;top:-6px;overflow:visible;display:none}
+.bridge path{fill:none;stroke:var(--ln);stroke-width:1;stroke-dasharray:3 3;display:none}
+.elbow .bridge,.s .bridge,.diag .bridge{display:block}
+.elbow .b-elbow,.s .b-s,.diag .b-diag{display:block}
+.s .nested > .chat-tool-node:first-child::before{display:block!important;top:0;height:3px}
+
+.drop .bridge,.drop .b-drop{display:block}
+/* A: one column */
+.col .nested{margin-left:0!important;--chat-kind:calc(10ch + 1px)}
+.col .nested .chat-tool-kind{padding-left:14px}
+.col > .chat-tools-body > .chat-tool-node:has(.nested)::after{bottom:auto;height:3px}
+.col .nested > .chat-tool-node:last-child::after{display:block!important}
+.col > .chat-tools-body > .chat-tool-node:last-child .nested > .chat-tool-node:last-child::after{display:none!important}
+.col .nested > .chat-tool-node::before,.col .nested > .chat-tool-node::after{left:25px}
+.col .nested > .chat-tool-node:first-child::before{display:block!important}
+.col .nested .chat-tool-node::before,.col .nested .chat-tool-node::after{border-left-style:dashed}
+
+/* two columns, joined at both ends, no parallel line */
+.pair2 > .chat-tools-body > .chat-tool-node:has(.nested)::after{display:none}
+.pair2 .bridge,.pair2 .b-drop{display:block}
+.pair2 .nested > .chat-tool-node:last-child::after{display:block!important;bottom:-4px}
+.pair2 > .chat-tools-body > .chat-tool-node:has(.nested) + .chat-tool-node::before{display:none}
+.pair2 > .chat-tools-body > .chat-tool-node:has(.nested) + .chat-tool-node .chat-tool-line::before{content:"";position:absolute;left:41px;top:0;height:3px;width:0}
+
+/* diagonal ends */
+.diag2 > .chat-tools-body > .chat-tool-node:has(.nested)::after{display:none}
+.diag2 .bridge,.diag2 .b-diag{display:block}
+.diag2 .bridge-out{display:block;position:absolute;left:-3px;bottom:-8px;overflow:visible}
+.bridge-out{display:none}
+.bridge-out path{fill:none;stroke:var(--ln);stroke-width:1;stroke-dasharray:3 3}
+.diag2 > .chat-tools-body > .chat-tool-node:has(.nested) + .chat-tool-node::before{display:none}
+
+.chat-tools[data-path] > .chat-tools-body{position:relative}
+.chat-tools[data-path] .chat-tool-icon{position:relative;z-index:1}
+.chat-tools[data-path] .bridge,.chat-tools[data-path] .bridge-out{display:none!important}
+.chat-tools[data-path] .nested::before,.chat-tools[data-path] .nested::after,.chat-tools[data-path] .chat-tool-node::before,.chat-tools[data-path] .chat-tool-node::after{display:none!important}
+svg.path{position:absolute;left:0;top:0;overflow:visible;pointer-events:none;z-index:0}
+@keyframes ring{0%{r:7;opacity:.9}100%{r:13;opacity:0}}
+</style></head><body><div class="opts">
+<header><h1>Chat tool calls: a place's steps on their own branch</h1>
+<p>Parked design, 2026-10-08. Back-to-back calls to one place (browser, simulator, tasks, a plugin) fold under a place line, and their steps hang one column in. A dashed accent line runs through the icons; these are the two ways it reaches into a place's steps and back out. Claude's own tools never fold. Lines are drawn from the measured icon positions.</p></header>
+<div class="opt"><b>Quarter arc</b><p>One arc from the place's icon into the side of the first step, one from the last step back into the next icon.</p><div class="chat-tools vA" data-path="arc" data-x=""><div class="chat-tools-sum"><span class="chat-tools-label">11 tool calls</span><span class="chat-tools-time">18s</span><svg class="chat-tools-chevron open" width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 4l4 4-4 4"></path></svg></div><div class="chat-tools-body" style="--chat-kind: calc(10ch + 1px)"><div class="chat-tool-node"><div class="chat-tool status-completed" data-kind="think"><span class="chat-tool-line"><span class="chat-tool-tick"></span><span class="chat-tool-icon"><svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 1.8c.5 3.3 2.9 5.7 6.2 6.2-3.3.5-5.7 2.9-6.2 6.2-.5-3.3-2.9-5.7-6.2-6.2C5.1 7.5 7.5 5.1 8 1.8Z"></path></svg></span><span class="chat-tool-kind">toolsearch</span><span class="chat-tool-target">ToolSearch</span><span class="chat-tool-end">691ms</span></span></div></div><div class="chat-tool-node"><div class="chat-tool status-completed" data-kind="read"><span class="chat-tool-line"><span class="chat-tool-tick"></span><span class="chat-tool-icon"><svg width="10" height="10" xmlns="http://www.w3.org/2000/svg" viewBox="82 24 265 265"><g fill="#a277ff"><polygon points="257,72 331,29 331,114"/> <polygon points="98,199 172,241 98,284"/> <path d="M108 54 C100 72, 96 90, 98 104 C100 119, 106 133, 121 144 C129 151, 139 158, 151 164 L286 223 C297 228, 306 236, 313 245 C317 250, 320 255, 321 259 C327 246, 331 229, 331 209 C330 201, 328 194, 324 189 C319 181, 314 175, 308 169 C300 162, 290 155, 278 149 L143 90 C137 87, 132 84, 128 80 C122 76, 117 71, 108 54 Z"/></g></svg>
+</span><span class="chat-tool-kind">read</span><span class="chat-tool-target">the guide: browser-input</span><span class="chat-tool-end">244ms</span></span></div></div><div class="chat-tool-node"><div class="chat-tool area-head open"><span class="chat-tool-line"><span class="chat-tool-tick"></span><span class="chat-tool-icon"><svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="8" cy="8" r="5.6"></circle><path d="M2.7 8h10.6M8 2.4c1.7 1.6 2.5 3.5 2.5 5.6S9.7 12 8 13.6C6.3 12 5.5 10.1 5.5 8S6.3 4 8 2.4Z"></path></svg></span><span class="chat-tool-kind area-name">browser</span><span class="chat-tool-target area-count">4 steps</span><span class="chat-tool-end">1.9s<svg class="area-chev" width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 4l4 4-4 4"></path></svg></span></span></div><div class="chat-tools-body nested"><svg class="bridge" width="32" height="20" viewBox="-3 -6 32 20" aria-hidden="true">
+<path class="b-elbow" d="M0.5,-6 V7 Q0.5,11 4.5,11 H18"/>
+<path class="b-s" d="M0.5,-6 V-3 Q0.5,0.5 4.5,0.5 H21.5 Q25.5,0.5 25.5,4.5 V5"/>
+<path class="b-diag" d="M1.5,-4.5 L24,4"/>
+<path class="b-drop" d="M25.5,-7 V4"/>
+</svg><div class="chat-tool-node"><div class="chat-tool status-completed" data-kind="fetch"><span class="chat-tool-line"><span class="chat-tool-tick"></span><span class="chat-tool-icon"><svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="8" cy="8" r="5.6"></circle><path d="M2.7 8h10.6M8 2.4c1.7 1.6 2.5 3.5 2.5 5.6S9.7 12 8 13.6C6.3 12 5.5 10.1 5.5 8S6.3 4 8 2.4Z"></path></svg></span><span class="chat-tool-kind">open</span><span class="chat-tool-target">localhost:5173/settings</span><span class="chat-tool-end">1.2s</span></span></div></div><div class="chat-tool-node"><div class="chat-tool status-completed" data-kind="search"><span class="chat-tool-line"><span class="chat-tool-tick"></span><span class="chat-tool-icon"><svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="7" cy="7" r="4.4"></circle><path d="M10.4 10.4 14 14"></path></svg></span><span class="chat-tool-kind">find</span><span class="chat-tool-target">“Sign in”<span class="chat-tool-arg">button</span></span><span class="chat-tool-end">380ms</span></span></div></div><div class="chat-tool-node"><div class="chat-tool status-completed" data-kind="edit"><span class="chat-tool-line"><span class="chat-tool-tick"></span><span class="chat-tool-icon"><svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 2.5 12.5 7.6 8.6 8.6 6.9 12.5Z" stroke-linejoin="round"></path></svg></span><span class="chat-tool-kind">click</span><span class="chat-tool-target">“Sign in”<span class="chat-tool-arg">button</span></span><span class="chat-tool-end">214ms</span></span></div></div><div class="chat-tool-node"><div class="chat-tool status-completed" data-kind="edit"><span class="chat-tool-line"><span class="chat-tool-tick"></span><span class="chat-tool-icon"><svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9.6 3.4 12.6 6.4"></path><path d="M3 13h3l7-7-3-3-7 7v3Z"></path></svg></span><span class="chat-tool-kind">type</span><span class="chat-tool-target">into #email</span><span class="chat-tool-end">92ms</span></span></div></div><svg class="bridge-out" width="32" height="12" viewBox="-3 -4 32 12" aria-hidden="true"><path d="M24.5,-2 L1.5,6"/></svg></div></div><div class="chat-tool-node"><div class="chat-tool status-completed" data-kind="read"><span class="chat-tool-line"><span class="chat-tool-tick"></span><span class="chat-tool-icon"><svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 1.9h5l3.1 3.1V14H4z"></path><path d="M8.8 1.9v3.3h3.3"></path></svg></span><span class="chat-tool-kind">read</span><span class="chat-tool-target">Settings.tsx</span><span class="chat-tool-end">40ms</span></span></div></div><div class="chat-tool-node"><div class="chat-tool area-head open"><span class="chat-tool-line"><span class="chat-tool-tick"></span><span class="chat-tool-icon"><svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2.2" y="3" width="11.6" height="10" rx="1.4"></rect><path d="M4.8 6.4 6.8 8l-2 1.6M8.4 10h2.8"></path></svg></span><span class="chat-tool-kind area-name">tasks</span><span class="chat-tool-target area-count">2 steps</span><span class="chat-tool-end">3.2s<svg class="area-chev" width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 4l4 4-4 4"></path></svg></span></span></div><div class="chat-tools-body nested"><svg class="bridge" width="32" height="20" viewBox="-3 -6 32 20" aria-hidden="true">
+<path class="b-elbow" d="M0.5,-6 V7 Q0.5,11 4.5,11 H18"/>
+<path class="b-s" d="M0.5,-6 V-3 Q0.5,0.5 4.5,0.5 H21.5 Q25.5,0.5 25.5,4.5 V5"/>
+<path class="b-diag" d="M1.5,-4.5 L24,4"/>
+<path class="b-drop" d="M25.5,-7 V4"/>
+</svg><div class="chat-tool-node"><div class="chat-tool status-completed" data-kind="execute"><span class="chat-tool-line"><span class="chat-tool-tick"></span><span class="chat-tool-icon"><svg width="11" height="11" viewBox="0 0 16 16" fill="currentColor" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4.7 3.4 12.4 8l-7.7 4.6z" stroke="none"></path></svg></span><span class="chat-tool-kind">start</span><span class="chat-tool-target">dev<span class="chat-tool-arg">pnpm dev</span></span><span class="chat-tool-end">1.2s</span></span></div></div><div class="chat-tool-node"><div class="chat-tool status-completed" data-kind="read"><span class="chat-tool-line"><span class="chat-tool-tick"></span><span class="chat-tool-icon"><svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 1.9h5l3.1 3.1V14H4z"></path><path d="M8.8 1.9v3.3h3.3"></path></svg></span><span class="chat-tool-kind">read</span><span class="chat-tool-target">dev<span class="chat-tool-arg">“error”</span></span><span class="chat-tool-end">2s</span></span></div></div><svg class="bridge-out" width="32" height="12" viewBox="-3 -4 32 12" aria-hidden="true"><path d="M24.5,-2 L1.5,6"/></svg></div></div><div class="chat-tool-node"><div class="chat-tool status-completed" data-kind="move"><span class="chat-tool-line"><span class="chat-tool-tick"></span><span class="chat-tool-icon"><svg width="10" height="10" viewBox="0 0 24 24" aria-hidden="true"><path fill="#2684FF" d="M22.16 11.1 13.24 2.19 12.37 1.32 5.66 8.03 2.59 11.1a.82.82 0 0 0 0 1.16l6.14 6.14L12.37 22l6.71-6.72.1-.1 2.98-2.97a.82.82 0 0 0 0-1.16zM12.37 14.75 9.3 11.68l3.07-3.07 3.07 3.07z"></path></svg></span><span class="chat-tool-kind">move</span><span class="chat-tool-target">CIQ-584 to In Review</span><span class="chat-tool-end">4s</span></span></div></div><div class="chat-tool-node"><div class="chat-tool status-completed" data-kind="execute"><span class="chat-tool-line"><span class="chat-tool-tick"></span><span class="chat-tool-icon"><svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 4.6 6 8l-3 3.4M7.6 11.4H13"></path></svg></span><span class="chat-tool-kind">run</span><span class="chat-tool-target">pnpm exec vitest run src/settings</span><span class="chat-tool-end">6s</span></span></div></div></div></div></div>
+<div class="opt"><b>Elbow with a joint</b><p>A square elbow with a small accent dot at the turn, in and out.</p><div class="chat-tools vA" data-path="node" data-x=""><div class="chat-tools-sum"><span class="chat-tools-label">11 tool calls</span><span class="chat-tools-time">18s</span><svg class="chat-tools-chevron open" width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 4l4 4-4 4"></path></svg></div><div class="chat-tools-body" style="--chat-kind: calc(10ch + 1px)"><div class="chat-tool-node"><div class="chat-tool status-completed" data-kind="think"><span class="chat-tool-line"><span class="chat-tool-tick"></span><span class="chat-tool-icon"><svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 1.8c.5 3.3 2.9 5.7 6.2 6.2-3.3.5-5.7 2.9-6.2 6.2-.5-3.3-2.9-5.7-6.2-6.2C5.1 7.5 7.5 5.1 8 1.8Z"></path></svg></span><span class="chat-tool-kind">toolsearch</span><span class="chat-tool-target">ToolSearch</span><span class="chat-tool-end">691ms</span></span></div></div><div class="chat-tool-node"><div class="chat-tool status-completed" data-kind="read"><span class="chat-tool-line"><span class="chat-tool-tick"></span><span class="chat-tool-icon"><svg width="10" height="10" xmlns="http://www.w3.org/2000/svg" viewBox="82 24 265 265"><g fill="#a277ff"><polygon points="257,72 331,29 331,114"/> <polygon points="98,199 172,241 98,284"/> <path d="M108 54 C100 72, 96 90, 98 104 C100 119, 106 133, 121 144 C129 151, 139 158, 151 164 L286 223 C297 228, 306 236, 313 245 C317 250, 320 255, 321 259 C327 246, 331 229, 331 209 C330 201, 328 194, 324 189 C319 181, 314 175, 308 169 C300 162, 290 155, 278 149 L143 90 C137 87, 132 84, 128 80 C122 76, 117 71, 108 54 Z"/></g></svg>
+</span><span class="chat-tool-kind">read</span><span class="chat-tool-target">the guide: browser-input</span><span class="chat-tool-end">244ms</span></span></div></div><div class="chat-tool-node"><div class="chat-tool area-head open"><span class="chat-tool-line"><span class="chat-tool-tick"></span><span class="chat-tool-icon"><svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="8" cy="8" r="5.6"></circle><path d="M2.7 8h10.6M8 2.4c1.7 1.6 2.5 3.5 2.5 5.6S9.7 12 8 13.6C6.3 12 5.5 10.1 5.5 8S6.3 4 8 2.4Z"></path></svg></span><span class="chat-tool-kind area-name">browser</span><span class="chat-tool-target area-count">4 steps</span><span class="chat-tool-end">1.9s<svg class="area-chev" width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 4l4 4-4 4"></path></svg></span></span></div><div class="chat-tools-body nested"><svg class="bridge" width="32" height="20" viewBox="-3 -6 32 20" aria-hidden="true">
+<path class="b-elbow" d="M0.5,-6 V7 Q0.5,11 4.5,11 H18"/>
+<path class="b-s" d="M0.5,-6 V-3 Q0.5,0.5 4.5,0.5 H21.5 Q25.5,0.5 25.5,4.5 V5"/>
+<path class="b-diag" d="M1.5,-4.5 L24,4"/>
+<path class="b-drop" d="M25.5,-7 V4"/>
+</svg><div class="chat-tool-node"><div class="chat-tool status-completed" data-kind="fetch"><span class="chat-tool-line"><span class="chat-tool-tick"></span><span class="chat-tool-icon"><svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="8" cy="8" r="5.6"></circle><path d="M2.7 8h10.6M8 2.4c1.7 1.6 2.5 3.5 2.5 5.6S9.7 12 8 13.6C6.3 12 5.5 10.1 5.5 8S6.3 4 8 2.4Z"></path></svg></span><span class="chat-tool-kind">open</span><span class="chat-tool-target">localhost:5173/settings</span><span class="chat-tool-end">1.2s</span></span></div></div><div class="chat-tool-node"><div class="chat-tool status-completed" data-kind="search"><span class="chat-tool-line"><span class="chat-tool-tick"></span><span class="chat-tool-icon"><svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="7" cy="7" r="4.4"></circle><path d="M10.4 10.4 14 14"></path></svg></span><span class="chat-tool-kind">find</span><span class="chat-tool-target">“Sign in”<span class="chat-tool-arg">button</span></span><span class="chat-tool-end">380ms</span></span></div></div><div class="chat-tool-node"><div class="chat-tool status-completed" data-kind="edit"><span class="chat-tool-line"><span class="chat-tool-tick"></span><span class="chat-tool-icon"><svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 2.5 12.5 7.6 8.6 8.6 6.9 12.5Z" stroke-linejoin="round"></path></svg></span><span class="chat-tool-kind">click</span><span class="chat-tool-target">“Sign in”<span class="chat-tool-arg">button</span></span><span class="chat-tool-end">214ms</span></span></div></div><div class="chat-tool-node"><div class="chat-tool status-completed" data-kind="edit"><span class="chat-tool-line"><span class="chat-tool-tick"></span><span class="chat-tool-icon"><svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9.6 3.4 12.6 6.4"></path><path d="M3 13h3l7-7-3-3-7 7v3Z"></path></svg></span><span class="chat-tool-kind">type</span><span class="chat-tool-target">into #email</span><span class="chat-tool-end">92ms</span></span></div></div><svg class="bridge-out" width="32" height="12" viewBox="-3 -4 32 12" aria-hidden="true"><path d="M24.5,-2 L1.5,6"/></svg></div></div><div class="chat-tool-node"><div class="chat-tool status-completed" data-kind="read"><span class="chat-tool-line"><span class="chat-tool-tick"></span><span class="chat-tool-icon"><svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 1.9h5l3.1 3.1V14H4z"></path><path d="M8.8 1.9v3.3h3.3"></path></svg></span><span class="chat-tool-kind">read</span><span class="chat-tool-target">Settings.tsx</span><span class="chat-tool-end">40ms</span></span></div></div><div class="chat-tool-node"><div class="chat-tool area-head open"><span class="chat-tool-line"><span class="chat-tool-tick"></span><span class="chat-tool-icon"><svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2.2" y="3" width="11.6" height="10" rx="1.4"></rect><path d="M4.8 6.4 6.8 8l-2 1.6M8.4 10h2.8"></path></svg></span><span class="chat-tool-kind area-name">tasks</span><span class="chat-tool-target area-count">2 steps</span><span class="chat-tool-end">3.2s<svg class="area-chev" width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 4l4 4-4 4"></path></svg></span></span></div><div class="chat-tools-body nested"><svg class="bridge" width="32" height="20" viewBox="-3 -6 32 20" aria-hidden="true">
+<path class="b-elbow" d="M0.5,-6 V7 Q0.5,11 4.5,11 H18"/>
+<path class="b-s" d="M0.5,-6 V-3 Q0.5,0.5 4.5,0.5 H21.5 Q25.5,0.5 25.5,4.5 V5"/>
+<path class="b-diag" d="M1.5,-4.5 L24,4"/>
+<path class="b-drop" d="M25.5,-7 V4"/>
+</svg><div class="chat-tool-node"><div class="chat-tool status-completed" data-kind="execute"><span class="chat-tool-line"><span class="chat-tool-tick"></span><span class="chat-tool-icon"><svg width="11" height="11" viewBox="0 0 16 16" fill="currentColor" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4.7 3.4 12.4 8l-7.7 4.6z" stroke="none"></path></svg></span><span class="chat-tool-kind">start</span><span class="chat-tool-target">dev<span class="chat-tool-arg">pnpm dev</span></span><span class="chat-tool-end">1.2s</span></span></div></div><div class="chat-tool-node"><div class="chat-tool status-completed" data-kind="read"><span class="chat-tool-line"><span class="chat-tool-tick"></span><span class="chat-tool-icon"><svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 1.9h5l3.1 3.1V14H4z"></path><path d="M8.8 1.9v3.3h3.3"></path></svg></span><span class="chat-tool-kind">read</span><span class="chat-tool-target">dev<span class="chat-tool-arg">“error”</span></span><span class="chat-tool-end">2s</span></span></div></div><svg class="bridge-out" width="32" height="12" viewBox="-3 -4 32 12" aria-hidden="true"><path d="M24.5,-2 L1.5,6"/></svg></div></div><div class="chat-tool-node"><div class="chat-tool status-completed" data-kind="move"><span class="chat-tool-line"><span class="chat-tool-tick"></span><span class="chat-tool-icon"><svg width="10" height="10" viewBox="0 0 24 24" aria-hidden="true"><path fill="#2684FF" d="M22.16 11.1 13.24 2.19 12.37 1.32 5.66 8.03 2.59 11.1a.82.82 0 0 0 0 1.16l6.14 6.14L12.37 22l6.71-6.72.1-.1 2.98-2.97a.82.82 0 0 0 0-1.16zM12.37 14.75 9.3 11.68l3.07-3.07 3.07 3.07z"></path></svg></span><span class="chat-tool-kind">move</span><span class="chat-tool-target">CIQ-584 to In Review</span><span class="chat-tool-end">4s</span></span></div></div><div class="chat-tool-node"><div class="chat-tool status-completed" data-kind="execute"><span class="chat-tool-line"><span class="chat-tool-tick"></span><span class="chat-tool-icon"><svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 4.6 6 8l-3 3.4M7.6 11.4H13"></path></svg></span><span class="chat-tool-kind">run</span><span class="chat-tool-target">pnpm exec vitest run src/settings</span><span class="chat-tool-end">6s</span></span></div></div></div></div></div>
+</div>
+<script>
+const ACC=getComputedStyle(document.documentElement).getPropertyValue('--accent').trim()||'#a277ff';
+const LN=`color-mix(in oklab, ${ACC} 60%, transparent)`;
+function draw(tools){
+  const v=tools.dataset.path, body=tools.querySelector(':scope > .chat-tools-body');
+  const box=body.getBoundingClientRect();
+  const icons=[...body.querySelectorAll('.chat-tool-icon')].map(el=>{const r=el.getBoundingClientRect();return {x:r.left+r.width/2-box.left,y:r.top+r.height/2-box.top,nested:!!el.closest('.nested')}});
+  const ns='http://www.w3.org/2000/svg';const svg=document.createElementNS(ns,'svg');svg.setAttribute('class','path');
+  svg.setAttribute('width',80);svg.setAttribute('height',box.height);
+  const defs=document.createElementNS(ns,'defs');svg.appendChild(defs);
+  const add=(tag,attrs,parent=svg)=>{const e=document.createElementNS(ns,tag);for(const k in attrs)e.setAttribute(k,attrs[k]);parent.appendChild(e);return e};
+  const dashed={fill:'none',stroke:LN,'stroke-width':1,'stroke-dasharray':v==='dots'?'0 3.2':'3 3','stroke-linecap':'round'};
+  if(v==='dots')dashed['stroke-width']=1.6;
+  const line=(d,extra={})=>add('path',{d,...dashed,...extra});
+  const G=7;
+  let gid=0;
+  const grad=(x1,y1,x2,y2,from,to)=>{const id='g'+(gid++)+Math.random().toString(36).slice(2,6);const g=add('linearGradient',{id,gradientUnits:'userSpaceOnUse',x1,y1,x2,y2},defs);
+    add('stop',{offset:0,'stop-color':ACC,'stop-opacity':from},g);add('stop',{offset:1,'stop-color':ACC,'stop-opacity':to},g);return `url(#${id})`};
+  const brackets=[];
+  for(let i=0;i<icons.length-1;i++){
+    const p=icons[i],q=icons[i+1];const y1=p.y+G,y2=q.y-G;
+    if(Math.abs(p.x-q.x)<1){ if(!(v==='brace'&&p.nested&&q.nested)) line(`M${p.x},${y1} V${y2}`); continue;}
+    const enter=q.x>p.x, m=(y1+y2)/2, r=4;
+    switch(v){
+      case 'step': line(enter?`M${p.x},${y1} V${m-r} Q${p.x},${m} ${p.x+r},${m} H${q.x-r} Q${q.x},${m} ${q.x},${m+r} V${y2}`:`M${p.x},${y1} V${m-r} Q${p.x},${m} ${p.x-r},${m} H${q.x+r} Q${q.x},${m} ${q.x},${m+r} V${y2}`);break;
+      case 'arc': line(enter?`M${p.x},${p.y+G} Q${p.x},${q.y} ${q.x-G-1},${q.y}`:`M${p.x-G-1},${p.y} Q${q.x},${p.y} ${q.x},${q.y-G}`);break;
+      case 'fade': {const len=10; if(enter){line(`M${p.x},${y1} V${y1+len}`,{stroke:grad(0,y1,0,y1+len,.7,0)});line(`M${q.x},${y2-len} V${y2}`,{stroke:grad(0,y2-len,0,y2,0,.7)});}
+                   else{line(`M${p.x},${y1} V${y1+len}`,{stroke:grad(0,y1,0,y1+len,.7,0)});line(`M${q.x},${y2-len} V${y2}`,{stroke:grad(0,y2-len,0,y2,0,.7)});} break;}
+      case 'dots': case 'curve': {const k=(y2-y1)*0.15;line(`M${p.x},${y1} C${p.x},${m+k} ${q.x},${m-k} ${q.x},${y2}`);break;}
+      case 'arrow': {const k=(y2-y1)*0.15;line(`M${p.x},${y1} C${p.x},${m+k} ${q.x},${m-k} ${q.x},${y2-1}`);
+        add('path',{d:`M${q.x-2.5},${y2-3} L${q.x},${y2} L${q.x+2.5},${y2-3}`,fill:'none',stroke:LN,'stroke-width':1,'stroke-linecap':'round','stroke-linejoin':'round'});break;}
+      case 'hook': line(enter?`M${p.x},${y1} V${p.y+11} A${(q.x-p.x)/2},${(q.x-p.x)/2} 0 0 0 ${q.x},${p.y+11} V${y2}`.replace(/Vd+(.d+)? A/,(m0)=>m0):'', {});
+        if(!enter){line(`M${p.x},${y1} V${q.y-11} A${(p.x-q.x)/2},${(p.x-q.x)/2} 0 0 1 ${q.x},${q.y-11} V${y2}`);} break;
+      case 'brace': if(enter) brackets.push({top:p, first:q}); else brackets[brackets.length-1].last=p, brackets[brackets.length-1].next=q; break;
+      case 'node': {line(enter?`M${p.x},${y1} V${m} H${q.x} V${y2}`:`M${p.x},${y1} V${m} H${q.x} V${y2}`);
+        add('circle',{cx:enter?q.x:p.x,cy:m,r:2.2,fill:ACC});break;}
+    }
+  }
+  if(v==='brace') brackets.forEach(b=>{const x=b.first.x-12,yt=b.top.y+G,yb=b.next.y-G,r=5;
+    line(`M${b.top.x},${yt} V${b.first.y-r-3} Q${b.top.x},${b.first.y-3} ${b.top.x+r},${b.first.y-3} H${x-r} Q${x},${b.first.y-3} ${x},${b.first.y+2} V${b.last.y-2} Q${x},${b.last.y+3} ${x-r},${b.last.y+3} H${b.next.x+r} Q${b.next.x},${b.last.y+3} ${b.next.x},${b.last.y+3+r} V${yb}`);});
+  body.prepend(svg);
+}
+document.fonts.ready.then(()=>document.querySelectorAll('.chat-tools[data-path]').forEach(draw));
+</script></body></html>

@@ -16,10 +16,10 @@ use reqwest::{Client, Response};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use sikemux_core::accounts::protocol::{
-    ApiError, Challenge, Channel, Device, DeviceRegistration, DeviceRole, Platform,
+    ApiError, Challenge, Channel, Device, DeviceList, DeviceRegistration, DeviceRole, Platform,
 };
 use sikemux_core::client::CoreClient;
-use sikemux_core::protocol::{AccountLinkState, BuildChannel, RemoteStatus};
+use sikemux_core::protocol::{AccountLinkState, BuildChannel, DeviceInfo, RemoteStatus};
 use tauri::{AppHandle, Emitter, Manager, State};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
@@ -369,6 +369,42 @@ pub async fn account_sign_in(
     let _ = profile::forget(&dir).await;
     let _ = profile::save(&dir, &info.into_profile(user_id, profile::now())).await;
     Ok(status_of(&dir, saved).await)
+}
+
+/// The phones on the account this host has not paired, newest first, so the
+/// person can let them in right after signing in.
+#[tauri::command]
+pub async fn account_phones(manager: State<'_, PtyManager>) -> AppResult<Vec<Device>> {
+    let Some(saved) = read_saved().await? else {
+        return Ok(Vec::new());
+    };
+    let access_token = refreshed_access_token(&saved).await?;
+    let response = http()
+        .get(api("/v1/devices"))
+        .query(&[("role", "client")])
+        .bearer_auth(access_token)
+        .send()
+        .await?;
+    if !response.status().is_success() {
+        return Err(api_failure(response).await);
+    }
+    let list: DeviceList = response.json().await?;
+    let paired = manager
+        .client()
+        .await?
+        .remote_status()
+        .await
+        .map_err(core_error)?
+        .devices;
+    Ok(unpaired_phones(list.devices, &paired))
+}
+
+fn unpaired_phones(devices: Vec<Device>, paired: &[DeviceInfo]) -> Vec<Device> {
+    devices
+        .into_iter()
+        .filter(|device| device.role == DeviceRole::Client)
+        .filter(|device| !paired.iter().any(|known| known.id == device.key))
+        .collect()
 }
 
 #[tauri::command]
@@ -722,6 +758,37 @@ mod tests {
         assert!(released(&remote(None, "key"), "user_1"));
         assert!(released(&remote(Some("user_2"), "key"), "user_1"));
         assert!(!released(&remote(None, ""), "user_1"));
+    }
+
+    #[test]
+    fn only_phones_this_host_has_not_paired_are_offered() {
+        let device = |key: &str, role: DeviceRole| Device {
+            key: key.into(),
+            role,
+            name: key.into(),
+            platform: Platform::Ios,
+            channel: None,
+            created_at: "2026-10-08T00:00:00Z".into(),
+            last_seen_at: None,
+        };
+        let paired = DeviceInfo {
+            id: "paired".into(),
+            name: "Paired".into(),
+            platform: "ios".into(),
+            access: sikemux_core::protocol::DeviceAccess::Full,
+            paired_at: 0,
+            last_seen: None,
+        };
+        let offered = unpaired_phones(
+            vec![
+                device("new", DeviceRole::Client),
+                device("paired", DeviceRole::Client),
+                device("host", DeviceRole::Host),
+            ],
+            &[paired],
+        );
+        let keys: Vec<_> = offered.iter().map(|device| device.key.as_str()).collect();
+        assert_eq!(keys, ["new"]);
     }
 
     #[test]

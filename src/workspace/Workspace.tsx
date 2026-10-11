@@ -414,7 +414,7 @@ const WorkspaceTabsBar = memo(function WorkspaceTabsBar({ session }: { session: 
                 };
             }
             const path = pane.kind === "editor" ? editorViews[pane.id]?.activePath : null;
-            if (path) return { label: basename(path), title: path, icon: <FileIcon name={basename(path)} size={16} /> };
+            if (path) return { label: basename(path), title: path, icon: <FileIcon name={basename(path)} size={14} /> };
             const label = roleLabel(paneRole(pane.kind));
             return {
                 label,
@@ -445,7 +445,7 @@ const WorkspaceTabsBar = memo(function WorkspaceTabsBar({ session }: { session: 
                         active: key === activeKey,
                         dirty: (dirtyEditorPaths[editorPaneOf(win, editorViews)] ?? []).includes(ref.doc),
                         preview: editorViews[editorPaneOf(win, editorViews)]?.preview === ref.doc,
-                        icon: <FileIcon name={name} size={16} />,
+                        icon: <FileIcon name={name} size={14} />,
                     },
                 ];
             }

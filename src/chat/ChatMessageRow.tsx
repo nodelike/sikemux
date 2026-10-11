@@ -1,18 +1,33 @@
 import { memo, useContext, useMemo, useState } from "react";
 import { CopyButton } from "../ui/CopyButton";
 import { basename } from "../lib/paths";
-import { AgentIcon, IconCheck, IconChevron, IconClose, IconFile, IconPlug, IconTimer, IconUser, IconWarning } from "../ui/Icons";
+import {
+    AgentIcon,
+    IconCheck,
+    IconChevron,
+    IconClose,
+    IconFile,
+    IconInfo,
+    IconPencil,
+    IconPlug,
+    IconTimer,
+    IconUser,
+    IconWarning,
+} from "../ui/Icons";
+import { Tooltip } from "../ui/Tooltip";
+import { MessageEditor } from "./MessageEditor";
 import { rateLabel, sentLabel, sentTitle } from "./messageMeta";
 import { durationLabel } from "./durationLabel";
 import { localImagePath, useImagePreview } from "./imagePreview";
 import { ChatFileRef, useFileRef } from "./FileRef";
 import { ChatAgentContext } from "./chatAgent";
 import { ChatImage } from "./ChatImage";
-import { FoldedMarkdown } from "./ChatMarkdown";
+import { FoldedMarkdown, warmChatMarkdown } from "./ChatMarkdown";
+import { ChatPage } from "./ChatPage";
 import { ToolGroup } from "./ToolGroup";
 import { ToolRow } from "./ToolRow";
 import { attachmentName, formatDetail, groupParts, subagentTask } from "./transcript";
-import type { AccountMove, AcpSubagent, AcpTaskNotice, ChatMessage, ChatPart } from "./types";
+import type { AccountMove, AcpSubagent, AcpTaskNotice, AgentNotice, ChatMessage, ChatPart } from "./types";
 import { ContextChipLabel } from "./ContextChip";
 import { Shimmer } from "./Shimmer";
 import { splitSentContext, type SentContext } from "./promptContext";
@@ -83,6 +98,29 @@ function ContentPart({ part }: { part: Extract<ChatPart, { kind: "content" }> })
     return <pre className="chat-unknown-part">{formatDetail(content)}</pre>;
 }
 
+const warmed = new WeakSet<ChatMessage>();
+let warming: Promise<void> = Promise.resolve();
+
+/* A row draws its text in the frame it mounts only if that text was read
+   already; otherwise it mounts empty and grows a frame later, under the reader.
+   Messages are read newest first, since reading starts at the bottom; the last
+   one may still be growing, and the row showing it reads it anyway. */
+export function warmTranscript(messages: readonly ChatMessage[]): Promise<void> {
+    const texts: { text: string; typed: boolean }[] = [];
+    for (let index = messages.length - 2; index >= 0; index -= 1) {
+        const message = messages[index];
+        if (warmed.has(message)) continue;
+        warmed.add(message);
+        for (const part of sentParts(message).parts) {
+            if (part.kind === "text") texts.push({ text: part.text, typed: message.role === "user" });
+            else if (part.kind === "thought") texts.push({ text: part.text, typed: false });
+        }
+    }
+    /* Settles once everything asked for so far has been read, by this call or an earlier one. */
+    if (texts.length > 0) warming = Promise.all([warming, warmChatMarkdown(texts)]).then(() => undefined);
+    return warming;
+}
+
 const MessagePart = memo(function MessagePart({ part, live, typed }: { part: ChatPart; live: boolean; typed: boolean }) {
     if (part.kind === "text") {
         return (
@@ -100,9 +138,10 @@ const MessagePart = memo(function MessagePart({ part, live, typed }: { part: Cha
             </div>
         );
     }
-    if (part.kind === "tool") return <ToolRow part={part} />;
+    if (part.kind === "tool") return part.page ? <ChatPage page={part.page} /> : <ToolRow part={part} />;
     if (part.kind === "subagent") return <SubagentPart subagent={part.subagent} />;
     if (part.kind === "notice") return <NoticePart notice={part.notice} />;
+    if (part.kind === "agent_notice") return <AgentNoticePart notice={part.notice} />;
     if (part.kind === "account") return <AccountPart move={part.move} />;
     return <ContentPart part={part} />;
 });
@@ -140,6 +179,20 @@ function NoticePart({ notice }: { notice: AcpTaskNotice }) {
             </span>
             <span className="chat-notice-state">{notice.state}</span>
             {notice.summary && <span className="chat-notice-summary">{notice.summary}</span>}
+        </div>
+    );
+}
+
+function AgentNoticePart({ notice }: { notice: AgentNotice }) {
+    return (
+        <div className={`chat-notice agent severity-${notice.severity}`} role="status">
+            {notice.severity === "info" ? <IconInfo size={12} /> : <IconWarning size={12} />}
+            <span className="chat-notice-state">{notice.title}</span>
+            {notice.description && (
+                <span className="chat-notice-summary" title={notice.description}>
+                    {notice.description}
+                </span>
+            )}
         </div>
     );
 }
@@ -236,6 +289,9 @@ export const ChatMessageRow = memo(function ChatMessageRow({
     rate,
     at,
     took,
+    onEdit,
+    canRestoreFiles = false,
+    from = 0,
 }: {
     message: ChatMessage;
     live: boolean;
@@ -243,9 +299,33 @@ export const ChatMessageRow = memo(function ChatMessageRow({
     rate: number | null;
     at: number | null;
     took: number | null;
+    /** Given when the person may write this message again. */
+    onEdit?: (message: ChatMessage, text: string, restoreFiles: boolean) => void;
+    canRestoreFiles?: boolean;
+    /** Where the shown parts start, when the work before them is folded away. */
+    from?: number;
 }) {
     const { parts, context } = useMemo(() => sentParts(message), [message]);
+    const [editing, setEditing] = useState(false);
     const attachments = message.attachments ?? [];
+    if (editing && onEdit) {
+        const written = parts.flatMap((part) => (part.kind === "text" ? [part.text] : [])).join("\n\n");
+        return (
+            <article className={`chat-message ${message.role}`}>
+                <div className="chat-message-content">
+                    <MessageEditor
+                        initial={written}
+                        canRestoreFiles={canRestoreFiles}
+                        onCancel={() => setEditing(false)}
+                        onSend={(text, restoreFiles) => {
+                            setEditing(false);
+                            onEdit(message, text, restoreFiles);
+                        }}
+                    />
+                </div>
+            </article>
+        );
+    }
     return (
         <article className={`chat-message ${message.role}`}>
             <div className="chat-message-content">
@@ -261,9 +341,16 @@ export const ChatMessageRow = memo(function ChatMessageRow({
                         ))}
                     </div>
                 )}
-                <PartGroups parts={parts} live={live} typed={message.role === "user"} />
+                <PartGroups parts={from > 0 ? parts.slice(from) : parts} live={live} typed={message.role === "user"} />
                 {copyable && (
                     <div className="chat-message-meta">
+                        {onEdit && context.length === 0 && (
+                            <Tooltip label="Edit message">
+                                <button type="button" className="copy-btn" aria-label="Edit message" onClick={() => setEditing(true)}>
+                                    <IconPencil size={15} />
+                                </button>
+                            </Tooltip>
+                        )}
                         <CopyButton value={copyable} label={message.role === "user" ? "message" : "reply"} size={15} />
                         {at !== null && (
                             <time className="chat-message-time" dateTime={new Date(at).toISOString()} title={sentTitle(at)}>

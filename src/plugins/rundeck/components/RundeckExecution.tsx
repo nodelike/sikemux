@@ -6,6 +6,7 @@ import { errorMessage, rundeckApi, type RundeckStep } from "../api";
 import * as cmd from "../state";
 import type { JobRef } from "../state";
 import { rndJobDetailR } from "../resources";
+import { useWatchingRun, watchRun } from "../runWatch";
 import { branchOf, displayStatus, duration, formatTime, isLiveStatus } from "../shape";
 import { executionProgress } from "./executionProgress";
 import { useNow } from "./hooks";
@@ -42,6 +43,8 @@ export function RundeckExecution({ paneId, level, active }: Props) {
     const rawStatus = execution?.status ?? state?.executionState ?? null;
     const status = displayStatus(rawStatus, execution?.customStatus);
     const live = isLiveStatus(rawStatus);
+    const watching = useWatchingRun(level.executionId);
+    const notifyWhenDone = cmd.rundeckSettings.useSelect((s) => s.notifyWhenDone);
     const now = useNow(live);
     const options = execution?.job?.options ?? null;
     const branch = branchOf(options, branchOptions);
@@ -114,6 +117,16 @@ export function RundeckExecution({ paneId, level, active }: Props) {
                             <IconFetch size={13} />
                             {runWord} again
                         </button>
+                        {live && notifyWhenDone && (
+                            <button
+                                className="rnd-btn"
+                                disabled={watching}
+                                title={watching ? "Sikemux will tell you when this run ends" : "Get a notification when this run ends"}
+                                onClick={() => void watchRun(cmd.jobRefOf(level), level.executionId).catch(swallow("watch the run"))}>
+                                <IconClock size={12} />
+                                {watching ? "Will notify" : "Notify me"}
+                            </button>
+                        )}
                         {live && (
                             <button className="rnd-btn danger" disabled={aborting} onClick={() => void abort()}>
                                 <IconStop size={11} />

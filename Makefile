@@ -80,10 +80,10 @@ hooks:
 prepush:
 	pnpm prepush
 
-check: format-check shell-lint lint tsc test-coverage rust-audit rust-clippy rust-test release-check
+check:
+	pnpm check
 
 ci: check
-	pnpm build
 
 clean:
 	cd src-tauri && cargo clean

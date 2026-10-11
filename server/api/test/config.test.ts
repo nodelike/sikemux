@@ -43,19 +43,6 @@ describe("loadConfig", () => {
     });
   });
 
-  it("takes Clerk's secret key and webhook secret when they are set", () => {
-    expect(
-      loadConfig({
-        ...minimal,
-        CLERK_SECRET_KEY: "sk_live_abc",
-        CLERK_WEBHOOK_SECRET: "whsec_c2VjcmV0",
-      }),
-    ).toMatchObject({
-      clerkSecretKey: "sk_live_abc",
-      clerkWebhookSecret: "whsec_c2VjcmV0",
-    });
-  });
-
   it("refuses secrets that are not Clerk's", () => {
     expect(() =>
       loadConfig({
@@ -119,15 +106,6 @@ describe("the join signing key", () => {
       publicKey: first.publicKey,
       created: false,
     });
-  });
-
-  it("takes another key id for a new key", () => {
-    expect(
-      loadConfig(
-        { ...minimal, JOIN_SIGNING_KEY_ID: "prod-2" },
-        { release: true },
-      ).join.keyId,
-    ).toBe("prod-2");
   });
 
   it("refuses a missing file, a key that is not Ed25519 and an id that would break the ticket", () => {

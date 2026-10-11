@@ -141,19 +141,6 @@ describe("the menu a file opens on right-click", () => {
         return screen.findByRole("menu");
     }
 
-    it("offers to reveal the file where the system shows files", async () => {
-        const menu = await openMenu();
-        fireEvent.click(screen.getByRole("menuitem", { name: /Reveal in/ }));
-        expect(mocks.revealInFinder).toHaveBeenCalledWith("/work/demo/src/a.ts");
-        expect(menu).toBeTruthy();
-    });
-
-    it("offers to open the file", async () => {
-        await openMenu();
-        fireEvent.click(screen.getByRole("menuitem", { name: "Open" }));
-        expect(mocks.requestOpenFile).toHaveBeenCalledWith("/work/demo/src/a.ts", undefined, undefined);
-    });
-
     it("copies the path as the project sees it and as the system does", async () => {
         await openMenu();
         fireEvent.click(screen.getByRole("menuitem", { name: "Copy Relative Path" }));
@@ -248,11 +235,5 @@ describe("a file named in an agent's own chat", () => {
         } finally {
             EXISTING.delete("/etc/hosts");
         }
-    });
-
-    it("draws nothing to open for no reference at all", () => {
-        render(<OnDesk raw={null} />);
-        expect(screen.getByText("plain")).toBeInTheDocument();
-        expect(mocks.pathKinds).not.toHaveBeenCalled();
     });
 });

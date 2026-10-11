@@ -231,17 +231,6 @@ body.bruno-resizing {
 .bruno-urlbar .bruno-url {
     align-self: stretch;
 }
-.bruno-method-sel {
-    flex: 0 0 auto;
-    background: var(--rail-2);
-    border: 1px solid var(--line);
-    border-radius: var(--radius-control);
-    padding: 4px 6px;
-    font: inherit;
-    font-weight: 800;
-    font-size: var(--text-2xs);
-    cursor: pointer;
-}
 .bruno-url {
     flex: 1 1 auto;
     min-width: 0;
@@ -277,11 +266,6 @@ body.bruno-resizing {
 .bruno-var-back.oneline {
     white-space: pre;
 }
-.bruno-varwrap.area .bruno-var-back {
-    white-space: pre-wrap;
-    overflow-wrap: anywhere;
-    min-height: 180px;
-}
 .bruno-var-field {
     width: 100%;
     background: transparent;
@@ -289,12 +273,6 @@ body.bruno-resizing {
     caret-color: var(--ink);
     outline: none;
     resize: none;
-}
-.bruno-var-field.area {
-    white-space: pre-wrap;
-    overflow-wrap: anywhere;
-    min-height: 180px;
-    overflow: hidden;
 }
 .bruno-var-field::placeholder {
     color: var(--ink-faint);
@@ -479,10 +457,6 @@ body.bruno-resizing {
 .bruno-kv-row.add .bruno-input {
     opacity: 0.7;
 }
-.bruno-kv-check {
-    display: inline-flex;
-    justify-content: center;
-}
 .bruno-input {
     width: 100%;
     background: var(--void);
@@ -526,37 +500,6 @@ body.bruno-resizing {
     font-size: var(--text-xs);
     color: var(--ink);
     word-break: break-all;
-}
-
-.bruno-code {
-    width: 100%;
-    min-height: 180px;
-    background: var(--void);
-    border: 1px solid var(--line);
-    border-radius: var(--radius-control);
-    padding: 8px;
-    color: var(--ink);
-    font-family: var(--mono);
-    font-size: 12.5px;
-    line-height: 1.5;
-    resize: vertical;
-    tab-size: 2;
-    white-space: pre;
-}
-.bruno-docs {
-    white-space: pre-wrap;
-}
-.bruno-body-mode,
-.bruno-env-select {
-    align-self: flex-start;
-    background: var(--rail-2);
-    border: 1px solid var(--line);
-    border-radius: var(--radius-control);
-    padding: 4px 8px;
-    color: var(--ink);
-    font: inherit;
-    font-size: var(--text-xs);
-    cursor: pointer;
 }
 .bruno-field {
     display: flex;
@@ -920,18 +863,6 @@ body.bruno-resizing {
 .cm-bruno-var.missing {
     background: rgba(255, 103, 103, 0.15);
     color: var(--danger);
-}
-/* body editor (VarArea) fills its tab when it's the sole content */
-.bruno-section-fill > .bruno-varwrap.area {
-    flex: 1 1 auto;
-    min-height: 0;
-}
-.bruno-section-fill > .bruno-varwrap.area .bruno-var-back,
-.bruno-section-fill > .bruno-varwrap.area .bruno-var-field {
-    min-height: 0;
-}
-.bruno-section-fill > .bruno-varwrap.area .bruno-var-field {
-    overflow: auto;
 }
 
 /* ── request tab badges ──────────────────────────────── */

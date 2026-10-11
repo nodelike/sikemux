@@ -6,7 +6,7 @@ import type { MarkdownOptions, MdElement } from "./types";
 const mocks = vi.hoisted(() => ({ parse: vi.fn() }));
 vi.mock("../api/markdown", () => ({ markdownApi: { parse: mocks.parse } }));
 
-const { forgetMarkdownForTests, settleBlocks, useMarkdownBlocks } = await import("./useMarkdownBlocks");
+const { forgetMarkdownForTests, settleBlocks, useMarkdownBlocks, warmMarkdown } = await import("./useMarkdownBlocks");
 
 const OPTIONS: MarkdownOptions = { gfm: true, htmlAsText: false, fileLinks: true };
 
@@ -35,6 +35,19 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("reading a message into blocks", () => {
+    /* A transcript row mounting empty and growing a frame later moves
+       everything under the reader as they scroll up into it. */
+    it("draws a message read ahead of time in the frame it mounts", async () => {
+        const read = (text: string) => ({ text, options: OPTIONS });
+        await warmMarkdown([read("Earlier\n\nAnswer"), read("Older")]);
+        expect(mocks.parse).toHaveBeenCalledTimes(2);
+
+        render(<Probe text={"Earlier\n\nAnswer"} live={false} />);
+        expect(screen.getByRole("status")).toHaveTextContent("2");
+        await warmMarkdown([read("Older")]);
+        expect(mocks.parse).toHaveBeenCalledTimes(2);
+    });
+
     it("asks only for the end of a message still being written, and keeps the blocks it has", async () => {
         const { rerender } = render(<Probe text={"Plan\n\nStep one\n\nStep two"} live />);
         await waitFor(() => expect(drawn).toHaveLength(3));

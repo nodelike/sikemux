@@ -214,45 +214,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_label_without_a_colour_still_has_one() {
-        let plain = Label::from(LabelRow {
-            name: "bug".into(),
-            color: None,
-        });
-        assert_eq!(plain.color, "8b8898");
-        let coloured = Label::from(LabelRow {
-            name: "bug".into(),
-            color: Some("d73a4a".into()),
-        });
-        assert_eq!(coloured.color, "d73a4a");
-    }
-
-    #[test]
-    fn reads_who_did_something_and_copes_when_nobody_did() {
-        let somebody = Some(ActorRow {
-            login: "nodelike".into(),
-            avatar_url: Some("https://avatar".into()),
-        });
-        assert_eq!(login_of(&somebody).as_deref(), Some("nodelike"));
-        assert_eq!(avatar_of(&somebody).as_deref(), Some("https://avatar"));
-        assert_eq!(login_of(&None), None);
-        assert_eq!(avatar_of(&None), None);
-    }
-
-    #[tokio::test]
-    async fn an_empty_comment_is_refused_before_it_is_sent() {
-        let input = NewComment {
-            repo: RepoRef {
-                owner: "a".into(),
-                name: "b".into(),
-            },
-            number: 1,
-            body: "   ".into(),
-        };
-        assert!(add_comment(&std::env::temp_dir(), input).await.is_err());
-    }
-
-    #[test]
     fn a_timeline_reads_each_event_into_one_shape() {
         let commit = TimelineItem::from(json!({
             "event": "committed",

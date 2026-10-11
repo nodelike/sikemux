@@ -10,7 +10,8 @@ import { CopyButton } from '@/ui/CopyButton';
 import { haptics } from '@/ui/haptics';
 import { AgentIcon, Icon } from '@/ui/Icon';
 import { Working } from '@/ui/status';
-import { fonts, type Palette, translucent, useColors, useStyles } from '@/ui/theme';
+import { fonts, italic, type Palette, translucent, useColors, useStyles } from '@/ui/theme';
+import { useAnimating } from '@/ui/motion';
 import { Shimmer } from '@/ui/Shimmer';
 import { FoldsContext, useFold } from './folds';
 import { Markdown } from './Markdown';
@@ -248,6 +249,7 @@ export function Message({
   onTap,
   strip,
   sentFiles,
+  from = 0,
 }: {
   message: ChatMessage;
   live?: boolean;
@@ -259,6 +261,8 @@ export function Message({
   /** The strip under this message, while it is shown. */
   strip?: RowMeta | null;
   sentFiles: ReadonlyMap<string, Attachment>;
+  /** Where the shown parts start, when the work before them is folded away. */
+  from?: number;
 }) {
   const colors = useColors();
   const styles = useStyles(makeStyles);
@@ -307,9 +311,42 @@ export function Message({
   }
   return (
     <Pressable onPress={tap} onLongPress={keepLongPress} accessibilityHint={tap ? 'Tap for copy and how long it took' : undefined}>
-      <Parts id={message.id} parts={message.parts} untimed={untimed} live={live} />
+      <Parts id={message.id} parts={from > 0 ? message.parts.slice(from) : message.parts} untimed={untimed} live={live} />
       {strip ? <Strip meta={strip} mine={false} /> : null}
     </Pressable>
+  );
+}
+
+/** A finished answer's work, folded above the reply it closed with, as on the Mac. */
+export function WorkSummary({ took, calls, open, onToggle }: { took: number | null; calls: number; open: boolean; onToggle: () => void }) {
+  const colors = useColors();
+  const styles = useStyles(makeStyles);
+  const worked = took === null ? 'Worked' : `Worked for ${durationLabel(took)}`;
+  const counted = `${calls} tool call${calls === 1 ? '' : 's'}`;
+  return (
+    <View style={styles.work}>
+      <Pressable
+        onPress={() => {
+          haptics.select();
+          onToggle();
+        }}
+        style={styles.workSum}
+        hitSlop={6}
+        accessibilityRole="button"
+        accessibilityLabel={calls > 0 ? `${worked}, ${counted}` : worked}
+        accessibilityState={{ expanded: open }}>
+        <Text style={styles.workText}>{worked}</Text>
+        {calls > 0 ? (
+          <>
+            <Text style={[styles.workCalls, styles.workDot]}>·</Text>
+            <Text style={styles.workCalls}>{counted}</Text>
+          </>
+        ) : null}
+        <View style={[styles.workChevron, open && { transform: [{ rotate: '90deg' }] }]}>
+          <Icon name="IconChevron" size={11} color={colors.inkDim} />
+        </View>
+      </Pressable>
+    </View>
   );
 }
 
@@ -365,7 +402,9 @@ export function Activity({ provider, label, since }: { provider: string; label: 
   const styles = useStyles(makeStyles);
   const [breath] = useState(() => new Animated.Value(1));
   const [seconds, setSeconds] = useState(() => Math.round((Date.now() - since) / 1000));
+  const animating = useAnimating();
   useEffect(() => {
+    if (!animating) return;
     const loop = Animated.loop(
       Animated.sequence([
         Animated.timing(breath, { toValue: 0.5, duration: 750, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
@@ -378,7 +417,7 @@ export function Activity({ provider, label, since }: { provider: string; label: 
       loop.stop();
       clearInterval(tick);
     };
-  }, [breath, since]);
+  }, [breath, since, animating]);
   return (
     <View style={styles.activity} accessible accessibilityLabel={label}>
       <Animated.View style={{ opacity: breath }}>
@@ -427,6 +466,18 @@ const makeStyles = (colors: Palette) => {
     retry: { color: colors.ink, fontFamily: fonts.uiMedium },
     queued: { alignItems: 'flex-end', alignSelf: 'stretch', opacity: 0.55, marginBottom: 6 },
     queuedLabel: { fontFamily: fonts.ui, fontSize: 11, color: colors.inkFaint, marginTop: 4 },
+    work: {
+      marginTop: 8,
+      marginBottom: 4,
+      paddingBottom: 4,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: colors.border,
+    },
+    workSum: { flexDirection: 'row', alignItems: 'center', gap: 8, minHeight: 24, alignSelf: 'flex-start' },
+    workText: { fontFamily: fonts.ui, fontSize: 12.5, color: colors.inkDim },
+    workCalls: { fontFamily: fonts.ui, fontSize: 12.5, color: colors.inkFaint },
+    workDot: { marginHorizontal: -2 },
+    workChevron: { opacity: 0.7 },
     strip: { flexDirection: 'row', alignItems: 'center', gap: 8, height: 24, marginTop: 6 },
     stripMine: { justifyContent: 'flex-end' },
     stripCopy: { width: 24, height: 24 },
@@ -434,7 +485,7 @@ const makeStyles = (colors: Palette) => {
     stripRate: { marginLeft: 'auto', fontFamily: fonts.mono, fontSize: 11, fontStyle: 'italic', color: colors.inkDim },
     prose: { fontFamily: fonts.ui, fontSize: 14.5, lineHeight: 23, color: colors.ink },
     thought: { marginVertical: 8 },
-    thoughtText: { fontFamily: fonts.uiItalic, fontSize: 12.5, lineHeight: 19.5, color: colors.inkFaint },
+    thoughtText: { ...italic, fontSize: 12.5, lineHeight: 19.5, color: colors.inkFaint },
     showRest: { alignSelf: 'flex-start', marginTop: 6, marginBottom: 4 },
     showRestText: { fontFamily: fonts.uiMedium, fontSize: 12.5, color: colors.tertiary },
     subagent: { marginVertical: 6 },

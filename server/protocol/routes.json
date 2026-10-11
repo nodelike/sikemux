@@ -183,6 +183,19 @@
       }
     },
     {
+      "method": "get",
+      "path": "/v1/account",
+      "operationId": "getAccount",
+      "summary": "Whether your account is in use or waiting to be deleted",
+      "auth": "session",
+      "responses": {
+        "200": {
+          "description": "The account's status. A deleted account still answers, so an app can offer to restore it.",
+          "body": "Account"
+        }
+      }
+    },
+    {
       "method": "delete",
       "path": "/v1/account",
       "operationId": "deleteAccount",
@@ -192,7 +205,7 @@
       "requestOptional": true,
       "responses": {
         "202": {
-          "description": "The account is deleted here. Repeating the call answers the same way. Revoking Sign in with Apple is tried once, and the deletion goes ahead whether or not it works.",
+          "description": "The account is deleted here and its devices revoked; the sign-in is deleted in Clerk at deletesAt unless the account is restored first. Repeating the call answers the same way. Revoking Sign in with Apple is tried once, and the deletion goes ahead whether or not it works.",
           "body": "AccountDeletion"
         },
         "400": {
@@ -201,6 +214,23 @@
         },
         "403": {
           "description": "Only the phone and web app may delete an account, after verifying the sign-in again in the last 10 minutes (message reverify).",
+          "body": "ApiError"
+        }
+      }
+    },
+    {
+      "method": "post",
+      "path": "/v1/account/restore",
+      "operationId": "restoreAccount",
+      "summary": "Take back a deletion before it is final",
+      "auth": "session",
+      "responses": {
+        "200": {
+          "description": "The account is in use again, with no devices on it; each signs in again. Restoring an account in use changes nothing.",
+          "body": "Account"
+        },
+        "404": {
+          "description": "The sign-in is already deleted in Clerk, so the account can no longer be restored.",
           "body": "ApiError"
         }
       }

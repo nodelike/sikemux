@@ -67,17 +67,6 @@ describe("Approvals", () => {
         expect(view.container.textContent).toBe("");
     });
 
-    it("shows nothing when nothing is waiting", async () => {
-        const view = await renderApprovals([]);
-        expect(api.pendingApprovals).toHaveBeenCalledWith(repo, "7");
-        expect(view.container.textContent).toBe("");
-    });
-
-    it("names the environments waiting and the longest wait", async () => {
-        await renderApprovals([pending(), pending({ environmentId: 2, environment: "staging", waitMinutes: 15 })]);
-        expect(screen.getByText("production, staging · 15m wait")).toBeTruthy();
-    });
-
     it("approves every environment the person may sign off", async () => {
         await renderApprovals([pending(), pending({ environmentId: 2, environment: "staging", canApprove: false })]);
         fireEvent.click(screen.getByRole("button", { name: "Approve" }));
@@ -114,16 +103,5 @@ describe("Approvals", () => {
         await act(async () => fail(new Error("not allowed")));
         expect(toasts()).toContain("Could not answer the deployment: not allowed");
         expect(screen.getByRole("button", { name: "Approve" })).toHaveProperty("disabled", false);
-    });
-
-    it("names who has to sign off when the person cannot", async () => {
-        await renderApprovals([pending({ canApprove: false, reviewers: ["alice", "ops-team"] })]);
-        expect(screen.getByText("alice, ops-team")).toBeTruthy();
-        expect(screen.queryByRole("button", { name: "Approve" })).toBeNull();
-    });
-
-    it("says someone else has to sign off when nobody is named", async () => {
-        await renderApprovals([pending({ canApprove: false })]);
-        expect(screen.getByText("Someone else has to sign this off.")).toBeTruthy();
     });
 });

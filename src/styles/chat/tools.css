@@ -328,6 +328,7 @@ button.chat-tool:hover > .chat-tool-line::after,
     white-space: pre-wrap;
     overflow-wrap: anywhere;
     user-select: text;
+    cursor: auto;
 }
 
 .chat-tool-terminal > * + :not(.chat-tool-exit) {

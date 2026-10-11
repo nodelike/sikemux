@@ -168,7 +168,6 @@
     --radius-xs: var(--radius-2);
     --radius-sm: var(--radius-2);
     --radius-md: var(--radius-3);
-    --radius-lg: var(--radius-3);
 
     /* ── Elevation ────────────────────────────────────────────────────────
      *
@@ -184,9 +183,6 @@
     --shadow-2: 0 2px 4px -2px rgb(0 0 0 / 0.32), 0 4px 10px -3px rgb(0 0 0 / 0.34);
     --shadow-3: 0 4px 8px -4px rgb(0 0 0 / 0.4), 0 14px 28px -8px rgb(0 0 0 / 0.46);
     --shadow-4: 0 8px 16px -8px rgb(0 0 0 / 0.44), 0 28px 64px -16px rgb(0 0 0 / 0.62);
-
-    --shadow-soft: var(--shadow-3);
-    --shadow-float: var(--shadow-4);
 
     /* ── Focus ────────────────────────────────────────────────────────────
      *
@@ -230,7 +226,6 @@
     --dur-1: 90ms;
     --dur-2: 140ms;
     --dur-3: 220ms;
-    --dur-4: 320ms;
     --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
     --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
 
@@ -253,6 +248,5 @@
         --dur-1: 0ms;
         --dur-2: 0ms;
         --dur-3: 0ms;
-        --dur-4: 0ms;
     }
 }

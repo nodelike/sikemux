@@ -1,14 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { uiActivity } from "./activity";
-import { PerformanceTelemetry, performanceTelemetry } from "./performance";
-import {
-    ACTION_METRIC,
-    EVENT_LOOP_HANG_METRIC,
-    installInteractionTiming,
-    runMeasuredAction,
-    startEventLoopMonitor,
-    startNativeUiHeartbeat,
-} from "./instrumentation";
+import { PerformanceTelemetry } from "./performance";
+import { EVENT_LOOP_HANG_METRIC, installInteractionTiming, startEventLoopMonitor, startNativeUiHeartbeat } from "./instrumentation";
 
 function deferred<T>() {
     let resolve!: (value: T) => void;
@@ -19,22 +12,6 @@ function deferred<T>() {
     });
     return { promise, resolve, reject };
 }
-
-describe("runMeasuredAction", () => {
-    it("preserves return values and errors", () => {
-        performanceTelemetry.reset();
-        expect(runMeasuredAction("test.action", "test", () => 42)).toBe(42);
-        expect(() =>
-            runMeasuredAction("test.error", "test", () => {
-                throw new Error("boom");
-            }),
-        ).toThrow("boom");
-        expect(performanceTelemetry.snapshot()).toMatchObject({
-            latencies: { [ACTION_METRIC]: { count: 2 } },
-        });
-        expect(performanceTelemetry.snapshot().spans.filter((span) => span.name === ACTION_METRIC)).toHaveLength(2);
-    });
-});
 
 describe("startEventLoopMonitor", () => {
     it("records visible stalls and ignores background suspension", () => {
@@ -68,11 +45,6 @@ describe("startEventLoopMonitor", () => {
         scheduled?.();
         expect(telemetry.snapshot().counters["event-loop.hangs"]).toBe(1);
         stop();
-    });
-
-    it("validates monitor intervals", () => {
-        expect(() => startEventLoopMonitor({ intervalMs: 0 })).toThrow(RangeError);
-        expect(() => startEventLoopMonitor({ thresholdMs: Number.NaN })).toThrow(RangeError);
     });
 
     it("stops waking the machine while the page is hidden and picks up again when it returns", () => {

@@ -82,6 +82,7 @@ export const BUILTIN_ITEM_RENDERERS: Readonly<Record<CorePaneKind, (props: Workb
         <TerminalPane
             cwd={paneCwd(pane, session) || undefined}
             startup={pane.startup}
+            reconnect={session.kind === "ssh" ? pane.startup : undefined}
             active={active}
             visible={visible}
             context={terminalContext(session, win, pane)}

@@ -16,7 +16,6 @@ pub const ENVELOPE_VERSION: u8 = 1;
 pub const PAD_SIZES: [usize; 3] = [512, 1024, 2048];
 pub const MAX_PLAINTEXT: usize = 2048;
 pub const NONCE_BYTES: usize = 12;
-pub const TAG_BYTES: usize = 16;
 /// What the server accepts in a push's `blob`.
 pub const MAX_BLOB_CHARS: usize = 2900;
 

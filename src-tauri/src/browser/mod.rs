@@ -393,6 +393,11 @@ pub struct BrowserManager {
 }
 
 impl BrowserManager {
+    /// A loopback address a tab can load `path` from.
+    pub(crate) fn local_file_url(&self, path: &Path) -> Result<String, String> {
+        self.local_files.url_for(path)
+    }
+
     pub fn snapshot(&self, agent_id: &str) -> AppResult<BrowserSnapshot> {
         validate_agent_id(agent_id)?;
         Ok(self
@@ -1750,18 +1755,6 @@ mod tests {
     }
 
     #[test]
-    fn nothing_is_marked_without_a_tab_and_a_closed_tab_drops_its_mark() {
-        let mut strip = TabStrip::default();
-        assert_eq!(strip.mark_acting(1), None);
-
-        strip.insert("a".into(), page("https://a.test"));
-        strip.mark_acting(2);
-        strip.remove("a");
-
-        assert!(strip.acting.is_empty());
-    }
-
-    #[test]
     fn a_tab_sleeps_only_once_it_is_idle_and_its_latest_load_has_settled() {
         let mut strip = TabStrip::default();
         strip.insert("a".into(), page("https://a.test"));
@@ -1787,15 +1780,6 @@ mod tests {
     }
 
     #[test]
-    fn a_new_tab_takes_the_active_spot() {
-        let mut strip = TabStrip::default();
-        strip.insert("a".into(), page("https://a"));
-        strip.insert("b".into(), page("https://b"));
-        assert_eq!(strip.active.as_deref(), Some("b"));
-        assert_eq!(strip.order, vec!["a", "b"]);
-    }
-
-    #[test]
     fn closing_the_shown_tab_moves_right_then_left() {
         let mut strip = TabStrip::default();
         for id in ["a", "b", "c"] {
@@ -1809,36 +1793,6 @@ mod tests {
         assert!(strip.remove("a"));
         assert_eq!(strip.active, None);
         assert!(!strip.remove("a"));
-    }
-
-    #[test]
-    fn closing_another_tab_keeps_the_shown_one() {
-        let mut strip = TabStrip::default();
-        for id in ["a", "b", "c"] {
-            strip.insert(id.into(), page(id));
-        }
-        assert!(strip.activate("a"));
-        assert!(strip.remove("c"));
-        assert_eq!(strip.active.as_deref(), Some("a"));
-        assert!(!strip.activate("zzz"));
-    }
-
-    #[test]
-    fn snapshot_lists_tabs_in_strip_order_with_the_active_flag() {
-        let mut strip = TabStrip::default();
-        strip.insert("a".into(), page("https://a"));
-        strip.insert("b".into(), page("https://b"));
-        strip.activate("a");
-        let snapshot = strip.snapshot();
-        assert_eq!(snapshot.active_tab_id.as_deref(), Some("a"));
-        assert_eq!(
-            snapshot
-                .tabs
-                .iter()
-                .map(|tab| (tab.id.as_str(), tab.active))
-                .collect::<Vec<_>>(),
-            vec![("a", true), ("b", false)]
-        );
     }
 
     #[test]

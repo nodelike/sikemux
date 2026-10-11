@@ -22,7 +22,7 @@ export async function purgeAccounts(
   const overdue = await db
     .selectFrom("users")
     .select("id")
-    .where("purge_after", "<", sql<Date>`now()`)
+    .where("purge_after", "<", sql<Date>`now() - interval '1 day'`)
     .where("clerk_deleted_at", "is", null)
     .execute();
   if (overdue.length)

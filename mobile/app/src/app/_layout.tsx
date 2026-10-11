@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { AppState } from 'react-native';
+import { AppState, Platform } from 'react-native';
 import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
@@ -36,13 +36,12 @@ const ACCOUNT_WAIT_MS = 10_000;
 
 export default function RootLayout() {
   const colors = useColors();
-  const [loaded, failed] = useFonts({
-    Figtree_400Regular,
-    Figtree_400Regular_Italic,
-    Figtree_500Medium,
-    Figtree_600SemiBold,
-    JetBrainsMono_400Regular,
-  });
+  // Phones have the fonts built in; only a browser, which runs the showcase, loads them.
+  const [loaded, failed] = useFonts(
+    Platform.OS === 'web'
+      ? { Figtree_400Regular, Figtree_400Regular_Italic, Figtree_500Medium, Figtree_600SemiBold, JetBrainsMono_400Regular }
+      : {},
+  );
 
   const required = useUpdateRequired();
 
@@ -62,19 +61,24 @@ export default function RootLayout() {
     if (required) goOffline().catch(() => {});
   }, [required]);
 
-  if (!loaded && !failed) return null;
+  const fontsReady = loaded || failed;
   if (required)
-    return (
+    return fontsReady ? (
       <>
         <StatusBar style="light" />
         <UpdateRequired required={required} />
       </>
-    );
+    ) : null;
+  // The account starts loading at once; only the screens wait for the fonts, so the two load side by side.
   return (
     <ClerkProvider publishableKey={CLERK_PUBLISHABLE_KEY} tokenCache={tokenCache} __experimental_resourceCache={resourceCache}>
       <PhoneOnAccount />
-      <StatusBar style="light" />
-      <Routes background={colors.ground} />
+      {fontsReady ? (
+        <>
+          <StatusBar style="light" />
+          <Routes background={colors.ground} />
+        </>
+      ) : null}
     </ClerkProvider>
   );
 }
@@ -99,7 +103,7 @@ function Routes({ background }: { background: string }) {
   if (!ready) return late && !isLoaded ? <Unreachable /> : null;
   return (
     <>
-      <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: background } }}>
+      <Stack screenOptions={{ headerShown: false, freezeOnBlur: true, contentStyle: { backgroundColor: background } }}>
         <Stack.Screen name="index" />
         <Stack.Protected guard={!!isSignedIn}>
           <Stack.Screen name="device/[core]" />

@@ -1,5 +1,5 @@
 import { createContext, useContext } from 'react';
-import type { TextStyle } from 'react-native';
+import { Platform, type TextStyle } from 'react-native';
 
 /** Aura Noir, the Mac app's default theme, with its neutral ramp mixed the same way (DESIGN.md §3). */
 export const defaultPalette = {
@@ -113,13 +113,29 @@ export const brand = {
 
 export type Provider = keyof typeof brand;
 
-export const fonts = {
-  ui: 'Figtree_400Regular',
-  uiMedium: 'Figtree_500Medium',
-  uiSemibold: 'Figtree_600SemiBold',
-  uiItalic: 'Figtree_400Regular_Italic',
-  mono: 'JetBrainsMono_400Regular',
-} as const;
+/* The fonts are built into the app (the expo-font plugin in app.json), where iOS names each by its PostScript name
+   and Android by its file name. A browser loads them at launch under the file name. */
+export const fonts =
+  Platform.OS === 'ios'
+    ? {
+        ui: 'Figtree-Regular',
+        uiMedium: 'Figtree-Medium',
+        uiSemibold: 'Figtree-SemiBold',
+        uiItalic: 'Figtree-Italic',
+        mono: 'JetBrainsMono-Regular',
+      }
+    : {
+        ui: 'Figtree_400Regular',
+        uiMedium: 'Figtree_500Medium',
+        uiSemibold: 'Figtree_600SemiBold',
+        uiItalic: 'Figtree_400Regular_Italic',
+        mono: 'JetBrainsMono_400Regular',
+      };
+
+/* iOS files the italic under the same family as the regular face and picks between them by style, so it is asked
+   for by style there too. */
+export const italic: TextStyle =
+  Platform.OS === 'ios' ? { fontFamily: fonts.uiItalic, fontStyle: 'italic' } : { fontFamily: fonts.uiItalic };
 
 /** Text the app says is Figtree; text the machine says is mono (DESIGN.md §1). */
 export function typeFor(colors: Palette) {

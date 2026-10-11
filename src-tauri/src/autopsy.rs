@@ -16,7 +16,6 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use serde::{Deserialize, Serialize};
 
 use crate::bounded_process;
-use crate::error::{AppError, AppResult};
 use crate::observability::{
     global_observability, HangListener, HangSignal, Metadata, ObservabilitySnapshot, ScalarValue,
     UiActivityLog, UiActivitySnapshot,
@@ -72,7 +71,7 @@ pub struct HangReport {
     pub samples: Vec<StackSample>,
 }
 
-/// One autopsy as listed by the `hang_reports` command and by `sikemux doctor`.
+/// One autopsy as listed by `sikemux doctor`.
 #[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct HangReportSummary {
@@ -595,13 +594,6 @@ fn civil_from_days(days: i64) -> (i64, u32, u32) {
     } as u32;
     let year = year_of_era as i64 + era * 400;
     (if month <= 2 { year + 1 } else { year }, month, day)
-}
-
-/// Lists the autopsies written so far, newest first.
-#[tauri::command]
-pub fn hang_reports() -> AppResult<Vec<HangReportSummary>> {
-    let directory = autopsy_dir().ok_or(AppError::BadArg("home directory is unavailable"))?;
-    Ok(list_reports(&directory))
 }
 
 #[cfg(test)]

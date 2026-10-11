@@ -283,6 +283,7 @@ impl Workspaces {
                 running: false,
                 pending_permissions: Vec::new(),
                 subagents: 0,
+                tasks: 0,
                 started_by: None,
                 launcher: None,
                 permission_mode: String::new(),
@@ -323,6 +324,7 @@ impl Workspaces {
                         .get(&launcher.provider)
                         .cloned()
                         .unwrap_or(Value::Null),
+                    status: launcher.status.clone(),
                 })
                 .collect(),
             palette: published.palette.clone(),
@@ -505,6 +507,7 @@ mod tests {
             permission_mode: "bypass".into(),
             account: None,
             fallbacks: Vec::new(),
+            status: None,
         }
     }
 
@@ -557,6 +560,25 @@ mod tests {
         assert!(shown.contains("Claude Code (work)"));
         assert!(!shown.contains("secret"));
         assert!(!shown.contains("adapter.js"));
+    }
+
+    #[test]
+    fn a_device_sees_whether_each_launcher_is_signed_in() {
+        let workspaces = Workspaces::default();
+        let signed_out = ChatLauncher {
+            status: Some("signedOut".into()),
+            ..launcher()
+        };
+        workspaces
+            .publish(vec![project()], vec![signed_out])
+            .unwrap();
+        let view = workspaces.view();
+        assert_eq!(view.launchers[0].status.as_deref(), Some("signedOut"));
+        workspaces
+            .publish(vec![project()], vec![launcher()])
+            .unwrap();
+        let shown = serde_json::to_value(workspaces.view()).unwrap();
+        assert!(shown["launchers"][0].get("status").is_none());
     }
 
     #[test]
@@ -631,6 +653,7 @@ mod tests {
             running: false,
             pending_permissions: Vec::new(),
             subagents: 0,
+            tasks: 0,
             started_by: None,
             launcher: None,
             permission_mode: String::new(),
@@ -695,15 +718,5 @@ mod tests {
         let mut relative = project();
         relative.path = "sikemux".into();
         assert!(workspaces.publish(vec![relative], Vec::new()).is_err());
-    }
-
-    #[test]
-    fn the_tools_server_names_the_agent_and_the_endpoint() {
-        let server = tools_server("agent-1", Path::new("/tmp/cli.json")).unwrap();
-        let text = server.to_string();
-        assert!(text.contains("sikemux-tools"));
-        assert!(text.contains("--tools-mcp"));
-        assert!(text.contains("agent-1"));
-        assert!(text.contains("/tmp/cli.json"));
     }
 }

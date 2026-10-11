@@ -83,7 +83,7 @@
     },
     {
       "name": "signoz_logs",
-      "row": {"verb": "logs", "kind": "read", "icon": "activity", "target": ["{service}", "trace {traceId}", "all services"], "detail": ["“{text}”", "{expression}", "{severities}"]},
+      "row": {"verb": "logs", "kind": "read", "icon": "log-lines", "target": ["{service}", "trace {traceId}", "all services"], "detail": ["“{text}”", "{expression}", "{severities}"]},
       "method": "searchLogs",
       "description": "Search logs, newest first. Fields every line shares are listed once in `shared`. Bodies over 1000 characters are clipped; pass id to read one whole.",
       "properties": {
@@ -177,7 +177,7 @@
     },
     {
       "name": "signoz_traces",
-      "row": {"verb": "traces", "kind": "read", "icon": "activity", "target": ["{traceId}", "{service}", "all services"], "detail": ["{expression}"]},
+      "row": {"verb": "traces", "kind": "read", "icon": "waterfall", "target": ["{traceId}", "{service}", "all services"], "detail": ["{expression}"]},
       "method": "agentTraces",
       "description": "Find traces by their root spans. Pass traceId for one trace as an outline of its root, failing spans and slowest spans; spanId opens one span.",
       "properties": {
@@ -277,7 +277,7 @@
     },
     {
       "name": "signoz_dashboards",
-      "row": {"verb": "board", "kind": "read", "icon": "activity", "target": ["{id}", "all dashboards"], "detail": ["panel {panelId}"]},
+      "row": {"verb": "board", "kind": "read", "icon": "dashboard", "target": ["{id}", "all dashboards"], "detail": ["panel {panelId}"]},
       "method": "agentDashboards",
       "description": "Saved dashboards. Pass id for one dashboard's variables and panels, and panelId as well for that panel's data.",
       "properties": {

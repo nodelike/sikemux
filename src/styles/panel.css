@@ -1,5 +1,5 @@
 /*
- * Shared panel vocabulary — surface, header, body, row, empty state, badge.
+ * Shared panel vocabulary — surface, header, body, empty state.
  *
  * Lifted out of the git pane, which was the only place that had a real panel
  * abstraction. Feature stylesheets should now only describe what differs from
@@ -141,46 +141,11 @@
     color: var(--text-secondary);
 }
 
-/* ---- Body and rows ------------------------------------------------------ */
+/* ---- Body ------------------------------------------------------------- */
 .panel-body {
     flex: 1 1 auto;
     min-height: 0;
     overflow-y: auto;
-}
-
-/* Height is mirrored by PANEL_ROW_HEIGHT in Panel.tsx; virtualised lists
-   position rows from that number, so the two must not drift. */
-.panel-row {
-    display: flex;
-    align-items: center;
-    gap: var(--space-2);
-    height: 24px;
-    padding: 0 var(--gutter-row);
-    font-size: var(--text-xs);
-    color: var(--text-secondary);
-}
-.panel-row:hover {
-    background: var(--surface-raised);
-}
-.panel-row.sel {
-    background: var(--surface-raised);
-    color: var(--text-primary);
-}
-.panel-row.ranged {
-    background: color-mix(in srgb, var(--warn) 10%, transparent);
-}
-.panel-row.sel.ranged {
-    background: var(--surface-selected);
-}
-.panel-row.muted {
-    color: var(--text-tertiary);
-    cursor: default;
-}
-.panel-row-hint {
-    margin-left: auto;
-    flex-shrink: 0;
-    font-size: 10px;
-    color: var(--text-tertiary);
 }
 
 /* ---- Empty state -------------------------------------------------------- */
@@ -312,43 +277,4 @@
 .empty-state.inline.interactive:hover {
     color: var(--text-primary);
     background: var(--surface-hover);
-}
-
-/* ---- Badge -------------------------------------------------------------- */
-.badge {
-    display: inline-flex;
-    align-items: center;
-    flex: none;
-    padding: var(--space-0) var(--space-1h);
-    border: 1px solid transparent;
-    border-radius: var(--radius-full);
-    font-family: var(--mono);
-    font-size: var(--text-3xs);
-    font-variant-numeric: tabular-nums;
-    white-space: nowrap;
-}
-.badge-neutral {
-    color: var(--text-tertiary);
-    background: color-mix(in srgb, var(--text-tertiary) 14%, transparent);
-    border-color: color-mix(in srgb, var(--text-tertiary) 30%, transparent);
-}
-.badge-accent {
-    color: var(--acc);
-    background: var(--surface-selected);
-    border-color: var(--border-selected);
-}
-.badge-warn {
-    color: var(--warn);
-    background: color-mix(in srgb, var(--warn) 14%, transparent);
-    border-color: color-mix(in srgb, var(--warn) 36%, transparent);
-}
-.badge-danger {
-    color: var(--danger);
-    background: color-mix(in srgb, var(--danger) 14%, transparent);
-    border-color: color-mix(in srgb, var(--danger) 40%, transparent);
-}
-.badge-live {
-    color: var(--live);
-    background: color-mix(in srgb, var(--live) 14%, transparent);
-    border-color: color-mix(in srgb, var(--live) 36%, transparent);
 }

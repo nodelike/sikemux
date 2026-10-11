@@ -9,7 +9,8 @@ use tokio::process::Command;
 
 use super::config::{agent_config_root, configured_default_effort, configured_default_model};
 use super::models::model_catalog_error_detail;
-use super::{allowed_agent_path, AgentDef, AgentInfo, AgentProfileRequest, AGENT_DEFS};
+use super::status::{signed_in_status, AgentStatus};
+use super::{AgentDef, AgentInfo, AgentKind, AgentProfileRequest, AGENT_DEFS};
 
 /* Two seconds is what a person waits for an agent binary to name its version
 before the probe gives up. A test spawns the same real process while hundreds
@@ -72,9 +73,7 @@ fn push_agent_candidate(candidates: &mut Vec<PathBuf>, candidate: PathBuf) {
 }
 
 fn automatic_agent_candidates(def: &AgentDef) -> Vec<PathBuf> {
-    let mut candidates = crate::system::find_executables_matching(def.command, |candidate| {
-        allowed_agent_path(def.kind, candidate)
-    });
+    let mut candidates = crate::system::find_executables(def.command);
     let home = crate::system::user_home();
     for candidate in [
         home.join(".local/bin").join(def.command),
@@ -112,7 +111,7 @@ fn explicit_agent_candidates(value: &str) -> Vec<PathBuf> {
     if value.contains('/') || value.contains('\\') || value.starts_with('~') {
         return vec![expand_user_path(value)];
     }
-    crate::system::find_executables_matching(value, |_| true)
+    crate::system::find_executables(value)
 }
 
 /// Arguments that answer "does this CLI run?" without side effects. `--version`
@@ -326,6 +325,14 @@ pub async fn available_agents(profiles: Vec<AgentProfileRequest>) -> Vec<AgentIn
                 failures.join("; ")
             }
         });
+        let status = match (&resolved, AgentKind::from_name(def.kind)) {
+            (Some(path), Some(kind)) => signed_in_status(kind, path, config_path.as_deref()).await,
+            (Some(_), None) => AgentStatus::Unknown,
+            (None, _) if failures.is_empty() => AgentStatus::Missing,
+            (None, _) => AgentStatus::Broken {
+                reason: failures.join("; "),
+            },
+        };
         Some(AgentInfo {
             kind: def.kind,
             label: def.label,
@@ -341,6 +348,7 @@ pub async fn available_agents(profiles: Vec<AgentProfileRequest>) -> Vec<AgentIn
             config_path: config_path.clone(),
             default_model: configured_default_model(def.kind, config_path.as_deref()),
             default_effort: configured_default_effort(def.kind, config_path.as_deref()),
+            status,
         })
     }))
     .await;
@@ -481,6 +489,57 @@ mod tests {
             .await
             .is_err(),
             "other agents keep probing --version"
+        );
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn each_agent_reports_whether_it_is_found_working_and_signed_in() {
+        use super::{AgentProfileRequest, AgentStatus};
+        use std::fs;
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = tempfile::tempdir().unwrap();
+        let pi = dir.path().join("pi");
+        fs::write(
+            &pi,
+            "#!/bin/sh\n[ \"$1\" = --version ] && echo 'pi 1.0' && exit 0\n[ \"$1 $2\" = 'auth check' ] && exit 1\nexit 64\n",
+        )
+        .unwrap();
+        fs::set_permissions(&pi, fs::Permissions::from_mode(0o755)).unwrap();
+        let broken = dir.path().join("omp");
+        fs::write(
+            &broken,
+            "#!/bin/sh\nprintf 'launcher missing\\n' >&2\nexit 127\n",
+        )
+        .unwrap();
+        fs::set_permissions(&broken, fs::Permissions::from_mode(0o755)).unwrap();
+        let config = dir.path().join("profile").to_string_lossy().into_owned();
+        let profiles: Vec<AgentProfileRequest> = serde_json::from_value(serde_json::json!([
+            { "type": "pi", "executablePath": pi, "configPath": config },
+            { "type": "omp", "executablePath": broken },
+            { "type": "grok", "executablePath": dir.path().join("nowhere/grok") },
+        ]))
+        .unwrap();
+
+        let agents = super::available_agents(profiles).await;
+        let status_of = |kind: &str| {
+            agents
+                .iter()
+                .find(|agent| agent.kind == kind)
+                .map(|agent| agent.status.clone())
+        };
+        assert_eq!(status_of("pi"), Some(AgentStatus::SignedOut));
+        assert!(
+            matches!(status_of("omp"), Some(AgentStatus::Broken { reason }) if reason.contains("launcher missing"))
+        );
+        assert!(
+            matches!(
+                status_of("grok"),
+                Some(AgentStatus::Missing | AgentStatus::Broken { .. })
+            ),
+            "a profile whose binary is gone is not ready: {:?}",
+            status_of("grok")
         );
     }
 }

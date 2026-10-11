@@ -3,7 +3,7 @@ import { copyText, notify, reportError, swallow } from "../../plugin-api/host";
 import { invalidate, useResourceEnabled } from "../../plugin-api/resources";
 import { IconCheck, IconClose, IconCommit, IconEye, IconGit, IconMerge, IconPencil, IconPush, IconUser } from "../../plugin-api/ui";
 import { hostApi, type RepoRef, type ReviewEvent, type TimelineItem } from "../api";
-import { useHost, usePictureOf } from "../registry";
+import { useHost, usePictureOf, type ThreadOf } from "../registry";
 import { timelineR } from "../resources";
 import { formatAgo } from "../runStatus";
 import { SectionIcon } from "./ActionsIcon";
@@ -316,6 +316,7 @@ interface Props {
     extraActions?: ReactNode;
     /** Leaves pushed commits out, for a pull request whose commits are listed beside the thread. */
     withoutCommits?: boolean;
+    of?: ThreadOf;
 }
 
 export function CommentThread({
@@ -329,19 +330,20 @@ export function CommentThread({
     children,
     extraActions,
     withoutCommits = false,
+    of = "pull",
 }: Props) {
-    const timeline = useResourceEnabled(active, timelineR, repo, number);
+    const timeline = useResourceEnabled(active, timelineR, repo, number, of);
     const host = useHost();
     const [draft, setDraft] = useState("");
     const [busy, setBusy] = useState<ReviewEvent | "comment" | null>(null);
     const blocks = blocksOf(timeline.data ?? []).filter((block) => !withoutCommits || block.kind !== "commits");
     const written = draft.trim().length > 0;
-    const refreshThread = (also?: string) => invalidate((kind) => kind === "host.timeline" || kind === "host.comments" || kind === also);
+    const refreshThread = (also?: string) => invalidate((kind) => kind === "host.timeline" || kind === also);
 
     const comment = async () => {
         setBusy("comment");
         try {
-            await hostApi(repo.provider).addComment(repo, number, draft.trim());
+            await hostApi(repo.provider).addComment(repo, number, draft.trim(), of);
             setDraft("");
             refreshThread();
             notify("success", "Comment added");

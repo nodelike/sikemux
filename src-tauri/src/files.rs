@@ -505,15 +505,6 @@ pub async fn list_project_files_snapshot(repo: String) -> Result<ProjectFilesSna
         .and_then(|snapshot| snapshot)
 }
 
-/// Compatibility command for the current frontend. New callers can use
-/// [`list_project_files_snapshot`] to avoid processing unchanged scan IDs.
-#[tauri::command]
-pub async fn list_project_files(repo: String) -> Result<Vec<String>, String> {
-    list_project_files_snapshot(repo)
-        .await
-        .map(|snapshot| snapshot.files)
-}
-
 fn normalized_relative(repo_root: &Path, path: &Path) -> Result<Option<PathBuf>, ()> {
     let relative = path.strip_prefix(repo_root).map_err(|_| ())?;
     let mut normalized = PathBuf::new();

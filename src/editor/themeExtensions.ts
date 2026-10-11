@@ -150,7 +150,3 @@ export function buildIndentMarkerExtensions(theme: Theme): Extension {
         },
     });
 }
-
-export function buildEditorExtensions(theme: Theme): Extension {
-    return [buildEditorThemeExtensions(theme), buildIndentMarkerExtensions(theme)];
-}

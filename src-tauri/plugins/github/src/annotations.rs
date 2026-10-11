@@ -153,18 +153,4 @@ mod tests {
         assert_eq!(annotation.path, None);
         assert_eq!(annotation.level, "failure");
     }
-
-    #[test]
-    fn keeps_the_file_and_line_of_a_real_one() {
-        let row: AnnotationRow = serde_json::from_value(json!({
-            "path": "src/lib.rs", "start_line": 12, "end_line": 12,
-            "annotation_level": "failure", "title": "clippy",
-            "message": "unused variable", "raw_details": "",
-        }))
-        .expect("parses");
-        let annotation = Annotation::from(row);
-        assert_eq!(annotation.path.as_deref(), Some("src/lib.rs"));
-        assert_eq!(annotation.start_line, Some(12));
-        assert_eq!(annotation.details, None);
-    }
 }

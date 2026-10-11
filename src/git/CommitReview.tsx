@@ -99,7 +99,7 @@ export function CommitReview({
                                         </span>
                                     </button>
                                 </Tooltip>
-                                <FileIcon name={basename(f)} size={15} />
+                                <FileIcon name={basename(f)} size={14} />
                                 <Tooltip label="Open in editor">
                                     <button
                                         className="acc-name"

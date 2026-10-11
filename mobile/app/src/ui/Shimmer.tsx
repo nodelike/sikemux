@@ -3,7 +3,7 @@ import { Animated, Easing, StyleSheet, Text, View, type StyleProp, type TextStyl
 import MaskedView from '@react-native-masked-view/masked-view';
 import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
 
-import { useStill } from './motion';
+import { useAnimating, useStill } from './motion';
 import { useColors } from './theme';
 
 /** One pass of the band across the label, the Mac's live-label sweep. */
@@ -26,15 +26,16 @@ export function Shimmer({
 }) {
   const colors = useColors();
   const still = useStill();
+  const animating = useAnimating();
   const [width, setWidth] = useState(0);
   const [sweep] = useState(() => new Animated.Value(0));
   useEffect(() => {
-    if (still || !width) return;
+    if (!animating || !width) return;
     sweep.setValue(0);
     const loop = Animated.loop(Animated.timing(sweep, { toValue: 1, duration: SWEEP_MS, easing: Easing.linear, useNativeDriver: true }));
     loop.start();
     return () => loop.stop();
-  }, [sweep, still, width]);
+  }, [sweep, animating, width]);
   if (still) {
     return (
       <Text style={[style, layout as StyleProp<TextStyle>]} numberOfLines={numberOfLines}>

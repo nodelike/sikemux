@@ -311,7 +311,7 @@ function typingTarget(target: Element | null): boolean {
     return (
         !!target.closest(".xterm") ||
         target.matches("input, textarea, select") ||
-        !!target.closest('[contenteditable="true"], [contenteditable=""], [role="textbox"], .cm-content')
+        !!target.closest('[contenteditable="true"], [contenteditable=""], [role="textbox"], .cm-content, [data-takes-keys]')
     );
 }
 

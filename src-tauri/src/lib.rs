@@ -1,6 +1,7 @@
 mod account;
 mod acp;
 mod activity;
+mod agent_notification;
 mod agents;
 #[cfg(target_os = "macos")]
 mod app_menu;
@@ -29,6 +30,7 @@ mod markdown;
 mod model_providers;
 mod notch;
 pub mod observability;
+mod pages;
 mod plugins;
 mod ports;
 mod preview;
@@ -37,6 +39,8 @@ mod release_credits;
 mod remote;
 mod search;
 mod settings;
+mod sim;
+mod simulator;
 mod ssh;
 mod state;
 mod system;
@@ -55,6 +59,8 @@ use observability::UiWatchdogState;
 use plugins::PluginHost;
 use pty::PtyManager;
 use sikemux_process as bounded_process;
+use sim::SimManager;
+use simulator::SimulatorManager;
 use tauri::Manager;
 use voice::VoiceManager;
 
@@ -77,9 +83,10 @@ pub(crate) fn install_tls_crypto() {
 
 /// The app window only ever shows the app. A link that would load another
 /// page in it would replace the whole workspace and end every running shell.
+/// WebKit asks the same of every frame, so the chat's page frames pass too.
 fn main_window_may_load(url: &tauri::Url) -> bool {
     match url.scheme() {
-        "tauri" => url.host_str() == Some("localhost"),
+        "tauri" | "page" => url.host_str() == Some("localhost"),
         "http" if cfg!(debug_assertions) => {
             url.host_str() == Some("localhost") && url.port() == Some(1420)
         }
@@ -202,6 +209,9 @@ pub fn run() {
                 if let Some(plugins) = webview.try_state::<PluginHost>() {
                     plugins.drain();
                 }
+                if let Some(sim) = webview.try_state::<SimManager>() {
+                    sim.drop_watches();
+                }
                 lsp::drain_all();
             }
         })
@@ -212,6 +222,10 @@ pub fn run() {
                 &_app.path().app_data_dir()?.join("plugins"),
                 &_app.package_info().version,
             )?);
+            let sim = SimManager::default();
+            _app.manage(sim.clone());
+            _app.manage(SimulatorManager::for_app(_app.handle().clone(), sim));
+            tauri::async_runtime::spawn_blocking(simulator::offered);
             wheel::watch(_app.handle());
             _app.state::<PtyManager>().start(_app.handle());
             // See-through window — same recipe as nackle (NSWindow opaque=NO,
@@ -258,11 +272,14 @@ pub fn run() {
         .manage(VoiceManager::default())
         .manage(preview::Previews::default())
         .register_asynchronous_uri_scheme_protocol(preview::SCHEME, preview::handle)
+        .manage(pages::Pages::default())
+        .register_asynchronous_uri_scheme_protocol(pages::SCHEME, pages::handle)
         .invoke_handler(tauri::generate_handler![
             acp::acp_start,
             acp::acp_attach,
             acp::acp_list,
             acp::acp_prompt,
+            acp::acp_edit,
             acp::acp_set_permission_mode,
             acp::acp_set_config,
             acp::acp_cancel,
@@ -273,13 +290,13 @@ pub fn run() {
             acp::acp_switch_account,
             pty::commands::pty_spawn,
             pty::commands::task_spawn,
-            pty::commands::pty_subscribe,
             pty::commands::pty_unsubscribe,
             pty::commands::pty_ack,
             pty::commands::pty_attach,
             pty::commands::pty_write,
             pty::commands::pty_resize,
             pty::commands::pty_reset_modes,
+            pty::commands::pty_shell_at_prompt,
             pty::commands::pty_kill,
             ports::listening_ports,
             pty::commands::pty_sessions,
@@ -291,8 +308,10 @@ pub fn run() {
             account::account_refresh_profile,
             account::account_sign_in,
             account::account_cancel_sign_in,
+            account::account_phones,
             account::account_sign_out,
             remote::remote_answer_pairing,
+            remote::remote_allow_devices,
             remote::remote_publish_workspace,
             remote::remote_publish_agents,
             remote::remote_publish_recent,
@@ -317,25 +336,22 @@ pub fn run() {
             browser::browser_reload,
             browser::browser_set_bounds,
             browser::browser_page_still,
-            system::home_dir,
-            system::recent_dirs,
             system::boot_init,
             system::battery_status,
             system::runtime_diagnostics,
             system::integration_health,
             observability::observability_ui_heartbeat,
             observability::observability_ui_activity,
-            autopsy::hang_reports,
             updates::update_check,
             updates::update_install,
             usage::usage_report_active,
             release_credits::release_avatars,
             release_credits::release_notes,
             grammars::grammar_load,
-            state::state_load,
             state::state_save,
             agents::executable::available_agents,
-            agents::models::agent_models,
+            agents::status::refresh_agent_statuses,
+            agents::status::mark_agent_signed_out,
             agents::usage::agent_usage,
             agents::accounts::agent_account_add,
             agents::accounts::agent_account_status,
@@ -347,6 +363,7 @@ pub fn run() {
             agents::sessions::recent::agent_recent_sessions,
             agents::sessions::context::agent_session_context,
             agents::sessions::rename::agent_session_rename,
+            agents::sessions::delete::agent_session_delete,
             agents::sessions::live_agent_sessions,
             agents::watch::agent_sessions_watch_start,
             agents::watch::agent_sessions_watch_stop,
@@ -356,11 +373,15 @@ pub fn run() {
             fs::read_dir,
             fs::read_dirs,
             fs::path_kinds,
+            fs::keep_dropped_paths,
             fs::read_file,
             fs::read_file_versioned,
             fs::read_text_file_limited,
             fs::open_in_default_app,
             preview::preview_file,
+            pages::page_theme,
+            pages::page_publish,
+            pages::page_open,
             document_preview::document_preview_show,
             document_preview::document_preview_hide,
             fs::write_file,
@@ -446,7 +467,6 @@ pub fn run() {
             lsp::lsp_document_symbols,
             diff::diff_hunks,
             markdown::markdown_parse,
-            files::list_project_files,
             files::list_project_files_snapshot,
             settings::scan_project_roots,
             model_providers::model_providers,
@@ -455,6 +475,7 @@ pub fn run() {
             settings::expand_path,
             settings::is_directory,
             wallpaper::wallpaper_image,
+            agent_notification::notify_agent,
             search::project_search,
             search::project_search_cancel,
             search::project_search_replace,
@@ -479,7 +500,6 @@ pub fn run() {
             cli_open::cli_claim_open_requests,
             cli_open::cli_open_result,
             cli_open::cli_editor_tabs_closed,
-            cli_paths::cli_runtime_info,
             deep_link::take_deep_links,
             cli_install::cli_install_status,
             cli_install::cli_install,
@@ -489,6 +509,17 @@ pub fn run() {
             voice::voice_stop,
             voice::voice_cancel,
             voice::voice_shutdown,
+            sim::sim_status,
+            sim::sim_prepare,
+            sim::sim_call,
+            sim::sim_watch,
+            sim::sim_unwatch,
+            sim::sim_watch_read,
+            simulator::simulator_set_enabled,
+            simulator::simulator_setup,
+            simulator::simulator_attachments,
+            simulator::simulator_set_desk_device,
+            simulator::simulator_orientation,
         ])
         .build(tauri::generate_context!())
         .expect("error while building sikemux")
@@ -525,6 +556,12 @@ pub fn run() {
                 if let Some(voice) = app_handle.try_state::<VoiceManager>() {
                     voice.drain();
                 }
+                if let Some(simulators) = app_handle.try_state::<SimulatorManager>() {
+                    simulators.drain();
+                }
+                if let Some(sim) = app_handle.try_state::<SimManager>() {
+                    sim.drain();
+                }
                 lsp::drain_all();
             }
         });
@@ -540,6 +577,8 @@ mod main_window_navigation_tests {
         assert!(allows("tauri://localhost/"));
         assert!(allows("tauri://localhost/index.html#settings"));
         assert!(allows("http://localhost:1420/"));
+        assert!(allows("page://localhost/0123456789abcdef0123456789abcdef"));
+        assert!(!allows("page://evil.example/"));
         assert!(!allows("https://example.com/"));
         assert!(!allows("http://localhost:3000/"));
         assert!(!allows("tauri://evil.example/"));

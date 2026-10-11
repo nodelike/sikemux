@@ -71,10 +71,14 @@
     overflow: visible;
 }
 
+/* Over the desk's content, as the pane's own border was: it only ever runs
+   through the pane's 1px inset, but anything inside reaching the desk's edge
+   would otherwise paint over it. */
 .desk-outline {
     position: absolute;
     top: -1px;
     left: -1px;
+    z-index: 1;
     pointer-events: none;
 }
 
@@ -87,7 +91,7 @@
 /* No line under the tabs: the desk's edge stepping round the switcher is the
    only one. The tabs start a pane's gap past that step. */
 .desk-head {
-    --desk-kinds-w: calc(3 * 24px + 2 * 2px + 2 * 4px);
+    --desk-kinds-w: calc(var(--desk-kinds) * 24px + (var(--desk-kinds) - 1) * 2px + 2 * 4px);
     display: flex;
     align-items: center;
     min-width: 0;
@@ -98,6 +102,59 @@
    modern-shell.css. What is left here is the two things a desk tab does not
    share with a workspace tab: it sits over a pane of its own, and a page title
    is long enough to need a cap on how much room it may take. */
+/* The simulator's controls, at the strip's right end while its tab is shown. */
+.desk-head-tools {
+    display: flex;
+    flex: 0 0 auto;
+    margin-left: auto;
+    align-items: center;
+    gap: 2px;
+    padding-right: 6px;
+}
+
+/* With the simulator shown the strip holds no tabs, only the device, which opens its menu. */
+.desk-device {
+    display: inline-flex;
+    flex: 0 1 auto;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+    height: 28px;
+    margin-left: 6px;
+    padding: 0 8px;
+    border: 0;
+    background: transparent;
+    color: var(--text-primary);
+    font-size: var(--text-sm);
+    font-weight: 600;
+}
+
+.desk-device:hover,
+.desk-device[aria-expanded="true"] {
+    background: var(--surface-hover);
+}
+
+.desk-device > svg:first-child {
+    flex: none;
+    color: var(--text-secondary);
+}
+
+.desk-device-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.desk-device-dot:empty {
+    display: none;
+}
+
+.desk-device-chev {
+    flex: none;
+    color: var(--ink-faint);
+    transform: rotate(90deg);
+}
+
 .desk-head .tabbar.v-desk {
     flex: 1 1 auto;
     min-width: 0;

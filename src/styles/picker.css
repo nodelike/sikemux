@@ -232,9 +232,6 @@
     color: var(--text-secondary);
     text-align: left;
 }
-.picker-item-wrap.has-forget .picker-item {
-    padding-right: 38px;
-}
 .picker-item.sel {
     background: var(--surface-selected);
     color: var(--text-primary);

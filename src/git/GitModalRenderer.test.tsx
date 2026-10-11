@@ -159,17 +159,6 @@ describe("GitModalRenderer prompts", () => {
         expect(getState().gitModal).toBeNull();
     });
 
-    it("starts from the initial value and cancels without answering", async () => {
-        const user = userEvent.setup();
-        const onConfirm = vi.fn();
-        setState({ gitModal: { ownerPaneId: "git-pane", kind: "prompt", title: "Rename", initial: "old", onConfirm } });
-        render(<GitModalRenderer paneId="git-pane" active />);
-        expect(screen.getByRole("textbox")).toHaveValue("old");
-        await user.click(screen.getByRole("button", { name: "cancel" }));
-        expect(onConfirm).not.toHaveBeenCalled();
-        expect(getState().gitModal).toBeNull();
-    });
-
     it("takes a multi-line answer only on the primary shortcut", async () => {
         const user = userEvent.setup();
         const onConfirm = vi.fn();
@@ -180,16 +169,6 @@ describe("GitModalRenderer prompts", () => {
         expect(onConfirm).not.toHaveBeenCalled();
         fireEvent.keyDown(input, { key: "Enter", ctrlKey: true });
         expect(onConfirm).toHaveBeenCalledWith("one\ntwo");
-    });
-
-    it("submits from the ok button", async () => {
-        const user = userEvent.setup();
-        const onConfirm = vi.fn();
-        setState({ gitModal: { ownerPaneId: "git-pane", kind: "prompt", title: "Name", onConfirm } });
-        render(<GitModalRenderer paneId="git-pane" active />);
-        await user.type(screen.getByRole("textbox"), "x");
-        await user.click(screen.getByRole("button", { name: "ok (↵)" }));
-        expect(onConfirm).toHaveBeenCalledWith("x");
     });
 });
 
@@ -215,19 +194,5 @@ describe("GitModalRenderer confirmations and cheatsheets", () => {
         fireEvent.keyDown(window, { key: "d", ctrlKey: true });
         expect(first).not.toHaveBeenCalled();
         expect(getState().gitModal).not.toBeNull();
-    });
-
-    it("lists the shortcut sections", () => {
-        setState({
-            gitModal: {
-                ownerPaneId: "git-pane",
-                kind: "cheatsheet",
-                title: "Git pane keybindings",
-                sections: [{ title: "Global", rows: [{ keys: "?", label: "open this cheatsheet" }] }],
-            },
-        });
-        render(<GitModalRenderer paneId="git-pane" active />);
-        expect(screen.getByText("Global")).toBeInTheDocument();
-        expect(screen.getByText("open this cheatsheet")).toBeInTheDocument();
     });
 });

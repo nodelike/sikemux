@@ -43,31 +43,47 @@ function answerMeta(messages: ChatMessage[], endIndex: number): RowMeta {
     let chars = 0;
     let written = 0;
     let started: number | null = null;
+    // A turn the agent began by itself starts when the core said, not with the prompt before it.
+    let opened: number | null | undefined;
     let index = endIndex;
     for (; index >= 0 && messages[index].role === "assistant"; index -= 1) {
         const message = messages[index];
+        if (message.opensTurn && messages[index - 1]?.role === "assistant") opened = message.opensTurn.at;
         started = message.sentAt ?? started;
         const text = messageText(message);
         if (text) blocks.unshift(text);
         const span =
             message.streamStartedAt !== undefined && message.streamEndedAt !== undefined ? message.streamEndedAt - message.streamStartedAt : 0;
-        if (span <= 0) continue;
-        chars += message.streamChars ?? 0;
-        written += span;
+        if (span > 0) {
+            chars += message.streamChars ?? 0;
+            written += span;
+        }
+        if (opened !== undefined) break;
     }
     const rate = chars > 0 && written >= MIN_SAMPLE_MS ? chars / CHARS_PER_TOKEN / (written / 1000) : null;
     const at = messages[endIndex].endedAt ?? null;
-    started = messages[index]?.sentAt ?? started;
+    started = opened !== undefined ? opened : (messages[index]?.sentAt ?? started);
     return { text: blocks.join("\n\n"), rate, at, took: at !== null && started !== null ? at - started : null };
 }
 
 /* A prompt carries its own copy. An answer carries one only where it ends, so
    a turn gets a single row rather than one after every tool call. */
+const NO_META: RowMeta = { text: "", rate: null, at: null, took: null };
+
+/* Every row asks on every update, and a finished message never changes, so
+   each one is worked out once. An answer's run ends at the message asked about,
+   and the messages before it in the run are finished too. */
+const known = new WeakMap<ChatMessage, RowMeta>();
+
 export function rowMeta(messages: ChatMessage[], index: number): RowMeta {
     const message = messages[index];
-    if (message.role === "user") return { text: messageText(message), rate: null, at: message.sentAt ?? null, took: null };
-    if (messages[index + 1]?.role === "assistant") return { text: "", rate: null, at: null, took: null };
-    return answerMeta(messages, index);
+    if (message.role === "assistant" && messages[index + 1]?.role === "assistant" && !messages[index + 1].opensTurn) return NO_META;
+    const held = known.get(message);
+    if (held) return held;
+    const meta =
+        message.role === "user" ? { text: messageText(message), rate: null, at: message.sentAt ?? null, took: null } : answerMeta(messages, index);
+    known.set(message, meta);
+    return meta;
 }
 
 const DAY_MS = 24 * 60 * 60 * 1000;

@@ -40,15 +40,15 @@ jobs:
     runs-on: macos-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4.3.0
+        uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
         with:
           run_install: false
 
       - name: Setup Node
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 22
           cache: pnpm
@@ -74,8 +74,14 @@ jobs:
       - name: Check the generated agent tool list matches its source
         run: pnpm agent-tools:check
 
-      - name: Run frontend tests with all-source coverage
-        run: pnpm test:coverage
+      - name: Check the file icons match the installed icon theme
+        run: pnpm file-icons:check
+
+      - name: Test the dev launcher
+        run: pnpm dev-launcher:test
+
+      - name: Run frontend tests
+        run: pnpm test
 
       - name: Build frontend
         run: pnpm build
@@ -94,7 +100,7 @@ jobs:
     runs-on: macos-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Setup Rust
         run: rustup toolchain install "$(sed -n 's/^channel = "\(.*\)"$/\1/p' rust-toolchain.toml)" --profile minimal --component clippy --component rustfmt --no-self-update
@@ -110,7 +116,7 @@ jobs:
           cache-on-failure: true
 
       - name: Audit Rust dependencies
-        uses: rustsec/audit-check@69366f33c96575abad1ee0dba8212993eecbe998 # v2.0.0
+        uses: rustsec/audit-check@858dc40f52ca2b8570b7a997c1c4e35c6fc9a432 # main, Node 24
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           working-directory: src-tauri
@@ -134,21 +140,80 @@ jobs:
         run: cargo clippy -p sikemux --no-default-features --all-targets -- -D warnings
         working-directory: src-tauri
 
+  simulator-helper:
+    name: iOS Simulator helper
+    # idb's simulator libraries need Xcode 26 or newer.
+    runs-on: macos-26
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      # The cache is restored before the helper is built into target/debug: a
+      # restore that only partly matches empties target first.
+      - name: Setup Rust
+        run: rustup toolchain install "$(sed -n 's/^channel = "\(.*\)"$/\1/p' rust-toolchain.toml)" --profile minimal --no-self-update
+
+      - name: Build dependencies with light optimisation
+        run: printf '[profile.dev.package."*"]\nopt-level = %s\n' "$DEPS_OPT_LEVEL" >>"${CARGO_HOME:-$HOME/.cargo}/config.toml"
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: src-tauri
+          key: deps-opt-level-${{ env.DEPS_OPT_LEVEL }}
+          cache-on-failure: true
+
+      - name: Build the helper
+        run: node scripts/build-sim-helper.mjs --dev
+
+      - name: Run the helper's tests
+        run: swift test --package-path src-tauri/sim
+
+      # idb is copied in from facebook/idb at 45e96c0, as Package.swift says.
+      - name: Note the Xcode it was checked against
+        run: echo "Checked with $(xcodebuild -version | head -1)" >>"$GITHUB_STEP_SUMMARY"
+
+      - name: Build the app the end-to-end test drives
+        run: node scripts/build-sim-fixture.mjs
+
+      - name: Prepare Tauri resource placeholder
+        run: mkdir -p src-tauri/icons/build && touch src-tauri/icons/build/Assets.car
+
+      # A runner's first boot of a device takes minutes, longer than one tool call waits.
+      - name: Boot an iPhone 17 Pro simulator
+        timeout-minutes: 10
+        run: |
+          udid=$(xcrun simctl create "Sikemux CI" com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro)
+          xcrun simctl boot "$udid"
+          xcrun simctl bootstatus "$udid" -b
+          echo "SIKEMUX_SIM_DEVICE=$udid" >>"$GITHUB_ENV"
+
+      - name: Drive a real simulator and the fixture app as an agent would
+        working-directory: src-tauri
+        env:
+          SIKEMUX_SIM_EXECUTABLE: ${{ github.workspace }}/src-tauri/target/debug/sikemux-sim
+          SIKEMUX_SIM_FIXTURE: ${{ github.workspace }}/src-tauri/sim/.build/fixture/Build/Products/Debug-iphonesimulator/SimFixture.app
+        run: cargo test --lib simulator -- --ignored --test-threads=1
+
   desktop-e2e:
     name: macOS launched desktop E2E
     runs-on: macos-latest
     timeout-minutes: 30
     steps:
       - name: Checkout
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4.3.0
+        uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
         with:
           run_install: false
 
       - name: Setup Node
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 22
           cache: pnpm

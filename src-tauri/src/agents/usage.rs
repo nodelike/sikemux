@@ -11,7 +11,7 @@ use tokio::process::Command;
 use super::config::clean_model;
 use super::executable::{apply_login_environment, apply_process_config, expand_user_path};
 use super::models::{run_model_catalog_executable_without_env, CLAUDE_MODEL_CATALOG_ARGS};
-use super::{allowed_agent_path, AgentKind, AgentUsage, AgentUsageResetAt, AgentUsageWindow};
+use super::{AgentKind, AgentUsage, AgentUsageResetAt, AgentUsageWindow};
 
 /// Account-level plan usage for providers that expose structured rolling
 /// windows. This intentionally goes through each installed CLI so Sikemux uses
@@ -34,11 +34,7 @@ pub async fn agent_usage(
     let executable = executable_path
         .as_deref()
         .map(expand_user_path)
-        .or_else(|| {
-            crate::system::find_executable_matching(agent.as_str(), |candidate| {
-                allowed_agent_path(agent.as_str(), candidate)
-            })
-        })
+        .or_else(|| crate::system::find_executable(agent.as_str()))
         .ok_or_else(|| format!("{} is not available", agent.as_str()))?;
     let usage = match agent {
         AgentKind::Claude => claude_usage(&executable, config_path.as_deref()).await,

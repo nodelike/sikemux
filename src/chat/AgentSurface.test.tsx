@@ -130,13 +130,6 @@ it("types a delivered issue into a terminal agent as text", () => {
     );
 });
 
-it("says quietly that a terminal agent is resuming", () => {
-    mocks.resume = { recovery: { phase: "resuming" }, generation: 0 };
-    render(<AgentSurface agent={{ ...agent, type: "pi", startup: "pi" }} session={session} visible />);
-    expect(screen.getByRole("status")).toHaveTextContent("Resuming…");
-    expect(screen.queryByText("Couldn't resume this agent")).not.toBeInTheDocument();
-});
-
 it("offers Retry and Start new chat when a terminal agent could not be resumed", () => {
     mocks.resume = { recovery: { phase: "failed", detail: "The agent exited with code 1." }, generation: 0 };
     const crashed: Agent = { ...agent, type: "pi", startup: "pi", resumeId: "r1", ptyId: 40, profileId: "pi-work", cwd: "/repo/sub" };

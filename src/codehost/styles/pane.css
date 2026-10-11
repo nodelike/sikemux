@@ -16,11 +16,6 @@
     font-weight: inherit;
     letter-spacing: inherit;
 }
-.gha-cols {
-    display: flex;
-    flex: 1 1 auto;
-    min-height: 0;
-}
 .gha-body {
     flex: 1 1 auto;
     min-width: 0;
@@ -33,9 +28,4 @@
 }
 .gha-dim {
     color: var(--text-tertiary);
-}
-
-.gha-warn-note {
-    font-size: var(--text-2xs);
-    color: var(--warn);
 }

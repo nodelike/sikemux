@@ -41,15 +41,6 @@ afterEach(() => {
 });
 
 describe("ImageViewer", () => {
-    it("shows nothing until a picture is opened", () => {
-        render(<ImageViewer />);
-        expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
-
-        act(() => showImage(shot));
-        expect(screen.getByRole("dialog", { name: "shot.png" })).toBeInTheDocument();
-        expect(screen.getByRole("img", { name: "shot.png" })).toHaveAttribute("src", shot.src);
-    });
-
     /* The transcript's thumbnail of a big picture is a shrunk copy, so the
        viewer reads the file to show what was actually attached. */
     it("reads the file again to replace the thumbnail with the whole picture", async () => {

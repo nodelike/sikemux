@@ -123,7 +123,9 @@ export async function checkStanding(
           and reason = 'removed'
       ) as removed`.execute(db);
   if (rows[0]?.deleted && !allowDeleted)
-    throw unauthorized("This account was deleted.");
+    throw unauthorized(
+      "This account was deleted. Sign in to the phone app or app.sikemux.com to restore it.",
+    );
   if (rows[0]?.removed)
     throw unauthorized("This sign-in was removed from the account.");
 }

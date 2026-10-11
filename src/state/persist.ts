@@ -14,15 +14,15 @@ import { normalizePermissionMode } from "../agents/agentLaunch";
 import { clampRailWidth } from "../lib/railWidths";
 import { mergePinnedIntoRoots, normaliseProjectRoots, pruneOnDemandWindows } from "./commands";
 import { agentPaneId } from "./selectors";
-import { collectPanes, removePane } from "./layout";
-import { BROWSER_ACTIVE, deskEditorId, deskView, fileKey } from "./desks";
+import { collectPanes, newId, removePane } from "./layout";
+import { BROWSER_ACTIVE, deskEditorId, deskView, fileKey, simulatorKey } from "./desks";
 import { agentDirectCommand, agentStartup } from "./commands";
 import { agentWindow } from "./agentWindow";
 import { getState, setState, useStore, type StoreState } from "./store";
 import { errMessage, notify } from "./toast";
 import { isCoreSessionId, isSessionKind, validatePersistedLayout } from "./persistValidation";
 import { isPluginId, isPluginKind } from "../plugins/kinds";
-import { firstGrapheme, spaceName } from "./projectSpaces";
+import { DEFAULT_SPACE_ICON, isSpaceIcon, spaceName, type SpaceIcon } from "./projectSpaces";
 import { createWorkbenchItemRef, workbenchItemRegistry, workbenchItemRefFromPane, type BuiltinWorkbenchItemState } from "../workbench/registry";
 import type {
     Agent,
@@ -56,7 +56,7 @@ function deriveRole(w: Window): WindowRole {
     return "named";
 }
 
-export const VERSION = 18;
+export const VERSION = 19;
 const MIN_SUPPORTED_VERSION = 3;
 const ONBOARDING_MIGRATION_VERSION = 6;
 const AGENT_PERMISSION_DEFAULT_MIGRATION_VERSION = 9;
@@ -69,6 +69,7 @@ const RUNDECK_GROUPS_MIGRATION_VERSION = 15;
 const DESK_MIGRATION_VERSION = 16;
 const GITHUB_IN_GIT_PANE_MIGRATION_VERSION = 17;
 const CORE_SESSION_MIGRATION_VERSION = 18;
+const SPACE_ICON_MIGRATION_VERSION = 19;
 const RETRY_MS = 1500;
 let lastSaved = "";
 let activeSnapshot: string | null = null;
@@ -117,6 +118,8 @@ const PERSISTED_KEYS = [
     "agentNotifications",
     "notch",
     "voiceDictation",
+    "iosSimulator",
+    "simulatorFrame",
     "notificationsIntroduced",
     "keptRunningNoticeShown",
     "railDensity",
@@ -182,6 +185,8 @@ function packPrefs(s: StoreState): PersistedPrefs {
         agentNotifications: s.agentNotifications,
         notch: s.notch,
         voiceDictation: s.voiceDictation,
+        iosSimulator: s.iosSimulator,
+        simulatorFrame: s.simulatorFrame,
         notificationsIntroduced: s.notificationsIntroduced,
         keptRunningNoticeShown: s.keptRunningNoticeShown,
         railDensity: s.railDensity,
@@ -213,7 +218,7 @@ function normaliseSpaces(value: unknown): ProjectSpace[] {
         if (!isRecord(row) || typeof row.id !== "string" || !row.id || typeof row.name !== "string") continue;
         const name = spaceName(row.name);
         if (!name || spaces.some((space) => space.id === row.id)) continue;
-        spaces.push({ id: row.id, name, icon: typeof row.icon === "string" ? firstGrapheme(row.icon) : "" });
+        spaces.push({ id: row.id, name, icon: isSpaceIcon(row.icon) ? row.icon : "" });
     }
     return spaces;
 }
@@ -646,6 +651,66 @@ function forgetCoreSessions(decoded: Record<string, unknown>): void {
 
 /** Before v16 an agent's side pane held only its browser, as a "browser" pane whose saved state had no files. */
 /** Before v17 GitHub had a session of its own. It lives in each project's git pane now, so that session has nothing left to show. */
+const SPACE_ICON_FOR_EMOJI: Record<string, SpaceIcon> = {
+    "📁": "folder",
+    "📂": "folder",
+    "🗂️": "folder",
+    "👤": "user",
+    "🙂": "user",
+    "😀": "user",
+    "🌍": "globe",
+    "🌎": "globe",
+    "🌏": "globe",
+    "🌐": "globe",
+    "💻": "laptop",
+    "🖥️": "laptop",
+    "🏢": "building",
+    "🏬": "building",
+    "🏛️": "building",
+    "🏠": "home",
+    "🏡": "home",
+    "💼": "briefcase",
+    "🧑‍💻": "code",
+    "👨‍💻": "code",
+    "👩‍💻": "code",
+    "🧪": "flask",
+    "⚗️": "flask",
+    "🔬": "flask",
+    "🚀": "rocket",
+    "⭐": "star",
+    "🌟": "star",
+    "✨": "star",
+    "❤️": "heart",
+    "💜": "heart",
+    "💙": "heart",
+    "💚": "heart",
+    "🧡": "heart",
+    "💛": "heart",
+    "📚": "book",
+    "📖": "book",
+    "⚡": "bolt",
+    "🌱": "leaf",
+    "🌿": "leaf",
+    "🍃": "leaf",
+    "🌳": "leaf",
+    "📦": "cube",
+    "⌨️": "terminal",
+    "🎵": "music",
+    "🎶": "music",
+    "🎧": "music",
+    "🎸": "music",
+};
+
+/** Spaces used to take an emoji; a familiar one becomes the matching icon and any other becomes a folder. */
+function swapSpaceEmojiForIcons(decoded: Record<string, unknown>): void {
+    const spaces = isRecord(decoded.prefs) ? decoded.prefs.spaces : undefined;
+    if (!Array.isArray(spaces)) return;
+    for (const row of spaces) {
+        if (!isRecord(row) || typeof row.icon !== "string") continue;
+        row.icon = row.icon ? (SPACE_ICON_FOR_EMOJI[row.icon] ?? DEFAULT_SPACE_ICON) : "";
+    }
+}
+
 function closeGithubSessions(decoded: Record<string, unknown>): void {
     const sessions = Array.isArray(decoded.sessions) ? decoded.sessions : [];
     const closed = new Set(sessions.flatMap((row) => (isRecord(row) && row.kind === "sikemux.github:hub" ? [row.id] : [])));
@@ -862,6 +927,7 @@ export function applyHydrate(raw: string): HydrationResult {
     if (decoded.version < DESK_MIGRATION_VERSION) moveBrowserPanesOntoDesks(decoded);
     if (decoded.version < GITHUB_IN_GIT_PANE_MIGRATION_VERSION) closeGithubSessions(decoded);
     if (decoded.version < CORE_SESSION_MIGRATION_VERSION) forgetCoreSessions(decoded);
+    if (decoded.version < SPACE_ICON_MIGRATION_VERSION) swapSpaceEmojiForIcons(decoded);
 
     const sessions: Record<string, Session> = {};
     for (const row of decoded.sessions) {
@@ -1003,10 +1069,15 @@ export function applyHydrate(raw: string): HydrationResult {
                 deskPanes[itemId] = view.agentId;
                 deskRestores[itemId] = view;
                 editorViews[deskEditorId(view.agentId)] = { openTabs: view.files, activePath: view.files[0] ?? null };
+                const simulators = view.simulator
+                    ? [{ id: newId("desk-simulator"), udid: view.simulator.udid, deviceName: view.simulator.name }]
+                    : [];
+                const simulatorKeys = simulators.map((simulator) => simulatorKey(simulator.id));
                 desks[view.agentId] = {
-                    order: view.files.map(fileKey),
-                    active: view.tabs.length > 0 ? BROWSER_ACTIVE : view.files[0] ? fileKey(view.files[0]) : null,
+                    order: [...view.files.map(fileKey), ...simulatorKeys],
+                    active: view.tabs.length > 0 ? BROWSER_ACTIVE : view.files[0] ? fileKey(view.files[0]) : (simulatorKeys[0] ?? null),
                     terminals: [],
+                    simulators,
                     reveal: null,
                 };
             }
@@ -1085,6 +1156,8 @@ export function applyHydrate(raw: string): HydrationResult {
         agentNotifications: typeof prefs.agentNotifications === "boolean" ? prefs.agentNotifications : cur.agentNotifications,
         notch: normaliseNotchSettings(prefs.notch),
         voiceDictation: prefs.voiceDictation === true,
+        iosSimulator: typeof prefs.iosSimulator === "boolean" ? prefs.iosSimulator : cur.iosSimulator,
+        simulatorFrame: typeof prefs.simulatorFrame === "boolean" ? prefs.simulatorFrame : cur.simulatorFrame,
         notificationsIntroduced: prefs.notificationsIntroduced === true,
         keptRunningNoticeShown: prefs.keptRunningNoticeShown === true,
         railDensity: prefs.railDensity === "compact" || prefs.railDensity === "comfortable" ? prefs.railDensity : cur.railDensity,

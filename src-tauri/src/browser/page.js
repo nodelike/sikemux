@@ -761,6 +761,10 @@
         pageHeight() {
             return Math.max(document.documentElement.scrollHeight, document.body ? document.body.scrollHeight : 0);
         },
+        // The height the page's content needs, which a short page's scrollHeight hides behind the viewport's.
+        contentHeight() {
+            return Math.ceil(document.documentElement.getBoundingClientRect().height);
+        },
         pointerVisible(visible) {
             if (overlay) overlay.layer.classList.toggle("quiet", !visible);
             return {};

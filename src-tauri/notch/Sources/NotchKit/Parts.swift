@@ -16,6 +16,16 @@ struct StateMark: View {
     }
 }
 
+/// Shells or monitors an agent left running, in the terminal glyph so it does not read as the dot that waits on you.
+struct StillRunning: View {
+    var body: some View {
+        IconView(icon: Icons.command, size: 11)
+            .foregroundStyle(Theme.warn)
+            .frame(width: 16, height: 16)
+            .accessibilityLabel("Shells or monitors still running")
+    }
+}
+
 struct SubagentCount: View {
     let count: Int
 

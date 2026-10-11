@@ -36,6 +36,8 @@ export interface RundeckSettings {
     /** The job picked for each local project folder. */
     deployTargets: Record<string, DeployTarget>;
     treeHidden: boolean;
+    /** Tell the person when a run they started here ends, so they need not watch it. */
+    notifyWhenDone: boolean;
 }
 
 const isRecord = (value: unknown): value is Record<string, unknown> => !!value && typeof value === "object" && !Array.isArray(value);
@@ -60,6 +62,7 @@ function decodeSettings(saved: unknown): RundeckSettings {
         branchOptions: stringList(raw.branchOptions, DEFAULT_BRANCH_OPTIONS),
         deployTargets,
         treeHidden: raw.treeHidden === true,
+        notifyWhenDone: raw.notifyWhenDone !== false,
     };
 }
 
@@ -210,4 +213,19 @@ export function openRundeckJob(job: JobRef, options: { paneId?: string | null; b
     const deploy: RundeckLevel[] = options.branch !== undefined ? [{ kind: "deploy", ...job, branch: options.branch }] : [];
     const base = options.push ? rundeckView(paneId).stack : HOME.stack;
     setStack(paneId, [...base, service, ...deploy]);
+}
+
+export const jobRefOf = (level: JobRef): JobRef => ({
+    project: level.project,
+    jobId: level.jobId,
+    name: level.name,
+    group: level.group,
+    repoPath: level.repoPath,
+});
+
+/** Opens one run of a job, with the job underneath so Back leads to it. */
+export function openRundeckExecution(job: JobRef, executionId: number): void {
+    const paneId = openSurface(RUNDECK_DEPLOY);
+    if (!paneId) return;
+    setStack(paneId, [...HOME.stack, { kind: "service", ...job }, { kind: "execution", ...job, executionId }]);
 }

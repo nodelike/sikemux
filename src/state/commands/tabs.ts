@@ -184,15 +184,10 @@ function closeWindowNow(id: string): void {
         if (closingAgent) {
             closeAgentDesk(closingAgent.id);
             if (closingAgent.type === "claude" || closingAgent.type === "codex") {
-                invalidate((kind) => kind === "agents.catalog" || kind === "agents.models" || kind === "agents.usage");
+                invalidate((kind) => kind === "agents.catalog" || kind === "agents.usage");
             }
         }
     }
-}
-
-export function closeActiveWindow(): void {
-    const session = getState().sessions[getState().activeSessionId];
-    if (session) closeWindowById(session.activeWindowId);
 }
 
 export function selectWindowId(id: string): void {
@@ -248,22 +243,6 @@ export function cycleTab(delta: number): void {
     const nextKey = nextTabIn({ kind: "workspace", sessionId }, delta);
     const next = nextKey ? selectTabRefs(st, sessionId).find((ref) => tabRefKey(ref) === nextKey) : undefined;
     if (next) selectTab(next);
-}
-
-export function selectWindowByIndex(index: number): void {
-    const st = getState();
-    const session = st.sessions[st.activeSessionId];
-    const id = (st.windowsBySession[session?.id ?? ""] ?? [])[index];
-    if (id) selectWindowId(id);
-}
-
-export function selectWindowByName(name: string): void {
-    const st = getState();
-    const session = st.sessions[st.activeSessionId];
-    if (!session) return;
-    const ids = st.windowsBySession[session.id] ?? [];
-    const id = ids.find((wid) => st.windows[wid]?.name === name);
-    if (id) selectWindowId(id);
 }
 
 export function selectWindowByRole(role: WindowRole): void {

@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Build, verify, and optionally publish a signed macOS release.
+# Build and verify a signed macOS release. --publish builds one the Release
+# workflow then publishes with scripts/publish-release.sh.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -183,7 +184,7 @@ fi
 BACKUP="$(mktemp -d)"
 FILES=(package.json src-tauri/tauri.conf.json src-tauri/Cargo.toml src-tauri/Cargo.lock latest.json)
 for file in "${FILES[@]}"; do
-  [[ -e "$file" ]] && { mkdir -p "$BACKUP/$(dirname "$file")"; cp "$file" "$BACKUP/$file"; }
+  if [[ -e "$file" ]]; then mkdir -p "$BACKUP/$(dirname "$file")"; cp "$file" "$BACKUP/$file"; fi
 done
 SUCCESS=0
 EXPECTED=""
@@ -218,7 +219,7 @@ snapshot_expected() {
   [[ -n "$EXPECTED" ]] && rm -rf "$EXPECTED"
   EXPECTED="$(mktemp -d)"
   for file in "${FILES[@]}"; do
-    [[ -e "$file" ]] && { mkdir -p "$EXPECTED/$(dirname "$file")"; cp "$file" "$EXPECTED/$file"; }
+    if [[ -e "$file" ]]; then mkdir -p "$EXPECTED/$(dirname "$file")"; cp "$file" "$EXPECTED/$file"; fi
   done
 }
 trap restore_on_failure EXIT INT TERM
@@ -250,10 +251,11 @@ TAR="$BUNDLE/macos/${APP_NAME}.app.tar.gz"
 SIG="$TAR.sig"
 APP="$BUNDLE/macos/${APP_NAME}.app"
 VOICE="$ROOT/src-tauri/binaries/sikemux-voice-$(rustc -vV | sed -n 's/^host: //p')"
+SIM="$ROOT/src-tauri/binaries/sikemux-sim-$(rustc -vV | sed -n 's/^host: //p')"
 # Remove stale outputs before the one release build. Their absence afterwards
 # is stronger evidence of freshness than directory mtimes, which do not change
 # when a bundler updates files in place.
-rm -rf "$APP" "$TAR" "$SIG" "$BUNDLE/dmg" "$VOICE"
+rm -rf "$APP" "$TAR" "$SIG" "$BUNDLE/dmg" "$VOICE" "$SIM"
 echo "→ Building updater-signed v$VERSION"
 TAURI_SIGNING_PRIVATE_KEY="$UPDATER_KEY" TAURI_SIGNING_PRIVATE_KEY_PASSWORD="$UPDATER_KEY_PASSWORD" \
   REQUIRE_VALID_SIGNATURE=1 REQUIRE_SIGNED_APP="$NOTARIZED" "$ROOT/scripts/build-mac.sh"
@@ -298,6 +300,10 @@ ARCHS="$(/usr/bin/lipo -archs "$ARCHIVE_APP/Contents/MacOS/$EXECUTABLE_NAME")"
 VOICE_SHA256="$(/usr/bin/shasum -a 256 "$VOICE" | cut -d ' ' -f 1)"
 /usr/bin/grep -aqF "$VOICE_SHA256" "$ARCHIVE_APP/Contents/MacOS/$EXECUTABLE_NAME" || \
   fail "the app does not expect the voice helper about to be published"
+[[ -x "$SIM" ]] || fail "simulator helper was not produced"
+SIM_SHA256="$(/usr/bin/shasum -a 256 "$SIM" | cut -d ' ' -f 1)"
+/usr/bin/grep -aqF "$SIM_SHA256" "$ARCHIVE_APP/Contents/MacOS/$EXECUTABLE_NAME" || \
+  fail "the app does not expect the simulator helper about to be published"
 APP_CDHASH="$(/usr/bin/codesign -dv --verbose=4 "$APP" 2>&1 | /usr/bin/sed -n 's/^CDHash=//p')"
 ARCHIVE_CDHASH="$(/usr/bin/codesign -dv --verbose=4 "$ARCHIVE_APP" 2>&1 | /usr/bin/sed -n 's/^CDHash=//p')"
 [[ -n "$APP_CDHASH" && "$ARCHIVE_CDHASH" == "$APP_CDHASH" ]] || fail "updater archive does not contain the exact signed app"
@@ -369,40 +375,15 @@ python3 -m json.tool "$MANIFEST" >/dev/null
 snapshot_expected
 
 [[ "$(git rev-parse HEAD)" == "$HEAD_SHA" ]] || fail "HEAD moved during the release; rebuild from a settled tree"
-STABLE_GH_CMD=(gh release create "v$VERSION" --target "$HEAD_SHA" --title "v$VERSION" --notes "$NOTES" "$DMG" "$TAR" "$SIG" "$VOICE" "$MANIFEST")
-NIGHTLY_GH_CMD=(gh release create "v$VERSION" --target "$HEAD_SHA" --title "v$VERSION" --notes "$NOTES" --prerelease "$DMG" "$TAR" "$SIG" "$VOICE")
-POINTER_NOTES="Update feed for the nightly channel.
-
-The installable build for this feed is [v$VERSION](https://github.com/nodelike/sikemux/releases/tag/v$VERSION).
-
-This release carries only \`latest.json\`. Its \`nightly\` tag is a fixed URL anchor that shipped clients resolve against, not a source revision — do not attach builds here."
-if [[ "$PUBLISH" == "1" && "$CHANNEL" == "stable" ]]; then
-  echo "→ Publishing stable v$VERSION"
-  "${STABLE_GH_CMD[@]}"
-  echo "✓ Released stable v$VERSION"
-elif [[ "$PUBLISH" == "1" ]]; then
-  echo "→ Publishing nightly v$VERSION"
-  "${NIGHTLY_GH_CMD[@]}"
-  if gh release view nightly >/dev/null 2>&1; then
-    gh release upload nightly "$MANIFEST" --clobber
-    gh release edit nightly --title "Nightly feed (v$VERSION)" --notes "$POINTER_NOTES" --prerelease
-  else
-    gh release create nightly --target "$HEAD_SHA" --title "Nightly feed (v$VERSION)" --notes "$POINTER_NOTES" --prerelease "$MANIFEST"
-  fi
-  echo "✓ Released nightly v$VERSION; nightly feed now points at v$VERSION"
-else
-  echo "✓ Verified $CHANNEL release v$VERSION ($ARCHS)"
-  echo "  $DMG"
-  echo "  $TAR"
-  echo "  $SIG"
-  echo "  $VOICE"
-  echo "  $MANIFEST"
-  echo "To publish:"
-  if [[ "$CHANNEL" == "stable" ]]; then
-    printf '  '; printf '%q ' "${STABLE_GH_CMD[@]}"; echo
-  else
-    echo "  rerun with --nightly --publish (creates v$VERSION, then repoints the nightly feed)"
-  fi
+echo "✓ Verified $CHANNEL release v$VERSION ($ARCHS)"
+echo "  $DMG"
+echo "  $TAR"
+echo "  $SIG"
+echo "  $VOICE"
+echo "  $SIM"
+echo "  $MANIFEST"
+if [[ "$PUBLISH" == "1" ]]; then
+  echo "  The Release workflow publishes these with scripts/publish-release.sh once the checks pass."
 fi
 
 SUCCESS=1

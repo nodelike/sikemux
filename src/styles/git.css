@@ -1,6 +1,5 @@
 @import "./git/pane.css";
 @import "./git/toolbar.css";
-@import "./git/tabs.css";
 @import "./git/commit-box.css";
 @import "./git/lists.css";
 @import "./git/modal.css";

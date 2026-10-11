@@ -1,0 +1,1228 @@
+[
+ {
+  "session_id": "11111111-2222-3333-4444-555555555555",
+  "cwd": "/repo/app",
+  "records": [
+   {
+    "type": "user",
+    "uuid": "u1",
+    "parent_tool_use_id": null,
+    "message": {
+     "role": "user",
+     "content": "Plan and delegate<system-reminder>internal</system-reminder>"
+    }
+   },
+   {
+    "type": "assistant",
+    "uuid": "a1r1",
+    "parent_tool_use_id": null,
+    "message": {
+     "id": "msg_1",
+     "role": "assistant",
+     "model": "claude-opus-5-5",
+     "content": [
+      {
+       "type": "thinking",
+       "thinking": "Let me think",
+       "signature": "s"
+      }
+     ]
+    }
+   },
+   {
+    "type": "assistant",
+    "uuid": "a1r2",
+    "parent_tool_use_id": null,
+    "message": {
+     "id": "msg_1",
+     "role": "assistant",
+     "model": "claude-opus-5-5",
+     "content": [
+      {
+       "type": "text",
+       "text": "Here is the plan."
+      }
+     ]
+    }
+   },
+   {
+    "type": "assistant",
+    "uuid": "a1r3",
+    "parent_tool_use_id": null,
+    "message": {
+     "id": "msg_1",
+     "role": "assistant",
+     "model": "claude-opus-5-5",
+     "content": [
+      {
+       "type": "tool_use",
+       "id": "toolu_todo",
+       "name": "TodoWrite",
+       "input": {
+        "todos": [
+         {
+          "content": "Scout",
+          "status": "in_progress",
+          "activeForm": "Scouting"
+         },
+         {
+          "content": "Report",
+          "status": "pending",
+          "activeForm": "Reporting"
+         }
+        ]
+       }
+      }
+     ]
+    }
+   },
+   {
+    "type": "user",
+    "uuid": "u2",
+    "parent_tool_use_id": null,
+    "message": {
+     "role": "user",
+     "content": [
+      {
+       "type": "tool_result",
+       "tool_use_id": "toolu_todo",
+       "content": "Todos have been modified successfully."
+      }
+     ]
+    }
+   },
+   {
+    "type": "assistant",
+    "uuid": "a2r1",
+    "parent_tool_use_id": null,
+    "message": {
+     "id": "msg_2",
+     "role": "assistant",
+     "model": "claude-opus-5-5",
+     "content": [
+      {
+       "type": "tool_use",
+       "id": "toolu_agent1",
+       "name": "Agent",
+       "input": {
+        "description": "Scout the repo",
+        "prompt": "Look around",
+        "subagent_type": "Explore"
+       }
+      },
+      {
+       "type": "tool_use",
+       "id": "toolu_agent2",
+       "name": "Task",
+       "input": {}
+      }
+     ]
+    }
+   },
+   {
+    "type": "assistant",
+    "uuid": "s1",
+    "parent_tool_use_id": "toolu_agent1",
+    "message": {
+     "id": "msg_s1",
+     "role": "assistant",
+     "model": "claude-haiku-4-5",
+     "content": [
+      {
+       "type": "text",
+       "text": "Scouting now"
+      },
+      {
+       "type": "tool_use",
+       "id": "toolu_sbash",
+       "name": "Bash",
+       "input": {
+        "command": "ls",
+        "description": "List"
+       }
+      }
+     ]
+    }
+   },
+   {
+    "type": "user",
+    "uuid": "s2",
+    "parent_tool_use_id": "toolu_agent1",
+    "message": {
+     "role": "user",
+     "content": [
+      {
+       "type": "tool_result",
+       "tool_use_id": "toolu_sbash",
+       "content": "a\nb",
+       "is_error": false
+      }
+     ]
+    }
+   },
+   {
+    "type": "assistant",
+    "uuid": "s3",
+    "parent_tool_use_id": "toolu_agent1",
+    "message": {
+     "id": "msg_s3",
+     "role": "assistant",
+     "model": "claude-haiku-4-5",
+     "content": [
+      {
+       "type": "tool_use",
+       "id": "toolu_agent3",
+       "name": "Agent",
+       "input": {
+        "name": "Deep",
+        "prompt": "  "
+       }
+      }
+     ]
+    }
+   },
+   {
+    "type": "assistant",
+    "uuid": "n1",
+    "parent_tool_use_id": "toolu_agent3",
+    "message": {
+     "id": "msg_n1",
+     "role": "assistant",
+     "model": "claude-haiku-4-5",
+     "content": [
+      {
+       "type": "text",
+       "text": "nested"
+      }
+     ]
+    }
+   },
+   {
+    "type": "user",
+    "uuid": "s4",
+    "parent_tool_use_id": "toolu_agent1",
+    "message": {
+     "role": "user",
+     "content": [
+      {
+       "type": "tool_result",
+       "tool_use_id": "toolu_agent3",
+       "content": [
+        {
+         "type": "text",
+         "text": "Agent was interrupted by the user"
+        }
+       ],
+       "is_error": true
+      }
+     ]
+    }
+   },
+   {
+    "type": "user",
+    "uuid": "u3",
+    "parent_tool_use_id": null,
+    "message": {
+     "role": "user",
+     "content": [
+      {
+       "type": "tool_result",
+       "tool_use_id": "toolu_agent1",
+       "content": [
+        {
+         "type": "text",
+         "text": "Found it\nagentId: abc123 (use SendMessage)"
+        }
+       ]
+      },
+      {
+       "type": "tool_result",
+       "tool_use_id": "toolu_agent2",
+       "content": "boom",
+       "is_error": true
+      }
+     ]
+    }
+   },
+   {
+    "type": "assistant",
+    "uuid": "o1",
+    "parent_tool_use_id": "toolu_orphan",
+    "message": {
+     "id": "msg_o1",
+     "role": "assistant",
+     "model": "claude-haiku-4-5",
+     "content": [
+      {
+       "type": "text",
+       "text": "orphan"
+      }
+     ]
+    }
+   },
+   {
+    "type": "assistant",
+    "uuid": "a3",
+    "parent_tool_use_id": null,
+    "message": {
+     "id": "msg_3",
+     "role": "assistant",
+     "model": "claude-opus-5-5",
+     "content": [
+      {
+       "type": "tool_use",
+       "id": "toolu_tc",
+       "name": "TaskCreate",
+       "input": {
+        "subject": "Write tests",
+        "activeForm": "Writing tests"
+       }
+      }
+     ]
+    }
+   },
+   {
+    "type": "user",
+    "uuid": "u4",
+    "parent_tool_use_id": null,
+    "message": {
+     "role": "user",
+     "content": [
+      {
+       "type": "tool_result",
+       "tool_use_id": "toolu_tc",
+       "content": "Task #1 created successfully: Write tests"
+      }
+     ]
+    }
+   },
+   {
+    "type": "assistant",
+    "uuid": "a4",
+    "parent_tool_use_id": null,
+    "message": {
+     "id": "msg_4",
+     "role": "assistant",
+     "model": "claude-opus-5-5",
+     "content": [
+      {
+       "type": "tool_use",
+       "id": "toolu_tu",
+       "name": "TaskUpdate",
+       "input": {
+        "taskId": "1",
+        "status": "in_progress"
+       }
+      },
+      {
+       "type": "tool_use",
+       "id": "toolu_tc2",
+       "name": "TaskCreate",
+       "input": {
+        "subject": "Ship"
+       }
+      }
+     ]
+    }
+   },
+   {
+    "type": "user",
+    "uuid": "u5",
+    "parent_tool_use_id": null,
+    "message": {
+     "role": "user",
+     "content": [
+      {
+       "type": "tool_result",
+       "tool_use_id": "toolu_tu",
+       "content": "Updated task #1 status"
+      },
+      {
+       "type": "tool_result",
+       "tool_use_id": "toolu_tc2",
+       "content": "{\"task\":{\"id\":\"2\",\"subject\":\"Ship\"}}"
+      }
+     ]
+    }
+   },
+   {
+    "type": "assistant",
+    "uuid": "a5",
+    "parent_tool_use_id": null,
+    "message": {
+     "id": "msg_5",
+     "role": "assistant",
+     "model": "claude-opus-5-5",
+     "content": [
+      {
+       "type": "tool_use",
+       "id": "toolu_tl",
+       "name": "TaskList",
+       "input": {}
+      }
+     ]
+    }
+   },
+   {
+    "type": "user",
+    "uuid": "u6",
+    "parent_tool_use_id": null,
+    "message": {
+     "role": "user",
+     "content": [
+      {
+       "type": "tool_result",
+       "tool_use_id": "toolu_tl",
+       "content": "#1 [in_progress] Write tests (agent-x)\n#2 [pending] Ship [blocked by #1]"
+      }
+     ]
+    }
+   },
+   {
+    "type": "user",
+    "uuid": "u7",
+    "parent_tool_use_id": null,
+    "message": {
+     "role": "user",
+     "content": "<command-name>/review</command-name>\n<command-message>review</command-message>\n<command-args>PR 12</command-args>"
+    }
+   },
+   {
+    "type": "user",
+    "uuid": "u8",
+    "parent_tool_use_id": null,
+    "message": {
+     "role": "user",
+     "content": "<command-name>/model</command-name>\n<command-args>haiku</command-args>"
+    }
+   },
+   {
+    "type": "user",
+    "uuid": "u9",
+    "parent_tool_use_id": null,
+    "message": {
+     "role": "user",
+     "content": "<local-command-stdout>Set model to haiku</local-command-stdout>"
+    }
+   },
+   {
+    "type": "assistant",
+    "uuid": "a6",
+    "parent_tool_use_id": null,
+    "message": {
+     "id": "msg_6",
+     "role": "assistant",
+     "model": "<synthetic>",
+     "content": [
+      {
+       "type": "text",
+       "text": "You've hit your limit · resets 3pm"
+      }
+     ]
+    }
+   },
+   {
+    "type": "assistant",
+    "uuid": "a7",
+    "parent_tool_use_id": null,
+    "message": {
+     "id": "msg_7",
+     "role": "assistant",
+     "model": "<synthetic>",
+     "content": [
+      {
+       "type": "text",
+       "text": "Not logged in · Please run /login"
+      }
+     ]
+    }
+   },
+   {
+    "type": "user",
+    "uuid": "u10",
+    "parent_tool_use_id": null,
+    "message": {
+     "role": "user",
+     "content": [
+      {
+       "type": "text",
+       "text": "Look at this"
+      },
+      {
+       "type": "image",
+       "source": {
+        "type": "base64",
+        "media_type": "image/png",
+        "data": "iVBORw0KGgo="
+       }
+      },
+      {
+       "type": "text",
+       "text": "<system-reminder>only a reminder</system-reminder>"
+      }
+     ]
+    }
+   },
+   {
+    "type": "assistant",
+    "uuid": "a8",
+    "parent_tool_use_id": null,
+    "message": {
+     "id": "msg_8",
+     "role": "assistant",
+     "model": "claude-opus-5-5",
+     "content": [
+      {
+       "type": "tool_use",
+       "id": "toolu_edit",
+       "name": "Edit",
+       "input": {
+        "file_path": "/repo/app/src/a.rs",
+        "old_string": "a",
+        "new_string": "b"
+       }
+      },
+      {
+       "type": "tool_use",
+       "id": "toolu_edit",
+       "name": "Edit",
+       "input": {
+        "file_path": "/repo/app/src/a.rs",
+        "old_string": "a",
+        "new_string": "bb"
+       }
+      },
+      {
+       "type": "tool_use",
+       "id": "toolu_mcp",
+       "name": "mcp__sikemux-tools__browser_screenshot",
+       "input": {
+        "tab": 1
+       }
+      },
+      {
+       "type": "tool_use",
+       "id": "toolu_read",
+       "name": "Read",
+       "input": {
+        "file_path": "/repo/app/README.md",
+        "offset": 3,
+        "limit": 2
+       }
+      },
+      {
+       "type": "tool_use",
+       "id": "toolu_plan",
+       "name": "ExitPlanMode",
+       "input": {
+        "plan": "Do it"
+       }
+      }
+     ]
+    }
+   },
+   {
+    "type": "user",
+    "uuid": "u11",
+    "parent_tool_use_id": null,
+    "message": {
+     "role": "user",
+     "content": [
+      {
+       "type": "tool_result",
+       "tool_use_id": "toolu_edit",
+       "content": "The file /repo/app/src/a.rs has been updated."
+      },
+      {
+       "type": "tool_result",
+       "tool_use_id": "toolu_mcp",
+       "content": [
+        {
+         "type": "text",
+         "text": "Screenshot"
+        },
+        {
+         "type": "image",
+         "source": {
+          "type": "base64",
+          "media_type": "image/jpeg",
+          "data": "/9j/"
+         }
+        }
+       ]
+      },
+      {
+       "type": "tool_result",
+       "tool_use_id": "toolu_read",
+       "content": "     3→```rust\n     4→fn x() {}"
+      },
+      {
+       "type": "tool_result",
+       "tool_use_id": "toolu_plan",
+       "content": "```\nUser rejected the plan\n```",
+       "is_error": true
+      },
+      {
+       "type": "tool_result",
+       "tool_use_id": "toolu_missing",
+       "content": "stray"
+      }
+     ]
+    }
+   },
+   {
+    "type": "assistant",
+    "uuid": "a9",
+    "parent_tool_use_id": null,
+    "message": {
+     "role": "assistant",
+     "model": "claude-opus-5-5",
+     "content": "plain string reply"
+    }
+   },
+   {
+    "type": "user",
+    "uuid": "u12",
+    "parent_tool_use_id": null,
+    "message": {
+     "role": "user",
+     "content": "[Request interrupted by user]"
+    }
+   }
+  ],
+  "model": "claude-opus-5-5",
+  "expected": [
+   [
+    "11111111-2222-3333-4444-555555555555",
+    {
+     "sessionUpdate": "user_message_chunk",
+     "content": {
+      "type": "text",
+      "text": "Plan and delegate"
+     },
+     "messageId": "u1"
+    }
+   ],
+   [
+    "11111111-2222-3333-4444-555555555555",
+    {
+     "sessionUpdate": "agent_thought_chunk",
+     "content": {
+      "type": "text",
+      "text": "Let me think"
+     },
+     "messageId": "msg_1"
+    }
+   ],
+   [
+    "11111111-2222-3333-4444-555555555555",
+    {
+     "sessionUpdate": "agent_message_chunk",
+     "content": {
+      "type": "text",
+      "text": "Here is the plan."
+     },
+     "messageId": "msg_1"
+    }
+   ],
+   [
+    "11111111-2222-3333-4444-555555555555",
+    {
+     "sessionUpdate": "plan",
+     "entries": [
+      {
+       "content": "Scouting",
+       "status": "in_progress",
+       "priority": "medium"
+      },
+      {
+       "content": "Report",
+       "status": "pending",
+       "priority": "medium"
+      }
+     ]
+    }
+   ],
+   [
+    "11111111-2222-3333-4444-555555555555",
+    {
+     "sessionUpdate": "subagent_spawned",
+     "subagentSessionId": "11111111-2222-3333-4444-555555555555:replay-subagent:toolu_agent1",
+     "name": "Scout the repo",
+     "task": "Look around",
+     "capabilities": {}
+    }
+   ],
+   [
+    "11111111-2222-3333-4444-555555555555:replay-subagent:toolu_agent1",
+    {
+     "sessionUpdate": "agent_message_chunk",
+     "content": {
+      "type": "text",
+      "text": "Scouting now"
+     },
+     "messageId": "msg_s1"
+    }
+   ],
+   [
+    "11111111-2222-3333-4444-555555555555:replay-subagent:toolu_agent1",
+    {
+     "toolCallId": "toolu_sbash",
+     "sessionUpdate": "tool_call",
+     "name": "Bash",
+     "rawInput": {
+      "command": "ls",
+      "description": "List"
+     },
+     "status": "pending",
+     "title": "ls",
+     "kind": "execute",
+     "content": [
+      {
+       "type": "content",
+       "content": {
+        "type": "text",
+        "text": "List"
+       }
+      }
+     ]
+    }
+   ],
+   [
+    "11111111-2222-3333-4444-555555555555:replay-subagent:toolu_agent1",
+    {
+     "toolCallId": "toolu_sbash",
+     "sessionUpdate": "tool_call_update",
+     "status": "completed",
+     "rawOutput": "a\nb",
+     "content": [
+      {
+       "type": "content",
+       "content": {
+        "type": "text",
+        "text": "```console\na\nb\n```"
+       }
+      }
+     ]
+    }
+   ],
+   [
+    "11111111-2222-3333-4444-555555555555:replay-subagent:toolu_agent1",
+    {
+     "sessionUpdate": "subagent_spawned",
+     "subagentSessionId": "11111111-2222-3333-4444-555555555555:replay-subagent:toolu_agent3",
+     "name": "Deep",
+     "task": "Delegated task restored from session history",
+     "capabilities": {}
+    }
+   ],
+   [
+    "11111111-2222-3333-4444-555555555555:replay-subagent:toolu_agent3",
+    {
+     "sessionUpdate": "agent_message_chunk",
+     "content": {
+      "type": "text",
+      "text": "nested"
+     },
+     "messageId": "msg_n1"
+    }
+   ],
+   [
+    "11111111-2222-3333-4444-555555555555",
+    {
+     "sessionUpdate": "subagent_spawned",
+     "subagentSessionId": "11111111-2222-3333-4444-555555555555:replay-subagent:toolu_orphan",
+     "name": "Disconnected agent",
+     "task": "Subagent restored without persisted launch metadata",
+     "capabilities": {}
+    }
+   ],
+   [
+    "11111111-2222-3333-4444-555555555555:replay-subagent:toolu_orphan",
+    {
+     "sessionUpdate": "agent_message_chunk",
+     "content": {
+      "type": "text",
+      "text": "orphan"
+     },
+     "messageId": "msg_o1"
+    }
+   ],
+   [
+    "11111111-2222-3333-4444-555555555555",
+    {
+     "sessionUpdate": "plan",
+     "entries": [
+      {
+       "content": "Write tests",
+       "status": "pending",
+       "priority": "medium"
+      }
+     ]
+    }
+   ],
+   [
+    "11111111-2222-3333-4444-555555555555",
+    {
+     "sessionUpdate": "plan",
+     "entries": [
+      {
+       "content": "Writing tests",
+       "status": "in_progress",
+       "priority": "medium"
+      }
+     ]
+    }
+   ],
+   [
+    "11111111-2222-3333-4444-555555555555",
+    {
+     "sessionUpdate": "plan",
+     "entries": [
+      {
+       "content": "Writing tests",
+       "status": "in_progress",
+       "priority": "medium"
+      },
+      {
+       "content": "Ship",
+       "status": "pending",
+       "priority": "medium"
+      }
+     ]
+    }
+   ],
+   [
+    "11111111-2222-3333-4444-555555555555",
+    {
+     "sessionUpdate": "plan",
+     "entries": [
+      {
+       "content": "Writing tests",
+       "status": "in_progress",
+       "priority": "medium"
+      },
+      {
+       "content": "Ship",
+       "status": "pending",
+       "priority": "medium"
+      }
+     ]
+    }
+   ],
+   [
+    "11111111-2222-3333-4444-555555555555",
+    {
+     "sessionUpdate": "user_message_chunk",
+     "content": {
+      "type": "text",
+      "text": "/review PR 12"
+     },
+     "messageId": "u7"
+    }
+   ],
+   [
+    "11111111-2222-3333-4444-555555555555",
+    {
+     "sessionUpdate": "session_info_update",
+     "_meta": {
+      "jetbrains": {
+       "air": {
+        "version": 1,
+        "sessionFailure": {
+         "id": "u9:error",
+         "revision": 1,
+         "category": "limit",
+         "severity": "error",
+         "title": "You've hit your limit · resets 3pm",
+         "actions": []
+        }
+       }
+      }
+     }
+    }
+   ],
+   [
+    "11111111-2222-3333-4444-555555555555",
+    {
+     "sessionUpdate": "user_message_chunk",
+     "content": {
+      "type": "text",
+      "text": "Look at this"
+     },
+     "messageId": "u10"
+    }
+   ],
+   [
+    "11111111-2222-3333-4444-555555555555",
+    {
+     "sessionUpdate": "user_message_chunk",
+     "content": {
+      "type": "image",
+      "data": "iVBORw0KGgo=",
+      "mimeType": "image/png"
+     },
+     "messageId": "u10"
+    }
+   ],
+   [
+    "11111111-2222-3333-4444-555555555555",
+    {
+     "toolCallId": "toolu_edit",
+     "sessionUpdate": "tool_call",
+     "name": "Edit",
+     "rawInput": {
+      "file_path": "/repo/app/src/a.rs",
+      "old_string": "a",
+      "new_string": "b"
+     },
+     "status": "pending",
+     "title": "Edit src/a.rs",
+     "kind": "edit",
+     "content": [
+      {
+       "type": "diff",
+       "path": "/repo/app/src/a.rs",
+       "oldText": "a",
+       "newText": "b"
+      }
+     ],
+     "locations": [
+      {
+       "path": "/repo/app/src/a.rs"
+      }
+     ]
+    }
+   ],
+   [
+    "11111111-2222-3333-4444-555555555555",
+    {
+     "toolCallId": "toolu_edit",
+     "sessionUpdate": "tool_call_update",
+     "rawInput": {
+      "file_path": "/repo/app/src/a.rs",
+      "old_string": "a",
+      "new_string": "bb"
+     },
+     "title": "Edit src/a.rs",
+     "kind": "edit",
+     "content": [
+      {
+       "type": "diff",
+       "path": "/repo/app/src/a.rs",
+       "oldText": "a",
+       "newText": "bb"
+      }
+     ],
+     "locations": [
+      {
+       "path": "/repo/app/src/a.rs"
+      }
+     ]
+    }
+   ],
+   [
+    "11111111-2222-3333-4444-555555555555",
+    {
+     "toolCallId": "toolu_mcp",
+     "sessionUpdate": "tool_call",
+     "name": "mcp__sikemux-tools__browser_screenshot",
+     "rawInput": {
+      "tab": 1
+     },
+     "status": "pending",
+     "title": "mcp__sikemux-tools__browser_screenshot",
+     "kind": "other",
+     "content": []
+    }
+   ],
+   [
+    "11111111-2222-3333-4444-555555555555",
+    {
+     "toolCallId": "toolu_read",
+     "sessionUpdate": "tool_call",
+     "name": "Read",
+     "rawInput": {
+      "file_path": "/repo/app/README.md",
+      "offset": 3,
+      "limit": 2
+     },
+     "status": "pending",
+     "title": "Read README.md (3 - 4)",
+     "kind": "read",
+     "locations": [
+      {
+       "path": "/repo/app/README.md",
+       "line": 3
+      }
+     ],
+     "content": []
+    }
+   ],
+   [
+    "11111111-2222-3333-4444-555555555555",
+    {
+     "toolCallId": "toolu_plan",
+     "sessionUpdate": "tool_call",
+     "name": "ExitPlanMode",
+     "rawInput": {
+      "plan": "Do it"
+     },
+     "status": "pending",
+     "title": "Approve Plan",
+     "kind": "switch_mode",
+     "content": [
+      {
+       "type": "content",
+       "content": {
+        "type": "text",
+        "text": "Do it"
+       }
+      }
+     ]
+    }
+   ],
+   [
+    "11111111-2222-3333-4444-555555555555",
+    {
+     "toolCallId": "toolu_edit",
+     "sessionUpdate": "tool_call_update",
+     "status": "completed",
+     "rawOutput": "The file /repo/app/src/a.rs has been updated."
+    }
+   ],
+   [
+    "11111111-2222-3333-4444-555555555555",
+    {
+     "toolCallId": "toolu_mcp",
+     "sessionUpdate": "tool_call_update",
+     "status": "completed",
+     "rawOutput": [
+      {
+       "type": "text",
+       "text": "Screenshot"
+      },
+      {
+       "type": "image",
+       "source": {
+        "type": "base64",
+        "media_type": "image/jpeg",
+        "data": "/9j/"
+       }
+      }
+     ],
+     "content": [
+      {
+       "type": "content",
+       "content": {
+        "type": "text",
+        "text": "Screenshot"
+       }
+      },
+      {
+       "type": "content",
+       "content": {
+        "type": "image",
+        "data": "/9j/",
+        "mimeType": "image/jpeg"
+       }
+      }
+     ]
+    }
+   ],
+   [
+    "11111111-2222-3333-4444-555555555555",
+    {
+     "toolCallId": "toolu_read",
+     "sessionUpdate": "tool_call_update",
+     "status": "completed",
+     "rawOutput": "     3→```rust\n     4→fn x() {}",
+     "content": [
+      {
+       "type": "content",
+       "content": {
+        "type": "text",
+        "text": "```\n     3→```rust\n     4→fn x() {}\n```"
+       }
+      }
+     ]
+    }
+   ],
+   [
+    "11111111-2222-3333-4444-555555555555",
+    {
+     "toolCallId": "toolu_plan",
+     "sessionUpdate": "tool_call_update",
+     "status": "failed",
+     "rawOutput": "User rejected the plan",
+     "content": [
+      {
+       "type": "content",
+       "content": {
+        "type": "text",
+        "text": "```\n```\nUser rejected the plan\n```\n```"
+       }
+      }
+     ]
+    }
+   ],
+   [
+    "11111111-2222-3333-4444-555555555555",
+    {
+     "sessionUpdate": "agent_message_chunk",
+     "content": {
+      "type": "text",
+      "text": "plain string reply"
+     },
+     "messageId": "a9"
+    }
+   ],
+   [
+    "11111111-2222-3333-4444-555555555555",
+    {
+     "sessionUpdate": "user_message_chunk",
+     "content": {
+      "type": "text",
+      "text": "[Request interrupted by user]"
+     },
+     "messageId": "u12"
+    }
+   ],
+   [
+    "11111111-2222-3333-4444-555555555555",
+    {
+     "sessionUpdate": "subagent_state_update",
+     "subagentSessionId": "11111111-2222-3333-4444-555555555555:replay-subagent:toolu_orphan",
+     "state": "disconnected"
+    }
+   ],
+   [
+    "11111111-2222-3333-4444-555555555555:replay-subagent:toolu_agent1",
+    {
+     "sessionUpdate": "subagent_state_update",
+     "subagentSessionId": "11111111-2222-3333-4444-555555555555:replay-subagent:toolu_agent3",
+     "state": "cancelled"
+    }
+   ],
+   [
+    "11111111-2222-3333-4444-555555555555",
+    {
+     "sessionUpdate": "subagent_state_update",
+     "subagentSessionId": "11111111-2222-3333-4444-555555555555:replay-subagent:toolu_agent1",
+     "state": "completed"
+    }
+   ]
+  ]
+ },
+ {
+  "session_id": "99999999-8888-7777-6666-555555555555",
+  "cwd": "/repo/app",
+  "records": [
+   {
+    "type": "assistant",
+    "uuid": "x0",
+    "parent_tool_use_id": null,
+    "message": {
+     "id": "msg_x0",
+     "role": "assistant",
+     "model": "<synthetic>",
+     "content": [
+      {
+       "type": "text",
+       "text": "Your org is out of usage · contact your admin"
+      }
+     ]
+    }
+   },
+   {
+    "type": "assistant",
+    "uuid": "x1",
+    "parent_tool_use_id": "toolu_loop",
+    "message": {
+     "id": "msg_x1",
+     "role": "assistant",
+     "model": "m",
+     "content": [
+      {
+       "type": "tool_use",
+       "id": "toolu_loop",
+       "name": "Agent",
+       "input": {
+        "description": "Self"
+       }
+      }
+     ]
+    }
+   },
+   {
+    "type": "assistant",
+    "uuid": "x2",
+    "parent_tool_use_id": "toolu_loop",
+    "message": {
+     "id": "msg_x2",
+     "role": "assistant",
+     "model": "m",
+     "content": [
+      {
+       "type": "text",
+       "text": "looping"
+      }
+     ]
+    }
+   }
+  ],
+  "model": null,
+  "expected": [
+   [
+    "99999999-8888-7777-6666-555555555555",
+    {
+     "sessionUpdate": "session_info_update",
+     "_meta": {
+      "jetbrains": {
+       "air": {
+        "version": 1,
+        "sessionFailure": {
+         "id": "99999999-8888-7777-6666-555555555555:history-error:x0",
+         "revision": 1,
+         "category": "limit",
+         "severity": "error",
+         "title": "Your org is out of usage · contact your admin",
+         "actions": []
+        }
+       }
+      }
+     }
+    }
+   ],
+   [
+    "99999999-8888-7777-6666-555555555555",
+    {
+     "sessionUpdate": "subagent_spawned",
+     "subagentSessionId": "99999999-8888-7777-6666-555555555555:replay-subagent:toolu_loop",
+     "name": "Self",
+     "task": "Self",
+     "capabilities": {}
+    }
+   ],
+   [
+    "99999999-8888-7777-6666-555555555555:replay-subagent:toolu_loop",
+    {
+     "sessionUpdate": "agent_message_chunk",
+     "content": {
+      "type": "text",
+      "text": "looping"
+     },
+     "messageId": "msg_x2"
+    }
+   ],
+   [
+    "99999999-8888-7777-6666-555555555555",
+    {
+     "sessionUpdate": "subagent_state_update",
+     "subagentSessionId": "99999999-8888-7777-6666-555555555555:replay-subagent:toolu_loop",
+     "state": "disconnected"
+    }
+   ]
+  ]
+ }
+]

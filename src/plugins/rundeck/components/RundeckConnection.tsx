@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
 import { invalidate } from "../../../plugin-api/resources";
-import { IconChevron } from "../../../plugin-api/ui";
+import { Checkbox, IconChevron } from "../../../plugin-api/ui";
 import { errorMessage, rundeckApi, type RundeckStatus } from "../api";
 import * as cmd from "../state";
 import { DEFAULT_BRANCH_OPTIONS, DEFAULT_PROD_ENVS, splitList } from "../shape";
@@ -53,6 +53,7 @@ export function RundeckConnection({ status, onSignedOut }: { status: RundeckStat
 function SettingsForm({ onSignedOut }: { onSignedOut: () => void }) {
     const prodEnvs = cmd.rundeckSettings.useSelect((s) => s.prodEnvs);
     const branchOptions = cmd.rundeckSettings.useSelect((s) => s.branchOptions);
+    const notifyWhenDone = cmd.rundeckSettings.useSelect((s) => s.notifyWhenDone);
     const [signingOut, setSigningOut] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
@@ -90,6 +91,12 @@ function SettingsForm({ onSignedOut }: { onSignedOut: () => void }) {
                     invalidate((kind) => kind === "rnd.matrix" || kind === "rnd.jobCells" || kind === "rnd.plan");
                 }}
             />
+            <div className="rnd-field">
+                <Checkbox checked={notifyWhenDone} onChange={(on) => cmd.updateRundeckSettings({ notifyWhenDone: on })}>
+                    Tell me when a run I start finishes or fails
+                </Checkbox>
+                <small className="rnd-field-help">A notification arrives even while Sikemux is in the background.</small>
+            </div>
             {error && <div className="rnd-field-error">{error}</div>}
             <div className="rnd-pop-foot">
                 <button className="rnd-btn rnd-btn-danger" onClick={() => void signOut()} disabled={signingOut}>

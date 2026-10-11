@@ -3,10 +3,12 @@
     align-items: center;
     justify-content: center;
     width: 22px;
-    height: 1em;
     line-height: 1;
-    font-family: var(--mono);
     flex: 0 0 auto;
+}
+.theme-icon {
+    display: block;
+    flex: none;
 }
 
 .tree-row.git-m,
@@ -48,6 +50,10 @@
     margin-left: auto;
     padding-left: 8px;
     opacity: 0.8;
+}
+
+.tree-git-dot {
+    font-size: 7px;
 }
 
 .cm-content {

@@ -171,11 +171,6 @@ describe("LSP diagnostics subscription", () => {
         expect(parseLspDiagnosticsPayload(payload)).toBeNull();
     });
 
-    it("rejects non-function listeners before installing a global subscription", () => {
-        expect(() => lsp.subscribeDiagnostics("listener" as never)).toThrow(TypeError);
-        expect(transport.eventListenerCount).toBe(0);
-    });
-
     it("cancels a diagnostics subscription through the shared transport signal", async () => {
         const controller = new AbortController();
         const listener = vi.fn();

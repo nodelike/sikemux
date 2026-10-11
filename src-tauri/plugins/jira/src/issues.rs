@@ -19,7 +19,7 @@ use crate::error::{JiraError, JiraResult};
 const DEFAULT_LIMIT: u64 = 20;
 const MAX_LIMIT: u64 = 100;
 const MAX_COMMENTS: usize = 50;
-const SUMMARY_FIELDS: &str = "summary,status,priority,assignee,issuetype,updated";
+pub(crate) const SUMMARY_FIELDS: &str = "summary,status,priority,assignee,issuetype,updated";
 
 #[derive(Serialize, Debug, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -79,7 +79,7 @@ pub struct IssueDetail {
     pub transitions: Vec<Transition>,
 }
 
-fn text(value: Option<&Value>) -> Option<String> {
+pub(crate) fn text(value: Option<&Value>) -> Option<String> {
     value.and_then(Value::as_str).map(str::to_string)
 }
 
@@ -207,7 +207,7 @@ pub fn keys_in(text: &str) -> Vec<String> {
 }
 
 /// The custom field that holds sprints, which differs from site to site. Asked once per site.
-async fn sprint_field(site: &Site, credentials: &Credentials) -> Option<String> {
+pub(crate) async fn sprint_field(site: &Site, credentials: &Credentials) -> Option<String> {
     static FIELDS: Mutex<Option<HashMap<String, Option<String>>>> = Mutex::new(None);
     if let Some(known) = FIELDS.lock().ok().and_then(|fields| {
         fields
@@ -238,7 +238,7 @@ async fn sprint_field(site: &Site, credentials: &Credentials) -> Option<String> 
     found
 }
 
-fn issue_path(key: &str) -> JiraResult<String> {
+pub(crate) fn issue_path(key: &str) -> JiraResult<String> {
     let key = key.trim();
     let valid = !key.is_empty()
         && key.chars().all(|character| {
@@ -521,6 +521,54 @@ pub async fn assign(data_dir: &Path, request: AssignRequest) -> JiraResult<()> {
 }
 
 #[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TaskRequest {
+    pub key: String,
+    /// The task's place among the description's tasks, in reading order.
+    pub index: usize,
+    /// The task's words as the person saw them, checked before anything is written.
+    pub text: String,
+    pub done: bool,
+    #[serde(default)]
+    pub site: Option<String>,
+}
+
+/// Ticks or clears one task in an issue's description, writing back Jira's own document so
+/// nothing else in it changes.
+pub async fn set_task(data_dir: &Path, request: TaskRequest) -> JiraResult<()> {
+    let (_, credentials) = auth::credentials(data_dir, request.site.as_deref()).await?;
+    let path = issue_path(&request.key)?;
+    let issue = client::send(
+        &credentials,
+        Method::GET,
+        &path,
+        &[("fields", "description".into())],
+        None,
+    )
+    .await?;
+    let mut description = issue
+        .get("fields")
+        .and_then(|fields| fields.get("description"))
+        .cloned()
+        .unwrap_or(Value::Null);
+    if !adf::set_task(&mut description, request.index, &request.text, request.done) {
+        return Err(JiraError::NotFound(format!(
+            "{} changed in Jira since it was opened; reload it and try again",
+            request.key.trim()
+        )));
+    }
+    client::send(
+        &credentials,
+        Method::PUT,
+        &path,
+        &[],
+        Some(&json!({ "fields": { "description": description } })),
+    )
+    .await?;
+    Ok(())
+}
+
+#[derive(Deserialize)]
 pub struct AssignableRequest {
     pub key: String,
     #[serde(default)]
@@ -675,9 +723,61 @@ pub async fn filters(data_dir: &Path, request: SiteRequest) -> JiraResult<Vec<Fi
         .unwrap_or_default())
 }
 
+#[derive(Serialize, Debug, PartialEq)]
+pub struct Project {
+    pub key: String,
+    pub name: String,
+}
+
+pub fn projects_of(body: &Value) -> Vec<Project> {
+    body.get("values")
+        .and_then(Value::as_array)
+        .map(|values| {
+            values
+                .iter()
+                .filter_map(|project| {
+                    Some(Project {
+                        key: text(project.get("key"))?,
+                        name: text(project.get("name"))?,
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// The projects the person can browse, most recently busy first.
+pub async fn projects(data_dir: &Path, request: SiteRequest) -> JiraResult<Vec<Project>> {
+    let (_, credentials) = auth::credentials(data_dir, request.site.as_deref()).await?;
+    let found = client::send(
+        &credentials,
+        Method::GET,
+        "/rest/api/3/project/search",
+        &[
+            ("maxResults", "100".into()),
+            ("orderBy", "-lastIssueUpdatedTime".into()),
+        ],
+        None,
+    )
+    .await?;
+    Ok(projects_of(&found))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn reads_projects_by_key_and_name() {
+        let body = json!({ "values": [ { "key": "CIQ", "name": "ChannelIQ" }, { "key": "OPS" } ] });
+        assert_eq!(
+            projects_of(&body),
+            vec![Project {
+                key: "CIQ".into(),
+                name: "ChannelIQ".into()
+            }]
+        );
+    }
 
     fn sample() -> Value {
         json!({ "key": "ABC-12", "fields": {

@@ -1,4 +1,5 @@
 import type {
+  Account,
   AccountDeletion,
   ApiError,
   DeviceList,
@@ -19,7 +20,7 @@ export class ApiProblem extends Error {
 }
 
 async function call(
-  method: "GET" | "DELETE",
+  method: "GET" | "POST" | "DELETE",
   path: string,
   token: string,
 ): Promise<Response> {
@@ -52,6 +53,12 @@ export const api = {
   removeDevice: async (token: string, key: string) => {
     await call("DELETE", `/v1/devices/${encodeURIComponent(key)}`, token);
   },
+  account: async (token: string) =>
+    (await (await call("GET", "/v1/account", token)).json()) as Account,
+  restoreAccount: async (token: string) =>
+    (await (
+      await call("POST", "/v1/account/restore", token)
+    ).json()) as Account,
   deleteAccount: async (token: string) =>
     (await (
       await call("DELETE", "/v1/account", token)

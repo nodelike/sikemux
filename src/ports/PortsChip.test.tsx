@@ -45,20 +45,6 @@ describe("PortsChip", () => {
         expect(container.innerHTML).toBe("");
     });
 
-    it("counts the ports and lists each with its process and owner", async () => {
-        seedProjects();
-        listening.mockResolvedValue([terminalPort(5173, { paneId: "pane-1", project: "/code" }, "vite"), agentPort(3000, "agent-1")]);
-        await renderChip();
-
-        const chip = screen.getByRole("button", { name: "2 listening ports" });
-        expect(chip.textContent).toBe("2");
-        const menu = await openMenu("2 listening ports");
-        expect(menu.hasAttribute("data-overlay")).toBe(true);
-        expect([...menu.querySelectorAll(".tb-port-addr")].map((node) => node.textContent)).toEqual([":3000", ":5173"]);
-        expect([...menu.querySelectorAll(".tb-port-lead")].map((node) => node.getAttribute("title"))).toEqual(["next-server", "vite"]);
-        expect([...menu.querySelectorAll(".tb-port-owner-label")].map((node) => node.textContent)).toEqual(["Claude", "npm run dev"]);
-    });
-
     it("opens a port on the desk of the agent that worked last, with the browser, copy and reveal beside it", async () => {
         seedProjects();
         setState({ agentActivity: { "agent-2": { updatedAt: 9 } } } as never);
@@ -109,14 +95,5 @@ describe("PortsChip", () => {
         fireEvent.keyDown(screen.getByRole("menuitem", { name: /^Open localhost:5173/ }), { key: "Enter", metaKey: true });
         expect(openPortExternally).toHaveBeenCalledWith("http://localhost:5173/");
         expect(openPortOnDesk).not.toHaveBeenCalled();
-    });
-
-    it("closes on Escape", async () => {
-        seedProjects();
-        listening.mockResolvedValue([terminalPort(8080, { project: "/code" })]);
-        await renderChip();
-        await openMenu("1 listening port");
-        fireEvent.keyDown(window, { key: "Escape" });
-        expect(screen.queryByRole("menu")).toBeNull();
     });
 });

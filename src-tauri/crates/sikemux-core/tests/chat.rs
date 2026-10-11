@@ -229,7 +229,13 @@ async fn a_chat_starts_and_streams_a_turn() {
     chat.until_kind(ChatEventKind::Ready).await;
 
     client
-        .acp_prompt("agent-a".into(), "stream 40".into(), Vec::new(), Vec::new())
+        .acp_prompt(
+            "agent-a".into(),
+            None,
+            "stream 40".into(),
+            Vec::new(),
+            Vec::new(),
+        )
         .await
         .expect("prompt");
     chat.until_kind(ChatEventKind::TurnStarted).await;
@@ -267,12 +273,24 @@ async fn a_prompt_turned_away_mid_turn_is_not_kept() {
         .await
         .expect("start");
     sender
-        .acp_prompt("agent-c".into(), "hold 400".into(), Vec::new(), Vec::new())
+        .acp_prompt(
+            "agent-c".into(),
+            None,
+            "hold 400".into(),
+            Vec::new(),
+            Vec::new(),
+        )
         .await
         .expect("prompt");
     heard.until_kind(ChatEventKind::TurnStarted).await;
     sender
-        .acp_prompt("agent-c".into(), "too soon".into(), Vec::new(), Vec::new())
+        .acp_prompt(
+            "agent-c".into(),
+            None,
+            "too soon".into(),
+            Vec::new(),
+            Vec::new(),
+        )
         .await
         .expect("prompt");
     heard.until_kind(ChatEventKind::Error).await;
@@ -302,7 +320,13 @@ async fn a_client_that_attaches_replays_what_another_watched() {
         .expect("start");
     for prompt in ["stream 25", "hello there", "stream 7"] {
         watcher
-            .acp_prompt("agent-b".into(), prompt.into(), Vec::new(), Vec::new())
+            .acp_prompt(
+                "agent-b".into(),
+                None,
+                prompt.into(),
+                Vec::new(),
+                Vec::new(),
+            )
             .await
             .expect("prompt");
         watched.until_kind(ChatEventKind::TurnCompleted).await;
@@ -360,7 +384,7 @@ async fn a_permission_request_waits_for_a_client_that_comes_back() {
             .await
             .expect("start");
         first
-            .acp_prompt("agent-c".into(), "ask".into(), Vec::new(), Vec::new())
+            .acp_prompt("agent-c".into(), None, "ask".into(), Vec::new(), Vec::new())
             .await
             .expect("prompt");
         let request = chat.until_kind(ChatEventKind::PermissionRequest).await;
@@ -422,7 +446,7 @@ async fn yolo_answers_permission_requests_for_the_person() {
         .await
         .expect("start");
     client
-        .acp_prompt("agent-d".into(), "ask".into(), Vec::new(), Vec::new())
+        .acp_prompt("agent-d".into(), None, "ask".into(), Vec::new(), Vec::new())
         .await
         .expect("prompt");
     chat.until_kind(ChatEventKind::TurnCompleted).await;
@@ -481,7 +505,13 @@ async fn stopping_a_chat_ends_it() {
     client.acp_stop("agent-f".into()).await.expect("stop");
     assert!(client.acp_list().await.expect("list").is_empty());
     let refused = client
-        .acp_prompt("agent-f".into(), "hello".into(), Vec::new(), Vec::new())
+        .acp_prompt(
+            "agent-f".into(),
+            None,
+            "hello".into(),
+            Vec::new(),
+            Vec::new(),
+        )
         .await
         .expect_err("prompt after stop");
     assert!(refused.to_string().contains("not running"), "{refused}");
@@ -503,7 +533,13 @@ async fn an_agent_that_dies_says_it_exited() {
         .await
         .expect("start");
     client
-        .acp_prompt("agent-h".into(), "exit 3".into(), Vec::new(), Vec::new())
+        .acp_prompt(
+            "agent-h".into(),
+            None,
+            "exit 3".into(),
+            Vec::new(),
+            Vec::new(),
+        )
         .await
         .expect("prompt");
     let ended = chat
@@ -580,7 +616,7 @@ async fn a_sign_in_made_elsewhere_reaches_the_chat_on_its_next_prompt() {
     client.acp_start(launch).await.expect("start");
 
     client
-        .acp_prompt("agent-k".into(), "who".into(), Vec::new(), Vec::new())
+        .acp_prompt("agent-k".into(), None, "who".into(), Vec::new(), Vec::new())
         .await
         .expect("prompt");
     let refused = chat.until_kind(ChatEventKind::Error).await;
@@ -591,7 +627,7 @@ async fn a_sign_in_made_elsewhere_reaches_the_chat_on_its_next_prompt() {
     // sees the person sign in.
     std::fs::write(&sign_in, "me").expect("sign in");
     client
-        .acp_prompt("agent-k".into(), "who".into(), Vec::new(), Vec::new())
+        .acp_prompt("agent-k".into(), None, "who".into(), Vec::new(), Vec::new())
         .await
         .expect("prompt");
     chat.until_kind(ChatEventKind::TurnCompleted).await;
@@ -613,7 +649,7 @@ async fn a_chat_that_runs_out_carries_on_with_the_next_account() {
     let start = client.acp_start(launch).await.expect("start");
 
     client
-        .acp_prompt("agent-l".into(), "who".into(), Vec::new(), Vec::new())
+        .acp_prompt("agent-l".into(), None, "who".into(), Vec::new(), Vec::new())
         .await
         .expect("prompt");
     let switched = chat
@@ -652,7 +688,7 @@ async fn a_chat_out_of_accounts_says_so_and_takes_one_the_person_picks() {
     client.acp_start(launch).await.expect("start");
 
     client
-        .acp_prompt("agent-m".into(), "who".into(), Vec::new(), Vec::new())
+        .acp_prompt("agent-m".into(), None, "who".into(), Vec::new(), Vec::new())
         .await
         .expect("prompt");
     let failed = chat.until_kind(ChatEventKind::Error).await;
@@ -687,7 +723,7 @@ async fn a_new_chat_signed_in_after_its_agent_started_answers_on_a_fresh_session
     // The agent read the sign-in before this, and its session saved nothing.
     std::fs::write(&sign_in, "me").expect("sign in");
     client
-        .acp_prompt("agent-n".into(), "who".into(), Vec::new(), Vec::new())
+        .acp_prompt("agent-n".into(), None, "who".into(), Vec::new(), Vec::new())
         .await
         .expect("prompt");
     let ready = chat

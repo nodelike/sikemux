@@ -14,7 +14,10 @@ use sikemux_pty::output_log::{OutputPage, OutputQuery};
 use tokio::sync::watch;
 use tokio::time::Instant;
 
-use crate::cli::protocol::{is_browser_method, is_plugin_method, HarnessRequest};
+use crate::cli::protocol::{
+    is_browser_method, is_plugin_method, is_sim_method, validate_harness, HarnessRequest,
+    PLUGINS_CHANGED_METHOD, SIM_CANCEL_METHOD, SIM_OFFERED_METHOD,
+};
 use crate::harness::command::{command_cwd, command_label, command_task_id, COMMAND_TASK_PREFIX};
 use crate::harness::journal::{JournalRecord, Journals};
 use crate::harness::runs::{CommandLaunch, Launch, Run, RunStatus, Runs, RunsRecord};
@@ -37,6 +40,12 @@ const OUTPUT_EVENT_GAP: Duration = Duration::from_millis(250);
 const READY_POLL: Duration = Duration::from_millis(250);
 const MAX_WAITS: usize = 32;
 const MAX_WAIT_MS: u64 = 30_000;
+/// Every running agent's tools server holds one of these open.
+const MAX_PLUGIN_WAITS: usize = 512;
+/// Shorter than the tools server waits for any answer.
+const PLUGIN_WAIT: Duration = Duration::from_secs(55);
+/// A pane that makes several calls in a row wakes each tools server once.
+const PLUGIN_SETTLE: Duration = Duration::from_secs(1);
 const MAX_SAFE_INTEGER: u64 = 9_007_199_254_740_991;
 const TOOL_CALLS_FILE: &str = "agent-tool-calls.json";
 const WINDOW_GONE: &str = "Sikemux's window closed before it answered";
@@ -122,6 +131,8 @@ pub(crate) struct Harness {
     changes: watch::Sender<u64>,
     tool_calls: Option<PathBuf>,
     waits: AtomicUsize,
+    plugins: watch::Sender<u64>,
+    plugin_waits: AtomicUsize,
 }
 
 impl Harness {
@@ -137,7 +148,13 @@ impl Harness {
             changes: watch::channel(0).0,
             tool_calls: data_dir.map(|dir| dir.join(TOOL_CALLS_FILE)),
             waits: AtomicUsize::new(0),
+            plugins: watch::channel(0).0,
+            plugin_waits: AtomicUsize::new(0),
         }
+    }
+
+    pub(crate) fn plugins_changed(&self) {
+        self.plugins.send_modify(|version| *version += 1);
     }
 
     /// Runs `change` on the state and wakes every waiter.
@@ -309,6 +326,7 @@ fn purpose(method: &str) -> &'static str {
         "app.console" => "read its console",
         "task.start" | "task.restart" => "start tasks",
         method if is_browser_method(method) => "use the browser",
+        method if is_sim_method(method) => "drive the iOS Simulator",
         method if is_plugin_method(method) => "use plugin tools",
         _ => "use this tool",
     }
@@ -348,7 +366,7 @@ async fn forward(core: &Core, request: HarnessRequest) -> Result<Value, String> 
 
 /// Answers one tool call. The call is counted whether or not it succeeds.
 pub(crate) async fn call(core: &Arc<Core>, request: HarnessRequest) -> Result<Value, String> {
-    request.validate()?;
+    validate_harness(&request)?;
     let tool = tool_name(&request);
     let result = dispatch(core, request).await;
     if let (Some(tool), Some(path)) = (tool, core.harness.tool_calls.clone()) {
@@ -379,6 +397,7 @@ async fn dispatch(core: &Arc<Core>, mut request: HarnessRequest) -> Result<Value
                 .map(|run| with_fields(&run, json!({})))
         }
         "events.wait" => events_wait(core, &request).await,
+        PLUGINS_CHANGED_METHOD => plugins_wait(&core.harness, &request.params).await,
         "task.start" => task_start(core, &request, false).await,
         "task.restart" => task_start(core, &request, true).await,
         "workspace.inspect" => {
@@ -539,6 +558,26 @@ async fn events_wait(core: &Core, request: &HarnessRequest) -> Result<Value, Str
             _ = tokio::time::sleep_until(deadline) => {}
         }
     }
+}
+
+/// Answers with how many times plugins have changed, once that is no longer
+/// `seen` or the wait runs out.
+async fn plugins_wait(harness: &Harness, params: &Value) -> Result<Value, String> {
+    let seen = params.get("seen").and_then(Value::as_u64);
+    if harness.plugin_waits.fetch_add(1, Ordering::AcqRel) >= MAX_PLUGIN_WAITS {
+        harness.plugin_waits.fetch_sub(1, Ordering::AcqRel);
+        return Err("Too many plugin waits".into());
+    }
+    let _slot = WaitSlot(&harness.plugin_waits);
+    let mut changes = harness.plugins.subscribe();
+    if seen == Some(*changes.borrow_and_update()) {
+        let changed = tokio::time::timeout(PLUGIN_WAIT, changes.changed()).await;
+        if matches!(changed, Ok(Ok(()))) {
+            tokio::time::sleep(PLUGIN_SETTLE).await;
+        }
+    }
+    let version = *harness.plugins.borrow();
+    Ok(json!({ "version": version }))
 }
 
 /// Stops one run and waits for its process to go.
@@ -930,7 +969,7 @@ async fn output_appears(
 /// method. Listing plugin tools is not a call.
 fn tool_name(request: &HarnessRequest) -> Option<String> {
     match request.method.as_str() {
-        "plugins.tools" => None,
+        "plugins.tools" | PLUGINS_CHANGED_METHOD | SIM_OFFERED_METHOD | SIM_CANCEL_METHOD => None,
         "plugins.call" => request
             .params
             .get("tool")
@@ -997,6 +1036,41 @@ mod tests {
             Some("browser.navigate")
         );
         assert_eq!(tool_name(&request("plugins.tools", json!({}))), None);
+        assert_eq!(tool_name(&request(PLUGINS_CHANGED_METHOD, json!({}))), None);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_plugin_wait_answers_at_once_unless_it_has_seen_the_latest_change() {
+        let harness = Harness::new(None);
+        assert_eq!(
+            plugins_wait(&harness, &json!({})).await,
+            Ok(json!({ "version": 0 }))
+        );
+        harness.plugins_changed();
+        assert_eq!(
+            plugins_wait(&harness, &json!({ "seen": 0 })).await,
+            Ok(json!({ "version": 1 }))
+        );
+
+        let seen = json!({ "seen": 1 });
+        let waiting = plugins_wait(&harness, &seen);
+        let change = async {
+            tokio::time::sleep(Duration::from_secs(5)).await;
+            harness.plugins_changed();
+            harness.plugins_changed();
+        };
+        let started = Instant::now();
+        let (answer, ()) = tokio::join!(waiting, change);
+        assert_eq!(answer, Ok(json!({ "version": 3 })));
+        assert_eq!(started.elapsed(), Duration::from_secs(5) + PLUGIN_SETTLE);
+
+        let started = Instant::now();
+        assert_eq!(
+            plugins_wait(&harness, &json!({ "seen": 3 })).await,
+            Ok(json!({ "version": 3 }))
+        );
+        assert_eq!(started.elapsed(), PLUGIN_WAIT);
+        assert_eq!(harness.plugin_waits.load(Ordering::Acquire), 0);
     }
 
     #[test]

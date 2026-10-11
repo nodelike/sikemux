@@ -1,16 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-    activeToolLabel,
-    activityLabel,
-    toolDetail,
-    toolKind,
-    toolLabel,
-    toolPath,
-    toolRowArguments,
-    toolRunning,
-    toolTarget,
-    toolUrl,
-} from "./toolLabels";
+import { activeToolLabel, activityLabel, toolDetail, toolKind, toolLabel, toolPath, toolRowArguments, toolTarget, toolUrl } from "./toolLabels";
 import type { AcpToolCall, ChatMessage, ChatPart } from "./types";
 
 const call = (title: string, extra: Partial<AcpToolCall> = {}): AcpToolCall => ({ toolCallId: "t1", title, ...extra });
@@ -28,11 +17,6 @@ describe("toolLabel", () => {
 });
 
 describe("activityLabel", () => {
-    it("says what a known kind is doing", () => {
-        expect(activityLabel(call("rm -rf node_modules && pnpm i", { kind: "execute" }))).toBe("Running a command…");
-        expect(activityLabel(call("x", { kind: "switch_mode" }))).toBe("Switching mode…");
-    });
-
     it("uses the first line of a short title for an unknown kind", () => {
         expect(activityLabel(call("mcp__github__list_pulls\nmore"))).toBe("list pulls");
     });
@@ -45,11 +29,6 @@ describe("activityLabel", () => {
 });
 
 describe("toolKind", () => {
-    it("uses the word for a known kind", () => {
-        expect(toolKind(call("cargo test", { kind: "execute" }))).toBe("run");
-        expect(toolKind(call("x", { kind: "switch_mode" }))).toBe("mode");
-    });
-
     it("names an MCP call for its server", () => {
         expect(toolKind(call("mcp__github__list_pulls", { kind: "fetch_custom" }))).toBe("github");
     });
@@ -189,14 +168,6 @@ describe("toolPath", () => {
         expect(toolPath(call("cat src/app.tsx"))).toBeNull();
         expect(toolPath(call("https://example.com/x"))).toBeNull();
         expect(toolPath(call("Read"))).toBeNull();
-    });
-});
-
-describe("toolRunning", () => {
-    it("counts a call as running until it has an ending status", () => {
-        expect(toolRunning(call("x"))).toBe(true);
-        expect(toolRunning(call("x", { status: "in_progress" }))).toBe(true);
-        for (const status of ["completed", "failed", "cancelled"]) expect(toolRunning(call("x", { status }))).toBe(false);
     });
 });
 

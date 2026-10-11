@@ -1,0 +1,19 @@
+/*
+ * Copyright (c) Meta Platforms, Inc. and affiliates.
+ *
+ * This source code is licensed under the MIT license found in the
+ * LICENSE file in the root directory of this source tree.
+ */
+
+#import <FBControlCore/ControlCoreLogger.h>
+#import <FBControlCore/ControlCoreLogger+OSLog.h>
+#import <FBControlCore/DataConsumer.h>
+#import <FBControlCore/FBDataBuffer.h>
+#import <FBControlCore/FBFuture.h>
+#import <FBControlCore/FBFuture+Sync.h>
+#import <FBControlCore/FBObjCExceptionGuard.h>
+#import <FBControlCore/FBProcessBuilder.h>
+#import <FBControlCore/FBProcessIO.h>
+#import <FBControlCore/FBProcessStream.h>
+#import <FBControlCore/FBSubprocess.h>
+#import <FBControlCore/FileReader.h>

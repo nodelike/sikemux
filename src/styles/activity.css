@@ -1,7 +1,7 @@
 /* ── overview ───────────────────────────────────────── */
 .activity-stats {
     display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-columns: repeat(5, minmax(0, 1fr));
 }
 .activity-stat {
     display: flex;
@@ -237,16 +237,97 @@
 }
 @media (max-width: 860px) {
     .activity-stats {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
+        grid-template-columns: repeat(3, minmax(0, 1fr));
     }
-    .activity-stat:nth-child(3) {
+    .activity-stat:nth-child(4) {
         padding-left: 0;
         border-left: 0;
     }
-    .activity-stat:nth-child(n + 3) {
+    .activity-stat:nth-child(n + 4) {
         padding-top: var(--space-3);
+    }
+    .activity-price-fields {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
     }
     .activity-share-details {
         display: none;
     }
+}
+
+/* ── cost ───────────────────────────────────────────── */
+.activity-stat-badge {
+    margin-left: var(--space-1);
+    color: var(--text-tertiary);
+    font-size: var(--text-3xs);
+    font-weight: var(--weight-normal);
+}
+.activity-set-price,
+.activity-price-tag {
+    border: 0;
+    background: transparent;
+    cursor: pointer;
+}
+.activity-set-price {
+    padding: 0;
+    color: var(--text-tertiary);
+}
+.activity-set-price:hover {
+    color: var(--text-primary);
+}
+.activity-price-tag {
+    flex: 0 0 auto;
+    padding: 0 var(--space-1);
+    color: var(--acc);
+    font-size: var(--text-3xs);
+}
+.activity-set-price:focus-visible,
+.activity-price-tag:focus-visible {
+    outline: 0;
+    box-shadow: var(--focus-ring);
+}
+.activity-model + .activity-model {
+    border-top: 1px solid var(--border);
+}
+.activity-price-form {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    margin: 0 0 var(--space-3) calc(22px + var(--space-3));
+}
+.activity-price-form-note {
+    color: var(--text-tertiary);
+    font-size: var(--text-2xs);
+}
+.activity-price-fields {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: var(--space-2);
+}
+.activity-price-fields label {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+    min-width: 0;
+    color: var(--text-secondary);
+    font-size: var(--text-2xs);
+}
+.activity-price-fields input {
+    width: 100%;
+    min-width: 0;
+}
+.activity-price-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: var(--space-2);
+}
+.activity-pricing-note {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    gap: var(--space-1) var(--space-3);
+    margin-top: var(--space-3);
+    padding-top: var(--space-2);
+    border-top: 1px solid var(--border);
+    color: var(--text-tertiary);
+    font-size: var(--text-2xs);
 }

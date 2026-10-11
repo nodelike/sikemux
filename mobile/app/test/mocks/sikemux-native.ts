@@ -39,23 +39,6 @@ export class DeviceIdentity {
   }
 }
 
-export enum ChatState {
-  Starting,
-  Ready,
-  Stopped,
-}
-
-export enum SessionKind {
-  Terminal,
-  Task,
-}
-
-export enum BuildChannel {
-  Dev,
-  Nightly,
-  Stable,
-}
-
 /** A tagged value shaped like the generated enums': `inner` holds the fields, `instanceOf` checks the tag. */
 function tagged<Inner>(tag: string) {
   class Variant {
@@ -73,8 +56,7 @@ function tagged<Inner>(tag: string) {
 
 export const CoreEvent = {
   Chat: tagged<{ agentId: string; seq: bigint; eventJson: string }>('Chat'),
-  View: tagged<{ view: unknown }>('View'),
-  Exited: tagged<{ session: bigint; code?: number; signal?: string; killed: boolean }>('Exited'),
+  View: tagged<{ viewJson: string }>('View'),
 };
 
 export const ChatAttachment = {

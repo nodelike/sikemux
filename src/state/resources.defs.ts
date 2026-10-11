@@ -1,4 +1,4 @@
-import { agentApi, type AgentInfo, type AgentModelInfo, type AgentSession, type AgentUsage, type AgentAccountStatus } from "../api/agents";
+import { agentApi, type AgentInfo, type AgentSession, type AgentUsage, type AgentAccountStatus } from "../api/agents";
 import type { AgentRuntimeProfile } from "../agents/agentProfiles";
 import { filesApi } from "../api/files";
 import { git, type DiscoveredRepo, type GitOverview, type GitRemote, type GitRemoteBranch, type GitStash, type GitWorktree } from "../api/git";
@@ -47,13 +47,6 @@ export const agentCatalogR = resource({
     kind: "agents.catalog",
     fetch: (profiles: AgentRuntimeProfile[]): Promise<AgentInfo[]> => agentApi.available(profiles),
     staleAfterMs: 60_000,
-});
-
-export const agentModelsR = resource({
-    kind: "agents.models",
-    fetch: (type: AgentType, executablePath?: string, configPath?: string): Promise<AgentModelInfo[]> =>
-        agentApi.models(type, executablePath, configPath),
-    staleAfterMs: 5 * 60_000,
 });
 
 export const agentUsageR = resource({

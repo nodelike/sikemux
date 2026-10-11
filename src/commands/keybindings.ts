@@ -322,7 +322,7 @@ const coreKeybindingActions = [
         label: "Focus files",
         detail: "Jump to the files window",
         category: "Navigation",
-        defaultBinding: on("Meta+Alt+Digit1", "Ctrl+Alt+Digit1"),
+        defaultBinding: on("Meta+KeyE", "Ctrl+Alt+KeyE"),
     },
     {
         id: "window.terminal",

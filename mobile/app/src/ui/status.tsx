@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Animated, Easing, StyleSheet, Text, View } from 'react-native';
 
 import { Icon } from './Icon';
-import { useStill } from './motion';
+import { useAnimating } from './motion';
 import { fonts, type Palette, translucent, useColors, useStyles } from './theme';
 
 function useLoop(still: boolean, duration: number, delay = 0) {
@@ -35,11 +35,11 @@ function TwinkleCell({ period, index, still }: { period: number; index: number; 
 /** An agent at work: the rail's three-by-three twinkling squares. */
 export function Working() {
   const styles = useStyles(makeStyles);
-  const still = useStill();
+  const animating = useAnimating();
   return (
     <View style={styles.loader} accessible accessibilityLabel="Working">
       {TWINKLE.map((period, index) => (
-        <TwinkleCell key={index} period={period} index={index} still={still} />
+        <TwinkleCell key={index} period={period} index={index} still={!animating} />
       ))}
     </View>
   );
@@ -49,14 +49,25 @@ export function Working() {
 export function NeedsYou() {
   const colors = useColors();
   const styles = useStyles(makeStyles);
-  const still = useStill();
-  const phase = useLoop(still, 2000);
+  const animating = useAnimating();
+  const phase = useLoop(!animating, 2000);
   const scale = phase.interpolate({ inputRange: [0, 1], outputRange: [0.6, 1.8] });
   const opacity = phase.interpolate({ inputRange: [0, 1], outputRange: [0.9, 0] });
   return (
     <View style={styles.dotBox} accessible accessibilityLabel="Needs input">
       <Animated.View style={[styles.ring, { transform: [{ scale }], opacity }]} />
       <View style={[styles.dot, { backgroundColor: colors.ink }]} />
+    </View>
+  );
+}
+
+/** Shells or monitors an agent left running, in the Mac's terminal glyph so it does not read as the dot that waits on you. */
+export function StillRunning() {
+  const colors = useColors();
+  const styles = useStyles(makeStyles);
+  return (
+    <View style={styles.dotBox} accessible accessibilityLabel="Shells or monitors still running">
+      <Icon name="IconCommand" size={11} color={colors.warn} />
     </View>
   );
 }

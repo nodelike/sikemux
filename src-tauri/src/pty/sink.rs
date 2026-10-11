@@ -3,7 +3,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use sikemux_core::client::EventSink;
-use sikemux_core::protocol::{CallId, Event, SessionId, WindowCall};
+use sikemux_core::protocol::{CallId, ChatEventKind, Event, SessionId, WindowCall};
 use sikemux_pty::shell_protocol::PTY_SHELL_METADATA_EVENT;
 use sikemux_pty::task::TaskProcessExit;
 use tauri::{AppHandle, Emitter, Manager};
@@ -149,11 +149,23 @@ impl EventSink for AppSink {
             }
             Event::ShellMetadata(metadata) => self.emit(PTY_SHELL_METADATA_EVENT, metadata),
             Event::TaskOutput { .. } => {}
-            Event::AgentState(state) => self.emit("agent_state_changed", state),
+            Event::AgentState(state) => {
+                if state.state == "stopped" {
+                    crate::simulator::agent_stopped(&self.app, &state.agent_id);
+                }
+                self.emit("agent_state_changed", state)
+            }
             Event::AgentsSeen { agent_ids } => self.emit("agents_seen", agent_ids),
             Event::Chat {
                 agent_id, event, ..
-            } => crate::acp::deliver(&self.app, &agent_id, event),
+            } => {
+                if matches!(event.kind, ChatEventKind::Status)
+                    && matches!(event.payload["state"].as_str(), Some("stopped" | "error"))
+                {
+                    crate::simulator::agent_stopped(&self.app, &agent_id);
+                }
+                crate::acp::deliver(&self.app, &agent_id, event)
+            }
             Event::Remote { status } => {
                 crate::account::notice_remote(&self.app, &status);
                 crate::remote::follow_remote_access(&self.app, status.enabled);

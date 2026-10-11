@@ -145,7 +145,3 @@ export function permissionArgs(type: AgentType, mode: AgentPermissionMode): stri
     if (type === "grok" && mode === "bypass") return ["--permission-mode", "bypassPermissions"];
     return [];
 }
-
-export function isDangerousPermissionMode(mode: AgentPermissionMode): boolean {
-    return mode === "bypass";
-}

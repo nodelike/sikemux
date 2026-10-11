@@ -1,4 +1,4 @@
-//! Which account a chat agent signs in as, and what its adapter says when a
+//! Which account a chat agent signs in as, and what an agent says when a
 //! turn fails because of that account.
 //!
 //! Claude Code and Codex each keep one account per directory, named by an
@@ -157,11 +157,11 @@ impl Failure {
     }
 }
 
-/// The failure an adapter attached to a prompt's answer or a session update.
+/// The failure an ACP agent attached to a prompt's answer or a session update.
 ///
-/// Claude's and Codex's adapters both send it as the `sessionFailure` part of
-/// an extension they call AIR, once the client says it understands it. Its
-/// kind is not sent, only a category and the actions that would fix it.
+/// It comes as the `sessionFailure` part of the AIR extension, once the client
+/// says it understands it. Its kind is not sent, only a category and the
+/// actions that would fix it.
 pub fn failure(meta: &Value) -> Option<Failure> {
     let failure = meta.pointer("/jetbrains/air/sessionFailure")?;
     if failure.get("severity").and_then(Value::as_str) == Some("warning") {

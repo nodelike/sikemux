@@ -101,6 +101,7 @@ export function IssueDetail({ repo, number, active, cwd = null }: { repo: RepoRe
             <CommentThread
                 repo={repo}
                 number={found.number}
+                of="issue"
                 active={active}
                 now={now}
                 opening={{

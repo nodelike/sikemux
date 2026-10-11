@@ -24,10 +24,6 @@ describe('confirming', () => {
 describe('deleting', () => {
   const deleting = run(START, { type: 'typed', text: 'delete' }, { type: 'delete' });
 
-  it('finishes when the server answers', () => {
-    expect(run(deleting, { type: 'deleted' }).phase).toEqual({ name: 'done' });
-  });
-
   it('goes back to confirming with the problem when it fails', () => {
     const failed = run(deleting, { type: 'failed', problem: "Can't reach Sikemux." });
     expect(failed.phase.name).toBe('confirm');

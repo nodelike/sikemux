@@ -1,0 +1,111 @@
+{
+  "id": "sikemux.gitlab",
+  "name": "GitLab",
+  "version": "0.1.0",
+  "sikemux": ">=0.4",
+  "callTimeoutSecs": 120,
+  "tools": [
+    {
+      "name": "gitlab_merge_requests",
+      "row": {"verb": "list", "kind": "read", "icon": "pull-request", "target": ["{name} merge requests"], "detail": ["{state}"]},
+      "method": "pulls",
+      "description": "Merge requests, most recently updated first, with state, branches, reviewers and whether each can merge. owner, name and host come from the git remote.",
+      "properties": {
+        "owner": { "type": "string", "description": "The group path, e.g. platform/payments." },
+        "name": { "type": "string", "description": "The project path." },
+        "host": { "type": "string", "description": "The server in the git remote, e.g. gitlab.acme.dev." },
+        "state": { "type": "string", "enum": ["open", "closed", "merged", "all"], "description": "Default open." }
+      },
+      "required": ["owner", "name"]
+    },
+    {
+      "name": "gitlab_mr_files",
+      "row": {"verb": "diff", "kind": "read", "icon": "pull-request", "target": ["{name}!{number}"], "detail": ["{paths}"]},
+      "method": "pullFiles",
+      "description": "The files a merge request changes, with status and line counts. Name paths for their diffs; a long diff comes in parts, with a note on the rest.",
+      "properties": {
+        "owner": { "type": "string", "description": "The group path." },
+        "name": { "type": "string", "description": "The project path." },
+        "host": { "type": "string", "description": "The server in the git remote, e.g. gitlab.acme.dev." },
+        "number": { "type": "integer", "description": "The merge request's !number." },
+        "paths": { "type": "array", "items": { "type": "string" }, "description": "Only these files, each with its patch." },
+        "offset": { "type": "integer", "description": "Patch line to start from, from 0. The note gives the next one." },
+        "lines": { "type": "integer", "description": "Patch lines to return. Default 400, at most 1000; a patch also stops at 32 KB." }
+      },
+      "required": ["owner", "name", "number"]
+    },
+    {
+      "name": "gitlab_comments",
+      "row": {"verb": "read", "kind": "read", "icon": "pull-request", "target": ["comments on {name} {number}"], "detail": ["{of}"]},
+      "method": "comments",
+      "description": "What people wrote on a merge request or an issue, oldest first. Merge requests and issues are numbered apart, so say which.",
+      "properties": {
+        "owner": { "type": "string", "description": "The group path." },
+        "name": { "type": "string", "description": "The project path." },
+        "host": { "type": "string", "description": "The server in the git remote, e.g. gitlab.acme.dev." },
+        "number": { "type": "integer", "description": "The merge request's !number or the issue's #number." },
+        "of": { "type": "string", "enum": ["pull", "issue"], "description": "Default pull, a merge request." }
+      },
+      "required": ["owner", "name", "number"]
+    },
+    {
+      "name": "gitlab_issues",
+      "row": {"verb": "list", "kind": "read", "icon": "issue", "target": ["{name} issues"], "detail": ["{state}"]},
+      "method": "issues",
+      "description": "A project's issues, most recently updated first, 30 to a page, with labels and assignees.",
+      "properties": {
+        "owner": { "type": "string", "description": "The group path." },
+        "name": { "type": "string", "description": "The project path." },
+        "host": { "type": "string", "description": "The server in the git remote, e.g. gitlab.acme.dev." },
+        "state": { "type": "string", "enum": ["open", "closed", "all"], "description": "Default open." },
+        "page": { "type": "integer", "description": "From 1." }
+      },
+      "required": ["owner", "name"]
+    },
+    {
+      "name": "gitlab_pipelines",
+      "row": {"verb": "list", "kind": "read", "icon": "workflow", "target": ["{name} pipelines"], "detail": ["{branch}", "{status}"]},
+      "method": "runs",
+      "description": "Recent pipelines, newest first, with status, conclusion, branch and the merge request each ran for.",
+      "properties": {
+        "owner": { "type": "string", "description": "The group path." },
+        "name": { "type": "string", "description": "The project path." },
+        "host": { "type": "string", "description": "The server in the git remote, e.g. gitlab.acme.dev." },
+        "branch": { "type": "string" },
+        "status": { "type": "string", "enum": ["queued", "in_progress", "waiting", "success", "failure", "cancelled", "skipped"], "description": "A state or a conclusion." },
+        "headSha": { "type": "string", "description": "A commit." },
+        "perPage": { "type": "integer", "description": "Default 30, at most 100." },
+        "page": { "type": "integer", "description": "From 1." }
+      },
+      "required": ["owner", "name"]
+    },
+    {
+      "name": "gitlab_pipeline",
+      "row": {"verb": "read", "kind": "read", "icon": "workflow", "target": ["pipeline {runId}"], "detail": ["{name}"]},
+      "method": "run",
+      "description": "One pipeline with its jobs, named stage / job, and their status, to see which job failed.",
+      "properties": {
+        "owner": { "type": "string", "description": "The group path." },
+        "name": { "type": "string", "description": "The project path." },
+        "host": { "type": "string", "description": "The server in the git remote, e.g. gitlab.acme.dev." },
+        "runId": { "type": "string", "description": "The pipeline id from gitlab_pipelines." }
+      },
+      "required": ["owner", "name", "runId"]
+    },
+    {
+      "name": "gitlab_job_log",
+      "row": {"verb": "logs", "kind": "read", "icon": "log-lines", "target": ["job {jobId}"], "detail": ["“{grep}”"]},
+      "method": "jobLogExcerpt",
+      "description": "The end of one CI job's log, without colour codes. Start with the default tail or grep for the error. truncated means earlier lines were left out.",
+      "properties": {
+        "owner": { "type": "string", "description": "The group path." },
+        "name": { "type": "string", "description": "The project path." },
+        "host": { "type": "string", "description": "The server in the git remote, e.g. gitlab.acme.dev." },
+        "jobId": { "type": "string", "description": "A job's id from gitlab_pipeline." },
+        "tail": { "type": "integer", "description": "Lines from the end, after grep. Default 200, at most 2000." },
+        "grep": { "type": "string", "description": "Only lines containing this, ignoring case." }
+      },
+      "required": ["owner", "name", "jobId"]
+    }
+  ]
+}

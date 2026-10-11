@@ -15,6 +15,7 @@ use crate::protocol::{
 };
 
 use super::access::{self, Needs, Peer};
+use super::calls;
 use super::host;
 use super::prepare::{prepare_task, prepare_terminal};
 use super::session::{self, PendingStart};
@@ -486,6 +487,10 @@ async fn run_requests(
                 core.harness.awaiting_trust(&execution_id);
                 client.respond(request_id, Ok(Response::Done));
             }
+            Request::PluginsChanged => {
+                core.harness.plugins_changed();
+                client.respond(request_id, Ok(Response::Done));
+            }
             Request::HarnessStopRuns { selector } => {
                 tokio::spawn(async move {
                     harness::stop_runs(&core, selector).await;
@@ -568,6 +573,16 @@ async fn run_requests(
                     Err(error) => Err(error),
                 };
                 client.respond(request_id, result.map(|()| Response::Done));
+            }
+            Request::ShellAtPrompt { id } => {
+                let result = match session_or_missing(&core, id) {
+                    Ok(target) => blocking(move || Ok(target.shell_at_prompt())).await,
+                    Err(error) => Err(error),
+                };
+                client.respond(
+                    request_id,
+                    result.map(|at_prompt| Response::ShellAtPrompt { at_prompt }),
+                );
             }
             Request::Detach { id } => {
                 if let Some(target) = core.session(id) {
@@ -653,12 +668,38 @@ async fn run_requests(
             }
             Request::AcpPrompt {
                 agent_id,
+                message_id,
                 text,
                 paths,
                 context,
             } => {
-                let result = chat::prompt(&core, client.id, &agent_id, text, paths, context);
+                let result = chat::prompt(
+                    &core, client.id, &agent_id, message_id, text, paths, context,
+                );
                 client.respond(request_id, result.map(|()| Response::Done));
+            }
+            Request::AcpEdit {
+                agent_id,
+                message_id,
+                text,
+                paths,
+                context,
+                restore_files,
+            } => {
+                tokio::spawn(async move {
+                    let result = chat::edit(
+                        &core,
+                        client.id,
+                        &agent_id,
+                        message_id,
+                        text,
+                        paths,
+                        context,
+                        restore_files,
+                    )
+                    .await;
+                    client.respond(request_id, result.map(|()| Response::Done));
+                });
             }
             Request::AcpSteer {
                 agent_id,
@@ -700,6 +741,12 @@ async fn run_requests(
                     }
                     Err(error) => client.respond(request_id, Err(error)),
                 }
+            }
+            Request::Call { method, params } => {
+                tokio::spawn(async move {
+                    let result = calls::call(core, &method, params).await;
+                    client.respond(request_id, result.map(|result| Response::Called { result }));
+                });
             }
             Request::AcpCancel { agent_id } => {
                 let result = chat::cancel(&core, &agent_id);
@@ -888,6 +935,15 @@ async fn run_requests(
                     .remote
                     .answer(&id, allow.then_some(access))
                     .map(|()| remote::announce(&core));
+                client.respond(
+                    request_id,
+                    result.map(|status| Response::Remote {
+                        status: Box::new(status),
+                    }),
+                );
+            }
+            Request::AllowDevices { devices } => {
+                let result = core.remote.allow(devices).map(|()| remote::announce(&core));
                 client.respond(
                     request_id,
                     result.map(|status| Response::Remote {

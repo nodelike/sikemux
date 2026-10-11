@@ -1,7 +1,7 @@
 import { isPluginKind } from "../plugins/kinds";
 import { pluginSurface } from "../plugins/registry";
 import type { CorePaneKind, PaneKind, PaneNode } from "../state/types/domain";
-import type { DeskBrowserTab, DeskView, EditorPaneView } from "../state/types/view";
+import type { DeskBrowserTab, DeskSavedSimulator, DeskView, EditorPaneView } from "../state/types/view";
 
 declare const ITEM_ID_BRAND: unique symbol;
 
@@ -207,13 +207,24 @@ function isValidPersistedBrowserUrl(value: unknown): value is string {
     );
 }
 
+const isSavedSimulatorField = (value: unknown): value is string | null =>
+    value === null || (typeof value === "string" && value.length <= DESK_PERSISTENCE_LIMITS.maxTitleLength && !containsControlCharacter(value));
+
+function decodeDeskSimulator(encoded: unknown): PersistedCodecResult<DeskSavedSimulator | undefined> {
+    if (encoded === undefined) return { ok: true, value: undefined };
+    if (!isRecord(encoded) || !isSavedSimulatorField(encoded.udid) || !isSavedSimulatorField(encoded.name)) return CODEC_FAILURE;
+    return { ok: true, value: { udid: encoded.udid, name: encoded.name } };
+}
+
 function decodeDeskView(encoded: unknown): PersistedCodecResult<DeskView> {
     if (!isRecord(encoded)) return CODEC_FAILURE;
     const { agentId, tabs, activeIndex, files } = encoded;
     if (!isValidWorkbenchItemId(agentId)) return CODEC_FAILURE;
     if (!Array.isArray(tabs) || tabs.length > DESK_PERSISTENCE_LIMITS.maxTabs) return CODEC_FAILURE;
     if (!Array.isArray(files) || files.length > DESK_PERSISTENCE_LIMITS.maxFiles) return CODEC_FAILURE;
-    if (tabs.length === 0 && files.length === 0) return CODEC_FAILURE;
+    const simulator = decodeDeskSimulator(encoded.simulator);
+    if (!simulator.ok) return CODEC_FAILURE;
+    if (tabs.length === 0 && files.length === 0 && !simulator.value) return CODEC_FAILURE;
     const restored: DeskBrowserTab[] = [];
     for (const tab of tabs) {
         if (!isRecord(tab)) return CODEC_FAILURE;
@@ -229,7 +240,16 @@ function decodeDeskView(encoded: unknown): PersistedCodecResult<DeskView> {
         if (!isValidPersistedEditorPath(path) || uniqueFiles.has(path)) return CODEC_FAILURE;
         uniqueFiles.add(path);
     }
-    return { ok: true, value: { agentId, tabs: restored, activeIndex: activeIndex as number, files: [...uniqueFiles] } };
+    return {
+        ok: true,
+        value: {
+            agentId,
+            tabs: restored,
+            activeIndex: activeIndex as number,
+            files: [...uniqueFiles],
+            ...(simulator.value ? { simulator: simulator.value } : {}),
+        },
+    };
 }
 
 const DESK_CODEC: VersionedPersistedCodec<DeskView> = Object.freeze({

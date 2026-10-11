@@ -20,25 +20,51 @@
 - Do not leave random markdown files in the codebase that are meant to be some way to deliver information to me. If you want to write a markdown file write it in a temporary file, and give me the path and chat and I can read it
 - Never write code that is explicitly backwards compatible. Systems should handle backwards compatibility (like migrations), not logic. If there is some logic that needs to be written otherwise it would appear it would break older users, you MUST make the assumption that no users have ran that code yet and its unreleased, so it would not make sense to consider the side effects that code would produce. This is a safe assumption because the maintainers of this codebase always ensure code that gets shipped is compatbile with the systems that allow for us to not have to explicitly hardcode backwards compatibility
 
+## Tests
+
+- Do not write unit or integration tests on your own initiative. A test an agent writes
+  is only its own reading of the task, the same reading the code came from, so it
+  catches nothing the code would get wrong. Write one only when asked, or to reproduce
+  a bug that actually happened.
+- Never write a test that restates the implementation: same branches, same constants,
+  mocks of everything it calls.
+- Keep the checks that hold things we decided: the stale-output checks in `pnpm check`
+  (`ipc:check`, `grammars:check`, `file-icons:check`, `release:check`, the notch icons,
+  the server protocol), contract tests such as `mobile/app/test/updatePaths.test.ts`,
+  and the end-to-end runs. Do not weaken or delete them to get a change through.
+- When a change breaks an existing test, decide whether the behaviour it pins was meant
+  to change. Update the test only if so; otherwise fix the code.
+
 ## Releasing
 
 - Follow `docs/releasing.md`. Releases publish only from the Release workflow, started by
   pushing a `v*` tag; never run `scripts/release.sh --publish` yourself, and never approve
-  the `release` environment for the owner.
+  a stable release on the `approval` environment for the owner.
 - Nightlies are tagged on `main`. Stable releases and hotfixes are tagged on
   `release/<major.minor>`, and their version bump and notes go only there.
 - Never check out `release/*` in this shared checkout. Commit to it from objects with a
   temporary index, as `docs/releasing.md` shows.
-- After a stable `0.x.y`, number `main`'s nightlies `0.(x+1).0-nightly.N`.
+- After a stable `0.x.y`, `main`'s nightlies build toward the next release:
+  `0.x.(y+1)-nightly.N`, or `0.(x+1).0-nightly.N` for a bigger one. A hotfix is that next
+  release shipped early: fix on `main`, ship a nightly, promote it. Cherry-pick onto
+  `release/*` only in an emergency, as `docs/releasing.md` describes.
 
 ## Mobile app
 
 - The phone app is in `mobile/` (Expo, `mobile/app`) with the core's Rust client bridged
   in `mobile/native` from `src-tauri/crates/sikemux-mobile`. `mobile/` is its own pnpm
   workspace: never add it to the root install, scripts or checks.
-- The phone and the core share `sikemux-core`'s protocol. A protocol change must keep
+- The phone and the core share `sikemux-wire`'s protocol. A protocol change must keep
   `sikemux-mobile` building, and bumps `PROTOCOL_VERSION` once anything already released
   speaks the old shape.
+- The phone links only `sikemux-wire` and `sikemux-client`, so their code, not the
+  core's, decides when a phone needs a store build rather than an over-the-air update.
+  Keep them to data and transport: never make either depend on `sikemux-core`,
+  `sikemux-pty` or `workspace-hack`. Feature logic the phone needs goes in TypeScript it
+  shares with the Mac, and a new field rides inside JSON the bridge already passes through
+  rather than on a typed UniFFI record. A request the phone needs is a method of the
+  core's `Call` (`sikemux-core/src/server/calls.rs`), never a new wire request or bridge
+  method, and a released method is never removed or renamed. ADR 0010 records why.
 - Phone builds need rustup's Rust first on `PATH`; Homebrew's Rust ignores
   `rust-toolchain.toml` and has no phone targets.
 - The bindings `uniffi-bindgen-react-native` generates are build output; do not commit or
@@ -99,10 +125,11 @@
   latest release, both at build time and in the visitor's browser. It finds the
   download by the `_aarch64.dmg` suffix, so renaming that asset or leaving it off a
   release breaks every Download button. Nightlies are pre-releases and never show up.
-- The README rounds the download to "about 13 MB" and the site says it is smaller than
+- The README rounds the download to "about 16 MB" and the site says it is smaller than
   Ghostty (33.8 MB). Update both if a release moves the DMG past either.
-- Its screenshots come from this repo:
-  `pnpm showcase --site ~/projects/personal/sikemux-front/src/assets/shots`.
+- Its screenshots come from this repo. `pnpm shots` in the site runs the Mac showcase
+  (`showcase/`) and the phone showcase (`mobile/showcase/`), then cuts the feature cards;
+  a showcase scene that stops matching the app shows up there.
 - Its copy must stay true of the shipped app and its look follows `DESIGN.md`. When a
   change adds, removes or renames something the site describes, say so, so the site
   can be updated.

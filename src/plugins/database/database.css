@@ -1,0 +1,882 @@
+.db-pane {
+    display: grid;
+    grid-template-columns: 270px minmax(320px, 1fr);
+    height: 100%;
+    min-height: 0;
+    color: var(--text-primary);
+}
+
+.db-pane-empty {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.db-welcome {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--space-3);
+    max-width: 340px;
+    text-align: center;
+}
+
+.db-welcome h2 {
+    margin: 0;
+    font-size: var(--text-lg);
+    font-weight: var(--weight-semibold);
+}
+
+.db-welcome p {
+    margin: 0;
+    color: var(--text-secondary);
+    font-size: var(--text-sm);
+    line-height: 1.5;
+}
+
+.db-sidebar,
+.db-main {
+    min-width: 0;
+    min-height: 0;
+    overflow-y: auto;
+}
+
+.db-sidebar {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    padding: var(--space-3) var(--space-1h) var(--space-3) var(--space-2);
+    border-right: 1px solid var(--border);
+}
+
+.db-main {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.db-main > .db-form {
+    overflow-y: auto;
+}
+
+.db-main-body {
+    flex: 1;
+    min-height: 0;
+    overflow: auto;
+}
+
+.db-explorer,
+.db-explorer ul {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.db-explorer {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    overflow-y: auto;
+}
+
+.db-node {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    width: 100%;
+    height: 24px;
+    padding-right: var(--space-2);
+    border-radius: var(--radius-1);
+    font-size: var(--text-xs);
+    text-align: left;
+    color: var(--text-secondary);
+    white-space: nowrap;
+}
+
+.db-node:hover {
+    color: var(--text-primary);
+    background: var(--surface-hover);
+}
+
+.db-node.current {
+    color: var(--text-primary);
+    background: var(--surface-selected);
+}
+
+.db-node-chevron {
+    display: inline-flex;
+    flex: none;
+    justify-content: center;
+    width: 12px;
+    color: var(--text-tertiary);
+    transition: transform 0.12s;
+}
+
+.db-node-chevron.open {
+    transform: rotate(90deg);
+}
+
+.db-node-icon {
+    display: inline-flex;
+    flex: none;
+    justify-content: center;
+    width: 16px;
+    color: var(--text-tertiary);
+}
+
+.db-node-label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.db-node-count {
+    flex: none;
+    padding: 0 5px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-1);
+    font-size: var(--text-2xs);
+    line-height: 15px;
+    color: var(--text-tertiary);
+}
+
+.db-node-detail {
+    display: inline-flex;
+    flex: 1;
+    justify-content: flex-end;
+    min-width: 0;
+    overflow: hidden;
+    font-size: var(--text-2xs);
+    color: var(--text-tertiary);
+}
+
+.db-node-type {
+    overflow: hidden;
+    font-family: var(--mono);
+    text-overflow: ellipsis;
+}
+
+.db-node-note {
+    padding-top: 3px;
+    padding-bottom: 3px;
+    font-size: var(--text-2xs);
+    color: var(--text-tertiary);
+}
+
+.db-node-note.error,
+.db-node-error {
+    color: var(--danger);
+    font-size: var(--text-2xs);
+    white-space: normal;
+}
+
+.db-node-error {
+    padding-top: 2px;
+    padding-bottom: 4px;
+    padding-right: var(--space-2);
+}
+
+.db-glyph {
+    font-size: 12px;
+    line-height: 1;
+}
+
+.db-glyph.view,
+.db-glyph.materialized-view {
+    color: var(--acc);
+}
+
+.db-glyph.key {
+    color: var(--warn);
+}
+
+.db-tabstrip {
+    display: flex;
+    flex: none;
+    align-items: center;
+    gap: var(--space-1);
+    padding: var(--space-1h) var(--space-2);
+    border-bottom: 1px solid var(--border);
+}
+
+.db-tabs {
+    display: flex;
+    gap: var(--space-1);
+    min-width: 0;
+    overflow-x: auto;
+    scrollbar-width: none;
+}
+
+.db-tab {
+    display: flex;
+    flex: none;
+    align-items: center;
+    max-width: 240px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-2);
+    color: var(--text-secondary);
+}
+
+.db-tab:hover {
+    color: var(--text-primary);
+    background: var(--surface-hover);
+}
+
+.db-tab.active {
+    color: var(--text-primary);
+    background: var(--surface-selected);
+    border-color: var(--border-selected);
+}
+
+.db-tab-main {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    padding: 3px 4px 3px var(--space-2);
+    font-size: var(--text-xs);
+    white-space: nowrap;
+}
+
+.db-tab-glyph {
+    flex: none;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-tertiary);
+}
+
+.db-tab-connection {
+    flex: none;
+    font-size: var(--text-2xs);
+    color: var(--text-tertiary);
+}
+
+.db-tab-label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.db-tab-close {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    margin-right: 3px;
+    border-radius: var(--radius-1);
+    color: var(--text-tertiary);
+    opacity: 0;
+}
+
+.db-tab:hover .db-tab-close,
+.db-tab.active .db-tab-close,
+.db-tab-close:focus-visible {
+    opacity: 1;
+}
+
+.db-tab-close:hover {
+    color: var(--text-primary);
+    background: var(--surface-hover);
+}
+
+.db-console {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 0;
+}
+
+.db-console-head {
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-2);
+    padding: var(--space-2) var(--space-3) 0;
+}
+
+.db-sidebar-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 var(--space-1) 0 var(--space-2);
+}
+
+.db-heading {
+    font-size: var(--text-2xs);
+    font-weight: var(--weight-semibold);
+    letter-spacing: var(--tracking-label);
+    text-transform: uppercase;
+    color: var(--text-tertiary);
+}
+
+.db-icon-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    border-radius: var(--radius-1);
+    color: var(--text-tertiary);
+}
+
+.db-icon-button:hover {
+    color: var(--text-primary);
+    background: var(--surface-hover);
+}
+
+.db-row-name {
+    overflow: hidden;
+    font-size: var(--text-sm);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.db-dot {
+    flex: none;
+    width: 7px;
+    height: 7px;
+    margin-left: auto;
+    border-radius: var(--radius-full);
+    background: var(--live);
+}
+
+.db-meta {
+    overflow: hidden;
+    font-size: var(--text-2xs);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--text-tertiary);
+}
+
+.db-main > .db-form,
+.db-main-body > .db-detail {
+    margin: var(--space-4) var(--space-5);
+}
+
+.db-form,
+.db-detail {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+    max-width: 520px;
+}
+
+.db-form h2,
+.db-detail-head h2 {
+    margin: 0;
+    font-size: var(--text-lg);
+    font-weight: var(--weight-semibold);
+}
+
+.db-detail-head {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+}
+
+.db-badge {
+    padding: 1px var(--space-1h);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-full);
+    font-size: var(--text-2xs);
+    color: var(--text-secondary);
+}
+
+.db-segmented {
+    display: inline-flex;
+    align-self: flex-start;
+    gap: var(--space-1);
+}
+
+.db-segmented button {
+    padding: var(--space-1) var(--space-3);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-2);
+    font-size: var(--text-xs);
+    color: var(--text-secondary);
+}
+
+.db-segmented button.active {
+    color: var(--text-primary);
+    background: var(--surface-selected);
+    border-color: var(--border-selected);
+}
+
+.db-inline {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+}
+
+.db-field {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+    min-width: 0;
+    font-size: var(--text-xs);
+    color: var(--text-secondary);
+}
+
+.db-field.port {
+    width: 90px;
+}
+
+.db-grow {
+    flex: 1;
+    min-width: 0;
+}
+
+.db-field input {
+    height: 30px;
+    min-width: 0;
+    padding: 0 var(--space-2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-2);
+    background: transparent;
+    color: var(--text-primary);
+    font: inherit;
+    font-size: var(--text-sm);
+}
+
+.db-field input::placeholder {
+    color: var(--text-tertiary);
+}
+
+.db-field input:focus-visible {
+    outline: none;
+    border-color: var(--border-selected);
+    box-shadow: var(--focus-ring);
+}
+
+.db-field input:disabled {
+    color: var(--text-disabled);
+}
+
+.db-facts {
+    display: grid;
+    grid-template-columns: max-content 1fr;
+    gap: var(--space-1h) var(--space-4);
+    margin: 0;
+    font-size: var(--text-sm);
+}
+
+.db-facts dt {
+    color: var(--text-tertiary);
+}
+
+.db-facts dd {
+    margin: 0;
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
+.db-facts .mono {
+    font-family: var(--mono);
+    font-size: var(--text-xs);
+}
+
+.db-hint {
+    font-size: var(--text-2xs);
+    color: var(--text-tertiary);
+}
+
+.db-callout {
+    padding: var(--space-2) var(--space-3);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-2);
+    font-size: var(--text-xs);
+    line-height: 1.5;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+
+.db-callout[data-tone="ok"] {
+    border-color: color-mix(in oklab, var(--live) 34%, transparent);
+    background: color-mix(in oklab, var(--live) 8%, transparent);
+    color: var(--live);
+}
+
+.db-callout[data-tone="danger"] {
+    max-height: 160px;
+    overflow-y: auto;
+    border-color: color-mix(in oklab, var(--danger) 34%, transparent);
+    background: color-mix(in oklab, var(--danger) 8%, transparent);
+    color: var(--danger);
+}
+
+.db-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+}
+
+.db-button {
+    height: 28px;
+    padding: 0 var(--space-3);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-2);
+    font-size: var(--text-xs);
+    color: var(--text-secondary);
+}
+
+.db-button:hover:not(:disabled) {
+    color: var(--text-primary);
+    background: var(--surface-hover);
+    border-color: var(--border-strong);
+}
+
+.db-button:disabled {
+    color: var(--text-disabled);
+}
+
+.db-button:focus-visible {
+    outline: none;
+    box-shadow: var(--focus-ring);
+}
+
+.db-button.primary {
+    border-color: var(--acc);
+    background: var(--acc);
+    color: var(--on-accent);
+    font-weight: var(--weight-medium);
+}
+
+.db-button.primary:disabled {
+    opacity: 0.45;
+}
+
+.db-button.primary:hover:not(:disabled) {
+    background: var(--acc);
+    filter: brightness(1.08);
+}
+
+.db-button.danger {
+    color: var(--danger);
+}
+
+.db-results {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    flex: 1;
+}
+
+.db-results-bar {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: var(--space-1h) var(--space-3);
+    border-bottom: 1px solid var(--border);
+}
+
+.db-result-tabs {
+    display: inline-flex;
+    gap: var(--space-1);
+}
+
+.db-result-tabs button {
+    min-width: 24px;
+    height: 22px;
+    padding: 0 var(--space-1h);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-1);
+    font-family: var(--mono);
+    font-size: var(--text-2xs);
+    color: var(--text-secondary);
+}
+
+.db-result-tabs button.active {
+    color: var(--text-primary);
+    background: var(--surface-selected);
+    border-color: var(--border-selected);
+}
+
+.db-results-empty {
+    padding: var(--space-4);
+    font-size: var(--text-sm);
+    color: var(--text-secondary);
+}
+
+.db-grid-scroll {
+    flex: 1;
+    min-height: 0;
+    overflow: auto;
+}
+
+.db-grid {
+    border-collapse: separate;
+    border-spacing: 0;
+    font-family: var(--mono);
+    font-size: var(--text-xs);
+}
+
+.db-grid th,
+.db-grid td {
+    max-width: 360px;
+    padding: var(--space-1) var(--space-2);
+    overflow: hidden;
+    border-right: 1px solid var(--border);
+    border-bottom: 1px solid var(--border);
+    text-align: left;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.db-grid th {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    background: var(--s-raised);
+    font-weight: var(--weight-semibold);
+    vertical-align: bottom;
+}
+
+.db-col-name {
+    display: block;
+    color: var(--text-primary);
+}
+
+.db-col-type {
+    display: block;
+    font-weight: normal;
+    font-size: var(--text-3xs);
+    color: var(--text-tertiary);
+}
+
+.db-grid .numeric {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+
+.db-grid td.null {
+    color: var(--text-disabled);
+    font-style: italic;
+}
+
+.db-grid td {
+    cursor: default;
+    color: var(--text-secondary);
+}
+
+.db-grid td.selected {
+    color: var(--text-primary);
+    background: var(--surface-selected);
+    box-shadow: inset 0 0 0 1px var(--border-selected);
+}
+
+.db-grid .db-rownum {
+    position: sticky;
+    left: 0;
+    min-width: 36px;
+    background: var(--s-raised);
+    text-align: right;
+    color: var(--text-tertiary);
+}
+
+.db-grid thead .db-rownum {
+    z-index: 2;
+}
+
+.db-show-more {
+    margin: var(--space-2) var(--space-3);
+}
+
+.db-cell-inspector {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: var(--space-1h) var(--space-3);
+    border-top: 1px solid var(--border);
+}
+
+.db-cell-inspector code {
+    flex: 1;
+    max-height: 96px;
+    overflow: auto;
+    font-family: var(--mono);
+    font-size: var(--text-xs);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+
+.db-cell-inspector code.null {
+    color: var(--text-disabled);
+    font-style: italic;
+}
+
+.db-editor {
+    min-height: 120px;
+    max-height: 45%;
+    overflow: auto;
+    border-bottom: 1px solid var(--border);
+    font-size: var(--text-sm);
+}
+
+.db-editor .cm-editor {
+    min-height: 120px;
+}
+
+.db-editor .cm-editor.cm-focused {
+    outline: none;
+}
+
+.db-workspace {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 0;
+}
+
+.db-toolbar {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: var(--space-2) var(--space-3);
+    border-bottom: 1px solid var(--border);
+}
+
+.db-query-error {
+    padding: var(--space-3);
+    overflow: auto;
+}
+
+.db-filter {
+    height: 26px;
+    padding: 0 var(--space-2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-2);
+    background: transparent;
+    color: var(--text-primary);
+    font: inherit;
+    font-size: var(--text-xs);
+}
+
+.db-filter:focus-visible {
+    outline: none;
+    border-color: var(--border-selected);
+    box-shadow: var(--focus-ring);
+}
+
+.db-table-view {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-4);
+    padding: var(--space-4) var(--space-5);
+    overflow: auto;
+}
+
+.db-table-view section {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1h);
+}
+
+.db-structure {
+    border-collapse: collapse;
+    font-size: var(--text-xs);
+}
+
+.db-structure th,
+.db-structure td {
+    padding: var(--space-1) var(--space-3) var(--space-1) 0;
+    border-bottom: 1px solid var(--border);
+    text-align: left;
+}
+
+.db-structure th {
+    font-weight: var(--weight-semibold);
+    color: var(--text-tertiary);
+}
+
+.db-structure .mono,
+.db-facts-list .mono {
+    font-family: var(--mono);
+}
+
+.db-key {
+    margin-left: var(--space-1h);
+    padding: 0 var(--space-1);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-1);
+    font-size: var(--text-3xs);
+    color: var(--text-tertiary);
+}
+
+.db-facts-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    font-size: var(--text-xs);
+}
+
+.db-facts-list li {
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-1h);
+}
+
+.db-link {
+    color: var(--acc);
+    text-align: left;
+}
+
+.db-link:hover {
+    text-decoration: underline;
+}
+
+.db-history {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 0;
+}
+
+.db-history-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    margin: 0;
+    padding: var(--space-3);
+    overflow: auto;
+    list-style: none;
+}
+
+.db-history-entry {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1h);
+    padding: var(--space-2) var(--space-3);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-2);
+}
+
+.db-history-entry.failed {
+    border-color: color-mix(in oklab, var(--danger) 30%, var(--border));
+}
+
+.db-history-sql {
+    display: -webkit-box;
+    max-height: 4.5em;
+    margin: 0;
+    overflow: hidden;
+    font-family: var(--mono);
+    font-size: var(--text-xs);
+    white-space: pre-wrap;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 3;
+}
+
+.db-history-meta {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+}
+
+.db-history-error {
+    overflow: hidden;
+    font-size: var(--text-2xs);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--danger);
+}

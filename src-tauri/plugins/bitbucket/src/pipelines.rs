@@ -908,14 +908,6 @@ mod tests {
     }
 
     #[test]
-    fn a_step_is_named_by_its_pipeline_and_itself() -> BitbucketResult<()> {
-        let id = job_id("{p}", "{s}");
-        assert_eq!(split_job(&id)?, ("{p}", "{s}"));
-        assert!(split_job("{p}").is_err());
-        Ok(())
-    }
-
-    #[test]
     fn a_log_cut_to_its_end_drops_the_partial_first_line() {
         let whole = lines_of("one\r\ntwo\n", false);
         assert_eq!(

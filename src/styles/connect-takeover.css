@@ -112,6 +112,12 @@
     line-height: 1.15;
     letter-spacing: -0.03em;
 }
+.connect-names {
+    max-width: 480px;
+    margin: var(--space-3) 0 0;
+    color: var(--text-secondary);
+    font-size: var(--text-sm);
+}
 .connect-who {
     display: inline-flex;
     align-items: center;
@@ -214,6 +220,7 @@
 .connect-actions {
     display: flex;
     align-items: center;
+    justify-content: flex-end;
     gap: var(--space-2);
     width: 480px;
     margin-top: var(--space-4);

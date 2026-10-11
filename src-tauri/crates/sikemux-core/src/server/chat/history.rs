@@ -172,6 +172,32 @@ impl History {
         Ok(())
     }
 
+    /// Forgets the event at `index` and everything after it. One that does
+    /// not start a page cannot be found in the file, so everything goes.
+    pub(crate) fn truncate(&mut self, index: u64) {
+        if self.file.is_none() || index >= self.next {
+            return;
+        }
+        let offset = match self.points.iter().find(|point| point.index == index) {
+            Some(point) if index > self.first => point.offset,
+            _ => 0,
+        };
+        let cut = self.file.as_mut().map_or(Ok(()), |file| {
+            file.set_len(offset)
+                .and_then(|()| file.seek(SeekFrom::Start(offset)).map(drop))
+        });
+        if let Err(error) = cut {
+            self.fail(&error);
+            return;
+        }
+        self.bytes = offset;
+        self.points.retain(|point| point.offset < offset);
+        if offset == 0 {
+            self.first = index;
+        }
+        self.next = index;
+    }
+
     /// Whole turns from before the event at `before`, as many as `turns`
     /// while they stay under `max_bytes`. A turn too big for a page on its
     /// own comes in pieces. Permission requests are left out: they were
@@ -294,6 +320,33 @@ mod tests {
             numbers(&history.page(15, 1, u64::MAX).unwrap()),
             [12, 13, 14]
         );
+    }
+
+    #[test]
+    fn a_rewind_forgets_from_its_turn_and_keeps_writing_after() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut history = History::open(dir.path(), "chat", MAX_HISTORY_BYTES);
+        turns(&mut history, 4);
+        history.truncate(6);
+        assert_eq!(
+            numbers(&history.page(6, 10, u64::MAX).unwrap()),
+            [0, 1, 2, 3, 4, 5]
+        );
+        history.append(20, &event(ChatEventKind::TurnStarted, 20), true, true);
+        assert_eq!(numbers(&history.page(21, 1, u64::MAX).unwrap()), [20]);
+        assert_eq!(
+            numbers(&history.page(20, 10, u64::MAX).unwrap()),
+            [0, 1, 2, 3, 4, 5]
+        );
+    }
+
+    #[test]
+    fn a_rewind_to_an_event_that_starts_no_page_forgets_everything() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut history = History::open(dir.path(), "chat", MAX_HISTORY_BYTES);
+        turns(&mut history, 3);
+        history.truncate(4);
+        assert_eq!(history.page(9, 10, u64::MAX).unwrap(), Page::default());
     }
 
     #[test]

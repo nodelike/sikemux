@@ -3,7 +3,7 @@
   "guide": {
     "file": "SIKEMUX_GUIDE.md",
     "name": "guide",
-    "row": {"verb": "read", "kind": "read", "icon": "info", "target": ["the guide: {topic}", "the guide"]},
+    "row": {"verb": "read", "kind": "read", "icon": "book", "target": ["the guide: {topic}", "the guide"]},
     "description": "Read before your first task launch or browser click. Pass a topic for one area in depth.",
     "comment": "Served by the sidecar from its own bundle, so it has no harness method."
   },
@@ -119,7 +119,7 @@
     },
     {
       "name": "browser_click",
-      "row": {"verb": "click", "kind": "edit", "icon": "pointer", "target": ["“{text}”", "{selector}", "element {index}", "{x}, {y}"], "detail": ["{role}"]},
+      "row": {"verb": "click", "kind": "edit", "icon": "click", "target": ["“{text}”", "{selector}", "element {index}", "{x}, {y}"], "detail": ["{role}"]},
       "method": "browser.click",
       "description": "Click an element by number, text or selector, or a point.",
       "properties": {
@@ -173,7 +173,7 @@
     },
     {
       "name": "browser_type",
-      "row": {"verb": "type", "kind": "edit", "icon": "pencil", "target": ["into {selector}", "into element {index}", "into the focused field"]},
+      "row": {"verb": "type", "kind": "edit", "icon": "text", "target": ["into {selector}", "into element {index}", "into the focused field"]},
       "method": "browser.type",
       "description": "Type into a field, replacing its value, or at the caret.",
       "properties": {
@@ -210,7 +210,7 @@
     },
     {
       "name": "browser_press",
-      "row": {"verb": "press", "kind": "edit", "icon": "command", "target": ["{key}"]},
+      "row": {"verb": "press", "kind": "edit", "icon": "keyboard", "target": ["{key}"]},
       "method": "browser.press",
       "description": "Press a key or chord, such as Enter, ArrowDown or Meta+a.",
       "properties": {
@@ -233,7 +233,7 @@
     },
     {
       "name": "browser_act",
-      "row": {"verb": "act", "kind": "edit", "icon": "activity", "target": ["{steps}-step sequence"]},
+      "row": {"verb": "act", "kind": "edit", "icon": "steps", "target": ["{steps}-step sequence"]},
       "method": "browser.act",
       "description": "Run clicks, typing and keys in one call.",
       "properties": {
@@ -342,7 +342,7 @@
     },
     {
       "name": "browser_upload",
-      "row": {"verb": "upload", "kind": "edit", "icon": "file", "target": ["{paths}"], "detail": ["into element {index}"]},
+      "row": {"verb": "upload", "kind": "edit", "icon": "upload", "target": ["{paths}"], "detail": ["into element {index}"]},
       "method": "browser.upload",
       "description": "Give files to a file input.",
       "properties": {
@@ -382,7 +382,7 @@
     },
     {
       "name": "browser_dialog",
-      "row": {"verb": "answer", "kind": "edit", "icon": "window", "target": ["“{text}”", "the dialog"]},
+      "row": {"verb": "answer", "kind": "edit", "icon": "message", "target": ["“{text}”", "the dialog"]},
       "method": "browser.dialog",
       "description": "Answer the page's open alert, confirm or prompt.",
       "properties": {
@@ -407,7 +407,7 @@
     },
     {
       "name": "browser_viewport",
-      "row": {"verb": "resize", "kind": "edit", "icon": "window", "target": ["{width}×{height}", "{preset}"]},
+      "row": {"verb": "resize", "kind": "edit", "icon": "resize", "target": ["{width}×{height}", "{preset}"]},
       "method": "browser.viewport",
       "description": "Hold this tab at a set viewport size or preset.",
       "properties": {
@@ -430,7 +430,7 @@
     },
     {
       "name": "browser_scroll",
-      "row": {"verb": "scroll", "kind": "read", "icon": "arrow-down", "target": ["to “{text}”", "to {selector}", "to element {index}", "to the {to}", "{deltaY}px"]},
+      "row": {"verb": "scroll", "kind": "read", "icon": "mouse", "target": ["to “{text}”", "to {selector}", "to element {index}", "to the {to}", "{deltaY}px"]},
       "method": "browser.scroll",
       "description": "Scroll to an element, by deltaY, or to the top or bottom.",
       "properties": {
@@ -467,7 +467,7 @@
     },
     {
       "name": "browser_evaluate",
-      "row": {"verb": "eval", "kind": "execute", "icon": "editor", "target": ["{script}"]},
+      "row": {"verb": "eval", "kind": "execute", "icon": "code", "target": ["{script}"]},
       "method": "browser.evaluate",
       "description": "Run JavaScript in the page, given as script; returns JSON.",
       "properties": {
@@ -488,7 +488,7 @@
     },
     {
       "name": "browser_network",
-      "row": {"verb": "network", "kind": "read", "icon": "activity", "target": ["“{filter}”", "request {id}", "recent requests"], "detail": ["{method}"]},
+      "row": {"verb": "network", "kind": "read", "icon": "network", "target": ["“{filter}”", "request {id}", "recent requests"], "detail": ["{method}"]},
       "method": "browser.network",
       "description": "List page loads and fetch/XHR calls with status and body.",
       "properties": {
@@ -527,7 +527,7 @@
     },
     {
       "name": "browser_console",
-      "row": {"verb": "read", "kind": "read", "icon": "info", "target": ["the page console"]},
+      "row": {"verb": "read", "kind": "read", "icon": "terminal", "target": ["the page console"]},
       "method": "browser.console",
       "description": "List the page's console messages and uncaught errors.",
       "properties": {
@@ -544,7 +544,7 @@
     },
     {
       "name": "browser_screenshot",
-      "row": {"verb": "shot", "kind": "read", "icon": "image", "target": ["{selector}", "“{text}”", "element {index}"]},
+      "row": {"verb": "shot", "kind": "read", "icon": "camera", "target": ["{selector}", "“{text}”", "element {index}"]},
       "method": "browser.screenshot",
       "description": "Capture the tab, the whole page, or with element numbers.",
       "properties": {
@@ -578,7 +578,7 @@
     },
     {
       "name": "browser_annotate",
-      "row": {"verb": "mark", "kind": "edit", "icon": "pointer", "target": ["element {index}", "{x}, {y}", "clear"], "detail": ["{text}"]},
+      "row": {"verb": "mark", "kind": "edit", "icon": "highlighter", "target": ["element {index}", "{x}, {y}", "clear"], "detail": ["{text}"]},
       "method": "browser.annotate",
       "description": "Draw a labelled box or a caption over the page.",
       "properties": {
@@ -611,7 +611,7 @@
     },
     {
       "name": "browser_record",
-      "row": {"verb": "record", "kind": "execute", "icon": "run", "target": ["{action}"], "detail": ["{path}"]},
+      "row": {"verb": "record", "kind": "execute", "icon": "record", "target": ["{action}"], "detail": ["{path}"]},
       "method": "browser.record",
       "description": "Start or stop recording this tab to an MP4 video.",
       "properties": {
@@ -632,7 +632,7 @@
     },
     {
       "name": "browser_wait",
-      "row": {"verb": "wait", "kind": "think", "icon": "clock", "target": ["for “{text}”", "for “{textGone}” to go", "for {selector}", "for {selectorGone} to go", "for {url}", "{ms}"]},
+      "row": {"verb": "wait", "kind": "think", "icon": "hourglass", "target": ["for “{text}”", "for “{textGone}” to go", "for {selector}", "for {selectorGone} to go", "for {url}", "{ms}"]},
       "method": "browser.wait",
       "description": "Wait for text, a selector, a url or a quiet network.",
       "properties": {
@@ -686,7 +686,7 @@
     },
     {
       "name": "browser_switch_tab",
-      "row": {"verb": "switch", "kind": "move", "icon": "window", "target": ["tab {tabId}"]},
+      "row": {"verb": "switch", "kind": "move", "icon": "tabs", "target": ["tab {tabId}"]},
       "method": "browser.tab.switch",
       "description": "Make one of this agent's tabs the current one.",
       "properties": {
@@ -701,7 +701,7 @@
     },
     {
       "name": "browser_close_tab",
-      "row": {"verb": "close", "kind": "edit", "icon": "window", "target": ["tab {tabId}"]},
+      "row": {"verb": "close", "kind": "edit", "icon": "close", "target": ["tab {tabId}"]},
       "method": "browser.tab.close",
       "description": "Close one of this agent's tabs.",
       "properties": {
@@ -715,8 +715,448 @@
       ]
     },
     {
+      "name": "sim_devices",
+      "row": {"verb": "list", "kind": "read", "icon": "phone", "target": ["simulators"]},
+      "method": "sim.devices",
+      "offered": "simulator",
+      "description": "List the iOS simulators, the one you hold, and which other agents hold.",
+      "properties": {},
+      "required": []
+    },
+    {
+      "name": "sim_attach",
+      "row": {"verb": "attach", "kind": "move", "icon": "link", "target": ["{device}", "a simulator"]},
+      "method": "sim.attach",
+      "offered": "simulator",
+      "description": "Attach a simulator by name or udid, else your project's own; boots it if needed and reads its screen.",
+      "properties": {
+        "device": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        }
+      },
+      "required": []
+    },
+    {
+      "name": "sim_state",
+      "row": {"verb": "read", "kind": "read", "icon": "eye", "target": ["the simulator screen"]},
+      "method": "sim.state",
+      "offered": "simulator",
+      "description": "Read the attached simulator's screen: the frontmost app and numbered elements with their centre points.",
+      "properties": {},
+      "required": []
+    },
+    {
+      "name": "sim_tap",
+      "row": {"verb": "tap", "kind": "edit", "icon": "tap", "target": ["“{label}”", "element {index}", "{x}, {y}"]},
+      "method": "sim.tap",
+      "offered": "simulator",
+      "description": "Tap an element by number or label, or a point in device points. A duration makes it a long press.",
+      "properties": {
+        "index": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "label": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500
+        },
+        "x": {
+          "type": "number",
+          "minimum": 0
+        },
+        "y": {
+          "type": "number",
+          "minimum": 0
+        },
+        "duration": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 10
+        },
+        "report": {
+          "enum": [
+            "changes",
+            "outcome",
+            "full"
+          ]
+        }
+      },
+      "required": []
+    },
+    {
+      "name": "sim_swipe",
+      "row": {"verb": "swipe", "kind": "edit", "icon": "swipe", "target": ["{fromX}, {fromY} → {toX}, {toY}"]},
+      "method": "sim.swipe",
+      "offered": "simulator",
+      "description": "Swipe between two points in device points. Starting at a screen edge makes a system gesture.",
+      "properties": {
+        "fromX": {
+          "type": "number",
+          "minimum": 0
+        },
+        "fromY": {
+          "type": "number",
+          "minimum": 0
+        },
+        "toX": {
+          "type": "number",
+          "minimum": 0
+        },
+        "toY": {
+          "type": "number",
+          "minimum": 0
+        },
+        "duration": {
+          "type": "number",
+          "minimum": 0.05,
+          "maximum": 5
+        },
+        "report": {
+          "enum": [
+            "changes",
+            "outcome",
+            "full"
+          ]
+        }
+      },
+      "required": [
+        "fromX",
+        "fromY",
+        "toX",
+        "toY"
+      ]
+    },
+    {
+      "name": "sim_type",
+      "row": {"verb": "type", "kind": "edit", "icon": "text", "target": ["into the focused field"]},
+      "method": "sim.type",
+      "offered": "simulator",
+      "description": "Type text into the focused field on the attached simulator.",
+      "properties": {
+        "text": {
+          "type": "string",
+          "maxLength": 2000
+        },
+        "report": {
+          "enum": [
+            "changes",
+            "outcome",
+            "full"
+          ]
+        }
+      },
+      "required": [
+        "text"
+      ]
+    },
+    {
+      "name": "sim_button",
+      "row": {"verb": "press", "kind": "edit", "icon": "home-button", "target": ["{button}"]},
+      "method": "sim.button",
+      "offered": "simulator",
+      "description": "Press a hardware button on the attached simulator.",
+      "properties": {
+        "button": {
+          "enum": [
+            "home",
+            "lock",
+            "side",
+            "siri",
+            "volumeUp",
+            "volumeDown"
+          ]
+        },
+        "report": {
+          "enum": [
+            "changes",
+            "outcome",
+            "full"
+          ]
+        }
+      },
+      "required": [
+        "button"
+      ]
+    },
+    {
+      "name": "sim_rotate",
+      "row": {"verb": "rotate", "kind": "edit", "icon": "rotate", "target": ["to {orientation}"]},
+      "method": "sim.rotate",
+      "offered": "simulator",
+      "description": "Turn the attached simulator to an orientation and read its screen.",
+      "properties": {
+        "orientation": {
+          "enum": [
+            "portrait",
+            "landscapeLeft",
+            "landscapeRight"
+          ]
+        }
+      },
+      "required": [
+        "orientation"
+      ]
+    },
+    {
+      "name": "sim_screenshot",
+      "row": {"verb": "shot", "kind": "read", "icon": "camera", "target": ["the simulator"]},
+      "method": "sim.screenshot",
+      "offered": "simulator",
+      "description": "Capture the attached simulator's screen at its size in points.",
+      "properties": {},
+      "required": []
+    },
+    {
+      "name": "sim_launch",
+      "row": {"verb": "launch", "kind": "execute", "icon": "rocket", "target": ["{bundleId}"]},
+      "method": "sim.launch",
+      "offered": "simulator",
+      "description": "Launch an installed app by bundle id, relaunching it if it runs, and read the screen.",
+      "properties": {
+        "bundleId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255
+        },
+        "arguments": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4096
+          },
+          "maxItems": 50
+        },
+        "environment": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "maxLength": 4096
+          }
+        },
+        "report": {
+          "enum": [
+            "changes",
+            "outcome",
+            "full"
+          ]
+        }
+      },
+      "required": [
+        "bundleId"
+      ]
+    },
+    {
+      "name": "sim_terminate",
+      "row": {"verb": "quit", "kind": "execute", "icon": "stop", "target": ["{bundleId}"]},
+      "method": "sim.terminate",
+      "offered": "simulator",
+      "description": "Quit an app on the attached simulator by bundle id.",
+      "properties": {
+        "bundleId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255
+        },
+        "report": {
+          "enum": [
+            "changes",
+            "outcome",
+            "full"
+          ]
+        }
+      },
+      "required": [
+        "bundleId"
+      ]
+    },
+    {
+      "name": "sim_install",
+      "row": {"verb": "install", "kind": "execute", "icon": "download", "target": ["{path}"]},
+      "method": "sim.install",
+      "offered": "simulator",
+      "description": "Install a built .app from inside the project on the attached simulator.",
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        }
+      },
+      "required": [
+        "path"
+      ]
+    },
+    {
+      "name": "sim_open_url",
+      "row": {"verb": "open", "kind": "fetch", "icon": "globe", "target": ["{url}"]},
+      "method": "sim.openUrl",
+      "offered": "simulator",
+      "description": "Open a URL or deep link on the attached simulator.",
+      "properties": {
+        "url": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 8192
+        },
+        "report": {
+          "enum": [
+            "changes",
+            "outcome",
+            "full"
+          ]
+        }
+      },
+      "required": [
+        "url"
+      ]
+    },
+    {
+      "name": "sim_touch_path",
+      "row": {"verb": "drag", "kind": "edit", "icon": "touch-path", "target": ["a touch path"]},
+      "method": "sim.touchPath",
+      "offered": "simulator",
+      "description": "Drag one finger through points over a duration, as a long-press drag or drawing.",
+      "properties": {
+        "points": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 100,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "x": {
+                "type": "number",
+                "minimum": 0
+              },
+              "y": {
+                "type": "number",
+                "minimum": 0
+              }
+            },
+            "required": [
+              "x",
+              "y"
+            ]
+          }
+        },
+        "duration": {
+          "type": "number",
+          "minimum": 0.05,
+          "maximum": 10
+        },
+        "report": {
+          "enum": [
+            "changes",
+            "outcome",
+            "full"
+          ]
+        }
+      },
+      "required": [
+        "points"
+      ]
+    },
+    {
+      "name": "sim_touch2_path",
+      "row": {"verb": "pinch", "kind": "edit", "icon": "pinch", "target": ["a two-finger path"]},
+      "method": "sim.touch2Path",
+      "offered": "simulator",
+      "description": "Move two fingers through points together, to pinch, spread or turn.",
+      "properties": {
+        "points": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 100,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "x1": {
+                "type": "number",
+                "minimum": 0
+              },
+              "y1": {
+                "type": "number",
+                "minimum": 0
+              },
+              "x2": {
+                "type": "number",
+                "minimum": 0
+              },
+              "y2": {
+                "type": "number",
+                "minimum": 0
+              }
+            },
+            "required": [
+              "x1",
+              "y1",
+              "x2",
+              "y2"
+            ]
+          }
+        },
+        "duration": {
+          "type": "number",
+          "minimum": 0.05,
+          "maximum": 10
+        },
+        "report": {
+          "enum": [
+            "changes",
+            "outcome",
+            "full"
+          ]
+        }
+      },
+      "required": [
+        "points"
+      ]
+    },
+    {
+      "name": "sim_logs",
+      "row": {"verb": "read", "kind": "read", "icon": "log-lines", "target": ["{process} logs", "the simulator log"]},
+      "method": "sim.logs",
+      "offered": "simulator",
+      "description": "Read the attached simulator's log by cursor and generation, all of it or one process's.",
+      "properties": {
+        "process": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "cursor": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "generation": {
+          "type": "integer"
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 500
+        }
+      },
+      "required": []
+    },
+    {
+      "name": "sim_detach",
+      "row": {"verb": "detach", "kind": "move", "icon": "unlink", "target": ["the simulator"]},
+      "method": "sim.detach",
+      "offered": "simulator",
+      "description": "Let go of the attached simulator, for another agent to use.",
+      "properties": {},
+      "required": []
+    },
+    {
       "name": "workspace_inspect",
-      "row": {"verb": "inspect", "kind": "read", "icon": "eye", "target": ["the workspace"]},
+      "row": {"verb": "inspect", "kind": "read", "icon": "folder", "target": ["the workspace"]},
       "method": "workspace.inspect",
       "description": "Inspect the open project: tasks, runs, listening ports and the event cursor.",
       "properties": {},
@@ -776,7 +1216,7 @@
     },
     {
       "name": "task_read",
-      "row": {"verb": "read", "kind": "read", "icon": "file", "target": ["{taskId}", "{executionId}"], "detail": ["“{search}”"]},
+      "row": {"verb": "read", "kind": "read", "icon": "log-lines", "target": ["{taskId}", "{executionId}"], "detail": ["“{search}”"]},
       "method": "task.read",
       "description": "Read task status and output by byte cursor, tail, or search.",
       "properties": {
@@ -864,6 +1304,54 @@
       ]
     },
     {
+      "name": "page_preview",
+      "row": {"verb": "preview", "kind": "read", "icon": "eye", "target": ["{path}"]},
+      "method": "browser.page",
+      "description": "Check a page as the chat shows it.",
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "width": {
+          "type": "integer",
+          "minimum": 240,
+          "maximum": 1600
+        }
+      },
+      "required": [
+        "path"
+      ]
+    },
+    {
+      "name": "page_show",
+      "row": {"verb": "show", "kind": "read", "icon": "panel", "target": ["{title}"]},
+      "method": "page.show",
+      "description": "Show a page in your reply.",
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "height": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4000
+        }
+      },
+      "required": [
+        "path",
+        "title"
+      ]
+    },
+    {
       "name": "events_wait",
       "row": {"verb": "wait", "kind": "think", "icon": "clock", "target": ["for {executionId}", "for events"]},
       "method": "events.wait",
@@ -887,7 +1375,7 @@
     },
     {
       "name": "app_console",
-      "row": {"verb": "read", "kind": "read", "icon": "info", "target": ["the app console"]},
+      "row": {"verb": "read", "kind": "read", "icon": "terminal", "target": ["the app console"]},
       "method": "app.console",
       "description": "Read the Sikemux app's own console and errors.",
       "properties": {

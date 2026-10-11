@@ -207,6 +207,18 @@ describe("Option in text", () => {
         window.dispatchEvent(new KeyboardEvent("keydown", { code: "KeyZ", altKey: true, bubbles: true, cancelable: true }));
         expect(getState().zoomedPaneId).toBeNull();
     });
+
+    it("reaches the simulator's screen, which types into the device", () => {
+        setState({ keybindingOverrides: { "pane.zoom": "Alt+KeyZ" } });
+        function SimulatorHarness() {
+            useKeymap();
+            return <canvas aria-label="Device screen" tabIndex={0} data-takes-keys />;
+        }
+        render(<SimulatorHarness />);
+
+        fireEvent.keyDown(screen.getByLabelText("Device screen"), { code: "KeyZ", key: "Ω", altKey: true });
+        expect(getState().zoomedPaneId).toBe("zoomed");
+    });
 });
 
 describe("command popup modality", () => {

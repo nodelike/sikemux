@@ -108,17 +108,19 @@ function bringOut(rail: HTMLElement, selector: string): void {
 }
 
 /** Opens and closes a docked rail from under the stage, but not when the window first draws it. */
-export function useRailDock(visible: boolean, present: boolean, selector: string): void {
-    const was = useRef(visible && present);
+export function useRailDock(visible: boolean, present: boolean, selector: string, drawn = true): void {
+    const was = useRef<boolean | null>(null);
     useLayoutEffect(() => {
+        if (!drawn) return;
         const open = visible && present;
-        const opened = open && !was.current;
-        const closed = !open && was.current;
+        const first = was.current === null;
+        const opened = !first && open && !was.current;
+        const closed = !first && !open && !!was.current;
         was.current = open;
         const rail = document.querySelector<HTMLElement>(`.shell > .body > ${selector}:not(.is-leaving)`);
         if (!rail) return;
         if (opened) bringOut(rail, selector);
         else if (closed) tuckAway(rail);
         else if (!open) stow(rail);
-    }, [visible, present, selector]);
+    }, [visible, present, selector, drawn]);
 }

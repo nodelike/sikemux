@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
-import type { Virtualizer } from "@tanstack/react-virtual";
 import { findMatches, findPattern, rangesIn, type ChatFindOptions } from "./chatSearch";
 import type { ChatMessage } from "./types";
 
@@ -9,29 +8,28 @@ const CURRENT = "chat-find-current";
 const canHighlight = (): boolean => typeof CSS !== "undefined" && "highlights" in CSS && typeof Highlight !== "undefined";
 
 /**
- * Find in a chat's transcript. The transcript only renders the rows near the
- * view, so matches are counted from the messages themselves, the transcript is
- * scrolled to the message holding the current one, and whatever is rendered is
- * then marked with the browser's highlights, which leave the rendered text as it is.
+ * Find in a chat's transcript. Matches are counted from the messages
+ * themselves, the transcript is scrolled to the message holding the current
+ * one, and the rows are marked with the browser's highlights, which leave the
+ * rendered text as it is. A long transcript mounts its oldest rows last, so a
+ * match in one not mounted yet is shown once it is.
  */
 export function useChatFind({
     visible,
     messages,
     scrollRef,
-    virtualizer,
-    onLeaveBottom,
 }: {
     visible: boolean;
     messages: readonly ChatMessage[];
     scrollRef: RefObject<HTMLDivElement | null>;
-    virtualizer: Virtualizer<HTMLDivElement, Element>;
-    onLeaveBottom: () => void;
 }) {
     const [query, setQuery] = useState("");
     const [options, setOptions] = useState<ChatFindOptions>({ caseSensitive: false, wholeWord: false });
     const [current, setCurrent] = useState(0);
     const inputRef = useRef<HTMLInputElement>(null);
-    const reveal = useRef(false);
+    /* Bringing a match into view is two steps: its row first, which draws the
+       row at its real height, then the match inside it on the next frame. */
+    const reveal = useRef<"row" | "match" | null>(null);
 
     const pattern = useMemo(() => findPattern(query, options), [query, options]);
     const matches = useMemo(() => findMatches(messages, pattern), [messages, pattern]);
@@ -41,11 +39,7 @@ export function useChatFind({
     const targetMessage = target?.message;
     const targetOccurrence = target?.occurrence;
     useEffect(() => {
-        if (targetMessage === undefined) return;
-        onLeaveBottom();
-        reveal.current = true;
-        virtualizer.scrollToIndex(targetMessage, { align: "center" });
-        // eslint-disable-next-line react-hooks/exhaustive-deps -- scroll only when the match moves
+        if (targetMessage !== undefined) reveal.current = "row";
     }, [targetMessage, targetOccurrence]);
 
     useEffect(() => {
@@ -56,11 +50,23 @@ export function useChatFind({
             frame = 0;
             const all: Range[] = [];
             let focus: Range | undefined;
-            for (const row of scroller.querySelectorAll<HTMLElement>(".chat-virtual-row")) {
+            if (reveal.current === "row") {
+                const row = scroller.querySelector(`.chat-row[data-index="${targetMessage}"]`);
+                if (!row) return;
+                row.scrollIntoView({ block: "center" });
+                reveal.current = "match";
+                frame = requestAnimationFrame(paint);
+                return;
+            }
+            // Every row is mounted, but only the ones near the view are worth marking.
+            const view = scroller.getBoundingClientRect();
+            for (const row of scroller.querySelectorAll<HTMLElement>(".chat-row")) {
+                const box = row.getBoundingClientRect();
+                const target = targetMessage === Number(row.dataset.index);
+                if (!target && (box.bottom < view.top - view.height || box.top > view.bottom + view.height)) continue;
                 const ranges = rangesIn(row, pattern);
                 all.push(...ranges);
-                if (targetMessage === Number(row.dataset.index) && targetOccurrence !== undefined)
-                    focus = ranges[Math.min(targetOccurrence, ranges.length - 1)];
+                if (target && targetOccurrence !== undefined) focus = ranges[Math.min(targetOccurrence, ranges.length - 1)];
             }
             CSS.highlights.set(MATCHES, new Highlight(...all));
             if (!focus) {
@@ -69,9 +75,8 @@ export function useChatFind({
             }
             CSS.highlights.set(CURRENT, new Highlight(focus));
             // A long message can hold the match well outside the view even once its row is centred.
-            if (!reveal.current) return;
-            reveal.current = false;
-            const view = scroller.getBoundingClientRect();
+            if (reveal.current !== "match") return;
+            reveal.current = null;
             const box = focus.getBoundingClientRect();
             if (box.top < view.top || box.bottom > view.bottom) scroller.scrollTop += box.top - view.top - view.height / 2;
         };
@@ -108,7 +113,7 @@ export function useChatFind({
         move: (step: 1 | -1) => {
             if (matches.length === 0) return;
             setCurrent((index + step + matches.length) % matches.length);
-            reveal.current = true;
+            reveal.current = "row";
         },
     };
 }

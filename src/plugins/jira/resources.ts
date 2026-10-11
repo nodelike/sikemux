@@ -1,5 +1,14 @@
 import { resource } from "../../plugin-api/resources";
-import { jiraApi, type JiraFilter, type JiraIssue, type JiraPage, type JiraStatus } from "./api";
+import {
+    jiraApi,
+    type JiraBoard,
+    type JiraBoardView,
+    type JiraFilter,
+    type JiraIssue,
+    type JiraPage,
+    type JiraProject,
+    type JiraStatus,
+} from "./api";
 
 export const jiraStatusR = resource({
     kind: "jira.status",
@@ -29,4 +38,22 @@ export const jiraKeysR = resource({
     kind: "jira.keys",
     fetch: (text: string): Promise<string[]> => jiraApi.keys(text),
     staleAfterMs: 3_600_000,
+});
+
+export const jiraProjectsR = resource({
+    kind: "jira.projects",
+    fetch: (site: string): Promise<JiraProject[]> => jiraApi.projects(site || undefined),
+    staleAfterMs: 600_000,
+});
+
+export const jiraBoardsR = resource({
+    kind: "jira.boards",
+    fetch: (site: string): Promise<JiraBoard[]> => jiraApi.boards(site || undefined),
+    staleAfterMs: 600_000,
+});
+
+export const jiraBoardR = resource({
+    kind: "jira.board",
+    fetch: (id: number, site: string): Promise<JiraBoardView> => jiraApi.board(id, site || undefined),
+    staleAfterMs: 30_000,
 });

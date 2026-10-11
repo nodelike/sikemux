@@ -77,11 +77,6 @@
     color: var(--text-tertiary);
     user-select: none;
 }
-.tb-port-glyph {
-    font-family: var(--mono);
-    font-size: 14px;
-    line-height: 1;
-}
 .tb-port-addr {
     color: var(--text-primary);
     font-family: var(--mono);

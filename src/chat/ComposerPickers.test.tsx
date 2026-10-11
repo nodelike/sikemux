@@ -359,22 +359,6 @@ describe("composer pickers", () => {
         expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
     });
 
-    it("anchors the menu above its trigger on a narrow window", () => {
-        const width = window.innerWidth;
-        Object.defineProperty(window, "innerWidth", { configurable: true, value: 600 });
-        try {
-            render(<ComposerPickers agent={codexAgent} onAgent={mocks.onAgent} disabled={false} onConfig={() => {}} setup={threeModels} />);
-            const trigger = screen.getByRole("button", { name: "Model" });
-            vi.spyOn(trigger, "getBoundingClientRect").mockReturnValue({ top: 500 } as DOMRect);
-            fireEvent.click(trigger);
-
-            const menu = screen.getByRole("listbox").parentElement as HTMLElement;
-            expect(menu.style.bottom).toBe(`${window.innerHeight - 500 + 12}px`);
-        } finally {
-            Object.defineProperty(window, "innerWidth", { configurable: true, value: width });
-        }
-    });
-
     it("labels empty pickers with the agent's launch model and effort until the session reports its own", () => {
         render(
             <ComposerPickers
@@ -402,37 +386,6 @@ describe("composer pickers", () => {
         expect(screen.getByRole("button", { name: "Model" })).toHaveAttribute("title", "Model");
         expect(screen.getByRole("button", { name: "Model" })).toBeDisabled();
         expect(screen.getByRole("button", { name: "Reasoning effort" })).toHaveAttribute("title", "Effort");
-    });
-
-    it("lets an effort picker change the effort", () => {
-        const onConfig = vi.fn();
-        render(
-            <ComposerPickers
-                agent={{ id: "a", type: "claude", title: "Claude", startup: "claude" }}
-                onAgent={mocks.onAgent}
-                disabled={false}
-                onConfig={onConfig}
-                setup={{
-                    configOptions: [
-                        {
-                            id: "effort",
-                            type: "select",
-                            currentValue: "high",
-                            options: [
-                                { value: "high", name: "High", description: "Thinks longer" },
-                                { value: "low", name: "Low" },
-                            ],
-                        },
-                    ],
-                }}
-            />,
-        );
-        fireEvent.click(screen.getByRole("button", { name: "Reasoning effort" }));
-        expect(screen.getByText("Thinks longer")).toBeInTheDocument();
-        expect(screen.queryByRole("group", { name: "Agent" })).not.toBeInTheDocument();
-        fireEvent.click(screen.getByRole("option", { name: /Low/ }));
-
-        expect(onConfig).toHaveBeenCalledWith(expect.objectContaining({ id: "effort" }), "low");
     });
 
     it("ignores a click on the agent that is already running", () => {

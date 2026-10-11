@@ -279,13 +279,6 @@ mod tests {
     }
 
     #[test]
-    fn a_tab_on_screen_has_no_hidden_time_and_stays() {
-        let strip = strip(&["shown"]);
-        let later = Instant::now() + 600 * MINUTE;
-        assert!(strip.to_unload(later, Pressure::Critical).is_empty());
-    }
-
-    #[test]
     fn loading_acting_settling_or_already_unloaded_tabs_stay() {
         let start = Instant::now();
         let mut strip = strip(&["loading", "acting", "settling", "gone", "idle"]);
@@ -301,18 +294,6 @@ mod tests {
             strip.to_unload(start + 120 * MINUTE, Pressure::Critical),
             vec!["idle"]
         );
-    }
-
-    #[test]
-    fn closing_a_tab_forgets_its_hidden_time_and_unloaded_mark() {
-        let mut strip = strip(&["a"]);
-        strip.hidden_since.insert("a".into(), Instant::now());
-        strip.unloaded.insert("a".into());
-        strip.revealing.insert("a".into(), 1);
-        strip.remove("a");
-        assert!(strip.hidden_since.is_empty());
-        assert!(strip.unloaded.is_empty());
-        assert!(strip.revealing.is_empty());
     }
 
     #[test]

@@ -31,11 +31,13 @@ module.exports = (config) => {
       return config;
     },
   ]);
+  // Asked only for the verifier: GitHub serves this repository as raw files, and one error from it
+  // for any other library would make Gradle drop it and fail the whole build.
   config = withProjectBuildGradle(config, (config) => {
     if (!config.modResults.contents.includes(MAVEN)) {
       config.modResults.contents = config.modResults.contents.replace(
         /allprojects\s*\{\s*repositories\s*\{/,
-        (opening) => `${opening}\n    maven { url "${MAVEN}" }`,
+        (opening) => `${opening}\n    maven {\n      url "${MAVEN}"\n      content { includeGroup "org.rustls" }\n    }`,
       );
     }
     return config;

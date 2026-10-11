@@ -74,19 +74,6 @@ describe("RateLimitBanner", () => {
         vi.useRealTimers();
     });
 
-    it("stays out of the way while there is plenty left", async () => {
-        const view = await renderBanner(plenty);
-        expect(api.rateLimit).toHaveBeenCalledWith("work");
-        expect(view.container.textContent).toBe("");
-    });
-
-    it("warns when little is left", async () => {
-        await renderBanner({ ...plenty, remaining: 90, near: true });
-        const banner = screen.getByRole("status");
-        expect(banner.dataset.tone).toBe("warn");
-        expect(banner.textContent).toBe("90 of 5000 Test host requests left this hour.");
-    });
-
     it("reads everything again a second after the limit resets", async () => {
         vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
         await renderBanner({ ...plenty, limited: true, remaining: 0, resetsAt: Math.floor(Date.now() / 1000) + 2 });

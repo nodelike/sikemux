@@ -1,7 +1,7 @@
 import { uiActivity } from "./activity";
 import { INPUT_TO_NEXT_FRAME_METRIC, performanceTelemetry, type PerformanceMetadata, type PerformanceTelemetry } from "./performance";
 
-export const ACTION_METRIC = "action.execute";
+const ACTION_METRIC = "action.execute";
 export const EVENT_LOOP_HANG_METRIC = "event-loop.hang";
 export const NEXT_FRAME_PROXY = "next-animation-frame-callback";
 

@@ -1,4 +1,4 @@
-import type { ProjectSpace, Session } from "./types";
+import type { Session } from "./types";
 
 export const MAX_SPACE_NAME_LENGTH = 40;
 
@@ -15,12 +15,31 @@ export function shownProjects<T extends Pick<Session, "cwd">>(
     return projects.filter((project) => isProjectShown(project.cwd, projectSpaces, activeSpaceId));
 }
 
-/** The first character as a person sees it, so an emoji made of several code points stays whole. */
-export function firstGrapheme(text: string): string {
-    const first = new Intl.Segmenter(undefined, { granularity: "grapheme" }).segment(text.trim())[Symbol.iterator]().next();
-    return first.done ? "" : first.value.segment;
-}
+export const SPACE_ICONS = [
+    "folder",
+    "user",
+    "globe",
+    "laptop",
+    "building",
+    "home",
+    "briefcase",
+    "code",
+    "flask",
+    "rocket",
+    "star",
+    "heart",
+    "book",
+    "bolt",
+    "leaf",
+    "cube",
+    "terminal",
+    "music",
+] as const;
 
-export const spaceBadge = (space: ProjectSpace): string => space.icon || firstGrapheme(space.name).toUpperCase();
+export type SpaceIcon = (typeof SPACE_ICONS)[number];
+
+export const DEFAULT_SPACE_ICON: SpaceIcon = "folder";
+
+export const isSpaceIcon = (value: unknown): value is SpaceIcon => SPACE_ICONS.includes(value as SpaceIcon);
 
 export const spaceName = (name: string): string => name.trim().slice(0, MAX_SPACE_NAME_LENGTH);

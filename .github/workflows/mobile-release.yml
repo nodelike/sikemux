@@ -1,8 +1,8 @@
 name: Mobile release
 run-name: Mobile release ${{ github.ref_name }}
 
-# A phone release starts from a mobile-v* tag, separate from the Mac's v* tags, and waits for the
-# owner's approval on the release environment like the Mac release does.
+# A phone release starts from a mobile-v* tag, separate from the Mac's v* tags. A stable one waits
+# for the owner's approval on the release environment; a nightly publishes once its checks pass.
 on:
   push:
     tags: ["mobile-v*"]
@@ -15,20 +15,33 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  approve:
+    name: Approve the stable release
+    if: ${{ !contains(github.ref_name, '-nightly.') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment: approval
+    steps:
+      - name: Approved
+        run: echo "Approved ${GITHUB_REF_NAME}" >>"$GITHUB_STEP_SUMMARY"
+
   android:
     name: Build, verify, and publish Android
     runs-on: ubuntu-latest
     timeout-minutes: 90
     environment: release
+    needs: approve
+    if: ${{ !cancelled() && (needs.approve.result == 'success' || needs.approve.result == 'skipped') }}
     permissions:
       contents: write
+      actions: write
     env:
       APP_VARIANT: production
       # The Play upload key's certificate; a release signed with anything else is refused.
       UPLOAD_CERT_SHA256: 4b29a5636b54e630aee1a7037c2cf4f182b7a140ffed36c6a38cafdd2529b32b
     steps:
       - name: Checkout
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Resolve version and channel
         id: plan
@@ -49,13 +62,13 @@ jobs:
           echo "Releasing Android $channel $version from $(git rev-parse HEAD)" >>"$GITHUB_STEP_SUMMARY"
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4.3.0
+        uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
         with:
           package_json_file: mobile/package.json
           run_install: false
 
       - name: Setup Node
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 22
           cache: pnpm
@@ -159,7 +172,7 @@ jobs:
           echo "Runtime version $runtime" >>"$GITHUB_STEP_SUMMARY"
 
       - name: Keep the APK and app bundle on the run
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: sikemux-android-${{ steps.plan.outputs.version }}
           path: dist/*
@@ -180,6 +193,20 @@ jobs:
           gh release create "$GITHUB_REF_NAME" "dist/Sikemux_${VERSION}_android.apk" dist/runtime-android.txt \
             --title "Sikemux for Android $VERSION" --notes "$notes" "${flags[@]}"
 
+      # Updates pushed to main while this release was building were skipped, as no release had
+      # their runtime yet. Publishing main again now lets this build take them.
+      - name: Publish main's update for this build
+        if: steps.plan.outputs.channel == 'nightly'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          main="$(gh api "repos/$GITHUB_REPOSITORY/commits/main" --jq .sha)"
+          if [[ "$main" == "$GITHUB_SHA" ]]; then
+            echo "main is this release's own commit, so there is no update to publish" >>"$GITHUB_STEP_SUMMARY"
+          else
+            gh workflow run mobile-update.yml --ref main
+          fi
+
       # Last, because Google Play never takes the same version code twice: everything that can be
       # run again has already succeeded.
       - name: Put the app bundle on Google Play
@@ -187,3 +214,129 @@ jobs:
           PLAY_SERVICE_ACCOUNT: ${{ secrets.PLAY_SERVICE_ACCOUNT }}
           VERSION: ${{ steps.plan.outputs.version }}
         run: node mobile/app/scripts/play-release.mjs upload "$VERSION" "dist/Sikemux_${VERSION}_android.aab"
+
+  ios:
+    name: Build iOS and send it to TestFlight
+    runs-on: macos-26
+    timeout-minutes: 120
+    environment: release
+    needs: approve
+    if: ${{ !cancelled() && (needs.approve.result == 'success' || needs.approve.result == 'skipped') }}
+    env:
+      APP_VARIANT: production
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Resolve version and channel
+        id: plan
+        run: |
+          version="${GITHUB_REF_NAME#mobile-v}"
+          base="$(node -p "require('./mobile/app/app.json').expo.version")"
+          if [[ "${version%%-*}" != "$base" ]]; then
+            echo "::error::Tag $GITHUB_REF_NAME is not a release of $base, the version in mobile/app/app.json"
+            exit 1
+          fi
+          if [[ "$version" == *-* ]]; then channel=nightly; else channel=stable; fi
+          echo "version=$version" >>"$GITHUB_OUTPUT"
+          echo "SIKEMUX_MOBILE_VERSION=$version" >>"$GITHUB_ENV"
+          echo "SIKEMUX_MOBILE_CHANNEL=$channel" >>"$GITHUB_ENV"
+          echo "EXPO_PUBLIC_COMMIT=$(git rev-parse --short=7 HEAD)" >>"$GITHUB_ENV"
+          echo "Releasing iOS $channel $version from $(git rev-parse HEAD)" >>"$GITHUB_STEP_SUMMARY"
+
+      # The newest Xcode on the image, leaving betas out.
+      - name: Choose Xcode
+        run: |
+          xcode="$(printf '%s\n' /Applications/Xcode_*.app | grep -vi beta | sort -V | tail -n 1)"
+          sudo xcode-select -s "$xcode"
+          xcodebuild -version | head -n 1 >>"$GITHUB_STEP_SUMMARY"
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
+        with:
+          package_json_file: mobile/package.json
+          run_install: false
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: |
+            pnpm-lock.yaml
+            mobile/pnpm-lock.yaml
+
+      - name: Setup Rust
+        run: |
+          channel="$(sed -n 's/^channel = "\(.*\)"$/\1/p' rust-toolchain.toml)"
+          rustup toolchain install "$channel" --profile minimal --no-self-update \
+            --target aarch64-apple-ios --target aarch64-apple-ios-sim
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: src-tauri
+          shared-key: mobile-ios
+
+      - name: Install the desktop app's dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install phone dependencies
+        working-directory: mobile
+        run: pnpm install --frozen-lockfile
+
+      - name: Build the Rust client
+        working-directory: mobile
+        run: pnpm native:ios:release
+
+      - name: Generate the iOS project
+        working-directory: mobile/app
+        run: node scripts/run.mjs prebuild ios production
+
+      # Xcode signs with the App Store Connect API key: it makes or fetches the certificate and the
+      # profiles for the app and its notification extension, and sends the build to TestFlight.
+      - name: Archive, sign and send to TestFlight
+        id: upload
+        working-directory: mobile/app/ios
+        env:
+          APP_STORE_CONNECT_KEY: ${{ secrets.APP_STORE_CONNECT_KEY }}
+          APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+        run: |
+          key="$RUNNER_TEMP/AuthKey_${APP_STORE_CONNECT_KEY_ID}.p8"
+          printf '%s\n' "$APP_STORE_CONNECT_KEY" >"$key"
+          auth=(-allowProvisioningUpdates -authenticationKeyPath "$key"
+            -authenticationKeyID "$APP_STORE_CONNECT_KEY_ID" -authenticationKeyIssuerID "$APP_STORE_CONNECT_ISSUER_ID")
+          archive="$RUNNER_TEMP/Sikemux.xcarchive"
+          xcodebuild -workspace Sikemux.xcworkspace -scheme Sikemux -configuration Release \
+            -destination generic/platform=iOS -archivePath "$archive" "${auth[@]}" archive
+          cat >"$RUNNER_TEMP/export.plist" <<'PLIST'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>method</key><string>app-store-connect</string>
+            <key>destination</key><string>upload</string>
+            <key>teamID</key><string>D577WD6Z5U</string>
+            <key>signingStyle</key><string>automatic</string>
+            <key>manageAppVersionAndBuildNumber</key><false/>
+            <key>uploadSymbols</key><true/>
+          </dict>
+          </plist>
+          PLIST
+          xcodebuild -exportArchive -archivePath "$archive" -exportOptionsPlist "$RUNNER_TEMP/export.plist" \
+            -exportPath "$RUNNER_TEMP/export" "${auth[@]}"
+          rm "$key"
+          build="$(/usr/libexec/PlistBuddy -c 'Print :ApplicationProperties:CFBundleVersion' "$archive/Info.plist")"
+          echo "build=$build" >>"$GITHUB_OUTPUT"
+          echo "Sent build $build to TestFlight" >>"$GITHUB_STEP_SUMMARY"
+
+      - name: Send the build to the external testers through beta review
+        working-directory: mobile/app
+        env:
+          APP_STORE_CONNECT_KEY: ${{ secrets.APP_STORE_CONNECT_KEY }}
+          APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          VERSION: ${{ steps.plan.outputs.version }}
+          BUILD: ${{ steps.upload.outputs.build }}
+        run: node scripts/testflight-release.mjs submit "$VERSION" "$BUILD"

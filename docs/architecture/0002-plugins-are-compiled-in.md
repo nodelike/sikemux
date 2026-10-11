@@ -5,7 +5,7 @@
 
 ## Context
 
-Sikemux ships integrations for AWS, Bitbucket, Bruno, GitHub, Rundeck and SigNoz.
+Sikemux ships integrations for AWS, Bitbucket, Bruno, GitHub, GitLab, Rundeck and SigNoz.
 Issue #6 asked whether they should become loadable plugins, possibly from a
 marketplace, and how a crashing plugin should be kept from taking the app down.
 

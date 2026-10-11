@@ -40,6 +40,21 @@ describe("remoteWorkspace", () => {
         expect(byId["opencode"].permissionMode).toBe("workspace-write");
         expect(byId["grok"].permissionMode).toBe("bypass");
     });
+
+    it("tells devices whether each launcher's agent is signed in, by profile", () => {
+        const profiles = [profile("work", "Work", "claude"), profile("home", "Home", "claude")];
+        const catalog = [
+            { type: "claude", label: "Claude", command: "claude", configPath: "~/.work", status: { state: "signedOut" } },
+            { type: "claude", label: "Claude", command: "claude", configPath: "~/.home", status: { state: "ready", account: null } },
+            { type: "opencode", label: "OpenCode", command: "opencode", status: { state: "unknown" } },
+        ] as unknown as Parameters<typeof remoteWorkspace>[4];
+        const { launchers } = remoteWorkspace(sessions, [], profiles, "bypass", catalog);
+        const byId = Object.fromEntries(launchers.map((launcher) => [launcher.id, launcher]));
+        expect(byId["claude:work"].status).toBe("signedOut");
+        expect(byId["claude:home"].status).toBe("ready");
+        expect(byId["opencode"].status).toBe("unknown");
+        expect(byId["hermes"].status).toBeUndefined();
+    });
 });
 
 describe("remoteChats", () => {

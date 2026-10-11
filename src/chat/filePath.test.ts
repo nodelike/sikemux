@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parsePathRef, scanPathCandidates } from "./filePath";
+import { namesWholePath, parsePathRef, scanPathCandidates } from "./filePath";
 
 const roots = { cwd: "/work/demo", home: "/Users/pat" };
 
@@ -50,6 +50,12 @@ describe("parsePathRef", () => {
     it("takes a bare name that carries an extension", () => {
         expect(parsePathRef("package.json", roots)?.path).toBe("/work/demo/package.json");
         expect(parsePathRef("Makefile", roots)?.path).toBe("/work/demo/Makefile");
+    });
+
+    it("keeps the spaces in a full path", () => {
+        expect(parsePathRef("/work/demo/Shipped Mon 5 + Wed 7.mp4", roots)?.path).toBe("/work/demo/Shipped Mon 5 + Wed 7.mp4");
+        expect(parsePathRef("~/Movies/demo cut.mp4", roots)?.path).toBe("/Users/pat/Movies/demo cut.mp4");
+        expect(parsePathRef("demo cut.mp4", roots)).toBeNull();
     });
 
     it("keeps a Windows path whole", () => {
@@ -119,5 +125,19 @@ describe("scanPathCandidates", () => {
 
     it("passes over a web address", () => {
         expect(scanPathCandidates("see https://example.com/a/b for more")).toEqual([]);
+    });
+});
+
+describe("namesWholePath", () => {
+    it("takes a single name between backticks", () => {
+        expect(namesWholePath("src/a.ts")).toBe(true);
+        expect(namesWholePath("npm run build")).toBe(false);
+    });
+
+    it("takes a full path with spaces in it", () => {
+        expect(namesWholePath("/work/demo/Shipped Mon 5 + Wed 7.mp4")).toBe(true);
+        expect(namesWholePath("~/Movies/demo cut.mp4")).toBe(true);
+        expect(namesWholePath("src/demo cut.mp4")).toBe(false);
+        expect(namesWholePath("/ a")).toBe(false);
     });
 });

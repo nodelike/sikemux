@@ -37,9 +37,4 @@ describe("SendToAgentMenu", () => {
         expect(mocks.send).toHaveBeenCalledWith({ newAgent: "claude", sessionId: "p" }, { text: "hello" });
         expect(onClose).toHaveBeenCalled();
     });
-
-    it("says so when there is nobody to send to", () => {
-        render(<SendToAgentMenu x={0} y={0} sessionId={null} delivery={() => ({ text: "x" })} onClose={() => {}} />);
-        expect((screen.getByRole("menuitem", { name: "No agents available" }) as HTMLButtonElement).disabled).toBe(true);
-    });
 });

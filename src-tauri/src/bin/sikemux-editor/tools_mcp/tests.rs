@@ -62,7 +62,14 @@ fn fake_app(proving_token: &'static str, answer: Value) -> FakeSikemux {
 
 impl FakeSikemux {
     fn relay(&self, method: &str, params: Value) -> Result<Value, String> {
-        harness::relay(&self.endpoint, "/project", "agent-one", method, &params)
+        harness::relay(
+            &self.endpoint,
+            "/project",
+            "agent-one",
+            method,
+            &params,
+            harness::REPLY_TIMEOUT,
+        )
     }
 
     fn received(self) -> Value {
@@ -121,7 +128,7 @@ fn every_served_tool_comes_from_the_manifest() {
 
 #[test]
 fn schemas_stay_lean_so_prose_lives_in_the_guide() {
-    let served = declarations();
+    let served = Manifest::load().offering(false).declarations();
     let mut prose = 0;
     for tool in &served {
         let description = field(tool, "description");
@@ -135,6 +142,54 @@ fn schemas_stay_lean_so_prose_lives_in_the_guide() {
     assert!(
         prose <= 1800,
         "tool descriptions are paid on every request; explain it in SIKEMUX_GUIDE.md instead"
+    );
+}
+
+/// The simulator tools reach only agents on a Mac that can run them, so like a
+/// plugin they answer to their own budget rather than the one every agent pays.
+#[test]
+fn the_simulator_tools_are_listed_only_where_they_work_and_stay_within_budget() {
+    let names = |manifest: Manifest| -> Vec<String> {
+        manifest
+            .declarations()
+            .iter()
+            .map(|tool| field(tool, "name").to_owned())
+            .collect()
+    };
+    let everywhere = names(Manifest::load().offering(false));
+    let with_xcode = names(Manifest::load().offering(true));
+    assert!(everywhere.iter().all(|name| !name.starts_with("sim_")));
+    assert!(with_xcode.iter().any(|name| name == "sim_attach"));
+    assert!(!Manifest::load()
+        .offering(false)
+        .instructions()
+        .contains("sim_"));
+    assert!(Manifest::load()
+        .offering(true)
+        .instructions()
+        .contains("sim_attach"));
+    assert!(Manifest::load()
+        .offering(true)
+        .instructions()
+        .contains("live on your desk"));
+
+    let simulator: Vec<Value> = Manifest::load()
+        .offering(true)
+        .declarations()
+        .into_iter()
+        .filter(|tool| field(tool, "name").starts_with("sim_"))
+        .collect();
+    for tool in &simulator {
+        assert!(
+            field(tool, "description").len() <= 160,
+            "{} description belongs in the guide",
+            field(tool, "name")
+        );
+    }
+    let bytes = Value::Array(simulator).to_string().len();
+    assert!(
+        bytes <= 5600,
+        "the simulator tools send {bytes} bytes of schema on every request"
     );
 }
 
@@ -261,6 +316,7 @@ fn a_missing_app_fails_without_a_connection() {
             "agent-one",
             "workspace.inspect",
             &json!({}),
+            harness::REPLY_TIMEOUT,
         ),
         Err("Sikemux is not running".into())
     );
@@ -465,6 +521,25 @@ fn a_screenshot_comes_back_as_an_image() {
     );
 }
 
+#[test]
+fn a_page_preview_comes_back_as_an_image_and_its_measurements() {
+    let blocks = content_for(
+        "page_preview",
+        &json!({
+            "data": "aGk=",
+            "mimeType": "image/jpeg",
+            "contentHeight": 312,
+            "console": { "messages": [] },
+        }),
+    );
+    assert_eq!(blocks[0]["type"], json!("image"));
+    assert_eq!(blocks[0]["mimeType"], json!("image/jpeg"));
+    assert_eq!(
+        field(&blocks[1], "text"),
+        "{\"console\":{\"messages\":[]},\"contentHeight\":312}"
+    );
+}
+
 /// The numbers drawn on an annotated picture are only useful beside the list
 /// saying what each one is.
 #[test]
@@ -510,7 +585,7 @@ fn a_host_is_answered_before_and_after_it_says_it_is_ready() {
     );
     assert_eq!(
         start["result"]["capabilities"],
-        json!({ "experimental": {}, "tools": { "listChanged": false } })
+        json!({ "experimental": {}, "tools": { "listChanged": true } })
     );
     assert_eq!(
         answered(
@@ -635,6 +710,63 @@ fn an_app_that_cannot_list_plugin_tools_is_asked_again_next_time() {
     assert_eq!(app.received()["request"]["method"], json!("plugins.tools"));
 }
 
+#[test]
+fn signing_in_to_a_plugin_mid_chat_changes_the_tools() {
+    let manifest = Manifest::load();
+    let plugins = PluginTools::default();
+    let signed_in = Mutex::new(false);
+    let asked = Mutex::new(Vec::new());
+    let app = |method: &str, params: &Value| {
+        asked.lock().unwrap().push(method.to_owned());
+        let signed_in = *signed_in.lock().unwrap();
+        match method {
+            "plugins.changed" => Ok(json!({ "version": u64::from(signed_in) })),
+            "plugins.tools" if signed_in => Ok(json!([{
+                "plugin": "sikemux.signoz",
+                "name": "signoz_trace",
+                "method": "trace",
+                "description": "One trace, span by span.",
+                "properties": {},
+                "required": [],
+            }])),
+            "plugins.tools" => Ok(json!([])),
+            _ => unreachable_app(method, params),
+        }
+    };
+
+    list(&manifest, &plugins, &app);
+    assert_eq!(
+        next_plugin_change(&manifest, &plugins, &app, None),
+        Ok((0, false))
+    );
+    asked.lock().unwrap().clear();
+    assert_eq!(
+        next_plugin_change(&manifest, &plugins, &app, Some(0)),
+        Ok((0, false))
+    );
+    assert_eq!(*asked.lock().unwrap(), ["plugins.changed"]);
+
+    *signed_in.lock().unwrap() = true;
+    assert_eq!(
+        next_plugin_change(&manifest, &plugins, &app, Some(0)),
+        Ok((1, true))
+    );
+    let names: Vec<String> = list(&manifest, &plugins, &unreachable_app)
+        .iter()
+        .map(|tool| field(tool, "name").to_owned())
+        .collect();
+    assert_eq!(names.last().map(String::as_str), Some("signoz_trace"));
+}
+
+#[test]
+fn only_a_different_offer_after_the_first_counts_as_a_change() {
+    let plugins = PluginTools::default();
+    assert!(!plugins.replace(Vec::new()));
+    assert!(plugins.replace(vec![signoz_tool()]));
+    assert!(!plugins.replace(vec![signoz_tool()]));
+    assert!(plugins.replace(Vec::new()));
+}
+
 fn filtered_tool() -> Tool {
     serde_json::from_value(json!({
         "name": "signoz_search_logs",
@@ -714,7 +846,7 @@ fn a_tool_this_server_cannot_read_does_not_hide_the_others() {
 }
 
 #[test]
-fn the_plugin_tools_first_listed_stay_fixed_and_no_others_are_reachable() {
+fn the_plugin_tools_listed_are_kept_and_no_others_are_reachable() {
     let manifest = Manifest::load();
     let plugins = PluginTools::default();
     let app = fake_sikemux(json!({ "status": "result", "value": [{

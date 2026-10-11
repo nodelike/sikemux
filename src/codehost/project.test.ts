@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const api = vi.hoisted(() => ({ status: vi.fn(), pulls: vi.fn() }));
 
 import { invalidate } from "../plugin-api/resources";
-import { claimRemote, pickRemote, pullForBranch, pullMerged, pullsByBranch, useBranchPulls, useHostRepo } from "./project";
+import { claimRemote, pickRemote, pullForBranch, pullMerged, pullsByBranch, useBranchPulls } from "./project";
 import type { CodeHost } from "./registry";
 import { registerTestHost, TEST_HOST } from "./testHost";
 import type { Pull } from "./types";
@@ -81,7 +81,12 @@ describe("claimRemote", () => {
 
     it("goes to the host whose server the remote is on", async () => {
         const hosts = [host("github", "github.com"), host("bitbucket", "bitbucket.org")];
-        expect(await claimRemote("https://bitbucket.org/team/thing.git", hosts)).toEqual({ provider: "bitbucket", owner: "team", name: "thing" });
+        expect(await claimRemote("https://bitbucket.org/team/thing.git", hosts)).toEqual({
+            provider: "bitbucket",
+            owner: "team",
+            name: "thing",
+            host: "bitbucket.org",
+        });
     });
 
     it("leaves a remote no host serves to the local workbench, even when a host can read its address", async () => {
@@ -103,13 +108,6 @@ describe("claimRemote when a host cannot read the address", () => {
     });
 });
 
-describe("useHostRepo", () => {
-    it("finds nothing, and waits on nothing, without a folder", () => {
-        const { result } = renderHook(() => useHostRepo(null, true));
-        expect(result.current).toEqual({ repo: null, remote: null, branch: null, loading: false });
-    });
-});
-
 describe("useBranchPulls", () => {
     const repo = { provider: TEST_HOST, owner: "nodelike", name: "sikemux", account: "ada-id" };
     const open = (number: number, head: string, headLabel: string | null) => ({ number, head, headLabel, state: "open" }) as Pull;
@@ -120,25 +118,11 @@ describe("useBranchPulls", () => {
         api.pulls.mockReset().mockResolvedValue([open(1, "feat/a", null), open(2, "main", "fork:main")]);
     });
 
-    it("maps the repository's own branches to their open pull request once signed in", async () => {
-        const { result } = renderHook(() => useBranchPulls(repo, true));
-        await waitFor(() => expect(result.current.get("feat/a")?.number).toBe(1));
-        expect(result.current.has("main")).toBe(false);
-        expect(api.status).toHaveBeenCalledWith("ada-id");
-        expect(api.pulls).toHaveBeenCalledWith(repo, "open");
-    });
-
     it("asks nothing of a host nobody is signed in to", async () => {
         api.status.mockResolvedValue({ ok: false });
         const { result } = renderHook(() => useBranchPulls({ ...repo, account: "out-id" }, true));
         await waitFor(() => expect(api.status).toHaveBeenCalledWith("out-id"));
         expect(api.pulls).not.toHaveBeenCalled();
         expect(result.current.size).toBe(0);
-    });
-
-    it("has nothing without a repository", () => {
-        const { result } = renderHook(() => useBranchPulls(null, true));
-        expect(result.current.size).toBe(0);
-        expect(api.status).not.toHaveBeenCalled();
     });
 });

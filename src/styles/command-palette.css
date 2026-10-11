@@ -42,6 +42,11 @@
     white-space: nowrap;
 }
 
+.command-palette-copy .picker-sub {
+    padding-left: 0;
+    text-align: left;
+}
+
 .command-palette-meta {
     flex: 0 0 auto;
     color: var(--text-tertiary);

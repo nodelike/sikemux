@@ -1,23 +1,4 @@
 /* ---- Fields ------------------------------------------------------------- */
-
-.gha-field {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-1);
-}
-.gha-field > span {
-    font-size: var(--text-2xs);
-    font-weight: var(--weight-medium);
-    color: var(--text-tertiary);
-}
-.gha-hint {
-    font-size: var(--text-2xs);
-    color: var(--text-tertiary);
-}
-.gha-hint code {
-    font-family: var(--mono);
-    color: var(--text-secondary);
-}
 .gha-callout {
     display: flex;
     align-items: center;
@@ -58,12 +39,4 @@
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 28px;
     align-items: center;
     gap: var(--space-1h);
-}
-
-/* ---- Narrow panes ------------------------------------------------------- */
-
-@container (max-width: 640px) {
-    .gha-side {
-        display: none;
-    }
 }

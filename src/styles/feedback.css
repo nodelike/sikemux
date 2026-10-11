@@ -187,21 +187,6 @@
     }
 }
 
-.branch-track {
-    margin-left: auto;
-    display: flex;
-    gap: 8px;
-    font-size: 10px;
-    font-variant-numeric: tabular-nums;
-    padding-left: 8px;
-}
-.branch-track-up {
-    color: var(--live);
-}
-.branch-track-down {
-    color: var(--warn);
-}
-
 .git-panel-spinner {
     width: 10px;
     height: 10px;

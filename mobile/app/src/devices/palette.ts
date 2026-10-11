@@ -24,7 +24,7 @@ export function useDevicePalette(core: string): Palette {
   const { devices } = useDevices();
   const remembered = devices.find((device) => device.core === core)?.palette;
   const colours = live.snapshot?.workspace.palette;
-  const published = useMemo(() => (colours?.size ? Object.fromEntries(colours) : undefined), [colours]);
+  const published = useMemo(() => (colours && Object.keys(colours).length ? colours : undefined), [colours]);
   const current = published ?? remembered;
 
   useEffect(() => {

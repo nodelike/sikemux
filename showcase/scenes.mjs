@@ -305,6 +305,23 @@ export const SCENES = [
     },
   },
   {
+    name: "agent-tools",
+    setup: (page) => openWindow(page, "s-billing", "w-agent-incident"),
+  },
+  {
+    name: "accounts",
+    setup: async (page) => {
+      await openWindow(page, "s-sikemux", "w-agent-rail");
+      await page.click(".agent-account-switch");
+      await page.waitForTimeout(600);
+    },
+  },
+  {
+    name: "spaces",
+    setup: (page) => openWindow(page, "s-shell", "w-shell"),
+    crops: { rail: ".side-rail" },
+  },
+  {
     name: "projects-rail",
     setup: (page) => openWindow(page, "s-sikemux", "w-agent-rail"),
     crops: { rail: ".side-rail" },

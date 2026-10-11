@@ -77,10 +77,6 @@ export function setGitDraft(repo: string, value: string | ((current: string) => 
     }));
 }
 
-export function setGitProvider(provider: GitAiProvider): void {
-    useGitWorkbench.setState({ provider, model: defaultAiModel(provider) });
-}
-
 export async function runRepositoryGit(repo: string, label: string, action: () => Promise<unknown>): Promise<boolean> {
     if (useGitWorkbench.getState().operations[repo]?.busy) return false;
     const update = (operation: Operation) => useGitWorkbench.setState((state) => ({ operations: { ...state.operations, [repo]: operation } }));

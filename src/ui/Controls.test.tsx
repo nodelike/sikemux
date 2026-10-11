@@ -1,22 +1,11 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { Checkbox, Slider, Switch } from "./Controls";
+import { Checkbox, Slider } from "./Controls";
 
 afterEach(cleanup);
 
 describe("Controls", () => {
-    it("exposes the switch as a real switch role and toggles it", async () => {
-        const user = userEvent.setup();
-        const onChange = vi.fn();
-        render(<Switch checked={false} onChange={onChange} label="Restore agent tabs" />);
-
-        const control = screen.getByRole("switch", { name: "Restore agent tabs" });
-        expect(control).not.toBeChecked();
-        await user.click(control);
-        expect(onChange).toHaveBeenCalledWith(true);
-    });
-
     it("keeps the checkbox label clickable", async () => {
         const user = userEvent.setup();
         const onChange = vi.fn();

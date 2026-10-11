@@ -6,7 +6,7 @@ export interface GitStatusDecoration {
     label: string;
 }
 
-export function gitStatusDecoration(raw: string): GitStatusDecoration | null {
+function gitStatusDecoration(raw: string): GitStatusDecoration | null {
     const code = raw.trim();
     if (!code) return null;
     if (code === "?" || code === "U") return { letter: "U", cls: "u", label: code === "?" ? "untracked" : "unmerged" };
@@ -18,17 +18,35 @@ export function gitStatusDecoration(raw: string): GitStatusDecoration | null {
     return { letter: code, cls: "m", label: code === "M" ? "modified" : code };
 }
 
+const RANK: GitStatusDecoration["cls"][] = ["u", "d", "a", "r", "m"];
+
+function mostTelling(statuses: GitStatusDecoration[]): GitStatusDecoration | undefined {
+    return RANK.map((cls) => statuses.find((status) => status.cls === cls)).find(Boolean) ?? statuses[0];
+}
+
 export function gitFileDecoration(file: GitFile): GitStatusDecoration {
-    const index = gitStatusDecoration(file.index);
-    const worktree = gitStatusDecoration(file.worktree);
-    const statuses = [index, worktree].filter((status): status is GitStatusDecoration => status !== null);
-    return (
-        statuses.find((status) => status.cls === "u") ??
-        statuses.find((status) => status.cls === "d") ??
-        statuses.find((status) => status.cls === "a") ??
-        statuses.find((status) => status.cls === "r") ??
-        statuses[0] ?? { letter: "M", cls: "m", label: "modified" }
+    const statuses = [gitStatusDecoration(file.index), gitStatusDecoration(file.worktree)].filter(
+        (status): status is GitStatusDecoration => status !== null,
     );
+    return mostTelling(statuses) ?? { letter: "M", cls: "m", label: "modified" };
+}
+
+/**
+ * Every folder that holds a changed file, by its path from the repository root, with the most telling change inside it.
+ * Git lists a wholly untracked folder as the folder itself, so that folder counts as well as the ones above it.
+ */
+export function gitFolderDecorations(files: GitFile[]): Map<string, GitStatusDecoration> {
+    const found = new Map<string, GitStatusDecoration[]>();
+    for (const file of files) {
+        const decoration = gitFileDecoration(file);
+        const parts = file.path.replaceAll("\\", "/").split("/").filter(Boolean);
+        const lastFolder = file.path.endsWith("/") ? parts.length : parts.length - 1;
+        for (let depth = 1; depth <= lastFolder; depth++) {
+            const folder = parts.slice(0, depth).join("/");
+            found.set(folder, [...(found.get(folder) ?? []), decoration]);
+        }
+    }
+    return new Map([...found].map(([folder, statuses]) => [folder, mostTelling(statuses)!]));
 }
 
 export interface GitStatusBadge extends GitStatusDecoration {

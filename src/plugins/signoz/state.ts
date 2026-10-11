@@ -203,14 +203,3 @@ export function scopeOf(view: ExploreView, settings: Pick<SignozSettings, "minut
 export function openSignoz(): void {
     openSurface(SIGNOZ_EXPLORE);
 }
-
-/** Brings SigNoz forward on one trace, from anywhere that has its id. */
-export function openTrace(traceId: string): void {
-    const paneId = openSurface(SIGNOZ_EXPLORE);
-    if (paneId) updateView(paneId, { trace: traceId });
-}
-
-export function openService(service: string): void {
-    const paneId = openSurface(SIGNOZ_EXPLORE);
-    if (paneId) showService(paneId, service);
-}

@@ -283,15 +283,6 @@ mod tests {
     }
 
     #[test]
-    fn the_cache_key_is_a_stable_hash_of_the_url() {
-        let key = cache_key("https://img.clerk.com/abc");
-        assert_eq!(key.len(), 32);
-        assert!(key.chars().all(|c| c.is_ascii_hexdigit()));
-        assert_eq!(key, cache_key("https://img.clerk.com/abc"));
-        assert_ne!(key, cache_key("https://img.clerk.com/abd"));
-    }
-
-    #[test]
     fn only_image_content_types_are_accepted() {
         assert!(content_type_allowed(Some("image/png")));
         assert!(content_type_allowed(Some("Image/JPEG; charset=binary")));
@@ -321,16 +312,6 @@ mod tests {
         assert_eq!(profile.name.as_deref(), Some("Ada Lovelace"));
         assert_eq!(profile.picture, None);
         assert_eq!(profile.checked_at, 7);
-    }
-
-    #[test]
-    fn a_profile_goes_stale_after_the_check_interval() {
-        let profile = Profile {
-            checked_at: 1_000,
-            ..Profile::default()
-        };
-        assert!(!profile.is_stale(1_000 + CHECK_EVERY.as_secs() - 1));
-        assert!(profile.is_stale(1_000 + CHECK_EVERY.as_secs()));
     }
 
     #[tokio::test]

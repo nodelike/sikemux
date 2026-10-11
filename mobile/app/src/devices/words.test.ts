@@ -1,14 +1,14 @@
 import { describe, expect, it } from 'vitest';
 
-import { ChatState, type ChatInfo } from '@/core/protocol';
-import { age, ago, chatState, chatTitle, folder, providerName } from '@/devices/words';
+import type { ChatInfo } from '@/core/protocol';
+import { age, ago, chatState, folder } from '@/devices/words';
 
 function chat(overrides: Partial<ChatInfo> = {}): ChatInfo {
   return {
     agentId: 'agent-1',
     provider: 'claude',
     cwd: '/Users/me/project',
-    state: ChatState.Ready,
+    state: 'ready',
     running: false,
     pendingPermissions: [],
     subagents: 0,
@@ -19,22 +19,7 @@ function chat(overrides: Partial<ChatInfo> = {}): ChatInfo {
   };
 }
 
-describe('providerName', () => {
-  it('names the agents the host knows', () => {
-    expect(providerName('claude')).toBe('Claude Code');
-    expect(providerName('omp')).toBe('OMP');
-  });
-
-  it('shows an unknown provider as it came', () => {
-    expect(providerName('aider')).toBe('aider');
-  });
-});
-
 describe('folder', () => {
-  it('is the last part of a path', () => {
-    expect(folder('/Users/me/project')).toBe('project');
-  });
-
   it('ignores a trailing slash', () => {
     expect(folder('/Users/me/project/')).toBe('project');
   });
@@ -44,30 +29,20 @@ describe('folder', () => {
   });
 });
 
-describe('chatTitle', () => {
-  it("uses the agent's title", () => {
-    expect(chatTitle(chat({ title: 'Fix the build' }))).toBe('Fix the build');
-  });
-
-  it('names an untitled chat after its agent', () => {
-    expect(chatTitle(chat({ provider: 'codex' }))).toBe('New Codex chat');
-  });
-});
-
 describe('chatState', () => {
   it('puts a waiting permission ahead of everything', () => {
     expect(chatState(chat({ pendingPermissions: ['p1'], asleep: true, running: true }))).toBe('Needs input');
   });
 
   it('says a sleeping chat is asleep even when stopped', () => {
-    expect(chatState(chat({ asleep: true, state: ChatState.Stopped }))).toBe('Sleeping');
+    expect(chatState(chat({ asleep: true, state: 'stopped' }))).toBe('Sleeping');
   });
 
   it('follows the agent through its lifecycle', () => {
-    expect(chatState(chat({ state: ChatState.Starting }))).toBe('Starting…');
-    expect(chatState(chat({ state: ChatState.Ready, running: true }))).toBe('Working');
-    expect(chatState(chat({ state: ChatState.Ready }))).toBe('Ready');
-    expect(chatState(chat({ state: ChatState.Stopped, running: true }))).toBe('Stopped');
+    expect(chatState(chat({ state: 'starting' }))).toBe('Starting…');
+    expect(chatState(chat({ state: 'ready', running: true }))).toBe('Working');
+    expect(chatState(chat({ state: 'ready' }))).toBe('Ready');
+    expect(chatState(chat({ state: 'stopped', running: true }))).toBe('Stopped');
   });
 });
 

@@ -1,5 +1,9 @@
 use std::time::Duration;
 
+pub use sikemux_wire::pty::shell_protocol::{
+    PtyShellMetadataEvent, ShellBoundary, ShellMetadataSnapshot, ShellPhase,
+};
+
 /// Stable frontend event for opt-in local shell metadata. The terminal byte
 /// stream remains untouched; this is a second, typed signal derived from it.
 pub const PTY_SHELL_METADATA_EVENT: &str = "pty_shell_metadata";
@@ -7,36 +11,6 @@ const MAX_SHELL_OSC_BYTES: usize = 8 * 1024;
 const MAX_SHELL_PATH_BYTES: usize = 4 * 1024;
 const MAX_SHELL_EXIT_CODE_BYTES: usize = 11;
 const SHELL_EVENT_MIN_INTERVAL: Duration = Duration::from_millis(100);
-
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum ShellPhase {
-    #[default]
-    Unknown,
-    Prompt,
-    Input,
-    Running,
-    Finished,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ShellMetadataSnapshot {
-    pub revision: u64,
-    pub cwd: Option<String>,
-    pub phase: ShellPhase,
-    pub last_exit_code: Option<i32>,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum ShellBoundary {
-    Cwd,
-    PromptStart,
-    CommandStart,
-    CommandExecuted,
-    CommandFinished,
-}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ShellProtocolUpdate {
@@ -99,29 +73,17 @@ pub struct ShellProtocolOutput {
     pub dropped: usize,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct PtyShellMetadataEvent<Id = u32> {
-    pub pty_id: Id,
-    pub revision: u64,
-    pub boundary: ShellBoundary,
-    pub cwd: Option<String>,
-    pub phase: ShellPhase,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub exit_code: Option<i32>,
-}
-
-impl<Id> PtyShellMetadataEvent<Id> {
-    pub fn from_update(pty_id: Id, update: ShellProtocolUpdate) -> Self {
-        let exit_code = (update.boundary == ShellBoundary::CommandFinished)
-            .then_some(update.metadata.last_exit_code)
+impl ShellProtocolUpdate {
+    pub fn into_event<Id>(self, pty_id: Id) -> PtyShellMetadataEvent<Id> {
+        let exit_code = (self.boundary == ShellBoundary::CommandFinished)
+            .then_some(self.metadata.last_exit_code)
             .flatten();
-        Self {
+        PtyShellMetadataEvent {
             pty_id,
-            revision: update.metadata.revision,
-            boundary: update.boundary,
-            cwd: update.metadata.cwd,
-            phase: update.metadata.phase,
+            revision: self.metadata.revision,
+            boundary: self.boundary,
+            cwd: self.metadata.cwd,
+            phase: self.metadata.phase,
             exit_code,
         }
     }
@@ -366,8 +328,8 @@ fn parse_shell_cwd(uri: &[u8]) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::{
-        parse_shell_cwd, PtyShellMetadataEvent, ShellBoundary, ShellPhase, ShellProtocolParser,
-        MAX_SHELL_OSC_BYTES, MAX_SHELL_PATH_BYTES, SHELL_EVENT_MIN_INTERVAL,
+        parse_shell_cwd, ShellBoundary, ShellPhase, ShellProtocolParser, MAX_SHELL_OSC_BYTES,
+        MAX_SHELL_PATH_BYTES, SHELL_EVENT_MIN_INTERVAL,
     };
     use crate::screen::{semantic_parser_with_shell, PARSER_SCROLLBACK};
     use std::path::PathBuf;
@@ -551,8 +513,8 @@ mod tests {
             .process(format!("\x1b]7;{cwd_uri}\x07").as_bytes())
             .latest
             .expect("cwd update");
-        let value = serde_json::to_value(PtyShellMetadataEvent::from_update(42, update))
-            .expect("serialize shell metadata event");
+        let value =
+            serde_json::to_value(update.into_event(42)).expect("serialize shell metadata event");
         assert_eq!(value["ptyId"], 42);
         assert_eq!(value["revision"], 1);
         assert_eq!(value["boundary"], "cwd");

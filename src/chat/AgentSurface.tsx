@@ -16,6 +16,7 @@ import { AgentContextMenu } from "../workspace/AgentContextMenu";
 import * as cmd from "../state/commands";
 import { useShortcutLabel, withShortcut } from "../commands/useShortcutLabel";
 import { AgentChatPane } from "./AgentChatPane";
+import { showingChat } from "./chatViews";
 import { YoloToggle } from "./YoloToggle";
 import { agentCwd, agentPtyContext } from "../agents/agentPtyContext";
 import { clearTuiRecovery, relaunchTuiAgent, useTuiResume } from "../agents/tuiResume";
@@ -123,6 +124,7 @@ export function AgentSurface({ agent, session, profile, visible }: { agent: Agen
        looked at: the adapter and CLI take about a second to come up, and that
        second should be spent before the user switches to this agent. */
     const guiActive = supportsGui && view === "gui" && !switching;
+    useEffect(() => (guiActive ? showingChat(agent.id) : undefined), [agent.id, guiActive]);
 
     /* A terminal agent takes deliveries as typed text, the way a paste would arrive. */
     const tuiLayer = useRef<HTMLDivElement>(null);

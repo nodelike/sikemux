@@ -5,6 +5,8 @@
 mod connection;
 pub(crate) mod feed;
 mod history;
+mod native;
+mod rebind;
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -12,15 +14,11 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, Weak};
 use std::time::Duration;
 
-use agent_client_protocol::schema::v1::{
-    RequestPermissionOutcome, RequestPermissionResponse, SelectedPermissionOutcome,
-};
-use agent_client_protocol::Responder;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tokio::sync::{mpsc, oneshot, watch};
 
-use crate::acp::{adapter_effort_id, bounded_text, current_choice, native};
+use crate::acp::{bounded_text, current_choice, native as acp_native};
 use crate::protocol::{
     Attention, AttentionKind, ChatAccount, ChatAttachment, ChatContext, ChatEventKind, ChatInfo,
     ChatLaunch, ChatMark, ChatStart, ChatState, Event, RequestId, Response,
@@ -43,6 +41,8 @@ const STOP_SETTLE: Duration = Duration::from_secs(2);
 pub(crate) enum ChatCommand {
     Prompt {
         from: ClientId,
+        /// Names the message for a later edit of it.
+        message_id: Option<String>,
         text: String,
         paths: Vec<String>,
         context: Vec<ChatContext>,
@@ -69,6 +69,18 @@ pub(crate) enum ChatCommand {
     SwitchAccount {
         account: ChatAccount,
     },
+    /// Takes the conversation back to before the person's message
+    /// `message_id` and sends `text` in its place.
+    Edit {
+        from: ClientId,
+        message_id: String,
+        text: String,
+        paths: Vec<String>,
+        context: Vec<ChatContext>,
+        /// Puts the files back as they were before that message too.
+        restore_files: bool,
+        reply: oneshot::Sender<Result<(), String>>,
+    },
     Cancel,
 }
 
@@ -81,7 +93,8 @@ enum Readiness {
 
 struct PendingPermission {
     option_ids: Vec<String>,
-    responder: Responder<RequestPermissionResponse>,
+    /// Takes the option chosen, or none when the request was cancelled.
+    answer: oneshot::Sender<Option<String>>,
     request: Value,
     at: u64,
 }
@@ -233,18 +246,16 @@ impl Chat {
         &self,
         request_id: String,
         option_ids: Vec<String>,
-        responder: Responder<RequestPermissionResponse>,
+        answer: oneshot::Sender<Option<String>>,
         request: Value,
     ) -> bool {
         let Ok(mut permissions) = self.permissions.lock() else {
-            let _ = responder.respond(RequestPermissionResponse::new(
-                RequestPermissionOutcome::Cancelled,
-            ));
+            let _ = answer.send(None);
             return false;
         };
         let pending = PendingPermission {
             option_ids,
-            responder,
+            answer,
             request,
             at: unix_ms(),
         };
@@ -303,9 +314,7 @@ impl Chat {
         for (request_id, request) in pending {
             self.feed.forget_permission(&request_id);
             self.cleared(&request_id);
-            let _ = request.responder.respond(RequestPermissionResponse::new(
-                RequestPermissionOutcome::Cancelled,
-            ));
+            let _ = request.answer.send(None);
         }
     }
 
@@ -339,16 +348,10 @@ impl Chat {
         };
         self.feed.forget_permission(request_id);
         self.cleared(request_id);
-        let outcome = match option_id {
-            Some(option_id) => {
-                RequestPermissionOutcome::Selected(SelectedPermissionOutcome::new(option_id))
-            }
-            None => RequestPermissionOutcome::Cancelled,
-        };
         request
-            .responder
-            .respond(RequestPermissionResponse::new(outcome))
-            .map_err(|error| CoreError::from(error.to_string()))
+            .answer
+            .send(option_id)
+            .map_err(|_| CoreError::from(STOPPED))
     }
 
     fn send(&self, command: ChatCommand) -> CoreResult<()> {
@@ -371,6 +374,7 @@ impl Chat {
             running: self.turn_running(),
             pending_permissions: self.pending_permissions(),
             subagents: self.feed.running_subagents(),
+            tasks: self.feed.running_tasks(),
             started_by: self.origin.started_by.clone(),
             launcher: self.origin.launcher.clone(),
             permission_mode: self.feed.permission_mode(),
@@ -397,11 +401,7 @@ impl Chat {
     fn relaunch(&self, launch: &ChatLaunch) -> Option<ChatLaunch> {
         let start = self.feed.start()?;
         let setup = &start.setup;
-        let effort_id = if native::arguments(self.provider()).is_some() {
-            native::effort_config_id(setup).map(str::to_owned)
-        } else {
-            Some(adapter_effort_id(self.provider()).to_owned())
-        };
+        let effort_id = acp_native::effort_config_id(setup).map(str::to_owned);
         let mut launch = launch.clone();
         launch.resume_id = self.kept_by_provider().then(|| start.session_id.clone());
         launch.permission_mode = self.feed.permission_mode();
@@ -672,12 +672,18 @@ fn launch(core: &Arc<Core>, chat: &Arc<Chat>, mut queue: mpsc::UnboundedReceiver
         let mut rebind = None;
         let result = loop {
             let launch = ending.current_launch();
-            match connection::run(ending.clone(), launch, &mut queue, rebind.take()).await {
-                Ok(connection::Outcome::Rebind(next)) => {
+            let ran = match native::Kind::of(ending.provider()) {
+                Some(kind) => {
+                    native::run(kind, ending.clone(), launch, &mut queue, rebind.take()).await
+                }
+                None => connection::run(ending.clone(), launch, &mut queue, rebind.take()).await,
+            };
+            match ran {
+                Ok(rebind::Outcome::Rebind(next)) => {
                     ending.set_current(next.launch.clone());
                     rebind = Some(next);
                 }
-                Ok(connection::Outcome::Ended(end)) => break Ok(end),
+                Ok(rebind::Outcome::Ended(end)) => break Ok(end),
                 Err(error) => break Err(error),
             }
         };
@@ -824,16 +830,49 @@ pub(crate) fn prompt(
     core: &Core,
     from: ClientId,
     agent_id: &str,
+    message_id: Option<String>,
     text: String,
     paths: Vec<String>,
     context: Vec<ChatContext>,
 ) -> CoreResult<()> {
+    if let Some(message_id) = message_id.as_deref() {
+        bounded_text("message id", message_id, 256)?;
+    }
     core.chats.running(agent_id)?.send(ChatCommand::Prompt {
         from,
+        message_id,
         text,
         paths,
         context,
     })
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn edit(
+    core: &Core,
+    from: ClientId,
+    agent_id: &str,
+    message_id: String,
+    text: String,
+    paths: Vec<String>,
+    context: Vec<ChatContext>,
+    restore_files: bool,
+) -> CoreResult<()> {
+    bounded_text("message id", &message_id, 256)?;
+    let (reply, answer) = oneshot::channel();
+    core.chats.running(agent_id)?.send(ChatCommand::Edit {
+        from,
+        message_id,
+        text,
+        paths,
+        context,
+        restore_files,
+        reply,
+    })?;
+    answer
+        .await
+        .map_err(|_| CoreError::from(STOPPED))?
+        .map_err(CoreError::from)
 }
 
 pub(crate) async fn steer(

@@ -229,6 +229,15 @@
     color: var(--danger);
 }
 
+.chat-notice.severity-warning > svg {
+    color: var(--warn);
+}
+
+.chat-notice.severity-error > svg,
+.chat-notice.severity-error .chat-notice-state {
+    color: var(--danger);
+}
+
 .chat-notice.account .chat-notice-name {
     font-family: inherit;
 }

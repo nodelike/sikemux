@@ -1,18 +1,11 @@
-import {
-  ChatAttachment,
-  ChatState as HostChatState,
-  MobileError,
-  type ChatInfo,
-  type ChatMark,
-  type ConnectionLike,
-} from '@sikemux/native';
+import { ChatAttachment, MobileError, type ChatMark, type ConnectionLike } from '@sikemux/native';
 import { File } from 'expo-file-system';
 
 import { recordOf } from '@mac/chat/acpEvents';
 import { chatReducer, initialChatState } from '@mac/chat/reducer';
 import type { AcpPermissionRequest, ChatAction, ChatMessage, ChatState } from '@mac/chat/types';
 
-import type { CoreChatEvent } from '@/core/protocol';
+import type { ChatInfo, CoreChatEvent } from '@/core/protocol';
 import type { ChatDelivery } from '@/devices/hub';
 import { actions, parsed } from './chatEvents';
 import { earlierMessages, PAGE_TURNS, withEarlier } from './earlier';
@@ -243,7 +236,7 @@ export class ChatSession {
    * restarted is taken up again, and only the requests the host still waits on are shown.
    */
   hostSaw = (info: ChatInfo | undefined, waiting: string[] | undefined) => {
-    const up = info !== undefined && info.state === HostChatState.Ready && !info.asleep;
+    const up = info !== undefined && info.state === 'ready' && !info.asleep;
     const cameBack = this.hostUp === false && up;
     this.hostUp = up;
     if (info && info.permissionMode !== this.hostMode) {

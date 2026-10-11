@@ -12,11 +12,21 @@ use uuid::Uuid;
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 /// The app answers a browser call only once the page settles, which it gives
 /// itself a minute to do.
-const REPLY_TIMEOUT: Duration = Duration::from_secs(70);
+pub const REPLY_TIMEOUT: Duration = Duration::from_secs(70);
 const MAX_REQUEST_BYTES: usize = 64 * 1024;
 const MAX_RESPONSE_BYTES: u64 = 4 * 1024 * 1024;
 
 pub fn call(agent_id: &str, method: &str, params: &Value) -> Result<Value, String> {
+    call_within(agent_id, method, params, REPLY_TIMEOUT)
+}
+
+/// As [`call`], giving up after `timeout`.
+pub fn call_within(
+    agent_id: &str,
+    method: &str,
+    params: &Value,
+    timeout: Duration,
+) -> Result<Value, String> {
     let endpoint = env::var_os("SIKEMUX_CLI_ENDPOINT")
         .filter(|value| !value.is_empty())
         .ok_or("Missing SIKEMUX_CLI_ENDPOINT; launch this MCP from Sikemux")?;
@@ -29,7 +39,14 @@ pub fn call(agent_id: &str, method: &str, params: &Value) -> Result<Value, Strin
                 .map(|path| path.to_string_lossy().into_owned())
         })
         .ok_or("the current directory is unavailable")?;
-    relay(Path::new(&endpoint), &project, agent_id, method, params)
+    relay(
+        Path::new(&endpoint),
+        &project,
+        agent_id,
+        method,
+        params,
+        timeout,
+    )
 }
 
 pub fn relay(
@@ -38,6 +55,7 @@ pub fn relay(
     agent_id: &str,
     method: &str,
     params: &Value,
+    timeout: Duration,
 ) -> Result<Value, String> {
     let descriptor: Value = serde_json::from_slice(
         &std::fs::read(endpoint).map_err(|_| "Sikemux is not running".to_string())?,
@@ -80,7 +98,7 @@ pub fn relay(
     .map_err(|_| "Sikemux is not running".to_string())?;
     stream
         .set_write_timeout(Some(CONNECT_TIMEOUT))
-        .and_then(|()| stream.set_read_timeout(Some(REPLY_TIMEOUT)))
+        .and_then(|()| stream.set_read_timeout(Some(timeout)))
         .map_err(|error| format!("cannot configure the Sikemux connection: {error}"))?;
     let mut reader = BufReader::new(&stream);
     let nonce = sikemux_core::cli::auth::new_nonce();

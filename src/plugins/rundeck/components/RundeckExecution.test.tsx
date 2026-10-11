@@ -1,4 +1,4 @@
-import { act, render } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { LogTick } from "../api";
 
@@ -72,6 +72,28 @@ describe("RundeckExecution", () => {
         await act(async () => setHidden(false));
         expect(logsStart).toHaveBeenCalledTimes(2);
         expect(logsStart.mock.calls[1][1]).toBe("1234");
+        unmount();
+    });
+});
+
+describe("RundeckExecution notices", () => {
+    it("offers to say when a running run ends, and then says it will", async () => {
+        watchStart.mockReset().mockImplementation(async (_id: number, onUpdate: (update: unknown) => void) => {
+            onUpdate({
+                execution: { id: 42, status: "running", customStatus: null, job: null, project: "ops", permalink: null },
+                state: null,
+                error: null,
+                terminal: false,
+            });
+            return 1;
+        });
+        logsStart.mockReset().mockResolvedValue(2);
+
+        const { unmount } = render(<RundeckExecution paneId="pane" active level={level} />);
+        const button = await screen.findByRole("button", { name: /Notify me/ });
+        await act(async () => fireEvent.click(button));
+        expect(watchStart).toHaveBeenCalledTimes(2);
+        expect(screen.getByRole("button", { name: /Will notify/ })).toBeDisabled();
         unmount();
     });
 });

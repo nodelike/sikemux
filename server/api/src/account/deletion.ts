@@ -6,7 +6,10 @@ import { appendEvent } from "../events/log.ts";
 import type { Logger } from "../log.ts";
 import type { ClerkBackend } from "./clerk.ts";
 
-/** How long a deleted account's tombstones stay, so hosts that were offline still hear of it. */
+/**
+ * How long a deleted account can still be restored. Then the sign-in is deleted in Clerk and
+ * the account's records erased; until then its tombstones tell offline hosts it is gone.
+ */
 export const PURGE_AFTER_DAYS = 30;
 /** Failed calls to Clerk are retried after a minute, doubling up to an hour. */
 const RETRY_BASE_MS = 60_000;
@@ -25,6 +28,7 @@ export interface DeletionRequest {
 
 export interface Deletion {
   requestedAt: Date;
+  deletesAt: Date;
   deletedInClerk: boolean;
 }
 
@@ -35,7 +39,8 @@ export function retryDelayMs(attempts: number): number {
 /**
  * Deletes the account here, in one transaction: every device moves to a tombstone, the account
  * hears device.revoked for each and one account.deleted, and its tokens are refused from now on.
- * A repeat finds the account marked and changes nothing, except recording Clerk's deletion.
+ * The sign-in stays in Clerk until the account can no longer be restored. A repeat finds the
+ * account marked and changes nothing, except recording Clerk's deletion.
  */
 export async function markDeleted(
   db: Kysely<Tables>,
@@ -49,7 +54,7 @@ export async function markDeleted(
       .execute();
     const user = await trx
       .selectFrom("users")
-      .select(["deleted_at", "clerk_deleted_at"])
+      .select(["deleted_at", "purge_after", "clerk_deleted_at"])
       .where("id", "=", userId)
       .forUpdate()
       .executeTakeFirstOrThrow();
@@ -59,6 +64,7 @@ export async function markDeleted(
         await recordClerkDeletion(trx, userId, actor);
       return {
         requestedAt: user.deleted_at,
+        deletesAt: user.purge_after ?? user.deleted_at,
         deletedInClerk: deletedInClerk || user.clerk_deleted_at !== null,
       };
     }
@@ -69,10 +75,13 @@ export async function markDeleted(
         deleted_at: sql<Date>`now()`,
         purge_after: sql<Date>`now() + make_interval(days => ${PURGE_AFTER_DAYS})`,
         clerk_deleted_at: deletedInClerk ? sql<Date>`now()` : null,
-        clerk_retry_at: deletedInClerk ? null : sql<Date>`now()`,
+        clerk_attempts: 0,
+        clerk_retry_at: deletedInClerk
+          ? null
+          : sql<Date>`now() + make_interval(days => ${PURGE_AFTER_DAYS})`,
       })
       .where("id", "=", userId)
-      .returning("deleted_at")
+      .returning(["deleted_at", "purge_after"])
       .executeTakeFirstOrThrow();
     const devices = await trx
       .selectFrom("devices")
@@ -101,8 +110,49 @@ export async function markDeleted(
     if (deletedInClerk) await auditClerkDeletion(trx, userId, actor);
     return {
       requestedAt: marked.deleted_at ?? new Date(),
+      deletesAt: marked.purge_after ?? new Date(),
       deletedInClerk,
     };
+  });
+}
+
+/**
+ * Takes back a deletion while the sign-in is still in Clerk. Devices removed by the deletion stay
+ * removed: each signs in again. Returns false when Clerk has already deleted the sign-in.
+ */
+export async function restoreAccount(
+  db: Kysely<Tables>,
+  userId: string,
+): Promise<boolean> {
+  return db.transaction().execute(async (trx) => {
+    const user = await trx
+      .selectFrom("users")
+      .select(["deleted_at", "clerk_deleted_at"])
+      .where("id", "=", userId)
+      .forUpdate()
+      .executeTakeFirst();
+    if (!user?.deleted_at) return true;
+    if (user.clerk_deleted_at) return false;
+    await trx
+      .updateTable("users")
+      .set({
+        deleted_at: null,
+        purge_after: null,
+        clerk_attempts: 0,
+        clerk_retry_at: null,
+      })
+      .where("id", "=", userId)
+      .execute();
+    await trx
+      .insertInto("audit")
+      .values({
+        user_id: userId,
+        actor: `user:${userId}`,
+        action: "account.restored",
+        subject: null,
+      })
+      .execute();
+    return true;
   });
 }
 

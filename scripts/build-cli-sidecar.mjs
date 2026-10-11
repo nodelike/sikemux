@@ -59,7 +59,9 @@ function buildFor(target, explicitTarget) {
   for (const name of sidecars) cargoArgs.push("--bin", name);
   cargoArgs.push("--manifest-path", join(tauriDir, "Cargo.toml"));
   if (explicitTarget) cargoArgs.push("--target", target);
-  run("cargo", cargoArgs);
+  // `tauri build` compiles every binary in the crate, so a release takes the
+  // sidecar it already linked instead of compiling the whole crate again.
+  if (!args.includes("--from-app-build")) run("cargo", cargoArgs);
   const releaseDir = explicitTarget
     ? join(tauriDir, "target", target, "release")
     : join(tauriDir, "target", "release");

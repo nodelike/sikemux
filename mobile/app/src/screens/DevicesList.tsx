@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Platform, Pressable, RefreshControl, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
-import { router } from 'expo-router';
+import { router, useIsFocused } from 'expo-router';
 import { useUser } from '@clerk/expo';
 import * as Clipboard from 'expo-clipboard';
 import type { Device } from '@protocol';
@@ -25,8 +25,10 @@ import { fonts, type Palette, radius, typeFor, useColors, useStyles } from '@/ui
 function DeviceCard({ device }: { device: PairedDevice }) {
   const colors = useColors();
   const styles = useStyles(makeStyles);
-  const live = useLive(device.core);
-  const status = useHostStatus(device.core);
+  // Every host on the list streams its view while the list shows; one opened keeps its own connection.
+  const showing = useIsFocused();
+  const live = useLive(device.core, showing);
+  const status = useHostStatus(device.core, showing);
   // A host being reached again keeps its card lit until a try fails, so cards don't flicker on every retry.
   const away = !status.online && !(status.connecting && !status.problem);
   const snapshot = status.online ? live.snapshot : undefined;

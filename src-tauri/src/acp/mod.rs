@@ -1,15 +1,12 @@
 //! Chat agents run in the background core, so a turn keeps going when the
-//! window reloads or the app quits. The app prepares each launch — the ACP
-//! adapter it installs, the agent binary, the browser tools and the
-//! environment the agent gets — and forwards every command to the core. The
-//! core's events come back on its connection and reach the page as
-//! `acp_event`.
+//! window reloads or the app quits. The app prepares each launch — the agent
+//! binary, the browser tools and the environment the agent gets — and
+//! forwards every command to the core. The core's events come back on its
+//! connection and reach the page as `acp_event`.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
-use std::process::Stdio;
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -23,21 +20,10 @@ use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::pty::PtyManager;
 
-const CLAUDE_ADAPTER: &str = "@agentclientprotocol/claude-agent-acp@0.81.2";
-const CODEX_ADAPTER: &str = "@agentclientprotocol/codex-acp@1.8.0";
 const MAX_AGENT_ID: usize = 200;
-const INSTALL_TIMEOUT: Duration = Duration::from_secs(120);
-const INSTALL_OUTPUT_LIMIT: usize = 1024 * 1024;
 /// Streamed updates in one replayed event, so a long chat comes back in a
 /// few script evals rather than one per update.
 const REPLAY_BATCH: usize = 2_000;
-
-#[derive(Clone, Copy)]
-struct AdapterSpec {
-    package: &'static str,
-    package_dir: &'static str,
-    executable: &'static str,
-}
 
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -71,10 +57,9 @@ impl StreamMark {
 
 #[derive(Default)]
 pub struct AcpManager {
-    adapter_installs: dashmap::DashMap<String, Arc<tokio::sync::Mutex<()>>>,
     /// Launches being prepared, which a stop cancels. The id tells a launch
     /// from a later one for the same agent.
-    installing: dashmap::DashMap<String, (uuid::Uuid, crate::bounded_process::ProcessCancellation)>,
+    preparing: dashmap::DashMap<String, uuid::Uuid>,
     /// The chats this app shows, which hear the core's events for them.
     shown: Mutex<HashMap<String, StreamMark>>,
 }
@@ -232,224 +217,6 @@ pub(crate) async fn reconnected(app: &AppHandle, client: Option<&Arc<CoreClient>
     }
 }
 
-fn adapter_spec(provider: &str) -> Result<AdapterSpec, String> {
-    match provider {
-        "claude" => Ok(AdapterSpec {
-            package: CLAUDE_ADAPTER,
-            package_dir: "claude-0.81.2",
-            executable: "@agentclientprotocol/claude-agent-acp/dist/index.js",
-        }),
-        "codex" => Ok(AdapterSpec {
-            package: CODEX_ADAPTER,
-            package_dir: "codex-1.8.0",
-            executable: "@agentclientprotocol/codex-acp/dist/index.js",
-        }),
-        _ => Err(format!("{provider} does not have a Sikemux ACP adapter")),
-    }
-}
-
-fn adapter_root(app: &AppHandle, spec: AdapterSpec) -> Result<PathBuf, String> {
-    Ok(app
-        .path()
-        .app_cache_dir()
-        .map_err(|error| format!("ACP adapter cache is unavailable: {error}"))?
-        .join("acp-adapters")
-        .join(spec.package_dir))
-}
-
-fn installed_adapter(root: &Path, spec: AdapterSpec) -> PathBuf {
-    root.join("node_modules").join(spec.executable)
-}
-
-fn install_failure(stderr: &[u8]) -> String {
-    let output = String::from_utf8_lossy(stderr);
-    // npm ends with where its log went; the cause is in the lines before it.
-    let causes: Vec<&str> = output
-        .lines()
-        .map(str::trim)
-        .filter_map(|line| line.strip_prefix("npm error").map(str::trim))
-        .filter(|line| !line.is_empty() && !line.starts_with("A complete log"))
-        .take(3)
-        .collect();
-    let detail = if causes.is_empty() {
-        output
-            .lines()
-            .rev()
-            .find(|line| !line.trim().is_empty())
-            .map(str::trim)
-            .unwrap_or("npm exited without an error message")
-            .to_owned()
-    } else {
-        causes.join(" · ")
-    };
-    format!(
-        "ACP adapter install failed: {}",
-        detail.chars().take(512).collect::<String>()
-    )
-}
-
-/// The oldest Node each adapter runs on, as its package declares.
-fn minimum_node(provider: &str) -> u64 {
-    if provider == "claude" {
-        22
-    } else {
-        18
-    }
-}
-
-fn node_major(node: &Path) -> Option<u64> {
-    static SEEN: std::sync::OnceLock<Mutex<HashMap<PathBuf, Option<u64>>>> =
-        std::sync::OnceLock::new();
-    let seen = SEEN.get_or_init(Default::default);
-    if let Some(major) = seen.lock().ok().and_then(|seen| seen.get(node).copied()) {
-        return major;
-    }
-    let mut command = sikemux_process::user_environment::command(node);
-    command.arg("--version").stdin(Stdio::null());
-    let major = sikemux_process::run(&mut command, None, Duration::from_secs(10), 4_096, None)
-        .ok()
-        .filter(|output| output.status.success())
-        .and_then(|output| parse_node_major(&String::from_utf8_lossy(&output.stdout)));
-    if let Ok(mut seen) = seen.lock() {
-        seen.insert(node.to_path_buf(), major);
-    }
-    major
-}
-
-fn parse_node_major(version: &str) -> Option<u64> {
-    version
-        .trim()
-        .strip_prefix('v')?
-        .split('.')
-        .next()?
-        .parse()
-        .ok()
-}
-
-/// The first `node` on the person's PATH new enough for `provider`'s adapter.
-/// A machine often has several, such as one an app bundles ahead of the one
-/// the person installed, so an old one is passed over rather than run.
-fn adapter_node(provider: &str) -> Result<PathBuf, String> {
-    let minimum = minimum_node(provider);
-    let mut too_old = Vec::new();
-    for node in crate::system::find_executables_matching("node", |_| true) {
-        match node_major(&node) {
-            Some(major) if major >= minimum => return Ok(node),
-            Some(major) => too_old.push(format!("{} is v{major}", node.display())),
-            None => too_old.push(format!("{} did not run", node.display())),
-        }
-    }
-    let label = if provider == "claude" {
-        "Claude"
-    } else {
-        "Codex"
-    };
-    Err(if too_old.is_empty() {
-        format!(
-            "{label} chats need Node.js {minimum} or newer, and none was found. Install it from nodejs.org or with Homebrew (brew install node), then try again."
-        )
-    } else {
-        format!(
-            "{label} chats need Node.js {minimum} or newer, but {}. Install a newer one from nodejs.org or with Homebrew (brew install node), then try again.",
-            too_old.join(", ")
-        )
-    })
-}
-
-async fn ensure_adapter(
-    app: &AppHandle,
-    manager: &AcpManager,
-    agent_id: &str,
-    provider: &str,
-    node: &Path,
-    cancellation: crate::bounded_process::ProcessCancellation,
-) -> Result<PathBuf, String> {
-    let spec = adapter_spec(provider)?;
-    let root = adapter_root(app, spec)?;
-    let executable = installed_adapter(&root, spec);
-    if executable.is_file() {
-        return Ok(executable);
-    }
-
-    emit(app, agent_id, "status", json!({ "state": "installing" }));
-    let install_lock = manager
-        .adapter_installs
-        .entry(provider.to_owned())
-        .or_default()
-        .clone();
-    let _install = install_lock.lock().await;
-    if executable.is_file() {
-        return Ok(executable);
-    }
-
-    let node_dir = node.parent().map(Path::to_path_buf);
-    tokio::task::spawn_blocking(move || {
-        let parent = root.parent().ok_or("ACP adapter cache has no parent")?;
-        std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
-        let staging = tempfile::Builder::new()
-            .prefix(".install-")
-            .tempdir_in(parent)
-            .map_err(|error| error.to_string())?;
-        let install_root = staging.path();
-        // The npm beside the chosen node, so it installs for that node and its
-        // `#!/usr/bin/env node` finds that node first.
-        let npm = node_dir
-            .as_ref()
-            .map(|dir| dir.join("npm"))
-            .filter(|npm| npm.is_file())
-            .unwrap_or_else(|| PathBuf::from("npm"));
-        let mut command = sikemux_process::user_environment::command(&npm);
-        if let (Some(dir), Some(path)) = (node_dir.as_ref(), crate::system::child_path()) {
-            command.env("PATH", format!("{}:{path}", dir.display()));
-        }
-        command.stdin(Stdio::null());
-        command.args([
-            "install",
-            "--no-save",
-            "--ignore-scripts",
-            "--no-audit",
-            "--no-fund",
-            "--package-lock=false",
-            "--loglevel=error",
-            "--prefix",
-        ]);
-        command.arg(install_root).arg(spec.package);
-        let output = crate::bounded_process::run(
-            &mut command,
-            None,
-            INSTALL_TIMEOUT,
-            INSTALL_OUTPUT_LIMIT,
-            Some(&cancellation),
-        )
-        .map_err(|error| match error {
-            sikemux_process::ProcessRunError::Spawn(io)
-                if io.kind() == std::io::ErrorKind::NotFound =>
-            {
-                format!(
-                    "ACP adapter install failed: npm was not found at {}",
-                    npm.display()
-                )
-            }
-            error => format!("ACP adapter install failed: {error}"),
-        })?;
-        if !output.status.success() {
-            return Err(install_failure(&output.stderr));
-        }
-        if !installed_adapter(install_root, spec).is_file() {
-            return Err("ACP adapter installed without its executable".into());
-        }
-        if root.exists() {
-            std::fs::remove_dir_all(&root).map_err(|error| error.to_string())?;
-        }
-        std::fs::rename(install_root, &root).map_err(|error| error.to_string())?;
-        Ok::<(), String>(())
-    })
-    .await
-    .map_err(|error| format!("ACP adapter installer stopped: {error}"))??;
-
-    Ok(executable)
-}
-
 /// What starts an agent: a program, its arguments and the environment it
 /// gets on top of the core's.
 struct Program {
@@ -458,43 +225,25 @@ struct Program {
     env: BTreeMap<String, String>,
 }
 
-fn adapter_program(
+/// The account directory the agent keeps its sign-in and sessions in: the
+/// profile's, or one the person chose in their shell profile, which their
+/// terminal agents use too.
+fn account_environment(
     provider: &str,
-    node: &Path,
-    executable: &Path,
     config_path: Option<&str>,
-    executable_path: Option<&str>,
-    environment_keys: &[String],
-) -> Result<Program, String> {
-    let mut env = forwarded_environment(environment_keys);
-    let key = if provider == "claude" {
-        "CLAUDE_CONFIG_DIR"
-    } else {
-        "CODEX_HOME"
+) -> Result<BTreeMap<String, String>, String> {
+    let mut env = BTreeMap::new();
+    let Some(key) = sikemux_core::acp::account::directory_variable(provider) else {
+        return Ok(env);
     };
     if let Some(path) = config_path {
         bounded_text("config path", path, 4_096)?;
         let path = expand_config_path(path);
         env.insert(key.into(), path.to_string_lossy().into_owned());
     } else if let Some(path) = shell_value(key).filter(|path| !path.is_empty()) {
-        // An account directory the person chose in their shell profile, which
-        // their terminal agents use too.
         env.insert(key.into(), path);
     }
-    if let Some(path) = executable_path {
-        bounded_text("agent executable", path, 4_096)?;
-        let key = if provider == "claude" {
-            "CLAUDE_CODE_EXECUTABLE"
-        } else {
-            "CODEX_PATH"
-        };
-        env.insert(key.into(), path.into());
-    }
-    Ok(Program {
-        program: node.to_path_buf(),
-        args: vec![executable.to_string_lossy().into_owned()],
-        env,
-    })
+    Ok(env)
 }
 
 fn native_program(executable: &Path, arguments: &[&str], environment_keys: &[String]) -> Program {
@@ -618,38 +367,23 @@ async fn core(pty: &PtyManager) -> Result<Arc<CoreClient>, String> {
     pty.client().await.map_err(|error| error.to_string())
 }
 
-#[allow(clippy::too_many_arguments)]
 async fn prepare(
-    app: &AppHandle,
-    manager: &AcpManager,
     agent_id: &str,
     provider: &str,
     config_path: Option<&str>,
     executable_path: Option<&str>,
     environment_keys: &[String],
-    cancellation: crate::bounded_process::ProcessCancellation,
 ) -> Result<Program, String> {
     let agent_executable =
         crate::agents::resolve_agent_executable(provider, executable_path).await?;
-    let mut program = match native::arguments(provider) {
-        Some(arguments) => native_program(&agent_executable, arguments, environment_keys),
-        None => {
-            let wanted = provider.to_owned();
-            let node = tokio::task::spawn_blocking(move || adapter_node(&wanted))
-                .await
-                .map_err(|error| error.to_string())??;
-            let adapter =
-                ensure_adapter(app, manager, agent_id, provider, &node, cancellation).await?;
-            adapter_program(
-                provider,
-                &node,
-                &adapter,
-                config_path,
-                Some(&agent_executable.to_string_lossy()),
-                environment_keys,
-            )?
-        }
-    };
+    let mut program = native_program(
+        &agent_executable,
+        native::arguments(provider).unwrap_or_default(),
+        environment_keys,
+    );
+    program
+        .env
+        .extend(account_environment(provider, config_path)?);
     program
         .env
         .extend(crate::model_providers::environment(provider).await);
@@ -669,40 +403,25 @@ pub(crate) struct LauncherSpec {
     pub executable_path: Option<String>,
     pub environment_keys: Vec<String>,
     pub permission_mode: String,
+    /// The agent's status as the app last saw it, passed on to devices.
+    pub status: Option<String>,
 }
 
 /// What [`acp_start`] would run for `spec`, for the core to start without
-/// the window. Never installs an adapter: one this host has not used yet is
-/// left out until it has.
-pub(crate) async fn launcher(app: &AppHandle, spec: LauncherSpec) -> Result<ChatLauncher, String> {
+/// the window.
+pub(crate) async fn launcher(spec: LauncherSpec) -> Result<ChatLauncher, String> {
     let executable =
         crate::agents::resolve_agent_executable(&spec.provider, spec.executable_path.as_deref())
             .await?;
-    let mut program = match native::arguments(&spec.provider) {
-        Some(arguments) => native_program(&executable, arguments, &spec.environment_keys),
-        None => {
-            let adapter_spec = adapter_spec(&spec.provider)?;
-            let adapter = installed_adapter(&adapter_root(app, adapter_spec)?, adapter_spec);
-            if !adapter.is_file() {
-                return Err(format!(
-                    "{} has not been started on this host yet",
-                    spec.label
-                ));
-            }
-            let wanted = spec.provider.clone();
-            let node = tokio::task::spawn_blocking(move || adapter_node(&wanted))
-                .await
-                .map_err(|error| error.to_string())??;
-            adapter_program(
-                &spec.provider,
-                &node,
-                &adapter,
-                spec.config_path.as_deref(),
-                Some(&executable.to_string_lossy()),
-                &spec.environment_keys,
-            )?
-        }
-    };
+    let mut program = native_program(
+        &executable,
+        native::arguments(&spec.provider).unwrap_or_default(),
+        &spec.environment_keys,
+    );
+    program.env.extend(account_environment(
+        &spec.provider,
+        spec.config_path.as_deref(),
+    )?);
     program
         .env
         .extend(crate::model_providers::environment(&spec.provider).await);
@@ -717,6 +436,7 @@ pub(crate) async fn launcher(app: &AppHandle, spec: LauncherSpec) -> Result<Chat
         permission_mode: spec.permission_mode,
         account: None,
         fallbacks: Vec::new(),
+        status: spec.status,
     })
 }
 
@@ -743,27 +463,21 @@ pub async fn acp_start(
     bounded_text("provider", &provider, 64)?;
     bounded_text("working directory", &cwd, 4_096)?;
     let launch_id = uuid::Uuid::new_v4();
-    let cancellation = crate::bounded_process::ProcessCancellation::new();
-    manager
-        .installing
-        .insert(agent_id.clone(), (launch_id, cancellation.clone()));
+    manager.preparing.insert(agent_id.clone(), launch_id);
     let prepared = prepare(
-        &app,
-        &manager,
         &agent_id,
         &provider,
         config_path.as_deref(),
         executable_path.as_deref(),
         &environment_keys,
-        cancellation,
     )
     .await;
     let program = match prepared {
         Ok(program) => program,
         Err(error) => {
             manager
-                .installing
-                .remove_if(&agent_id, |_, (id, _)| *id == launch_id);
+                .preparing
+                .remove_if(&agent_id, |_, id| *id == launch_id);
             return Err(error);
         }
     };
@@ -813,8 +527,8 @@ pub async fn acp_start(
     // A stop that came while the launch was prepared reaches the core after
     // the start, whichever of the two it raced.
     let stopped = manager
-        .installing
-        .remove_if(&agent_id, |_, (id, _)| *id == launch_id)
+        .preparing
+        .remove_if(&agent_id, |_, id| *id == launch_id)
         .is_none();
     if stopped {
         let _ = client.acp_stop(agent_id).await;
@@ -987,13 +701,34 @@ pub async fn acp_set_config(
 pub async fn acp_prompt(
     pty: State<'_, PtyManager>,
     agent_id: String,
+    message_id: Option<String>,
     text: String,
     paths: Vec<String>,
     context: Vec<ChatContext>,
 ) -> Result<(), String> {
     core(&pty)
         .await?
-        .acp_prompt(agent_id, text, paths, context)
+        .acp_prompt(agent_id, message_id, text, paths, context)
+        .await
+        .map_err(failure)
+}
+
+/// Takes the chat back to before the person's message `message_id` and sends
+/// `text` in its place, putting the files back too when `restore_files`.
+#[allow(clippy::too_many_arguments)]
+#[tauri::command]
+pub async fn acp_edit(
+    pty: State<'_, PtyManager>,
+    agent_id: String,
+    message_id: String,
+    text: String,
+    paths: Vec<String>,
+    context: Vec<ChatContext>,
+    restore_files: bool,
+) -> Result<(), String> {
+    core(&pty)
+        .await?
+        .acp_edit(agent_id, message_id, text, paths, context, restore_files)
         .await
         .map_err(failure)
 }
@@ -1057,9 +792,7 @@ pub async fn acp_stop(
     pty: State<'_, PtyManager>,
     agent_id: String,
 ) -> Result<(), String> {
-    if let Some((_, (_, installing))) = manager.installing.remove(&agent_id) {
-        installing.cancel();
-    }
+    manager.preparing.remove(&agent_id);
     manager.forget(&agent_id);
     core(&pty).await?.acp_stop(agent_id).await.map_err(failure)
 }
@@ -1069,64 +802,14 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_node_version_reads_as_its_major() {
-        assert_eq!(parse_node_major("v22.23.1\n"), Some(22));
-        assert_eq!(parse_node_major("v18.0.0"), Some(18));
-        assert_eq!(parse_node_major("22.1.0"), None);
-        assert!(minimum_node("claude") >= 22);
-    }
-
-    #[test]
-    fn an_install_failure_names_npms_cause_not_its_log() {
-        let stderr = b"npm error code E404\nnpm error 404 Not Found - GET https://registry.npmjs.org/@x%2fy - Not found\nnpm error A complete log of this run can be found in: /Users/me/.npm/_logs/x.log\n";
-        let message = install_failure(stderr);
-        assert!(message.contains("404 Not Found"), "{message}");
-        assert!(!message.contains("complete log"), "{message}");
-    }
-
-    #[test]
-    fn adapter_transport_bypasses_package_manager_stdio() {
-        let executable = Path::new("/tmp/claude-agent-acp/dist/index.js");
-        let program = adapter_program(
-            "claude",
-            Path::new("/usr/local/bin/node"),
-            executable,
-            None,
-            None,
-            &[],
-        )
-        .unwrap();
-        assert_eq!(
-            program.program.file_name().and_then(|name| name.to_str()),
-            Some("node")
-        );
-        assert_eq!(program.args, [executable.to_string_lossy().to_string()]);
-    }
-
-    #[test]
-    fn adapter_uses_selected_executable_and_config() {
-        for (provider, executable_key, config_key) in [
-            ("codex", "CODEX_PATH", "CODEX_HOME"),
-            ("claude", "CLAUDE_CODE_EXECUTABLE", "CLAUDE_CONFIG_DIR"),
-        ] {
-            let program = adapter_program(
-                provider,
-                Path::new("/usr/local/bin/node"),
-                Path::new("/adapter/index.js"),
-                Some("/profile"),
-                Some("/custom/agent"),
-                &[],
-            )
-            .unwrap();
-            assert_eq!(
-                program.env.get(executable_key).map(String::as_str),
-                Some("/custom/agent")
-            );
-            assert_eq!(
-                program.env.get(config_key).map(String::as_str),
-                Some("/profile")
-            );
+    fn a_profile_names_the_agents_account_directory() {
+        for (provider, key) in [("codex", "CODEX_HOME"), ("claude", "CLAUDE_CONFIG_DIR")] {
+            let env = account_environment(provider, Some("/profile")).unwrap();
+            assert_eq!(env.get(key).map(String::as_str), Some("/profile"));
         }
+        assert!(account_environment("opencode", Some("/profile"))
+            .unwrap()
+            .is_empty());
     }
 
     #[test]

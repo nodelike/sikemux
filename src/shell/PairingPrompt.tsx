@@ -1,7 +1,8 @@
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { getCurrentWindow, UserAttentionType } from "@tauri-apps/api/window";
 import { postNotification } from "../agents/agentNotifications";
-import { remoteApi, type PendingDevice, type RemoteStatus } from "../api/remote";
+import { doneWithAccountPhones, useAccount } from "../account/account";
+import { remoteApi, type DeviceAccess, type PendingDevice, type RemoteStatus } from "../api/remote";
 import { reportError, swallow } from "../state/toast";
 
 const ConnectTakeover = lazy(() => import("./ConnectTakeover"));
@@ -55,17 +56,34 @@ const documentHasFocus = () => document.hasFocus();
 
 /**
  * Asks about the phone that has waited longest, over the whole window, since a phone gives up
- * after two minutes. The next one waiting follows once it is answered.
+ * after two minutes. The next one waiting follows once it is answered. Right after signing in, it
+ * first asks once about every phone already on the account, including any of them already waiting.
  */
 export function PairingPrompt({ hasFocus = documentHasFocus }: { hasFocus?: () => boolean }) {
     const [pending, answer] = usePendingDevices(hasFocus);
+    const phones = useAccount((s) => s.phonesToAllow);
+    if (phones.length > 0) {
+        const keys = new Set(phones.map((phone) => phone.key));
+        const waiting = pending.filter((request) => keys.has(request.deviceId));
+        const answerAll = async (allow: boolean, access: DeviceAccess) => {
+            const devices = phones.map((phone) => ({ id: phone.key, name: phone.name, platform: phone.platform, access }));
+            if (allow) await answer(remoteApi.allowDevices(devices));
+            else for (const request of waiting) await answer(remoteApi.answerPairing(request.id, false, access));
+            doneWithAccountPhones();
+        };
+        return (
+            <Suspense fallback={null}>
+                <ConnectTakeover key="signed-in" question={{ kind: "signedIn", names: phones.map((phone) => phone.name) }} onAnswer={answerAll} />
+            </Suspense>
+        );
+    }
     const oldest = pending.reduce<PendingDevice | null>((first, request) => (!first || request.expiresAt < first.expiresAt ? request : first), null);
     if (!oldest) return null;
     return (
         <Suspense fallback={null}>
             <ConnectTakeover
                 key={oldest.id}
-                request={oldest}
+                question={{ kind: "waiting", request: oldest }}
                 onAnswer={(allow, access) => answer(remoteApi.answerPairing(oldest.id, allow, access))}
             />
         </Suspense>

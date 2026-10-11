@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { modelProvidersApi, type ModelProvider } from "../api/modelProviders";
 import { portsApi } from "../api/ports";
-import { invalidate } from "../state/resources";
 import { reportError } from "../state/toast";
 import { SettingsRow, SettingsRows, SettingsSection } from "./SettingsLayout";
 
@@ -28,7 +27,6 @@ export function ModelProvidersSection() {
             await work();
             setEditing(null);
             setKey("");
-            invalidate((kind) => kind === "agents.models");
             await refresh();
         } catch (error) {
             setFailure({ id, message: errorText(error) });

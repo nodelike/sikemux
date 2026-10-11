@@ -1,7 +1,10 @@
+import { useState } from 'react';
 import { ActivityIndicator, Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { Icon } from '@/ui/Icon';
 import { fonts, type Palette, useColors, useStyles } from '@/ui/theme';
+import { useHostFile } from './hostFiles';
+import { ImageViewer } from './ImageViewer';
 import { sizeLabel } from './pick';
 import type { Attachment } from './session';
 
@@ -95,28 +98,34 @@ export function ComposerAttachments({
   );
 }
 
-/** The files a message carried, as this phone picked them or, for the host's own, by name. */
+/** A picture a message carried: a thumbnail once it is on this phone, and the picture over the whole screen on a tap. */
+function SentImage({ path, picked }: { path: string; picked?: Attachment }) {
+  const styles = useStyles(makeStyles);
+  const [open, setOpen] = useState(false);
+  const fetched = useHostFile(path, !picked);
+  const uri = picked?.uri ?? fetched;
+  const name = picked?.name ?? baseName(path);
+  return (
+    <>
+      <Pressable onPress={() => setOpen(true)} accessibilityRole="imagebutton" accessibilityLabel={`${name}, open`}>
+        {uri ? <Image source={{ uri }} style={styles.sentThumb} resizeMode="cover" /> : <FileChip name={name} size={picked?.size} image />}
+      </Pressable>
+      {open ? <ImageViewer uri={uri} name={name} onClose={() => setOpen(false)} /> : null}
+    </>
+  );
+}
+
+/** The files a message carried, as this phone picked them or as the host keeps them. */
 export function SentAttachments({ paths, sentFiles }: { paths: readonly string[]; sentFiles: ReadonlyMap<string, Attachment> }) {
   const styles = useStyles(makeStyles);
   return (
     <View style={styles.sent}>
       {paths.map((path) => {
         const picked = sentFiles.get(path);
-        if (picked?.kind === 'image') {
-          return (
-            <Image
-              key={path}
-              source={{ uri: picked.uri }}
-              style={styles.sentThumb}
-              resizeMode="cover"
-              accessible
-              accessibilityLabel={picked.name}
-            />
-          );
-        }
+        if (picked ? picked.kind === 'image' : IMAGE_PATH.test(path)) return <SentImage key={path} path={path} picked={picked} />;
         return (
           <View key={path} accessible accessibilityLabel={`File ${baseName(path)}`}>
-            <FileChip name={picked?.name ?? baseName(path)} size={picked?.size} image={IMAGE_PATH.test(path)} />
+            <FileChip name={picked?.name ?? baseName(path)} size={picked?.size} />
           </View>
         );
       })}

@@ -54,11 +54,14 @@ describe('the paired hosts', () => {
     expect(await paired.pairedDevices()).toEqual([{ core: 'a', access: 'full', pairedAt: 1 }]);
   });
 
-  it('can start over', async () => {
-    await paired.rememberDevice({ core: 'a', access: 'full', pairedAt: 1 });
-    await paired.startOver();
+  it('reads a damaged list as fresh when read again, keeping hosts paired since and the damaged copy', async () => {
+    new File('file:///document/paired-devices.json').write('not json');
     expect(await paired.pairedDevices()).toEqual([]);
-    expect(new File('file:///document/paired-devices.json').exists).toBe(false);
+    await paired.rememberDevice({ core: 'b', access: 'full', pairedAt: 2 });
+    await paired.readAgain();
+    expect(paired.pairedListDamaged()).toBe(false);
+    expect(await paired.pairedDevices()).toEqual([{ core: 'b', access: 'full', pairedAt: 2 }]);
+    expect(new File('file:///document/paired-devices.json.damaged').exists).toBe(true);
   });
 
   it('leaves the file alone when a change changes nothing', async () => {

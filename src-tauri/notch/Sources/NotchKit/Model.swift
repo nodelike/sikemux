@@ -92,6 +92,7 @@ struct ChatInfo: Decodable, Equatable {
     let running: Bool
     let pendingPermissions: [String]
     let subagents: Int
+    let tasks: Int
     let permissionMode: String
     let asleep: Bool
     let unread: Bool
@@ -116,6 +117,12 @@ enum AgentState: Int, Comparable {
     static func < (lhs: AgentState, rhs: AgentState) -> Bool { lhs.rawValue < rhs.rawValue }
 }
 
+/// One group on the closed island's right wing.
+enum Rollup: Hashable {
+    case state(AgentState)
+    case stillRunning
+}
+
 /// A permission an agent waits on, with the person's choices.
 struct Ask: Equatable {
     let attentionId: String
@@ -135,6 +142,8 @@ struct AgentItem: Identifiable, Equatable {
     let project: String
     let state: AgentState
     let subagents: Int
+    /// Shells, monitors or subagents still going once its turn is over.
+    let background: Bool
     /// A chat agent can be answered from the notch; a terminal agent only in Sikemux.
     let isChat: Bool
     let ask: Ask?
@@ -179,6 +188,7 @@ extension DeviceView {
                 project: projectName(chat.cwd),
                 state: state,
                 subagents: chat.subagents,
+                background: chat.tasks > 0 || chat.subagents > 0,
                 isChat: true,
                 ask: ask
             ), chat.activeAt ?? 0))
@@ -200,6 +210,7 @@ extension DeviceView {
                 project: projectName(session.project),
                 state: state,
                 subagents: 0,
+                background: false,
                 isChat: false,
                 ask: nil
             ), session.activeAt ?? 0))

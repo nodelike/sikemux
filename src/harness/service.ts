@@ -1,5 +1,7 @@
 import { invokeCommand } from "../api/invoke";
 import { browserApi } from "../api/browser";
+import { pagesApi } from "../api/pages";
+import { chatShown } from "../chat/chatViews";
 import { portsApi } from "../api/ports";
 import { loadProjectConfig } from "../projects/projectConfig";
 import { trustProjectConfig } from "../projects/projectConfigRuntime";
@@ -179,6 +181,25 @@ async function startTask(request: HarnessRequest): Promise<{ previewUrl?: string
     return previewUrl ? { previewUrl } : {};
 }
 
+/* A chat draws the page from the call's answer; an agent in its terminal has
+   no chat, so the page opens on its desk instead. */
+async function showPage(request: HarnessRequest) {
+    const { params, agentId } = request;
+    const path = text(params, "path")!;
+    if (!path.startsWith("/")) throw new Error("path must be absolute");
+    const height = params.height === undefined ? undefined : integer(params, "height", 0, 4000, 1);
+    const page = await pagesApi.publish(agentId, path, text(params, "title")!, height);
+    if (agentId && !chatShown(agentId)) {
+        await pagesApi.open(agentId, page.id);
+        commands.showDeskBrowser(agentId);
+        return { page, note: "The page is open on your desk, beside your terminal, where the person can see it." };
+    }
+    return {
+        page,
+        note: "The person sees the page in your reply, above the text you write next. Do not describe or restate it; write only what it does not already say.",
+    };
+}
+
 export async function handleHarnessRequest(request: HarnessRequest, signal?: AbortSignal): Promise<unknown> {
     if (signal?.aborted) throw signal.reason;
     const session = projectSession(request);
@@ -297,6 +318,8 @@ export async function handleHarnessRequest(request: HarnessRequest, signal?: Abo
             };
             return focus ? open() : preserveFocus(open);
         }
+        case "page.show":
+            return showPage(request);
         case "app.console":
             return appConsole.read(params);
         default:

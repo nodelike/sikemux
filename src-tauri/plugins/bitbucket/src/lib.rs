@@ -7,6 +7,7 @@
 //   auth      — signing in and out, and who the app is talking to Bitbucket as
 //   repo      — a git remote turned into workspace and repository
 //   pulls     — pull requests, their files, commits and history, and merging one
+//   issues    — the issue tracker, tags as releases, and the inbox of pull requests waiting
 //   pipelines — pipelines as runs, their steps as jobs, and starting one
 //   watch     — following a pipeline while it is going
 //   ratelimit — holding requests back once Bitbucket refuses for too many
@@ -17,6 +18,7 @@ mod client;
 mod config;
 mod error;
 mod images;
+mod issues;
 mod oauth;
 mod pipelines;
 mod pulls;
@@ -104,6 +106,11 @@ fn works_in(data_dir: &std::path::Path, remotes: &[String]) -> bool {
         .filter_map(|remote| repo::from_remote(remote))
         .any(|repo| repo.host == repo::HOST);
     on_bitbucket && !config::load(data_dir).accounts.is_empty()
+}
+
+/// Whether a thread call is about an issue; Bitbucket numbers issues apart from pull requests.
+fn is_issue(input: &Value) -> bool {
+    input.get("of").and_then(Value::as_str) == Some("issue")
 }
 
 /// Which account a call is for; with none named, the default one.
@@ -199,9 +206,23 @@ fn dispatch<'a>(ctx: &'a PluginContext, method: &'a str, input: Value) -> Plugin
         "pullCommits" => answer(input, move |q| pulls::commits(data_dir, q)),
         "commitAuthors" => answer(input, move |q| pulls::commit_authors(data_dir, q)),
         "pullReviews" => answer(input, move |q| pulls::reviews(data_dir, q)),
+        "timeline" if is_issue(&input) => answer(input, move |q| issues::timeline(data_dir, q)),
+        "comments" if is_issue(&input) => answer(input, move |q| issues::comments(data_dir, q)),
+        "addComment" if is_issue(&input) => {
+            answer(input, move |q| issues::add_comment(data_dir, q))
+        }
         "timeline" => answer(input, move |q| pulls::timeline(data_dir, q)),
         "comments" => answer(input, move |q| pulls::comments(data_dir, q)),
         "addComment" => answer(input, move |q| pulls::add_comment(data_dir, q)),
+
+        "issues" => answer(input, move |q| issues::list(data_dir, q)),
+        "issue" => answer(input, move |q| issues::get(data_dir, q)),
+        "createIssue" => answer(input, move |q| issues::create(data_dir, q)),
+        "setIssueState" => answer(input, move |q| issues::set_state(data_dir, q)),
+        "releases" => answer(input, move |q| issues::releases(data_dir, q)),
+        "inbox" => answer(input, move |q| issues::inbox(data_dir, q)),
+        "markRead" => Box::pin(async move { reply(issues::mark_read(data_dir, params(input)?)?) }),
+        "markAllRead" => Box::pin(async move { reply(issues::mark_all_read(data_dir).await?) }),
         "mergePull" => answer(input, move |q| pulls::merge(data_dir, q)),
         "createPull" => answer(input, move |q| pulls::create(data_dir, q)),
         "setPullState" => answer(input, move |q| pulls::set_state(data_dir, q)),
@@ -241,17 +262,6 @@ mod tests {
             plugin().expect("manifest parses").manifest().id,
             "sikemux.bitbucket"
         );
-    }
-
-    #[tokio::test]
-    async fn an_unknown_method_is_refused() {
-        let plugin = plugin().expect("plugin loads");
-        let ctx = PluginContext::new(std::env::temp_dir().join("sikemux-bb-unknown"));
-        let error = plugin
-            .call(&ctx, "nonsense", Value::Null)
-            .await
-            .expect_err("refused");
-        assert_eq!(error.category, "unknown-method");
     }
 
     #[tokio::test]

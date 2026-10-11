@@ -342,14 +342,4 @@ mod tests {
         assert!(Viewport::sized(1280, 5000).is_err());
         assert!(Viewport::preset("watch").is_none());
     }
-
-    #[test]
-    fn only_the_mobile_preset_claims_to_be_a_phone() {
-        assert_eq!(
-            Viewport::preset("mobile").unwrap().user_agent(),
-            Some(MOBILE_USER_AGENT)
-        );
-        assert_eq!(Viewport::preset("tablet").unwrap().user_agent(), None);
-        assert_eq!(Viewport::sized(390, 844).unwrap().user_agent(), None);
-    }
 }

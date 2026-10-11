@@ -142,34 +142,6 @@ describe("InternalExtensionHost registration", () => {
             }),
         ).toThrow(TypeError);
     });
-
-    it("enforces configured extension, per-extension, and aggregate declaration caps", () => {
-        expect(() => host(adapters(), { maxExtensions: 0 })).toThrow(RangeError);
-        const perExtension = host(adapters(), { maxContributionsPerExtension: 1 });
-        expect(() =>
-            perExtension.register({
-                id: "sikemux.too-many",
-                actions: [
-                    { id: "one", create: contribution("one") },
-                    { id: "two", create: contribution("two") },
-                ],
-            }),
-        ).toThrow(RangeError);
-        expect(perExtension.getSnapshot().extensionCount).toBe(0);
-
-        const aggregate = host(adapters(), { maxExtensions: 2, maxTotalContributions: 2 });
-        aggregate.register({
-            id: "sikemux.first",
-            actions: [
-                { id: "one", when: () => false, create: contribution("skipped") },
-                { id: "two", create: contribution("active") },
-            ],
-        });
-        expect(() => aggregate.register({ id: "sikemux.second", taskProviders: [{ id: "three", create: contribution("overflow") }] })).toThrow(
-            RangeError,
-        );
-        expect(aggregate.getSnapshot()).toMatchObject({ extensionCount: 1, declaredContributions: 2, activeContributions: 1 });
-    });
 });
 
 describe("InternalExtensionHost failure containment", () => {

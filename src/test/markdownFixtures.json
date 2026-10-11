@@ -690,6 +690,47 @@
           ]
         }
       ]
+    },
+    {
+      "text": "Acceptance:\n\n- [ ] Sends when **long**\n- [x] Keeps the 400",
+      "options": {
+        "gfm": true,
+        "htmlAsText": false,
+        "fileLinks": false
+      },
+      "blocks": [
+        {
+          "t": "p",
+          "c": [
+            "Acceptance:"
+          ]
+        },
+        {
+          "t": "ul",
+          "c": [
+            {
+              "t": "li",
+              "checked": false,
+              "c": [
+                "Sends when ",
+                {
+                  "t": "strong",
+                  "c": [
+                    "long"
+                  ]
+                }
+              ]
+            },
+            {
+              "t": "li",
+              "checked": true,
+              "c": [
+                "Keeps the 400"
+              ]
+            }
+          ]
+        }
+      ]
     }
   ]
 }

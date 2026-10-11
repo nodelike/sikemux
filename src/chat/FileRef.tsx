@@ -137,7 +137,7 @@ export function ChatFileRef({
                 ) : tile ? (
                     <FileTypeIcon name={basename(refers.path)} size={size} />
                 ) : (
-                    <FileIcon name={basename(refers.path)} size={size} />
+                    <FileIcon name={basename(refers.path)} size={Math.round(size * 0.8)} />
                 )}
                 {!tile && <span className="chat-file-ref-name">{label}</span>}
             </button>

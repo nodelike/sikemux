@@ -531,9 +531,163 @@ fn link(text: &str) -> Option<(&str, &str, &str)> {
     Some((label, tail.get(..end)?, tail.get(end + 1..)?))
 }
 
+/// Letters and digits only, lowercased, so a task's words can be compared however they were marked up.
+fn words(text: &str) -> String {
+    text.chars()
+        .filter(|character| character.is_alphanumeric())
+        .flat_map(char::to_lowercase)
+        .collect()
+}
+
+fn plain_text(node: &Value) -> String {
+    match kind(node) {
+        "text" => node
+            .get("text")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string(),
+        "mention" | "emoji" | "date" | "status" => attr(node, "text")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string(),
+        "inlineCard" => attr(node, "url")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string(),
+        _ => content(node).iter().map(plain_text).collect(),
+    }
+}
+
+/// Where the `wanted`th task sits, as child positions from the top of the document.
+fn task_path(node: &Value, wanted: usize, seen: &mut usize, path: &mut Vec<usize>) -> bool {
+    if kind(node) == "taskItem" {
+        if *seen == wanted {
+            return true;
+        }
+        *seen += 1;
+    }
+    for (position, child) in content(node).iter().enumerate() {
+        path.push(position);
+        if task_path(child, wanted, seen, path) {
+            return true;
+        }
+        path.pop();
+    }
+    false
+}
+
+/// Ticks or clears the `index`th task in the document, counting in reading order as the
+/// markdown shows them. The task's words must still be `text`, so a description edited
+/// meanwhile is not changed in the wrong place. Returns whether the task was found.
+pub fn set_task(document: &mut Value, index: usize, text: &str, done: bool) -> bool {
+    let mut path = Vec::new();
+    if !task_path(document, index, &mut 0, &mut path) {
+        return false;
+    }
+    let Some(task) = path.into_iter().try_fold(document, |node, position| {
+        node.get_mut("content")?.as_array_mut()?.get_mut(position)
+    }) else {
+        return false;
+    };
+    if words(&plain_text(task)) != words(text) {
+        return false;
+    }
+    let Some(task) = task.as_object_mut() else {
+        return false;
+    };
+    let attrs = task.entry("attrs").or_insert_with(|| json!({}));
+    let Some(attrs) = attrs.as_object_mut() else {
+        return false;
+    };
+    attrs.insert("state".into(), json!(if done { "DONE" } else { "TODO" }));
+    true
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn checklist() -> Value {
+        json!({
+            "type": "doc",
+            "content": [
+                { "type": "paragraph", "content": [text("Acceptance:")] },
+                { "type": "taskList", "attrs": { "localId": "a" }, "content": [
+                    { "type": "taskItem", "attrs": { "localId": "1", "state": "TODO" }, "content": [
+                        text("A video whose finding is over "), { "type": "text", "text": "500", "marks": [{ "type": "strong" }] }, text(" characters sends")
+                    ] },
+                    { "type": "taskItem", "attrs": { "localId": "2", "state": "DONE" }, "content": [
+                        { "type": "mention", "attrs": { "id": "x", "text": "@Irwan" } }, text(" confirms the wording")
+                    ] }
+                ] },
+                { "type": "panel", "content": [
+                    { "type": "taskList", "content": [ { "type": "taskItem", "attrs": { "state": "TODO" }, "content": [text("Inside a panel")] } ] }
+                ] }
+            ]
+        })
+    }
+
+    fn states(document: &Value) -> Vec<String> {
+        let mut found = Vec::new();
+        fn walk(node: &Value, found: &mut Vec<String>) {
+            if kind(node) == "taskItem" {
+                found.push(
+                    attr(node, "state")
+                        .and_then(Value::as_str)
+                        .unwrap_or("")
+                        .to_string(),
+                );
+            }
+            content(node).iter().for_each(|child| walk(child, found));
+        }
+        walk(document, &mut found);
+        found
+    }
+
+    #[test]
+    fn ticks_and_clears_one_task_and_leaves_the_rest_as_it_was() {
+        let mut document = checklist();
+        assert!(set_task(
+            &mut document,
+            0,
+            "A video whose finding is over 500 characters sends",
+            true
+        ));
+        assert!(set_task(
+            &mut document,
+            1,
+            "@Irwan confirms the wording",
+            false
+        ));
+        assert!(set_task(&mut document, 2, "Inside a panel", true));
+        assert_eq!(states(&document), ["DONE", "TODO", "DONE"]);
+        assert_eq!(
+            document["content"][1]["content"][0]["attrs"]["localId"],
+            "1"
+        );
+        assert_eq!(document["content"][0], checklist()["content"][0]);
+    }
+
+    #[test]
+    fn refuses_a_task_whose_words_changed_or_that_is_not_there() {
+        let mut document = checklist();
+        assert!(!set_task(&mut document, 0, "Something else entirely", true));
+        assert!(!set_task(&mut document, 7, "Inside a panel", true));
+        assert_eq!(states(&document), ["TODO", "DONE", "TODO"]);
+    }
+
+    #[test]
+    fn task_order_matches_the_markdown_the_pane_shows() {
+        let markdown = to_markdown(&checklist());
+        let boxes: Vec<&str> = markdown
+            .lines()
+            .filter(|line| line.contains("- [ ] ") || line.contains("- [x] "))
+            .collect();
+        assert_eq!(boxes.len(), 3, "{markdown}");
+        assert!(
+            boxes[0].contains("500") && boxes[1].contains("@Irwan") && boxes[2].contains("panel")
+        );
+    }
 
     fn text(value: &str) -> Value {
         json!({ "type": "text", "text": value })

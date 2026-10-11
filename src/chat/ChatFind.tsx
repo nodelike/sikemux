@@ -1,5 +1,4 @@
 import { useEffect, type RefObject } from "react";
-import type { Virtualizer } from "@tanstack/react-virtual";
 import { ChatFindBar } from "./ChatFindBar";
 import { useChatFind } from "./useChatFind";
 import type { ChatMessage } from "./types";
@@ -11,19 +10,15 @@ export default function ChatFind({
     visible,
     messages,
     scrollRef,
-    virtualizer,
-    onLeaveBottom,
     onClose,
 }: {
     request: number;
     visible: boolean;
     messages: readonly ChatMessage[];
     scrollRef: RefObject<HTMLDivElement | null>;
-    virtualizer: Virtualizer<HTMLDivElement, Element>;
-    onLeaveBottom: () => void;
     onClose: () => void;
 }) {
-    const find = useChatFind({ visible, messages, scrollRef, virtualizer, onLeaveBottom });
+    const find = useChatFind({ visible, messages, scrollRef });
     const { inputRef } = find;
 
     useEffect(() => {

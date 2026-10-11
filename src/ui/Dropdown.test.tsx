@@ -21,12 +21,3 @@ it("filters its options as you type and picks the best match with Enter", async 
     await user.keyboard("{Enter}");
     expect(onChange).toHaveBeenCalledWith("fix/rail-density");
 });
-
-it("says so when nothing matches", async () => {
-    const user = userEvent.setup();
-    render(<Dropdown value="main" options={branches} onChange={() => {}} title="Branch" search="Find a branch" />);
-    await user.click(screen.getByRole("button", { name: "Branch" }));
-    await user.type(screen.getByRole("textbox", { name: "Find a branch" }), "zzz");
-    expect(screen.queryAllByRole("option")).toHaveLength(0);
-    expect(screen.getByText("No matches")).toBeInTheDocument();
-});

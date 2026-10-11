@@ -1,0 +1,30 @@
+/*
+ * Copyright (c) Meta Platforms, Inc. and affiliates.
+ *
+ * This source code is licensed under the MIT license found in the
+ * LICENSE file in the root directory of this source tree.
+ */
+
+import FBControlCore
+import Foundation
+
+/// The private frameworks FBSimulatorControl loads on demand, grouped by what needs them.
+public enum SimulatorControlFrameworkLoader {
+
+  private static let name = "FBSimulatorControl"
+
+  /// The frameworks needed for most operations.
+  public static let essentialFrameworks = FrameworkLoader(
+    name: name,
+    frameworks: [WeakFramework.coreSimulator])
+
+  /// The frameworks needed for accessibility operations.
+  public static let accessibilityFrameworks = FrameworkLoader(
+    name: name,
+    frameworks: [WeakFramework.accessibilityPlatformTranslation])
+
+  /// The frameworks needed for operations involving the HID and framebuffer.
+  public static let xcodeFrameworks = FrameworkLoader(
+    name: name,
+    frameworks: [WeakFramework.simulatorKit])
+}

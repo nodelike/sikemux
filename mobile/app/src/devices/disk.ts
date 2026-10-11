@@ -26,9 +26,3 @@ export async function readWhole<T>(file: File, valid: (value: unknown) => value 
   }
   return { value: undefined, damaged: true };
 }
-
-export function removeWhole(file: File) {
-  for (const copy of [file, new File(`${file.uri}.next`), new File(`${file.uri}.damaged`)]) {
-    if (copy.exists) copy.delete();
-  }
-}

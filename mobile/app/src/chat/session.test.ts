@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { ChatAttachment, ChatState, MobileError, type ChatInfo, type ConnectionLike } from '@sikemux/native';
+import { ChatAttachment, MobileError, type ConnectionLike } from '@sikemux/native';
 
+import type { ChatInfo, ChatState } from '@/core/protocol';
 import type { ChatDelivery } from '@/devices/hub';
 import { ChatSession, type Attachment } from './session';
 
@@ -135,8 +136,8 @@ describe('a chat session', () => {
     drawFrame();
     expect(texts(session)).toEqual(['one']);
 
-    session.hostSaw(info(ChatState.Stopped), []);
-    session.hostSaw(info(ChatState.Ready), []);
+    session.hostSaw(info('stopped'), []);
+    session.hostSaw(info('ready'), []);
     await settle();
     expect(first.attachChat.mock.calls[1][1]).toEqual({ feed: FEED, seq: 3n });
   });
@@ -188,7 +189,7 @@ describe('a chat session', () => {
     const ids = () => session.snapshot().permissions.map((request) => request.requestId);
     expect(ids()).toEqual(['old', 'open']);
 
-    session.hostSaw(info(ChatState.Ready), ['open']);
+    session.hostSaw(info('ready'), ['open']);
     expect(ids()).toEqual(['open']);
 
     startAt(3);
@@ -196,7 +197,7 @@ describe('a chat session', () => {
     drawFrame();
     expect(ids()).toEqual(['open', 'new']);
     vi.setSystemTime(Date.now() + 3000);
-    session.hostSaw(info(ChatState.Ready), ['open', 'other']);
+    session.hostSaw(info('ready'), ['open', 'other']);
     expect(ids()).toEqual(['open']);
   });
 
@@ -302,7 +303,7 @@ describe('a chat session', () => {
     const { session } = harness();
     const connection = fakeConnection(live([], 0));
     session.hold(connection as unknown as ConnectionLike);
-    session.hostSaw({ ...info(ChatState.Ready), permissionMode: 'workspace-write' }, []);
+    session.hostSaw({ ...info('ready'), permissionMode: 'workspace-write' }, []);
     await settle();
     expect(session.snapshot().permissionMode).toBe('workspace-write');
 
@@ -312,9 +313,9 @@ describe('a chat session', () => {
     expect(connection.setPermissionMode).toHaveBeenCalledWith('agent', 'bypass');
     expect(session.snapshot()).toMatchObject({ permissionMode: 'bypass', changingMode: false });
 
-    session.hostSaw({ ...info(ChatState.Ready), permissionMode: 'workspace-write' }, []);
+    session.hostSaw({ ...info('ready'), permissionMode: 'workspace-write' }, []);
     expect(session.snapshot().permissionMode).toBe('bypass');
-    session.hostSaw({ ...info(ChatState.Ready), permissionMode: 'default' }, []);
+    session.hostSaw({ ...info('ready'), permissionMode: 'default' }, []);
     expect(session.snapshot().permissionMode).toBe('default');
   });
 
@@ -396,13 +397,13 @@ describe('a chat session', () => {
     const { session } = harness();
     const connection = fakeConnection(live([], 0));
     session.hold(connection as unknown as ConnectionLike);
-    session.hostSaw(info(ChatState.Ready, true), []);
+    session.hostSaw(info('ready', true), []);
     await settle();
-    session.hostSaw(info(ChatState.Ready), []);
+    session.hostSaw(info('ready'), []);
     expect(connection.attachChat).toHaveBeenCalledTimes(1);
 
     session.hostSaw(undefined, []);
-    session.hostSaw(info(ChatState.Ready), []);
+    session.hostSaw(info('ready'), []);
     await settle();
     expect(connection.attachChat).toHaveBeenCalledTimes(2);
     expect(connection.detachChat).toHaveBeenCalledTimes(1);

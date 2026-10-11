@@ -6,6 +6,7 @@ use super::{git_ok, open_repo, run_blocking};
 enum PullRequestHost {
     GitHub,
     Bitbucket,
+    GitLab,
 }
 
 fn remote_host_and_path(remote_url: &str) -> Option<(String, String)> {
@@ -37,31 +38,44 @@ fn is_plain_path_segment(segment: &str) -> bool {
             .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
 }
 
+/// gitlab.com, or a company's own GitLab, which goes by a `gitlab.` name.
+fn is_gitlab(host: &str) -> bool {
+    host == "gitlab.com" || host.starts_with("gitlab.")
+}
+
 fn pull_request_url(remote_url: &str, branch: &str) -> Result<String, String> {
     let unsupported = || format!("unsupported remote: {remote_url}");
     let (host, path) = remote_host_and_path(remote_url.trim()).ok_or_else(unsupported)?;
-    let provider = match host.to_ascii_lowercase().as_str() {
+    let host = host.to_ascii_lowercase();
+    let provider = match host.as_str() {
         "github.com" => PullRequestHost::GitHub,
         "bitbucket.org" => PullRequestHost::Bitbucket,
+        gitlab if is_gitlab(gitlab) => PullRequestHost::GitLab,
         _ => return Err(unsupported()),
     };
     let path = path.trim_matches('/');
     let path = path.strip_suffix(".git").unwrap_or(path);
-    let (owner, name) = path.split_once('/').ok_or_else(unsupported)?;
-    if !is_plain_path_segment(owner) || !is_plain_path_segment(name) {
+    let parts: Vec<&str> = path.split('/').collect();
+    // A GitLab project can sit in groups inside groups; the other hosts have one owner.
+    let shaped = match provider {
+        PullRequestHost::GitLab => parts.len() >= 2,
+        _ => parts.len() == 2,
+    };
+    if !shaped || !parts.iter().all(|part| is_plain_path_segment(part)) {
         return Err(unsupported());
     }
 
-    let mut url = url::Url::parse(match provider {
-        PullRequestHost::GitHub => "https://github.com/",
-        PullRequestHost::Bitbucket => "https://bitbucket.org/",
+    let mut url = url::Url::parse(&match provider {
+        PullRequestHost::GitHub => "https://github.com/".to_string(),
+        PullRequestHost::Bitbucket => "https://bitbucket.org/".to_string(),
+        PullRequestHost::GitLab => format!("https://{host}/"),
     })
     .map_err(|e| e.to_string())?;
     {
         let mut segments = url
             .path_segments_mut()
             .map_err(|_| "cannot build pull request url".to_string())?;
-        segments.clear().extend([owner, name]);
+        segments.clear().extend(&parts);
         match provider {
             PullRequestHost::GitHub => {
                 segments.push("compare").extend(branch.split('/'));
@@ -69,11 +83,17 @@ fn pull_request_url(remote_url: &str, branch: &str) -> Result<String, String> {
             PullRequestHost::Bitbucket => {
                 segments.extend(["pull-requests", "new"]);
             }
+            PullRequestHost::GitLab => {
+                segments.extend(["-", "merge_requests", "new"]);
+            }
         }
     }
     match provider {
         PullRequestHost::GitHub => url.query_pairs_mut().append_pair("expand", "1"),
         PullRequestHost::Bitbucket => url.query_pairs_mut().append_pair("source", branch),
+        PullRequestHost::GitLab => url
+            .query_pairs_mut()
+            .append_pair("merge_request[source_branch]", branch),
     };
     Ok(url.into())
 }
@@ -581,6 +601,14 @@ mod tests {
             Ok("https://bitbucket.org/team/app/pull-requests/new?source=feat%2Fx")
         );
         assert_eq!(
+            pull_request_url("git@gitlab.com:team/app.git", "feat/x").as_deref(),
+            Ok("https://gitlab.com/team/app/-/merge_requests/new?merge_request%5Bsource_branch%5D=feat%2Fx")
+        );
+        assert_eq!(
+            pull_request_url("git@gitlab.acme.dev:platform/payments/billing-api.git", "fix").as_deref(),
+            Ok("https://gitlab.acme.dev/platform/payments/billing-api/-/merge_requests/new?merge_request%5Bsource_branch%5D=fix")
+        );
+        assert_eq!(
             pull_request_url("git@github.com:o/r.git", "a#b?c d").as_deref(),
             Ok("https://github.com/o/r/compare/a%23b%3Fc%20d?expand=1")
         );
@@ -593,6 +621,9 @@ mod tests {
             "/tmp/github.com/o/r",
             "https://github.com/o/r/extra",
             "https://github.com/../r",
+            "https://gitlab.com/only",
+            "https://evilgitlab.com/o/r.git",
+            "https://gitlab.com/o/../r",
         ] {
             assert!(pull_request_url(remote, "main").is_err(), "{remote}");
         }

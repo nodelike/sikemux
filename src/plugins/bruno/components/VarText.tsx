@@ -58,32 +58,3 @@ export function VarInput({ value, scope, onChange, onKeyDown, placeholder, class
         </div>
     );
 }
-
-interface AreaProps {
-    value: string;
-    scope: Scope;
-    onChange: (v: string) => void;
-    placeholder?: string;
-    className?: string;
-}
-
-export function VarArea({ value, scope, onChange, placeholder, className }: AreaProps) {
-    const back = useRef<HTMLDivElement>(null);
-    return (
-        <div className={`bruno-varwrap area${className ? ` ${className}` : ""}`}>
-            <div className="bruno-var-back" ref={back} aria-hidden="true">
-                {tokens(value, scope)}
-            </div>
-            <textarea
-                className="bruno-var-field area"
-                value={value}
-                placeholder={placeholder}
-                spellCheck={false}
-                onChange={(e) => onChange(e.target.value)}
-                onScroll={(e) => {
-                    if (back.current) back.current.scrollTop = e.currentTarget.scrollTop;
-                }}
-            />
-        </div>
-    );
-}

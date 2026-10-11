@@ -379,6 +379,10 @@
     color: var(--brand-bitbucket);
 }
 
+.icon-gitlab {
+    color: var(--brand-gitlab);
+}
+
 .sess-name {
     flex: 1;
     text-align: left;
@@ -541,9 +545,6 @@
     position: relative;
 }
 
-.proj-pip-term {
-    color: var(--live);
-}
 .proj-pip-claude {
     color: var(--brand-claude);
 }
@@ -837,6 +838,12 @@
     position: absolute;
     z-index: 10;
 }
+/* The centre line is the divider's only highlight, focus included. A drag focuses
+   the handle so the arrow keys keep working, which would otherwise leave the app's
+   focus ring drawn round the whole grab area. */
+.divider[tabindex]:focus-visible {
+    box-shadow: none;
+}
 .divider-row {
     width: 11px;
     transform: translateX(-50%);
@@ -891,11 +898,9 @@
 }
 .space-switch {
     display: flex;
-    align-items: center;
-    gap: 4px;
     margin: 0 0 6px;
 }
-.space-options {
+.space-track {
     display: flex;
     flex: 1;
     min-width: 0;
@@ -903,51 +908,220 @@
     padding: 2px;
     overflow-x: auto;
     scrollbar-width: none;
-    border-radius: 6px;
-    background: var(--surface-hover);
+    border: 1px solid color-mix(in oklab, var(--ink) 8%, transparent);
+    border-radius: calc(var(--radius-2) + 3px);
+    background: color-mix(in oklab, var(--ink) 3%, transparent);
 }
-.space-options > button {
+.space-track::-webkit-scrollbar {
+    display: none;
+}
+.space-track.clipped-start {
+    -webkit-mask-image: linear-gradient(90deg, transparent, #000 20px);
+    mask-image: linear-gradient(90deg, transparent, #000 20px);
+}
+.space-track.clipped-end {
+    -webkit-mask-image: linear-gradient(-90deg, transparent, #000 20px);
+    mask-image: linear-gradient(-90deg, transparent, #000 20px);
+}
+.space-track.clipped-start.clipped-end {
+    -webkit-mask-image: linear-gradient(90deg, transparent, #000 20px, #000 calc(100% - 20px), transparent);
+    mask-image: linear-gradient(90deg, transparent, #000 20px, #000 calc(100% - 20px), transparent);
+}
+.space-track > button {
     display: flex;
-    flex: 0 0 auto;
+    flex: 1 0 auto;
+    justify-content: center;
     align-items: center;
     gap: 5px;
-    max-width: 140px;
-    padding: 3px 8px;
-    border-radius: 4px;
+    height: 22px;
+    padding: 0 8px;
+    border: 1px solid transparent;
     font-size: var(--text-2xs);
     color: var(--text-tertiary);
+    white-space: nowrap;
     transition:
         color 0.12s,
-        background 0.12s;
+        background 0.12s,
+        border-color 0.12s;
 }
-.space-options > button:hover,
-.space-add:hover {
+.space-track > button:hover {
     color: var(--text-primary);
+    background: var(--surface-hover);
 }
-.space-options > button.active {
+.space-track > button.active {
     color: var(--text-primary);
-    background: var(--surface);
-    box-shadow: 0 0 0 1px var(--border);
+    background: var(--surface-selected);
+    border-color: var(--border-selected);
 }
-.space-badge {
-    flex: none;
-    line-height: 1;
+.space-track > button.active svg {
+    color: var(--acc);
 }
 .space-name {
+    max-width: 140px;
     overflow: hidden;
     text-overflow: ellipsis;
-    white-space: nowrap;
 }
-.space-add {
+.space-new {
     display: flex;
-    flex: none;
     align-items: center;
     gap: 5px;
-    padding: 4px 6px;
-    border-radius: 4px;
+    height: 22px;
+    padding: 0 8px;
+    border: 1px dashed var(--border);
     font-size: var(--text-2xs);
     color: var(--text-tertiary);
 }
-.space-switch.empty .space-add {
-    padding-left: 2px;
+.space-new:hover {
+    color: var(--text-primary);
+    border-color: var(--border-strong);
+}
+.space-pop {
+    position: fixed;
+    z-index: 61;
+    padding: 4px;
+}
+.space-icon-picker {
+    width: 212px;
+}
+.space-icon-grid {
+    display: grid;
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    gap: 2px;
+}
+.space-icon-grid > button {
+    display: grid;
+    place-items: center;
+    height: 30px;
+    border: 1px solid transparent;
+    color: var(--text-secondary);
+}
+.space-icon-grid > button:hover {
+    color: var(--text-primary);
+    background: var(--surface-hover);
+}
+.space-icon-grid > button.active {
+    color: var(--text-primary);
+    background: var(--surface-selected);
+    border-color: var(--border-selected);
+}
+.space-icon-none {
+    width: 100%;
+    height: 26px;
+    margin-top: 4px;
+    border: 1px solid var(--border);
+    font-size: var(--text-2xs);
+    color: var(--text-secondary);
+}
+.space-icon-none:hover {
+    color: var(--text-primary);
+    background: var(--surface-hover);
+}
+.space-icon-none.active {
+    color: var(--text-primary);
+    background: var(--surface-selected);
+    border-color: var(--border-selected);
+}
+.space-editor {
+    min-width: 220px;
+}
+.space-edit-list.dragging {
+    user-select: none;
+    -webkit-user-select: none;
+}
+.space-edit-row {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    height: 30px;
+    padding: 0 2px;
+    border-radius: var(--radius-2);
+}
+.space-edit-row:hover,
+.space-edit-row.lifted {
+    background: var(--surface-hover);
+}
+.space-edit-grip {
+    display: grid;
+    place-items: center;
+    width: 14px;
+    height: 24px;
+    color: var(--text-tertiary);
+    cursor: grab;
+    touch-action: none;
+}
+.space-edit-list.dragging .space-edit-grip {
+    cursor: grabbing;
+}
+.space-edit-icon {
+    display: grid;
+    place-items: center;
+    flex: none;
+    width: 26px;
+    height: 24px;
+    border: 1px solid var(--border);
+    color: var(--text-primary);
+}
+.space-edit-icon.empty {
+    border-style: dashed;
+    color: var(--text-tertiary);
+}
+.space-edit-icon:hover {
+    border-color: var(--border-strong);
+}
+.space-edit-name {
+    flex: 1;
+    min-width: 0;
+    height: 24px;
+    padding: 0 8px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-2);
+    background: var(--surface-sunken);
+    font: inherit;
+    font-size: var(--text-xs);
+    color: var(--text-primary);
+    outline: none;
+}
+.space-edit-name:focus {
+    border-color: var(--border-selected);
+}
+.space-edit-delete {
+    display: grid;
+    place-items: center;
+    flex: none;
+    width: 24px;
+    height: 24px;
+    color: var(--text-tertiary);
+}
+.space-edit-row:not(:hover) .space-edit-delete:not(:focus-visible) {
+    visibility: hidden;
+}
+.space-edit-delete:hover {
+    color: var(--danger);
+    background: color-mix(in oklab, var(--danger) 14%, transparent);
+}
+.space-edit-foot {
+    display: flex;
+    justify-content: space-between;
+    margin-top: 4px;
+    padding: 4px 2px 0;
+    border-top: 1px solid var(--border);
+}
+.space-edit-foot > button {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    height: 24px;
+    padding: 0 8px;
+    border: 1px solid var(--border);
+    font-size: var(--text-2xs);
+    color: var(--text-secondary);
+}
+.space-edit-foot > button:hover {
+    color: var(--text-primary);
+    background: var(--surface-hover);
+}
+.space-edit-foot > button.done {
+    color: var(--text-primary);
+    background: var(--surface-selected);
+    border-color: var(--border-selected);
 }

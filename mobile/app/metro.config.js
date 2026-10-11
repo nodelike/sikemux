@@ -17,6 +17,13 @@ if (process.env.SIKEMUX_SHOWCASE) {
     'expo-file-system': path.join(mocks, 'expo-file-system.ts'),
     'expo-secure-store': path.join(mocks, 'expo-secure-store.ts'),
     'expo-device': path.join(showcase, 'expo-device.ts'),
+    'expo-notifications': path.join(mocks, 'expo-notifications.ts'),
+    '@react-native-masked-view/masked-view': path.join(showcase, 'masked-view.tsx'),
+    '@clerk/expo': path.join(showcase, 'clerk.ts'),
+    '@clerk/expo/apple': path.join(showcase, 'clerk.ts'),
+    '@clerk/expo/google': path.join(showcase, 'clerk.ts'),
+    '@clerk/expo/resource-cache': path.join(showcase, 'clerk.ts'),
+    '@clerk/expo/token-cache': path.join(showcase, 'clerk.ts'),
   };
   config.watchFolders.push(showcase);
   const resolve = config.resolver.resolveRequest;

@@ -4,7 +4,7 @@ import { fsapi } from "../api/fs";
 import { basename } from "../lib/paths";
 import { notify, reportError, type ToastKind, type ToastOptions } from "./toast";
 
-export function downloadToast(download: BrowserDownload): { kind: ToastKind; text: string; options?: ToastOptions } {
+function downloadToast(download: BrowserDownload): { kind: ToastKind; text: string; options?: ToastOptions } {
     const name = basename(download.path) || download.url;
     if (download.state === "started") return { kind: "info", text: `Downloading ${name}` };
     if (download.state === "failed") return { kind: "error", text: `Download of ${name} failed`, options: { timeoutMs: null } };

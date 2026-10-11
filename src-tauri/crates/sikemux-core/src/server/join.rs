@@ -110,16 +110,21 @@ mod tests {
     use crate::accounts::protocol::JoinTicket;
     use crate::join::vector::{vector, Vector};
     use crate::join::JOIN_ALPN;
-    use crate::protocol::{BuildIdentity, DeviceAccess, RemoteStatus};
+    use crate::protocol::{AllowedDevice, BuildIdentity, DeviceAccess, RemoteStatus};
 
     const ACCOUNT: &str = "user_2vectorTest";
     const WAIT: Duration = Duration::from_secs(30);
 
+    /// The core takes only a few joins at once, which these tests would exceed side by side.
+    static ONE_HOST_AT_A_TIME: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
     struct Host {
         core: Arc<Core>,
+        _turn: tokio::sync::MutexGuard<'static, ()>,
     }
 
     async fn host(vector: &Vector) -> Host {
+        let turn = ONE_HOST_AT_A_TIME.lock().await;
         let core = Core::new(BuildIdentity::default(), None).unwrap();
         core.remote
             .stand_in(SecretKey::generate(), Some(ACCOUNT), Vec::new());
@@ -127,7 +132,7 @@ mod tests {
         core.remote
             .trust_join_key(&vector.ticket.key_id, vector.public);
         remote::set_enabled(&core, true).await.unwrap();
-        Host { core }
+        Host { core, _turn: turn }
     }
 
     impl Host {
@@ -264,6 +269,77 @@ mod tests {
         );
         assert!(host.status().pending.is_empty());
         remote::stop(&host.core).await;
+    }
+
+    fn allowed(key: &SecretKey, access: DeviceAccess) -> AllowedDevice {
+        AllowedDevice {
+            id: key.public().to_string(),
+            name: "Pixel 8".into(),
+            platform: "android".into(),
+            access,
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_phone_allowed_at_sign_in_joins_without_asking() {
+        let vector = vector();
+        let host = host(&vector).await;
+        let key = SecretKey::generate();
+        let endpoint = phone(&key).await;
+        host.core
+            .remote
+            .allow(vec![allowed(&key, DeviceAccess::Full)])
+            .unwrap();
+
+        let hello = hello(ticket(&vector, &host, &key));
+        let reply = join::join(&endpoint, host.addr(), &hello).await.unwrap();
+        assert_eq!(
+            reply,
+            JoinReply::Allowed {
+                access: DeviceAccess::Full
+            }
+        );
+        assert!(host.status().pending.is_empty());
+        remote::stop(&host.core).await;
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn allowing_a_phone_at_sign_in_answers_it_if_it_is_already_waiting() {
+        let vector = vector();
+        let host = host(&vector).await;
+        let key = SecretKey::generate();
+        let endpoint = phone(&key).await;
+        let hello = hello(ticket(&vector, &host, &key));
+        let joining = tokio::spawn({
+            let addr = host.addr();
+            async move { join::join(&endpoint, addr, &hello).await }
+        });
+        host.until_asked().await;
+        host.core
+            .remote
+            .allow(vec![allowed(&key, DeviceAccess::Watch)])
+            .unwrap();
+
+        assert_eq!(
+            joining.await.unwrap().unwrap(),
+            JoinReply::Allowed {
+                access: DeviceAccess::Watch
+            }
+        );
+        let status = host.status();
+        assert!(status.pending.is_empty());
+        assert_eq!(status.devices.len(), 1);
+        assert_eq!(status.devices[0].access, DeviceAccess::Watch);
+        remote::stop(&host.core).await;
+    }
+
+    #[test]
+    fn only_device_keys_can_be_allowed() {
+        let core = Core::new(BuildIdentity::default(), None).unwrap();
+        let mut device = allowed(&SecretKey::generate(), DeviceAccess::Full);
+        device.id = "not-a-key".into();
+        assert!(core.remote.allow(vec![device]).is_err());
+        assert!(core.remote.status().devices.is_empty());
     }
 
     #[tokio::test(flavor = "multi_thread")]

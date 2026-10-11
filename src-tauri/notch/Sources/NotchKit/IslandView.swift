@@ -240,12 +240,15 @@ struct ClosedWings: View {
                     if rollups.isEmpty {
                         Text("\(running.count)").font(Theme.ui(12, .semibold)).monospacedDigit().foregroundStyle(Theme.ink)
                     }
-                    ForEach(rollups, id: \.state) { group in
+                    ForEach(rollups, id: \.mark) { group in
                         HStack(spacing: 6) {
                             if group.count > 1 {
                                 Text("\(group.count)").font(Theme.ui(12, .semibold)).monospacedDigit().foregroundStyle(Theme.ink)
                             }
-                            StateMark(state: group.state)
+                            switch group.mark {
+                            case .state(let state): StateMark(state: state)
+                            case .stillRunning: StillRunning()
+                            }
                         }
                     }
                 }

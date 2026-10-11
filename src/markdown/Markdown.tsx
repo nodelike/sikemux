@@ -15,6 +15,8 @@ export interface MarkdownComponents {
     readonly heading?: ComponentType<{ level: number; children: ReactNode }>;
     /** `inLink` is set when the picture is itself the content of a link. */
     readonly img?: ComponentType<{ src: string; alt: string; title?: string; inLink: boolean }>;
+    /** A task list item's box; left out, it is drawn ticked or not and cannot be changed. */
+    readonly taskBox?: ComponentType<{ checked: boolean }>;
 }
 
 export const MARKDOWN_GFM: MarkdownOptions = { gfm: true, htmlAsText: false, fileLinks: false };
@@ -27,7 +29,8 @@ function renderAll(nodes: readonly MdNode[], components: MarkdownComponents, inL
     return nodes.map((node, index) => renderNode(node, components, inLink, index));
 }
 
-function taskBox(checked: boolean): ReactNode {
+function taskBox(checked: boolean, components: MarkdownComponents): ReactNode {
+    if (components.taskBox) return createElement(components.taskBox, { key: "task", checked });
     return <input key="task" type="checkbox" checked={checked} readOnly disabled />;
 }
 
@@ -38,14 +41,14 @@ function taskItem(checked: boolean, children: readonly MdNode[], components: Mar
     if (first && typeof first !== "string" && first.t === "p") {
         return [
             <p key={0}>
-                {taskBox(checked)}
+                {taskBox(checked, components)}
                 {first.c.length > 0 && " "}
                 {renderAll(first.c, components, inLink)}
             </p>,
             ...rest.map((node, index) => renderNode(node, components, inLink, index + 1)),
         ];
     }
-    return [taskBox(checked), children.length > 0 && " ", ...renderAll(children, components, inLink)];
+    return [taskBox(checked, components), children.length > 0 && " ", ...renderAll(children, components, inLink)];
 }
 
 function footnote(n: number, children: readonly MdNode[], components: MarkdownComponents): ReactNode[] {

@@ -4,15 +4,37 @@ export const schema = {
   $schema: "https://json-schema.org/draft/2020-12/schema",
   $id: "https://api.sikemux.com/schema/v1",
   $defs: {
+    Account: {
+      description:
+        "Whether the signed-in account is in use or waiting to be deleted.",
+      type: "object",
+      properties: {
+        status: { $ref: "#/$defs/AccountStatus" },
+        deletesAt: {
+          description:
+            "Only while deleting: when the account is deleted for good unless restored first.",
+          type: "string",
+          format: "date-time",
+        },
+      },
+      required: ["status"],
+      additionalProperties: false,
+    },
     AccountDeletion: {
       description:
-        "The account and its devices are gone from the moment this is answered; every device is revoked and every token refused.",
+        "Every device is revoked and every token refused from the moment this is answered, except to read or restore the account. Signing in again before deletesAt can restore it.",
       type: "object",
       properties: {
         status: { $ref: "#/$defs/AccountDeletionStatus" },
         requestedAt: { type: "string", format: "date-time" },
+        deletesAt: {
+          description:
+            "When the sign-in is deleted for good and the account can no longer be restored.",
+          type: "string",
+          format: "date-time",
+        },
       },
-      required: ["status", "requestedAt"],
+      required: ["status", "requestedAt", "deletesAt"],
       additionalProperties: false,
     },
     AccountDeletionRequest: {
@@ -32,7 +54,7 @@ export const schema = {
     },
     AccountDeletionStatus: {
       description:
-        "Deleted once Clerk confirms it deleted the sign-in too; deleting until then, while the server retries.",
+        "Deleting while the account can still be restored, until the server deletes the sign-in in Clerk at deletesAt; deleted once Clerk has.",
       type: "string",
       enum: ["deleting", "deleted"],
     },
@@ -69,6 +91,12 @@ export const schema = {
         "device.revoked",
         "account.deleted",
       ],
+    },
+    AccountStatus: {
+      description:
+        "Active, or deleting: deleted on request and still restorable until deletesAt.",
+      type: "string",
+      enum: ["active", "deleting"],
     },
     ApiError: {
       description: "The body of every response that is not a success.",

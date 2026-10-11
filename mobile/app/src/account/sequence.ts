@@ -1,8 +1,12 @@
-import { AccountProblem } from './api';
+import { AccountDeleting, AccountProblem } from './api';
 import { reconnectDelay } from './live';
 
 /** How far signing this phone in to the account has got, so a screen can say why it stopped. */
-export type AccountStatus = { step: 'registering' } | { step: 'registered' } | { step: 'failed'; problem: string; retrying: boolean };
+export type AccountStatus =
+  | { step: 'registering' }
+  | { step: 'registered' }
+  | { step: 'failed'; problem: string; retrying: boolean }
+  | { step: 'deleting'; deletesAt: string };
 
 export type SequenceDeps = {
   /** Adds this phone to the account; doing it again only renames it. */
@@ -102,6 +106,10 @@ export class AccountSequence {
       (error: unknown) => {
         this.registering = false;
         if (this.ended) return;
+        if (error instanceof AccountDeleting) {
+          this.deps.status({ step: 'deleting', deletesAt: error.deletesAt });
+          return;
+        }
         console.warn('sikemux: could not add this phone to the account', error);
         const retrying = retryable(error);
         this.deps.status({ step: 'failed', problem: problemOf(error), retrying });

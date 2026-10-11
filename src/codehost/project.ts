@@ -29,7 +29,9 @@ export const remoteRepoR = resource({
 export async function claimRemote(url: string, hosts: readonly Pick<CodeHost, "id" | "api">[]): Promise<RepoRef | null> {
     for (const host of hosts) {
         const resolved = await host.api.resolveRemote(url).catch(() => null);
-        if (resolved?.repo && resolved.sameHost) return { provider: host.id, owner: resolved.repo.owner, name: resolved.repo.name };
+        if (resolved?.repo && resolved.sameHost) {
+            return { provider: host.id, owner: resolved.repo.owner, name: resolved.repo.name, host: resolved.repo.host };
+        }
     }
     return null;
 }

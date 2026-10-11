@@ -61,32 +61,6 @@
     font-size: var(--text-xs);
     line-height: 1.6;
 }
-.experience-list {
-    overflow: auto;
-}
-.experience-list > div {
-    display: grid;
-    grid-template-columns: 32px 150px 1fr;
-    gap: 12px;
-    padding: 14px 30px;
-    border-bottom: 1px solid color-mix(in srgb, var(--border) 65%, transparent);
-    align-items: baseline;
-}
-.experience-list b {
-    color: var(--live);
-    font:
-        600 9px "JetBrainsMono NF",
-        monospace;
-}
-.experience-list span {
-    color: var(--text-primary);
-    font-size: var(--text-xs);
-}
-.experience-list small {
-    color: var(--text-secondary);
-    font-size: var(--text-2xs);
-    line-height: 1.5;
-}
 .experience-frame footer {
     display: flex;
     justify-content: flex-end;
@@ -327,6 +301,21 @@
     border-style: dashed;
     background: none;
     color: var(--text-tertiary);
+}
+
+.welcome-agent-name {
+    display: flex;
+    flex-direction: column;
+    line-height: 1.2;
+}
+
+.welcome-agent-name small {
+    color: var(--text-tertiary);
+    font-size: var(--text-2xs);
+}
+
+.welcome-agents li.is-signed-out small {
+    color: var(--warn);
 }
 
 .welcome-agents li.is-missing .agent-glyph {

@@ -93,11 +93,15 @@ async function readRelays(): Promise<{ relays: Relay[]; fresh: boolean }> {
   return { relays: copy.length > 0 ? copy : DEFAULT_RELAYS, fresh: false };
 }
 
-/** The relays hosts listen on, best first: the server's answer, else the last one saved, else the built-in relay. */
+/**
+ * The relays hosts listen on, best first: the server's answer, else the last one saved, else the built-in relay.
+ * Relays rarely change, so a saved copy is used at once while the server is asked behind it; only a phone that
+ * has never heard the answer waits for it.
+ */
 export function currentRelays(): Promise<Relay[]> {
   if (reading && Date.now() < reading.until) return reading.relays;
   const read = readRelays();
-  const relays = read.then((result) => result.relays);
+  const relays = savedRelays().then((copy) => (copy.length > 0 ? copy : read.then((result) => result.relays)));
   const current = { until: Date.now() + FRESH_FOR_MS, fresh: true, relays };
   reading = current;
   read.then(

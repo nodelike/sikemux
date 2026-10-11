@@ -3,6 +3,14 @@ import { getIpcTransport, type IpcUnsubscribe } from "./transport";
 import type { AgentRuntimeProfile } from "../agents/agentProfiles";
 import type { AgentEffort, AgentType } from "../state/types";
 
+/** Whether an agent can be used right now; `unknown` when its CLI has no way to say if it is signed in. */
+export type AgentStatus =
+    | { state: "missing" }
+    | { state: "broken"; reason: string }
+    | { state: "signedOut" }
+    | { state: "ready"; account: string | null }
+    | { state: "unknown" };
+
 export interface AgentInfo {
     type: AgentType;
     label: string;
@@ -16,12 +24,7 @@ export interface AgentInfo {
     defaultModel: string | null;
     /** Effective reasoning effort inherited from the CLI's own user configuration. */
     defaultEffort: AgentEffort | null;
-}
-
-export interface AgentModelInfo {
-    /** Full identifier accepted by the CLI's --model flag. */
-    id: string;
-    label: string;
+    status?: AgentStatus;
 }
 
 export interface AgentSession {
@@ -73,12 +76,7 @@ export interface AgentUsage {
     unavailableReason?: string | null;
 }
 
-/** A provider-scoped history result. Errors intentionally stay opaque to UI code. */
-export type AgentSessionProviderResult =
-    { provider: AgentInfo; status: "success"; sessions: AgentSession[] } | { provider: AgentInfo; status: "error"; sessions: [] };
-
 const inflight = new Map<string, Promise<AgentSession[]>>();
-const HISTORY_TIMEOUT_MS = 8_000;
 
 function key(agent: string, cwd: string, configPath?: string) {
     return `${agent}\0${cwd}\0${configPath ?? ""}`;
@@ -99,25 +97,6 @@ async function fetchSessions(agent: string, cwd: string, configPath?: string): P
     return p;
 }
 
-async function fetchSessionResults(providers: readonly AgentInfo[], cwd: string): Promise<AgentSessionProviderResult[]> {
-    return Promise.all(
-        providers.map(async (provider): Promise<AgentSessionProviderResult> => {
-            try {
-                let timer: ReturnType<typeof setTimeout> | undefined;
-                const timeout = new Promise<never>((_resolve, reject) => {
-                    timer = setTimeout(() => reject(new Error("agent history timed out")), HISTORY_TIMEOUT_MS);
-                });
-                const sessions = await Promise.race([fetchSessions(provider.type, cwd, provider.configPath ?? undefined), timeout]).finally(() => {
-                    if (timer) clearTimeout(timer);
-                });
-                return { provider, status: "success", sessions };
-            } catch {
-                return { provider, status: "error", sessions: [] };
-            }
-        }),
-    );
-}
-
 /** One session Claude Code is running now, as it reports itself. */
 export interface LiveAgentSession {
     sessionId: string;
@@ -128,6 +107,8 @@ export interface LiveAgentSession {
 /** Who one account is signed in as, in the agent's own words. */
 export interface AgentAccountStatus {
     signedIn: boolean;
+    /** The person's own name on the account, where the agent keeps one. */
+    name: string | null;
     email: string | null;
     plan: string | null;
     organization: string | null;
@@ -152,8 +133,9 @@ export interface SavedSessionContext {
 
 export const agentApi = {
     available: fetchAvailable,
-    models: (agent: AgentType, executablePath?: string, configPath?: string): Promise<AgentModelInfo[]> =>
-        invoke<AgentModelInfo[]>("agent_models", { agent, executablePath, configPath }),
+    /** Forgets every agent's status, so the next look asks each one again. */
+    refreshStatuses: (): Promise<void> => invoke<void>("refresh_agent_statuses"),
+    markSignedOut: (agent: AgentType, configPath?: string): Promise<void> => invoke<void>("mark_agent_signed_out", { agent, configPath }),
     usage: (agent: AgentType, executablePath?: string, configPath?: string): Promise<AgentUsage> =>
         invoke<AgentUsage>("agent_usage", { agent, executablePath, configPath }),
     account: (agent: AgentType, executablePath?: string, configPath?: string): Promise<AgentAccountStatus> =>
@@ -174,7 +156,8 @@ export const agentApi = {
         invoke<SavedSessionContext | null>("agent_session_context", { agent, cwd, sessionId, configPath }),
     renameSession: (agent: AgentType, cwd: string, sessionId: string, title: string, executablePath?: string, configPath?: string): Promise<void> =>
         invoke<void>("agent_session_rename", { agent, cwd, sessionId, title, executablePath, configPath }),
-    sessionResults: fetchSessionResults,
+    deleteSession: (agent: AgentType, cwd: string, sessionId: string, executablePath?: string, configPath?: string): Promise<void> =>
+        invoke<void>("agent_session_delete", { agent, cwd, sessionId, executablePath, configPath }),
     watchStart: (agent: AgentType, cwd: string, configPath?: string): Promise<number> =>
         invoke<number>("agent_sessions_watch_start", { agent, cwd, configPath }),
     watchStop: (id: number): Promise<void> => invoke<void>("agent_sessions_watch_stop", { id }),

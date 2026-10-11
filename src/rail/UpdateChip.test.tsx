@@ -59,10 +59,4 @@ describe("UpdateChip progress", () => {
         expect(screen.getByRole("button")).toBeEnabled();
         expect(screen.getByRole("button")).toHaveTextContent("Update · v0.4.0-nightly.1");
     });
-
-    it("renders nothing without a pending update", () => {
-        render(<UpdateChip />);
-
-        expect(screen.queryByRole("button")).toBeNull();
-    });
 });

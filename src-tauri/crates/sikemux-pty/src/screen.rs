@@ -294,7 +294,7 @@ mod tests {
         attach_snapshot, attach_snapshot_with_compaction, compact_parser_for_idle, reseed_parser,
         screen_scrollback_len, semantic_parser,
     };
-    use super::{IDLE_SCROLLBACK, MAX_ATTACH_SNAPSHOT_BYTES, PARSER_SCROLLBACK};
+    use super::{IDLE_SCROLLBACK, PARSER_SCROLLBACK};
 
     #[test]
     fn a_restored_parser_shows_the_same_screen_history_and_shell_state() {
@@ -334,26 +334,6 @@ mod tests {
         let mut parser = semantic_parser(24, 80, PARSER_SCROLLBACK);
         parser.process(b"\x1b]2;Action\n required\x07");
         assert_eq!(parser.callbacks().window_title, "Action required");
-    }
-
-    #[test]
-    fn snapshot_round_trips_visible_state() {
-        // Smoke-check the contract pty_attach relies on: a parser whose
-        // bytes were processed re-emits an ANSI stream that reproduces the
-        // visible state when written back into a fresh parser. The full
-        // attach/snapshot path can't be exercised without a real PTY, but
-        // the parser invariant is the load-bearing piece.
-        let mut a = vt100::Parser::new(24, 80, PARSER_SCROLLBACK);
-        a.process(b"hello world\r\nsecond line\r\n");
-        let dump = a.screen().contents_formatted();
-
-        let mut b = vt100::Parser::new(24, 80, PARSER_SCROLLBACK);
-        b.process(&dump);
-        assert_eq!(
-            a.screen().contents(),
-            b.screen().contents(),
-            "snapshot did not round-trip cleanly",
-        );
     }
 
     #[test]
@@ -503,7 +483,6 @@ mod tests {
         restored.process(&snapshot);
         assert_eq!(restored.screen().contents(), visible_before);
         assert!(restored.screen().bracketed_paste());
-        assert_eq!(MAX_ATTACH_SNAPSHOT_BYTES, 8 * 1024 * 1024);
     }
 
     #[test]

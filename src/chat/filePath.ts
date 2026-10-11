@@ -79,11 +79,12 @@ export function parsePathRef(raw: string, roots: PathRoots): PathRef | null {
     }
 
     const { body, line, column } = splitLocation(trimmed);
-    if (!body || /\s/.test(body)) return null;
+    if (!body) return null;
     if (URL_SCHEME.test(body) && !WINDOWS_DRIVE.test(body)) return null;
 
     const expanded = expandHome(body, roots.home);
     const absolute = expanded.startsWith("/") || WINDOWS_DRIVE.test(expanded);
+    if (!absolute && /\s/.test(body)) return null;
     if (!absolute && !looksRelative(expanded)) return null;
     if (!absolute && !roots.cwd) return null;
 
@@ -121,4 +122,15 @@ export function scanPathCandidates(text: string): PathCandidate[] {
         if (candidate) found.push(candidate);
     }
     return found;
+}
+
+/* Backticks mark where a name starts and ends, so a full path between them
+   may contain spaces, as a file named after its contents often does. */
+const ABSOLUTE_START = /^(?:\/|~\/|[A-Za-z]:[\\/])\S/;
+
+/** Whether the text between a pair of backticks names one file as a whole. */
+export function namesWholePath(text: string): boolean {
+    const [only] = scanPathCandidates(text);
+    if (only && only.start === 0 && only.end === text.length) return true;
+    return !text.includes("\n") && ABSOLUTE_START.test(text);
 }

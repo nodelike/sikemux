@@ -32,7 +32,7 @@ export function ViewerBar({
     return (
         <div className="ed-viewer-bar">
             <div className="ed-viewer-title" title={path}>
-                <FileIcon name={basename(path)} size={16} />
+                <FileIcon name={basename(path)} size={14} />
                 <span>{basename(path)}</span>
             </div>
             <div className="ed-viewer-meta">

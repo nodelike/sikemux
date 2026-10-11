@@ -1,10 +1,13 @@
 //! Background tasks and subagents, which core ACP has no updates for.
 //!
-//! The Claude adapter carries both as an extension it calls AIR, nested inside
-//! `_meta` so peers that do not know it skip it. It stays silent until a client
-//! names the parts it understands in `initialize`.
+//! An ACP agent carries both as an extension called AIR, nested inside `_meta`
+//! so peers that do not know it skip it. It stays silent until a client names
+//! the parts it understands in `initialize`. The Claude and Codex drivers tell
+//! the chat the same updates.
 
-use agent_client_protocol::schema::v1::{ClientCapabilities, ContentBlock, Meta};
+use agent_client_protocol::schema::v1::{
+    ClientCapabilities, ClientSessionCapabilities, ContentBlock, Meta, NoticeCapabilities,
+};
 use agent_client_protocol::{JsonRpcNotification, JsonRpcRequest, JsonRpcResponse};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -14,7 +17,8 @@ const EXTENSION_CAPABILITIES: [&str; 3] =
     ["asyncTasks", "nativeSubagentSessions", "sessionFailure"];
 
 /// Asks the agent for async task and subagent session updates, and for a
-/// failed turn's cause as data rather than as text in the transcript.
+/// failed turn's cause and its asides as data rather than as text in the
+/// transcript. An aside sent as text reads as the agent starting a turn.
 pub fn client_capabilities() -> ClientCapabilities {
     let mut meta = Meta::new();
     meta.insert(
@@ -26,7 +30,9 @@ pub fn client_capabilities() -> ClientCapabilities {
             }
         }),
     );
-    ClientCapabilities::new().meta(meta)
+    ClientCapabilities::new()
+        .session(ClientSessionCapabilities::new().notices(NoticeCapabilities::new()))
+        .meta(meta)
 }
 
 /// A `session/update` kept as raw JSON.
@@ -113,6 +119,7 @@ mod tests {
                 "capabilities": ["asyncTasks", "nativeSubagentSessions", "sessionFailure"],
             }))
         );
+        assert_eq!(capabilities.pointer("/session/notices"), Some(&json!({})));
     }
 
     #[test]

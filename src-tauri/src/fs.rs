@@ -16,6 +16,8 @@ pub struct DirEntry {
     name: String,
     path: String,
     is_dir: bool,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    ignored: bool,
 }
 
 /// One directory's listing within a batch. A folder that has been deleted
@@ -95,6 +97,7 @@ fn read_dir_sync(path: String) -> AppResult<Vec<DirEntry>> {
             name,
             path: entry.path().to_string_lossy().into_owned(),
             is_dir,
+            ignored: false,
         });
     }
     out.sort_by(|a, b| {
@@ -119,7 +122,7 @@ pub async fn read_dirs(paths: Vec<String>) -> AppResult<Vec<DirListing>> {
         )));
     }
     spawn_blocking(move || {
-        paths
+        let mut listings: Vec<DirListing> = paths
             .into_iter()
             .map(|path| match read_dir_sync(path.clone()) {
                 Ok(entries) => DirListing {
@@ -133,10 +136,81 @@ pub async fn read_dirs(paths: Vec<String>) -> AppResult<Vec<DirListing>> {
                     error: Some(error.to_string()),
                 },
             })
-            .collect()
+            .collect();
+        mark_ignored(&mut listings);
+        listings
     })
     .await
     .map_err(|e| AppError::Other(format!("read_dirs join: {e}")))
+}
+
+fn repo_root(dir: &Path) -> Option<PathBuf> {
+    dir.ancestors()
+        .find(|ancestor| ancestor.join(".git").exists())
+        .map(Path::to_path_buf)
+}
+
+/// Flags the entries git ignores, asking each repository once for all of its folders.
+fn mark_ignored(listings: &mut [DirListing]) {
+    let mut by_repo: HashMap<PathBuf, Vec<String>> = HashMap::new();
+    for listing in listings.iter() {
+        if let Some(root) = repo_root(Path::new(&listing.path)) {
+            let paths = by_repo.entry(root).or_default();
+            paths.extend(listing.entries.iter().map(|entry| entry.path.clone()));
+        }
+    }
+    let ignored: std::collections::HashSet<String> = by_repo
+        .into_iter()
+        .flat_map(|(root, paths)| crate::git::ignored_paths(&root.to_string_lossy(), &paths))
+        .collect();
+    if ignored.is_empty() {
+        return;
+    }
+    for entry in listings
+        .iter_mut()
+        .flat_map(|listing| listing.entries.iter_mut())
+    {
+        entry.ignored = ignored.contains(&entry.path);
+    }
+}
+
+/// A screenshot dragged straight from the macOS thumbnail lives in a folder
+/// only the app it was dropped on may open, and only until the thumbnail goes.
+fn is_screenshot_thumbnail(path: &str) -> bool {
+    path.contains("/TemporaryItems/NSIRD_screencaptureui_")
+}
+
+/// Copy dropped screenshot thumbnails somewhere an agent can read them, and
+/// answer every path with the one to hand on.
+#[tauri::command]
+pub async fn keep_dropped_paths(paths: Vec<String>) -> AppResult<Vec<String>> {
+    spawn_blocking(move || {
+        let dir = std::env::temp_dir().join("sikemux-drops");
+        paths
+            .into_iter()
+            .map(|path| {
+                if !is_screenshot_thumbnail(&path) {
+                    return path;
+                }
+                keep_copy(Path::new(&path), &dir).unwrap_or(path)
+            })
+            .collect()
+    })
+    .await
+    .map_err(|e| AppError::Other(format!("keep_dropped_paths join: {e}")))
+}
+
+fn keep_copy(source: &Path, dir: &Path) -> Option<String> {
+    let name = source.file_name()?;
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()?
+        .as_millis();
+    let target_dir = dir.join(stamp.to_string());
+    fs::create_dir_all(&target_dir).ok()?;
+    let target = target_dir.join(name);
+    fs::copy(source, &target).ok()?;
+    Some(target.to_string_lossy().into_owned())
 }
 
 /// How many paths one batch may ask about. A transcript on screen mentions
@@ -776,6 +850,41 @@ fn delete_path_sync(path: String) -> AppResult<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn listings_flag_what_git_ignores() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let repo = dir.path();
+        let status = sikemux_process::user_environment::command("git")
+            .args(["init", "-q"])
+            .current_dir(repo)
+            .status()
+            .unwrap();
+        assert!(status.success());
+        fs::write(repo.join(".gitignore"), "*.log\ndist/\n").unwrap();
+        fs::write(repo.join("debug.log"), "").unwrap();
+        fs::write(repo.join("main.rs"), "").unwrap();
+        fs::create_dir(repo.join("dist")).unwrap();
+        fs::write(repo.join("dist/app.js"), "").unwrap();
+
+        let paths = [repo, &repo.join("dist")].map(|p| p.to_string_lossy().into_owned());
+        let listings = tauri::async_runtime::block_on(read_dirs(paths.to_vec())).unwrap();
+        let ignored: Vec<(&str, bool)> = listings
+            .iter()
+            .flat_map(|listing| &listing.entries)
+            .map(|entry| (entry.name.as_str(), entry.ignored))
+            .collect();
+        assert_eq!(
+            ignored,
+            [
+                ("dist", true),
+                (".gitignore", false),
+                ("debug.log", true),
+                ("main.rs", false),
+                ("app.js", true),
+            ]
+        );
+    }
 
     #[cfg(unix)]
     #[test]

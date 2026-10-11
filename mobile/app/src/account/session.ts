@@ -1,4 +1,4 @@
-import { useEffect, useEffectEvent, useRef, useSyncExternalStore } from 'react';
+import { useEffect, useEffectEvent, useRef, useState, useSyncExternalStore } from 'react';
 import { AppState, Platform } from 'react-native';
 import { router } from 'expo-router';
 import { useAuth } from '@clerk/expo';
@@ -79,22 +79,31 @@ export function useAccountHosts(): AccountHosts {
   return useSyncExternalStore(subscribeHosts, () => accountHostsNow);
 }
 
+/** A host that arrives while the phone is in the background stays new until the phone is in front, so it still connects then. */
 async function connectArrival(account: string, hosts: Device[]) {
+  if (joinShowing() || AppState.currentState !== 'active') return;
   const arrived = await hostsArrived(account, hosts);
   const paired = await pairedDevices();
   const host = arrived.find((found) => !paired.some((device) => device.core === found.key));
-  if (!host || joinShowing() || AppState.currentState !== 'active') return;
+  if (!host) return;
   router.push({ pathname: '/join', params: { core: host.key, name: host.name, arrived: '1' } });
 }
 
-/** Starts connecting to a host that signs in to the account after this phone did; someone there still allows it. */
+/** Starts connecting to a host that signs in to the account after this phone did; the host may have let this phone in already. */
 export function useConnectArrivals() {
   const { userId } = useAuth();
   const { hosts, loaded } = useAccountHosts();
+  const [inFront, setInFront] = useState(0);
+  useEffect(() => {
+    const back = AppState.addEventListener('change', (state) => {
+      if (state === 'active') setInFront((count) => count + 1);
+    });
+    return () => back.remove();
+  }, []);
   useEffect(() => {
     if (!userId || !loaded) return;
     connectArrival(userId, hosts).catch((error: unknown) => console.warn('sikemux: could not connect to a new host', error));
-  }, [userId, loaded, hosts]);
+  }, [userId, loaded, hosts, inFront]);
 }
 
 let statusNow: AccountStatus | undefined;

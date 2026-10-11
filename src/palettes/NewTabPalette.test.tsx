@@ -2,12 +2,20 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as cmd from "../state/commands";
 import { getState, setState } from "../state/store";
+import type { SimStatus } from "../api/sim";
 import { NewTabPalette } from "./NewTabPalette";
+
+const simulator = vi.hoisted(() => ({ status: null as SimStatus | null }));
+vi.mock("../sim/simStatus", async () => {
+    const actual = await vi.importActual<typeof import("../sim/simStatus")>("../sim/simStatus");
+    return { ...actual, useSimStatus: () => simulator.status };
+});
 
 const initial = getState();
 
 beforeEach(() => {
     vi.restoreAllMocks();
+    simulator.status = null;
     setState(initial, true);
     cmd.createProjectSession("/work/demo");
     cmd.openNewTabPalette();
@@ -94,6 +102,17 @@ describe("new tab palette", () => {
         pressKey("Enter");
 
         expect(windowRoles()).toContain("git");
+    });
+
+    it("offers the iOS Simulator only where it can run", () => {
+        simulator.status = { supported: true, installed: false, reason: "Install Xcode to use the iOS Simulator." };
+        const { unmount } = render(<NewTabPalette />);
+        expect(labels()).not.toContain("iOS Simulator");
+        unmount();
+
+        simulator.status = { supported: true, installed: false, reason: null };
+        render(<NewTabPalette />);
+        expect(labels()).toContain("iOS Simulator");
     });
 
     it("keeps the browser in its fixed slot when unavailable", () => {

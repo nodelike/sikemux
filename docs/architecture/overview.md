@@ -68,8 +68,8 @@ never loads WebKit. [ADR 0006](./0006-background-core.md) records why.
   the same pane (`src/agents/tuiRecovery.ts`); a chat agent does the same
   (`src/chat/sessionRecovery.ts`).
 - **Paired devices.** With remote access on (Settings, Devices), the core also listens on
-  an iroh endpoint, and phones that paired with a code reach it from anywhere
-  (`server/remote.rs`, `server/pairing.rs`, `src/pairing.rs`). Each request is checked
+  an iroh endpoint, and phones signed in to the same account join it from anywhere
+  (`server/remote.rs`, `server/join.rs`, `src/join.rs`). Each request is checked
   against what the device may do (`server/access.rs`). The app publishes its projects and
   how it starts each agent (`server/workspace.rs`, `src/shell/RemoteWorkspaceBridge.tsx`),
   so a device can start a chat with the window closed. [ADR 0007](./0007-remote-access-over-iroh.md)
@@ -89,36 +89,36 @@ go through the harness, described under [Agents](#agents).
 
 ## Frontend (`src/`)
 
-| Folder                               | Owns                                                                                            |
-| ------------------------------------ | ----------------------------------------------------------------------------------------------- |
-| `state/`                             | The store, commands, persistence and the resource cache (see below)                             |
-| `api/`                               | One typed wrapper module per backend area, plus the IPC transport                               |
-| `workspace/`                         | The stage: `Workspace.tsx`, the tab bar, the agent desk and the search pane                     |
-| `terminal/`                          | xterm.js panes and the PTY client (`usePty.ts`)                                                 |
-| `editor/`                            | The CodeMirror editor pane and its find bar, insights and image viewer                          |
-| `git/`                               | The Git pane, diffs, commit review and the graph                                                |
-| `chat/`                              | The chat view for agents on ACP                                                                 |
-| `agents/`                            | Agent launching, the agent picker, lifecycle and saved-session sync                             |
-| `harness/`                           | The window half of the agent harness: inspecting, launching tasks and `ui.open`                 |
-| `rail/`                              | Side rail, file tree and agent rail                                                             |
-| `palettes/`                          | Command, file and new-tab palettes and the session switcher                                     |
-| `settings/`                          | The settings page                                                                               |
-| `shell/`                             | App-level bridges and overlays: CLI opens, harness requests, dialogs, toasts                    |
-| `actions/`                           | The action registry that palettes and shortcuts run, scoped to global, project, session or item |
-| `commands/`                          | Keymap, keybinding overrides and custom commands                                                |
-| `workbench/`                         | Per-item controllers and their runtime, navigation history, project diagnostics                 |
-| `projects/`                          | Project locations (local or SSH) and the per-project `sikemux.json` config                      |
-| `tasks/`                             | Running the tasks a project declares                                                            |
-| `extensions/`                        | Internal registry for contributed actions, workbench items and task providers                   |
-| `plugin-api/`                        | The only code plugins may import                                                                |
-| `plugins/`                           | The plugin registry and the six built-in plugins                                                |
-| `codehost/`                          | Shared GitHub and Bitbucket UI, handed to those plugins through `plugin-api/codehost.ts`        |
-| `themes/`                            | Built-in and Ghostty themes and the theme bus that writes colours onto `:root`                  |
-| `styles/`                            | Global and shared CSS (see [Styling](#styling))                                                 |
-| `ui/`, `hooks/`, `lib/`              | Shared components, React hooks, and utilities including telemetry                               |
-| `markdown/`, `languages/`, `vendor/` | Markdown rendering, the generated grammar list, and Shiki wrappers                              |
-| `voice/`, `test/`                    | The dictation client; Vitest setup and fixtures                                                 |
-| `browser/`                           | Tests for the scripts injected into browser tabs (the scripts live in `src-tauri/src/browser/`) |
+| Folder                               | Owns                                                                                             |
+| ------------------------------------ | ------------------------------------------------------------------------------------------------ |
+| `state/`                             | The store, commands, persistence and the resource cache (see below)                              |
+| `api/`                               | One typed wrapper module per backend area, plus the IPC transport                                |
+| `workspace/`                         | The stage: `Workspace.tsx`, the tab bar, the agent desk and the search pane                      |
+| `terminal/`                          | xterm.js panes and the PTY client (`usePty.ts`)                                                  |
+| `editor/`                            | The CodeMirror editor pane and its find bar, insights and image viewer                           |
+| `git/`                               | The Git pane, diffs, commit review and the graph                                                 |
+| `chat/`                              | The chat view for agents, native and on ACP                                                      |
+| `agents/`                            | Agent launching, the agent picker, lifecycle and saved-session sync                              |
+| `harness/`                           | The window half of the agent harness: inspecting, launching tasks and `ui.open`                  |
+| `rail/`                              | Side rail, file tree and agent rail                                                              |
+| `palettes/`                          | Command, file and new-tab palettes and the session switcher                                      |
+| `settings/`                          | The settings page                                                                                |
+| `shell/`                             | App-level bridges and overlays: CLI opens, harness requests, dialogs, toasts                     |
+| `actions/`                           | The action registry that palettes and shortcuts run, scoped to global, project, session or item  |
+| `commands/`                          | Keymap, keybinding overrides and custom commands                                                 |
+| `workbench/`                         | Per-item controllers and their runtime, navigation history, project diagnostics                  |
+| `projects/`                          | Project locations (local or SSH) and the per-project `sikemux.json` config                       |
+| `tasks/`                             | Running the tasks a project declares                                                             |
+| `extensions/`                        | Internal registry for contributed actions, workbench items and task providers                    |
+| `plugin-api/`                        | The only code plugins may import                                                                 |
+| `plugins/`                           | The plugin registry and the six built-in plugins                                                 |
+| `codehost/`                          | Shared GitHub, GitLab and Bitbucket UI, handed to those plugins through `plugin-api/codehost.ts` |
+| `themes/`                            | Built-in and Ghostty themes and the theme bus that writes colours onto `:root`                   |
+| `styles/`                            | Global and shared CSS (see [Styling](#styling))                                                  |
+| `ui/`, `hooks/`, `lib/`              | Shared components, React hooks, and utilities including telemetry                                |
+| `markdown/`, `languages/`, `vendor/` | Markdown rendering, the generated grammar list, and Shiki wrappers                               |
+| `voice/`, `test/`                    | The dictation client; Vitest setup and fixtures                                                  |
+| `browser/`                           | Tests for the scripts injected into browser tabs (the scripts live in `src-tauri/src/browser/`)  |
 
 ### State
 
@@ -227,15 +227,17 @@ Internal crates in `src-tauri/crates/`:
 | `sikemux-plugin-api` | The contract between the app and a plugin: a method name and JSON in, JSON or a stream out                                                                                                                                                                                                                  |
 | `sikemux-process`    | Runs a subprocess with a timeout and an output size limit                                                                                                                                                                                                                                                   |
 | `sikemux-markdown`   | Parses markdown into the block tree the chat transcript draws (`markdown_parse`)                                                                                                                                                                                                                            |
-| `sikemux-keychain`   | Reads and writes secrets in the system keychain; used by the GitHub, Bitbucket, Jira and SigNoz plugins                                                                                                                                                                                                     |
+| `sikemux-keychain`   | Reads and writes secrets in the system keychain; used by the GitHub, GitLab, Bitbucket, Database, Jira and SigNoz plugins                                                                                                                                                                                   |
 | `sikemux-loopback`   | Waits for the browser to come back from a sign-in, on one port where each plugin has its own path; used by the Bitbucket and Jira plugins                                                                                                                                                                   |
 | `sikemux-pty`        | The terminal engine without Tauri: the per-PTY screen, shell integration, the configured shell and login-shell environment, the `SIKEMUX_*` environment, task checks, task output paging, and `agent_detection/`, which reads an agent's screen against `manifests/*.json` to tell working, blocked or idle |
-| `sikemux-core`       | The background core (`sikemux core`): its Unix-socket server, wire protocol and client; terminals, tasks and chat agents; the harness, journal and tool endpoint; updating in place                                                                                                                         |
+| `sikemux-wire`       | What the core and its clients send each other: the frames, requests and events, the types the accounts server generates, and the terminal and CLI shapes they carry. The phone links it, so it holds data and nothing that acts on it                                                                       |
+| `sikemux-client`     | Talking to a core: the connection and its requests, reaching a paired core over iroh, the phone's side of joining a host, and what a device signs for the accounts server. The phone links it with `sikemux-wire` and nothing else of the core                                                              |
+| `sikemux-core`       | The background core (`sikemux core`): its Unix-socket server and the client the app starts it with; terminals, tasks and chat agents; the harness, journal and tool endpoint; updating in place                                                                                                             |
 
 ## Plugins
 
 Plugins are compiled into the app. There is no marketplace and no runtime loading.
-The seven built-ins are AWS, Bitbucket, Bruno, GitHub, Jira, Rundeck and SigNoz. Each has two
+The nine built-ins are AWS, Bitbucket, Bruno, Database, GitHub, GitLab, Jira, Rundeck and SigNoz. Each has two
 halves:
 
 - **Rust:** a crate in `src-tauri/plugins/<name>/` that implements the `Plugin` trait
@@ -261,16 +263,19 @@ An agent runs on one of two transports.
 - **Terminal.** The agent's own CLI runs in a PTY like any shell (`sikemux-pty`'s `launch.rs`).
   Sikemux tells its state from the screen (`sikemux-pty`'s `agent_detection/`) and finds its saved
   sessions on disk (`agents/sessions/<agent>.rs`). Every agent type supports this.
-- **Chat (ACP).** [ACP](https://agentclientprotocol.com), the Agent Client Protocol, is
-  JSON-RPC over stdio between an editor and an agent. Chat agents run in the background
-  core, so a turn keeps going through a reload or a quit. `src-tauri/src/acp/mod.rs`
-  prepares the launch (the adapter, the agent binary, the browser tools, the environment)
-  and forwards prompts and permission answers to the core; `sikemux-core`'s
-  `server/chat/` runs the session and keeps what it said, so a page that attaches later
-  replays it. Claude and Codex are reached through adapter packages Sikemux installs.
-  OpenCode, OMP, Grok and Hermes speak ACP themselves (`sikemux-core`'s `acp/native.rs`).
-  `acp/air.rs` adds the Claude adapter's background task and subagent updates. On the UI
-  side, `src/chat/useAcpSession.ts` and `reducer.ts` turn events into a transcript.
+- **Chat.** Chat agents run in the background core, so a turn keeps going through a
+  reload or a quit. `src-tauri/src/acp/mod.rs` prepares the launch (the agent binary, the
+  browser tools, the environment) and forwards prompts, edits and permission answers to the
+  core; `sikemux-core`'s `server/chat/` runs the session and keeps what it said, so a page
+  that attaches later replays it. Claude and Codex are driven in their own protocols:
+  `server/chat/native/claude` speaks Claude Code's stream-json control protocol, the one
+  Anthropic's Agent SDK speaks, and `server/chat/native/codex` speaks `codex app-server`.
+  OpenCode, OMP, Grok and Hermes speak [ACP](https://agentclientprotocol.com), the Agent
+  Client Protocol (`server/chat/connection.rs`, `acp/native.rs`). Every driver tells the
+  chat the same ACP-shaped session updates, with `acp/air.rs`'s background task and
+  subagent updates on top, so the UI reads one shape: `src/chat/useAcpSession.ts` and
+  `reducer.ts` turn events into a transcript. Claude and Codex chats can take a sent
+  message back and ask again (`ChatCommand::Edit`); Claude can put the files back too.
   `CHAT_AGENT_TYPES` in `src/agents/agentLaunch.ts` lists the chat-capable agents, and
   `src/chat/AgentSurface.tsx` switches one agent between chat and terminal views.
 
@@ -278,7 +283,7 @@ An agent runs on one of two transports.
 sign-in (`CLAUDE_CONFIG_DIR`, `CODEX_HOME`). `src-tauri/src/agents/accounts.rs` makes extra
 ones as `~/.claude-<name>` or `~/.codex-<name>`, links the default directory's chats and
 settings into them, and signs in and out through the CLI's own login. A chat agent holds its
-sign-in from when it started, so `server/chat/connection.rs` starts it again on the same
+sign-in from when it started, so the chat's driver starts it again on the same
 session when `acp/account.rs` reads a different account in its files, or when a turn fails
 asking for a sign-in. At a usage limit it moves the chat to the next signed-in account the
 launch names, when the person turned that on, and says so in the transcript.
@@ -353,7 +358,6 @@ pre-push hook.
 
 | Check              | Where                                                                                | How to move it                                                                                                        |
 | ------------------ | ------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------- |
-| Test coverage      | `test.coverage.thresholds` in `vite.config.ts`                                       | Raise the numbers after `pnpm test:coverage` shows coverage went up. Never lower them.                                |
 | `!important` count | `BUDGET` in `scripts/check-css-important.mjs`                                        | Lower it when you remove one. Only goes down.                                                                         |
 | Bundle size        | `scripts/check-performance-budget.mjs`, run by `pnpm perf:budget` after `pnpm build` | Every ceiling needs 10% headroom. Prefer lazy imports; raise a ceiling only with measured output and a stated reason. |
 | Plugin boundaries  | `scripts/check-plugin-boundaries.mjs`                                                | Not a number: add what a plugin needs to `src/plugin-api`.                                                            |

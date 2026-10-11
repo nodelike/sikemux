@@ -12,6 +12,7 @@ import {
 import { Devices, useDevices } from "./Devices.tsx";
 import { Logo } from "./icons.tsx";
 import { useLive } from "./live.ts";
+import { RestoreAccount, useAccountState } from "./RestoreAccount.tsx";
 import {
   appReturn,
   DELETE_ACCOUNT,
@@ -137,9 +138,11 @@ function Account({
   const { isSignedIn } = useAuth();
   const { signOut } = useClerk();
   const email = user?.primaryEmailAddress?.emailAddress;
-  const devices = useDevices(ready);
+  const { account, restored } = useAccountState(ready);
+  const active = account.state === "active";
+  const devices = useDevices(ready && active);
 
-  useLive(ready && isSignedIn === true, {
+  useLive(ready && isSignedIn === true && active, {
     onEvents: devices.apply,
     onResync: devices.reload,
     onAccountDeleted: onDeleted,
@@ -166,7 +169,9 @@ function Account({
         </div>
       </header>
       <main>
-        {deleting ? (
+        {account.state === "deleting" ? (
+          <RestoreAccount deletesAt={account.deletesAt} onRestored={restored} />
+        ) : deleting ? (
           <DeleteAccount
             email={email}
             load={devices.load}

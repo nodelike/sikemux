@@ -19,7 +19,7 @@ import * as cmd from "../state/commands";
 import { animate, EASE_IN, EASE_SWAP, foldedFrames, leavingRef, prefersReducedMotion } from "../lib/motion";
 import { rollupAgentStates } from "../state/agentStatus";
 import { getState, useStore } from "../state/store";
-import { AgentIcon, IconAgent, IconClose, IconCommand, IconFolder, IconPencil, IconPlus, WindowIcon } from "../ui/Icons";
+import { AgentIcon, IconClose, IconCommand, IconFolder, IconPencil, IconPlus, WindowIcon } from "../ui/Icons";
 import { Tooltip } from "../ui/Tooltip";
 import { EmptyState, Panel, PanelHeader } from "../ui/Panel";
 import { RailMasthead } from "./RailMasthead";
@@ -33,9 +33,9 @@ import { isPluginKind, pluginIdOf } from "../plugins/kinds";
 import { leavingRail } from "./railMotion";
 import { LEAVES_SETTINGS } from "../settings/leaveSettings";
 import { TreeContextMenu, type CtxItem } from "./FileTree";
-import { shownProjects, spaceBadge } from "../state/projectSpaces";
+import { newSpace, SpaceGlyph, SpaceSwitch } from "./SpaceSwitch";
+import { shownProjects } from "../state/projectSpaces";
 import type { ProjectSpace } from "../state/types";
-import { confirmDialog, promptDialog } from "../state/dialog";
 
 function kindIcon(kind: SessionKind): ReactNode {
     if (kind === "project") return <IconFolder size={13} />;
@@ -121,7 +121,6 @@ interface RailContextValue {
     selectProject: (id: string) => void;
     openSpaceMenu: (event: ReactMouseEvent, session: Session) => void;
     jumpToWindow: (sessionId: string, winId: string) => void;
-    jumpToAgents: (sessionId: string) => void;
     kb: (id: KeybindingActionId) => string;
 }
 
@@ -225,11 +224,30 @@ function ProjectBlock({ s }: { s: Session }) {
         .filter(Boolean);
     const rollup = rollupAgentStates(agents.map((agent) => activityById[agent.id]));
     const rollupBackground = agents.some((agent) => (backgroundById[agent.id] ?? 0) > 0);
-    const tabCount = sessionWindows.filter((w) => w.role === "term").length;
+
+    const visibleAgents = agents.slice(0, MAX_BADGE_ICONS);
+    const agentOverflow = agents.length - visibleAgents.length;
+    const agentBadge = (
+        <>
+            {visibleAgents.length > 0 && (
+                <span className="proj-child-icons">
+                    {visibleAgents.map((a) => (
+                        <span key={a.id} className={`proj-pip proj-pip-${a.type}${activityById[a.id] ? ` state-${activityById[a.id].state}` : ""}`}>
+                            <AgentIcon type={a.type} size={20} />
+                        </span>
+                    ))}
+                    {agentOverflow > 0 && <span className="proj-child-icons-more">+{agentOverflow}</span>}
+                </span>
+            )}
+            {showsAgentState(rollup ?? "idle", rollupBackground) && (
+                <span className="proj-row-status">
+                    <AgentStateIndicator state={rollup ?? "idle"} background={rollupBackground} />
+                </span>
+            )}
+        </>
+    );
 
     if (!active) {
-        const visible = agents.slice(0, MAX_BADGE_ICONS);
-        const overflow = agents.length - visible.length;
         return (
             <div ref={treeRef} className={`proj-tree${rail.projectDragClass(s.id)}`} data-project-id={s.id}>
                 <div className="session-row-shell project-row-shell" onContextMenu={(event) => rail.openSpaceMenu(event, s)}>
@@ -244,23 +262,7 @@ function ProjectBlock({ s }: { s: Session }) {
                                 <IconFolder size={12} />
                             </span>
                             <span className="proj-name">{s.name}</span>
-                            {visible.length > 0 && (
-                                <span className="proj-child-icons">
-                                    {visible.map((a) => (
-                                        <span
-                                            key={a.id}
-                                            className={`proj-pip proj-pip-${a.type}${activityById[a.id] ? ` state-${activityById[a.id].state}` : ""}`}>
-                                            <AgentIcon type={a.type} size={20} />
-                                        </span>
-                                    ))}
-                                    {overflow > 0 && <span className="proj-child-icons-more">+{overflow}</span>}
-                                </span>
-                            )}
-                            {showsAgentState(rollup ?? "idle", rollupBackground) && (
-                                <span className="proj-row-status">
-                                    <AgentStateIndicator state={rollup ?? "idle"} background={rollupBackground} />
-                                </span>
-                            )}
+                            {agentBadge}
                         </button>
                     </Tooltip>
                     <SessionCloseButton session={s} />
@@ -269,15 +271,10 @@ function ProjectBlock({ s }: { s: Session }) {
         );
     }
 
-    const winByRole = (role: WindowRole): Window | undefined => sessionWindows.find((w) => w.role === role);
     const activeRole = sessionWindows.find((w) => w.id === s.activeWindowId)?.role;
-    const isSubActive = (role: WindowRole | "agents"): boolean => activeRole === (role === "agents" ? "agent" : role);
+    const isSubActive = (role: WindowRole): boolean => activeRole === role;
 
-    const onSubClick = (role: WindowRole | "agents") => {
-        if (role === "agents") {
-            rail.jumpToAgents(s.id);
-            return;
-        }
+    const onSubClick = (role: WindowRole) => {
         if (role === "files") {
             cmd.openEditorPane();
             return;
@@ -286,51 +283,13 @@ function ProjectBlock({ s }: { s: Session }) {
             cmd.openGitWorkbench();
             return;
         }
-        if (role === "search") {
-            cmd.focusGlobalSearch();
-            return;
-        }
-        const w = winByRole(role);
-        if (w) {
-            rail.jumpToWindow(s.id, w.id);
-        } else if (role === "term") {
-            if (s.id !== activeSessionId) cmd.selectSession(s.id);
-            cmd.newWindow();
-        }
+        if (role === "search") cmd.focusGlobalSearch();
     };
 
-    const termIcons: ReactNode[] =
-        tabCount > 1
-            ? Array.from({ length: tabCount }, (_, i) => (
-                  <span key={i} className="proj-pip proj-pip-term">
-                      <IconCommand size={14} />
-                  </span>
-              ))
-            : [];
-    const agentIcons: ReactNode[] = agents.map((a) => (
-        <span key={a.id} className={`proj-pip proj-pip-${a.type}${activityById[a.id] ? ` state-${activityById[a.id].state}` : ""}`}>
-            <AgentIcon type={a.type} size={20} />
-        </span>
-    ));
-
     const children: SubRow[] = [
-        { role: "files", label: "Files", kbd: kb("window.files"), title: `Files — ${kb("window.files")}`, icons: [] },
-        {
-            role: "term",
-            label: "Term",
-            kbd: kb("window.terminal"),
-            title: `Term${tabCount > 1 ? ` · ${tabCount} tabs` : ""} — ${kb("window.terminal")}`,
-            icons: termIcons,
-        },
-        { role: "git", label: "Git", kbd: kb("window.git"), title: `Git — ${kb("window.git")}`, icons: [] },
-        {
-            role: "agents",
-            label: "Agents",
-            kbd: kb("window.agents"),
-            title: `Agents${agents.length ? ` · ${agents.length}` : ""} — ${kb("window.agents")}`,
-            icons: agentIcons,
-        },
-        { role: "search", label: "Search", kbd: kb("window.search"), title: `Search — ${kb("window.search")}`, icons: [] },
+        { role: "files", label: "Files", kbd: kb("window.files"), title: `Files — ${kb("window.files")}` },
+        { role: "git", label: "Git", kbd: kb("window.git"), title: `Git — ${kb("window.git")}` },
+        { role: "search", label: "Search", kbd: kb("window.search"), title: `Search — ${kb("window.search")}` },
     ];
     return (
         <div ref={treeRef} className={`proj-tree active${rail.projectDragClass(s.id)}`} data-project-id={s.id}>
@@ -346,6 +305,7 @@ function ProjectBlock({ s }: { s: Session }) {
                             <IconFolder size={12} />
                         </span>
                         <span className="proj-name">{s.name}</span>
+                        {agentBadge}
                     </button>
                 </Tooltip>
                 <SessionCloseButton session={s} />
@@ -353,9 +313,6 @@ function ProjectBlock({ s }: { s: Session }) {
             <div className="proj-children" ref={foldChildren}>
                 {children.map((c) => {
                     const subActive = isSubActive(c.role);
-                    const node = c.role === "agents" ? <IconAgent size={13} /> : <WindowIcon role={c.role} size={13} />;
-                    const visibleIcons = c.icons.slice(0, MAX_BADGE_ICONS);
-                    const overflow = c.icons.length - visibleIcons.length;
                     return (
                         <Tooltip key={c.role} label={c.title} side="right">
                             <button
@@ -368,17 +325,10 @@ function ProjectBlock({ s }: { s: Session }) {
                                     onSubClick(c.role);
                                 }}>
                                 <span className="proj-child-tick" />
-                                <span className="proj-child-ic">{node}</span>
+                                <span className="proj-child-ic">
+                                    <WindowIcon role={c.role} size={13} />
+                                </span>
                                 <span className="proj-child-label">{c.label}</span>
-                                {visibleIcons.length > 0 && (
-                                    <span className="proj-child-icons">
-                                        {visibleIcons}
-                                        {overflow > 0 && <span className="proj-child-icons-more">+{overflow}</span>}
-                                    </span>
-                                )}
-                                {c.role === "agents" && (rollup || rollupBackground) && (
-                                    <AgentStateIndicator state={rollup ?? "idle"} background={rollupBackground} />
-                                )}
                                 {c.kbd && <span className="proj-child-kbd">{c.kbd}</span>}
                             </button>
                         </Tooltip>
@@ -390,11 +340,10 @@ function ProjectBlock({ s }: { s: Session }) {
 }
 
 interface SubRow {
-    role: WindowRole | "agents";
+    role: WindowRole;
     label: string;
     kbd?: string;
     title: string;
-    icons: ReactNode[];
 }
 
 function renderSession(s: Session) {
@@ -419,94 +368,12 @@ function PluginLauncherRow({ plugin, name }: { plugin: FrontendPlugin; name: str
 
 type OpenMenu = (event: ReactMouseEvent, items: CtxItem[]) => void;
 
-async function askSpaceName(title: string, confirmLabel: string, initial = ""): Promise<string | null> {
-    const name = await promptDialog({ title, label: "Name", initial, placeholder: "Work, Side projects, Client A…", confirmLabel });
-    return name?.trim() ? name : null;
-}
-
-async function newSpace(then?: (id: string) => void): Promise<void> {
-    const name = await askSpaceName("Create space", "Create");
-    const id = name ? cmd.createSpace(name) : null;
-    if (id) (then ?? cmd.showSpace)(id);
-}
-
-function spaceItems(space: ProjectSpace): CtxItem[] {
-    return [
-        {
-            label: "Rename…",
-            run: () => void askSpaceName("Rename space", "Rename", space.name).then((name) => name && cmd.renameSpace(space.id, name)),
-        },
-        {
-            label: "Change Icon…",
-            run: () =>
-                void promptDialog({
-                    title: "Space icon",
-                    label: "An emoji",
-                    initial: space.icon,
-                    placeholder: "💼",
-                    confirmLabel: "Save",
-                }).then((icon) => icon !== null && cmd.setSpaceIcon(space.id, icon)),
-        },
-        ...(space.icon ? [{ label: "Use First Letter as Icon", run: () => cmd.setSpaceIcon(space.id, "") }] : []),
-        { sep: true },
-        {
-            label: "Delete Space…",
-            danger: true,
-            run: () =>
-                void confirmDialog({
-                    title: `Delete “${space.name}”?`,
-                    body: "Its projects stay open and show under All.",
-                    confirmLabel: "Delete",
-                }).then((yes) => yes && cmd.deleteSpace(space.id)),
-        },
-    ];
-}
-
-function SpaceSwitch({ spaces, activeSpaceId, onMenu }: { spaces: readonly ProjectSpace[]; activeSpaceId: string | null; onMenu: OpenMenu }) {
-    const add = (
-        <Tooltip label="Create space">
-            <button type="button" className="space-add" aria-label="Create space" onClick={() => void newSpace()}>
-                <IconPlus size={11} />
-                {spaces.length === 0 && <span>New space</span>}
-            </button>
-        </Tooltip>
-    );
-    if (spaces.length === 0) return <div className="space-switch empty">{add}</div>;
-    const option = (id: string | null, label: string, badge?: string, space?: ProjectSpace) => (
-        <button
-            key={id ?? "all"}
-            type="button"
-            role="radio"
-            aria-checked={activeSpaceId === id}
-            aria-label={label}
-            className={activeSpaceId === id ? "active" : ""}
-            onClick={() => cmd.showSpace(id)}
-            onContextMenu={space ? (event) => onMenu(event, spaceItems(space)) : undefined}
-            onDoubleClick={
-                space
-                    ? () => void askSpaceName("Rename space", "Rename", space.name).then((name) => name && cmd.renameSpace(space.id, name))
-                    : undefined
-            }>
-            {badge && <span className="space-badge">{badge}</span>}
-            <span className="space-name">{label}</span>
-        </button>
-    );
-    return (
-        <div className="space-switch">
-            <div className="space-options" role="radiogroup" aria-label="Projects shown">
-                {option(null, "All")}
-                {spaces.map((space) => option(space.id, space.name, spaceBadge(space), space))}
-            </div>
-            {add}
-        </div>
-    );
-}
-
 function projectSpaceItems(session: Session, spaces: readonly ProjectSpace[], current: string | undefined): CtxItem[] {
     const mark = (selected: boolean) => (selected ? "✓" : undefined);
     return [
         ...spaces.map((space) => ({
-            label: `${spaceBadge(space)}  ${space.name}`,
+            label: space.name,
+            icon: <SpaceGlyph icon={space.icon} />,
             hint: mark(current === space.id),
             run: () => cmd.setProjectSpace(session.cwd, space.id),
         })),
@@ -808,10 +675,6 @@ export const SideRail = memo(function SideRail() {
         if (sessionId !== activeSessionId) cmd.selectSession(sessionId);
         cmd.selectWindowId(winId);
     };
-    const jumpToAgents = (sessionId: string) => {
-        if (sessionId !== activeSessionId) cmd.selectSession(sessionId);
-        cmd.focusAgents();
-    };
 
     const ghostPoint = projectGhostPointRef.current;
     const ghostTransform =
@@ -832,7 +695,6 @@ export const SideRail = memo(function SideRail() {
         selectProject,
         openSpaceMenu: (event, session) => openMenu(event, projectSpaceItems(session, spaces, projectSpaces[session.cwd])),
         jumpToWindow,
-        jumpToAgents,
         kb,
     };
 
@@ -848,7 +710,7 @@ export const SideRail = memo(function SideRail() {
                         addTitle={`Open project — ${kb("project.open")}`}
                         addKbd={kb("project.open")}
                         emptyText={activeSpace ? `no projects in ${activeSpace.name}` : "no projects"}
-                        toolbar={allProjects.length > 0 && <SpaceSwitch spaces={spaces} activeSpaceId={activeSpaceId} onMenu={openMenu} />}
+                        toolbar={allProjects.length > 0 && <SpaceSwitch spaces={spaces} activeSpaceId={activeSpaceId} />}
                     />
                     <Group
                         label="SSH"

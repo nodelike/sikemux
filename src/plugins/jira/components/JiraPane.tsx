@@ -1,15 +1,34 @@
-import { useState } from "react";
-import { gitOverviewR, notify, openUrl, reportError, swallow, useActiveProjectCwd } from "../../../plugin-api/host";
+import { useCallback, useState, type MouseEvent, type ReactNode } from "react";
+import { gitOverviewR, notify, reportError, swallow, useActiveProjectCwd } from "../../../plugin-api/host";
 import { useResourceEnabled } from "../../../plugin-api/resources";
-import { Dropdown, EmptyState, Markdown, SkeletonRows } from "../../../plugin-api/ui";
+import { ContextMenu, Dropdown, EmptyState, IconCopy, IconExternal, Markdown, SkeletonRows, type ContextMenuItem } from "../../../plugin-api/ui";
 import { failureMessage, jiraApi, refreshJira, type JiraIssue, type JiraIssueSummary, type JiraPerson } from "../api";
-import { jiraFiltersR, jiraIssueR, jiraSearchR, jiraStatusR } from "../resources";
+import { jiraBoardsR, jiraFiltersR, jiraIssueR, jiraProjectsR, jiraSearchR, jiraStatusR } from "../resources";
+import { copyIssue, issueMenu, openIssue } from "../issueLinks";
 import { jqlOf, mentions, updateJiraView, useJiraView, type JiraList } from "../state";
+import { JiraBoard } from "./JiraBoard";
 import { JiraSignIn } from "./JiraSignIn";
 import { StatusChip } from "./StatusChip";
+import { TaskBox, TaskToggleContext, type ToggleTask } from "./TaskBox";
 import "../jira.css";
 
-const sameList = (a: JiraList, b: JiraList) => a.kind === b.kind && (a.kind !== "filter" || (b.kind === "filter" && a.id === b.id));
+const sameList = (a: JiraList, b: JiraList) => JSON.stringify(a) === JSON.stringify(b);
+
+const MY_WORK: [JiraList, string][] = [
+    [{ kind: "mine" }, "Assigned to me"],
+    [{ kind: "reported" }, "Reported by me"],
+    [{ kind: "watching" }, "Watching"],
+    [{ kind: "recent" }, "Recently viewed"],
+    [{ kind: "sprint" }, "Current sprint"],
+];
+
+const EMPTY: Partial<Record<JiraList["kind"], string>> = {
+    mine: "Nothing is assigned to you that is open or was done in the last two weeks.",
+    reported: "Nothing you reported is open or was done in the last two weeks.",
+    watching: "You are not watching any open issue.",
+    recent: "No issue viewed lately.",
+    unassigned: "Every open issue here has someone on it.",
+};
 
 export function JiraPane({ paneId, active }: { paneId: string; active: boolean }) {
     const status = useResourceEnabled(active, jiraStatusR);
@@ -23,10 +42,30 @@ function JiraWorkspace({ paneId, active, sites }: { paneId: string; active: bool
     const [jql, setJql] = useState(view.list.kind === "jql" ? view.list.jql : "");
     const site = sites.includes(view.site) ? view.site : (sites[0] ?? "");
     const filters = useResourceEnabled(active, jiraFiltersR, site);
+    const projects = useResourceEnabled(active, jiraProjectsR, site);
+    const boards = useResourceEnabled(active, jiraBoardsR, site);
+    const [boardFilter, setBoardFilter] = useState("");
+    const listProject = view.list.kind === "project" || view.list.kind === "unassigned" ? view.list : null;
+    const [picked, setPicked] = useState<{ key: string; name: string } | null>(null);
+    const project = listProject ?? picked ?? projects.data?.[0] ?? null;
     const show = (list: JiraList) => updateJiraView(paneId, { list });
+    const words = boardFilter.trim().toLowerCase();
+    const shownBoards = (boards.data ?? []).filter(
+        (board) => !words || board.name.toLowerCase().includes(words) || (board.project ?? "").toLowerCase().includes(words),
+    );
+    const listButton = (list: JiraList, label: string, title?: string) => (
+        <button
+            key={label}
+            type="button"
+            className={`jira-list${sameList(view.list, list) ? " active" : ""}`}
+            title={title}
+            onClick={() => show(list)}>
+            {label}
+        </button>
+    );
 
     return (
-        <div className="jira-pane">
+        <div className={`jira-pane${view.list.kind === "board" ? ` board${view.issue ? " with-issue" : ""}` : ""}`}>
             <nav className="jira-sidebar" aria-label="Jira lists">
                 {sites.length > 1 && (
                     <Dropdown
@@ -38,22 +77,52 @@ function JiraWorkspace({ paneId, active, sites }: { paneId: string; active: bool
                         }
                     />
                 )}
-                <div className="jira-lists">
-                    {(
-                        [
-                            [{ kind: "mine" }, "Assigned to me"],
-                            [{ kind: "sprint" }, "Current sprint"],
-                        ] as const
-                    ).map(([list, label]) => (
-                        <button
-                            key={label}
-                            type="button"
-                            className={`jira-list${sameList(view.list, list) ? " active" : ""}`}
-                            onClick={() => show(list)}>
-                            {label}
-                        </button>
-                    ))}
-                </div>
+                <div className="jira-lists">{MY_WORK.map(([list, label]) => listButton(list, label))}</div>
+                {(projects.data?.length ?? 0) > 0 && project && (
+                    <div className="jira-lists">
+                        <div className="jira-heading">Project</div>
+                        <Dropdown
+                            label="Project"
+                            value={project.key}
+                            options={(projects.data ?? []).map((each) => ({ value: each.key, label: each.name, detail: each.key }))}
+                            search="Find a project"
+                            onChange={(key) => {
+                                const chosen = projects.data?.find((each) => each.key === key);
+                                if (!chosen) return;
+                                setPicked(chosen);
+                                show({ kind: listProject?.kind ?? "project", key: chosen.key, name: chosen.name });
+                            }}
+                        />
+                        {listButton({ kind: "project", key: project.key, name: project.name }, "All open", `Open issues in ${project.name}`)}
+                        {listButton(
+                            { kind: "unassigned", key: project.key, name: project.name },
+                            "Unassigned",
+                            `Open issues in ${project.name} with nobody on them`,
+                        )}
+                    </div>
+                )}
+                {(boards.data?.length ?? 0) > 0 && (
+                    <div className="jira-lists">
+                        <div className="jira-heading">Boards</div>
+                        {(boards.data?.length ?? 0) > 8 && (
+                            <input
+                                className="jira-board-filter"
+                                value={boardFilter}
+                                onChange={(event) => setBoardFilter(event.target.value)}
+                                placeholder="Find a board"
+                                aria-label="Find a board"
+                                spellCheck={false}
+                            />
+                        )}
+                        {shownBoards.map((board) =>
+                            listButton(
+                                { kind: "board", id: board.id, name: board.name },
+                                board.name,
+                                board.project ? `${board.name} · ${board.project}` : board.name,
+                            ),
+                        )}
+                    </div>
+                )}
                 {(filters.data?.length ?? 0) > 0 && (
                     <div className="jira-lists">
                         <div className="jira-heading">Starred filters</div>
@@ -91,15 +160,25 @@ function JiraWorkspace({ paneId, active, sites }: { paneId: string; active: bool
                     Sign out of {site}
                 </button>
             </nav>
-            <IssueList
-                active={active}
-                empty={view.list.kind === "mine" ? "Nothing is assigned to you that is open or was done in the last two weeks." : "No issues here."}
-                jql={jqlOf(view.list)}
-                site={site}
-                selected={view.issue}
-                onSelect={(key) => updateJiraView(paneId, { issue: key })}
-            />
-            {view.issue ? (
+            {view.list.kind === "board" ? (
+                <JiraBoard
+                    active={active}
+                    boardId={view.list.id}
+                    site={site}
+                    selected={view.issue}
+                    onSelect={(key) => updateJiraView(paneId, { issue: key === view.issue ? null : key })}
+                />
+            ) : (
+                <IssueList
+                    active={active}
+                    empty={EMPTY[view.list.kind] ?? "No issues here."}
+                    jql={jqlOf(view.list)}
+                    site={site}
+                    selected={view.issue}
+                    onSelect={(key) => updateJiraView(paneId, { issue: key })}
+                />
+            )}
+            {view.list.kind === "board" && !view.issue ? null : view.issue ? (
                 <IssueDetail active={active} issueKey={view.issue} site={site} />
             ) : (
                 <div className="jira-detail">
@@ -154,20 +233,42 @@ function IssueList({
 }
 
 function IssueRow({ issue, selected, onSelect }: { issue: JiraIssueSummary; selected: boolean; onSelect: () => void }) {
+    const [menu, setMenu] = useMenu();
     return (
-        <button type="button" role="listitem" className={`jira-row${selected ? " active" : ""}`} onClick={onSelect}>
-            <span className="jira-row-top">
-                <span className="jira-key">{issue.key}</span>
-                {issue.priority && <span className="jira-meta">{issue.priority}</span>}
-                <StatusChip status={issue.status} category={issue.statusCategory} />
-            </span>
-            <span className="jira-row-summary">{issue.summary}</span>
-            <span className="jira-meta">
-                {issue.assignee?.name ?? "Unassigned"}
-                {issue.sprint && ` · ${issue.sprint}`}
-            </span>
-        </button>
+        <>
+            <button
+                type="button"
+                role="listitem"
+                className={`jira-row${selected ? " active" : ""}`}
+                onClick={onSelect}
+                onContextMenu={(event) => setMenu(event, issueMenu(issue))}>
+                <span className="jira-row-top">
+                    <span className="jira-key">{issue.key}</span>
+                    {issue.priority && <span className="jira-meta">{issue.priority}</span>}
+                    <StatusChip status={issue.status} category={issue.statusCategory} />
+                </span>
+                <span className="jira-row-summary">{issue.summary}</span>
+                <span className="jira-meta">
+                    {issue.assignee?.name ?? "Unassigned"}
+                    {issue.sprint && ` · ${issue.sprint}`}
+                </span>
+            </button>
+            {menu}
+        </>
     );
+}
+
+/** A right-click menu: the element to render, and the handler that opens it at the pointer. */
+function useMenu(): [ReactNode, (event: MouseEvent, items: ContextMenuItem[]) => void] {
+    const [open, setOpen] = useState<{ x: number; y: number; items: ContextMenuItem[] } | null>(null);
+    const element = open && <ContextMenu x={open.x} y={open.y} items={open.items} onClose={() => setOpen(null)} />;
+    return [
+        element,
+        (event, items) => {
+            event.preventDefault();
+            setOpen({ x: event.clientX, y: event.clientY, items });
+        },
+    ];
 }
 
 function IssueDetail({ active, issueKey, site }: { active: boolean; issueKey: string; site: string }) {
@@ -188,6 +289,7 @@ function IssueDetail({ active, issueKey, site }: { active: boolean; issueKey: st
 }
 
 function IssueBody({ issue, site, refresh }: { issue: JiraIssue; site: string; refresh: () => void }) {
+    const [menu, setMenu] = useMenu();
     const [comment, setComment] = useState("");
     const [busy, setBusy] = useState(false);
     const [assigning, setAssigning] = useState(false);
@@ -196,6 +298,18 @@ function IssueBody({ issue, site, refresh }: { issue: JiraIssue; site: string; r
         refresh();
         refreshJira();
     };
+    const toggleTask = useCallback<ToggleTask>(
+        async (index, text, done) => {
+            try {
+                await jiraApi.setTask(issue.key, index, text, done, site || undefined);
+                refresh();
+            } catch (error) {
+                notify("error", `Update the task: ${failureMessage(error)}`);
+                throw error;
+            }
+        },
+        [issue.key, site, refresh],
+    );
     const run = async (label: string, work: () => Promise<unknown>) => {
         setBusy(true);
         try {
@@ -210,15 +324,30 @@ function IssueBody({ issue, site, refresh }: { issue: JiraIssue; site: string; r
 
     return (
         <article className="jira-detail" aria-label={`${issue.key} ${issue.summary}`}>
-            <header className="jira-detail-head">
-                <button
-                    type="button"
-                    className="jira-key link"
-                    title="Open in Jira"
-                    onClick={() => void openUrl(issue.url).catch(swallow("open Jira"))}>
-                    {issue.key}
-                </button>
+            <header className="jira-detail-head" onContextMenu={(event) => setMenu(event, issueMenu(issue))}>
+                <span className="jira-detail-key">
+                    <button type="button" className="jira-key link" title="Open in browser" onClick={() => openIssue(issue)}>
+                        {issue.key}
+                    </button>
+                    <button
+                        type="button"
+                        className="jira-icon-button"
+                        title="Copy link"
+                        aria-label="Copy link"
+                        onClick={() => copyIssue(issue.url, "link")}>
+                        <IconCopy size={12} />
+                    </button>
+                    <button
+                        type="button"
+                        className="jira-icon-button"
+                        title="Open in browser"
+                        aria-label="Open in browser"
+                        onClick={() => openIssue(issue)}>
+                        <IconExternal size={12} />
+                    </button>
+                </span>
                 <h2>{issue.summary}</h2>
+                {menu}
             </header>
             <div className="jira-facts">
                 <Dropdown
@@ -290,7 +419,13 @@ function IssueBody({ issue, site, refresh }: { issue: JiraIssue; site: string; r
                 </span>
             </div>
             <section className="jira-description">
-                {issue.description ? <Markdown>{issue.description}</Markdown> : <p className="jira-meta">No description.</p>}
+                {issue.description ? (
+                    <TaskToggleContext.Provider value={toggleTask}>
+                        <Markdown taskBox={TaskBox}>{issue.description}</Markdown>
+                    </TaskToggleContext.Provider>
+                ) : (
+                    <p className="jira-meta">No description.</p>
+                )}
             </section>
             <ProjectCommits issueKey={issue.key} />
             <section className="jira-comments" aria-label="Comments">

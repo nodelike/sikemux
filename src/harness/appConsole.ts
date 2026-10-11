@@ -65,8 +65,9 @@ export class AppConsole {
         }
         target.addEventListener("error", (event) => {
             if (!event.error && !event.message) return;
-            const problem: unknown = event.error ?? event.message;
-            this.add("uncaught", event.filename ? [problem, `(${event.filename}:${event.lineno}:${event.colno})`] : [problem]);
+            const [summary, ...stack] = describe(event.error ?? event.message).split("\n");
+            const where = event.filename ? ` (${event.filename}:${event.lineno}:${event.colno})` : "";
+            this.add("uncaught", [[summary + where, ...stack].join("\n")]);
         });
         target.addEventListener("unhandledrejection", (event) => this.add("unhandled rejection", [event.reason]));
     }

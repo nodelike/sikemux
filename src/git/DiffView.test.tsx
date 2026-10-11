@@ -22,18 +22,6 @@ describe("DiffView", () => {
         expect(layout.digits).toBe(4);
     });
 
-    it("colours each row by the side it came from", async () => {
-        const rows: DiffRow[] = [
-            [0, 1, "let a = 1;"],
-            [2, 2, "let b = 1;"],
-            [1, 2, "let b = 2;"],
-        ];
-        const { container, findAllByText } = render(<DiffView rows={rows} path="src/a.ts" tinted />);
-        const [coloured] = await findAllByText("let b = 1;", { selector: "span[style]" });
-        expect(coloured).toHaveStyle({ color: "#123456" });
-        expect(container.querySelectorAll(".diff-code span[style]")).toHaveLength(3);
-    });
-
     it("keeps only the rows near the viewport of a long diff in the document", () => {
         const rows: DiffRow[] = Array.from({ length: 5000 }, (_, index): DiffRow => [1, index + 1, `line ${index}`]);
         const { container } = render(

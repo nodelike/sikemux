@@ -15,15 +15,15 @@ use std::time::Duration;
 use base64::Engine;
 use iroh::endpoint::presets;
 use iroh::{Endpoint, EndpointAddr, RelayMode, RelayUrl, SecretKey};
-use sikemux_core::accounts::network;
-use sikemux_core::accounts::protocol::{JoinTicket, Relay};
-use sikemux_core::client::{ClientError, CoreClient, EventSink, Reply};
-use sikemux_core::join::{JoinHello, JoinReply};
-use sikemux_core::protocol::{
+use sikemux_client::accounts::network;
+use sikemux_client::client::{ClientError, CoreClient, EventSink, Reply};
+use sikemux_client::join::{JoinHello, JoinReply};
+use sikemux_client::remote;
+use sikemux_wire::accounts::protocol::{JoinTicket, Relay};
+use sikemux_wire::protocol::{
     CallId, Event, NotifyPrefs, Request, Response, SessionId, WindowCall, MAX_ATTACHMENT_BYTES,
     OLDEST_PROTOCOL_VERSION, WAKE_WAIT,
 };
-use sikemux_core::remote;
 use tokio::sync::mpsc;
 
 mod records;
@@ -38,12 +38,18 @@ uniffi::setup_scaffolding!();
 /// Long enough to find a host through a relay on a slow network; past it the
 /// app shows the host as unreachable and tries again.
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
+/// A host this endpoint reached before answers again within this, unless the
+/// endpoint has gone stale; past it the phone dials again from a fresh one.
+const REDIAL_TIMEOUT: Duration = Duration::from_secs(6);
 /// Long enough for a long chat's replay over a relay. A host that has not
 /// answered by then has most likely gone, though the connection has not
 /// noticed yet.
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 /// Room for the largest file over a slow relay.
 const UPLOAD_TIMEOUT: Duration = Duration::from_secs(120);
+/// Long enough for a call that answers with a file of the largest size a chat
+/// keeps, over a slow relay.
+const CALL_TIMEOUT: Duration = Duration::from_secs(120);
 /// Past the host's own wait, so its reason for giving up reaches the app.
 const WAKE_TIMEOUT: Duration = Duration::from_secs(WAKE_WAIT.as_secs() + 15);
 
@@ -192,21 +198,21 @@ async fn bind(key: SecretKey, relays: &[Relay]) -> Result<Endpoint, MobileError>
 }
 
 fn sign_registration(key: &SecretKey, nonce: &str, user_id: &str) -> Result<String, MobileError> {
-    sikemux_core::accounts::check_registration(nonce, user_id).map_err(invalid)?;
+    sikemux_client::accounts::check_registration(nonce, user_id).map_err(invalid)?;
     let message =
-        sikemux_core::accounts::registration_message(nonce, user_id, &key.public().to_string());
+        sikemux_client::accounts::registration_message(nonce, user_id, &key.public().to_string());
     Ok(hex::encode(key.sign(message.as_bytes()).to_bytes()))
 }
 
 fn sign_live(key: &SecretKey, nonce: &str) -> Result<String, MobileError> {
-    sikemux_core::accounts::check_live(nonce).map_err(invalid)?;
-    let message = sikemux_core::accounts::live_message(nonce, &key.public().to_string());
+    sikemux_client::accounts::check_live(nonce).map_err(invalid)?;
+    let message = sikemux_client::accounts::live_message(nonce, &key.public().to_string());
     Ok(hex::encode(key.sign(message.as_bytes()).to_bytes()))
 }
 
 fn sign_push(key: &SecretKey, nonce: &str, token_sha256: &str) -> Result<String, MobileError> {
-    sikemux_core::accounts::check_live(nonce).map_err(invalid)?;
-    sikemux_core::accounts::check_live(token_sha256)
+    sikemux_client::accounts::check_live(nonce).map_err(invalid)?;
+    sikemux_client::accounts::check_live(token_sha256)
         .map_err(|_| invalid("the token's hash is 64 lowercase hex characters"))?;
     let message = format!("sikemux-push|{nonce}|{}|{token_sha256}", key.public());
     Ok(hex::encode(key.sign(message.as_bytes()).to_bytes()))
@@ -364,7 +370,7 @@ pub enum JoinAnswer {
     },
 }
 
-fn access_name(access: sikemux_core::protocol::DeviceAccess) -> Result<String, MobileError> {
+fn access_name(access: sikemux_wire::protocol::DeviceAccess) -> Result<String, MobileError> {
     serde_json::to_value(access)
         .ok()
         .and_then(|value| value.as_str().map(str::to_owned))
@@ -376,11 +382,12 @@ async fn join_with(
     addr: EndpointAddr,
     hello: JoinHello,
 ) -> Result<JoinAnswer, MobileError> {
-    let reply = on_runtime(async move { sikemux_core::join::join(&endpoint, addr, &hello).await })
-        .await?
-        .map_err(|error| MobileError::Connection {
-            message: error.to_string(),
-        })?;
+    let reply =
+        on_runtime(async move { sikemux_client::join::join(&endpoint, addr, &hello).await })
+            .await?
+            .map_err(|error| MobileError::Connection {
+                message: error.to_string(),
+            })?;
     Ok(match reply {
         JoinReply::Allowed { access } => JoinAnswer::Allowed {
             access: access_name(access)?,
@@ -405,7 +412,24 @@ fn read_ticket(json: &str, phone: &str, host: &str) -> Result<JoinTicket, Mobile
     Ok(ticket)
 }
 
+/// Why a dial failed: `Stalled` means a fresh endpoint may reach the host.
+enum Dial {
+    Final(MobileError),
+    Stalled(MobileError),
+}
+
+impl Dial {
+    fn error(self) -> MobileError {
+        match self {
+            Dial::Final(error) | Dial::Stalled(error) => error,
+        }
+    }
+}
+
 impl Device {
+    /// A host this endpoint reached before is dialled with a short wait, and
+    /// again from a fresh endpoint if that one has gone stale, so a dropped
+    /// connection comes back in seconds rather than after a full timeout.
     async fn connect_to(
         &self,
         core: String,
@@ -413,33 +437,62 @@ impl Device {
         listener: Arc<dyn CoreListener>,
     ) -> Result<Arc<Connection>, MobileError> {
         let (endpoint, generation) = self.endpoint()?;
+        let redial = self.lock().reached.contains(&core);
+        let wait = if redial {
+            REDIAL_TIMEOUT
+        } else {
+            CONNECT_TIMEOUT
+        };
+        let first = self
+            .dial(&core, endpoint, addr.clone(), listener.clone(), wait)
+            .await;
+        let stalled = match first {
+            Ok(connection) => return Ok(connection),
+            Err(Dial::Final(error)) => return Err(error),
+            Err(Dial::Stalled(error)) => error,
+        };
+        self.renew_after_failing(&core, generation).await;
+        let (endpoint, now) = self.endpoint()?;
+        if !redial || now == generation {
+            return Err(stalled);
+        }
+        self.dial(&core, endpoint, addr, listener, CONNECT_TIMEOUT)
+            .await
+            .map_err(Dial::error)
+    }
+
+    async fn dial(
+        &self,
+        core: &str,
+        endpoint: Endpoint,
+        addr: EndpointAddr,
+        listener: Arc<dyn CoreListener>,
+        wait: Duration,
+    ) -> Result<Arc<Connection>, Dial> {
         let open = Arc::new(AtomicBool::new(true));
         let (deliveries, queue) = mpsc::unbounded_channel();
         deliver(listener, queue, open.clone());
         let sink = Arc::new(ListenerSink(deliveries));
         let attempt = on_runtime(async move {
-            tokio::time::timeout(CONNECT_TIMEOUT, remote::open_with(&endpoint, addr, sink)).await
+            tokio::time::timeout(wait, remote::open_with(&endpoint, addr, sink)).await
         })
-        .await?;
+        .await
+        .map_err(Dial::Final)?;
         let (client, link) = match attempt {
             Ok(Ok(opened)) => opened,
             Ok(Err(
                 error @ (ClientError::Core(_)
                 | ClientError::VersionMismatch { .. }
                 | ClientError::NotPaired),
-            )) => return Err(error.into()),
-            Ok(Err(error)) => {
-                self.renew_after_failing(&core, generation).await;
-                return Err(error.into());
-            }
+            )) => return Err(Dial::Final(error.into())),
+            Ok(Err(error)) => return Err(Dial::Stalled(error.into())),
             Err(_) => {
-                self.renew_after_failing(&core, generation).await;
-                return Err(MobileError::Connection {
+                return Err(Dial::Stalled(MobileError::Connection {
                     message: "this host did not answer in time".into(),
-                });
+                }))
             }
         };
-        self.lock().reached.insert(core);
+        self.lock().reached.insert(core.to_owned());
         Ok(Arc::new(Connection {
             client: Mutex::new(Some(Arc::new(client))),
             link,
@@ -516,9 +569,6 @@ impl From<uniffi::UnexpectedUniFFICallbackError> for ListenerError {
 /// or throws is dropped: the connection carries on.
 #[uniffi::export(with_foreign)]
 pub trait CoreListener: Send + Sync {
-    /// Terminal bytes for a session the phone attached to. Pass their length
-    /// back to [`Connection::ack`] once shown.
-    fn output(&self, session: u64, bytes: Vec<u8>) -> Result<(), ListenerError>;
     /// The core's events in the order it sent them, several at once when
     /// they arrived faster than the app took them.
     fn events(&self, events: Vec<CoreEvent>) -> Result<(), ListenerError>;
@@ -526,8 +576,7 @@ pub trait CoreListener: Send + Sync {
 }
 
 enum Delivery {
-    Output(SessionId, Vec<u8>),
-    Event(CoreEvent),
+    Event(Box<CoreEvent>),
     Closed,
 }
 
@@ -536,13 +585,11 @@ enum Delivery {
 struct ListenerSink(mpsc::UnboundedSender<Delivery>);
 
 impl EventSink for ListenerSink {
-    fn output(&self, id: SessionId, bytes: &[u8]) {
-        let _ = self.0.send(Delivery::Output(id, bytes.to_vec()));
-    }
+    fn output(&self, _id: SessionId, _bytes: &[u8]) {}
 
     fn event(&self, event: Event) {
         if let Some(event) = CoreEvent::from_core(event) {
-            let _ = self.0.send(Delivery::Event(event));
+            let _ = self.0.send(Delivery::Event(Box::new(event)));
         }
     }
 
@@ -572,11 +619,7 @@ fn deliver(
                         return;
                     }
                     match delivery {
-                        Delivery::Event(event) => events.push(event),
-                        Delivery::Output(session, bytes) => {
-                            flush(listener.as_ref(), &mut events);
-                            let _ = listener.output(session, bytes);
-                        }
+                        Delivery::Event(event) => events.push(*event),
                         Delivery::Closed => {
                             flush(listener.as_ref(), &mut events);
                             let _ = listener.closed();
@@ -600,14 +643,6 @@ fn flush(listener: &dyn CoreListener, events: &mut Vec<CoreEvent>) {
     if !events.is_empty() {
         let _ = listener.events(std::mem::take(events));
     }
-}
-
-#[derive(uniffi::Record)]
-pub struct AttachedScreen {
-    /// Bytes that redraw the terminal as it is now; live output follows.
-    pub replay: Vec<u8>,
-    pub alternate_screen: bool,
-    pub exited: bool,
 }
 
 /// An open session with one host's core.
@@ -662,6 +697,22 @@ impl Connection {
         }
     }
 
+    async fn called(
+        &self,
+        method: String,
+        params_json: &str,
+    ) -> Result<serde_json::Value, MobileError> {
+        let params = serde_json::from_str(params_json)
+            .map_err(|error| invalid(format!("the call's params are not JSON: {error}")))?;
+        match self
+            .reply_within(Request::Call { method, params }, CALL_TIMEOUT)
+            .await?
+        {
+            Reply::Response(Response::Called { result }) => Ok(result),
+            _ => Err(unexpected()),
+        }
+    }
+
     async fn done(&self, request: Request) -> Result<(), MobileError> {
         match self.ask(request).await? {
             Response::Done => Ok(()),
@@ -672,10 +723,10 @@ impl Connection {
 
 #[uniffi::export]
 impl Connection {
-    /// The computer the core runs on.
-    pub async fn host(&self) -> Result<HostInfo, MobileError> {
+    /// The computer the core runs on, as the core's `HostInfo` JSON.
+    pub async fn host(&self) -> Result<String, MobileError> {
         match self.ask(Request::Host).await? {
-            Response::Host { host } => Ok(host.into()),
+            Response::Host { host } => Ok(records::json(&host)),
             _ => Err(unexpected()),
         }
     }
@@ -778,6 +829,7 @@ impl Connection {
     ) -> Result<(), MobileError> {
         self.done(Request::AcpPrompt {
             agent_id,
+            message_id: None,
             text,
             paths,
             context: Vec::new(),
@@ -807,6 +859,44 @@ impl Connection {
             Reply::Response(Response::Attached { path }) => Ok(path.display().to_string()),
             _ => Err(unexpected()),
         }
+    }
+
+    /// Calls one of the core's methods with `params_json` and answers with
+    /// its result as JSON. A host too old to know calls, or the method,
+    /// refuses it.
+    pub async fn call(&self, method: String, params_json: String) -> Result<String, MobileError> {
+        Ok(records::json(&self.called(method, &params_json).await?))
+    }
+
+    /// [`Self::call`], for a method whose result carries a file: the base64
+    /// in its `field` is written to `path` rather than passed to JavaScript,
+    /// and the rest of the result is answered as JSON.
+    pub async fn call_to_file(
+        &self,
+        method: String,
+        params_json: String,
+        field: String,
+        path: String,
+    ) -> Result<String, MobileError> {
+        let mut result = self.called(method, &params_json).await?;
+        let data = result
+            .as_object_mut()
+            .and_then(|fields| fields.remove(&field))
+            .ok_or_else(|| invalid(format!("the host's answer has no {field}")))?;
+        let bytes = data
+            .as_str()
+            .and_then(|data| base64::engine::general_purpose::STANDARD.decode(data).ok())
+            .ok_or_else(|| invalid("the host sent a file this app cannot read"))?;
+        let written = PathBuf::from(path);
+        on_runtime(async move {
+            if let Some(parent) = written.parent() {
+                tokio::fs::create_dir_all(parent).await?;
+            }
+            tokio::fs::write(&written, bytes).await
+        })
+        .await?
+        .map_err(|error| invalid(format!("could not save the file: {error}")))?;
+        Ok(records::json(&result))
     }
 
     pub async fn cancel(&self, agent_id: String) -> Result<(), MobileError> {
@@ -889,16 +979,18 @@ impl Connection {
     }
 
     /// Starts a chat the way the host's app would, in one of its projects, and
-    /// answers with the chat's agent id.
+    /// answers with the chat's agent id. `permission_mode` overrides the
+    /// launcher's, as in `set_permission_mode`.
     pub async fn start_chat(
         &self,
         launcher: String,
         project: String,
+        permission_mode: Option<String>,
     ) -> Result<String, MobileError> {
         let request = Request::StartChat {
             launcher,
             project,
-            permission_mode: None,
+            permission_mode,
             model: None,
             effort: None,
         };
@@ -959,38 +1051,6 @@ impl Connection {
     /// Asks the host to forget this phone. The host closes the connection after.
     pub async fn unpair(&self) -> Result<(), MobileError> {
         self.done(Request::Unpair).await
-    }
-
-    pub async fn attach(&self, session: u64) -> Result<AttachedScreen, MobileError> {
-        match self.reply(Request::Attach { id: session }).await? {
-            Reply::Attached(attached) => Ok(AttachedScreen {
-                replay: attached.replay,
-                alternate_screen: attached.alternate_screen,
-                exited: attached.exited,
-            }),
-            Reply::Response(_) => Err(unexpected()),
-        }
-    }
-
-    pub async fn write(&self, session: u64, bytes: Vec<u8>) -> Result<(), MobileError> {
-        let client = self.client()?;
-        Ok(on_runtime(async move { client.write(session, &bytes).await }).await??)
-    }
-
-    pub async fn resize(&self, session: u64, cols: u16, rows: u16) -> Result<(), MobileError> {
-        self.done(Request::Resize {
-            id: session,
-            cols,
-            rows,
-        })
-        .await
-    }
-
-    /// Says the phone has shown this many of a session's output bytes, so the
-    /// core sends more.
-    pub fn ack(&self, session: u64, bytes: u64) -> Result<(), MobileError> {
-        self.client()?.ack(session, bytes as usize);
-        Ok(())
     }
 
     pub fn is_open(&self) -> bool {
@@ -1122,7 +1182,7 @@ mod tests {
         )
         .expect("reads");
         assert!(prefs.needs_you && !prefs.finished && prefs.problems);
-        assert_eq!(prefs.when, sikemux_core::protocol::NotifyWhen::Away);
+        assert_eq!(prefs.when, sikemux_wire::protocol::NotifyWhen::Away);
         assert_eq!(prefs.muted[0].agent_id, "chat-7f3a");
         assert!(notify_prefs(r#"{"when":"sometimes"}"#).is_err());
     }
@@ -1185,29 +1245,6 @@ mod tests {
     }
 
     #[test]
-    fn a_device_key_is_32_bytes_and_new_each_time() {
-        let key = new_device_key();
-        assert_eq!(key.len(), 32);
-        assert_ne!(key, new_device_key());
-    }
-
-    #[test]
-    fn an_identity_is_the_key_s_and_signs_without_going_online() {
-        let key = SecretKey::generate();
-        let identity = DeviceIdentity::new(key.to_bytes().to_vec()).expect("an identity");
-        assert_eq!(identity.id(), key.public().to_string());
-        let nonce = "ab".repeat(32);
-        assert_eq!(
-            identity.sign_live(nonce.clone()).expect("signs"),
-            sign_live(&key, &nonce).expect("signs")
-        );
-        assert!(matches!(
-            DeviceIdentity::new(vec![1; 31]),
-            Err(MobileError::Invalid { .. })
-        ));
-    }
-
-    #[test]
     fn a_backdrop_is_decoded_and_named_inside_its_folder() {
         let (extension, bytes) = decode_data_url("data:image/png;base64,aGk=").unwrap();
         assert_eq!((extension, bytes.as_slice()), ("png", &b"hi"[..]));
@@ -1217,18 +1254,6 @@ mod tests {
             backdrop_path(Path::new("/b"), "../../etc/passwd", "png"),
             PathBuf::from("/b/______etc_passwd.png")
         );
-    }
-
-    #[test]
-    fn an_unpaired_phone_is_told_so_rather_than_shown_a_network_error() {
-        assert!(matches!(
-            MobileError::from(ClientError::NotPaired),
-            MobileError::Unpaired
-        ));
-        assert!(matches!(
-            MobileError::from(ClientError::Disconnected),
-            MobileError::Connection { .. }
-        ));
     }
 
     #[test]
@@ -1259,14 +1284,6 @@ mod tests {
     }
 
     impl CoreListener for Recorder {
-        fn output(&self, session: u64, bytes: Vec<u8>) -> Result<(), ListenerError> {
-            self.calls
-                .lock()
-                .unwrap()
-                .push(format!("output {session} {}", bytes.len()));
-            Ok(())
-        }
-
         fn events(&self, events: Vec<CoreEvent>) -> Result<(), ListenerError> {
             self.calls
                 .lock()
@@ -1290,8 +1307,8 @@ mod tests {
         Event::Chat {
             agent_id: "agent".into(),
             seq,
-            event: sikemux_core::protocol::ChatEvent {
-                kind: sikemux_core::protocol::ChatEventKind::TurnStarted,
+            event: sikemux_wire::protocol::ChatEvent {
+                kind: sikemux_wire::protocol::ChatEventKind::TurnStarted,
                 payload: serde_json::json!({}),
             },
         }
@@ -1313,7 +1330,7 @@ mod tests {
     }
 
     #[test]
-    fn events_that_queue_up_reach_the_app_together_and_in_order_with_output() {
+    fn events_that_queue_up_reach_the_app_together_and_in_order() {
         let recorder = Arc::new(Recorder::default());
         let (deliveries, queue) = mpsc::unbounded_channel();
         let sink = ListenerSink(deliveries);
@@ -1323,10 +1340,7 @@ mod tests {
         sink.event(chat_event(3));
         sink.closed();
         deliver(recorder.clone(), queue, Arc::new(AtomicBool::new(true)));
-        assert_eq!(
-            delivered(&recorder),
-            ["events 2", "output 7 2", "events 1", "closed"]
-        );
+        assert_eq!(delivered(&recorder), ["events 3", "closed"]);
     }
 
     #[test]
@@ -1338,13 +1352,9 @@ mod tests {
         let (deliveries, queue) = mpsc::unbounded_channel();
         let sink = ListenerSink(deliveries);
         sink.event(chat_event(1));
-        sink.output(1, b"x");
         sink.event(chat_event(2));
         sink.closed();
         deliver(recorder.clone(), queue, Arc::new(AtomicBool::new(true)));
-        assert_eq!(
-            delivered(&recorder),
-            ["events 1", "output 1 1", "events 1", "closed"]
-        );
+        assert_eq!(delivered(&recorder), ["events 2", "closed"]);
     }
 }

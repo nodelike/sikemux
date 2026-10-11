@@ -31,7 +31,7 @@ export function useForget(device: PairedDevice | undefined, done?: () => void) {
       return;
     }
     try {
-      forgetBackdrop(device.backdrop);
+      forgetBackdrop(device.core, device.backdrop);
     } catch {}
     haptics.success();
     done?.();

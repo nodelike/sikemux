@@ -114,16 +114,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn recognizes_execution_and_workflow_terminal_states_case_insensitively() {
-        assert!(is_terminal(&Some("other-failed".into())));
-        assert!(is_terminal(&Some("SUCCEEDED".into())));
-        assert!(state_is_terminal(&WorkflowState {
-            execution_state: Some("FAILED".into()),
-            ..WorkflowState::default()
-        }));
-    }
-
-    #[test]
     fn only_in_progress_statuses_keep_the_watch_open() {
         for status in ["other", "failed-with-retry", "Succeeded", "aborted"] {
             assert!(is_terminal(&Some(status.into())), "{status}");

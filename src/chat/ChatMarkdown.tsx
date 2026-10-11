@@ -6,13 +6,14 @@ import { CopyButton } from "../ui/CopyButton";
 import { FileIcon } from "../ui/FileIcon";
 import { hasPrimaryModifier } from "../lib/platform";
 import { Markdown, type MarkdownComponents } from "../markdown/Markdown";
+import { warmMarkdown } from "../markdown/useMarkdownBlocks";
 import type { MarkdownOptions } from "../markdown/types";
 import { fencedDiff } from "./diff";
 import { CodeTokens, fenceLanguage, useCodeTokens, useDiffTokens } from "./codeHighlight";
 import { localImagePath, useImagePreview } from "./imagePreview";
 import { ChatFileRef, useFileRef } from "./FileRef";
 import { pathComponents, type PathGuess } from "./markdownPaths";
-import { useLongTextFold } from "./longText";
+import { cutLongText, useLongTextFold } from "./longText";
 import { ChatAgentContext, openLink } from "./chatAgent";
 import { ChatImage } from "./ChatImage";
 import { DiffText } from "./DiffView";
@@ -115,7 +116,7 @@ function CodeTitle({ info, text }: { info?: string; text: string }) {
             ) : (
                 name && (
                     <span className="chat-code-name">
-                        <FileIcon name={name} size={16} />
+                        <FileIcon name={name} size={14} />
                         {name}
                     </span>
                 )
@@ -137,6 +138,13 @@ const markdownComponents: MarkdownComponents = { link: ChatLink, fence: ChatFenc
 const AGENT_MARKDOWN: MarkdownOptions = { gfm: true, htmlAsText: false, fileLinks: true };
 /* What a person typed shows its markup as the characters they typed. */
 const TYPED_MARKDOWN: MarkdownOptions = { gfm: true, htmlAsText: true, fileLinks: true };
+
+/** Reads finished texts ahead of the transcript drawing them, in the folded form it first shows, in the order given. */
+export function warmChatMarkdown(texts: readonly { text: string; typed: boolean }[]): Promise<void> {
+    return warmMarkdown(
+        texts.map(({ text, typed }) => ({ text: cutLongText(text)?.head ?? text, options: typed ? TYPED_MARKDOWN : AGENT_MARKDOWN })),
+    );
+}
 
 function LiveMarkdown({ text, live, typed = false }: { text: string; live: boolean; typed?: boolean }) {
     return <Markdown text={text} options={typed ? TYPED_MARKDOWN : AGENT_MARKDOWN} live={live} components={markdownComponents} />;

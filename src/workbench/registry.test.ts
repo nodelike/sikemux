@@ -11,8 +11,6 @@ import {
     createWorkbenchItemRef,
     workbenchItemRefFromPane,
     type PersistedCodecResult,
-    type WorkbenchItemController,
-    type WorkbenchItemDefinition,
 } from "./registry";
 
 const BUILTIN_KINDS = ["terminal", "editor", "git", "diff", "search", "agent", "desk"] as const satisfies readonly CorePaneKind[];
@@ -61,53 +59,6 @@ describe("built-in workbench item manifest", () => {
 });
 
 describe("WorkbenchItemRegistry lifecycle", () => {
-    it("runs custom controller lifecycle and cleanup hooks", async () => {
-        const events: string[] = [];
-        const controller: WorkbenchItemController = {
-            activate: () => {
-                events.push("activate");
-            },
-            deactivate: async () => {
-                events.push("deactivate");
-            },
-            canClose: () => {
-                events.push("can-close");
-                return false;
-            },
-            dispose: () => {
-                events.push("dispose");
-            },
-        };
-        const definition: WorkbenchItemDefinition<"notes", string> = {
-            kind: "notes",
-            defaultTitle: "Notes",
-            create: (ref) => {
-                events.push(`create:${ref.id}`);
-                return controller;
-            },
-            persisted: {
-                version: 3,
-                encode: (state) => state,
-                decode: (encoded): PersistedCodecResult<string> => (typeof encoded === "string" ? { ok: true, value: encoded } : { ok: false }),
-            },
-            cleanupDraft: async (state) => {
-                events.push(`cleanup:${state}`);
-            },
-        };
-        const registry = new WorkbenchItemRegistry();
-        registry.register(definition);
-        const ref = createWorkbenchItemRef("item-notes", "notes");
-        const created = registry.create(ref);
-
-        await created.activate();
-        await created.deactivate();
-        expect(await created.canClose()).toBe(false);
-        await registry.cleanupDraft(ref, "draft");
-        await created.dispose();
-
-        expect(events).toEqual(["create:item-notes", "activate", "deactivate", "can-close", "cleanup:draft", "dispose"]);
-    });
-
     it("rejects duplicate and unknown registrations", () => {
         const registry = new WorkbenchItemRegistry();
         expect(() => registry.register(BUILTIN_WORKBENCH_ITEM_MANIFEST.editor)).toThrow(DuplicateWorkbenchItemKindError);

@@ -11,6 +11,7 @@ import { forgetPathState } from "./pathExistence";
 const mocks = vi.hoisted(() => ({
     eventListener: null as ((event: AcpEvent) => void) | null,
     prompt: vi.fn(async () => {}),
+    edit: vi.fn(async () => {}),
     steer: vi.fn(async () => "injected"),
     setPermissionMode: vi.fn(async () => {}),
     stopTask: vi.fn(async () => {}),
@@ -55,6 +56,7 @@ vi.mock("../api/acp", () => ({
         setConfig: mocks.setConfig,
         stop: vi.fn(async () => {}),
         prompt: mocks.prompt,
+        edit: mocks.edit,
         steer: mocks.steer,
         cancel: vi.fn(async () => {}),
         stopTask: mocks.stopTask,
@@ -121,8 +123,9 @@ class TestResizeObserver {
 
 const nextFrame = () => act(async () => new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve())));
 
-function reportResize(target: Element) {
-    const entries = [{ target } as ResizeObserverEntry];
+function reportResize(target: Element, height?: number) {
+    const borderBoxSize = height === undefined ? undefined : [{ blockSize: height, inlineSize: 0 }];
+    const entries = [{ target, borderBoxSize } as unknown as ResizeObserverEntry];
     const observer = {} as ResizeObserver;
     act(() => resizeCallbacks.get(target)?.forEach((callback) => callback(entries, observer)));
 }
@@ -130,6 +133,7 @@ function reportResize(target: Element) {
 function fakeScroller(element: HTMLElement, clientHeight: number) {
     let scrollTop = 0;
     let scrollHeight = clientHeight;
+    let rowHeight = 0;
     Object.defineProperty(element, "clientHeight", { configurable: true, get: () => clientHeight });
     Object.defineProperty(element, "scrollHeight", { configurable: true, get: () => scrollHeight });
     Object.defineProperty(element, "scrollTop", {
@@ -150,10 +154,13 @@ function fakeScroller(element: HTMLElement, clientHeight: number) {
             scrollTop = top;
             fireEvent.scroll(element);
         },
+        // The last row measuring taller, which the list reports as it places it.
         grow(height: number) {
+            const rows = element.querySelectorAll(".chat-virtual-row");
+            const row = rows[rows.length - 1];
+            rowHeight += height - scrollHeight;
             scrollHeight = height;
-            const content = element.querySelector(".chat-scroll-content");
-            if (content) reportResize(content);
+            if (row) reportResize(row, rowHeight);
             fireEvent.scroll(element);
         },
     };
@@ -492,8 +499,45 @@ describe("AgentChatPane", () => {
 
         emit("turn_completed", {});
 
-        await waitFor(() => expect(mocks.prompt).toHaveBeenCalledWith(agent.id, "Then look at the tests", []));
+        await waitFor(() => expect(mocks.prompt).toHaveBeenCalledWith(agent.id, "Then look at the tests", [], [], expect.any(String)));
         expect(screen.queryByLabelText("1 queued")).not.toBeInTheDocument();
+    });
+
+    it("writes a sent message again and takes the chat back to before it", async () => {
+        mocks.start.mockResolvedValueOnce({ sessionId: "session-1", capabilities: { editing: true }, setup: {} });
+        render(<AgentChatPane agent={agent} cwd="/repo" active onBusyChange={() => {}} />);
+        const composer = screen.getByRole("textbox", { name: "Message agent" });
+        await waitFor(() => expect(composer).toBeEnabled());
+        fireEvent.change(composer, { target: { value: "First try" } });
+        fireEvent.keyDown(composer, { key: "Enter" });
+        await waitFor(() => expect(mocks.prompt).toHaveBeenCalledTimes(1));
+        const messageId = (mocks.prompt.mock.calls[0] as unknown[])[4];
+        emit("session_update", {
+            sessionId: "session-1",
+            update: { sessionUpdate: "agent_message_chunk", messageId: "a1", content: { type: "text", text: "The old answer" } },
+        });
+        emit("turn_completed", {});
+
+        fireEvent.click(await screen.findByRole("button", { name: "Edit message" }));
+        const field = screen.getByRole("textbox", { name: "Edit message" });
+        fireEvent.change(field, { target: { value: "Second try" } });
+        fireEvent.keyDown(field, { key: "Enter" });
+
+        await waitFor(() => expect(mocks.edit).toHaveBeenCalledWith(agent.id, messageId, "Second try", [], [], false));
+        expect(screen.queryByText("The old answer")).not.toBeInTheDocument();
+        expect(screen.queryByText("First try")).not.toBeInTheDocument();
+        expect(screen.getByText("Second try")).toBeInTheDocument();
+    });
+
+    it("offers no edit while the agent cannot take one back", async () => {
+        render(<AgentChatPane agent={agent} cwd="/repo" active onBusyChange={() => {}} />);
+        const composer = screen.getByRole("textbox", { name: "Message agent" });
+        await waitFor(() => expect(composer).toBeEnabled());
+        fireEvent.change(composer, { target: { value: "Hello" } });
+        fireEvent.keyDown(composer, { key: "Enter" });
+        emit("turn_completed", {});
+        await waitFor(() => expect(mocks.prompt).toHaveBeenCalled());
+        expect(screen.queryByRole("button", { name: "Edit message" })).not.toBeInTheDocument();
     });
 
     it("brings back sent messages with the arrow keys from an empty composer", async () => {
@@ -654,7 +698,7 @@ describe("AgentChatPane", () => {
 
         emit("turn_completed", {});
 
-        await waitFor(() => expect(mocks.prompt).toHaveBeenCalledWith(agent.id, "Then the tests\n\nAnd the rail", []));
+        await waitFor(() => expect(mocks.prompt).toHaveBeenCalledWith(agent.id, "Then the tests\n\nAnd the rail", [], [], expect.any(String)));
         expect(mocks.prompt).toHaveBeenCalledTimes(2);
         expect(screen.queryByLabelText("2 queued")).not.toBeInTheDocument();
     });
@@ -673,7 +717,7 @@ describe("AgentChatPane", () => {
 
         emit("turn_completed", {});
 
-        await waitFor(() => expect(mocks.prompt).toHaveBeenCalledWith(agent.id, "Then the tests", []));
+        await waitFor(() => expect(mocks.prompt).toHaveBeenCalledWith(agent.id, "Then the tests", [], [], expect.any(String)));
         expect(await screen.findByLabelText("1 queued")).toHaveTextContent("/compact");
     });
 
@@ -1157,14 +1201,14 @@ describe("AgentChatPane", () => {
         expect(document.querySelector(".chat-tool-spinner")).toBeNull();
     });
 
-    it("shows adapter progress and waits to be asked before starting a failed adapter again", async () => {
+    it("shows the agent starting and waits to be asked before starting a failed agent again", async () => {
         render(<AgentChatPane agent={agent} cwd="/repo" active profile={undefined} onBusyChange={() => {}} />);
         await waitFor(() => expect(mocks.eventListener).not.toBeNull());
 
-        emit("status", { state: "installing" });
-        expect(screen.getAllByText("Installing structured-session adapter…")[0]).toBeInTheDocument();
-        emit("status", { state: "error", reason: "failed", message: "adapter failed" });
-        emit("error", { message: "adapter failed" });
+        emit("status", { state: "starting" });
+        expect(screen.getAllByText("Starting agent…")[0]).toBeInTheDocument();
+        emit("status", { state: "error", reason: "failed", message: "agent failed" });
+        emit("error", { message: "agent failed" });
         expect(screen.getByText("Structured session unavailable.")).toBeInTheDocument();
         expect(mocks.start).toHaveBeenCalledTimes(1);
 
@@ -1261,7 +1305,7 @@ describe("AgentChatPane", () => {
             fireEvent.change(editor, { target: { value: "carry on" } });
             fireEvent.keyDown(editor, { key: "Enter" });
 
-            await waitFor(() => expect(mocks.prompt).toHaveBeenCalledWith(agent.id, "carry on", []));
+            await waitFor(() => expect(mocks.prompt).toHaveBeenCalledWith(agent.id, "carry on", [], [], expect.any(String)));
         });
     });
 
@@ -1302,7 +1346,7 @@ describe("AgentChatPane", () => {
             sessionId: "session-1",
             update: { sessionUpdate: "async_task_state_update", asyncTaskId: "task-1", state: "stopped" },
         });
-        await waitFor(() => expect(screen.queryByText("pnpm test")).not.toBeInTheDocument());
+        await waitFor(() => expect(screen.queryByRole("button", { name: "Stop pnpm test" })).not.toBeInTheDocument());
     });
 
     it("says the agent is still in use while a background task outlives the turn", async () => {
@@ -1371,35 +1415,67 @@ describe("AgentChatPane", () => {
         expect(screen.queryByRole("option", { name: /compact/i })).not.toBeInTheDocument();
     });
 
-    it("stays pinned while a restored transcript settles, and lets go when the reader scrolls up", async () => {
+    /* The transcript is laid out from the bottom, so its scroll position is 0
+       at the bottom and negative above it, and the browser holds the bottom
+       still by itself. */
+    it("rests on the bottom, and lets go when the reader scrolls up", async () => {
+        await openTranscript();
+        const scroller = document.querySelector(".chat-scroll") as HTMLElement;
+        expect(screen.queryByRole("button", { name: "Jump to latest message" })).not.toBeInTheDocument();
+
+        scroller.scrollTop = -40;
+        fireEvent.scroll(scroller);
+        expect(screen.queryByRole("button", { name: "Jump to latest message" })).not.toBeInTheDocument();
+
+        scroller.scrollTop = -600;
+        fireEvent.scroll(scroller);
+        fireEvent.click(await screen.findByRole("button", { name: "Jump to latest message" }));
+        expect(scroller.scrollTop).toBe(0);
+        expect(screen.queryByRole("button", { name: "Jump to latest message" })).not.toBeInTheDocument();
+    });
+
+    it("keeps the reader's place when something grows below them, and not when the row they are on draws", async () => {
+        await openTranscript();
+        const scroller = document.querySelector(".chat-scroll") as HTMLElement;
+        const content = document.querySelector(".chat-scroll-content") as HTMLElement;
+        const row = document.querySelector(".chat-row") as HTMLElement;
+        const reply = row.cloneNode() as HTMLElement;
+        row.after(reply);
+        let box = { top: -40, bottom: 120 };
+        scroller.getBoundingClientRect = () => ({ top: 0, left: 0, width: 600, height: 400, bottom: 400, right: 600 }) as DOMRect;
+        row.getBoundingClientRect = () => box as DOMRect;
+        Object.defineProperty(document, "elementFromPoint", { configurable: true, value: () => row });
+
+        scroller.scrollTop = -900;
+        fireEvent.scroll(scroller);
+        // The row at the top of the view is drawn at its real height, which it grows into upwards.
+        box = { top: -400, bottom: 120 };
+        reportResize(content);
+        expect(scroller.scrollTop).toBe(-900);
+
+        // A reply streaming in below pushes the row the reader is on up the screen.
+        box = { top: -600, bottom: -80 };
+        reportResize(content);
+        expect(scroller.scrollTop).toBe(-1100);
+        reply.remove();
+        Reflect.deleteProperty(document, "elementFromPoint");
+    });
+
+    it("shows a resumed chat's history once it is all in", async () => {
+        let answer: (response: { sessionId: string; capabilities: object; setup: object }) => void = () => {};
+        mocks.start.mockImplementationOnce(() => new Promise((resolve) => (answer = resolve)));
         render(<AgentChatPane agent={{ ...agent, resumeId: "old-session" }} cwd="/repo" active visible onBusyChange={() => {}} />);
-        await waitFor(() => expect(mocks.eventListener).not.toBeNull());
+        await waitFor(() => expect(mocks.start).toHaveBeenCalled());
+
         emit("session_update", {
             sessionId: "session-1",
             update: { sessionUpdate: "user_message_chunk", content: { type: "text", text: "Earlier question" } },
         });
-        emit("ready", { capabilities: {}, setup: {} });
+        await nextFrame();
+        expect(screen.queryByText("Earlier question")).not.toBeInTheDocument();
 
-        const scroller = document.querySelector(".chat-scroll") as HTMLElement;
-        const view = fakeScroller(scroller, 400);
-        view.scrollTo(600);
-        expect(screen.queryByRole("button", { name: "Jump to latest message" })).not.toBeInTheDocument();
-
-        // Rows measuring taller than their estimate push the bottom away. The
-        // reader has not moved, so the transcript must not come unstuck.
-        view.grow(3000);
-        expect(screen.queryByRole("button", { name: "Jump to latest message" })).not.toBeInTheDocument();
-        expect(scroller.scrollTop).toBe(2600);
-
-        // Settling also moves the scroller itself, which must not read as the
-        // reader leaving — that left old sessions stranded mid-transcript.
-        view.driftTo(2200);
-        expect(screen.queryByRole("button", { name: "Jump to latest message" })).not.toBeInTheDocument();
-        view.grow(3600);
-        expect(scroller.scrollTop).toBe(3200);
-
-        view.scrollTo(200);
-        expect(await screen.findByRole("button", { name: "Jump to latest message" })).toBeInTheDocument();
+        await act(async () => answer({ sessionId: "session-1", capabilities: {}, setup: {} }));
+        expect(await screen.findByText("Earlier question")).toBeInTheDocument();
     });
 
     it("focuses the composer once a chat connects, and again when a hidden one is reopened", async () => {
@@ -1443,6 +1519,6 @@ describe("AgentChatPane", () => {
 
         fireEvent.change(editor, { target: { value: "Review this" } });
         fireEvent.click(screen.getByRole("button", { name: "Send message" }));
-        await waitFor(() => expect(mocks.prompt).toHaveBeenCalledWith(agent.id, "Review this", ["/repo/src/App.tsx"]));
+        await waitFor(() => expect(mocks.prompt).toHaveBeenCalledWith(agent.id, "Review this", ["/repo/src/App.tsx"], [], expect.any(String)));
     });
 });

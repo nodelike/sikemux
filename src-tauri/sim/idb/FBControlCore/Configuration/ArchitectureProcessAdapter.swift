@@ -1,0 +1,214 @@
+/*
+ * Copyright (c) Meta Platforms, Inc. and affiliates.
+ *
+ * This source code is licensed under the MIT license found in the
+ * LICENSE file in the root directory of this source tree.
+ */
+
+import Foundation
+
+// https://developer.apple.com/documentation/apple-silicon/about-the-rosetta-translation-environment#Determine-Whether-Your-App-Is-Running-as-a-Translated-Binary
+private func processIsTranslated() -> Int32 {
+  var ret: Int32 = 0
+  var size = MemoryLayout<Int32>.size
+  // patternlint-disable-next-line prefer-metasystemcontrol-byname
+  let result = sysctlbyname("sysctl.proc_translated", &ret, &size, nil, 0)
+  if result == -1 {
+    if errno == ENOENT {
+      return 0
+    }
+    return -1
+  }
+  return ret
+}
+
+enum ArchitectureAdapterError: Error, LocalizedError {
+  case noCompatibleArchitecture(requested: [String], host: [String])
+  case verificationFailed(architecture: String, binary: String)
+  case extractionFailed(architecture: String, binary: String)
+  case otoolFailed(binary: String)
+
+  public var errorDescription: String? {
+    switch self {
+    case let .noCompatibleArchitecture(requested, host):
+      return "Could not select an architecture from \(CollectionInformation.oneLineDescription(from: requested)) compatible with \(CollectionInformation.oneLineDescription(from: host))"
+    case let .verificationFailed(architecture, binary):
+      return "Desired architecture \(architecture) not found in \(binary) binary"
+    case let .extractionFailed(architecture, binary):
+      return "Failed to thin \(architecture) architecture out from \(binary) binary"
+    case let .otoolFailed(binary):
+      return "Failed query otool -l from \(binary)"
+    }
+  }
+}
+
+public enum ArchitectureProcessAdapter {
+
+  private static func selectArchitecture(
+    from requestedArchitectures: Set<Architecture>,
+    supportedArchitectures: Set<Architecture>
+  ) -> Architecture? {
+    if requestedArchitectures.contains(.arm64) && supportedArchitectures.contains(.arm64) {
+      return .arm64
+    }
+    if requestedArchitectures.contains(.x86_64) && supportedArchitectures.contains(.x86_64) {
+      return .x86_64
+    }
+    return nil
+  }
+
+  /// Force binaries to be launched in desired architectures.
+  public static func adaptProcessConfiguration(
+    _ processConfiguration: ProcessSpawnConfiguration,
+    toAnyArchitectureIn requestedArchitectures: Set<Architecture>,
+    hostArchitectures: Set<Architecture> = ArchitectureProcessAdapter.hostMachineSupportedArchitectures(),
+    temporaryDirectory: URL
+  ) async throws -> ProcessSpawnConfiguration {
+    guard let architecture = selectArchitecture(from: requestedArchitectures, supportedArchitectures: hostArchitectures) else {
+      throw ArchitectureAdapterError.noCompatibleArchitecture(requested: requestedArchitectures.map(\.rawValue), host: hostArchitectures.map(\.rawValue))
+    }
+
+    try await verifyArchitectureAvailable(processConfiguration.launchPath, architecture: architecture)
+
+    let fileName = (processConfiguration.launchPath as NSString).lastPathComponent + UUID().uuidString + "." + (architecture.rawValue)
+    let filePath = temporaryDirectory.appendingPathComponent(fileName, isDirectory: false)
+    try await extractArchitecture(architecture, launchPath: processConfiguration.launchPath, outputPath: filePath)
+
+    let dyldFrameworkPath = try await getFixedupDyldFrameworkPath(fromOriginalBinary: processConfiguration.launchPath)
+    var updatedEnvironment = processConfiguration.environment as [String: String]
+    updatedEnvironment["DYLD_FRAMEWORK_PATH"] = dyldFrameworkPath
+    updatedEnvironment["DYLD_LIBRARY_PATH"] = dyldFrameworkPath
+    return ProcessSpawnConfiguration(
+      launchPath: filePath.path,
+      arguments: processConfiguration.arguments,
+      environment: updatedEnvironment,
+      io: processConfiguration.io,
+      mode: processConfiguration.mode
+    )
+  }
+
+  /// Verifies that we can extract desired architecture from binary
+  private static func verifyArchitectureAvailable(
+    _ binary: String,
+    architecture: Architecture
+  ) async throws {
+    let result = try await Subprocess(executable: "/usr/bin/lipo", arguments: [binary, "-verify_arch", architecture.rawValue])
+      .run(output: .closed, error: .closed, exitPolicy: .any, timeout: 20)
+    try result.checkExitedCleanly(
+      orThrow: ArchitectureAdapterError.verificationFailed(architecture: architecture.rawValue, binary: binary))
+  }
+
+  private static func extractArchitecture(
+    _ architecture: Architecture,
+    launchPath: String,
+    outputPath: URL
+  ) async throws {
+    let result = try await Subprocess(executable: "/usr/bin/lipo", arguments: [launchPath, "-extract", architecture.rawValue, "-output", outputPath.path])
+      .run(
+        output: .closed,
+        error: .lines { line in
+          NSLog("LINE %@\n", line)
+        },
+        exitPolicy: .any,
+        timeout: 10)
+    try result.checkExitedCleanly(
+      orThrow: ArchitectureAdapterError.extractionFailed(architecture: architecture.rawValue, binary: launchPath))
+  }
+
+  /// After we lipoed out arch from binary, new binary placed into temporary folder.
+  /// That makes all dynamic library imports become incorrect. To fix that up we
+  /// have to specify `DYLD_FRAMEWORK_PATH` correctly.
+  private static func getFixedupDyldFrameworkPath(
+    fromOriginalBinary binary: String
+  ) async throws -> String {
+    let binaryFolder = ((binary as NSString).resolvingSymlinksInPath as NSString).deletingLastPathComponent
+
+    let otoolOutput = try await getOtoolInfo(fromBinary: binary)
+    var rpaths: [String] = []
+    for binaryRpath in extractRpaths(fromOtoolOutput: otoolOutput) {
+      if binaryRpath.hasPrefix("@executable_path") {
+        rpaths.append(binaryRpath.replacingOccurrences(of: "@executable_path", with: binaryFolder))
+      }
+    }
+    return rpaths.joined(separator: ":")
+  }
+
+  private static func getOtoolInfo(
+    fromBinary binary: String
+  ) async throws -> String {
+    let result = try await Subprocess(executable: "/usr/bin/otool", arguments: ["-l", binary])
+      .run(output: .string, error: .closed, exitPolicy: .any, timeout: 10)
+    try result.checkExitedCleanly(orThrow: ArchitectureAdapterError.otoolFailed(binary: binary))
+    return result.standardOutput
+  }
+
+  /// Extracts rpath from full otool output.
+  /// Each `LC_RPATH` entry like
+  /// ```
+  /// Load command 19
+  ///   cmd LC_RPATH
+  ///   cmdsize 48
+  ///    path @executable_path/../../Frameworks/ (offset 12)
+  /// ```
+  /// transforms to
+  /// ```
+  /// @executable_path/../../Frameworks/
+  /// ```
+  private static func extractRpaths(fromOtoolOutput otoolOutput: String) -> Set<String> {
+    let lines = otoolOutput.components(separatedBy: "\n")
+    var result = Set<String>()
+
+    let lcRpathValueOffset = 2
+
+    for (index, line) in lines.enumerated() {
+      if isLcPathDefinitionLine(line) && index + lcRpathValueOffset < lines.count {
+        let rpathLine = lines[index + lcRpathValueOffset]
+        if let rpath = extractRpathValue(fromLine: rpathLine) {
+          result.insert(rpath)
+        }
+      }
+    }
+    return result
+  }
+
+  /// Checking for `LC_RPATH` in load commands
+  private static func isLcPathDefinitionLine(_ line: String) -> Bool {
+    var hasCMD = false
+    var hasLcRpath = false
+    for component in line.components(separatedBy: " ") {
+      if component == "cmd" {
+        hasCMD = true
+      } else if component == "LC_RPATH" {
+        hasLcRpath = true
+      }
+    }
+    return hasCMD && hasLcRpath
+  }
+
+  // Splits on spaces, so rpaths containing spaces are unsupported; the Xcode binaries this adapts have none.
+  private static func extractRpathValue(fromLine line: String) -> String? {
+    for component in line.components(separatedBy: " ") {
+      if component.hasPrefix("@executable_path") {
+        return component
+      }
+    }
+    return nil
+  }
+
+  /// Returns supported architectures based on companion launch architecture and launch under rosetta determination.
+  public static func hostMachineSupportedArchitectures() -> Set<Architecture> {
+    #if arch(x86_64)
+    let isTranslated = processIsTranslated()
+    if isTranslated == 1 {
+      // Companion running as x86_64 with translation (Rosetta) -> Processor supports Arm64 and x86_64
+      return [.arm64, .x86_64]
+    } else {
+      // Companion running as x86_64 and translation is disabled or unknown
+      // Assuming processor only supports x86_64 even if translation state is unknown
+      return [.x86_64]
+    }
+    #else
+    return [.arm64, .x86_64]
+    #endif
+  }
+}

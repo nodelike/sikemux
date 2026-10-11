@@ -36,10 +36,11 @@ export function usePromptQueue({
 
     const promptNow = useCallback(
         async ({ text, paths, context }: OutgoingMessage) => {
-            dispatch({ type: "local_prompt", text, paths, context });
+            const messageId = crypto.randomUUID();
+            dispatch({ type: "local_prompt", text, paths, context, messageId });
             cmd.titleAgentFromPrompt(agentRef.current.id, text || context[0]?.title || "");
             try {
-                await acpApi.prompt(agentRef.current.id, text, paths, ...contextArgs(context));
+                await acpApi.prompt(agentRef.current.id, text, paths, context, messageId);
             } catch (error) {
                 dispatch({ type: "error", message: error instanceof Error ? error.message : String(error) });
             }

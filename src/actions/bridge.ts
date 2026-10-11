@@ -1,6 +1,5 @@
 import type { ActionContextInput } from "./registry";
-import type { ApplicationActionExtensionManifest, ApplicationActionMatch, ApplicationActionRuntime, ApplicationResolvedAction } from "./application";
-import type { InternalExtensionRegistration } from "../extensions/host";
+import type { ApplicationActionMatch, ApplicationActionRuntime, ApplicationResolvedAction } from "./application";
 import { activeAgentId } from "../state/selectors";
 import type { StoreState } from "../state/store";
 import type { LayoutNode, PaneNode } from "../state/types";
@@ -39,11 +38,6 @@ export function loadApplicationActions(): Promise<ApplicationActionRuntime> {
             throw error;
         });
     return loadPromise;
-}
-
-/** Register a trusted, in-process extension. No module loading is exposed. */
-export async function registerApplicationActionExtension(manifest: ApplicationActionExtensionManifest): Promise<InternalExtensionRegistration> {
-    return (await loadApplicationActions()).register(manifest);
 }
 
 export function subscribeApplicationActions(listener: () => void): () => void {

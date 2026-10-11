@@ -1,4 +1,4 @@
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
     addAccount: vi.fn(),
     signIn: vi.fn(),
     renameSession: vi.fn(() => Promise.resolve()),
+    deleteSession: vi.fn(() => Promise.resolve()),
 }));
 
 vi.mock("../api/agents", () => ({
@@ -23,6 +24,7 @@ vi.mock("../api/agents", () => ({
         signIn: mocks.signIn,
         onSignInPage: () => Promise.resolve(() => {}),
         renameSession: mocks.renameSession,
+        deleteSession: mocks.deleteSession,
     },
 }));
 
@@ -66,6 +68,7 @@ vi.stubGlobal(
 );
 
 import type { RecentChatsPage, RecentChatsRequest } from "../api/agents";
+import { acceptDialog, dismissDialog, useDialogs } from "../state/dialog";
 import { invalidate } from "../state/resources";
 import { getState, setState } from "../state/store";
 import { AgentRailBody } from "./AgentRail";
@@ -113,6 +116,7 @@ beforeEach(() => {
     });
     mocks.account.mockImplementation(async (_agent: string, _executable?: string, configPath?: string) => ({
         signedIn: true,
+        name: null,
         email: configPath ? "work@example.com" : "me@example.com",
         plan: null,
         organization: null,
@@ -274,6 +278,48 @@ describe("agent rail", () => {
         expect(agentIdsOf(getState(), "sess-project")).toHaveLength(0);
     });
 
+    it("deletes a recent chat for good once the person confirms", async () => {
+        mocks.available.mockResolvedValue([{ type: "claude", label: "Claude", command: "claude", defaultModel: null, defaultEffort: null }]);
+        invalidate((kind) => kind === "agents.catalog");
+        const user = userEvent.setup();
+        render(<AgentRailBody />);
+
+        await user.pointer({ keys: "[MouseRight]", target: await screen.findByRole("button", { name: /Fix terminal focus/ }) });
+        await user.click(screen.getByRole("menuitem", { name: "Delete…" }));
+        expect(useDialogs.getState().dialog).toMatchObject({ kind: "confirm", title: "Delete this chat?", destructive: true });
+        expect(mocks.deleteSession).not.toHaveBeenCalled();
+
+        act(() => acceptDialog(useDialogs.getState().dialog!.id));
+
+        await waitFor(() => expect(screen.queryByRole("button", { name: /Fix terminal focus/ })).not.toBeInTheDocument());
+        expect(mocks.deleteSession).toHaveBeenCalledWith("claude", "/code/sikemux", "older", "claude", undefined);
+        expect(screen.getByRole("button", { name: /Build launch page/ })).toBeInTheDocument();
+    });
+
+    it("keeps a recent chat when the delete is cancelled", async () => {
+        const user = userEvent.setup();
+        render(<AgentRailBody />);
+
+        await user.pointer({ keys: "[MouseRight]", target: await screen.findByRole("button", { name: /Fix terminal focus/ }) });
+        await user.click(screen.getByRole("menuitem", { name: "Delete…" }));
+        act(() => dismissDialog(useDialogs.getState().dialog!.id));
+
+        await waitFor(() => expect(useDialogs.getState().dialog).toBeNull());
+        expect(mocks.deleteSession).not.toHaveBeenCalled();
+        expect(screen.getByRole("button", { name: /Fix terminal focus/ })).toBeInTheDocument();
+    });
+
+    it("offers no delete for chats of agents other than Claude and Codex", async () => {
+        mocks.available.mockResolvedValue([{ type: "opencode", label: "OpenCode", command: "opencode", defaultModel: null, defaultEffort: null }]);
+        invalidate((kind) => kind === "agents.catalog");
+        const user = userEvent.setup();
+        render(<AgentRailBody />);
+
+        await user.pointer({ keys: "[MouseRight]", target: await screen.findByRole("button", { name: /Fix terminal focus/ }) });
+        expect(screen.getByRole("menuitem", { name: "Rename…" })).toBeInTheDocument();
+        expect(screen.queryByRole("menuitem", { name: "Delete…" })).not.toBeInTheDocument();
+    });
+
     it("opens a recent chat from the row's menu", async () => {
         const user = userEvent.setup();
         render(<AgentRailBody />);
@@ -377,11 +423,27 @@ describe("agent rail", () => {
         await waitFor(() => expect(agentIdsOf(getState(), "sess-project")).not.toContain("agent-open"));
     });
 
-    it("names the account its limits belong to", async () => {
+    it("goes by the name on the account until the person names it", async () => {
+        mocks.account.mockImplementation(async (_agent: string, _executable?: string, configPath?: string) => ({
+            signedIn: true,
+            name: configPath ? "Someone" : "Kishore",
+            email: configPath ? "work@example.com" : "me@example.com",
+            plan: null,
+            organization: null,
+            method: "subscription",
+            sessions: "/home/me/.codex/sessions",
+        }));
+        setState((state) => ({
+            providerProfiles: [
+                ...state.providerProfiles,
+                { id: "codex-work", name: "Work", provider: "codex", accent: "#7a9dff", configPath: "~/.codex-work" },
+            ],
+        }));
+        const user = userEvent.setup();
         render(<AgentRailBody />);
 
-        expect(await screen.findByRole("region", { name: "Codex plan limits" })).toBeInTheDocument();
-        expect(await screen.findByText("me@example.com")).toBeInTheDocument();
+        await user.click(await screen.findByRole("button", { name: "Codex account: Kishore" }));
+        expect(await screen.findByRole("menuitem", { name: /Work/ })).toBeInTheDocument();
     });
 
     it("starts new chats on another account from the account menu and reads its limits and chats", async () => {
@@ -415,12 +477,13 @@ describe("agent rail", () => {
             expect(mocks.recent).toHaveBeenCalledWith(expect.objectContaining({ providers: [{ agent: "codex", configPath: "~/.codex-work" }] })),
         );
         expect(await screen.findByRole("button", { name: "Codex account: Work" })).toBeInTheDocument();
-        expect(await screen.findByText("work@example.com")).toBeInTheDocument();
+        expect(await screen.findByTitle("work@example.com")).toBeInTheDocument();
     });
 
     it("sends a signed-out account to Settings to sign in", async () => {
         mocks.account.mockResolvedValue({
             signedIn: false,
+            name: null,
             email: null,
             plan: null,
             organization: null,

@@ -11,15 +11,6 @@ export function branchKind(branch: string | null | undefined): BranchKind {
     return "other";
 }
 
-export const BRANCH_GLYPH: Record<BranchKind, string> = {
-    main: "●",
-    feature: "◆",
-    fix: "▲",
-    release: "✦",
-    other: "◇",
-    na: "·",
-};
-
 export function statusKind(status: string | null | undefined): "succeeded" | "failed" | "running" | "aborted" | "unknown" {
     if (!status) return "unknown";
     const s = status.toLowerCase();

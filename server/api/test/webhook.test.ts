@@ -1,6 +1,7 @@
 import { createHmac, randomBytes } from "node:crypto";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
+import { sweepClerk } from "../src/account/clerk-sweeper.ts";
 import type { Database } from "../src/db.ts";
 import { RateLimiter } from "../src/limits.ts";
 import {
@@ -10,7 +11,7 @@ import {
   registered,
 } from "./accounts.ts";
 import { FakeClerk } from "./clerk.ts";
-import { testApp } from "./support.ts";
+import { log, testApp } from "./support.ts";
 import { sessionToken } from "./tokens.ts";
 
 const SECRET_BYTES = randomBytes(24);
@@ -103,6 +104,8 @@ describe("Clerk's webhook", () => {
       { method: "DELETE" },
     );
     expect(deleting.status).toBe(202);
+    await database.pool.query("update users set clerk_retry_at = now()");
+    await sweepClerk(database.db, clerk, log);
     expect(await state()).toEqual(fromWebhook);
     expect(fromWebhook.users).toEqual([
       { id: "user_a", deleted: true, gone_from_clerk: true, purging: true },

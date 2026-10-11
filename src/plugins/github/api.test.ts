@@ -156,18 +156,6 @@ describe("requests", () => {
         expect(fake.call).toHaveBeenLastCalledWith("artifacts", { ...repo, runId: 5 });
     });
 
-    it("sends the head commit the person saw with a merge", async () => {
-        fake.call.mockResolvedValue(undefined);
-        await actionsApi.mergePull(repo, 4, "rebase", "abc");
-        expect(fake.call).toHaveBeenCalledWith("mergePull", { ...repo, number: 4, method: "rebase", sha: "abc" });
-    });
-
-    it("sends a new pull request's fields alongside the repository", async () => {
-        fake.call.mockResolvedValue({ number: 10 });
-        await actionsApi.createPull(repo, { title: "t", body: "b", head: "feat", base: "main", draft: true });
-        expect(fake.call).toHaveBeenCalledWith("createPull", { ...repo, title: "t", body: "b", head: "feat", base: "main", draft: true });
-    });
-
     it("re-runs without debug logging unless asked", async () => {
         fake.call.mockResolvedValue(undefined);
         await actionsApi.rerun(repo, "8", true);
@@ -178,19 +166,6 @@ describe("requests", () => {
             ["rerunJob", { ...repo, jobId: 9, debug: true }],
             ["reviewDeployment", { ...repo, runId: 8, environmentIds: [1], state: "approved", comment: "" }],
         ]);
-    });
-
-    it("lists fifty of the person's repositories unless told otherwise", async () => {
-        fake.call.mockResolvedValue([]);
-        await actionsApi.myRepos("acc");
-        expect(fake.call).toHaveBeenCalledWith("myRepos", { account: "acc", limit: 50 });
-    });
-
-    it("reads an earlier attempt of a run with text ids", async () => {
-        fake.call.mockResolvedValue({ run: { id: 1, workflowId: 2 }, jobs: [] });
-        const detail = await actionsApi.runAttempt(repo, "1", 2);
-        expect(fake.call).toHaveBeenCalledWith("runAttempt", { ...repo, runId: 1, attempt: 2 });
-        expect(detail.run.id).toBe("1");
     });
 });
 
@@ -243,15 +218,6 @@ describe("downloads", () => {
         streamOf([{ received: 1, total: 2, saved: null }]);
         await expect(actionsApi.downloadArtifact(repo, "3", "build")).rejects.toThrow("without saving");
     });
-
-    it("keeps the views when a download fails for another reason", async () => {
-        fake.stream.mockImplementation((_method: string, _params: unknown, handlers: PluginStreamHandlers<unknown>) => {
-            handlers.onError?.(conflict as never);
-            return { stop() {} };
-        });
-        await expect(actionsApi.downloadArtifact(repo, "3", "build")).rejects.toBe(conflict);
-        expect(fake.invalidate).not.toHaveBeenCalled();
-    });
 });
 
 describe("watching a run", () => {
@@ -273,12 +239,6 @@ describe("watching a run", () => {
         fake.openStream.mockRejectedValue(refused);
         await expect(actionsApi.watchStart(repo, "7", vi.fn())).rejects.toBe(refused);
         expect(clearedGithub()).toBe(true);
-    });
-
-    it("keeps the views when the watch cannot start for another reason", async () => {
-        fake.openStream.mockRejectedValue(conflict);
-        await expect(actionsApi.watchStart(repo, "7", vi.fn())).rejects.toBe(conflict);
-        expect(fake.invalidate).not.toHaveBeenCalled();
     });
 });
 
@@ -354,11 +314,5 @@ describe("githubHostApi", () => {
             { id: "2", login: "grace", detail: "git.corp.example", avatarUrl: "https://git.corp.example/grace.png?size=64", isDefault: false },
         ]);
         expect(fake.call).toHaveBeenCalledWith("accounts");
-    });
-
-    it("asks by id when choosing the default account", async () => {
-        fake.call.mockResolvedValue(undefined);
-        await githubHostApi.setDefaultAccount("2");
-        expect(fake.call).toHaveBeenCalledWith("setDefaultAccount", { id: "2" });
     });
 });

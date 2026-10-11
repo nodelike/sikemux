@@ -51,43 +51,6 @@ pub fn ended_status(result: &Result<SessionEnd, String>, started: bool) -> Value
     }
 }
 
-/// What an update from the agent's own session says about a turn nobody here
-/// prompted: the agent woke to a message from another session or a finished
-/// background task.
-#[derive(Debug, PartialEq)]
-pub enum TurnSignal {
-    Work,
-    Closes,
-}
-
-pub fn turn_signal(provider: &str, update: &Value) -> Option<TurnSignal> {
-    let kind = update.get("sessionUpdate").and_then(Value::as_str)?;
-    match provider {
-        "claude" => match kind {
-            "user_message_chunk" | "agent_message_chunk" | "agent_thought_chunk" | "tool_call" => {
-                Some(TurnSignal::Work)
-            }
-            // Claude's adapter tags the usage report that closes a turn it ran
-            // on its own with where the turn came from.
-            "usage_update" if update.pointer("/_meta/_claude~1origin").is_some() => {
-                Some(TurnSignal::Closes)
-            }
-            _ => None,
-        },
-        // Codex says outright when its thread starts and stops working.
-        "codex" if kind == "session_info_update" => {
-            match update
-                .pointer("/_meta/codex/threadStatus/type")
-                .and_then(Value::as_str)?
-            {
-                "active" => Some(TurnSignal::Work),
-                _ => Some(TurnSignal::Closes),
-            }
-        }
-        _ => None,
-    }
-}
-
 /// The session mode that carries a permission mode. Agents whose modes are not
 /// about permissions get none, and Sikemux answers their requests itself.
 pub fn permission_mode_id(
@@ -96,10 +59,6 @@ pub fn permission_mode_id(
     setup: &Value,
 ) -> Result<Option<&'static str>, String> {
     let expected = match (provider, mode) {
-        ("codex", "bypass") => "agent-full-access",
-        ("codex", "workspace-write") => "read-only",
-        ("claude", "bypass") => "bypassPermissions",
-        ("claude", "workspace-write") => "acceptEdits",
         ("hermes", "bypass") => "dont_ask",
         ("hermes", "workspace-write") => "accept_edits",
         (_, "bypass" | "workspace-write") if native::arguments(provider).is_some() => {
@@ -125,15 +84,6 @@ pub fn permission_mode_id(
 /// such mode at all, so under YOLO the host says yes for the person.
 pub fn approves_for_user(mode: &str) -> bool {
     mode == "bypass"
-}
-
-/// The config option an adapter-backed agent keeps its effort in.
-pub fn adapter_effort_id(provider: &str) -> &'static str {
-    if provider == "claude" {
-        "effort"
-    } else {
-        "reasoning_effort"
-    }
 }
 
 /// The value a select option currently holds.
@@ -247,24 +197,17 @@ mod tests {
 
     #[test]
     fn permissions_use_advertised_provider_modes() {
-        for (provider, normal, bypass) in [
-            ("codex", "read-only", "agent-full-access"),
-            ("claude", "acceptEdits", "bypassPermissions"),
-            ("hermes", "accept_edits", "dont_ask"),
-        ] {
-            let setup =
-                json!({ "modes": { "availableModes": [{ "id": normal }, { "id": bypass }] } });
-            assert_eq!(
-                permission_mode_id(provider, "workspace-write", &setup).unwrap(),
-                Some(normal)
-            );
-            assert_eq!(
-                permission_mode_id(provider, "bypass", &setup).unwrap(),
-                Some(bypass)
-            );
-            assert!(permission_mode_id(provider, "invalid", &setup).is_err());
-            assert!(permission_mode_id(provider, "bypass", &json!({})).is_err());
-        }
+        let setup = json!({ "modes": { "availableModes": [{ "id": "accept_edits" }, { "id": "dont_ask" }] } });
+        assert_eq!(
+            permission_mode_id("hermes", "workspace-write", &setup).unwrap(),
+            Some("accept_edits")
+        );
+        assert_eq!(
+            permission_mode_id("hermes", "bypass", &setup).unwrap(),
+            Some("dont_ask")
+        );
+        assert!(permission_mode_id("hermes", "invalid", &setup).is_err());
+        assert!(permission_mode_id("hermes", "bypass", &json!({})).is_err());
     }
 
     #[test]
@@ -317,66 +260,6 @@ mod tests {
         assert_eq!(current_choice(&setup, "effort").as_deref(), Some("high"));
         assert_eq!(current_choice(&setup, "thinking"), None);
         assert_eq!(current_choice(&json!({}), "model"), None);
-    }
-
-    #[test]
-    fn claude_turns_open_on_work_and_close_on_the_tagged_usage_report() {
-        for kind in [
-            "user_message_chunk",
-            "agent_message_chunk",
-            "agent_thought_chunk",
-            "tool_call",
-        ] {
-            assert_eq!(
-                turn_signal("claude", &json!({ "sessionUpdate": kind })),
-                Some(TurnSignal::Work)
-            );
-        }
-        assert_eq!(
-            turn_signal(
-                "claude",
-                &json!({
-                    "sessionUpdate": "usage_update",
-                    "_meta": { "_claude/origin": { "kind": "peer" } },
-                })
-            ),
-            Some(TurnSignal::Closes)
-        );
-        for update in [
-            json!({ "sessionUpdate": "usage_update", "used": 1, "size": 10 }),
-            json!({ "sessionUpdate": "tool_call_update" }),
-            json!({ "sessionUpdate": "available_commands_update" }),
-            json!({}),
-        ] {
-            assert_eq!(turn_signal("claude", &update), None);
-        }
-    }
-
-    #[test]
-    fn codex_turns_follow_its_thread_status() {
-        let status = |kind: &str| {
-            json!({
-                "sessionUpdate": "session_info_update",
-                "_meta": { "codex": { "threadStatus": { "type": kind } } },
-            })
-        };
-        assert_eq!(
-            turn_signal("codex", &status("active")),
-            Some(TurnSignal::Work)
-        );
-        for kind in ["idle", "systemError", "notLoaded"] {
-            assert_eq!(
-                turn_signal("codex", &status(kind)),
-                Some(TurnSignal::Closes)
-            );
-        }
-        for update in [
-            json!({ "sessionUpdate": "agent_message_chunk" }),
-            json!({ "sessionUpdate": "session_info_update", "title": "Named" }),
-        ] {
-            assert_eq!(turn_signal("codex", &update), None);
-        }
-        assert_eq!(turn_signal("opencode", &status("active")), None);
     }
 
     #[test]

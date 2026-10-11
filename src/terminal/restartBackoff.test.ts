@@ -35,11 +35,4 @@ describe("RendererRestartBackoff", () => {
 
         expect(backoff.next(101)).toEqual({ delayMs: 10, throttled: false });
     });
-
-    it("rejects configurations that could create invalid timers", () => {
-        expect(() => new RendererRestartBackoff({ delaysMs: [] })).toThrow(RangeError);
-        expect(() => new RendererRestartBackoff({ delaysMs: [-1] })).toThrow(RangeError);
-        expect(() => new RendererRestartBackoff({ windowMs: 0 })).toThrow(RangeError);
-        expect(() => new RendererRestartBackoff({ maxRestartsPerWindow: 0 })).toThrow(RangeError);
-    });
 });

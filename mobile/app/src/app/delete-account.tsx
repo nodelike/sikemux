@@ -16,7 +16,7 @@ import { type Palette, typeFor, useStyles } from '@/ui/theme';
 const GONE = [
   'Hosts are signed out. The phones paired to them keep working.',
   'Phones, this one too, are signed out and removed from every host.',
-  'Your sign-in is deleted. Device keys and the account’s history are erased within 30 days, and backups within 30 days after that.',
+  'After 30 days your sign-in, device keys and the account’s history are erased, and backups within 30 days after that.',
 ];
 
 function describe(error: unknown): string {
@@ -182,7 +182,8 @@ export default function DeleteAccount() {
       <ScrollView contentContainerStyle={[styles.block, { paddingBottom: bottom }]} keyboardShouldPersistTaps="handled">
         <Text style={styles.title}>Delete your account</Text>
         <Text style={styles.detail}>
-          This deletes {email ? <Text style={styles.ink}>{email}</Text> : 'it'} from Sikemux right away. It can&apos;t be undone.
+          This deletes {email ? <Text style={styles.ink}>{email}</Text> : 'it'} from Sikemux. Changed your mind? Sign in again within 30
+          days to restore it.
         </Text>
         <View style={styles.list}>
           {GONE.map((line) => (

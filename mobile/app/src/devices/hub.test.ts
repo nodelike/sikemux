@@ -48,7 +48,7 @@ function fakeDevice() {
 }
 
 const VIEW = {
-  workspace: { projects: [], launchers: [], palette: new Map(), backdrop: { texture: false } },
+  workspace: { projects: [], launchers: [], palette: {}, backdrop: { texture: false } },
   sessions: [],
   chats: [],
   attentions: [],
@@ -106,10 +106,10 @@ describe('the hub', () => {
   it('keeps the view the host sends before the connection is handed over', async () => {
     hub.watch('host');
     await vi.waitFor(() => expect(fake.calls).toHaveLength(1));
-    fake.calls[0].listener.events([CoreEvent.View.new({ view: VIEW })] as never);
+    fake.calls[0].listener.events([CoreEvent.View.new({ viewJson: JSON.stringify(VIEW) })] as never);
     fake.calls[0].settle(new FakeConnection());
     await vi.waitFor(() => expect(hub.liveOf('host').status).toBe('open'));
-    expect(hub.liveOf('host').snapshot).toBe(VIEW);
+    expect(hub.liveOf('host').snapshot).toEqual(VIEW);
   });
 
   it('stops trying a host that forgot this phone, and tries an unreachable one again', async () => {
@@ -212,6 +212,49 @@ describe('the hub', () => {
     expect(connects()).toBe(4);
   });
 
+  it('reads as reconnecting while a dropped connection comes back, and as unreachable only after a few tries', async () => {
+    vi.spyOn(Math, 'random').mockReturnValue(0.5);
+    const connection = await opened();
+    fake.calls[0].listener.events([CoreEvent.View.new({ viewJson: JSON.stringify(VIEW) })] as never);
+    await vi.advanceTimersByTimeAsync(30_000);
+    fake.calls[0].listener.closed();
+    expect(connection.closed).toBe(true);
+    expect(hub.liveOf('host')).toEqual({ status: 'connecting', snapshot: VIEW });
+
+    for (const wait of [1_000, 3_000]) {
+      await vi.advanceTimersByTimeAsync(wait);
+      await vi.waitFor(() => expect(fake.calls).toHaveLength(connects()));
+      fake.calls.at(-1)!.fail(MobileError.Connection.new({ message: 'this host did not answer in time' }));
+      await vi.waitFor(() => expect(hub.liveOf('host')).toEqual({ status: 'connecting', snapshot: VIEW }));
+    }
+    await vi.advanceTimersByTimeAsync(8_000);
+    await vi.waitFor(() => expect(fake.calls).toHaveLength(connects()));
+    fake.calls.at(-1)!.fail(MobileError.Connection.new({ message: 'this host did not answer in time' }));
+    await vi.waitFor(() => expect(hub.liveOf('host')).toMatchObject({ status: 'closed', problem: 'this host did not answer in time' }));
+  });
+
+  it('a dropped connection that comes back never shows the host as unreachable', async () => {
+    vi.spyOn(Math, 'random').mockReturnValue(0.5);
+    await opened();
+    await vi.advanceTimersByTimeAsync(30_000);
+    fake.calls[0].listener.closed();
+    await vi.advanceTimersByTimeAsync(1_000);
+    await vi.waitFor(() => expect(connects()).toBe(2));
+    fake.calls[1].fail(MobileError.Connection.new({ message: 'no route' }));
+    await vi.advanceTimersByTimeAsync(3_000);
+    await vi.waitFor(() => expect(connects()).toBe(3));
+    expect(hub.liveOf('host').status).toBe('connecting');
+    fake.calls[2].settle(new FakeConnection());
+    await vi.waitFor(() => expect(hub.liveOf('host').status).toBe('open'));
+  });
+
+  it('shows a host it never reached as unreachable after the first failed try', async () => {
+    hub.watch('host');
+    await vi.waitFor(() => expect(fake.calls).toHaveLength(1));
+    fake.calls[0].fail(MobileError.Connection.new({ message: 'no route' }));
+    await vi.waitFor(() => expect(hub.liveOf('host')).toMatchObject({ status: 'closed', problem: 'no route' }));
+  });
+
   it('tries again at once when the phone gets its network back', async () => {
     NetInfo.emit('wifi', '10.0.0.2');
     hub.watch('host');
@@ -262,28 +305,12 @@ describe('the hub', () => {
     hub.onChatEvents('host', () => order.push(`chat with view ${hub.liveOf('host').snapshot ? 'set' : 'unset'}`));
     const last = { ...VIEW, chats: [] };
     fake.calls[0].listener.events([
-      CoreEvent.View.new({ view: VIEW }),
+      CoreEvent.View.new({ viewJson: JSON.stringify(VIEW) }),
       CoreEvent.Chat.new({ agentId: 'a', seq: 1n, eventJson: '{}' }),
-      CoreEvent.View.new({ view: last }),
+      CoreEvent.View.new({ viewJson: JSON.stringify(last) }),
     ] as never);
     expect(order).toEqual(['chat with view unset']);
-    expect(hub.liveOf('host').snapshot).toBe(last);
-  });
-
-  it("gathers a session's terminal output into one hand-over a frame", async () => {
-    await opened();
-    const heard: [bigint, number[]][] = [];
-    hub.onOutput('host', (session, bytes) => heard.push([session, [...new Uint8Array(bytes)]]));
-    const listener = fake.calls[0].listener;
-    listener.output(1n, new Uint8Array([1, 2]).buffer);
-    listener.output(1n, new Uint8Array([3]).buffer);
-    listener.output(2n, new Uint8Array([9]).buffer);
-    expect(heard).toEqual([]);
-    await vi.advanceTimersByTimeAsync(20);
-    expect(heard).toEqual([
-      [1n, [1, 2, 3]],
-      [2n, [9]],
-    ]);
+    expect(hub.liveOf('host').snapshot).toEqual(last);
   });
 
   it('keeps showing a host that forgot this phone as such, until it is tried on purpose', async () => {
@@ -327,11 +354,13 @@ describe('the hub', () => {
     expect(native.notifier.removeKey).toHaveBeenCalledWith('asleep');
   });
 
-  it('reports a damaged list of paired hosts, and can start over', async () => {
+  it('reports a damaged list of paired hosts until it is read again', async () => {
+    const paired = await import('./paired');
     new File('file:///document/paired-devices.json').write('not json');
     await hub.reloadDevices();
-    expect(new File('file:///document/paired-devices.json.damaged').exists).toBe(true);
-    await hub.startDevicesOver();
-    expect(new File('file:///document/paired-devices.json.damaged').exists).toBe(false);
+    await hub.reloadDevices();
+    expect(paired.pairedListDamaged()).toBe(true);
+    await hub.readDevicesAgain();
+    expect(paired.pairedListDamaged()).toBe(false);
   });
 });

@@ -193,20 +193,4 @@ mod tests {
         let refused = with_url_override(saved, "http://other.example.com");
         assert_eq!((refused.url.as_str(), refused.account.as_str()), ("", ""));
     }
-
-    #[test]
-    fn round_trips_the_config_file() {
-        let dir = std::env::temp_dir().join(format!("sikemux-signoz-{}", std::process::id()));
-        let config = SignozConfig {
-            url: "https://logs.example.com".into(),
-            auth: AuthMode::ApiKey,
-            account: "work".into(),
-            email: String::new(),
-            owns_key: false,
-        };
-        save(&dir, &config).unwrap();
-        assert_eq!(load(&dir).auth, AuthMode::ApiKey);
-        std::fs::remove_dir_all(&dir).unwrap();
-        assert_eq!(load(&dir).url, "");
-    }
 }

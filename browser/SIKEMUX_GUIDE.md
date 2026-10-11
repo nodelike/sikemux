@@ -14,8 +14,10 @@ tabs in one strip.
 
 When the person asks you to open, show or preview a page, open it on your desk
 with `browser_navigate`, not in their own browser. Desk tabs run WebKit, the
-same engine as Sikemux itself and Safari, so check a web page there rather
-than in a headless Chromium you install.
+same engine as Sikemux and Safari, so check pages there, not in a headless
+Chromium.
+
+To show a chart, table, diagram or mockup in your reply, read the `pages` topic.
 
 This page is what to know before your first call. Call `guide` again with a
 `topic` from the list at the end when you need the details of one area.
@@ -44,12 +46,12 @@ This page is what to know before your first call. Call `guide` again with a
   numbering restarts on every new page. Never carry a number across a
   navigation; read or `browser_find` again.
 - Wait with `browser_wait` conditions, or `waitFor` on `browser_navigate`,
-  rather than sleeps or screenshots taken to see whether something finished.
-- Every state says whether the tab is `visible` to the person; do not tell
-  them a page is on their screen when it is not.
-- Plugin tools (`github_*`, `bitbucket_*`, `jira_*`, `signoz_*`) are listed
-  only when they can work here: signed in, and for GitHub or Bitbucket a remote of this
-  project on that host. If one you need is missing, ask the person to sign in
+  rather than with sleeps or screenshots.
+- Every state says whether the tab is `visible` to the person; never tell
+  them a hidden page is on their screen.
+- Plugin tools (`github_*`, `bitbucket_*`, `gitlab_*`, `jira_*`, `signoz_*`)
+  are listed only when they can work here: signed in, and for a code host a
+  remote of this project on it. If one is missing, ask the person to sign in
   from its pane in Sikemux and restart you.
 
 ## Topics
@@ -60,11 +62,14 @@ Pass one of these as `topic`:
 - `tasks` — launching, trust prompts, `readyWhen`, restarting, stopping, and what survives a reload
 - `output` — `task_read` paging, `plain`, `tail`, `search`, and `events_wait`
 - `ui` — `ui_open` for files, diffs, terminals and the preview
+- `pages` — charts, tables, diagrams and mockups in your reply
 - `browser-reading` — page state, report modes, element numbers and lines, `browser_find`, frames
 - `browser-input` — clicking, typing, `browser_act`, keys, drag, upload, scrolling, dialogs
 - `browser-pages` — navigating, reloading, waiting, local files, viewport sizes, tabs
 - `browser-evidence` — `browser_screenshot`, `browser_annotate`, `browser_record`
 - `browser-debugging` — `browser_network`, loads, `browser_console`, `app_console`, `browser_evaluate`
+- `simulator` — driving an iOS simulator with `sim_*`
+- `databases` — the `db_*` tools and SQL
 - `shell` — the `sikemux tool` CLI for scripts and tasks
 
 ## config: Writing sikemux.json
@@ -241,6 +246,51 @@ Paths must resolve inside the project; a path that escapes it is refused.
 Preview needs an agent session and opens as a page on your desk. The `previewUrl`
 you get back is configuration, not proof that anything is listening. If you
 need to know the server is up, read the task output or navigate to it.
+
+## pages: Showing a page in your reply
+
+A page is one self-contained HTML file you write, with inline `<style>` and
+`<script>`. Pictures and fonts named by local path (relative to the file,
+absolute, or `~/`) in `src`, CSS `url()` or a script string are inlined when
+it is shown, so a mockup can use the app's own fonts and icons and keeps
+working after the files move. Remote `https` scripts, such as a
+chart library from a CDN, load as they are. Pass absolute paths to the tools.
+
+1. Write the file anywhere, such as the system temp folder.
+2. `page_preview` opens it in a tab on your desk at the reply's width (756
+   px; pass `width: 390` to check a phone) and returns a screenshot, the
+   `contentHeight` it needs and its console, errors included. Fix and preview
+   again until it is right. Editing the file and previewing again is cheaper
+   than writing it anew.
+3. `page_show` with the path, a short `title` and `height` set to the last
+   `contentHeight`. In a chat the page appears in your reply, above the text
+   you write next; that text should add only what the page does not say. An
+   agent running in a terminal gets the page on its desk instead.
+
+Layout:
+
+- The page sits on the chat with no frame around it, as wide as the reply
+  column, and its left edge lines up with your text. Use a fluid width, no
+  outer padding, card, border or title banner: it is part of your reply.
+- Let content set the height. Never use `100vh` or `height: 100%` on `html`
+  or `body`; the frame grows to fit the page.
+- Give charts fixed pixel heights rather than ones that scale with width.
+- Links the person clicks open on your desk, not in the page.
+
+Theme. Sikemux sets these on `:root` and changes them live with the person's
+theme, so style with them rather than fixed colours:
+
+- `--background` (the chat's ground; the page itself is transparent over it),
+  `--foreground`, `--muted-foreground`, `--faint-foreground`
+- `--card` (a raised surface), `--border`
+- `--accent`, `--accent-foreground` (text on `--accent`), `--accent-surface`
+- `--destructive`, `--success`, `--warning`, `--info`
+- `--code-background`, `--code-foreground`
+- `--chart-1` to `--chart-6`, distinct series colours for charts
+- `--radius`, `--font-sans`, `--font-mono`
+
+The base styles set the page's colour and font from these, a 14px body and no
+body margin; your own CSS overrides them.
 
 ## browser-reading: Reading a page
 
@@ -531,6 +581,158 @@ input, and `browser_wait` for waiting, rather than a polling loop in a script.
 A script that reloads or leaves the page loses its result; use
 `browser_navigate` with `go: "reload"` for that. It runs with the page's own session, so `fetch` of
 the site's API returns what the signed-in person would get.
+
+## simulator: Driving the iOS Simulator
+
+The `sim_*` tools drive the iOS simulators that Xcode installs on this Mac.
+They are listed only when this Mac can run them (macOS 15 or later and a full
+Xcode) and the person has not turned them off in Settings. `sim_attach` puts
+the device live on your desk in Sikemux, beside the person, who watches what
+you do and can tap it too, so there is nothing else to open to show it: do not
+look for Simulator.app or open screenshots in another app. Its absence does
+not mean Xcode is broken; from Xcode 27 its window is DeviceHub.
+`workspace_inspect` reports `simulator`: whether you have the tools, why not
+when you do not, and the device you hold.
+
+`sim_attach` comes first, and each device belongs to one agent at a time.
+Without a `device` you get, in order: the device the person picked on your
+desk, the one your project used before, the iPhone Sikemux made for your
+project (named `Sikemux · <project folder>`), a booted iPhone no agent holds,
+or a new iPhone made for your project on the newest iOS. `sim_devices` lists
+every device with `inUseBy` naming who holds it; a device another agent holds
+cannot be attached, so pick another or ask the person. Attaching boots the
+device if it is off and waits until its screen can be read. A cold boot can
+take a minute; when it outlasts the call it carries on, and `sim_attach` says
+it is still booting, so call it again. Sikemux runs at most three simulators
+it booted at once; `sim_detach` one you no longer need. Every other `sim_*`
+tool acts on the device you hold, and fails until you attach one. When the
+person picks another device on your desk you move to it.
+
+`sim_state` reads the screen: the frontmost `app`, which is `Home Screen` when
+its icons show and `System` for what iOS draws over an app, such as a
+permission alert, Control Center or the lock screen, and numbered `elements`,
+each with its role, label, value, identifier and centre point, as in
+`3 Button "General" at (201, 418)`. Coordinates are device points, the same
+for every tool, and follow the app as it is turned. An element keeps its
+number for as long as it stays on screen, and a new element takes a number
+never used before, so numbers need not run in order. A number from an earlier
+read either reaches the same element or fails with "not on the screen now";
+read again then. Long labels and values are cut at 200 characters, and a
+screen lists at most 200 elements; tap the rest by label.
+
+Tools that act report on the screen afterwards, and `report` chooses how much,
+as for the browser. `"changes"`, the default, returns the app and `changes`:
+`elements` lists what appeared or changed, and `removed` what went away;
+`changes: "none"` means nothing moved. A different app in front, or no earlier
+read, gets the whole screen instead. `"outcome"` returns only the device and
+app, for a run of steps you check afterwards, and `"full"` the whole screen,
+as `sim_state` does.
+
+`sim_tap` takes an element `index`, a `label`, or `x` and `y`. A `label`
+matches the accessibility label or identifier, exact matches first, and fails
+when two elements match equally, listing them; tap one of them by its number.
+Prefer a number or label over a point read off a screenshot. `duration` holds
+the touch, for a long press.
+
+`sim_type` types into the focused field, so tap the field first. While a
+field is focused the keyboard covers the bottom of the screen, and a swipe
+across it types a word, as sliding a finger over the keys does; press Return
+(`\n`) or tap outside the field before you swipe there to scroll. It types the
+characters of a US keyboard; other characters fail and are named.
+`sim_swipe` drags from one point to another; a swipe that starts within
+10 points of a screen edge is a system gesture: up from the bottom goes home,
+in from the left goes back, down from the top opens Notification Center. Its
+result carries a `warning` saying so; to scroll, start inside the content.
+`sim_button` presses `home`, `lock`, `side`, `siri`, `volumeUp` or
+`volumeDown`.
+
+`sim_rotate` turns the device to `portrait`, `landscapeLeft` or
+`landscapeRight` and reads the screen. An app that only runs upright, such as
+Settings, stays upright, and `screen` gives the size it is drawn at; read the
+screen again after turning, and after the person turns it from the desk.
+
+`sim_touch_path` puts one finger down on the first of its `points`, moves it
+through the rest evenly over `duration` seconds and lifts it on the last: a
+long-press drag, reordering a list or drawing. `sim_touch2_path` does the same
+with two fingers, each point naming both (`x1`, `y1`, `x2`, `y2`): spread them
+to zoom in, bring them together to zoom out, or turn them around a centre.
+
+Acting tools wait until two reads of the screen agree before they return, so
+an animation or an app's launch has finished. Content an app loads from the
+network can arrive later; read again with `sim_state`. Each call has about 50
+seconds; one that runs short answers with the screen as it got, and your calls
+run one at a time, so wait for one to answer before the next. A cancelled turn
+stops the call at its next step. `sim_screenshot` returns the screen as an
+image at its size in points; read `sim_state` rather than a screenshot to
+decide what to tap.
+
+To try an app: build it for the simulator with a task (`xcodebuild` with
+`-sdk iphonesimulator` and a `-derivedDataPath` inside the project), then
+`sim_install` the `.app` it produced, which must be inside the project, and
+`sim_launch` it by bundle id, with optional `arguments` and `environment`.
+`sim_launch` relaunches an app that is running. A first launch can outlast
+the call; it then answers with `launching`, and calling `sim_launch` again
+waits for that launch instead of starting the app over. `sim_terminate` quits
+an app, and `sim_open_url` opens a URL or a deep link.
+
+Do not install with `expo run:ios`, `react-native run-ios`, `flutter run` or
+`open -a Simulator`: once the app is on the device they open Simulator.app,
+or DeviceHub from Xcode 27, over the person's screen. For an Expo or React
+Native app, build it with `xcodebuild` as above and start only the bundler as
+a task (`expo start --dev-client` or `react-native start`, without `--ios`).
+An Expo development build then reaches it through `sim_open_url` with
+`<scheme>://expo-development-client/?url=http%3A%2F%2F127.0.0.1%3A8081`.
+
+`sim_logs` reads the device's log, kept from when you attached it, by
+`cursor`: start at `0` and pass back the `cursor` and `generation` it
+returns, as with `task_read`. It holds what apps log through `Logger`, `os_log` or `NSLog` at
+the default level and above; `print()` goes to the app's standard output,
+which the log never sees, and debug-level messages are left out, so log what
+you need at `.info` or higher. Apple's frameworks are left out too. Ask for
+your app by `process`, its executable name: its lines are kept apart, and that
+cursor counts only them. `limit` caps the lines in one read, and a read is cut
+at about 256 KB; `more` says lines are waiting, and `dropped` that older ones
+went before you read them. When the log started over, because the device or
+Sikemux's simulator helper restarted, the read says `restarted` and starts
+from the log's first line; carry on with its new `cursor`.
+
+`sim_detach` lets go of the device for another agent to use; it stays on your
+desk for the person. When you stop, your device is let go of for you, and a
+device Sikemux booted shuts down a few minutes after nobody holds it.
+
+If a call fails: "call sim_attach" means you hold no device or it is not
+running; "in use by" means another agent holds it; "not on the screen now"
+means read the screen again; "still booting" or `launching` mean call again in
+a moment.
+
+## databases: Saved databases
+
+`db_databases` lists the databases the person saved in the Database pane:
+PostgreSQL, MySQL or MariaDB servers, and SQLite files. Name one by its name in
+`db_tables`, `db_describe` and `db_query`.
+
+- `db_tables` lists the schemas and the tables and views in one. Without a
+  `schema` it uses `public` for PostgreSQL, `main` for SQLite, and the database
+  the connection names for MySQL.
+- `db_describe` gives a table's columns, primary key, indexes and foreign keys.
+  Read it before writing a join rather than guessing column names.
+- `db_query` runs SQL. Each result keeps 100 rows unless you pass `limit`, up
+  to 1000; `truncated` says some were left out, so add a `where` or an
+  aggregate rather than raising the limit to read everything. A whole reply
+  stays under 48 KB and each value under 400 characters; when either cut
+  something, `note` says so, and the answer is to select fewer columns or rows.
+
+Your queries run on a connection of your own. It is read-only unless the
+person ticked "Let agents change data" for that database, and `writable` in
+`db_databases` says which. On a read-only connection send one statement per
+call; it runs in a read-only transaction that is rolled back afterwards. Where
+you may change data, several statements separated by semicolons each come back
+as their own result: rows, or how many rows a change touched. A refused write
+is not a fault to work around: ask the person. A query stops after 60 seconds. Every query you run shows up in
+that database's history in Sikemux, marked as an agent's.
+
+Large integers and decimals arrive as text so no digit is lost; binary values
+arrive as the start of their hex.
 
 ## shell: The same operations from a shell
 

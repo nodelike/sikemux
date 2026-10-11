@@ -1,3 +1,4 @@
+import type { PageRef } from "../api/pages";
 import type { ToolDiff } from "./diff";
 import type { ToolOutput } from "./toolOutput";
 import type { SentContext } from "./promptContext";
@@ -82,6 +83,13 @@ export interface AcpTaskNotice {
     summary?: string;
 }
 
+/** Something the agent tells the person outside its reply, like a model fallback. */
+export interface AgentNotice {
+    severity: "info" | "warning" | "error";
+    title: string;
+    description?: string;
+}
+
 /** The chat moved to another of the person's accounts, by itself at a usage limit or when asked. */
 export interface AccountMove {
     label: string;
@@ -102,14 +110,27 @@ export type ChatPart =
     | { id: string; kind: "content"; content: AcpContentBlock }
     /* A finished call is read once and kept as what the transcript shows: the
        change it made, what it printed, and what it left behind when it failed. */
-    | { id: string; kind: "tool"; tool: AcpToolCall; diff?: ToolDiff; output?: ToolOutput; failure?: string; startedAt?: number; endedAt?: number }
+    | {
+          id: string;
+          kind: "tool";
+          tool: AcpToolCall;
+          diff?: ToolDiff;
+          output?: ToolOutput;
+          page?: PageRef;
+          failure?: string;
+          startedAt?: number;
+          endedAt?: number;
+      }
     | { id: string; kind: "subagent"; subagent: AcpSubagent }
     | { id: string; kind: "notice"; notice: AcpTaskNotice }
+    | { id: string; kind: "agent_notice"; notice: AgentNotice }
     | { id: string; kind: "account"; move: AccountMove };
 
 export interface ChatMessage {
     id: string;
     role: "user" | "assistant";
+    /* What the agent knows a message the person sent by, for editing it. */
+    promptId?: string;
     parts: ChatPart[];
     attachments?: string[];
     context?: SentContext[];
@@ -124,10 +145,13 @@ export interface ChatMessage {
     sentAt?: number;
     /* When the turn this message closed finished, as this side saw it. */
     endedAt?: number;
+    /* The agent began a turn with this message, and when, if the core said. A
+       turn it began by itself follows the last one without a prompt between. */
+    opensTurn?: { at: number | null };
 }
 
 export interface ChatState {
-    connection: "connecting" | "installing" | "starting" | "initializing" | "ready" | "stopped" | "error";
+    connection: "connecting" | "starting" | "initializing" | "ready" | "stopped" | "error";
     messages: ChatMessage[];
     commands: AcpAvailableCommand[];
     permissions: AcpPermissionRequest[];
@@ -145,6 +169,8 @@ export interface ChatState {
     nextId: number;
     revision: number;
     awaitingReplay: boolean;
+    /* A turn has begun and its first message has not arrived yet. */
+    turnOpening: { at: number | null } | null;
 }
 
 export type ChatAction =
@@ -152,11 +178,12 @@ export type ChatAction =
     | { type: "config"; options: unknown }
     | { type: "status"; state: ChatState["connection"] }
     | { type: "ready"; capabilities: Record<string, unknown>; setup: Record<string, unknown> }
-    | { type: "local_prompt"; text: string; paths: string[]; context?: SentContext[] }
+    | { type: "local_prompt"; text: string; paths: string[]; context?: SentContext[]; messageId?: string; at?: number }
+    | { type: "rewind"; messageId: string }
     | { type: "session_update"; sessionId: string; update: Record<string, unknown> }
     | { type: "saved_usage"; usage: ContextUsage }
-    | { type: "turn_started" }
-    | { type: "turn_completed"; stopReason?: string }
+    | { type: "turn_started"; at?: number }
+    | { type: "turn_completed"; stopReason?: string; at?: number }
     | { type: "permission_requested"; request: AcpPermissionRequest }
     | { type: "permission_cleared"; requestId: string }
     | { type: "error"; message: string; failure?: ChatFailure };

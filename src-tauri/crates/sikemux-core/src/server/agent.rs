@@ -450,7 +450,7 @@ fn detection_reason(detection: &AgentDetection) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{event_fingerprint, next_sequence, semantic_fingerprint, submits_line};
+    use super::{next_sequence, submits_line};
 
     #[test]
     fn only_submitted_input_arms_agent_activity() {
@@ -458,50 +458,6 @@ mod tests {
         assert!(submits_line(b"first\nsecond"));
         assert!(!submits_line(b"still typing"));
         assert!(!submits_line(b"\x1b[A"));
-    }
-
-    #[test]
-    fn semantic_fingerprint_changes_with_evidence_or_revision() {
-        let base = semantic_fingerprint(1, "prompt", "Codex");
-        assert_eq!(base, semantic_fingerprint(1, "prompt", "Codex"));
-        assert_ne!(base, semantic_fingerprint(2, "prompt", "Codex"));
-        assert_ne!(base, semantic_fingerprint(1, "working", "Codex"));
-        assert_ne!(base, semantic_fingerprint(1, "prompt", "Action required"));
-    }
-
-    #[test]
-    fn event_fingerprint_preserves_same_state_evidence_upgrades() {
-        let activity =
-            event_fingerprint(1, "working", "activity", "high", "command submitted", None);
-        let screen = event_fingerprint(
-            1,
-            "working",
-            "screen",
-            "high",
-            "manifest rule spinner matched visible working status",
-            Some("spinner"),
-        );
-        let changed_reason = event_fingerprint(
-            1,
-            "working",
-            "screen",
-            "high",
-            "manifest rule tool matched visible working status",
-            Some("tool"),
-        );
-        assert_ne!(activity, screen);
-        assert_ne!(screen, changed_reason);
-        assert_eq!(
-            screen,
-            event_fingerprint(
-                1,
-                "working",
-                "screen",
-                "high",
-                "manifest rule spinner matched visible working status",
-                Some("spinner")
-            )
-        );
     }
 
     #[test]

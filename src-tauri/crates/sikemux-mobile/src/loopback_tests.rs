@@ -136,7 +136,7 @@ async fn loopback_device(key: SecretKey) -> Device {
 /// screen would.
 #[derive(Default)]
 struct Views {
-    views: Mutex<Vec<DeviceView>>,
+    views: Mutex<Vec<sikemux_wire::protocol::DeviceView>>,
     closed: AtomicBool,
 }
 
@@ -147,13 +147,10 @@ impl Views {
 }
 
 impl CoreListener for Views {
-    fn output(&self, _session: u64, _bytes: Vec<u8>) -> Result<(), ListenerError> {
-        Ok(())
-    }
-
     fn events(&self, events: Vec<CoreEvent>) -> Result<(), ListenerError> {
         for event in events {
-            if let CoreEvent::View { view } = event {
+            if let CoreEvent::View { view_json } = event {
+                let view = serde_json::from_str(&view_json).expect("the view is the core's JSON");
                 self.views.lock().unwrap().push(view);
             }
         }
@@ -185,6 +182,7 @@ fn launcher() -> ChatLauncher {
         permission_mode: "default".into(),
         account: None,
         fallbacks: Vec::new(),
+        status: None,
     }
 }
 
@@ -405,5 +403,40 @@ fn a_renewed_endpoint_closes_the_connections_on_the_old_one_and_a_closed_phone_s
                 .await,
             Err(MobileError::Connection { .. })
         ));
+    });
+}
+
+#[test]
+fn a_host_reached_before_comes_back_in_one_try_when_the_endpoint_has_gone_stale() {
+    let core_key = SecretKey::generate();
+    let phone_key = SecretKey::generate();
+    let core = start_core(&core_key, Some(&phone_key));
+    block_on(async {
+        let (app, _events) = CoreClient::connect(&core.socket).await.expect("app");
+        let addr = core_addr(&app).await;
+        let device = loopback_device(phone_key).await;
+        let core_id = core_key.public().to_string();
+        let views = Arc::new(Views::default());
+        let first = device
+            .connect_to(core_id.clone(), addr.clone(), views.clone())
+            .await
+            .expect("the phone connects");
+        let stale = device.endpoint().expect("online").0;
+        stale.close().await;
+        until("the stale endpoint's connection closing", || views.closed()).await;
+        assert!(!first.is_open());
+
+        let started = Instant::now();
+        let again = device
+            .connect_to(core_id, addr, Arc::new(Views::default()))
+            .await
+            .expect("the phone connects again from a fresh endpoint");
+        assert!(again.is_open());
+        assert_eq!(device.endpoint().expect("online").1, 1);
+        assert!(
+            started.elapsed() < REDIAL_TIMEOUT + Duration::from_secs(5),
+            "took {:?}",
+            started.elapsed()
+        );
     });
 }

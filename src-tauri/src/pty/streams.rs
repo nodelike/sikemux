@@ -286,12 +286,6 @@ impl StreamGuard<'_> {
         exit
     }
 
-    pub(super) fn is_core_subscribed(&self, id: SessionId) -> bool {
-        self.sessions
-            .get(&id)
-            .is_some_and(|streams| streams.core_subscribed)
-    }
-
     pub(super) fn begin_attach(&mut self, id: SessionId) -> AppResult<()> {
         let streams = self.sessions.entry(id).or_default();
         let full = streams.subscribers.len() + streams.pending_attaches >= MAX_CHANNELS_PER_SESSION;
@@ -446,11 +440,14 @@ mod tests {
         assert_eq!(guard.unsubscribe(1, first), Release::Nothing);
         guard.begin_attach(1).expect("begin");
         assert_eq!(guard.unsubscribe(1, second), Release::Nothing);
-        assert!(guard.is_core_subscribed(1));
+        assert!(guard.sessions[&1].core_subscribed);
         let (channel, _) = channel();
         let third = guard.finish_attach(1, channel).expect("finish");
         assert_eq!(guard.unsubscribe(1, third), Release::Detach);
-        assert!(!guard.is_core_subscribed(1));
+        assert!(!guard
+            .sessions
+            .get(&1)
+            .is_some_and(|streams| streams.core_subscribed));
         assert_eq!(guard.unsubscribe(1, third), Release::Nothing);
     }
 
@@ -499,20 +496,6 @@ mod tests {
             tauri::ipc::Channel::<sikemux_pty::task::TaskProcessExit>::new(|_| Ok(())),
         );
         assert_eq!(table.release_all(), vec![4]);
-        assert!(table.take_all().is_empty());
-    }
-
-    #[test]
-    fn a_watched_task_exit_is_taken_once() {
-        let table = StreamTable::default();
-        let mut guard = table.lock().expect("lock");
-        guard.register_task(
-            6,
-            tauri::ipc::Channel::<sikemux_pty::task::TaskProcessExit>::new(|_| Ok(())),
-        );
-        assert!(guard.take_task_exit(6).is_some());
-        assert!(guard.take_task_exit(6).is_none());
-        drop(guard);
         assert!(table.take_all().is_empty());
     }
 

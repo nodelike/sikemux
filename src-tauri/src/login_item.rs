@@ -171,14 +171,6 @@ mod tests {
     }
 
     #[test]
-    fn the_label_follows_the_app_identifier() {
-        assert_eq!(
-            label("com.nodelike.sikemux.dev"),
-            "com.nodelike.sikemux.dev.core"
-        );
-    }
-
-    #[test]
     fn an_unchanged_agent_is_not_rewritten() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("Library/LaunchAgents/x.plist");

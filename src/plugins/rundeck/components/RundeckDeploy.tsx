@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { confirmDialog, git, notify } from "../../../plugin-api/host";
+import { confirmDialog, git, notify, swallow } from "../../../plugin-api/host";
 import { invalidate, useResourceEnabled } from "../../../plugin-api/resources";
 import { IconRun, IconWarning, SkeletonRows } from "../../../plugin-api/ui";
 import { errorMessage, rundeckApi, type JobDetail, type JobOption, type PlanResult } from "../api";
@@ -7,6 +7,7 @@ import * as cmd from "../state";
 import type { JobRef } from "../state";
 import { rndExecutionsR, rndJobDetailR, rndJobsR, rndPlanR } from "../resources";
 import { branchOf, branchOptionName, envOf, isLiveStatus, isProdTarget, localDateTimeToIso, qualifiedName } from "../shape";
+import { watchRun } from "../runWatch";
 import { useDebounced } from "./hooks";
 import { initialOptionValues, runOptionValues, validateOptions, type OptionValues, type RemoteValues } from "./options";
 import { RundeckAdvanced, type AdvancedRun } from "./RundeckAdvanced";
@@ -209,7 +210,8 @@ function RunForm({ paneId, level, active, detail, permalink, children }: FormPro
             invalidate(
                 (kind, args) => (kind === "rnd.executions" && args[0] === level.jobId) || (kind === "rnd.matrix" && args[0] === level.project),
             );
-            cmd.rundeckReplace(paneId, { kind: "execution", ...stripOptions(level), executionId: result.id });
+            void watchRun(cmd.jobRefOf(level), result.id).catch(swallow("watch the run"));
+            cmd.rundeckReplace(paneId, { kind: "execution", ...cmd.jobRefOf(level), executionId: result.id });
         } catch (e) {
             setError(errorMessage(e));
         } finally {
@@ -356,8 +358,4 @@ function runJob(
         runAtTime,
         asUser: advanced.asUser.trim() || null,
     });
-}
-
-function stripOptions(level: Props["level"]): JobRef {
-    return { project: level.project, jobId: level.jobId, name: level.name, group: level.group, repoPath: level.repoPath };
 }

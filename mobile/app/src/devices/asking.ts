@@ -6,14 +6,8 @@ import type { Attention } from '@/core/protocol';
 const SAID = new Set(['run', 'read', 'edit', 'delete', 'move', 'search', 'fetch']);
 
 /** What a waiting agent asks to do, as "run" and "pnpm test"; null when its request names nothing. */
-export function asking(attention: Pick<Attention, 'requestJson'>): { verb: string; target: string } | null {
-  let request: unknown;
-  try {
-    request = JSON.parse(attention.requestJson);
-  } catch {
-    return null;
-  }
-  const call = recordOf(recordOf(request)?.toolCall);
+export function asking(attention: Pick<Attention, 'request'>): { verb: string; target: string } | null {
+  const call = recordOf(attention.request?.toolCall);
   if (!call || typeof call.title !== 'string' || !call.title.trim()) return null;
   const tool = { ...call, toolCallId: String(call.toolCallId ?? ''), title: call.title };
   const target = toolTarget(tool);

@@ -118,8 +118,6 @@ export interface ActionRegistration<Result = unknown> extends ActionContribution
     dispose(): void;
 }
 
-export const ACTION_SCOPE_PRECEDENCE = Object.freeze(["focused-item", "session", "project", "global"] as const);
-
 export const ACTION_REGISTRY_LIMITS = Object.freeze({
     maxRegistrations: 4_096,
     maxIdLength: 128,

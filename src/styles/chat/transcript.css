@@ -20,30 +20,26 @@
     font-family: var(--ui);
 }
 
+/* Laid out from the bottom up: the browser holds the bottom still as a reply
+   grows, and holds the reader's place as rows above them change height,
+   without the transcript ever moving its own scroll position. Rows out of view
+   are still laid out: skipped with content-visibility, each one changes height
+   as it scrolls in, and WebKit draws a frame out of place at every change. */
 .chat-scroll {
+    display: flex;
+    flex-direction: column-reverse;
     min-height: 0;
     overflow-x: hidden;
     overflow-y: auto;
-    /* The transcript holds its own scroll position; the browser guessing at one
-       as rows resize only fights it. */
-    overflow-anchor: none;
     scrollbar-gutter: stable;
     overscroll-behavior: contain;
+}
+
+/* A transcript shorter than the pane still starts at the top. */
+.chat-scroll-content {
+    flex: none;
+    margin-bottom: auto;
     padding: 25px 0 32px;
-}
-
-.chat-virtual-space {
-    position: relative;
-    width: 100%;
-}
-
-/* Size stays uncontained: the virtualizer measures each row's real height. */
-.chat-virtual-row {
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: 100%;
-    contain: layout style;
 }
 
 .chat-message {
@@ -53,8 +49,8 @@
     padding: 5px 22px;
 }
 
-/* The virtualizer absolutely positions each row, so sibling selectors never
- * match — the gap before a user turn lives on the user row's own padding. */
+/* Each message sits in a row of its own, so sibling selectors never match:
+ * the gap before a user turn lives on the user row's own padding. */
 .chat-message.user {
     padding-top: 17px;
     padding-bottom: 10px;
@@ -80,11 +76,12 @@
     font-size: calc(14px * var(--chat-text-em, 1));
     line-height: 1.65;
     user-select: text;
+    cursor: auto;
 }
 
-/* The virtualizer measures every row it draws, so a strip that appeared on
-   hover would resize the row under the pointer. The strip always holds its
-   height and only fades, and the whole turn is the thing you point at. */
+/* A strip that appeared on hover would resize the row under the pointer, so
+   it always holds its height and only fades, and the whole turn is the thing
+   you point at. */
 .chat-message-meta {
     display: flex;
     align-items: center;
@@ -110,6 +107,66 @@
     width: 24px;
     height: 24px;
     color: var(--ink-dim);
+}
+
+.chat-message-editor {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 8px;
+    width: 80%;
+    margin-left: auto;
+}
+
+.chat-message-editor textarea {
+    box-sizing: border-box;
+    width: 100%;
+    max-height: 320px;
+    padding: 8px 12px;
+    border: 1px solid var(--acc-line);
+    border-radius: var(--radius-3);
+    background: color-mix(in srgb, var(--rail-2) 72%, transparent);
+    color: var(--ink);
+    font: inherit;
+    font-size: calc(13.5px * var(--chat-text-em, 1));
+    line-height: 1.65;
+    resize: none;
+    outline: none;
+}
+
+.chat-message-editor-actions {
+    display: flex;
+    gap: 8px;
+}
+
+.chat-message-editor-actions button {
+    height: 26px;
+    padding: 0 11px;
+    border: 1px solid var(--line);
+    background: var(--rail-2);
+    color: var(--ink-dim);
+    font-size: calc(10.5px * var(--chat-text-em, 1));
+}
+
+.chat-message-editor-actions button:hover:not(:disabled) {
+    border-color: var(--acc-line);
+    color: var(--ink);
+}
+
+.chat-message-editor-actions button.primary {
+    border-color: var(--acc-line);
+    background: color-mix(in srgb, var(--acc) 18%, transparent);
+    color: var(--ink);
+}
+
+.chat-message-editor-actions button:disabled {
+    opacity: 0.45;
+}
+
+.chat-message-editor-restore.on {
+    border-color: var(--acc-line);
+    background: color-mix(in srgb, var(--acc) 14%, transparent);
+    color: var(--ink);
 }
 
 .chat-message-time {
@@ -394,6 +451,29 @@
     color: var(--ink-faint);
     font-size: calc(12.5px * var(--chat-text-em, 1));
     font-style: italic;
+}
+
+.chat-work {
+    width: min(100%, 800px);
+    margin: 8px auto 4px;
+    padding: 0 22px;
+    font-size: calc(12.5px * var(--chat-text-em, 1));
+}
+
+.chat-work::after {
+    content: "";
+    display: block;
+    height: 1px;
+    margin-top: 4px;
+    background: var(--line);
+}
+
+.chat-work-calls {
+    color: var(--ink-faint);
+}
+
+.chat-work-dot {
+    margin-inline: -2px;
 }
 
 .chat-plan {

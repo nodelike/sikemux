@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import * as cmd from "./commands";
-import { firstGrapheme, isProjectShown, spaceBadge } from "./projectSpaces";
+import { isProjectShown } from "./projectSpaces";
 import { getState, setState } from "./store";
 
 const initial = getState();
@@ -9,13 +9,15 @@ beforeEach(() => setState(initial, true));
 describe("spaces", () => {
     it("are made, renamed and given an icon by the person", () => {
         const id = cmd.createSpace("  Client A  ")!;
-        expect(getState().spaces).toEqual([{ id, name: "Client A", icon: "" }]);
+        expect(getState().spaces).toEqual([{ id, name: "Client A", icon: "folder" }]);
         expect(cmd.createSpace("   ")).toBeNull();
 
         cmd.renameSpace(id, "Client B");
         cmd.renameSpace(id, "  ");
-        cmd.setSpaceIcon(id, "🧑‍💻 laptop");
-        expect(getState().spaces[0]).toEqual({ id, name: "Client B", icon: "🧑‍💻" });
+        cmd.setSpaceIcon(id, "briefcase");
+        expect(getState().spaces[0]).toEqual({ id, name: "Client B", icon: "briefcase" });
+        cmd.setSpaceIcon(id, "");
+        expect(getState().spaces[0].icon).toBe("");
     });
 
     it("never puts a project in a space that does not exist", () => {
@@ -48,9 +50,13 @@ describe("spaces", () => {
         expect(getState().activeSpaceId).toBe(home);
     });
 
-    it("badges a space with its emoji, or else the first letter of its name", () => {
-        expect(spaceBadge({ id: "a", name: "work", icon: "" })).toBe("W");
-        expect(spaceBadge({ id: "b", name: "work", icon: "💼" })).toBe("💼");
-        expect(firstGrapheme("👩🏽‍🚀 crew")).toBe("👩🏽‍🚀");
+    it("are put in the order the person drags them to", () => {
+        const a = cmd.createSpace("A")!;
+        const b = cmd.createSpace("B")!;
+        const c = cmd.createSpace("C")!;
+        cmd.moveSpace(c, 0);
+        expect(getState().spaces.map((space) => space.id)).toEqual([c, a, b]);
+        cmd.moveSpace(c, 99);
+        expect(getState().spaces.map((space) => space.id)).toEqual([a, b, c]);
     });
 });

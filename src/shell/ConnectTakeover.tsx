@@ -38,15 +38,28 @@ function useInertBesides(host: HTMLElement | null) {
     }, [host]);
 }
 
+/** What the takeover asks: about a phone waiting to join, or, right after signing in, about the phones already on the account. */
+export type ConnectQuestion = { kind: "waiting"; request: PendingDevice } | { kind: "signedIn"; names: readonly string[] };
+
+function wording(question: ConnectQuestion): { title: string; lines: readonly [string, string]; decline: string } {
+    if (question.kind === "waiting") {
+        const name = question.request.name || "A phone";
+        return { title: `${name} wants to connect to this computer`, lines: [`${name} wants to connect`, "to this computer"], decline: "Decline" };
+    }
+    const [only, ...more] = question.names;
+    const who = more.length === 0 ? only || "your phone" : `your ${question.names.length} phones`;
+    return { title: `Let ${who} connect to this computer?`, lines: [`Let ${who} connect`, "to this computer?"], decline: "Not now" };
+}
+
 /**
- * The question a phone joining from the account asks, over the whole window: the app goes behind
- * the window's own ground until the person allows or declines it.
+ * Asks over the whole window whether phones on the account may connect: the app goes behind
+ * the window's own ground until the person allows or declines.
  */
 export default function ConnectTakeover({
-    request,
+    question,
     onAnswer,
 }: {
-    request: PendingDevice;
+    question: ConnectQuestion;
     onAnswer: (allow: boolean, access: DeviceAccess) => Promise<void>;
 }) {
     const account = useAccount((s) => s.account);
@@ -54,8 +67,8 @@ export default function ConnectTakeover({
     const [host, setHost] = useState<HTMLElement | null>(null);
     const answered = useRef(false);
     const now = useNow();
-    const name = request.name || "A phone";
-    const title = `${name} wants to connect to this computer`;
+    const { title, lines, decline } = wording(question);
+    const names = question.kind === "signedIn" && question.names.length > 1 ? question.names : null;
 
     useEffect(() => {
         const element = document.createElement("div");
@@ -109,17 +122,18 @@ export default function ConnectTakeover({
                     </span>
                 </div>
                 <h2 className="connect-title">
-                    {name} wants to connect
+                    {lines[0]}
                     <br />
-                    to this computer
+                    {lines[1]}
                 </h2>
+                {names && <p className="connect-names">{names.join(" · ")}</p>}
                 {account?.signedIn && (
                     <p className="connect-who">
                         <AccountAvatar account={account} className="connect-avatar" />
                         Signed in as <b>{account.email ?? account.name}</b>
                     </p>
                 )}
-                <div className="connect-choices" role="radiogroup" aria-label="Access for this phone">
+                <div className="connect-choices" role="radiogroup" aria-label={names ? "Access for these phones" : "Access for this phone"}>
                     {ACCESS_OPTIONS.map((option) => {
                         const Icon = ACCESS_ICONS[option.value];
                         return (
@@ -143,9 +157,9 @@ export default function ConnectTakeover({
                     })}
                 </div>
                 <div className="connect-actions">
-                    <span className="connect-waits">waits {waitsLabel(request.expiresAt, now)}</span>
+                    {question.kind === "waiting" && <span className="connect-waits">waits {waitsLabel(question.request.expiresAt, now)}</span>}
                     <button className="connect-btn" type="button" onClick={() => answer(false)}>
-                        Decline
+                        {decline}
                     </button>
                     <button className="connect-btn connect-allow" type="button" onClick={() => answer(true)}>
                         Allow
@@ -153,7 +167,8 @@ export default function ConnectTakeover({
                 </div>
                 <div className="connect-hints" aria-hidden="true">
                     <span>
-                        <kbd>esc</kbd>Decline
+                        <kbd>esc</kbd>
+                        {decline}
                     </span>
                     <span>
                         <kbd>↑↓</kbd>Choose access

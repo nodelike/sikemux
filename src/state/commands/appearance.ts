@@ -1,5 +1,5 @@
 import { invokeCommand as invoke } from "../../api/invoke";
-import { cloneTheme, DEFAULT_THEME_ID, type Theme } from "../../themes";
+import { DEFAULT_THEME_ID, type Theme } from "../../themes";
 import { applyTheme, applyWindowOpacity, previewTheme, registerCustomThemes } from "../../themes/bus";
 import { applyTerminalFontSize, clampTerminalFontSize, DEFAULT_TERMINAL_FONT_SIZE } from "../../terminal/fontSize";
 import { applyChatTextScale, clampChatTextScale, DEFAULT_CHAT_TEXT_SCALE } from "../../chat/textScale";
@@ -37,12 +37,6 @@ export function deleteCustomTheme(id: string): void {
     setState((s) => ({ customThemes: s.customThemes.filter((t) => t.id !== id) }));
     registerCustomThemes(getState().customThemes);
     if (getState().themeId === id) setThemeId(DEFAULT_THEME_ID);
-}
-
-export function duplicateCustomTheme(id: string): void {
-    const src = getState().customThemes.find((t) => t.id === id);
-    if (!src) return;
-    saveCustomTheme(cloneTheme(src, { id: `custom-${Date.now().toString(36)}`, name: `${src.name} copy` }));
 }
 
 export function setTerminalFontSize(v: number): void {

@@ -232,8 +232,8 @@ fn codex_title(path: &Path) -> Option<String> {
     None
 }
 
-const CODEX_RENAME_TIMEOUT: Duration = Duration::from_secs(15);
-const CODEX_RENAME_OUTPUT_LIMIT: usize = 2 * 1024 * 1024;
+const CODEX_REQUEST_TIMEOUT: Duration = Duration::from_secs(15);
+const CODEX_REQUEST_OUTPUT_LIMIT: usize = 2 * 1024 * 1024;
 
 /// Renames a thread through Codex's own app server, which updates both its
 /// thread database and `session_index.jsonl`; the database copy wins in Codex's
@@ -243,6 +243,28 @@ pub(super) async fn rename_codex_session(
     config_path: Option<&str>,
     session_id: &str,
     name: &str,
+) -> Result<(), String> {
+    let params = serde_json::json!({ "threadId": session_id, "name": name });
+    codex_thread_request(executable, config_path, "thread/name/set", params, "rename").await
+}
+
+/// Deletes a thread through Codex's own app server, which removes its rollout
+/// and its row in the thread database, so Codex's resume list drops it too.
+pub(super) async fn delete_codex_session(
+    executable: &Path,
+    config_path: Option<&str>,
+    session_id: &str,
+) -> Result<(), String> {
+    let params = serde_json::json!({ "threadId": session_id });
+    codex_thread_request(executable, config_path, "thread/delete", params, "delete").await
+}
+
+async fn codex_thread_request(
+    executable: &Path,
+    config_path: Option<&str>,
+    method: &str,
+    params: Value,
+    action: &str,
 ) -> Result<(), String> {
     let mut command = Command::from(sikemux_process::user_environment::command(executable));
     apply_login_environment(&mut command);
@@ -260,17 +282,13 @@ pub(super) async fn rename_codex_session(
     let stdout = child.stdout.take().ok_or("Could not talk to Codex")?;
     let mut lines = AsyncBufReader::new(stdout).lines();
 
-    let rename = tokio::time::timeout(CODEX_RENAME_TIMEOUT, async {
+    let answered = tokio::time::timeout(CODEX_REQUEST_TIMEOUT, async {
         let initialize = serde_json::json!({
             "id": 1,
             "method": "initialize",
             "params": { "clientInfo": { "name": "sikemux", "version": env!("CARGO_PKG_VERSION") } },
         });
-        let set_name = serde_json::json!({
-            "id": 2,
-            "method": "thread/name/set",
-            "params": { "threadId": session_id, "name": name },
-        });
+        let request = serde_json::json!({ "id": 2, "method": method, "params": params });
         send_line(&mut stdin, &initialize.to_string()).await?;
         let mut output_bytes = 0usize;
         while let Some(line) = lines
@@ -279,7 +297,7 @@ pub(super) async fn rename_codex_session(
             .map_err(|_| "Could not read Codex's answer".to_string())?
         {
             output_bytes = output_bytes.saturating_add(line.len());
-            if output_bytes > CODEX_RENAME_OUTPUT_LIMIT {
+            if output_bytes > CODEX_REQUEST_OUTPUT_LIMIT {
                 return Err("Codex's answer was too large".to_string());
             }
             let Ok(value) = serde_json::from_str::<Value>(&line) else {
@@ -291,25 +309,25 @@ pub(super) async fn rename_codex_session(
                     .get("message")
                     .and_then(Value::as_str)
                     .unwrap_or("unknown error");
-                return Err(format!("Codex could not rename the chat: {message}"));
+                return Err(format!("Codex could not {action} the chat: {message}"));
             }
             match answer {
                 Some(1) => {
                     send_line(&mut stdin, r#"{"method":"initialized"}"#).await?;
-                    send_line(&mut stdin, &set_name.to_string()).await?;
+                    send_line(&mut stdin, &request.to_string()).await?;
                 }
                 Some(2) => return Ok(()),
                 _ => {}
             }
         }
-        Err("Codex closed before renaming the chat".to_string())
+        Err(format!("Codex closed before it could {action} the chat"))
     })
     .await;
 
     drop(stdin);
     let _ = child.kill().await;
     let _ = child.wait().await;
-    rename.map_err(|_| "Codex took too long to rename the chat".to_string())?
+    answered.map_err(|_| format!("Codex took too long to {action} the chat"))?
 }
 
 async fn send_line(stdin: &mut ChildStdin, line: &str) -> Result<(), String> {

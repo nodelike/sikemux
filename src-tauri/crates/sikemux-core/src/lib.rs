@@ -10,11 +10,11 @@ pub mod client;
 pub mod harness;
 #[cfg(unix)]
 pub mod join;
-pub mod protocol;
+pub use sikemux_wire::protocol;
 #[cfg(unix)]
 pub mod push;
 #[cfg(unix)]
-pub mod remote;
+pub use sikemux_client::remote;
 #[cfg(unix)]
 pub mod server;
 

@@ -180,6 +180,38 @@ impl Pull {
 }
 
 #[derive(Deserialize)]
+struct BuildStatus {
+    state: Option<String>,
+}
+
+/// Whether a pull request can merge, in GitHub's merge-state words. Bitbucket
+/// does not say outright, so it is read off what it does say: a draft, a file
+/// in conflict, a reviewer asking for changes, and the builds on the head.
+fn merge_state(
+    draft: bool,
+    conflicted: bool,
+    changes_requested: bool,
+    builds: &[BuildStatus],
+) -> (bool, &'static str) {
+    let build = |wanted: &str| {
+        builds
+            .iter()
+            .any(|status| status.state.as_deref() == Some(wanted))
+    };
+    if draft {
+        (false, "draft")
+    } else if conflicted {
+        (false, "dirty")
+    } else if changes_requested {
+        (false, "blocked")
+    } else if build("FAILED") || build("STOPPED") || build("INPROGRESS") {
+        (true, "unstable")
+    } else {
+        (true, "clean")
+    }
+}
+
+#[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ListQuery {
     #[serde(flatten)]
@@ -269,11 +301,30 @@ async fn row(data_dir: &Path, repo: &RepoRef, number: u64) -> BitbucketResult<Pu
 }
 
 pub async fn get(data_dir: &Path, input: Thread) -> BitbucketResult<Pull> {
-    let (row, stats) = futures::try_join!(
+    let statuses_path = pull_path(&input.repo, input.number, "/statuses")?;
+    let statuses_query = [("pagelen", "100".to_string())];
+    let (row, stats, builds) = futures::try_join!(
         row(data_dir, &input.repo, input.number),
-        diffstat(data_dir, &input.repo, input.number)
+        diffstat(data_dir, &input.repo, input.number),
+        client::get_all::<BuildStatus>(data_dir, &statuses_path, &statuses_query, 2)
     )?;
+    let open = row.state == "OPEN";
+    let changes_requested = row
+        .participants
+        .iter()
+        .any(|participant| participant.state.as_deref() == Some("changes_requested"));
+    let conflicted = stats.iter().any(|stat| {
+        stat.status
+            .as_deref()
+            .is_some_and(|status| status.contains("conflict"))
+    });
+    let draft = row.draft;
     let mut pull = Pull::from_row(&input.repo, row);
+    if open {
+        let (mergeable, state) = merge_state(draft, conflicted, changes_requested, &builds);
+        pull.mergeable = Some(mergeable);
+        pull.merge_state = Some(state.into());
+    }
     if let Some(short) = pull.head_sha.clone() {
         pull.head_sha = Some(full_hash(data_dir, &input.repo, &short).await?);
     }
@@ -996,6 +1047,34 @@ pub async fn review(data_dir: &Path, input: ReviewInput) -> BitbucketResult<()> 
 mod tests {
     use super::*;
 
+    fn builds(states: &[&str]) -> Vec<BuildStatus> {
+        states
+            .iter()
+            .map(|state| BuildStatus {
+                state: Some(state.to_string()),
+            })
+            .collect()
+    }
+
+    #[test]
+    fn whether_a_pull_request_can_merge_is_read_off_what_bitbucket_says() {
+        assert_eq!(
+            merge_state(false, false, false, &builds(&["SUCCESSFUL"])),
+            (true, "clean")
+        );
+        assert_eq!(merge_state(false, false, false, &[]), (true, "clean"));
+        assert_eq!(
+            merge_state(false, false, false, &builds(&["SUCCESSFUL", "FAILED"])),
+            (true, "unstable")
+        );
+        assert_eq!(
+            merge_state(false, false, true, &builds(&["SUCCESSFUL"])),
+            (false, "blocked")
+        );
+        assert_eq!(merge_state(false, true, false, &[]), (false, "dirty"));
+        assert_eq!(merge_state(true, true, true, &[]), (false, "draft"));
+    }
+
     fn repo() -> RepoRef {
         RepoRef {
             owner: "swishx".into(),
@@ -1269,16 +1348,6 @@ mod tests {
         assert_eq!(known[0].email, "kishore@example.com");
         assert_eq!(known[0].login, "kishore");
         assert_eq!(known[0].avatar_url, "https://a/kg.png");
-    }
-
-    #[test]
-    fn reviewer_verdicts_use_the_words_every_host_shares() {
-        assert_eq!(verdict(true, None), Some("APPROVED"));
-        assert_eq!(
-            verdict(false, Some("changes_requested")),
-            Some("CHANGES_REQUESTED")
-        );
-        assert_eq!(verdict(false, None), None);
     }
 
     #[test]

@@ -25,6 +25,8 @@ export interface RecentChats {
     loadMore: () => void;
     /** Shows a new title at once, before the provider has written it. */
     retitle: (agent: AgentType, id: string, title: string) => void;
+    /** Drops a chat at once, before the provider's folder reports it gone. */
+    forget: (agent: AgentType, id: string) => void;
 }
 
 interface Loaded {
@@ -151,6 +153,10 @@ export function useRecentChats({ enabled, providers, projects, open, query }: Re
         }));
     }, []);
 
+    const forget = useCallback((agent: AgentType, id: string) => {
+        setLoaded((current) => ({ ...current, chats: current.chats.filter((chat) => chat.agent !== agent || chat.id !== id) }));
+    }, []);
+
     const current = loaded.listKey === listKey;
     return {
         chats: current ? loaded.chats : [],
@@ -158,5 +164,6 @@ export function useRecentChats({ enabled, providers, projects, open, query }: Re
         hasMore: current && loaded.next !== null,
         loadMore,
         retitle,
+        forget,
     };
 }

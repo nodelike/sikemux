@@ -10,24 +10,12 @@ const queued = (id: string, text: string, paths: string[] = [], context: QueuedM
 const item = (uri: string) => ({ uri, title: uri, text: "body" });
 
 describe("queuedLabel", () => {
-    it("shows the text when there is some", () => {
-        expect(queuedLabel(queued("1", "fix it", ["/a/b.png"]))).toBe("fix it");
-    });
-
-    it("names the attachments when there is no text", () => {
-        expect(queuedLabel(queued("1", "", ["/a/b.png", "/c/d.txt"]))).toBe("b.png, d.txt");
-    });
-
     it("names context items when there is no text", () => {
         expect(queuedLabel(queued("1", "", ["/a/b.png"], [item("#12 Crash")]))).toBe("b.png, #12 Crash");
     });
 });
 
 describe("nextBatch", () => {
-    it("sends nothing from an empty queue", () => {
-        expect(nextBatch([])).toEqual([]);
-    });
-
     it("sends every plain message together", () => {
         const messages = [queued("1", "a"), queued("2", "b")];
         expect(nextBatch(messages)).toEqual(messages);

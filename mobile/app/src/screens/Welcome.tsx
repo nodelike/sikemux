@@ -26,12 +26,12 @@ const type = typeFor(colors);
 
 /** What the app is for, before there is anything of the person's to show: the rail, drifting past. */
 const REEL = [
-  { provider: 'claude', title: 'Tighten the rail spacing', detail: 'sikemux · Editing…', state: 'working' },
-  { provider: 'codex', title: 'Fix the flaky PTY replay test', detail: 'sikemux · Running a command…', state: 'working' },
-  { provider: 'claude', title: 'Remote pairing screen', detail: 'sikemux · Needs input', state: 'needs' },
-  { provider: 'hermes', title: 'Release notes for v0.4.3', detail: 'sikemux-front · Done', state: 'done' },
-  { provider: 'opencode', title: 'Why does the shader dim the rail', detail: 'sikemux · Thinking…', state: 'working' },
-  { provider: 'codex', title: 'Download size on the hero', detail: 'sikemux-front · Reading…', state: 'working' },
+  { provider: 'claude', title: 'Tighten the rail spacing', place: 'sikemux', doing: 'Editing…', state: 'working' },
+  { provider: 'codex', title: 'Fix the flaky PTY replay test', place: 'sikemux', doing: 'Running a command…', state: 'working' },
+  { provider: 'claude', title: 'Remote pairing screen', place: 'sikemux', doing: 'Needs input', state: 'needs' },
+  { provider: 'hermes', title: 'Release notes for v0.4.3', place: 'sikemux-front', doing: 'Done', state: 'done' },
+  { provider: 'opencode', title: 'Why does the shader dim the rail', place: 'sikemux', doing: 'Thinking…', state: 'working' },
+  { provider: 'codex', title: 'Download size on the hero', place: 'sikemux-front', doing: 'Reading…', state: 'working' },
 ] as const;
 
 const ROW = 56;
@@ -42,10 +42,13 @@ function ReelRow({ row }: { row: (typeof REEL)[number] }) {
     <View style={styles.row}>
       <AgentIcon provider={row.provider} size={22} />
       <View style={{ flex: 1 }}>
-        <Text style={type.row} numberOfLines={1}>
+        <Text style={[type.row, styles.rowTitle]} numberOfLines={1}>
           {row.title}
         </Text>
-        <Text style={styles.rowDetail}>{row.detail}</Text>
+        <View style={styles.rowPlace}>
+          <Icon name="IconFolder" size={11} color={colors.live} />
+          <Text style={styles.rowDetail}>{`${row.place} · ${row.doing}`}</Text>
+        </View>
       </View>
       <View style={styles.state}>
         {row.state === 'working' ? <Working /> : row.state === 'needs' ? <NeedsYou /> : <Dot color={colors.accent} />}
@@ -192,7 +195,9 @@ const styles = StyleSheet.create({
   reel: { height: REEL_HEIGHT, flexShrink: 1, overflow: 'hidden', paddingHorizontal: 16, marginTop: 8 },
   fade: { position: 'absolute', left: 0, right: 0, height: 110 },
   row: { height: ROW, flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 10 },
-  rowDetail: { ...type.meta, fontSize: 12.5, marginTop: 1 },
+  rowTitle: { color: colors.ink },
+  rowPlace: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 1 },
+  rowDetail: { ...type.meta, fontSize: 12.5 },
   state: { width: 20, alignItems: 'center' },
   copy: { flexGrow: 1, justifyContent: 'flex-end', paddingHorizontal: 24 },
   markLine: { flexDirection: 'row', alignItems: 'center', gap: 9 },

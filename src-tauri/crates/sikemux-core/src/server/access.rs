@@ -29,6 +29,7 @@ pub(crate) const UNPAIRED: &str = "this device is no longer paired with this hos
 
 pub(crate) fn needs(request: &Request) -> Needs {
     match request {
+        Request::Call { method, .. } => super::calls::needs(method),
         Request::List
         | Request::Attach { .. }
         | Request::Detach { .. }
@@ -52,8 +53,10 @@ pub(crate) fn needs(request: &Request) -> Needs {
         | Request::Resize { .. }
         | Request::Kill { .. }
         | Request::ResetModes { .. }
+        | Request::ShellAtPrompt { .. }
         | Request::AcpStart { .. }
         | Request::AcpPrompt { .. }
+        | Request::AcpEdit { .. }
         | Request::AcpSteer { .. }
         | Request::AttachFile { .. }
         | Request::AcpCancel { .. }
@@ -71,12 +74,14 @@ pub(crate) fn needs(request: &Request) -> Needs {
         | Request::RegisterWindow
         | Request::HarnessAwaitingTrust { .. }
         | Request::HarnessStopRuns { .. }
+        | Request::PluginsChanged
         | Request::Shutdown { .. }
         | Request::RemoteStatus
         | Request::SetRemoteAccess { .. }
         | Request::SetDeviceAccess { .. }
         | Request::RevokeDevice { .. }
         | Request::AnswerPairing { .. }
+        | Request::AllowDevices { .. }
         | Request::SignRegistration { .. }
         | Request::SetOwner { .. }
         | Request::PublishWorkspace { .. }
@@ -124,7 +129,7 @@ pub(crate) fn permit(peer: &Peer, access: Option<DeviceAccess>, needs: Needs) ->
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::protocol::SessionId;
+    use crate::protocol::{AllowedDevice, SessionId};
 
     const SESSION: SessionId = 1;
 
@@ -162,6 +167,14 @@ mod tests {
                 id: "request".into(),
                 allow: true,
                 access: DeviceAccess::Full,
+            },
+            Request::AllowDevices {
+                devices: vec![AllowedDevice {
+                    id: "f".repeat(64),
+                    name: "Attacker".into(),
+                    platform: "ios".into(),
+                    access: DeviceAccess::Full,
+                }],
             },
             Request::SignRegistration {
                 nonce: "a".repeat(64),

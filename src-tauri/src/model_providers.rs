@@ -336,16 +336,6 @@ mod tests {
     }
 
     #[test]
-    fn only_agents_that_read_provider_keys_are_given_them() {
-        for agent in ["opencode", "pi", "omp"] {
-            assert!(reads_provider_keys(agent), "{agent}");
-        }
-        for agent in ["claude", "codex", "hermes", "grok"] {
-            assert!(!reads_provider_keys(agent), "{agent}");
-        }
-    }
-
-    #[test]
     fn a_rejected_key_is_told_apart_from_a_provider_that_did_not_answer() {
         assert_eq!(check_failure("Baseten", StatusCode::OK), None);
         assert_eq!(

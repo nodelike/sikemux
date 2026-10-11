@@ -1,4 +1,4 @@
-import { createContext, memo, useContext, useEffect, useState, type ReactNode } from "react";
+import { createContext, memo, useContext, useEffect, useMemo, useState, type ComponentType, type ReactNode } from "react";
 import { Markdown as MarkdownText, MARKDOWN_GFM, type MarkdownComponents } from "../markdown/Markdown";
 import { openUrl, swallow } from "./host";
 import "./prose.css";
@@ -66,19 +66,20 @@ export const Markdown = memo(function Markdown({
     children,
     className = "prose",
     loadImage,
+    taskBox,
 }: {
     children: string;
     className?: string;
     loadImage?: ProseImageLoader;
+    /** Draws a task list item's box, for prose whose tasks can be ticked. */
+    taskBox?: ComponentType<{ checked: boolean }>;
 }) {
+    const base = loadImage ? WITH_IMAGES : COMPONENTS;
+    const components = useMemo(() => (taskBox ? { ...base, taskBox } : base), [base, taskBox]);
     return (
         <div className={className}>
             <ImageLoaderContext.Provider value={loadImage ?? null}>
-                <MarkdownText
-                    text={children}
-                    options={loadImage ? WITH_HTML_IMAGES : MARKDOWN_GFM}
-                    components={loadImage ? WITH_IMAGES : COMPONENTS}
-                />
+                <MarkdownText text={children} options={loadImage ? WITH_HTML_IMAGES : MARKDOWN_GFM} components={components} />
             </ImageLoaderContext.Provider>
         </div>
     );

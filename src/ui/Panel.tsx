@@ -10,13 +10,7 @@ import { Fragment, type CSSProperties, type ReactNode } from "react";
  * describe what genuinely differs.
  */
 
-/**
- * Height of a `PanelRow`, in px.
- *
- * Virtualised lists position rows absolutely from this number, so it has to
- * match `.panel-row { height }` in panel.css exactly — a drift makes rows
- * overlap once a list is long enough to virtualise.
- */
+/** Height of a row in a virtualised panel list, in px; rows are positioned absolutely from it. */
 export const PANEL_ROW_HEIGHT = 24;
 
 /**
@@ -93,7 +87,7 @@ export function PanelHeader({
 }: {
     index?: number;
     label: string;
-    /** Rendered after the label; falsy entries are skipped. Pass `<Badge>`s. */
+    /** Rendered after the label; falsy entries are skipped. */
     badges?: ReactNode[];
     actions?: PanelAction[];
     /** Arbitrary content between the badges and the actions. */
@@ -154,53 +148,6 @@ export function PanelBody({ className, children }: { className?: string; childre
     return <div className={`panel-body${className ? ` ${className}` : ""}`}>{children}</div>;
 }
 
-/**
- * A selectable list row. `ranged` marks membership of a multi-row selection,
- * which reads differently from the cursor position.
- */
-export function PanelRow({
-    selected = false,
-    ranged = false,
-    muted = false,
-    onClick,
-    className,
-    children,
-}: {
-    selected?: boolean;
-    ranged?: boolean;
-    muted?: boolean;
-    onClick?: () => void;
-    className?: string;
-    children: ReactNode;
-}) {
-    const state = `${selected ? " sel" : ""}${ranged ? " ranged" : ""}${muted ? " muted" : ""}`;
-    return (
-        <div
-            className={`panel-row${state}${className ? ` ${className}` : ""}`}
-            role={onClick ? "button" : undefined}
-            tabIndex={onClick ? 0 : undefined}
-            onClick={onClick}
-            onKeyDown={
-                onClick
-                    ? (event) => {
-                          if (event.target !== event.currentTarget) return;
-                          if (event.key === "Enter" || event.key === " ") {
-                              event.preventDefault();
-                              onClick();
-                          }
-                      }
-                    : undefined
-            }>
-            {children}
-        </div>
-    );
-}
-
-/** Trailing secondary text on a row — counts, timestamps, hints. */
-export function PanelRowHint({ children }: { children: ReactNode }) {
-    return <span className="panel-row-hint">{children}</span>;
-}
-
 export interface EmptyStateAction {
     label: string;
     onClick: () => void;
@@ -259,9 +206,4 @@ export function EmptyState({
             )}
         </div>
     );
-}
-
-/** A small status pill. Used for counts, ranges, filters and states. */
-export function Badge({ tone = "neutral", children }: { tone?: "neutral" | "accent" | "warn" | "danger" | "live"; children: ReactNode }) {
-    return <span className={`badge badge-${tone}`}>{children}</span>;
 }

@@ -22,6 +22,8 @@ use super::history::{History, Page, MAX_HISTORY_BYTES};
 /// notification on its own costs a script eval in the webview, and an adapter
 /// sends one per token.
 const FLUSH: Duration = Duration::from_millis(16);
+/// Streamed updates go out early once a batch holds this much.
+const BATCH_BYTES: usize = 1024 * 1024;
 pub(crate) const MAX_REPLAY_BYTES: usize = 8 * 1024 * 1024;
 pub(crate) const MAX_REPLAY_EVENTS: usize = 20_000;
 /// Roughly what an event costs beyond its payload once it is on the wire.
@@ -122,6 +124,13 @@ fn session_title(payload: &Value) -> Option<&str> {
         .filter(|title| !title.is_empty())
 }
 
+/// Subagents outlive the turn that started them, but not one that was cancelled.
+/// The agent says so itself; this covers one that does not, as clients do.
+fn cancels_subagents(kind: ChatEventKind, payload: &Value) -> bool {
+    kind == ChatEventKind::TurnCompleted
+        && payload.get("stopReason").and_then(Value::as_str) == Some("cancelled")
+}
+
 /// Keeps `running` to the subagents the parent session has going. A subagent's
 /// own updates arrive under its session id and never change the count.
 fn track_subagent(running: &mut HashSet<String>, payload: &Value) {
@@ -144,6 +153,42 @@ fn track_subagent(running: &mut HashSet<String>, payload: &Value) {
         {
             running.remove(id);
         }
+        _ => {}
+    }
+}
+
+/// Keeps `tasks` to the parent session's background tasks, each marked with
+/// whether it is running now rather than paused. One that ends is dropped.
+fn track_task(tasks: &mut HashMap<String, bool>, subagents: &HashSet<String>, payload: &Value) {
+    let in_subagent = payload
+        .get("sessionId")
+        .and_then(Value::as_str)
+        .is_some_and(|session| subagents.contains(session));
+    if in_subagent {
+        return;
+    }
+    let Some(update) = payload.get("update") else {
+        return;
+    };
+    let Some(id) = update.get("asyncTaskId").and_then(Value::as_str) else {
+        return;
+    };
+    let state = update.get("state").and_then(Value::as_str);
+    match update.get("sessionUpdate").and_then(Value::as_str) {
+        Some("async_task_spawned") => {
+            tasks.entry(id.to_owned()).or_insert(true);
+        }
+        Some("async_task_progress" | "async_task_state_update") => match state {
+            Some("completed" | "failed" | "stopped") => {
+                tasks.remove(id);
+            }
+            Some(state) => {
+                if let Some(running) = tasks.get_mut(id) {
+                    *running = state == "running";
+                }
+            }
+            None => {}
+        },
         _ => {}
     }
 }
@@ -181,6 +226,23 @@ fn joins(earlier: &Chunk<'_>, later: &Chunk<'_>) -> bool {
 
 fn is_kept(kind: ChatEventKind) -> bool {
     !matches!(kind, ChatEventKind::Status | ChatEventKind::Ready)
+}
+
+fn is_turn_edge(kind: ChatEventKind) -> bool {
+    matches!(
+        kind,
+        ChatEventKind::TurnStarted | ChatEventKind::TurnCompleted | ChatEventKind::Error
+    )
+}
+
+/// When a turn's edges happened, so a client rebuilding the chat later can
+/// tell how long each turn took.
+fn stamp(payload: &mut Value) {
+    if let Some(fields) = payload.as_object_mut() {
+        fields
+            .entry("at")
+            .or_insert_with(|| json!(crate::server::remote::unix_ms()));
+    }
 }
 
 fn asks(event: &ChatEvent, request_id: &str) -> bool {
@@ -281,13 +343,14 @@ impl Replay {
         true
     }
 
-    pub(crate) fn push(&mut self, kind: ChatEventKind, payload: &Value) {
+    /// Keeps `payload`, answering with about how many bytes it took.
+    pub(crate) fn push(&mut self, kind: ChatEventKind, payload: &Value) -> usize {
         if !is_kept(kind) {
-            return;
+            return 0;
         }
         if kind == ChatEventKind::SessionUpdate && self.join_text(payload) {
             self.trim();
-            return;
+            return chunk(payload).map_or(0, |chunk| chunk.text.len());
         }
         let starts_turn = self.starts_turn(kind, payload);
         if let Some(previous) = self.entries.back_mut() {
@@ -324,6 +387,7 @@ impl Replay {
         });
         self.bytes += bytes;
         self.trim();
+        bytes
     }
 
     fn hold(&mut self, holds: Holds, index: u64, event: &ChatEvent) {
@@ -331,11 +395,14 @@ impl Replay {
         self.standing.push((holds, index, event.clone()));
     }
 
+    fn forget_subagents(&mut self) {
+        self.standing
+            .retain(|(held, ..)| !matches!(held, Holds::Subagent(_)));
+    }
+
     fn note_standing(&mut self, kind: ChatEventKind, index: u64, event: &ChatEvent) {
-        // A turn that ends takes the subagents it started with it, as clients settle them.
-        if kind == ChatEventKind::TurnCompleted {
-            self.standing
-                .retain(|(held, ..)| !matches!(held, Holds::Subagent(_)));
+        if cancels_subagents(kind, &event.payload) {
+            self.forget_subagents();
             return;
         }
         if kind != ChatEventKind::SessionUpdate {
@@ -477,6 +544,48 @@ impl Replay {
         }
     }
 
+    /// Forgets the person's message `message_id` and everything after it.
+    /// A message too old to still be kept here takes the whole replay with it.
+    pub(crate) fn rewind(&mut self, message_id: &str) {
+        let names = |entry: &Entry| {
+            match entry.event.kind {
+                ChatEventKind::Prompt => entry.event.payload.get("messageId"),
+                ChatEventKind::SessionUpdate
+                    if session_update_kind(&entry.event.payload) == Some("user_message_chunk") =>
+                {
+                    entry.event.payload.pointer("/update/messageId")
+                }
+                _ => None,
+            }
+            .and_then(Value::as_str)
+                == Some(message_id)
+        };
+        let found = self.entries.iter().position(names);
+        let position = found.unwrap_or(0);
+        let index = match found {
+            Some(position) => self.entries[position].index,
+            None => self
+                .history
+                .as_ref()
+                .and_then(History::first)
+                .or_else(|| self.entries.front().map(|entry| entry.index))
+                .unwrap_or(self.next_index),
+        };
+        let dropped: usize = self
+            .entries
+            .drain(position..)
+            .map(|entry| entry.bytes)
+            .sum();
+        self.bytes -= dropped;
+        if let Some(history) = self.history.as_mut() {
+            history.truncate(index);
+        }
+        self.standing.retain(|(_, held, _)| *held < index);
+        self.in_turn = false;
+        self.last_from_user = false;
+        self.since_point = 0;
+    }
+
     pub(crate) fn page(&self, before: u64, turns: usize) -> Result<Page, String> {
         let Some(history) = self.history.as_ref() else {
             return Ok(Page::default());
@@ -582,11 +691,13 @@ struct Inner {
     recent: Recent,
     replay: Replay,
     pending: Vec<Value>,
+    pending_bytes: usize,
     flush_scheduled: bool,
     start: Option<ChatStart>,
     permission_mode: String,
     title: Option<String>,
     subagents: HashSet<String>,
+    tasks: HashMap<String, bool>,
     /// The session ended, so nobody new is let in to wait for events that
     /// will not come.
     closed: bool,
@@ -620,11 +731,13 @@ impl Feed {
                 recent: Recent::default(),
                 replay: Replay::new(MAX_REPLAY_BYTES, MAX_REPLAY_EVENTS, history),
                 pending: Vec::new(),
+                pending_bytes: 0,
                 flush_scheduled: false,
                 start: None,
                 permission_mode,
                 title: None,
                 subagents: HashSet::new(),
+                tasks: HashMap::new(),
                 closed: false,
             }),
         })
@@ -687,6 +800,7 @@ impl Feed {
             return;
         }
         let updates = std::mem::take(&mut inner.pending);
+        inner.pending_bytes = 0;
         self.broadcast(
             inner,
             ChatEventKind::SessionUpdate,
@@ -704,17 +818,31 @@ impl Feed {
     /// Anything that is not a streamed update reads as a reply to what came
     /// before it, so the batch behind it goes out first and the order the
     /// agent sent them in survives.
-    pub(crate) fn emit(self: &Arc<Self>, kind: ChatEventKind, payload: Value) {
+    pub(crate) fn emit(self: &Arc<Self>, kind: ChatEventKind, mut payload: Value) {
         let Ok(mut inner) = self.inner.lock() else {
             return;
         };
-        inner.replay.push(kind, &payload);
+        if is_turn_edge(kind) {
+            stamp(&mut payload);
+        }
+        let bytes = inner.replay.push(kind, &payload);
         if kind == ChatEventKind::SessionUpdate {
             if let Some(title) = session_title(&payload) {
                 inner.title = Some(title.to_owned());
             }
+            let Inner {
+                tasks, subagents, ..
+            } = &mut *inner;
+            track_task(tasks, subagents, &payload);
             track_subagent(&mut inner.subagents, &payload);
             inner.pending.push(payload);
+            inner.pending_bytes += bytes;
+            // A loaded chat replays its history all at once, and in one batch
+            // it would outgrow what a client can be sent.
+            if inner.pending_bytes >= BATCH_BYTES {
+                self.flush_locked(&mut inner);
+                return;
+            }
             if !inner.flush_scheduled {
                 inner.flush_scheduled = true;
                 let feed = self.clone();
@@ -725,9 +853,20 @@ impl Feed {
             }
             return;
         }
-        // A turn that ends takes the subagents it started with it, as clients settle them.
-        if kind == ChatEventKind::TurnCompleted {
+        // An agent starting again knows nothing of the old one's subagents.
+        if kind == ChatEventKind::Status {
+            inner.replay.forget_subagents();
+        }
+        if kind == ChatEventKind::Status || cancels_subagents(kind, &payload) {
             inner.subagents.clear();
+        }
+        if kind == ChatEventKind::Status
+            && matches!(
+                payload.get("state").and_then(Value::as_str),
+                Some("stopped" | "error")
+            )
+        {
+            inner.tasks.clear();
         }
         self.flush_locked(&mut inner);
         self.broadcast(&mut inner, kind, payload);
@@ -735,14 +874,44 @@ impl Feed {
 
     /// The client that sent a prompt already shows it; everyone else, and every
     /// later replay, learns it here.
-    pub(crate) fn prompted(&self, from: ClientId, text: &str, paths: &[String]) {
+    pub(crate) fn prompted(
+        &self,
+        from: ClientId,
+        message_id: Option<&str>,
+        text: &str,
+        paths: &[String],
+    ) {
         let Ok(mut inner) = self.inner.lock() else {
             return;
         };
-        let payload = json!({ "text": text, "paths": paths });
+        let mut payload = json!({ "text": text, "paths": paths });
+        if let Some(message_id) = message_id {
+            payload["messageId"] = json!(message_id);
+        }
+        stamp(&mut payload);
         inner.replay.push(ChatEventKind::Prompt, &payload);
         self.flush_locked(&mut inner);
         self.broadcast_except(&mut inner, ChatEventKind::Prompt, payload, Some(from));
+    }
+
+    /// The person took the chat back to before their message `message_id`.
+    /// It goes from the replay, and every client but the one that asked is
+    /// told to drop it and everything after it.
+    pub(crate) fn rewound(&self, from: ClientId, session_id: &str, message_id: &str) {
+        let Ok(mut inner) = self.inner.lock() else {
+            return;
+        };
+        self.flush_locked(&mut inner);
+        inner.replay.rewind(message_id);
+        self.broadcast_except(
+            &mut inner,
+            ChatEventKind::SessionUpdate,
+            json!({
+                "sessionId": session_id,
+                "update": { "sessionUpdate": "message_rewound", "messageId": message_id },
+            }),
+            Some(from),
+        );
     }
 
     pub(crate) fn subscribe(&self, client: &Arc<ClientConn>) {
@@ -876,6 +1045,13 @@ impl Feed {
             .unwrap_or_default()
     }
 
+    pub(crate) fn running_tasks(&self) -> u32 {
+        self.inner
+            .lock()
+            .map(|inner| inner.tasks.values().filter(|running| **running).count() as u32)
+            .unwrap_or_default()
+    }
+
     pub(crate) fn start(&self) -> Option<ChatStart> {
         self.inner.lock().ok()?.start.clone()
     }
@@ -915,6 +1091,53 @@ mod tests {
 
     fn kinds(replay: &Replay) -> Vec<ChatEventKind> {
         replay.events().iter().map(|event| event.kind).collect()
+    }
+
+    #[test]
+    fn a_rewind_forgets_the_message_and_everything_after_it() {
+        let mut replay = Replay::new(MAX_REPLAY_BYTES, MAX_REPLAY_EVENTS, None);
+        let prompt = |id: &str| json!({ "text": id, "paths": [], "messageId": id });
+        for id in ["first", "second"] {
+            replay.push(ChatEventKind::Prompt, &prompt(id));
+            replay.push(ChatEventKind::TurnStarted, &json!({}));
+            replay.push(
+                ChatEventKind::SessionUpdate,
+                &text("agent_message_chunk", Some(id), "answer"),
+            );
+            replay.push(ChatEventKind::TurnCompleted, &json!({}));
+        }
+        replay.rewind("second");
+        assert_eq!(
+            kinds(&replay),
+            [
+                ChatEventKind::Prompt,
+                ChatEventKind::TurnStarted,
+                ChatEventKind::SessionUpdate,
+                ChatEventKind::TurnCompleted,
+            ]
+        );
+        assert_eq!(replay.events()[0].payload["messageId"], "first");
+    }
+
+    #[test]
+    fn a_rewind_finds_a_message_a_loaded_session_replayed() {
+        let mut replay = Replay::new(MAX_REPLAY_BYTES, MAX_REPLAY_EVENTS, None);
+        replay.push(
+            ChatEventKind::SessionUpdate,
+            &text("user_message_chunk", Some("u1"), "hello"),
+        );
+        replay.push(
+            ChatEventKind::SessionUpdate,
+            &text("agent_message_chunk", Some("a1"), "hi"),
+        );
+        replay.push(
+            ChatEventKind::SessionUpdate,
+            &text("user_message_chunk", Some("u2"), "again"),
+        );
+        replay.rewind("u2");
+        assert_eq!(replay.events().len(), 2);
+        replay.rewind("missing");
+        assert!(replay.events().is_empty());
     }
 
     #[test]
@@ -1306,12 +1529,13 @@ mod tests {
                 ("plan".to_owned(), "second".to_owned()),
                 ("async_task_spawned".to_owned(), "shell".to_owned()),
                 ("async_task_progress".to_owned(), "shell".to_owned()),
+                ("subagent_spawned".to_owned(), "helper".to_owned()),
             ]
         );
     }
 
     #[test]
-    fn a_running_subagent_stands_until_it_stops_or_its_turn_ends() {
+    fn a_running_subagent_stands_until_it_stops_or_its_turn_is_cancelled() {
         let mut replay = Replay::new(MAX_REPLAY_BYTES, MAX_REPLAY_EVENTS, None);
         let spawned = |id: &str| {
             update(
@@ -1341,7 +1565,37 @@ mod tests {
             ChatEventKind::TurnCompleted,
             &json!({ "stopReason": "end_turn" }),
         );
+        assert_eq!(held(&replay), ["b"]);
+        replay.push(ChatEventKind::TurnStarted, &json!({}));
+        replay.push(
+            ChatEventKind::TurnCompleted,
+            &json!({ "stopReason": "cancelled" }),
+        );
         assert!(held(&replay).is_empty());
+    }
+
+    #[tokio::test]
+    async fn subagents_outlive_their_turn_but_not_the_agent() {
+        let feed = Feed::new("agent".into(), "default".into(), None);
+        let spawned = json!({ "sessionId": "s", "update": { "sessionUpdate": "subagent_spawned", "subagentSessionId": "a" } });
+        feed.emit(ChatEventKind::TurnStarted, json!({}));
+        feed.emit(ChatEventKind::SessionUpdate, spawned.clone());
+        feed.emit(
+            ChatEventKind::TurnCompleted,
+            json!({ "stopReason": "end_turn" }),
+        );
+        assert_eq!(feed.running_subagents(), 1);
+
+        feed.emit(ChatEventKind::Status, json!({ "state": "starting" }));
+        assert_eq!(feed.running_subagents(), 0);
+        assert!(feed.inner.lock().unwrap().replay.standing.is_empty());
+
+        feed.emit(ChatEventKind::SessionUpdate, spawned);
+        feed.emit(
+            ChatEventKind::TurnCompleted,
+            json!({ "stopReason": "cancelled" }),
+        );
+        assert_eq!(feed.running_subagents(), 0);
     }
 
     #[tokio::test]

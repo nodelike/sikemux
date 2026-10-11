@@ -178,7 +178,6 @@ export const git = {
     stage: (repo: string, path: string) => invoke<void>("git_stage", { repo, path }),
     unstage: (repo: string, path: string) => invoke<void>("git_unstage", { repo, path }),
     stagePaths: (repo: string, paths: string[]) => invoke<void>("git_stage_paths", { repo, paths }),
-    unstagePaths: (repo: string, paths: string[]) => invoke<void>("git_unstage_paths", { repo, paths }),
     stageAll: (repo: string) => invoke<void>("git_stage_all", { repo }),
     unstageAll: (repo: string) => invoke<void>("git_unstage_all", { repo }),
     branches: (repo: string) => invoke<GitBranch[]>("git_branches", { repo }),
@@ -244,7 +243,6 @@ export const git = {
     commit: (repo: string, message: string) => invoke<string>("git_commit", { repo, message }),
     push: (repo: string) => invoke<string>("git_push", { repo }),
     pull: (repo: string) => invoke<string>("git_pull", { repo }),
-    aiCommit: (repo: string, provider: string, model: string) => invoke<string>("git_ai_commit", { repo, provider, model }),
     aiMessage: (repo: string, provider: string, model: string, onChunk: (chunk: string) => void) => {
         const channel = new Channel<string>();
         channel.onmessage = onChunk;
@@ -254,7 +252,6 @@ export const git = {
     watchStart: (repo: string, token: RepoWatchLeaseToken) => invoke<void>("repo_watch_start", { repo, token }),
     watchStop: (token: RepoWatchLeaseToken) => invoke<void>("repo_watch_stop", { token }),
 
-    discardFile: (repo: string, path: string, mode: DiscardMode) => invoke<void>("git_discard_file", { repo, path, mode }),
     discardFiles: (repo: string, paths: string[], mode: DiscardMode) => invoke<void>("git_discard_files", { repo, paths, mode }),
 
     stashList: (repo: string) => invoke<GitStash[]>("git_stash_list", { repo }),

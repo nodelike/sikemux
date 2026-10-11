@@ -8,7 +8,7 @@ import type { TerminalSearchOptions } from "./interactions";
 import { TerminalFindBar } from "./TerminalFindBar";
 import { TerminalContextMenu } from "./TerminalContextMenu";
 import type { PtyContext, PtyDirectCommand } from "../state/types";
-import { applyPtyShellMetadataEvent, type PtyShellMetadataEvent } from "../api/ptyShell";
+import { applyPtyShellMetadataEvent, ptyShellAtPrompt, type PtyShellMetadataEvent } from "../api/ptyShell";
 import type { PtyShellMetadataSnapshot } from "./ptyController";
 import { basename } from "../lib/paths";
 import { SendToAgentMenu } from "../agents/SendToAgentMenu";
@@ -29,6 +29,7 @@ function enforceHiddenRendererBudget() {
 export function TerminalPane({
     cwd,
     startup,
+    reconnect,
     directCommand,
     initialDropPaths,
     initialInput,
@@ -46,6 +47,8 @@ export function TerminalPane({
 }: {
     cwd?: string;
     startup?: string;
+    /** Typed in when the pane becomes active and its shell sits at the prompt, such as after SSH gave up. */
+    reconnect?: string;
     directCommand?: PtyDirectCommand;
     /** Native file drops replayed before the first submitted task. */
     initialDropPaths?: readonly string[];
@@ -106,6 +109,22 @@ export function TerminalPane({
         resumePtyId,
         onPtySession,
     });
+
+    useEffect(() => {
+        const controller = ptyController.current;
+        if (!active || !reconnect || controller?.getSnapshot().status !== "running") return;
+        let cancelled = false;
+        void controller
+            .start()
+            .then(ptyShellAtPrompt)
+            .then((atPrompt) => {
+                if (atPrompt && !cancelled) return controller.write(`${reconnect}\r`);
+            })
+            .catch(() => {});
+        return () => {
+            cancelled = true;
+        };
+    }, [active, reconnect, ptyController]);
 
     useEffect(() => {
         if (!shellIntegration) setShellMetadata(null);

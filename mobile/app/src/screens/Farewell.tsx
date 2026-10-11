@@ -12,11 +12,11 @@ const WORDS: Record<Reason, { title: string; body: string }> = {
   },
   deleted: {
     title: 'Your account was deleted',
-    body: 'It was deleted on another device or at app.sikemux.com. This phone signed out and forgot the hosts it was paired with.',
+    body: 'It was deleted on another device or at app.sikemux.com. This phone signed out and forgot the hosts it was paired with. Sign in again within 30 days to restore it.',
   },
   'deleted-here': {
     title: 'Your account is deleted',
-    body: 'Every device on it is signed out. Device keys and the account’s history are erased within 30 days. Your code and files never reached us, so they are still on your hosts.',
+    body: 'Every device on it is signed out. Changed your mind? Sign in again within 30 days to restore it. Your code and files never reached us, so they are still on your hosts.',
   },
 };
 

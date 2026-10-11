@@ -53,7 +53,11 @@ const row = (page: SettingsPageId, sectionTitle: string, label: string, keywords
 });
 
 export const SETTINGS_INDEX: SettingsEntry[] = [
-    section("plugins", "Built-in plugins", "aws bruno github actions jira rundeck signoz enable disable switch off turn on extensions integrations"),
+    section(
+        "plugins",
+        "Built-in plugins",
+        "aws bitbucket bruno database postgres postgresql mysql sqlite sql github actions gitlab jira rundeck signoz enable disable switch off turn on extensions integrations",
+    ),
     section("general", "Project folders", "repos repositories directories roots scan depth index picker"),
     section("general", "Session transfer", "export import clipboard move machine bundle copy"),
 
@@ -72,8 +76,13 @@ export const SETTINGS_INDEX: SettingsEntry[] = [
 
     section("keybindings", "Shortcuts", "keybindings hotkeys keys keyboard remap"),
 
-    section("activity", "Overview", "stats statistics analytics dashboard profile usage totals sessions tokens commits hours"),
+    section(
+        "activity",
+        "Overview",
+        "stats statistics analytics dashboard profile usage totals sessions tokens commits hours cost spend dollars money",
+    ),
     section("activity", "Calendar", "heatmap contributions streak days year"),
+    section("activity", "By model", "cost price pricing spend opus sonnet gpt models"),
     section("activity", "By agent", "claude codex share breakdown"),
     section("activity", "By project", "repositories share breakdown"),
 
@@ -122,6 +131,11 @@ export const SETTINGS_INDEX: SettingsEntry[] = [
               row("agents", "Notch", "Step aside for Sikemux Dev", "dev build development"),
               row("agents", "Voice", "Dictate with right Option", "dictation microphone speech push to talk hold"),
               row("agents", "Voice", "Speech model", "parakeet download neural engine"),
+              section("agents", "iOS Simulator", "iphone ipad xcode devicehub simulator phone mobile bezel frame buttons"),
+              row("agents", "iOS Simulator", "Let agents drive the iOS Simulator", "iphone tap swipe app test mobile"),
+              row("agents", "iOS Simulator", "Xcode", "xcode-select developer tools"),
+              row("agents", "iOS Simulator", "iOS runtimes", "ios version runtime"),
+              row("agents", "iOS Simulator", "Simulator helper", "download idb"),
           ]
         : []),
 

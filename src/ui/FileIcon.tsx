@@ -1,254 +1,86 @@
+import { useSyncExternalStore } from "react";
 import { languageOf } from "../languages";
+import { swallow } from "../state/toast";
+import { currentTheme, subscribeTheme } from "../themes/bus";
 
-export interface GlyphInfo {
-    char: string;
-    color: string;
+/** The Material file icon theme's lookup tables, as scripts/generate-file-icons.mjs writes them. */
+export interface FileIconIndex {
+    file: string;
+    names: Record<string, string>;
+    extensions: Record<string, string>;
+    languages: Record<string, string>;
+    light: Record<string, string>;
 }
 
-const DEFAULT: GlyphInfo = { char: "", color: "var(--ink-faint)" };
+interface FileIconTables {
+    file: string;
+    names: Map<string, string>;
+    extensions: Map<string, string>;
+    languages: Map<string, string>;
+    light: Map<string, string>;
+}
 
-const SPECIAL: Record<string, GlyphInfo> = {
-    "package.json": { char: "", color: "#cb3837" },
-    "package-lock.json": { char: "", color: "#cbcb41" },
-    "pnpm-lock.yaml": { char: "", color: "#f9ad00" },
-    "yarn.lock": { char: "", color: "#2c8ebb" },
-    dockerfile: { char: "", color: "#2496ed" },
-    ".dockerignore": { char: "", color: "#2496ed" },
-    makefile: { char: "", color: "#a4aa7b" },
-    ".gitignore": { char: "", color: "#f05033" },
-    ".gitattributes": { char: "", color: "#f05033" },
-    ".gitmodules": { char: "", color: "#f05033" },
-    "readme.md": { char: "", color: "#519aba" },
-    readme: { char: "", color: "#519aba" },
-    license: { char: "", color: "#cbcb41" },
-    "tsconfig.json": { char: "", color: "#3178c6" },
-    "tsconfig.node.json": { char: "", color: "#3178c6" },
-    "vite.config.ts": { char: "", color: "#646cff" },
-    "vite.config.js": { char: "", color: "#646cff" },
-    "cargo.toml": { char: "", color: "#dea584" },
-    "cargo.lock": { char: "", color: "#dea584" },
-    "tauri.conf.json": { char: "", color: "#ffc131" },
-    ".prettierrc": { char: "", color: "#c596c7" },
-    ".eslintrc": { char: "", color: "#4b32c3" },
-};
+function byName(grouped: Record<string, string>): Map<string, string> {
+    const map = new Map<string, string>();
+    for (const [icon, names] of Object.entries(grouped)) for (const name of names.split(" ")) map.set(name, icon);
+    return map;
+}
 
-const BY_EXT: Record<string, GlyphInfo> = {
-    ts: { char: "", color: "#3178c6" },
-    tsx: { char: "", color: "#3178c6" },
-    js: { char: "", color: "#f7df1e" },
-    jsx: { char: "", color: "#f7df1e" },
-    mjs: { char: "", color: "#f7df1e" },
-    cjs: { char: "", color: "#f7df1e" },
-    json: { char: "", color: "#fbbf24" },
-    jsonc: { char: "", color: "#fbbf24" },
-    html: { char: "", color: "#e34f26" },
-    htm: { char: "", color: "#e34f26" },
-    css: { char: "", color: "#1572b6" },
-    scss: { char: "", color: "#cf649a" },
-    sass: { char: "", color: "#cf649a" },
-    less: { char: "", color: "#1d365d" },
-    md: { char: "", color: "#519aba" },
-    mdx: { char: "", color: "#519aba" },
-    yaml: { char: "", color: "#cbcb41" },
-    yml: { char: "", color: "#cbcb41" },
-    toml: { char: "", color: "#9c4221" },
-    rs: { char: "", color: "#dea584" },
-    go: { char: "", color: "#00add8" },
-    py: { char: "", color: "#3572a5" },
-    pyc: { char: "", color: "#3572a5" },
-    rb: { char: "", color: "#cc342d" },
-    lua: { char: "", color: "#7884e7" },
-    java: { char: "", color: "#ea2d2e" },
-    kt: { char: "", color: "#f18e33" },
-    swift: { char: "", color: "#f05138" },
-    c: { char: "", color: "#599eff" },
-    cpp: { char: "", color: "#9c033a" },
-    cc: { char: "", color: "#9c033a" },
-    h: { char: "", color: "#a074c4" },
-    hpp: { char: "", color: "#a074c4" },
-    sh: { char: "", color: "#89e051" },
-    bash: { char: "", color: "#89e051" },
-    zsh: { char: "", color: "#89e051" },
-    fish: { char: "", color: "#89e051" },
-    vim: { char: "", color: "#019733" },
-    sql: { char: "", color: "#dad8d8" },
-    tf: { char: "", color: "#7b42bc" },
-    hcl: { char: "", color: "#7b42bc" },
-    env: { char: "", color: "#ecd53f" },
-    txt: { char: "", color: "#888" },
-    log: { char: "", color: "#888" },
-    pdf: { char: "", color: "#e94e4e" },
-    png: { char: "", color: "#a074c4" },
-    jpg: { char: "", color: "#a074c4" },
-    jpeg: { char: "", color: "#a074c4" },
-    gif: { char: "", color: "#a074c4" },
-    webp: { char: "", color: "#a074c4" },
-    bmp: { char: "", color: "#a074c4" },
-    avif: { char: "", color: "#a074c4" },
-    tif: { char: "", color: "#a074c4" },
-    tiff: { char: "", color: "#a074c4" },
-    ico: { char: "", color: "#a074c4" },
-    svg: { char: "", color: "#ffb13b" },
-    zip: { char: "", color: "#888" },
-    tar: { char: "", color: "#888" },
-    gz: { char: "", color: "#888" },
-    woff: { char: "", color: "#888" },
-    woff2: { char: "", color: "#888" },
-    ttf: { char: "", color: "#888" },
-    otf: { char: "", color: "#888" },
-};
+export function fileIconTables(index: FileIconIndex): FileIconTables {
+    return {
+        file: index.file,
+        names: byName(index.names),
+        extensions: byName(index.extensions),
+        languages: new Map(Object.entries(index.languages)),
+        light: new Map(Object.entries(index.light)),
+    };
+}
 
-/** Every other file a grammar reads takes its language's glyph. */
-const BY_LANGUAGE: Record<string, GlyphInfo> = {
-    ada: { char: "", color: "#599eff" },
-    apl: { char: "", color: "#24a148" },
-    applescript: { char: "", color: "#6d8085" },
-    asm: { char: "", color: "#0091bd" },
-    astro: { char: "", color: "#e23f67" },
-    awk: { char: "", color: "#4d5a5e" },
-    bat: { char: "", color: "#c1f12e" },
-    bibtex: { char: "󱉟", color: "#cbcb41" },
-    bicep: { char: "", color: "#519aba" },
-    c: { char: "", color: "#599eff" },
-    clojure: { char: "", color: "#8dc149" },
-    cmake: { char: "", color: "#dce3eb" },
-    cobol: { char: "", color: "#005ca5" },
-    coffee: { char: "", color: "#cbcb41" },
-    cpp: { char: "", color: "#9c033a" },
-    crystal: { char: "", color: "#c8c8c8" },
-    csharp: { char: "󰌛", color: "#596706" },
-    css: { char: "", color: "#1572b6" },
-    csv: { char: "", color: "#89e051" },
-    cue: { char: "󰲹", color: "#ed95ae" },
-    d: { char: "", color: "#b03931" },
-    dart: { char: "", color: "#03589c" },
-    desktop: { char: "", color: "#563d7c" },
-    diff: { char: "", color: "#41535b" },
-    docker: { char: "󰡨", color: "#458ee6" },
-    dotenv: { char: "", color: "#ecd53f" },
-    elixir: { char: "", color: "#b88cd9" },
-    elm: { char: "", color: "#519aba" },
-    "emacs-lisp": { char: "", color: "#8172be" },
-    erb: { char: "", color: "#701516" },
-    erlang: { char: "", color: "#b83998" },
-    fish: { char: "", color: "#89e051" },
-    "fortran-free-form": { char: "󱈚", color: "#734f96" },
-    fsharp: { char: "", color: "#519aba" },
-    gdresource: { char: "", color: "#6d8086" },
-    gdscript: { char: "", color: "#6d8086" },
-    gherkin: { char: "", color: "#00a818" },
-    gleam: { char: "", color: "#ffaff3" },
-    glsl: { char: "", color: "#5586a6" },
-    go: { char: "", color: "#00add8" },
-    graphql: { char: "", color: "#e535ab" },
-    groovy: { char: "", color: "#005f87" },
-    haml: { char: "", color: "#eaeae1" },
-    handlebars: { char: "", color: "#f0772b" },
-    haskell: { char: "", color: "#a074c4" },
-    haxe: { char: "", color: "#ea8220" },
-    hcl: { char: "", color: "#7b42bc" },
-    html: { char: "", color: "#e34f26" },
-    http: { char: "", color: "#008ec7" },
-    hurl: { char: "", color: "#ff0288" },
-    ini: { char: "", color: "#6d8086" },
-    java: { char: "", color: "#ea2d2e" },
-    javascript: { char: "", color: "#f7df1e" },
-    json: { char: "", color: "#fbbf24" },
-    json5: { char: "", color: "#cbcb41" },
-    jsonc: { char: "", color: "#fbbf24" },
-    jsonl: { char: "", color: "#cbcb41" },
-    jsx: { char: "", color: "#f7df1e" },
-    julia: { char: "", color: "#a270ba" },
-    just: { char: "", color: "#6d8086" },
-    kotlin: { char: "", color: "#f18e33" },
-    latex: { char: "", color: "#3d6117" },
-    less: { char: "", color: "#1d365d" },
-    liquid: { char: "", color: "#95bf47" },
-    log: { char: "", color: "#888" },
-    lua: { char: "", color: "#7884e7" },
-    luau: { char: "", color: "#00a2ff" },
-    make: { char: "", color: "#6d8086" },
-    markdown: { char: "", color: "#519aba" },
-    mdx: { char: "", color: "#519aba" },
-    mojo: { char: "", color: "#ff4c1f" },
-    nim: { char: "", color: "#f3d400" },
-    nix: { char: "", color: "#7ebae4" },
-    nushell: { char: "", color: "#3aa675" },
-    "objective-c": { char: "", color: "#599eff" },
-    "objective-cpp": { char: "", color: "#519aba" },
-    ocaml: { char: "", color: "#e37933" },
-    odin: { char: "󰟢", color: "#3882d2" },
-    openscad: { char: "", color: "#f9d72c" },
-    org: { char: "", color: "#77aa99" },
-    perl: { char: "", color: "#519aba" },
-    php: { char: "", color: "#f05340" },
-    plsql: { char: "", color: "#6d8086" },
-    po: { char: "", color: "#2596be" },
-    powershell: { char: "󰨊", color: "#4273ca" },
-    prisma: { char: "", color: "#5a67d8" },
-    prolog: { char: "", color: "#e4b854" },
-    puppet: { char: "", color: "#ffa61a" },
-    python: { char: "", color: "#3572a5" },
-    qml: { char: "", color: "#40cd52" },
-    qss: { char: "", color: "#40cd52" },
-    r: { char: "󰟔", color: "#2266ba" },
-    racket: { char: "󰘧", color: "#9f1d20" },
-    razor: { char: "󱦗", color: "#512bd4" },
-    ruby: { char: "", color: "#cc342d" },
-    rust: { char: "", color: "#dea584" },
-    sass: { char: "", color: "#cf649a" },
-    scala: { char: "", color: "#cc3e44" },
-    scheme: { char: "󰘧", color: "#eeeeee" },
-    scss: { char: "", color: "#cf649a" },
-    shellscript: { char: "", color: "#89e051" },
-    shellsession: { char: "", color: "#89e051" },
-    solidity: { char: "", color: "#519aba" },
-    sql: { char: "", color: "#dad8d8" },
-    stylus: { char: "", color: "#8dc149" },
-    svelte: { char: "", color: "#ff4785" },
-    swift: { char: "", color: "#f05138" },
-    "system-verilog": { char: "󰍛", color: "#019833" },
-    tcl: { char: "󰛓", color: "#1e5cb3" },
-    templ: { char: "", color: "#dbbd30" },
-    terraform: { char: "", color: "#7b42bc" },
-    toml: { char: "", color: "#9c4221" },
-    tsx: { char: "", color: "#3178c6" },
-    twig: { char: "", color: "#8dc149" },
-    typescript: { char: "", color: "#3178c6" },
-    typst: { char: "", color: "#0dbcc0" },
-    v: { char: "󰍛", color: "#019833" },
-    vala: { char: "", color: "#7b3db9" },
-    verilog: { char: "󰍛", color: "#019833" },
-    vhdl: { char: "󰍛", color: "#019833" },
-    viml: { char: "", color: "#019733" },
-    vue: { char: "", color: "#ff4785" },
-    wasm: { char: "", color: "#5c4cdb" },
-    xml: { char: "", color: "#ffb13b" },
-    xsl: { char: "󰗀", color: "#33a9dc" },
-    yaml: { char: "", color: "#cbcb41" },
-    zig: { char: "", color: "#f69a1b" },
-};
-
-function lookup(name: string): GlyphInfo {
+/** The icon a file shows, matched the way VS Code matches it: whole name, then longest extension, then language. */
+export function fileIconOf(tables: FileIconTables, name: string): string {
     const lower = name.toLowerCase();
-    if (SPECIAL[lower]) return SPECIAL[lower];
-    if (lower.startsWith(".env")) return { char: "", color: "#ecd53f" };
-    const i = name.lastIndexOf(".");
-    const byExtension = i > 0 ? BY_EXT[name.slice(i + 1).toLowerCase()] : undefined;
-    if (byExtension) return byExtension;
+    const named = tables.names.get(lower);
+    if (named) return named;
+    for (let dot = lower.indexOf(".", 1); dot !== -1; dot = lower.indexOf(".", dot + 1)) {
+        const icon = tables.extensions.get(lower.slice(dot + 1));
+        if (icon) return icon;
+    }
     const language = languageOf(name);
-    return (language && BY_LANGUAGE[language]) || DEFAULT;
+    return (language && tables.languages.get(language)) || tables.file;
 }
 
-export function languageGlyph(language: string): GlyphInfo | undefined {
-    return BY_LANGUAGE[language];
+let tables: FileIconTables | null = null;
+const tableListeners = new Set<() => void>();
+
+void fetch("/file-icons/index.json")
+    .then((response) => response.json() as Promise<FileIconIndex>)
+    .then((index) => {
+        tables = fileIconTables(index);
+        for (const listener of tableListeners) listener();
+    })
+    .catch(swallow("file icons"));
+
+function subscribeTables(listener: () => void) {
+    tableListeners.add(listener);
+    return () => tableListeners.delete(listener);
 }
 
-export function FileIcon({ name, size = 15 }: { name: string; size?: number }) {
-    const { char, color } = lookup(name);
+const loadedTables = () => tables;
+const isDark = () => currentTheme().dark;
+
+export function ThemeIcon({ icon, size = 15 }: { icon: string | null; size?: number }) {
+    const loaded = useSyncExternalStore(subscribeTables, loadedTables);
+    const dark = useSyncExternalStore(subscribeTheme, isDark);
+    if (!icon) return <span className="theme-icon" style={{ width: size, height: size }} />;
+    const shown = (!dark && loaded?.light.get(icon)) || icon;
+    return <img className="theme-icon" src={`/file-icons/${shown}.svg`} width={size} height={size} alt="" draggable={false} />;
+}
+
+export function FileIcon({ name, size = 14 }: { name: string; size?: number }) {
+    const loaded = useSyncExternalStore(subscribeTables, loadedTables);
     return (
-        <span className="file-glyph" style={{ color, fontSize: size }} aria-hidden="true">
-            {char}
+        <span className="file-glyph" aria-hidden="true">
+            <ThemeIcon icon={loaded && fileIconOf(loaded, name)} size={size} />
         </span>
     );
 }

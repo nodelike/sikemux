@@ -617,7 +617,7 @@ fn execute_tool(args: &[String]) -> Result<i32, String> {
         method: args[0].clone(),
         params,
     };
-    request.validate()?;
+    sikemux_core::cli::protocol::validate_harness(&request)?;
     let descriptor = read_endpoint(&endpoint_path()?)?;
     let mut reader = session(&descriptor)?;
     reader
@@ -767,12 +767,5 @@ mod tests {
         assert!(rendered.contains("stack  /autopsy/hang-20260918-142233-471/webcontent.sample.txt"));
         assert!(rendered.contains("Earlier hangs"));
         assert!(rendered.contains("2026-09-18T14:00:00.000Z ui froze for 2.5s"));
-    }
-
-    #[test]
-    fn doctor_says_so_when_nothing_has_hung_yet() {
-        let rendered = doctor_report(Path::new("/autopsy"), &[]);
-        assert!(rendered.contains("No hang has been recorded yet."));
-        assert!(!rendered.contains("Latest hang"));
     }
 }

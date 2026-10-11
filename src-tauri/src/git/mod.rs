@@ -194,6 +194,32 @@ fn path_in_head(repo: &str, path: &str) -> bool {
         .unwrap_or(false)
 }
 
+/// How long the tree waits to learn which listed paths git ignores; a slow answer just leaves them undimmed.
+const IGNORED_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// Which of these paths, inside the repository at `repo`, git ignores. A folder that is not in a
+/// repository, or a git that fails, ignores nothing rather than failing the listing.
+pub(crate) fn ignored_paths(repo: &str, paths: &[String]) -> std::collections::HashSet<String> {
+    if paths.is_empty() {
+        return Default::default();
+    }
+    let mut input = Vec::new();
+    for path in paths {
+        input.extend_from_slice(path.as_bytes());
+        input.push(0);
+    }
+    let mut command = git_command(repo);
+    command.args(["check-ignore", "-z", "--stdin"]);
+    match run_command_with_timeout(&mut command, Some(&input), IGNORED_TIMEOUT) {
+        Ok(output) => String::from_utf8_lossy(&output.stdout)
+            .split('\0')
+            .filter(|path| !path.is_empty())
+            .map(str::to_owned)
+            .collect(),
+        Err(_) => Default::default(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::branches::{git_branch_delete, git_checkout, git_merge, git_reset};
@@ -203,12 +229,45 @@ mod tests {
     use std::{fs, path::Path};
     use tempfile::tempdir;
 
+    #[test]
+    fn ignored_paths_names_what_gitignore_covers_and_nothing_outside_a_repo() {
+        let dir = tempdir().unwrap();
+        let repo = dir.path();
+        git(repo, &["init", "-q"]);
+        fs::write(repo.join(".gitignore"), "*.log\nnode_modules/\n").unwrap();
+        fs::create_dir_all(repo.join("node_modules/pkg")).unwrap();
+        fs::write(repo.join("debug.log"), "").unwrap();
+        fs::write(repo.join("debug.txt"), "").unwrap();
+        fs::write(repo.join("node_modules/pkg/index.js"), "").unwrap();
+        let path = |name: &str| repo.join(name).to_string_lossy().into_owned();
+        let listed = [
+            "debug.log",
+            "debug.txt",
+            "node_modules",
+            "node_modules/pkg/index.js",
+        ]
+        .map(path);
+        let ignored = ignored_paths(&repo_arg(repo), &listed);
+        assert!(ignored.contains(&path("debug.log")));
+        assert!(ignored.contains(&path("node_modules")));
+        assert!(ignored.contains(&path("node_modules/pkg/index.js")));
+        assert!(!ignored.contains(&path("debug.txt")));
+
+        let outside = tempdir().unwrap();
+        let loose = outside.path().join("a.txt").to_string_lossy().into_owned();
+        assert!(ignored_paths(&repo_arg(outside.path()), &[loose]).is_empty());
+    }
+
     pub(super) fn repo_arg(repo: &Path) -> String {
         repo.to_string_lossy().into_owned()
     }
 
+    /// Test repositories commit without signing, whatever the person's own Git config asks for.
+    const UNSIGNED: [&str; 4] = ["-c", "commit.gpgsign=false", "-c", "tag.gpgsign=false"];
+
     pub(super) fn git(repo: &Path, args: &[&str]) -> String {
         let out = sikemux_process::user_environment::command("git")
+            .args(UNSIGNED)
             .arg("-C")
             .arg(repo)
             .args(args)
@@ -226,6 +285,7 @@ mod tests {
 
     pub(super) fn git_at(repo: &Path, stamp: &str, args: &[&str]) -> String {
         let out = sikemux_process::user_environment::command("git")
+            .args(UNSIGNED)
             .arg("-C")
             .arg(repo)
             .args(args)

@@ -1,12 +1,28 @@
-import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, type ReactNode, type RefObject } from "react";
+import {
+    lazy,
+    Suspense,
+    useCallback,
+    useEffect,
+    useLayoutEffect,
+    useMemo,
+    useRef,
+    useState,
+    type CSSProperties,
+    type ReactNode,
+    type RefObject,
+} from "react";
 import { animate } from "../lib/motion";
 import { deskAppearing, onDeskMotion } from "../state/deskMotion";
 import { browserApi, BLANK_URL, type BrowserBounds, type BrowserHole, type BrowserSnapshot } from "../api/browser";
 import { onStageFrame, stageMoving, useNativeViewHoles, useNativeViewsOccluded, useStageMoving, type NativeViewHole } from "../state/nativeViews";
 import type { AgentType, PtyContext, Session, Window as WindowT } from "../state/types";
-import { reportError } from "../state/toast";
-import { AgentIcon, IconChevron, IconCommand, IconEditor, IconGlobe, IconPlus, IconRefresh, WindowIcon } from "../ui/Icons";
+import { notify, reportError } from "../state/toast";
+import { copyText } from "../lib/clipboard";
+import { fsapi } from "../api/fs";
+import { deskTabMenu } from "./deskTabMenu";
+import { AgentIcon, IconChevron, IconCommand, IconEditor, IconGlobe, IconPhone, IconPlus, IconRefresh, WindowIcon } from "../ui/Icons";
 import { Tooltip } from "../ui/Tooltip";
+import { IS_MACOS } from "../lib/platform";
 import { FileIcon } from "../ui/FileIcon";
 import { SiteIcon } from "../ui/SiteIcon";
 import { AddressBar } from "./AddressBar";
@@ -15,6 +31,7 @@ import { forgetPageStill, usePageStill, useStillUpkeep } from "./pageStills";
 import { TabBar, type TabDescriptor } from "./TabBar";
 import { getState, useStore } from "../state/store";
 import { refreshBrowserStrip } from "../state/browserStrips";
+import { useSimulatorActing } from "../state/simulatorAgents";
 import {
     BROWSER_ACTIVE,
     deskEditorId,
@@ -27,6 +44,7 @@ import {
     shownDeskItem,
     shownKind,
     takeDeskRestore,
+    simulatorKey,
     terminalKey,
     type DeskItem,
     type DeskKind,
@@ -37,6 +55,7 @@ import * as cmd from "../state/commands";
 import { useShortcutLabel, withShortcut } from "../commands/useShortcutLabel";
 
 const EditorPane = lazy(() => import("../editor/EditorPane").then((module) => ({ default: module.EditorPane })));
+const SimulatorPane = lazy(() => import("../sim/SimulatorPane").then((module) => ({ default: module.SimulatorPane })));
 const NO_FILES: readonly string[] = [];
 const NO_DIRTY: readonly string[] = [];
 /** How dark the page goes under the ⌘L address, so the panel stands apart from it. */
@@ -225,6 +244,10 @@ function DeskSession({
     const files = useStore((state) => state.editorViews[editorId]?.openTabs) ?? NO_FILES;
     const dirty = useStore((state) => state.dirtyEditorPaths[editorId]) ?? NO_DIRTY;
     const restoring = useStore((state) => !!state.deskRestores[paneId]);
+    const simulatorActing = useSimulatorActing(agentId);
+    const [simulatorTools, setSimulatorTools] = useState<HTMLElement | null>(null);
+    const [simulatorDot, setSimulatorDot] = useState<HTMLElement | null>(null);
+    const [deviceMenu, setDeviceMenu] = useState<HTMLElement | null>(null);
     const items = useMemo(() => deskItems(desk, snapshot, files), [desk, snapshot, files]);
     const shown = shownDeskItem(desk, items);
     const kind = shownKind(shown);
@@ -238,6 +261,7 @@ function DeskSession({
         const item = itemOfKind(items, next, snapshot, lastShown.current.get(next));
         if (item) cmd.selectDeskItem(agentId, item);
         else if (next === "browser") cmd.newBrowserTab(agentId);
+        else if (next === "simulator") cmd.openDeskSimulator(agentId);
     };
 
     const refresh = useCallback(async () => {
@@ -287,7 +311,7 @@ function DeskSession({
         onEmpty();
     }, [desk.reveal, items.length, onEmpty, restoring, visible]);
 
-    const tabs = kindItems.map((item): TabDescriptor => {
+    const tabs = kindItems.filter(isTabItem).map((item): TabDescriptor => {
         const tabActive = isShown(item, shown, snapshot);
         if (item.kind === "browser") {
             const { tab } = item;
@@ -316,7 +340,7 @@ function DeskSession({
                 label: name,
                 title: item.path,
                 active: tabActive,
-                icon: <FileIcon name={name} size={18} />,
+                icon: <FileIcon name={name} size={15} />,
                 dirty: dirty.includes(item.path),
             };
         }
@@ -351,25 +375,58 @@ function DeskSession({
     return (
         <section ref={sectionRef} className={`desk ${agentType}`} data-desk data-agent-id={agentId} aria-label={`${agentType} desk`}>
             <DeskOutline />
-            <div className="desk-head">
-                <DeskKinds items={items} shown={kind} agentType={agentType} onShow={showKind} />
-                <TabBar
-                    variant="desk"
-                    ariaLabel="Desk tabs"
-                    tabs={tabs}
-                    onSelect={(key) => {
-                        const item = itemFor(key);
-                        if (item) cmd.selectDeskItem(agentId, item);
-                    }}
-                    onClose={(key) => {
-                        const item = itemFor(key);
-                        if (item) cmd.closeDeskItem(agentId, item);
-                    }}
-                    onAdd={kind === "browser" || kind === null ? () => cmd.newBrowserTab(agentId) : undefined}
-                    addIcon={<IconPlus size={13} />}
-                    addTitle={withShortcut("New browser tab", newTabShortcut)}
-                    addLabel="New browser tab"
-                />
+            <div className="desk-head" style={{ "--desk-kinds": KINDS.length } as CSSProperties}>
+                <DeskKinds items={items} shown={kind} agentType={agentType} simulatorActing={simulatorActing} onShow={showKind} />
+                {kind === "simulator" ? (
+                    <button
+                        type="button"
+                        className="desk-device"
+                        aria-label="Device"
+                        aria-haspopup="listbox"
+                        aria-expanded={!!deviceMenu}
+                        onClick={(event) => {
+                            const button = event.currentTarget;
+                            setDeviceMenu((open) => (open ? null : button));
+                        }}>
+                        <IconPhone size={14} />
+                        <span className="desk-device-name">{desk.simulators[0]?.deviceName ?? "iOS Simulator"}</span>
+                        <span ref={setSimulatorDot} className="desk-device-dot" />
+                        <IconChevron size={9} className="desk-device-chev" />
+                        {simulatorActing && (
+                            <span className={`agent-glyph ${agentType}`} role="img" aria-label={`${agentType} is working on this device`}>
+                                <AgentIcon type={agentType} size={16} />
+                            </span>
+                        )}
+                    </button>
+                ) : (
+                    <TabBar
+                        variant="desk"
+                        ariaLabel="Desk tabs"
+                        tabs={tabs}
+                        onSelect={(key) => {
+                            const item = itemFor(key);
+                            if (item) cmd.selectDeskItem(agentId, item);
+                        }}
+                        onClose={(key) => {
+                            const item = itemFor(key);
+                            if (item) cmd.closeDeskItem(agentId, item);
+                        }}
+                        buildMenu={(key) => {
+                            const item = itemFor(key);
+                            if (!item) return [];
+                            return deskTabMenu(item, session.kind === "project" && session.cwd ? session.cwd : null, {
+                                copy: (text, label) => void copyText(text).then(() => notify("success", `copied ${label}`), reportError("copy")),
+                                reveal: (path) => void fsapi.revealInFinder(path).catch(reportError("reveal")),
+                                close: () => cmd.closeDeskItem(agentId, item),
+                            });
+                        }}
+                        onAdd={kind === "browser" || kind === null ? () => cmd.newBrowserTab(agentId) : undefined}
+                        addIcon={<IconPlus size={13} />}
+                        addTitle={withShortcut("New browser tab", newTabShortcut)}
+                        addLabel="New browser tab"
+                    />
+                )}
+                {kind === "simulator" && <div ref={setSimulatorTools} className="desk-head-tools" />}
             </div>
             <div className="desk-body">
                 <BrowserPage
@@ -407,6 +464,26 @@ function DeskSession({
                                 context={context(terminal.id)}
                                 externallyOwned
                             />
+                        </div>
+                    );
+                })}
+                {desk.simulators.map((simulator) => {
+                    const showing = shown === simulatorKey(simulator.id);
+                    return (
+                        <div key={simulator.id} className="desk-simulator" hidden={!showing}>
+                            <Suspense fallback={null}>
+                                <SimulatorPane
+                                    agentId={agentId}
+                                    simulator={simulator}
+                                    visible={visible && showing}
+                                    chrome={{
+                                        tools: showing ? simulatorTools : null,
+                                        dot: simulatorDot,
+                                        menu: deviceMenu,
+                                        closeMenu: () => setDeviceMenu(null),
+                                    }}
+                                />
+                            </Suspense>
                         </div>
                     );
                 })}
@@ -478,9 +555,9 @@ function DeskOutline() {
                 if (entry.target === kinds) measureCorner();
                 else {
                     const box = entry.borderBoxSize?.[0];
-                    size = box
-                        ? { width: Math.round(box.inlineSize), height: Math.round(box.blockSize) }
-                        : { width: pane.offsetWidth, height: pane.offsetHeight };
+                    /* Unrounded: on a pane a fraction of a pixel wide, a rounded-up size
+                       puts the right and bottom edges outside the pane, which clips them. */
+                    size = box ? { width: box.inlineSize, height: box.blockSize } : { width: pane.offsetWidth, height: pane.offsetHeight };
                 }
             }
             draw();
@@ -498,31 +575,39 @@ function DeskOutline() {
     );
 }
 
+/** Everything the strip lists as tabs; the simulator shows its device instead. */
+const isTabItem = (item: DeskItem): item is Exclude<DeskItem, { kind: "simulator" }> => item.kind !== "simulator";
+
 const KINDS: { kind: DeskKind; label: string; icon: ReactNode }[] = [
     { kind: "browser", label: "Browser", icon: <IconGlobe size={14} /> },
     { kind: "file", label: "Files", icon: <IconEditor size={14} /> },
     { kind: "terminal", label: "Terminals", icon: <IconCommand size={14} /> },
+    ...(IS_MACOS ? [{ kind: "simulator" as const, label: "iOS Simulator", icon: <IconPhone size={14} /> }] : []),
 ];
 
 /* Which kind of tab the strip beside it lists. A kind with nothing in it has
-   nothing to switch to, except the browser, which opens a page. */
+   nothing to switch to, except the browser and the simulator, which open one. */
 function DeskKinds({
     items,
     shown,
     agentType,
+    simulatorActing,
     onShow,
 }: {
     items: readonly DeskItem[];
     shown: DeskKind | null;
     agentType: AgentType;
+    simulatorActing: boolean;
     onShow: (kind: DeskKind) => void;
 }) {
     return (
         <div className="desk-kinds" role="tablist" aria-label="Desk views">
             {KINDS.map(({ kind, label, icon }) => {
                 const ofKind = items.filter((item) => item.kind === kind);
-                const busy = kind !== shown && ofKind.some((item) => item.kind === "browser" && item.tab.acting);
-                const empty = ofKind.length === 0 && kind !== "browser";
+                const busy =
+                    kind !== shown &&
+                    ofKind.some((item) => (item.kind === "browser" && item.tab.acting) || (item.kind === "simulator" && simulatorActing));
+                const empty = ofKind.length === 0 && kind !== "browser" && kind !== "simulator";
                 const name = busy ? `${label}, ${agentType} is working here` : label;
                 return (
                     <Tooltip key={kind} label={ofKind.length ? `${label} · ${ofKind.length}` : label}>

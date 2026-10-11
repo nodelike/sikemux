@@ -30,6 +30,7 @@
     --brand-grok: #fcfcfc;
     --brand-aws: #ff9900;
     --brand-bitbucket: #2684ff;
+    --brand-gitlab: #fc6d26;
 }
 .agent-glyph {
     display: flex;
@@ -58,6 +59,9 @@
 .agent-glyph.term,
 .sess-icon.ssh {
     color: color-mix(in oklab, var(--cmd) 70%, var(--ink-dim));
+}
+.agent-glyph.sim {
+    color: color-mix(in oklab, var(--acc) 70%, var(--ink-dim));
 }
 .agent-glyph.files {
     color: color-mix(in oklab, var(--git-modified) 76%, var(--ink-dim));
@@ -555,39 +559,6 @@
     height: 18px;
     margin-bottom: 9px;
 }
-.agent-usage-plan {
-    max-width: 92px;
-    overflow: hidden;
-    color: color-mix(in srgb, var(--usage-fill) 62%, var(--text-secondary));
-    font-size: var(--text-3xs);
-    letter-spacing: var(--tracking-label);
-    text-overflow: ellipsis;
-    text-transform: uppercase;
-    white-space: nowrap;
-}
-.agent-usage-account {
-    flex: 0 1 auto;
-    min-width: 0;
-}
-.agent-usage-account .dd {
-    min-width: 0;
-}
-.agent-usage-account .dd-btn {
-    max-width: 112px;
-    height: 18px;
-    gap: 4px;
-    padding: 0 5px 0 6px;
-    border-color: transparent;
-    background: transparent;
-    color: var(--text-secondary);
-    font-size: var(--text-2xs);
-}
-.agent-usage-account .dd-btn:hover:not(:disabled) {
-    color: var(--text-primary);
-}
-.agent-usage-manage {
-    color: var(--text-secondary);
-}
 .agent-usage-head .rail-group-add:disabled {
     opacity: 0.35;
     cursor: default;
@@ -714,57 +685,39 @@
     }
 }
 
-/* The account new chats start on, as one card between the head and its
-   limits; it opens the person's other accounts. Greys only, so the limits
-   below stay the one place the provider's colour speaks. */
+/* The account new chats start on, named in the head of its limits. Greys
+   only, so the limits below stay the one place the provider's colour speaks. */
 .agent-account-switch {
     display: flex;
+    flex: 0 1 auto;
     align-items: center;
-    gap: 8px;
-    width: 100%;
+    gap: 5px;
     min-width: 0;
-    margin-bottom: 12px;
-    padding: 6px 8px 6px 7px;
-    border: 1px solid var(--border);
+    height: 20px;
+    padding: 0 5px 0 3px;
+    border: 0;
     background: transparent;
     color: var(--text-primary);
     text-align: left;
 }
 .agent-account-switch:hover,
 .agent-account-switch[aria-expanded="true"] {
-    border-color: color-mix(in srgb, var(--text-tertiary) 45%, var(--border));
-    background: color-mix(in srgb, var(--text-primary) 4%, transparent);
+    background: var(--surface-hover);
 }
-.agent-account-avatar {
+.agent-account-mark {
     display: grid;
     flex: 0 0 auto;
     place-items: center;
-    width: 22px;
-    height: 22px;
+    width: 17px;
+    height: 17px;
+    border: 1px solid var(--border);
     border-radius: 50%;
-    color: #0f0f13;
-    font-size: 10.5px;
-    font-weight: 650;
+    color: var(--text-secondary);
+    font-family: var(--mono);
+    font-size: 7.5px;
+    font-weight: 500;
+    letter-spacing: 0;
     line-height: 1;
-}
-.agent-account-avatar.small {
-    width: 14px;
-    height: 14px;
-    font-size: 8px;
-}
-.agent-account-id {
-    display: flex;
-    flex: 1 1 auto;
-    flex-direction: column;
-    gap: 2px;
-    min-width: 0;
-}
-.agent-account-title {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    min-width: 0;
-    line-height: 1.2;
 }
 .agent-account-name {
     min-width: 0;
@@ -772,36 +725,69 @@
     color: var(--text-primary);
     font-size: var(--text-2xs);
     font-weight: var(--weight-medium);
+    letter-spacing: 0;
     text-overflow: ellipsis;
+    text-transform: none;
     white-space: nowrap;
 }
 .agent-account-plan {
     flex: 0 0 auto;
-    padding: 1px 5px;
+    padding: 1px 4px;
     border-radius: 4px;
     background: color-mix(in srgb, var(--text-primary) 7%, transparent);
     color: var(--text-secondary);
-    font-size: 9px;
+    font-size: 8.5px;
     letter-spacing: 0.04em;
     line-height: 1.3;
     text-transform: uppercase;
-}
-.agent-account-who {
-    min-width: 0;
-    overflow: hidden;
-    color: var(--text-tertiary);
-    font-size: var(--text-3xs);
-    line-height: 1.2;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-.agent-account-who[data-signed-out="true"] {
-    color: color-mix(in srgb, var(--warn) 75%, var(--text-tertiary));
 }
 .agent-account-chevron {
     flex: 0 0 auto;
     color: var(--text-tertiary);
     transform: rotate(90deg);
+}
+.agent-account-switch[aria-expanded="true"] .agent-account-chevron {
+    transform: rotate(-90deg);
+}
+
+/* The accounts open as wide as the limits they sit over. */
+.tree-ctx-menu.agent-account-menu {
+    gap: 2px;
+    font-family: inherit;
+}
+.agent-account-menu .tree-ctx-item {
+    gap: 8px;
+    padding: 6px;
+    border: 1px solid transparent;
+}
+.agent-account-menu .tree-ctx-icon {
+    margin-right: 0;
+}
+.agent-account-menu .agent-account-mark {
+    width: 22px;
+    height: 22px;
+    font-size: 8.5px;
+}
+.agent-account-menu .tree-ctx-item.selected .agent-account-mark {
+    border-color: var(--border-selected);
+    color: var(--text-primary);
+}
+.agent-account-menu .tree-ctx-label {
+    font-size: var(--text-2xs);
+}
+.tree-ctx-detail {
+    display: block;
+    overflow: hidden;
+    color: var(--text-tertiary);
+    font-size: var(--text-3xs);
+    text-overflow: ellipsis;
+}
+.agent-account-menu .tree-ctx-hint {
+    font-variant-numeric: tabular-nums;
+}
+.tree-ctx-menu.agent-account-menu .tree-ctx-item.selected {
+    border-color: var(--border-selected);
+    background: var(--surface-selected);
 }
 .agent-usage-link {
     padding: 0;
@@ -948,69 +934,6 @@
 }
 
 /*
- * Workspace rail: an icon gutter on the leading edge, and whichever panel that
- * icon owns filling the rest.
- *
- * The strip this replaces was a bordered, tinted box drawn `--gutter-rail`
- * inside a rail that already had a border and a radius — a box in a box — and
- * it spent a full line printing the name the panel below it was about to print
- * again. Turned vertical, the tab is a glyph and the panel's own header is the
- * label, so every tab opens straight onto its content.
- */
-.rail-gutter {
-    display: flex;
-    flex: 0 0 auto;
-    flex-direction: column;
-    align-items: center;
-    gap: var(--space-0);
-    width: 34px;
-    padding: var(--space-1h) 0;
-    border-right: 1px solid var(--border);
-    background: color-mix(in srgb, var(--surface-sunken) 56%, transparent);
-}
-
-.rail-gut-tab {
-    position: relative;
-    display: grid;
-    place-items: center;
-    width: 26px;
-    height: 26px;
-    border-radius: var(--radius-control);
-    color: var(--text-tertiary);
-    transition:
-        color var(--dur-1),
-        background var(--dur-1);
-}
-
-.rail-gut-tab:hover:not(.active) {
-    background: var(--surface-hover);
-    color: var(--text-primary);
-}
-
-.rail-gut-tab.active {
-    background: var(--surface-selected);
-    box-shadow: inset 0 0 0 1px var(--border-selected);
-    color: var(--text-primary);
-}
-
-/* The column beside the gutter — header, then body, exactly as each panel
- * already builds itself. */
-.rail-col {
-    display: flex;
-    flex: 1;
-    flex-direction: column;
-    min-width: 0;
-}
-
-.rail-tab-glyph {
-    display: grid;
-    flex: none;
-    place-items: center;
-    width: 15px;
-    height: 15px;
-}
-
-/*
  * One header grammar for the four panels.
  *
  * They arrived as three different answers to the same question — a 15px title
@@ -1020,14 +943,12 @@
  * elsewhere and those headers are correct where they are.
  */
 .workspace-rail .agent-header,
-.workspace-rail .ed-tree-head,
-.workspace-rail .rail-changes-head {
+.workspace-rail .ed-tree-head {
     min-height: 34px;
     padding: var(--space-1h) var(--space-1h) var(--space-1h) var(--gutter-rail);
 }
 
-.workspace-rail .ed-tree-head,
-.workspace-rail .rail-changes-head {
+.workspace-rail .ed-tree-head {
     font-family: var(--ui);
     font-size: var(--text-xs);
     font-weight: var(--weight-medium);
@@ -1036,565 +957,16 @@
     color: var(--text-primary);
 }
 
-.workspace-rail .rail-changes-head {
-    border-bottom: 1px solid var(--border);
-}
-
-.rail-tab-glyph svg,
-.rail-branch svg,
-.rail-commit-ref svg {
-    display: block;
-}
-
-.rail-branch,
-.rail-commit-ref {
-    line-height: 1;
-}
-
-.rail-body {
-    display: flex;
-    flex: 1;
-    flex-direction: column;
-    min-height: 0;
-    overflow: hidden;
-}
-
-.rail-note {
-    padding: 14px;
-    color: var(--text-secondary);
-    font-size: 11.5px;
-}
-
 /* Files tab: the tree fills the rail instead of owning its own width. */
 .ed-tree.fill {
+    flex: 1 1 auto;
     width: 100%;
     min-width: 0;
+    min-height: 0;
     border: 0;
     border-radius: 0;
 }
 
-/* Changes tab */
-.rail-changes {
-    display: flex;
-    flex: 1;
-    flex-direction: column;
-    min-height: 0;
-    overflow: hidden;
-}
-
-.rail-changes-head,
-.rail-commit {
-    flex: none;
-}
-
-/* Two panels that each own their scrollbar, split by a draggable handle. */
-.rail-split {
-    display: flex;
-    flex: 1;
-    flex-direction: column;
-    min-height: 0;
-}
-
-.rail-changes-head {
-    display: flex;
-    align-items: center;
-    gap: var(--space-2);
-    padding: 0 var(--gutter-rail) var(--space-2);
-}
-
-.rail-changes-head .rail-branch {
-    margin-left: auto;
-}
-
-.rail-changes-count {
-    color: var(--live);
-    font-family: var(--mono);
-    font-size: var(--text-2xs);
-}
-
-.rail-branch {
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    min-width: 0;
-    overflow: hidden;
-    color: var(--text-secondary);
-    font-size: var(--text-2xs);
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
-.rail-commit {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-1h);
-    padding: 0 var(--gutter-rail) var(--space-2);
-}
-
-.rail-commit-input {
-    position: relative;
-}
-
-.rail-commit-input textarea {
-    width: 100%;
-    padding: 7px 30px 7px 9px;
-    border: 1px solid var(--border);
-    border-radius: var(--radius-control);
-    background: color-mix(in srgb, var(--surface-sunken) 46%, transparent);
-    color: var(--text-primary);
-    font-size: var(--text-xs);
-    line-height: 1.5;
-    resize: none;
-}
-
-.rail-commit-input textarea::placeholder {
-    color: var(--text-secondary);
-}
-
-.rail-commit-ai {
-    position: absolute;
-    top: 5px;
-    right: 5px;
-    display: grid;
-    width: 21px;
-    height: 21px;
-    place-items: center;
-    border-radius: var(--radius-control);
-    color: var(--text-secondary);
-}
-
-.rail-commit-ai:hover:not(:disabled) {
-    background: var(--surface-hover);
-    color: var(--text-primary);
-}
-
-.rail-commit-go {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: 6px;
-    height: 29px;
-    border: 1px solid var(--border);
-    border-radius: var(--radius-control);
-    background: var(--surface-raised);
-    color: var(--text-primary);
-    font-size: var(--text-xs);
-}
-
-.rail-commit-go:hover:not(:disabled) {
-    border-color: var(--border-selected);
-    background: var(--surface-selected);
-}
-
-.rail-commit-go:disabled {
-    cursor: default;
-    color: var(--text-tertiary);
-    opacity: 0.6;
-}
-
-.rail-section {
-    display: flex;
-    flex: 1;
-    flex-direction: column;
-    min-height: 28px;
-    border-top: 1px solid var(--border);
-}
-
-.rail-section:not(:has(.rail-list)) {
-    flex: none;
-}
-
-.rail-split-handle {
-    flex: none;
-    height: 5px;
-    cursor: row-resize;
-    background: var(--border);
-    transition: background 120ms;
-}
-
-.rail-split-handle:hover,
-.rail-split-handle:focus-visible {
-    background: var(--border-selected);
-}
-
-.rail-section-head {
-    display: flex;
-    flex: none;
-    align-items: center;
-    gap: 6px;
-    height: 28px;
-    padding: 0 var(--gutter-rail);
-    color: var(--text-secondary);
-    font-size: 10px;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-}
-
-.rail-section-head:hover {
-    color: var(--text-primary);
-}
-
-.rail-caret {
-    display: grid;
-    place-items: center;
-    transition: transform 120ms;
-}
-
-.rail-caret.open {
-    transform: rotate(90deg);
-}
-
-.rail-section-label {
-    flex: 1;
-    text-align: left;
-}
-
-.rail-section-count {
-    padding: 0 4px;
-    border-radius: var(--radius-chip);
-    background: var(--surface-selected);
-    color: var(--acc);
-    font-family: var(--mono);
-    font-size: var(--text-3xs);
-}
-
-.rail-section-act {
-    display: grid;
-    width: 18px;
-    height: 18px;
-    place-items: center;
-    border-radius: var(--radius-control);
-    color: var(--text-secondary);
-}
-
-.rail-section-act:hover:not(:disabled) {
-    background: var(--surface-raised);
-    color: var(--text-primary);
-}
-
-.rail-list {
-    display: flex;
-    flex: 1;
-    flex-direction: column;
-    min-height: 0;
-    padding-bottom: var(--space-1h);
-    overflow-y: auto;
-    overscroll-behavior: contain;
-}
-
-.rail-list.rail-graph {
-    padding-bottom: 0;
-}
-
-.rail-graph .git-graph {
-    flex: none;
-}
-
-.rail-file-wrap {
-    display: flex;
-    align-items: center;
-}
-
-.rail-file {
-    display: flex;
-    flex: 1;
-    align-items: center;
-    gap: 6px;
-    min-width: 0;
-    height: 24px;
-    padding: 0 var(--gutter-rail);
-    color: var(--text-secondary);
-    font-size: var(--text-xs);
-    text-align: left;
-}
-
-.rail-file:hover {
-    background: color-mix(in srgb, var(--surface-raised) 70%, transparent);
-}
-
-.rail-file-name {
-    flex: 0 1 auto;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
-.rail-file-dir {
-    flex: 1 1 auto;
-    min-width: 0;
-    overflow: hidden;
-    color: var(--text-secondary);
-    font-size: 10.5px;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
-.rail-file-mark {
-    flex: none;
-    margin-left: auto;
-    padding-left: 6px;
-    font-family: var(--mono);
-    font-size: 10px;
-}
-
-.rail-file-wrap.staged .rail-file {
-    font-weight: 560;
-}
-
-.rail-file-stage {
-    display: grid;
-    flex: none;
-    width: 20px;
-    height: 24px;
-    place-items: center;
-    color: transparent;
-}
-
-.rail-file-wrap:hover .rail-file-stage,
-.rail-file-wrap:focus-within .rail-file-stage {
-    color: var(--text-secondary);
-}
-
-.rail-file-stage:hover:not(:disabled) {
-    color: var(--text-primary);
-}
-
-.rail-branch-row {
-    display: flex;
-    align-items: center;
-    gap: 7px;
-    min-width: 0;
-    height: 24px;
-    padding: 0 var(--gutter-rail);
-    color: var(--text-secondary);
-    font-size: 11.5px;
-    text-align: left;
-}
-
-.rail-branch-row:hover:not(:disabled) {
-    background: color-mix(in srgb, var(--surface-raised) 70%, transparent);
-    color: var(--text-primary);
-}
-
-.rail-branch-row.current {
-    cursor: default;
-    color: var(--text-primary);
-}
-
-.rail-branch-node {
-    flex: none;
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    background: var(--text-tertiary);
-}
-
-.rail-branch-row.current .rail-branch-node {
-    background: var(--live);
-}
-
-.rail-branch-name {
-    flex: 0 1 auto;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
-.rail-branch-upstream {
-    flex: 1 1 auto;
-    min-width: 0;
-    overflow: hidden;
-    color: var(--text-secondary);
-    font-family: var(--mono);
-    font-size: var(--text-3xs);
-    text-align: right;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
-.rail-commit-row {
-    display: flex;
-    align-items: center;
-    gap: 7px;
-    min-width: 0;
-    height: 24px;
-    padding: 0 var(--gutter-rail);
-    color: var(--text-secondary);
-    font-size: 11.5px;
-}
-
-.rail-commit-row:hover {
-    background: color-mix(in srgb, var(--surface-raised) 70%, transparent);
-}
-
-.rail-commit-node {
-    flex: none;
-    width: 7px;
-    height: 7px;
-    border: 1.5px solid var(--acc);
-    border-radius: 50%;
-}
-
-.rail-commit-node.unpushed {
-    background: var(--acc);
-}
-
-.rail-commit-subject {
-    flex: 0 1 auto;
-    overflow: hidden;
-    color: var(--text-primary);
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
-.rail-commit-author {
-    flex: 1 1 auto;
-    min-width: 0;
-    overflow: hidden;
-    color: var(--text-secondary);
-    font-size: 10.5px;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
-.rail-commit-ref {
-    display: inline-flex;
-    flex: none;
-    align-items: center;
-    gap: 3px;
-    padding: 0 4px;
-    border-radius: var(--radius-chip);
-    background: var(--surface-selected);
-    color: var(--acc);
-    font-size: var(--text-3xs);
-}
-
-.rail-git-toolbar {
-    display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: var(--space-1);
-    padding: 0 var(--gutter-rail) var(--space-2);
-}
-.rail-git-toolbar button,
-.rail-new-branch {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: var(--space-1);
-    min-height: var(--control-hit);
-    padding: var(--space-1) var(--space-2);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-control);
-    color: var(--text-secondary);
-    font-size: var(--text-xs);
-}
-.rail-git-toolbar button:hover:not(:disabled),
-.rail-new-branch:hover:not(:disabled) {
-    background: var(--surface-hover);
-    color: var(--text-primary);
-}
-.rail-git-toolbar button:disabled {
-    color: var(--text-disabled);
-    cursor: default;
-}
-.rail-git-provider {
-    display: flex;
-    gap: var(--space-1);
-    min-width: 0;
-}
-.rail-git-provider .dd {
-    flex: 1;
-    min-width: 0;
-}
-.rail-git-provider .dd-btn {
-    width: 100%;
-    min-width: 0;
-    font-size: var(--text-2xs);
-}
-.rail-operation {
-    margin: 0 var(--gutter-rail) var(--space-2);
-    padding: var(--space-2);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-control);
-    font-size: var(--text-xs);
-    color: var(--text-secondary);
-    white-space: pre-wrap;
-    overflow-wrap: anywhere;
-    max-height: 140px;
-    overflow: auto;
-    flex: none;
-    user-select: text;
-}
-.rail-operation.error {
-    color: var(--danger);
-}
-.rail-operation button {
-    display: block;
-    min-height: var(--control-hit);
-    text-decoration: underline;
-    color: var(--text-primary);
-}
-.rail-section-heading {
-    display: flex;
-    align-items: center;
-    padding-right: var(--gutter-rail);
-}
-.rail-section-heading .rail-section-head {
-    flex: 1;
-    min-width: 0;
-}
-.rail-file-stage,
-.rail-section-act {
-    min-width: var(--control-hit);
-    min-height: var(--control-hit);
-}
-.rail-new-branch {
-    margin: var(--space-1) var(--gutter-rail);
-    flex: none;
-}
-.rail-note {
-    color: var(--text-tertiary);
-    font-size: var(--text-xs);
-    line-height: 1.5;
-}
-
-.rail-graph .gg-row {
-    min-width: 0;
-    width: 100%;
-    gap: 6px;
-}
-.rail-graph .gg-refs,
-.rail-graph .gg-avatar,
-.rail-graph .gg-when {
-    display: none;
-}
-.rail-graph .gg-subj {
-    min-width: 0;
-}
-.rail-graph .gg-hash {
-    font-size: var(--text-2xs);
-}
-.rail-file-stage {
-    color: var(--text-tertiary);
-}
-.rail-git-toolbar button:last-child {
-    grid-column: 1 / -1;
-}
-
-.workspace-rail.workspace-rail-git-collapsed {
-    width: 36px;
-    min-width: 36px;
-}
-
-.workspace-rail-git-collapsed [role="tablist"] {
-    display: flex;
-    flex-direction: column;
-    border-right: 0;
-}
-
-.workspace-rail-git-collapsed [role="tab"] > span + span {
-    display: none;
-}
 .workspace-rail[data-density="compact"] .agent-row {
     height: 27px;
 }

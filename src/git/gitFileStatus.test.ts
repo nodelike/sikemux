@@ -1,20 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { gitFileBadges, gitFileDecoration, gitStatusDecoration } from "./gitFileStatus";
+import { gitFileBadges, gitFileDecoration, gitFolderDecorations } from "./gitFileStatus";
 
 describe("git file status decorations", () => {
-    it.each([
-        ["?", "U", "u"],
-        ["U", "U", "u"],
-        ["A", "A", "a"],
-        ["D", "D", "d"],
-        ["R", "R", "r"],
-        ["C", "C", "r"],
-        ["T", "T", "m"],
-        ["M", "M", "m"],
-    ])("maps %s to the existing %s decoration", (raw, letter, cls) => {
-        expect(gitStatusDecoration(raw)).toMatchObject({ letter, cls });
-    });
-
     it("keeps the file-tree conflict and deletion priority", () => {
         expect(gitFileDecoration({ path: "file.ts", index: "A", worktree: "D" })).toMatchObject({ letter: "D", cls: "d" });
         expect(gitFileDecoration({ path: "file.ts", index: "M", worktree: "?" })).toMatchObject({ letter: "U", cls: "u" });
@@ -36,12 +23,31 @@ describe("git file status decorations", () => {
         ]);
         expect(gitFileBadges({ path: "file.ts", index: " ", worktree: "M" })).toMatchObject([{ letter: "M", source: "unstaged" }]);
     });
+});
 
-    it("ranks additions and renames above plain edits, and falls back to modified", () => {
-        expect(gitFileDecoration({ path: "file.ts", index: "M", worktree: "A" })).toMatchObject({ letter: "A", cls: "a" });
-        expect(gitFileDecoration({ path: "file.ts", index: "R", worktree: "M" })).toMatchObject({ letter: "R", label: "renamed" });
-        expect(gitFileDecoration({ path: "file.ts", index: "X", worktree: " " })).toMatchObject({ letter: "X", cls: "m", label: "X" });
-        expect(gitFileDecoration({ path: "file.ts", index: " ", worktree: " " })).toEqual({ letter: "M", cls: "m", label: "modified" });
-        expect(gitStatusDecoration("  ")).toBeNull();
+describe("git folder decorations", () => {
+    const classes = (map: Map<string, { cls: string }>) => Object.fromEntries([...map].map(([folder, decoration]) => [folder, decoration.cls]));
+
+    it("marks every folder above a changed file, not just the file", () => {
+        const folders = gitFolderDecorations([{ path: "src/chat/longText.ts", index: " ", worktree: "M" }]);
+        expect(classes(folders)).toEqual({ src: "m", "src/chat": "m" });
+    });
+
+    it("gives a folder the most telling change inside it", () => {
+        const folders = gitFolderDecorations([
+            { path: "src/App.tsx", index: " ", worktree: "M" },
+            { path: "src/chat/new.ts", index: "?", worktree: "?" },
+            { path: "docs/old.md", index: "D", worktree: " " },
+            { path: "docs/guide.md", index: " ", worktree: "M" },
+        ]);
+        expect(classes(folders)).toEqual({ src: "u", "src/chat": "u", docs: "d" });
+    });
+
+    it("counts a folder git lists as wholly untracked, and leaves files at the root alone", () => {
+        const folders = gitFolderDecorations([
+            { path: "src/plugins/linear/", index: "?", worktree: "?" },
+            { path: "README.md", index: " ", worktree: "M" },
+        ]);
+        expect(classes(folders)).toEqual({ src: "u", "src/plugins": "u", "src/plugins/linear": "u" });
     });
 });

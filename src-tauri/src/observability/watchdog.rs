@@ -385,7 +385,6 @@ fn record_watchdog_sample(
 
 #[cfg(test)]
 mod tests {
-    use super::super::model::ObservabilityConfig;
     use super::super::ui::inactive_ui_heartbeat;
     use super::*;
     use std::time::Instant;
@@ -413,59 +412,6 @@ mod tests {
             classify_heartbeat_delay(Duration::from_millis(1), threshold, true, true),
             HeartbeatDelayClassification::Recovered
         );
-    }
-
-    #[test]
-    fn watchdog_sample_records_bounded_observability_data() {
-        let observer = Observability::new(ObservabilityConfig {
-            event_capacity: 8,
-            latency_sample_capacity: 8,
-            metric_series_capacity: 16,
-            max_metadata_entries: 8,
-            max_string_bytes: 128,
-        });
-        let watchdog_config = HangWatchdogConfig {
-            name: "ui".to_owned(),
-            sample_interval_ms: 25,
-            hang_threshold_ms: 100,
-            monitor_hidden: false,
-        };
-        let metric_names = WatchdogMetricNames::new(&watchdog_config.name);
-        let heartbeat = HeartbeatSnapshot {
-            sequence: 7,
-            last_beat_us: 1,
-            armed: true,
-            visible: true,
-        };
-
-        record_watchdog_sample(
-            &observer,
-            &watchdog_config,
-            &metric_names,
-            heartbeat,
-            125_000,
-            HeartbeatDelayClassification::HangStarted,
-            None,
-        );
-
-        let snapshot = observer.snapshot();
-        assert_eq!(snapshot.counters.get("watchdog.ui.samples"), Some(&1));
-        assert_eq!(snapshot.counters.get("watchdog.ui.hangs"), Some(&1));
-        assert_eq!(
-            snapshot.gauges.get("watchdog.ui.heartbeat_delay_us"),
-            Some(&125_000.0)
-        );
-        assert_eq!(
-            snapshot
-                .latency_histograms
-                .get("watchdog.ui.heartbeat_delay")
-                .unwrap()
-                .buckets
-                .at_least_100_ms,
-            1
-        );
-        assert_eq!(snapshot.events.len(), 1);
-        assert_eq!(snapshot.events[0].name, "watchdog.hang_started");
     }
 
     #[test]

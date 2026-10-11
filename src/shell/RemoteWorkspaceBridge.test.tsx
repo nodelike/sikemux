@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { RemoteStatus } from "../api/remote";
 import { installIpcTransportForTests, MemoryIpcTransport, resetIpcTransportForTests } from "../api/transport";
 import * as cmd from "../state/commands";
+import { resetResourcesForTests } from "../state/resources";
 import { getState, setState } from "../state/store";
 import { PUBLISH_DELAY_MS, RECENT_LIMIT, RECENT_REFRESH_MS, RemoteWorkspaceBridge } from "./RemoteWorkspaceBridge";
 
@@ -37,6 +38,7 @@ beforeEach(() => {
 
 afterEach(() => {
     cleanup();
+    resetResourcesForTests();
     resetIpcTransportForTests();
     vi.useRealTimers();
 });

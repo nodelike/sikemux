@@ -9,7 +9,7 @@ use super::context::session_transcript_path;
 use super::{condense, MAX_TITLE_CHARS};
 use crate::agents::config::{grok_root, omp_session_dirs};
 use crate::agents::executable::expand_user_path;
-use crate::agents::{allowed_agent_path, AgentKind};
+use crate::agents::AgentKind;
 
 // ---- rename a saved session ----------------------------------------------
 /// Names a session the way the provider's own rename does, so the new name
@@ -47,14 +47,13 @@ pub async fn agent_session_rename(
     }
 }
 
-fn agent_executable(agent: AgentKind, configured: Option<&str>) -> Result<PathBuf, String> {
+pub(super) fn agent_executable(
+    agent: AgentKind,
+    configured: Option<&str>,
+) -> Result<PathBuf, String> {
     configured
         .map(expand_user_path)
-        .or_else(|| {
-            crate::system::find_executable_matching(agent.as_str(), |candidate| {
-                allowed_agent_path(agent.as_str(), candidate)
-            })
-        })
+        .or_else(|| crate::system::find_executable(agent.as_str()))
         .ok_or_else(|| format!("{} is not available", agent.as_str()))
 }
 

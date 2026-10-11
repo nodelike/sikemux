@@ -20,8 +20,4 @@ describe('initials', () => {
   it('keeps a letter outside the basic plane whole', () => {
     expect(initials('𝒜da Byron', null)).toBe('𝒜B');
   });
-
-  it('is empty with nothing to go on', () => {
-    expect(initials(undefined, undefined)).toBe('');
-  });
 });

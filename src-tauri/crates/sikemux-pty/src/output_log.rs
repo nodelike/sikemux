@@ -1,6 +1,6 @@
 use std::collections::VecDeque;
 
-use serde::{Deserialize, Serialize};
+pub use sikemux_wire::pty::output_log::{OutputPage, OutputQuery};
 
 mod terminal_text;
 
@@ -10,29 +10,6 @@ pub const MAX_OUTPUT: usize = 1024 * 1024;
 pub struct OutputLog {
     bytes: VecDeque<u8>,
     end: u64,
-}
-
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", default, deny_unknown_fields)]
-pub struct OutputQuery {
-    pub cursor: u64,
-    pub limit: usize,
-    pub tail: Option<usize>,
-    pub search: Option<String>,
-    pub context: usize,
-    pub plain: bool,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct OutputPage {
-    pub bytes: Vec<u8>,
-    pub cursor: u64,
-    pub end: u64,
-    pub truncated: bool,
-    pub has_more: bool,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub matches: Option<usize>,
 }
 
 const PLAIN_WINDOW: u64 = 256 * 1024;

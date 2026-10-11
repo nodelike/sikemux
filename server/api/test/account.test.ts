@@ -120,19 +120,33 @@ async function accountWithDevices(userId: string) {
   return { mac, iphone };
 }
 
+/** Moves past the days a deletion can be restored in, and lets the sweeper delete in Clerk. */
+async function restoreWindowEnds() {
+  await database.pool.query(
+    "update users set clerk_retry_at = now() where deleted_at is not null",
+  );
+  await sweepClerk(database.db, clerk, log);
+}
+
 async function count(sql: string, params: unknown[] = []) {
   const { rows } = await database.pool.query<{ n: number }>(sql, params);
   return rows[0]?.n;
 }
 
 describe("deleting an account", () => {
-  it("revokes every device, tells the account, and deletes the user in Clerk", async () => {
+  it("revokes every device, tells the account, and deletes the user in Clerk after 30 days", async () => {
     const { mac, iphone } = await accountWithDevices("user_a");
     const response = await deleteAccount("user_a");
     expect(response.status).toBe(202);
-    expect(await body(response, "AccountDeletion")).toMatchObject({
-      status: "deleted",
-    });
+    const deletion = await body(response, "AccountDeletion");
+    expect(deletion.status).toBe("deleting");
+    const days =
+      (Date.parse(deletion.deletesAt) - Date.parse(deletion.requestedAt)) /
+      86_400_000;
+    expect(days).toBe(30);
+    await sweepClerk(database.db, clerk, log);
+    expect(clerk.deleted).toEqual([]);
+    await restoreWindowEnds();
     expect(clerk.deleted).toEqual(["user_a"]);
 
     expect(await count("select count(*)::int as n from devices")).toBe(0);
@@ -144,8 +158,8 @@ describe("deleting an account", () => {
         .sort()
         .map((key) => ({ key, reason: "account_deleted" })),
     );
-    const log = await events(database);
-    expect(log.slice(-3)).toMatchObject([
+    const told = await events(database);
+    expect(told.slice(-3)).toMatchObject([
       { type: "device.revoked", reason: "account_deleted" },
       { type: "device.revoked", reason: "account_deleted" },
       { type: "account.deleted", subject: null },
@@ -232,11 +246,12 @@ describe("deleting an account", () => {
     ).toBe(1);
   });
 
-  it("answers deleting when Clerk fails, and the sweeper finishes it", async () => {
+  it("retries when Clerk fails, and the sweeper finishes it", async () => {
     await accountWithDevices("user_a");
     clerk.failing = true;
     const response = await deleteAccount("user_a");
     expect((await body(response, "AccountDeletion")).status).toBe("deleting");
+    await restoreWindowEnds();
     const { rows } = await database.pool.query(
       "select clerk_attempts, clerk_retry_at > now() as later from users where id = 'user_a'",
     );
@@ -264,7 +279,7 @@ describe("deleting an account", () => {
     clerk.failing = true;
     await deleteAccount("user_a");
     const error = vi.spyOn(log, "error");
-    for (let attempt = 2; attempt <= 6; attempt++) {
+    for (let attempt = 1; attempt <= 6; attempt++) {
       await database.pool.query("update users set clerk_retry_at = now()");
       await sweepClerk(database.db, clerk, log);
     }
@@ -331,11 +346,10 @@ describe("revoking Sign in with Apple when an account is deleted", () => {
         clerkDeleted: false,
       },
     ]);
-    expect(clerk.deleted).toEqual(["user_a"]);
+    expect(clerk.deleted).toEqual([]);
     expect(await accountActions()).toEqual([
       "account.deletion_requested",
       "account.apple_revoked",
-      "account.deleted_in_clerk",
     ]);
   });
 
@@ -349,7 +363,6 @@ describe("revoking Sign in with Apple when an account is deleted", () => {
         clerkDeleted: false,
       },
     ]);
-    expect(clerk.deleted).toEqual(["user_a"]);
   });
 
   it("uses the dev app's bundle id on a dev API, which has no web sign-in with Apple", async () => {
@@ -381,12 +394,10 @@ describe("revoking Sign in with Apple when an account is deleted", () => {
       appleAuthorizationCode: "c0de",
     });
     expect(response.status).toBe(202);
-    expect((await body(response, "AccountDeletion")).status).toBe("deleted");
     expect(await count("select count(*)::int as n from devices")).toBe(0);
     expect(await accountActions()).toEqual([
       "account.deletion_requested",
       "account.apple_revoke_failed",
-      "account.deleted_in_clerk",
     ]);
   });
 
@@ -397,6 +408,7 @@ describe("revoking Sign in with Apple when an account is deleted", () => {
       appleAuthorizationCode: "c0de",
     });
     expect(response.status).toBe(202);
+    await restoreWindowEnds();
     expect(clerk.deleted).toEqual(["user_a"]);
   });
 
@@ -482,6 +494,7 @@ describe("purging", () => {
     await deleteAccount("user_a");
 
     expect(await purgeAccounts(database.db, log)).toBe(0);
+    await restoreWindowEnds();
     await database.pool.query(
       "update users set purge_after = now() - interval '1 second' where id = 'user_a'",
     );

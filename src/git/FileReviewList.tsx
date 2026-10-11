@@ -155,7 +155,7 @@ export function FileReviewList({ paths, focusPath, estimate, onOpenFile, status,
                             </span>
                         </button>
                     </Tooltip>
-                    <FileIcon name={basename(path)} size={15} />
+                    <FileIcon name={basename(path)} size={14} />
                     {onOpenFile ? (
                         <Tooltip label="Open in editor">
                             <button

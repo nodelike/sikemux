@@ -23,8 +23,19 @@ function dismissShown(pick: (shown: ShownCard[]) => string[]) {
     .catch((error: unknown) => console.warn('sikemux: could not tidy the notification cards', error));
 }
 
-/** Removes the cards a host's current view shows are settled, as the app hears it. */
-export function reconcileCards(host: string, snapshot: Snapshot) {
+/** The permission requests each host's last view held, so a view that settles none needs no look at the cards. */
+const pendingSeen = new Map<string, Set<string>>();
+
+/**
+ * Removes the cards a host's current view shows are settled, as the app hears it. Listing the shown cards is a
+ * trip into the system, so it happens only when a request went away, or on a connection's first view, which may
+ * settle cards that arrived while the phone was away.
+ */
+export function reconcileCards(host: string, snapshot: Snapshot, fresh: boolean) {
+  const pending = new Set(snapshot.attentions.map((attention) => attention.id));
+  const before = pendingSeen.get(host);
+  pendingSeen.set(host, pending);
+  if (!fresh && before && [...before].every((id) => pending.has(id))) return;
   dismissShown((shown) => settledCards(shown, host, snapshot));
 }
 
@@ -41,7 +52,6 @@ export function dismissHostCards(host: string) {
 export type CardAnswer = { tag: string; host: string; agent: string; request: string; option: string; allow: boolean };
 
 const quiet: CoreListener = {
-  output() {},
   events() {},
   closed() {},
 };

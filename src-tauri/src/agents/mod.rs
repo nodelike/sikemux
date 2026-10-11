@@ -3,10 +3,11 @@ mod config;
 pub(crate) mod executable;
 pub(crate) mod models;
 pub(crate) mod sessions;
+pub(crate) mod status;
 pub(crate) mod usage;
 pub(crate) mod watch;
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
@@ -37,6 +38,7 @@ pub struct AgentInfo {
     default_model: Option<String>,
     #[serde(rename = "defaultEffort")]
     default_effort: Option<String>,
+    status: status::AgentStatus,
 }
 
 #[derive(Clone, Deserialize)]
@@ -47,12 +49,6 @@ pub struct AgentProfileRequest {
     profile_id: Option<String>,
     executable_path: Option<String>,
     config_path: Option<String>,
-}
-
-#[derive(Serialize, Debug, PartialEq, Eq)]
-pub struct AgentModelInfo {
-    id: String,
-    label: String,
 }
 
 #[derive(Serialize, Debug, Clone, PartialEq)]
@@ -148,6 +144,20 @@ impl AgentKind {
             AgentKind::Grok => "grok",
         }
     }
+
+    pub(crate) fn from_name(name: &str) -> Option<Self> {
+        [
+            AgentKind::Claude,
+            AgentKind::Codex,
+            AgentKind::Hermes,
+            AgentKind::Pi,
+            AgentKind::Opencode,
+            AgentKind::Omp,
+            AgentKind::Grok,
+        ]
+        .into_iter()
+        .find(|kind| kind.as_str() == name)
+    }
 }
 
 fn home_path() -> Option<PathBuf> {
@@ -155,25 +165,4 @@ fn home_path() -> Option<PathBuf> {
         .or_else(|| std::env::var_os("USERPROFILE"))
         .filter(|value| !value.is_empty())
         .map(PathBuf::from)
-}
-
-fn allowed_agent_path(_agent: &str, _path: &Path) -> bool {
-    true
-}
-
-#[cfg(test)]
-mod tests {
-    use super::allowed_agent_path;
-    use std::path::Path;
-
-    #[test]
-    fn opencode_installer_directory_is_a_valid_agent_location() {
-        let home = Path::new("/home/tester");
-        for name in ["opencode", "opencode.exe", "opencode.cmd"] {
-            assert!(allowed_agent_path(
-                "opencode",
-                &home.join(".opencode").join("bin").join(name)
-            ));
-        }
-    }
 }

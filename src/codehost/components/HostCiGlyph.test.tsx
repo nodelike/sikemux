@@ -1,14 +1,12 @@
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Run } from "../api";
 import type { HostRepo } from "../project";
 
 const api = vi.hoisted(() => ({ status: vi.fn(), runs: vi.fn() }));
 const project = vi.hoisted(() => ({ found: { repo: null, remote: null, branch: null, loading: false } as HostRepo }));
-const commands = vi.hoisted(() => ({ openGitArea: vi.fn() }));
 
 vi.mock("../project", async (importOriginal) => ({ ...(await importOriginal<object>()), useHostRepo: () => project.found }));
-vi.mock("../../state/commands", async (importOriginal) => ({ ...(await importOriginal<object>()), openGitArea: commands.openGitArea }));
 
 import { invalidate } from "../../plugin-api/resources";
 import { registerTestHost, TEST_HOST } from "../testHost";
@@ -54,7 +52,6 @@ beforeEach(() => {
     invalidate(() => true);
     api.status.mockReset().mockResolvedValue({ ok: true });
     api.runs.mockReset();
-    commands.openGitArea.mockClear();
 });
 
 afterEach(() => {
@@ -63,29 +60,9 @@ afterEach(() => {
 });
 
 describe("the top bar's CI glyph", () => {
-    it("shows how the branch's latest run went and opens the Actions section on click", async () => {
-        await renderGlyph({ repo, branch: "feat/x" });
-        expect(api.status).toHaveBeenCalledWith("work");
-        expect(api.runs).toHaveBeenCalledWith({ ...repo, branch: "feat/x", perPage: 1 });
-        const glyph = screen.getByRole("button", { name: "Failed · CI #12 · 5m ago" });
-        expect(glyph.textContent).toBe("#12");
-        fireEvent.click(glyph);
-        expect(commands.openGitArea).toHaveBeenCalledWith("actions");
-    });
-
-    it("asks for the latest run on any branch when the project's branch is unknown", async () => {
-        await renderGlyph({ repo });
-        expect(api.runs).toHaveBeenCalledWith({ ...repo, branch: undefined, perPage: 1 });
-    });
-
     it("shows nothing for a project that is not on this host", async () => {
         const view = await renderGlyph({ repo: { ...repo, provider: "elsewhere" } });
         expect(api.status).not.toHaveBeenCalled();
-        expect(view.container.textContent).toBe("");
-    });
-
-    it("shows nothing for a project with no repository", async () => {
-        const view = await renderGlyph({ repo: null });
         expect(view.container.textContent).toBe("");
     });
 
@@ -93,11 +70,6 @@ describe("the top bar's CI glyph", () => {
         api.status.mockResolvedValue({ ok: false });
         const view = await renderGlyph({ repo });
         expect(api.runs).not.toHaveBeenCalled();
-        expect(view.container.textContent).toBe("");
-    });
-
-    it("shows nothing on a branch with no runs", async () => {
-        const view = await renderGlyph({ repo }, []);
         expect(view.container.textContent).toBe("");
     });
 

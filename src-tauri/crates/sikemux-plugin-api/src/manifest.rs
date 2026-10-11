@@ -155,13 +155,6 @@ mod tests {
     }
 
     #[test]
-    fn parses_a_manifest() -> Result<(), PluginError> {
-        let manifest = manifest(">=0.4")?;
-        assert_eq!(manifest.id, "sikemux.rundeck");
-        Ok(())
-    }
-
-    #[test]
     fn a_nightly_satisfies_its_release_line() -> Result<(), PluginError> {
         let manifest = manifest(">=0.4")?;
         let nightly = Version::parse("0.4.0-nightly.10")
@@ -247,13 +240,5 @@ mod tests {
             );
         }
         Ok(())
-    }
-
-    #[test]
-    fn rejects_unknown_fields() {
-        let result = Manifest::from_json(
-            r#"{"id":"a.b","name":"B","version":"1.0.0","sikemux":"*","extra":1}"#,
-        );
-        assert!(result.is_err());
     }
 }

@@ -117,7 +117,7 @@ describe("AgentChatPane in a worktree", () => {
         expect(mocks.prompt).not.toHaveBeenCalled();
 
         resolveCreate({ worktree, cwd: worktree.path, setupError: null });
-        await waitFor(() => expect(mocks.prompt).toHaveBeenCalledWith(agent.id, "Fix the flaky PTY test", []));
+        await waitFor(() => expect(mocks.prompt).toHaveBeenCalledWith(agent.id, "Fix the flaky PTY test", [], [], expect.any(String)));
         expect(mocks.start).toHaveBeenLastCalledWith(expect.objectContaining({ cwd: worktree.path }));
         expect(mocks.prompt).toHaveBeenCalledTimes(1);
         expect(await screen.findByRole("note")).toHaveTextContent("Working in worktree sikemux/fix-the-flaky-pty-test");
@@ -154,7 +154,7 @@ describe("AgentChatPane in a worktree", () => {
         await waitFor(() => expect(screen.getByRole("button", { name: "worktree" })).toBeEnabled());
         fireEvent.change(editor, { target: { value: "hello" } });
         fireEvent.keyDown(editor, { key: "Enter" });
-        await waitFor(() => expect(mocks.prompt).toHaveBeenCalledWith(agent.id, "hello", []));
+        await waitFor(() => expect(mocks.prompt).toHaveBeenCalledWith(agent.id, "hello", [], [], expect.any(String)));
         expect(mocks.create).not.toHaveBeenCalled();
     });
 });

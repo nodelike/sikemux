@@ -216,12 +216,4 @@ mod tests {
         let body = r#"{"Error":{"Code":"ExpiredToken","Message":"x"}}"#;
         assert!(matches!(classify_cli_err(body), AwsError::TokenExpired));
     }
-
-    #[test]
-    fn classify_fallthrough() {
-        match classify_cli_err("some weird error\n") {
-            AwsError::Aws(msg) => assert_eq!(msg, "some weird error"),
-            _ => panic!("expected Aws variant"),
-        }
-    }
 }

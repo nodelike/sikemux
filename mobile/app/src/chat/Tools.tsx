@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { memo, useEffect, useState, type ReactNode } from 'react';
 import { Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { collapseDiff } from '@mac/chat/diff';
@@ -25,23 +25,54 @@ const KIND_CHAR = 6.9;
 
 const ROW_ICONS: Record<ToolRowIcon, IconName> = {
   activity: 'IconActivity',
-  'arrow-down': 'IconArrowDown',
+  book: 'IconBook',
+  camera: 'IconCamera',
+  click: 'IconClick',
   clock: 'IconClock',
-  command: 'IconCommand',
-  editor: 'IconEditor',
+  close: 'IconClose',
+  code: 'IconCode',
+  dashboard: 'IconDashboard',
+  download: 'IconDownload',
   eye: 'IconEye',
-  file: 'IconFile',
+  folder: 'IconFolder',
   globe: 'IconGlobe',
-  image: 'IconImage',
-  info: 'IconInfo',
-  pencil: 'IconPencil',
+  highlighter: 'IconHighlighter',
+  'home-button': 'IconHomeButton',
+  hourglass: 'IconHourglass',
+  issue: 'IconIssue',
+  keyboard: 'IconKeyboard',
+  link: 'IconLink',
+  'log-lines': 'IconLogLines',
+  message: 'IconMessage',
+  mouse: 'IconMouse',
+  network: 'IconNetwork',
+  panel: 'IconPanel',
+  phone: 'IconPhone',
+  pinch: 'IconPinch',
   pointer: 'IconPointer',
   'pull-request': 'IconPullRequest',
+  record: 'IconRecord',
   refresh: 'IconRefresh',
+  resize: 'IconResize',
+  rocket: 'IconRocket',
+  rotate: 'IconRotate',
   run: 'IconRun',
   search: 'IconSearch',
+  'square-plus': 'IconSquarePlus',
+  status: 'IconStatus',
+  steps: 'IconSteps',
   stop: 'IconStop',
+  swipe: 'IconSwipe',
+  tabs: 'IconTabs',
+  tap: 'IconTap',
+  terminal: 'IconTerminal',
+  text: 'IconText',
+  'touch-path': 'IconTouchPath',
+  unlink: 'IconUnlink',
+  upload: 'IconUpload',
+  waterfall: 'IconWaterfall',
   window: 'IconWindow',
+  workflow: 'IconWorkflow',
 };
 
 /** Our own tools take the kind they declare; another server's call is named for the server it went to. */
@@ -224,7 +255,7 @@ function ToolDetail({ part, command, group }: { part: ToolPart; command: string 
   );
 }
 
-function ToolRow({
+const ToolRow = memo(function ToolRow({
   part,
   last,
   untimed,
@@ -299,63 +330,71 @@ function ToolRow({
       ) : null}
     </View>
   );
-}
+});
+
+/* A message's runs of calls are gathered afresh on each update, so a group compares its calls rather than its array:
+   while a reply streams, a group whose calls did not change is not drawn again. */
+const sameCalls = (a: ToolPart[], b: ToolPart[]) => a.length === b.length && a.every((part, index) => part === b[index]);
 
 /**
  * A run of calls stays open while the agent is still adding to it, as on the Mac, and folds once
  * something follows it or the turn ends; watching each call instead shuts it in the gaps between them.
  * While a call runs, the header says what the agent said it is for.
  */
-export function ToolGroup({ id, parts, untimed, live }: { id: string; parts: ToolPart[]; untimed: boolean; live: boolean }) {
-  const colors = useColors();
-  const styles = useStyles(makeStyles);
-  const current = parts.find((part) => toolRunning(part.tool));
-  const [open, setOpen] = useFold(id, live || current !== undefined);
-  const spent = parts.reduce(
-    (total, part) => total + (part.startedAt !== undefined && part.endedAt !== undefined ? part.endedAt - part.startedAt : 0),
-    0,
-  );
-  const said = current ? toolDescription(current.tool) : null;
-  const calls = `${parts.length} tool call${parts.length === 1 ? '' : 's'}`;
-  const kindWidth = Math.min(16, Math.max(4, ...parts.map((part) => toolKind(part.tool).length))) * KIND_CHAR + 1;
-  return (
-    <View style={styles.group}>
-      <Pressable
-        onPress={() => setOpen(!open)}
-        style={styles.summary}
-        hitSlop={6}
-        accessibilityRole="button"
-        accessibilityLabel={`${said ?? calls}${current ? ', running' : ''}`}
-        accessibilityState={{ expanded: open }}>
-        {current ? (
-          <Shimmer style={[styles.summaryText, said !== null && { color: colors.secondary }]} layout={styles.summaryLabel}>
-            {said ?? calls}
-          </Shimmer>
-        ) : (
-          <Text style={styles.summaryText} numberOfLines={1}>
-            {calls}
-          </Text>
-        )}
-        {said !== null && parts.length > 1 ? <Text style={styles.summaryTime}>{parts.length} calls</Text> : null}
-        {current ? (
-          <LiveSeconds key={current.id} since={current.startedAt} spent={spent} style={styles.summaryTime} />
-        ) : !untimed && spent > 0 ? (
-          <Text style={styles.summaryTime}>{durationLabel(spent)}</Text>
+export const ToolGroup = memo(
+  function ToolGroup({ id, parts, untimed, live }: { id: string; parts: ToolPart[]; untimed: boolean; live: boolean }) {
+    const colors = useColors();
+    const styles = useStyles(makeStyles);
+    const current = parts.find((part) => toolRunning(part.tool));
+    const [open, setOpen] = useFold(id, live || current !== undefined);
+    const spent = parts.reduce(
+      (total, part) => total + (part.startedAt !== undefined && part.endedAt !== undefined ? part.endedAt - part.startedAt : 0),
+      0,
+    );
+    const said = current ? toolDescription(current.tool) : null;
+    const calls = `${parts.length} tool call${parts.length === 1 ? '' : 's'}`;
+    const kindWidth = Math.min(16, Math.max(4, ...parts.map((part) => toolKind(part.tool).length))) * KIND_CHAR + 1;
+    return (
+      <View style={styles.group}>
+        <Pressable
+          onPress={() => setOpen(!open)}
+          style={styles.summary}
+          hitSlop={6}
+          accessibilityRole="button"
+          accessibilityLabel={`${said ?? calls}${current ? ', running' : ''}`}
+          accessibilityState={{ expanded: open }}>
+          {current ? (
+            <Shimmer style={[styles.summaryText, said !== null && { color: colors.secondary }]} layout={styles.summaryLabel}>
+              {said ?? calls}
+            </Shimmer>
+          ) : (
+            <Text style={styles.summaryText} numberOfLines={1}>
+              {calls}
+            </Text>
+          )}
+          {said !== null && parts.length > 1 ? <Text style={styles.summaryTime}>{parts.length} calls</Text> : null}
+          {current ? (
+            <LiveSeconds key={current.id} since={current.startedAt} spent={spent} style={styles.summaryTime} />
+          ) : !untimed && spent > 0 ? (
+            <Text style={styles.summaryTime}>{durationLabel(spent)}</Text>
+          ) : null}
+          <View style={[styles.chevron, open && { transform: [{ rotate: '90deg' }] }]}>
+            <Icon name="IconChevron" size={11} color={colors.inkDim} />
+          </View>
+        </Pressable>
+        {open ? (
+          <View style={styles.body}>
+            {parts.map((part, index) => (
+              <ToolRow key={part.id} part={part} last={index === parts.length - 1} untimed={untimed} group={id} kindWidth={kindWidth} />
+            ))}
+          </View>
         ) : null}
-        <View style={[styles.chevron, open && { transform: [{ rotate: '90deg' }] }]}>
-          <Icon name="IconChevron" size={11} color={colors.inkDim} />
-        </View>
-      </Pressable>
-      {open ? (
-        <View style={styles.body}>
-          {parts.map((part, index) => (
-            <ToolRow key={part.id} part={part} last={index === parts.length - 1} untimed={untimed} group={id} kindWidth={kindWidth} />
-          ))}
-        </View>
-      ) : null}
-    </View>
-  );
-}
+      </View>
+    );
+  },
+  (before, after) =>
+    before.id === after.id && before.untimed === after.untimed && before.live === after.live && sameCalls(before.parts, after.parts),
+);
 
 const makeStyles = (colors: Palette) => {
   return StyleSheet.create({

@@ -13,7 +13,7 @@ export const openPicker = (mode: PickerMode = "all"): void => setState({ pickerO
 export const closePicker = (): void => setState({ pickerOpen: false });
 // The agent picker is project-scoped and opens over the agent view.
 export const openAgentPalette = (): void => {
-    invalidate((kind) => kind === "agents.catalog" || kind === "agents.models" || kind === "agents.usage");
+    invalidate((kind) => kind === "agents.catalog" || kind === "agents.usage");
     mutate((d) => {
         const session = d.sessions[d.activeSessionId];
         if (session?.kind !== "project") return;

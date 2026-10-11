@@ -12,6 +12,7 @@ import { RailPeek } from "./rail/RailPeek";
 import { RailResizer, useRailWidthVars } from "./rail/RailResizer";
 import { AgentSessionSync } from "./agents/AgentSessionSync";
 import { watchTerminalAgentExits } from "./agents/tuiResume";
+import { watchFocusForAgentStatus } from "./agents/statusRefresh";
 import { AgentLifecycleManager } from "./agents/AgentLifecycleManager";
 import { AgentPalettePortal as AgentPalette } from "./agents/AgentPalettePortal";
 import { FilePalette } from "./palettes/FilePalette";
@@ -43,8 +44,11 @@ import { VoiceCaption } from "./voice/VoiceCaption";
 import { useBackdropImage } from "./hooks/useBackdropImage";
 import { useBrowserDownloads } from "./state/browserDownloads";
 import { useBrowserReveal } from "./state/browserReveal";
+import { useSimulatorReveal } from "./state/simulatorReveal";
+import { simApi } from "./api/sim";
 import { useBrowserStrips } from "./state/browserStrips";
 import { filesApi } from "./api/files";
+import { fsapi } from "./api/fs";
 import { emit } from "./state/bus";
 import * as cmd from "./state/commands";
 import { offerSavedSessions, restoreCoreSessions } from "./workspace/restoreCoreSessions";
@@ -65,6 +69,7 @@ import { confirmDialog } from "./state/dialog";
 import { invalidate } from "./state/resources";
 import { getState, useStore } from "./state/store";
 import { applyTheme, applyWindowOpacity, registerCustomThemes } from "./themes/bus";
+import { startPageTheme } from "./chat/pageTheme";
 import { applyTerminalFontSize } from "./terminal/fontSize";
 import { applyChatTextScale } from "./chat/textScale";
 import { applyEditorTextScale } from "./editor/textScale";
@@ -694,6 +699,7 @@ export default function App() {
     useVoiceDictation();
     useBrowserDownloads();
     useBrowserReveal();
+    useSimulatorReveal();
     useBrowserStrips();
     useRailWidthVars();
     const [bootReady, setBootReady] = useState(false);
@@ -701,13 +707,17 @@ export default function App() {
     const sideRailVisible = useStore((s) => s.sideRailOpen);
     const agentRailVisible = useStore((s) => s.agentRailOpen);
     const activeSessionIsProject = useStore((s) => s.sessions[s.activeSessionId]?.kind === "project");
-    useRailDock(sideRailVisible, true, ".side-rail");
-    useRailDock(agentRailVisible, activeSessionIsProject, ".agent-rail");
+    useRailDock(sideRailVisible, true, ".side-rail", bootReady);
+    useRailDock(agentRailVisible, activeSessionIsProject, ".agent-rail", bootReady);
     const pickerOpen = useStore((s) => s.pickerOpen);
     const agentPaletteOpen = useStore((s) => s.agentPaletteOpen);
     const filePaletteOpen = useStore((s) => s.filePaletteOpen);
     const newTabPaletteOpen = useStore((s) => s.newTabPaletteOpen);
     const installedPlugins = useInstalledPlugins();
+    const iosSimulator = useStore((s) => s.iosSimulator);
+    useEffect(() => {
+        void simApi.offerToAgents(iosSimulator).catch(swallow("switch the iOS Simulator"));
+    }, [iosSimulator]);
     const disabledPlugins = useStore((s) => s.disabledPlugins);
     useEffect(() => {
         void pluginsApi.setDisabled(disabledPlugins).catch(swallow("switch plugins"));
@@ -758,6 +768,7 @@ export default function App() {
                     const st = getState();
                     registerCustomThemes(st.customThemes);
                     applyTheme(st.themeId);
+                    startPageTheme();
                     applyWindowOpacity(st.windowOpacity);
                     applyTerminalFontSize(st.terminalFontSize);
                     applyChatTextScale(st.chatTextScale);
@@ -825,6 +836,7 @@ export default function App() {
     useEffect(() => recordAgentTurns(), []);
 
     useEffect(() => watchTerminalAgentExits(), []);
+    useEffect(() => watchFocusForAgentStatus(), []);
 
     useEffect(() => {
         let disposed = false;
@@ -922,18 +934,17 @@ export default function App() {
             }
 
             showPathDropHover(null);
-            const paths = e.payload.paths;
-            if (!paths || paths.length === 0) {
-                clearTreeHover();
-                return;
-            }
-            if (pathTarget && dispatchPaths(pathTarget, paths)) {
+            const dropped = e.payload.paths;
+            if (!dropped || dropped.length === 0) {
                 clearTreeHover();
                 return;
             }
             const target = resolveTreeDropTarget(at);
-            if (target) dispatchFolder(target.dropEl, paths);
             clearTreeHover();
+            void fsapi.keepDroppedPaths(dropped).then((paths) => {
+                if (pathTarget && dispatchPaths(pathTarget, paths)) return;
+                if (target) dispatchFolder(target.dropEl, paths);
+            }, reportError("Could not take the dropped files"));
         });
         return () => {
             showPathDropHover(null);

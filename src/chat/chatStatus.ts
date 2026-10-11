@@ -32,8 +32,7 @@ export function backendState({
 }
 
 export function connectingLabel(connection: ChatState["connection"]): string | null {
-    if (connection === "installing") return "Installing structured-session adapter…";
-    if (connection === "starting") return "Starting agent adapter…";
+    if (connection === "starting") return "Starting agent…";
     if (connection === "connecting" || connection === "initializing") return "Connecting to agent session…";
     return null;
 }
@@ -65,9 +64,7 @@ export function composerPlaceholder(
           ? "Resuming — this message sends as soon as the session is back"
           : disconnected
             ? "Reconnect to continue this conversation"
-            : state.connection === "installing"
-              ? "Installing structured-session adapter…"
-              : state.connection === "starting"
-                ? "Starting agent adapter…"
-                : "Connecting to agent session…";
+            : state.connection === "starting"
+              ? "Starting agent…"
+              : "Connecting to agent session…";
 }

@@ -22,47 +22,50 @@
     flex-direction: column;
 }
 .ed-tree-head {
-    height: 30px;
+    padding: 4px 8px 4px 12px;
+}
+.ed-tree-title {
+    height: 24px;
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 0 12px;
-    font-size: var(--text-3xs);
-    font-weight: var(--weight-semibold);
-    letter-spacing: var(--tracking-label);
-    text-transform: uppercase;
-    color: var(--text-tertiary);
-    border-bottom: 1px solid var(--border);
+    gap: 8px;
 }
 .ed-tree-name {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    font-size: var(--text-3xs);
+    font-weight: var(--weight-semibold);
+    letter-spacing: var(--tracking-label);
+    text-transform: uppercase;
+    color: var(--text-tertiary);
 }
 .ed-tree-actions {
     display: inline-flex;
-    gap: 4px;
-    opacity: 0.5;
+    gap: 2px;
+    flex: none;
+    opacity: 0.6;
     transition: opacity 0.12s;
 }
 .ed-tree:hover .ed-tree-actions {
     opacity: 1;
 }
 .ed-tree-act {
-    display: inline-flex;
-    align-items: center;
-    gap: 1px;
+    display: grid;
+    place-items: center;
+    width: 20px;
+    height: 20px;
+    padding: 0;
     background: transparent;
     border: none;
     color: var(--text-tertiary);
     cursor: pointer;
-    padding: 2px 3px;
-    line-height: 1;
 }
 .ed-tree-act:hover {
+    background: var(--surface-hover);
     color: var(--text-primary);
 }
-
 .tree-row.selected {
     background: color-mix(in srgb, var(--acc) 14%, transparent);
     color: var(--text-primary);
@@ -166,6 +169,13 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+}
+.tree-row.ignored {
+    color: var(--text-disabled);
+}
+.tree-row.ignored > .tree-folder,
+.tree-row.ignored > .tree-file {
+    opacity: 0.5;
 }
 
 /* file-tree right-click context menu */
@@ -668,6 +678,9 @@ body.is-sorting-tabs * {
     gap: var(--space-1h);
     color: var(--text-tertiary);
     pointer-events: none;
+}
+.ed-empty button {
+    pointer-events: auto;
 }
 .ed-empty p {
     font-size: var(--text-sm);

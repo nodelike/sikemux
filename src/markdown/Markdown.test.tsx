@@ -64,6 +64,13 @@ describe("drawing a read message", () => {
         );
     });
 
+    it("lets a surface draw its own task boxes", () => {
+        const taskBox = ({ checked }: { checked: boolean }) => <button type="button">{checked ? "done" : "todo"}</button>;
+        expect(html([{ t: "ul", c: [{ t: "li", checked: false, c: ["ship it"] }] }], { taskBox })).toBe(
+            '<ul class="contains-task-list"><li class="task-list-item"><button type="button">todo</button> ship it</li></ul>',
+        );
+    });
+
     it("names a fence's language the way code highlighters expect", () => {
         expect(
             html([

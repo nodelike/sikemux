@@ -30,7 +30,7 @@ function blockTexts(blocks: unknown): string | undefined {
 
 /* Claude hands back the tool's own result, a string or a list of blocks.
    Codex wraps a command's in formatted_output, and an MCP call's in result. */
-function outputText(raw: unknown): string | undefined {
+export function outputText(raw: unknown): string | undefined {
     if (typeof raw === "string") return raw;
     const blocks = blockTexts(raw);
     if (blocks !== undefined) return blocks;

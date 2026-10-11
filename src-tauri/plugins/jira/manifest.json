@@ -18,7 +18,7 @@
     },
     {
       "name": "jira_issue",
-      "row": {"verb": "read", "kind": "read", "icon": "file", "target": ["{key}"], "detail": ["{site}"]},
+      "row": {"verb": "read", "kind": "read", "icon": "issue", "target": ["{key}"], "detail": ["{site}"]},
       "method": "issue",
       "description": "One Jira issue by key (ABC-123): its fields, description and comments as markdown, and the transitions it can take next.",
       "properties": {
@@ -29,7 +29,7 @@
     },
     {
       "name": "jira_comment",
-      "row": {"verb": "comment", "kind": "edit", "icon": "pencil", "target": ["{key}"], "detail": ["{site}"]},
+      "row": {"verb": "comment", "kind": "edit", "icon": "message", "target": ["{key}"], "detail": ["{site}"]},
       "method": "comment",
       "description": "Add a comment to a Jira issue. Write it in markdown.",
       "properties": {
@@ -41,7 +41,7 @@
     },
     {
       "name": "jira_transition",
-      "row": {"verb": "move", "kind": "move", "icon": "refresh", "target": ["{key} to {to}", "{key}"], "detail": ["{site}"]},
+      "row": {"verb": "move", "kind": "move", "icon": "status", "target": ["{key} to {to}", "{key}"], "detail": ["{site}"]},
       "method": "transition",
       "description": "Move a Jira issue through its workflow. Name a transition or the status it leads to; with neither, lists the transitions the issue can take now.",
       "properties": {
@@ -53,7 +53,7 @@
     },
     {
       "name": "jira_create",
-      "row": {"verb": "create", "kind": "edit", "icon": "pencil", "target": ["{summary}"], "detail": ["{project}"]},
+      "row": {"verb": "create", "kind": "edit", "icon": "square-plus", "target": ["{summary}"], "detail": ["{project}"]},
       "method": "create",
       "description": "Create a Jira issue. The description is markdown.",
       "properties": {

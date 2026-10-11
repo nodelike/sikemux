@@ -5,23 +5,54 @@ import type { AcpToolCall } from "./types";
 
 export type ToolRowIcon =
     | "activity"
-    | "arrow-down"
+    | "book"
+    | "camera"
+    | "click"
     | "clock"
-    | "command"
-    | "editor"
+    | "close"
+    | "code"
+    | "dashboard"
+    | "download"
     | "eye"
-    | "file"
+    | "folder"
     | "globe"
-    | "image"
-    | "info"
-    | "pencil"
+    | "highlighter"
+    | "home-button"
+    | "hourglass"
+    | "issue"
+    | "keyboard"
+    | "link"
+    | "log-lines"
+    | "message"
+    | "mouse"
+    | "network"
+    | "panel"
+    | "phone"
+    | "pinch"
     | "pointer"
     | "pull-request"
+    | "record"
     | "refresh"
+    | "resize"
+    | "rocket"
+    | "rotate"
     | "run"
     | "search"
+    | "square-plus"
+    | "status"
+    | "steps"
     | "stop"
-    | "window";
+    | "swipe"
+    | "tabs"
+    | "tap"
+    | "terminal"
+    | "text"
+    | "touch-path"
+    | "unlink"
+    | "upload"
+    | "waterfall"
+    | "window"
+    | "workflow";
 
 // The kinds the agent protocol gives its own calls, so ours take the same colours.
 export type ToolRowKind = "read" | "search" | "fetch" | "edit" | "move" | "delete" | "execute" | "think";
@@ -50,8 +81,13 @@ export interface ToolRowText {
 
 const SIKEMUX_TOOL = /sikemux-tools(?:__|[./:]\s*)([a-z][a-z0-9_]*)/;
 
+/** The tool's name without the server hosts put in front of it. */
+export function sikemuxToolName(title: string): string {
+    return SIKEMUX_TOOL.exec(title)?.[1] ?? title.trim();
+}
+
 function rowSpec(title: string): ToolRowSpec | null {
-    const name = SIKEMUX_TOOL.exec(title)?.[1] ?? title.trim();
+    const name = sikemuxToolName(title);
     return Object.hasOwn(TOOL_ROWS, name) ? TOOL_ROWS[name as keyof typeof TOOL_ROWS] : null;
 }
 

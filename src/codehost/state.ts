@@ -10,14 +10,6 @@ export type StatusFilter = (typeof STATUS_FILTERS)[number];
 export const SECTIONS = ["pulls", "actions", "issues", "releases", "inbox"] as const;
 export type Section = (typeof SECTIONS)[number];
 
-export function isSection(value: unknown): value is Section {
-    return typeof value === "string" && (SECTIONS as readonly string[]).includes(value);
-}
-
-export function needsRepo(section: Section): boolean {
-    return section !== "inbox";
-}
-
 export interface HostSettings {
     pinned: string[];
     /** A repository picked by hand for a project folder, which wins over what its remote says. */
@@ -140,18 +132,9 @@ const FRESH: HostView = {
     runTab: "summary",
 };
 
-export const useHostViews = create<{ views: Record<string, HostView>; paletteOpen: boolean }>()(() => ({
+export const useHostViews = create<{ views: Record<string, HostView> }>()(() => ({
     views: {},
-    paletteOpen: false,
 }));
-
-export function togglePalette(): void {
-    useHostViews.setState((state) => ({ paletteOpen: !state.paletteOpen }));
-}
-
-export function closePalette(): void {
-    useHostViews.setState({ paletteOpen: false });
-}
 
 onPaneClosed((paneId) => {
     if (!(paneId in useHostViews.getState().views)) return;
@@ -181,11 +164,6 @@ export function resetView(paneId: string): void {
 
 export function filterBy(paneId: string, patch: Pick<Partial<HostView>, "workflowId" | "statusFilter" | "branch">): void {
     updateView(paneId, { ...patch, item: null, composing: null, page: 1, run: null, job: null });
-}
-
-/** Leaving a section closes whatever was open in the one before. */
-export function leaveSection(paneId: string): void {
-    updateView(paneId, { item: null, run: null, job: null, page: 1, composing: null });
 }
 
 export function showItem(paneId: string, number: number | null): void {

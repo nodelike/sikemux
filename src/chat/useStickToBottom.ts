@@ -1,93 +1,94 @@
-import { useCallback, useLayoutEffect, useRef, useState, type RefObject, type UIEvent } from "react";
+import { useCallback, useLayoutEffect, useRef, useState, type RefObject } from "react";
 
 // How far above the last line still counts as reading the latest message.
 export const BOTTOM_SLACK = 72;
 
+/* How far the reader is from the bottom. The transcript is laid out from the
+   bottom, so its scroll position is 0 there and negative above it. */
+const distanceFromBottom = (scroller: HTMLElement) => Math.max(0, -scroller.scrollTop);
+
+/*
+ * The transcript is laid out from the bottom up, so the browser itself holds
+ * the bottom still as a reply grows, and holds the reader's place as anything
+ * above them changes height. Nothing here moves the scroll position while the
+ * reader is scrolling.
+ *
+ * The one change the browser cannot absorb is something growing below the
+ * reader, such as a reply streaming in while they read further up. That would
+ * push what they are reading up the screen, so the row at the top of the view
+ * is noted on every scroll and put back where it was. It is held by its bottom
+ * edge: laid out from the bottom, a row that grows grows upwards, and only
+ * growth below it moves that edge. The last row is the exception, held by its
+ * top edge, since it grows as the reply streams into it while it is read.
+ */
 export function useStickToBottom({
     scrollRef,
     contentRef,
     visible,
-    messageCount,
-    revision,
 }: {
     scrollRef: RefObject<HTMLDivElement | null>;
     contentRef: RefObject<HTMLDivElement | null>;
     visible: boolean;
-    messageCount: number;
-    revision: number;
 }) {
     const [atBottom, setAtBottom] = useState(true);
-    const stickToBottomRef = useRef(true);
-    const lastScrollTopRef = useRef(0);
-    const lastGestureRef = useRef(0);
+    const atBottomRef = useRef(true);
+    const anchorRef = useRef<{ row: Element; edge: "top" | "bottom"; offset: number } | null>(null);
 
-    /* The scroller's own bottom, not the last message's — a permission card or
-       an error sits below the list and still has to be reachable. Idempotent,
-       so the observer below can call it until the heights stop moving. */
-    const pinToBottom = useCallback(() => {
-        const element = scrollRef.current;
-        if (!element) return;
-        const target = element.scrollHeight - element.clientHeight;
-        if (Math.abs(element.scrollTop - target) < 1) return;
-        element.scrollTop = target;
-        lastScrollTopRef.current = element.scrollTop;
+    const noteAnchor = useCallback(() => {
+        const scroller = scrollRef.current;
+        anchorRef.current = null;
+        if (!scroller || atBottomRef.current) return;
+        const view = scroller.getBoundingClientRect();
+        for (const offset of [1, 24, 64]) {
+            const row = document.elementFromPoint?.(view.left + view.width / 2, view.top + offset)?.closest(".chat-row");
+            if (row && scroller.contains(row)) {
+                const edge = Array.from(scroller.querySelectorAll(".chat-row")).at(-1) === row ? "top" : "bottom";
+                anchorRef.current = { row, edge, offset: row.getBoundingClientRect()[edge] - view.top };
+                return;
+            }
+        }
     }, [scrollRef]);
 
-    const noteGesture = useCallback(() => {
-        lastGestureRef.current = performance.now();
-    }, []);
-
-    /*
-     * A restored session opens on estimated row heights. Landing at the
-     * estimated bottom mounts the real rows, they measure taller, and the
-     * bottom moves again — so one scroll after the messages arrive stops
-     * short. Watching the content's height instead re-pins through every
-     * settling pass, and through markdown and highlighting that arrive late.
-     */
     useLayoutEffect(() => {
         const content = contentRef.current;
-        if (!content || typeof ResizeObserver === "undefined") return;
-        const observer = new ResizeObserver(() => {
-            if (stickToBottomRef.current) pinToBottom();
+        const scroller = scrollRef.current;
+        if (!content || !scroller || typeof ResizeObserver === "undefined") return;
+        const resized = new ResizeObserver(() => {
+            const anchor = anchorRef.current;
+            if (atBottomRef.current || !anchor?.row.isConnected) return;
+            const moved = anchor.row.getBoundingClientRect()[anchor.edge] - scroller.getBoundingClientRect().top - anchor.offset;
+            if (Math.abs(moved) >= 1) scroller.scrollTop += moved;
         });
-        observer.observe(content);
-        return () => observer.disconnect();
-    }, [contentRef, pinToBottom]);
+        resized.observe(content);
+        return () => resized.disconnect();
+    }, [contentRef, scrollRef]);
 
+    /* A pane coming back into view keeps the place it was left at, unless that
+       was the bottom, which may have moved while it was hidden. */
     useLayoutEffect(() => {
-        if (!visible || !stickToBottomRef.current || messageCount === 0) return;
-        pinToBottom();
-    }, [messageCount, revision, pinToBottom, visible]);
+        const scroller = scrollRef.current;
+        if (visible && scroller && atBottomRef.current) scroller.scrollTop = 0;
+    }, [visible, scrollRef]);
 
-    const onScroll = (event: UIEvent<HTMLDivElement>) => {
-        const element = event.currentTarget;
-        const previous = lastScrollTopRef.current;
-        lastScrollTopRef.current = element.scrollTop;
-        const distance = element.scrollHeight - element.scrollTop - element.clientHeight;
-        // The transcript also scrolls itself, to hold the bottom
-        // still while rows settle into their real heights. Only a
-        // scroll up that a wheel, key or drag just asked for means
-        // the reader walked away; sitting at the bottom means stuck.
-        const gesture = lastGestureRef.current;
-        lastGestureRef.current = 0;
-        const walkedAway = element.scrollTop < previous - 1 && performance.now() - gesture < 150;
-        const next = walkedAway ? false : distance < BOTTOM_SLACK ? true : stickToBottomRef.current;
-        if (next === stickToBottomRef.current) return;
-        stickToBottomRef.current = next;
+    const settle = useCallback((next: boolean) => {
+        if (next === atBottomRef.current) return;
+        atBottomRef.current = next;
         setAtBottom(next);
+    }, []);
+
+    const onScroll = () => {
+        const scroller = scrollRef.current;
+        if (!scroller) return;
+        settle(distanceFromBottom(scroller) < BOTTOM_SLACK);
+        noteAnchor();
     };
 
     const jumpToBottom = () => {
-        stickToBottomRef.current = true;
-        setAtBottom(true);
-        pinToBottom();
+        const scroller = scrollRef.current;
+        settle(true);
+        anchorRef.current = null;
+        if (scroller) scroller.scrollTop = 0;
     };
 
-    /** Stops holding the bottom, for a scroll this pane makes itself up into the transcript. */
-    const leaveBottom = () => {
-        stickToBottomRef.current = false;
-        setAtBottom(false);
-    };
-
-    return { atBottom, noteGesture, onScroll, jumpToBottom, leaveBottom };
+    return { atBottom, onScroll, jumpToBottom };
 }

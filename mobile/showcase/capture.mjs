@@ -69,6 +69,19 @@ function drawPhoneChrome() {
   document.body.append(chrome);
 }
 
+/** Gives each icon's gradient its own id: in a page every `url(#id)` finds the first one, which may be hidden. */
+function separateGradients() {
+  document.querySelectorAll('svg').forEach((svg, index) => {
+    for (const gradient of svg.querySelectorAll('[id]')) {
+      const id = gradient.id;
+      gradient.id = `${id}-${index}`;
+      for (const user of svg.querySelectorAll(`[fill="url(#${id})"], [stroke="url(#${id})"]`))
+        for (const attribute of ['fill', 'stroke'])
+          if (user.getAttribute(attribute) === `url(#${id})`) user.setAttribute(attribute, `url(#${id}-${index})`);
+    }
+  });
+}
+
 const origin = `http://localhost:${options.port}`;
 const server = spawn('npx', ['expo', 'start', '--web', '--port', options.port, '--clear'], {
   cwd: app,
@@ -119,6 +132,7 @@ for (const scene of SCENES) {
     await page.getByText(scene.tap, { exact: true }).first().click();
     await page.waitForTimeout(800);
   }
+  await page.evaluate(separateGradients);
   await page.evaluate(drawPhoneChrome);
   const path = join(options.out, `${scene.name}.png`);
   await page.screenshot({ path });

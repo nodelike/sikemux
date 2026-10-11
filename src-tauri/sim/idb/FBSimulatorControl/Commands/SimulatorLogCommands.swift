@@ -1,0 +1,62 @@
+/*
+ * Copyright (c) Meta Platforms, Inc. and affiliates.
+ *
+ * This source code is licensed under the MIT license found in the
+ * LICENSE file in the root directory of this source tree.
+ */
+
+@preconcurrency import CoreSimulator
+import FBControlCore
+import Foundation
+
+public enum SimulatorLogError: Error, LocalizedError {
+  case runtimeRootUnavailable
+
+  public var errorDescription: String? {
+    switch self {
+    case .runtimeRootUnavailable:
+      return "Could not obtain runtime root for simulator"
+    }
+  }
+}
+
+public struct SimulatorLogCommands: LogCommands {
+
+  private let simulator: Simulator
+
+  public static func commands(with simulator: Simulator) -> SimulatorLogCommands {
+    SimulatorLogCommands(simulator: simulator)
+  }
+
+  public func tail(arguments: [String], consumer: any DataConsumer) async throws -> any LogOperation {
+    let launchPath = try logExecutablePath()
+    let streamArguments = ProcessLogOperation.osLogArgumentsInsertStreamIfNeeded(arguments)
+    let processIO = FBProcessIO<AnyObject, AnyObject, AnyObject>(
+      stdIn: nil,
+      stdOut: FBProcessOutput<AnyObject>(for: consumer),
+      stdErr: nil
+    )
+    let configuration = ProcessSpawnConfiguration(
+      launchPath: launchPath,
+      arguments: streamArguments,
+      environment: [:],
+      io: processIO,
+      mode: .default
+    )
+    let process = try await simulator.spawn(configuration)
+    return ProcessLogOperation(process: process, consumer: consumer, queue: simulator.asyncQueue)
+  }
+
+  private func logExecutablePath() throws -> String {
+    guard let root = simulator.device.runtime.root else {
+      throw SimulatorLogError.runtimeRootUnavailable
+    }
+    let path =
+      (((root as NSString)
+      .appendingPathComponent("usr") as NSString)
+      .appendingPathComponent("bin") as NSString)
+      .appendingPathComponent("log")
+    let binary = try BinaryDescriptor.binary(withPath: path)
+    return binary.path
+  }
+}

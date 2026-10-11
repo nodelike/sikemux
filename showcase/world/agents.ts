@@ -218,6 +218,55 @@ export const AGENT_SCRIPTS: Record<string, AgentScript> = {
       ),
     ],
   },
+  [AGENTS.incident.id]: {
+    usage: { used: 61_000, size: 200_000 },
+    history: [
+      user(
+        "Checkout has been returning 500s since this morning. Find out why, fix it, and update ACME-412.",
+      ),
+    ],
+    live: [
+      think("Reading the ticket and production logs, then checking the fix in the browser."),
+      tool("read", "mcp__sikemux-tools__jira_issue", {
+        rawInput: { key: "ACME-412" },
+        durationMs: 700,
+      }),
+      tool("read", "mcp__sikemux-tools__signoz_logs", {
+        rawInput: { service: "billing-service", severities: "error" },
+        durationMs: 1_300,
+      }),
+      tool("execute", "mcp__sikemux-tools__task_start", {
+        rawInput: { taskId: "dev" },
+        durationMs: 400,
+      }),
+      tool("read", "mcp__sikemux-tools__task_read", {
+        rawInput: { taskId: "dev", search: "ready" },
+        durationMs: 2_100,
+      }),
+      tool("fetch", "mcp__sikemux-tools__browser_navigate", {
+        rawInput: { url: "http://localhost:3000/checkout" },
+        durationMs: 1_100,
+      }),
+      tool("edit", "mcp__sikemux-tools__browser_click", {
+        rawInput: { text: "Pay now" },
+        durationMs: 300,
+      }),
+      tool("read", "mcp__sikemux-tools__browser_screenshot", {
+        rawInput: {},
+        durationMs: 800,
+      }),
+      tool("edit", "mcp__sikemux-tools__jira_comment", {
+        rawInput: { key: "ACME-412" },
+        durationMs: 600,
+      }),
+      tool(
+        "edit",
+        "mcp__sikemux-tools__jira_transition",
+        { rawInput: { key: "ACME-412", to: "In review" } },
+        "in_progress",
+      ),
+    ],
+  },
   [AGENTS.palette.id]: {
     usage: { used: 51_000, size: 272_000 },
     history: [
@@ -241,6 +290,7 @@ export const AVAILABLE_AGENTS = [
     command: "claude",
     available: true,
     defaultModel: "opus",
+    status: { state: "ready", account: "subscription" },
     defaultEffort: "high",
   },
   {
@@ -249,6 +299,7 @@ export const AVAILABLE_AGENTS = [
     command: "codex",
     available: true,
     defaultModel: "gpt-5.5",
+    status: { state: "signedOut" },
     defaultEffort: "medium",
   },
   {
@@ -257,6 +308,7 @@ export const AVAILABLE_AGENTS = [
     command: "hermes",
     available: true,
     defaultModel: null,
+    status: { state: "unknown" },
     defaultEffort: null,
   },
   {
@@ -265,6 +317,7 @@ export const AVAILABLE_AGENTS = [
     command: "pi",
     available: true,
     defaultModel: null,
+    status: { state: "ready", account: null },
     defaultEffort: null,
   },
   {
@@ -273,6 +326,7 @@ export const AVAILABLE_AGENTS = [
     command: "opencode",
     available: true,
     defaultModel: null,
+    status: { state: "ready", account: "apiKey" },
     defaultEffort: null,
   },
 ];

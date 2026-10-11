@@ -5,26 +5,63 @@ import { hasPrimaryModifier } from "../lib/platform";
 import {
     IconActivity,
     IconAgent,
-    IconArrowDown,
+    IconBook,
+    IconCamera,
     IconChevron,
+    IconClick,
     IconClock,
+    IconClose,
+    IconCode,
     IconCommand,
-    IconEditor,
+    IconDashboard,
+    IconDownload,
     IconEye,
     IconFile,
+    IconFolder,
     IconGlobe,
-    IconImage,
-    IconInfo,
+    IconHighlighter,
+    IconHomeButton,
+    IconHourglass,
+    IconIssue,
+    IconKeyboard,
+    IconLink,
+    IconLogLines,
+    IconMessage,
+    IconMouse,
+    IconMove,
+    IconNetwork,
+    IconPanel,
     IconPencil,
+    IconPhone,
+    IconPinch,
     IconPlug,
     IconPointer,
     IconPullRequest,
+    IconRecord,
     IconRefresh,
+    IconResize,
+    IconRocket,
+    IconRotate,
     IconRun,
     IconSearch,
+    IconSquarePlus,
+    IconStatus,
+    IconSteps,
     IconStop,
+    IconSwipe,
+    IconTabs,
+    IconTap,
+    IconTerminal,
+    IconText,
+    IconTouchPath,
+    IconTrash,
+    IconUnlink,
+    IconUpload,
     IconWarning,
+    IconWaterfall,
     IconWindow,
+    IconWorkflow,
+    IconWrench,
 } from "../ui/Icons";
 import type { ToolOutput } from "./toolOutput";
 import { ChatFileRef, useFileRef } from "./FileRef";
@@ -42,23 +79,54 @@ import type { AcpToolCall, ChatPart } from "./types";
 
 const ROW_ICONS: Record<ToolRowIcon, ComponentType<{ size?: number }>> = {
     activity: IconActivity,
-    "arrow-down": IconArrowDown,
+    book: IconBook,
+    camera: IconCamera,
+    click: IconClick,
     clock: IconClock,
-    command: IconCommand,
-    editor: IconEditor,
+    close: IconClose,
+    code: IconCode,
+    dashboard: IconDashboard,
+    download: IconDownload,
     eye: IconEye,
-    file: IconFile,
+    folder: IconFolder,
     globe: IconGlobe,
-    image: IconImage,
-    info: IconInfo,
-    pencil: IconPencil,
+    highlighter: IconHighlighter,
+    "home-button": IconHomeButton,
+    hourglass: IconHourglass,
+    issue: IconIssue,
+    keyboard: IconKeyboard,
+    link: IconLink,
+    "log-lines": IconLogLines,
+    message: IconMessage,
+    mouse: IconMouse,
+    network: IconNetwork,
+    panel: IconPanel,
+    phone: IconPhone,
+    pinch: IconPinch,
     pointer: IconPointer,
     "pull-request": IconPullRequest,
+    record: IconRecord,
     refresh: IconRefresh,
+    resize: IconResize,
+    rocket: IconRocket,
+    rotate: IconRotate,
     run: IconRun,
     search: IconSearch,
+    "square-plus": IconSquarePlus,
+    status: IconStatus,
+    steps: IconSteps,
     stop: IconStop,
+    swipe: IconSwipe,
+    tabs: IconTabs,
+    tap: IconTap,
+    terminal: IconTerminal,
+    text: IconText,
+    "touch-path": IconTouchPath,
+    unlink: IconUnlink,
+    upload: IconUpload,
+    waterfall: IconWaterfall,
     window: IconWindow,
+    workflow: IconWorkflow,
 };
 
 function ToolKindIcon({ tool, kind }: { tool: AcpToolCall; kind?: string }) {
@@ -78,15 +146,17 @@ function ToolKindIcon({ tool, kind }: { tool: AcpToolCall; kind?: string }) {
         case "search":
             return <IconSearch size={11} />;
         case "edit":
-        case "move":
-        case "delete":
             return <IconPencil size={11} />;
+        case "move":
+            return <IconMove size={11} />;
+        case "delete":
+            return <IconTrash size={11} />;
         case "execute":
             return <IconCommand size={11} />;
         case "fetch":
             return <IconGlobe size={11} />;
         default:
-            return <IconAgent size={11} />;
+            return toolKind(tool) === "toolsearch" ? <IconWrench size={11} /> : <IconAgent size={11} />;
     }
 }
 

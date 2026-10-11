@@ -1,7 +1,7 @@
 import { AGENT_NAMES, CHAT_AGENT_TYPES, agentSupportsChat, normalizePermissionMode } from "../agents/agentLaunch";
 import { selectedProviderProfile } from "../agents/agentProfiles";
 import { agentCwd } from "../agents/agentPtyContext";
-import type { RecentChat } from "../api/agents";
+import type { AgentInfo, RecentChat } from "../api/agents";
 import type { LauncherRequest, PublishedChat, PublishedProject, PublishedRecent } from "../api/remote";
 import { agentWindowId, ownerSessionId } from "../state/selectors";
 import type { StoreState } from "../state/store";
@@ -27,7 +27,10 @@ export function remoteWorkspace(
     sessionOrder: readonly string[],
     profiles: readonly ProviderProfile[],
     permissionMode: AgentPermissionMode,
+    catalog: readonly AgentInfo[] = [],
 ): RemoteWorkspace {
+    const statusOf = (type: AgentType, configPath?: string) =>
+        catalog.find((agent) => agent.type === type && (agent.configPath ?? undefined) === configPath)?.status?.state;
     const projects = sessionOrder
         .map((id) => sessions[id])
         .filter((session): session is Session => session?.kind === "project" && session.cwd !== "")
@@ -35,7 +38,17 @@ export function remoteWorkspace(
     const launchers = CHAT_AGENT_TYPES.flatMap((type): LauncherRequest[] => {
         const mode = normalizePermissionMode(type, permissionMode);
         const own = profiles.filter((profile) => profile.provider === type);
-        if (own.length === 0) return [{ id: launcherId(type), provider: type, label: AGENT_NAMES[type], environmentKeys: [], permissionMode: mode }];
+        if (own.length === 0)
+            return [
+                {
+                    id: launcherId(type),
+                    provider: type,
+                    label: AGENT_NAMES[type],
+                    environmentKeys: [],
+                    permissionMode: mode,
+                    status: statusOf(type),
+                },
+            ];
         return own.map((profile) => ({
             id: launcherId(type, profile),
             provider: type,
@@ -44,6 +57,7 @@ export function remoteWorkspace(
             executablePath: profile.executablePath,
             environmentKeys: profile.environmentKeys ?? [],
             permissionMode: mode,
+            status: statusOf(type, profile.configPath),
         }));
     });
     return { projects, launchers };

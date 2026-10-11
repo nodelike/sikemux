@@ -3,11 +3,26 @@ import { activeSurfacePane, onPaneClosed, openSurface } from "../../plugin-api/h
 import { JIRA_ISSUES } from "./kinds";
 
 export type JiraList =
-    { kind: "mine" } | { kind: "sprint" } | { kind: "filter"; id: string; name: string; jql: string } | { kind: "jql"; jql: string };
+    | { kind: "mine" }
+    | { kind: "reported" }
+    | { kind: "watching" }
+    | { kind: "recent" }
+    | { kind: "sprint" }
+    | { kind: "project"; key: string; name: string }
+    | { kind: "unassigned"; key: string; name: string }
+    | { kind: "board"; id: number; name: string }
+    | { kind: "filter"; id: string; name: string; jql: string }
+    | { kind: "jql"; jql: string };
 
 /** Everything still open that is mine, and what I finished in the last two weeks so a done ticket does not just vanish. */
 export const MINE_JQL = "assignee = currentUser() AND (statusCategory != Done OR updated >= -14d) ORDER BY updated DESC";
 export const SPRINT_JQL = "sprint in openSprints() ORDER BY Rank ASC";
+export const REPORTED_JQL = "reporter = currentUser() AND (statusCategory != Done OR updated >= -14d) ORDER BY updated DESC";
+export const WATCHING_JQL = "watcher = currentUser() AND statusCategory != Done ORDER BY updated DESC";
+export const RECENT_JQL = "issuekey in issueHistory() ORDER BY lastViewed DESC";
+
+/** A project key as JQL can hold it, in quotes in case the key is also a JQL word. */
+const projectClause = (key: string) => `project = "${key.replace(/[^A-Za-z0-9_]/g, "")}"`;
 
 const JQL_OPERATOR = /[=~<>]|\border\s+by\b|\bin\s*\(|\bis\s+(not\s+)?(empty|null)\b/i;
 
@@ -19,15 +34,26 @@ export function searchJql(typed: string): string {
     return `text ~ "${quoted}" ORDER BY updated DESC`;
 }
 
-export function jqlOf(list: JiraList): string {
+/** The JQL behind a list; a board has none, since it is read as the board itself. */
+export function jqlOf(list: Exclude<JiraList, { kind: "board" }>): string {
     switch (list.kind) {
         case "mine":
             return MINE_JQL;
+        case "reported":
+            return REPORTED_JQL;
+        case "watching":
+            return WATCHING_JQL;
+        case "recent":
+            return RECENT_JQL;
         case "sprint":
             return SPRINT_JQL;
+        case "project":
+            return `${projectClause(list.key)} AND statusCategory != Done ORDER BY updated DESC`;
+        case "unassigned":
+            return `${projectClause(list.key)} AND assignee is EMPTY AND statusCategory != Done ORDER BY created DESC`;
         case "jql":
             return searchJql(list.jql);
-        default:
+        case "filter":
             return list.jql;
     }
 }

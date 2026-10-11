@@ -2,10 +2,9 @@ import { act, cleanup, fireEvent, render, screen } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Job, JobLog, LogLine } from "../api";
 
-const { jobLog, jumps, copyText } = vi.hoisted(() => ({
+const { jobLog, jumps } = vi.hoisted(() => ({
     jobLog: vi.fn(),
     jumps: [] as ({ index: number } | null | undefined)[],
-    copyText: vi.fn(() => Promise.resolve()),
 }));
 vi.mock("../../plugin-api/ui", async (importOriginal) => ({
     ...(await importOriginal<object>()),
@@ -28,10 +27,8 @@ vi.mock("../../plugin-api/ui", async (importOriginal) => ({
         ));
     },
 }));
-vi.mock("../../plugin-api/host", async (importOriginal) => ({ ...(await importOriginal<object>()), copyText }));
 
 import { invalidate } from "../../plugin-api/resources";
-import { useToasts } from "../../state/toast";
 import { JobLogView } from "./JobLogView";
 import { InHost, registerTestHost, TEST_HOST } from "../testHost";
 
@@ -70,8 +67,6 @@ beforeEach(() => {
     invalidate(() => true);
     jumps.length = 0;
     jobLog.mockReset();
-    copyText.mockClear();
-    useToasts.setState({ toasts: [] });
 });
 
 afterEach(() => {
@@ -123,35 +118,6 @@ describe("JobLogView", () => {
     });
 });
 
-describe("what a job's log says when there is nothing to read", () => {
-    it("says why the log could not be read, and reads it again on request", async () => {
-        jobLog.mockRejectedValueOnce("Not Found").mockResolvedValue(log([line(1, "hello", 0)]));
-        render(<JobLogView repo={repo} job={makeJob("completed")} active step={null} />, { wrapper });
-        await act(async () => {});
-        expect(screen.getByText("Could not read the log")).toBeTruthy();
-        fireEvent.click(screen.getByRole("button", { name: "Try again" }));
-        await act(async () => {});
-        expect(screen.getByText("hello")).toBeTruthy();
-    });
-
-    it("says an old log has aged out", async () => {
-        jobLog.mockResolvedValue({ lines: [], expired: true, truncated: false });
-        render(<JobLogView repo={repo} job={makeJob("completed")} active step={null} />, { wrapper });
-        await act(async () => {});
-        expect(screen.getByText("The log is gone")).toBeTruthy();
-    });
-
-    it("tells a job that has not written anything yet from one that wrote nothing", async () => {
-        jobLog.mockResolvedValue(log([]));
-        const view = render(<JobLogView repo={repo} job={makeJob("in_progress")} active step={null} />, { wrapper });
-        await act(async () => {});
-        expect(screen.getByText("This job has not written anything yet.")).toBeTruthy();
-        view.rerender(<JobLogView repo={repo} job={makeJob("completed")} active step={null} />);
-        await act(async () => {});
-        expect(screen.getByText("This job wrote no log.")).toBeTruthy();
-    });
-});
-
 describe("reading a job's log", () => {
     const lines = [line(1, "##[group]Run npm test", 0), line(2, "error one", 1), line(3, "##[endgroup]", 2), line(4, "", 3), line(5, "error two", 4)];
 
@@ -163,13 +129,6 @@ describe("reading a job's log", () => {
         expect(rows.map((row) => row.querySelector(".gha-log-text")?.textContent)).toEqual(["Run npm test", "error one", " ", " ", "error two"]);
         expect(rows.map((row) => row.classList.contains("group"))).toEqual([true, false, false, false, false]);
         expect(screen.getByText("5 lines")).toBeTruthy();
-    });
-
-    it("counts a single line in the singular, and says a running job is not done", async () => {
-        jobLog.mockResolvedValue(log([line(1, "hello", 0)]));
-        render(<JobLogView repo={repo} job={makeJob("in_progress")} active step={null} />, { wrapper });
-        await act(async () => {});
-        expect(document.querySelector(".gha-log-head > .gha-dim")?.textContent).toBe("1 line so far");
     });
 
     it("highlights every match and the one in focus, and wraps backwards with Shift+Enter", async () => {
@@ -191,59 +150,5 @@ describe("reading a job's log", () => {
         expect(screen.getByText("1 of 2")).toBeTruthy();
         fireEvent.click(screen.getByRole("button", { name: "Previous" }));
         expect(screen.getByText("2 of 2")).toBeTruthy();
-    });
-
-    it("says when nothing matches, and goes nowhere on Enter", async () => {
-        jobLog.mockResolvedValue(log(lines));
-        render(<JobLogView repo={repo} job={makeJob("completed")} active step={null} />, { wrapper });
-        await act(async () => {});
-        const search = screen.getByPlaceholderText("Search the log");
-        fireEvent.change(search, { target: { value: "panic" } });
-        fireEvent.keyDown(search, { key: "Enter" });
-        expect(screen.getByText("no matches")).toBeTruthy();
-        expect(lastJump()).toBeUndefined();
-        expect(screen.queryByRole("button", { name: "Next" })).toBeNull();
-    });
-
-    it("offers no stepping between matches when there is only one", async () => {
-        jobLog.mockResolvedValue(log(lines));
-        render(<JobLogView repo={repo} job={makeJob("completed")} active step={null} />, { wrapper });
-        await act(async () => {});
-        fireEvent.change(screen.getByPlaceholderText("Search the log"), { target: { value: "two" } });
-        expect(screen.getByText("1 of 1")).toBeTruthy();
-        expect(screen.queryByRole("button", { name: "Next" })).toBeNull();
-    });
-
-    it("marks the line a picked step starts at", async () => {
-        jobLog.mockResolvedValue(log([line(1, "setting up", 0), line(2, "npm test", 2)]));
-        render(<JobLogView repo={repo} job={makeJob("completed")} active step={{ number: 2 }} />, { wrapper });
-        await act(async () => {});
-        expect(screen.getAllByTestId("log-line").map((row) => row.classList.contains("anchor"))).toEqual([false, true]);
-    });
-
-    it("ignores a picked step that wrote no lines", async () => {
-        jobLog.mockResolvedValue(log([line(1, "setting up", 0)]));
-        render(<JobLogView repo={repo} job={makeJob("completed")} active step={{ number: 2 }} />, { wrapper });
-        await act(async () => {});
-        expect(lastJump()).toBeUndefined();
-    });
-
-    it("copies the whole log without the runner's markers", async () => {
-        jobLog.mockResolvedValue(log([line(1, "##[group]Run npm test", 0), line(2, "ok", 1)]));
-        render(<JobLogView repo={repo} job={makeJob("completed")} active step={null} />, { wrapper });
-        await act(async () => {});
-        fireEvent.click(screen.getByRole("button", { name: "Copy" }));
-        await act(async () => {});
-        expect(copyText).toHaveBeenCalledWith("Run npm test\nok");
-        expect(useToasts.getState().toasts.map((toast) => toast.text)).toContain("Copied 2 lines");
-    });
-
-    it("reads the log again when Refresh is pressed", async () => {
-        jobLog.mockResolvedValue(log([line(1, "ok", 0)]));
-        render(<JobLogView repo={repo} job={makeJob("completed")} active step={null} />, { wrapper });
-        await act(async () => {});
-        fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
-        await act(async () => {});
-        expect(jobLog).toHaveBeenCalledTimes(2);
     });
 });

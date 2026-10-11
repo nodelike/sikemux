@@ -14,96 +14,27 @@ use agent_client_protocol::schema::v1::{
 use agent_client_protocol::schema::ProtocolVersion;
 use agent_client_protocol::{AcpAgent, AcpAgentConfig, Agent, ConnectionTo, ErrorCode};
 use serde_json::{json, Value};
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, oneshot};
 use uuid::Uuid;
 
-use crate::acp::account::{self, Failure, FailureKind, SignIn};
-use crate::acp::{
-    adapter_effort_id, air, native, permission_mode_id, prompt_blocks, turn_signal, SessionEnd,
-    TurnSignal,
-};
-use crate::protocol::{ChatAccount, ChatContext, ChatEventKind, ChatLaunch, ChatStart};
+use crate::acp::account::{self, Failure, FailureKind};
+use crate::acp::{air, native, permission_mode_id, prompt_blocks, SessionEnd};
+use crate::protocol::{ChatEventKind, ChatLaunch, ChatStart};
 
-use super::super::connection::ClientId;
+use super::rebind::{
+    error_message, next_account, on_account, switch_notice, Carried, Outcome, Rebind, Replay,
+};
 use super::{Chat, ChatCommand};
 
 /// How long a stopped turn may keep running before the agent is killed. The
 /// agent only reads a cancel between steps, and a wedged tool never gets there.
 const CANCEL_GRACE: Duration = Duration::from_secs(10);
 
-/// How a connection ended: the chat's session is over, or its agent is to be
-/// started again under it.
-pub(super) enum Outcome {
-    Ended(SessionEnd),
-    Rebind(Box<Rebind>),
-}
-
-/// A prompt to send again once the agent is back.
-#[derive(Clone)]
-struct Replay {
-    /// Who sent it, while nobody else has been told it was sent.
-    announce: Option<ClientId>,
-    text: String,
-    paths: Vec<String>,
-    context: Vec<ChatContext>,
-}
-
-/// Starts the chat's agent again on the same session.
-pub(super) struct Rebind {
-    pub launch: ChatLaunch,
-    replay: Option<Replay>,
-    /// Accounts that ran out of usage on the prompt being sent again.
-    exhausted: Vec<String>,
-    /// Set after a sign-in failure, so a second one is shown rather than retried.
-    signed_in_again: bool,
-    /// Said in the transcript once the agent is back.
-    notice: Option<Value>,
-}
-
 /// A turn that failed in a way a new agent process or another account may fix.
 struct Failed {
     turn: u64,
     failure: Failure,
     response: Option<Value>,
-}
-
-/// `launch` with `account` in place of the account it names.
-fn on_account(provider: &str, launch: &ChatLaunch, account: &ChatAccount) -> ChatLaunch {
-    let mut moved = launch.clone();
-    if let Some(variable) = account::directory_variable(provider) {
-        moved.env.remove(variable);
-    }
-    moved.env.extend(account.env.clone());
-    moved.fallbacks.retain(|fallback| fallback.id != account.id);
-    if let Some(previous) = moved.account.replace(account.clone()) {
-        if previous.id != account.id {
-            moved.fallbacks.push(previous);
-        }
-    }
-    moved
-}
-
-/// The first account to move to that has usage left to try and is signed in.
-fn next_account<'a>(
-    provider: &str,
-    launch: &'a ChatLaunch,
-    exhausted: &[String],
-) -> Option<&'a ChatAccount> {
-    launch.fallbacks.iter().find(|fallback| {
-        !exhausted.contains(&fallback.id)
-            && account::signed_in(provider, &on_account(provider, launch, fallback).env)
-                != Some(SignIn::SignedOut)
-    })
-}
-
-fn switch_notice(launch: &ChatLaunch, to: &ChatAccount, reason: &str) -> Value {
-    json!({
-        "sessionUpdate": "account_switched",
-        "account": to.id,
-        "label": to.label,
-        "from": launch.account.as_ref().map(|account| account.label.clone()),
-        "reason": reason,
-    })
 }
 
 fn servers(chat: &Chat, launch: &ChatLaunch) -> Vec<McpServer> {
@@ -188,10 +119,6 @@ async fn apply_saved_choices(
         }
         Err(error) => eprintln!("The agent did not take the saved effort {effort}: {error}"),
     }
-}
-
-fn error_message(message: impl std::fmt::Display) -> Value {
-    json!({ "message": message.to_string() })
 }
 
 /// What sending a prompt needs from the loop that owns the session.
@@ -288,18 +215,13 @@ pub(super) async fn run(
 ) -> Result<Outcome, String> {
     chat.emit(ChatEventKind::Status, json!({ "state": "starting" }));
     let signed_in_at_start = account::signed_in(&launch.provider, &launch.env);
-    // A session loaded again under a running chat replays history the chat
-    // already shows.
-    let quiet_load = rebind.is_some();
-    let (replay, mut exhausted, mut signed_in_again, notice) = match rebind {
-        Some(rebind) => (
-            rebind.replay,
-            rebind.exhausted,
-            rebind.signed_in_again,
-            rebind.notice,
-        ),
-        None => (None, Vec::new(), false, None),
-    };
+    let Carried {
+        replay,
+        mut exhausted,
+        mut signed_in_again,
+        notice,
+        quiet_load,
+    } = Carried::from(rebind);
     let config = AcpAgentConfig::new(&launch.program)
         .args(launch.args.iter().cloned())
         .envs(sikemux_pty::user_shell::login_shell_locale())
@@ -322,34 +244,7 @@ pub(super) async fn run(
                 if quiet_load && event_session.get().is_none() {
                     return Ok(());
                 }
-                let own_session = notification
-                    .0
-                    .get("sessionId")
-                    .and_then(Value::as_str)
-                    .is_some_and(|id| event_session.get().is_some_and(|own| own == id));
-                let signal = if own_session {
-                    notification
-                        .0
-                        .get("update")
-                        .and_then(|update| turn_signal(chat.provider(), update))
-                } else {
-                    None
-                };
-                if signal == Some(TurnSignal::Work)
-                    && !chat.running.load(Ordering::Acquire)
-                    && !chat.unprompted.swap(true, Ordering::AcqRel)
-                {
-                    chat.emit(ChatEventKind::TurnStarted, json!({}));
-                }
                 chat.emit(ChatEventKind::SessionUpdate, notification.0);
-                if signal == Some(TurnSignal::Closes)
-                    && chat.unprompted.swap(false, Ordering::AcqRel)
-                {
-                    chat.emit(
-                        ChatEventKind::TurnCompleted,
-                        json!({ "stopReason": "end_turn" }),
-                    );
-                }
                 Ok(())
             },
             agent_client_protocol::on_receive_notification!(),
@@ -376,10 +271,20 @@ pub(super) async fn run(
                 if let Some(object) = payload.as_object_mut() {
                     object.insert("requestId".into(), Value::String(request_id.clone()));
                 }
-                if !chat.hold_permission(request_id, option_ids, responder, payload.clone()) {
-                    return Ok(());
+                let (answer, answered) = oneshot::channel();
+                let held = chat.hold_permission(request_id, option_ids, answer, payload.clone());
+                tokio::spawn(async move {
+                    let outcome = match answered.await {
+                        Ok(Some(option_id)) => RequestPermissionOutcome::Selected(
+                            SelectedPermissionOutcome::new(option_id),
+                        ),
+                        _ => RequestPermissionOutcome::Cancelled,
+                    };
+                    let _ = responder.respond(RequestPermissionResponse::new(outcome));
+                });
+                if held {
+                    chat.emit(ChatEventKind::PermissionRequest, payload);
                 }
-                chat.emit(ChatEventKind::PermissionRequest, payload);
                 Ok(())
             },
             agent_client_protocol::on_receive_request!(),
@@ -469,35 +374,15 @@ pub(super) async fn run(
                     }
                 }
 
-                if native::arguments(&provider).is_some() {
-                    apply_saved_choices(
-                        &connection,
-                        &session_id,
-                        &mut setup,
-                        model_outside_config,
-                        launch.model.as_deref(),
-                        launch.effort.as_deref(),
-                    )
-                    .await;
-                } else {
-                    for (config_id, value) in [
-                        ("model", launch.model.as_deref()),
-                        (adapter_effort_id(&provider), launch.effort.as_deref()),
-                    ] {
-                        if let Some(value) = value {
-                            let response = connection
-                                .send_request(SetSessionConfigOptionRequest::new(
-                                    session_id.clone(),
-                                    config_id,
-                                    value,
-                                ))
-                                .block_task()
-                                .await?;
-                            setup["configOptions"] =
-                                serde_json::to_value(response.config_options)?;
-                        }
-                    }
-                }
+                apply_saved_choices(
+                    &connection,
+                    &session_id,
+                    &mut setup,
+                    model_outside_config,
+                    launch.model.as_deref(),
+                    launch.effort.as_deref(),
+                )
+                .await;
 
                 let start = ChatStart {
                     session_id: session_id.clone(),
@@ -542,7 +427,7 @@ pub(super) async fn run(
                     ) {
                         Ok(blocks) => {
                             if let Some(from) = replay.announce {
-                                chat.feed.prompted(from, &replay.text, &replay.paths);
+                                chat.feed.prompted(from, replay.message_id.as_deref(), &replay.text, &replay.paths);
                             }
                             chat.running.store(true, Ordering::Release);
                             turn += 1;
@@ -630,6 +515,7 @@ pub(super) async fn run(
                     match command {
                         ChatCommand::Prompt {
                             from,
+                            message_id,
                             text,
                             paths,
                             context,
@@ -646,6 +532,7 @@ pub(super) async fn run(
                             failed_prompt = None;
                             let replay = Replay {
                                 announce: Some(from),
+                                message_id,
                                 text,
                                 paths,
                                 context,
@@ -675,7 +562,7 @@ pub(super) async fn run(
                                 embedded_context,
                             ) {
                                 Ok(blocks) => {
-                                    chat.feed.prompted(from, &replay.text, &replay.paths);
+                                    chat.feed.prompted(from, replay.message_id.as_deref(), &replay.text, &replay.paths);
                                     blocks
                                 }
                                 Err(error) => {
@@ -809,7 +696,7 @@ pub(super) async fn run(
                                     // Answered off the loop, so a stop sent right
                                     // after a steer is never queued behind it.
                                     Ok(blocks) => {
-                                        chat.feed.prompted(from, &said.0, &said.1);
+                                        chat.feed.prompted(from, None, &said.0, &said.1);
                                         let _ = connection
                                             .send_request(air::Steer::new(
                                                 session_id.clone(),
@@ -849,6 +736,9 @@ pub(super) async fn run(
                                 chat.emit(ChatEventKind::Error, error_message(error));
                             }
                         }
+                        ChatCommand::Edit { reply, .. } => {
+                            let _ = reply.send(Err("This agent cannot edit a sent message".into()));
+                        }
                         ChatCommand::Cancel => {
                             connection
                                 .send_notification(CancelNotification::new(session_id.clone()))?;
@@ -860,13 +750,6 @@ pub(super) async fn run(
                                     tokio::time::sleep(CANCEL_GRACE).await;
                                     let _ = stalled.send(cancelled);
                                 });
-                            } else if chat.unprompted.swap(false, Ordering::AcqRel) {
-                                // No prompt of ours is open to answer with the
-                                // end of a turn the agent started itself.
-                                chat.emit(
-                                    ChatEventKind::TurnCompleted,
-                                    json!({ "stopReason": "cancelled" }),
-                                );
                             }
                         }
                     }

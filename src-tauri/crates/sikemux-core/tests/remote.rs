@@ -394,6 +394,7 @@ async fn publish_fake_agent_asking(app: &CoreClient, permission_mode: &str) {
         permission_mode: permission_mode.into(),
         account: None,
         fallbacks: Vec::new(),
+        status: None,
     };
     let project = ProjectInfo {
         id: "sess-tmp".into(),
@@ -428,6 +429,7 @@ async fn a_prompt_reaches_everyone_watching_but_its_sender_and_stays_in_the_repl
     client
         .acp_prompt(
             agent_id.clone(),
+            None,
             "from the phone".into(),
             Vec::new(),
             Vec::new(),
@@ -483,6 +485,7 @@ async fn a_phone_is_sent_a_long_chat_s_last_turns_and_pages_back_to_its_start() 
     for n in 0..55 {
         app.acp_prompt(
             "agent-long".into(),
+            None,
             format!("turn {n}"),
             Vec::new(),
             Vec::new(),
@@ -771,6 +774,7 @@ async fn a_device_starts_a_chat_agent_the_app_published_and_talks_to_it() {
     client
         .acp_prompt(
             agent_id.clone(),
+            None,
             "hello from the phone".into(),
             Vec::new(),
             Vec::new(),
@@ -909,6 +913,7 @@ async fn a_device_sends_a_file_for_a_chat_and_the_agent_is_given_its_path() {
     client
         .acp_prompt(
             agent_id.clone(),
+            None,
             "look at this".into(),
             vec![sent.clone()],
             Vec::new(),
@@ -1021,7 +1026,7 @@ async fn a_watching_device_sees_a_permission_request_it_never_attached_to_and_an
         .await
         .expect("start");
     driver
-        .acp_prompt(agent_id.clone(), "ask".into(), Vec::new(), Vec::new())
+        .acp_prompt(agent_id.clone(), None, "ask".into(), Vec::new(), Vec::new())
         .await
         .expect("prompt");
 
@@ -1134,7 +1139,13 @@ async fn a_device_that_reconnects_hears_only_what_it_missed_and_detaching_stops_
         panic!("the chat is running");
     };
     first
-        .acp_prompt(agent_id.clone(), "say one".into(), Vec::new(), Vec::new())
+        .acp_prompt(
+            agent_id.clone(),
+            None,
+            "say one".into(),
+            Vec::new(),
+            Vec::new(),
+        )
         .await
         .expect("prompt");
     let heard = numbered_until(&mut first_events, "one").await;
@@ -1154,7 +1165,13 @@ async fn a_device_that_reconnects_hears_only_what_it_missed_and_detaching_stops_
         seq: *seqs.last().unwrap(),
     };
     first
-        .acp_prompt(agent_id.clone(), "say four".into(), Vec::new(), Vec::new())
+        .acp_prompt(
+            agent_id.clone(),
+            None,
+            "say four".into(),
+            Vec::new(),
+            Vec::new(),
+        )
         .await
         .expect("prompt");
     numbered_until(&mut first_events, "four").await;
@@ -1162,9 +1179,15 @@ async fn a_device_that_reconnects_hears_only_what_it_missed_and_detaching_stops_
     drop(first_events);
     tokio::time::sleep(Duration::from_millis(300)).await;
 
-    app.acp_prompt(agent_id.clone(), "say two".into(), Vec::new(), Vec::new())
-        .await
-        .expect("the app prompts while the phone is away");
+    app.acp_prompt(
+        agent_id.clone(),
+        None,
+        "say two".into(),
+        Vec::new(),
+        Vec::new(),
+    )
+    .await
+    .expect("the app prompts while the phone is away");
     let (second, mut second_events) = remote::connect(&endpoint, core_addr(&status))
         .await
         .expect("the phone reconnects");
@@ -1204,9 +1227,15 @@ async fn a_device_that_reconnects_hears_only_what_it_missed_and_detaching_stops_
 
     second.acp_detach(agent_id.clone()).await.expect("detach");
     while second_events.try_recv().is_ok() {}
-    app.acp_prompt(agent_id.clone(), "say three".into(), Vec::new(), Vec::new())
-        .await
-        .expect("prompt");
+    app.acp_prompt(
+        agent_id.clone(),
+        None,
+        "say three".into(),
+        Vec::new(),
+        Vec::new(),
+    )
+    .await
+    .expect("prompt");
     tokio::time::sleep(Duration::from_secs(1)).await;
     while let Ok(event) = second_events.try_recv() {
         assert!(
@@ -1241,6 +1270,7 @@ async fn a_device_holding_a_mark_from_before_the_chat_restarted_is_sent_the_new_
     client
         .acp_prompt(
             "agent-again".into(),
+            None,
             "first run".into(),
             Vec::new(),
             Vec::new(),

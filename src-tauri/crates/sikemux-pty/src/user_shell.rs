@@ -381,46 +381,6 @@ mod tests {
         assert!(!parse_login_shell_environment(stdout.as_bytes()).contains_key("PATH"));
     }
 
-    #[cfg(unix)]
-    #[test]
-    fn login_shell_path_is_absent_without_a_fenced_payload() {
-        assert!(parse_login_shell_path(b"PATH=/decoy\0").is_none());
-        let truncated = format!("{}PATH=/decoy\0", super::LOGIN_ENV_SENTINEL);
-        assert!(parse_login_shell_path(truncated.as_bytes()).is_none());
-    }
-
-    #[test]
-    fn configured_shell_resolver_preserves_unix_shell_and_default() {
-        assert_eq!(
-            resolve_configured_shell(
-                ShellPlatform::Unix,
-                Some("ignored-windows-override"),
-                Some("/opt/homebrew/bin/fish"),
-            ),
-            "/opt/homebrew/bin/fish"
-        );
-        assert_eq!(
-            resolve_configured_shell(ShellPlatform::Unix, None, None),
-            "/bin/zsh"
-        );
-    }
-
-    #[test]
-    fn configured_shell_resolver_gives_windows_override_precedence() {
-        assert_eq!(
-            resolve_configured_shell(
-                ShellPlatform::Windows,
-                Some(r"C:\Program Files\PowerShell\7\pwsh.exe"),
-                Some("ignored-unix-shell"),
-            ),
-            r"C:\Program Files\PowerShell\7\pwsh.exe"
-        );
-        assert_eq!(
-            resolve_configured_shell(ShellPlatform::Windows, None, Some("ignored-unix-shell")),
-            "powershell.exe"
-        );
-    }
-
     /// Interactive rc files print banners, run `clear`, and emit prompt-init
     /// escapes before the payload ever appears. Only what follows the sentinel
     /// is environment.

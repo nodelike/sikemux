@@ -1,9 +1,20 @@
 import { create } from "zustand";
-import { accountApi, type AccountStatus } from "../api/account";
+import { accountApi, type AccountPhone, type AccountStatus } from "../api/account";
 
-export const useAccount = create<{ account: AccountStatus | null }>(() => ({ account: null }));
+export const useAccount = create<{ account: AccountStatus | null; phonesToAllow: readonly AccountPhone[] }>(() => ({
+    account: null,
+    phonesToAllow: [],
+}));
 
 export const setAccount = (account: AccountStatus): void => useAccount.setState({ account });
+
+/** Right after signing in, asks the person about the phones already on the account, which would otherwise each ask later. */
+export async function offerAccountPhones(): Promise<void> {
+    const phonesToAllow = await accountApi.phones();
+    useAccount.setState({ phonesToAllow });
+}
+
+export const doneWithAccountPhones = (): void => useAccount.setState({ phonesToAllow: [] });
 
 /** Shows what is cached first, then asks for a newer name and picture if the cached ones are old. */
 export async function loadAccount(): Promise<void> {

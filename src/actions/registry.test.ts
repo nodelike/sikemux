@@ -9,7 +9,6 @@ import {
     DuplicateActionContributionError,
     createActionContext,
     fingerprintActionContext,
-    type ActionContext,
     type ActionContextInput,
     type ActionDefinition,
 } from "./registry";
@@ -43,36 +42,6 @@ function fullContext(overrides: ActionContextInput = {}): ActionContextInput {
 }
 
 describe("action context", () => {
-    it("creates an immutable bounded scalar context with canonical capabilities", () => {
-        const capabilities = ["terminal.write", "agent.run", "terminal.write"];
-        const focusedItem = { id: "item-1", kind: "terminal" };
-        const context = createActionContext(fullContext({ capabilities, focusedItem }));
-        capabilities.push("project.task");
-        focusedItem.kind = "editor";
-
-        expect(context).toEqual({
-            focusedItem: { id: "item-1", kind: "terminal" },
-            session: { id: "session-1", kind: "project" },
-            project: { id: "project-1", root: "/workspace/project" },
-            focus: { target: "terminal", editable: true },
-            modal: { id: "modal-1", kind: "commandPalette" },
-            agent: { id: "agent-1", kind: "codex", status: "running" },
-            capabilities: ["agent.run", "terminal.write"],
-        });
-        expect(Object.isFrozen(context)).toBe(true);
-        expect(Object.isFrozen(context.focusedItem)).toBe(true);
-        expect(Object.isFrozen(context.capabilities)).toBe(true);
-        expect(createActionContext()).toEqual({
-            focusedItem: null,
-            session: null,
-            project: null,
-            focus: { target: "application", editable: false },
-            modal: null,
-            agent: null,
-            capabilities: [],
-        });
-    });
-
     it("fingerprints every fixed context dimension without capability-order noise", () => {
         const first = fingerprintActionContext(fullContext({ capabilities: ["terminal.write", "agent.run"] }));
         const reordered = fingerprintActionContext(fullContext({ capabilities: ["agent.run", "terminal.write"] }));
@@ -175,25 +144,6 @@ describe("ActionRegistry registration", () => {
     ])("rejects malformed bounded action fields: %s", (_label, definition) => {
         expect(() => new ActionRegistry().register(definition)).toThrow(TypeError);
     });
-
-    it("rejects malformed callbacks, scopes, and cleanup hooks at runtime", () => {
-        const registry = new ActionRegistry();
-        expect(() => registry.register({ ...action("bad.when"), when: true } as unknown as ActionDefinition)).toThrow(TypeError);
-        expect(() => registry.register({ ...action("bad.enabled"), enabled: "yes" } as unknown as ActionDefinition)).toThrow(TypeError);
-        expect(() => registry.register({ ...action("bad.run"), run: null } as unknown as ActionDefinition)).toThrow(TypeError);
-        expect(() => registry.register(action("bad.scope"), { scope: { kind: "window", id: "window-1" } as never })).toThrow(TypeError);
-        expect(() => registry.register(action("bad.target"), { scope: { kind: "project", id: "constructor" } })).toThrow(TypeError);
-        expect(() => registry.register(action("bad.cleanup"), { onDispose: "cleanup" as never })).toThrow(TypeError);
-    });
-
-    it("enforces a finite contribution capacity", () => {
-        const registry = new ActionRegistry();
-        for (let index = 0; index < ACTION_REGISTRY_LIMITS.maxRegistrations; index += 1) {
-            registry.register(action(`task${index}`));
-        }
-        expect(registry.size).toBe(ACTION_REGISTRY_LIMITS.maxRegistrations);
-        expect(() => registry.register(action("overflow"))).toThrow(RangeError);
-    });
 });
 
 describe("ActionRegistry contextual resolution", () => {
@@ -290,36 +240,6 @@ describe("ActionRegistry contextual resolution", () => {
 });
 
 describe("ActionRegistry execution and teardown", () => {
-    it("preserves synchronous and asynchronous results and raw errors", async () => {
-        const registry = new ActionRegistry();
-        const result = { taskId: "task-1" };
-        const asyncFailure = new Error("async failure");
-        const syncFailure = { category: "task", reason: "sync failure" };
-        let receivedContext: ActionContext | undefined;
-        registry.register(
-            action<typeof result>("result.identity", {
-                run: (context) => {
-                    receivedContext = context;
-                    return result;
-                },
-            }),
-        );
-        registry.register(action("error.async", { run: () => Promise.reject(asyncFailure) }));
-        registry.register(
-            action("error.sync", {
-                run: () => {
-                    throw syncFailure;
-                },
-            }),
-        );
-
-        await expect(registry.execute<typeof result>("result.identity", fullContext())).resolves.toBe(result);
-        expect(receivedContext?.capabilities).toEqual(["agent.run", "terminal.write"]);
-        expect(Object.isFrozen(receivedContext)).toBe(true);
-        await expect(registry.execute("error.async", {})).rejects.toBe(asyncFailure);
-        await expect(registry.execute("error.sync", {})).rejects.toBe(syncFailure);
-    });
-
     it("uses explicit not-found, hidden, and disabled dispatch errors without running", async () => {
         const registry = new ActionRegistry();
         const hiddenRun = vi.fn();

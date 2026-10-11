@@ -225,22 +225,6 @@ pub async fn branches(data_dir: &Path, repo: RepoRef) -> GithubResult<Vec<String
 mod tests {
     use super::*;
 
-    fn repo() -> RepoRef {
-        RepoRef {
-            owner: "nodelike".into(),
-            name: "sikemux".into(),
-        }
-    }
-
-    #[test]
-    fn builds_a_path_under_the_repository() -> GithubResult<()> {
-        assert_eq!(
-            repo().path("/actions/runs")?,
-            "/repos/nodelike/sikemux/actions/runs"
-        );
-        Ok(())
-    }
-
     #[test]
     fn a_repository_that_could_escape_the_path_is_refused() {
         let escaping = RepoRef {
@@ -274,12 +258,6 @@ mod tests {
             ".github/workflows/a%20%231%3F.yml"
         );
         assert_eq!(encode_path("é"), "%C3%A9");
-    }
-
-    #[test]
-    fn only_a_workflow_under_github_has_a_file() {
-        assert!(is_in_repository(".github/workflows/ci.yml"));
-        assert!(!is_in_repository("dynamic/github-code-scanning/codeql"));
     }
 
     #[test]

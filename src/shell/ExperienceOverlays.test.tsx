@@ -10,8 +10,8 @@ vi.mock("../state/resources", () => ({
     useResourceEnabled: (enabled: boolean) => ({
         data: enabled
             ? [
-                  { type: "codex", label: "Codex", available: false },
-                  { type: "claude", label: "Claude" },
+                  { type: "codex", label: "Codex", available: false, status: { state: "missing" } },
+                  { type: "claude", label: "Claude", status: { state: "signedOut" } },
               ]
             : undefined,
         status: enabled ? ("ok" as const) : ("idle" as const),
@@ -24,8 +24,7 @@ vi.mock("../state/resources.defs", () => ({ agentCatalogR: { kind: "agents.catal
 import { keybindingLabel } from "../commands/keybindings";
 import { flushPersist, resetPersistenceForTests } from "../state/persist";
 import { getState, setState } from "../state/store";
-import { uiActivity } from "../lib/activity";
-import { DiagnosticsOverlay, Onboarding } from "./ExperienceOverlays";
+import { Onboarding } from "./ExperienceOverlays";
 
 const initial = getState();
 const health = { git: true };
@@ -140,37 +139,5 @@ describe("Onboarding", () => {
         invoke.mockImplementation(async (command: string) => (command === "integration_health" ? { git: false } : undefined));
         openOnboarding();
         expect(await screen.findByText("git not found: the Git view needs it")).toBeInTheDocument();
-    });
-});
-
-describe("DiagnosticsOverlay", () => {
-    it("shows what the interface was doing beside the raw snapshot", async () => {
-        const now = vi.spyOn(performance, "now").mockReturnValue(0);
-        uiActivity.reset();
-        uiActivity.setSources({ focusPane: () => "editor", rejections: () => [{ message: "undefined is not an object", count: 7 }] });
-        uiActivity.beginCommand("git_status");
-        const settled = uiActivity.beginCommand("bruno_collection");
-        now.mockReturnValue(2_500);
-        uiActivity.endCommand(settled, false);
-        setState({ diagnosticsOpen: true });
-
-        const { container } = render(<DiagnosticsOverlay />);
-        try {
-            const stalled = await screen.findByText("git_status");
-            expect(stalled.closest("span.is-stalled")).not.toBeNull();
-            expect(screen.getByText("editor pane focused", { exact: false })).toBeInTheDocument();
-
-            const failed = screen.getByText("bruno_collection").closest("span");
-            expect(failed).toHaveClass("is-failed");
-            expect(failed).toHaveTextContent("2500ms · failed");
-
-            const rejection = screen.getByText("undefined is not an object").closest("span");
-            expect(rejection).toHaveTextContent("×7");
-            expect(container.querySelectorAll(".diagnostics-activity")).toHaveLength(1);
-        } finally {
-            now.mockRestore();
-            uiActivity.setSources({ focusPane: () => null, rejections: () => [] });
-            uiActivity.reset();
-        }
     });
 });

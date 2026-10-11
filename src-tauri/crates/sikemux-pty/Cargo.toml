@@ -6,6 +6,7 @@ publish = false
 
 [dependencies]
 sikemux-process = { path = "../sikemux-process" }
+sikemux-wire = { path = "../sikemux-wire" }
 portable-pty = "0.9"
 vt100 = "0.16"
 regex = "1"

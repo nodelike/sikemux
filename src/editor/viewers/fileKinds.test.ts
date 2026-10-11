@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { extname, isImagePath, isPreviewPath, viewerKind } from "./fileKinds";
+import { extname, isPreviewPath, viewerKind } from "./fileKinds";
 
 describe("file kinds", () => {
     it("extracts lowercase extensions", () => {
@@ -7,13 +7,6 @@ describe("file kinds", () => {
         expect(extname("/tmp/archive.tar.gz")).toBe("gz");
         expect(extname(".gitignore")).toBe("");
         expect(extname("noext")).toBe("");
-    });
-
-    it("detects image paths", () => {
-        expect(isImagePath("diagram.svg")).toBe(true);
-        expect(isImagePath("photo.HEIC")).toBe(true);
-        expect(isImagePath("README.md")).toBe(false);
-        expect(isImagePath(null)).toBe(false);
     });
 
     it("sends files that are never text straight to a viewer", () => {

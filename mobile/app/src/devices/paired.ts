@@ -2,7 +2,7 @@ import { File, Paths } from 'expo-file-system';
 
 import type { BuildChannel } from '@/core/protocol';
 import type { DeviceKind } from '@/ui/Icon';
-import { readWhole, removeWhole, writeWhole } from './disk';
+import { readWhole, writeWhole } from './disk';
 
 export type Access = 'full' | 'watch';
 
@@ -67,11 +67,10 @@ function change(edit: (devices: PairedDevice[]) => PairedDevice[]): Promise<void
   return next;
 }
 
-/** Forgets every paired host and whatever was left of a damaged list. */
-export function startOver(): Promise<void> {
+/** Reads the saved list from disk again. A damaged one was already moved aside, so it reads as a fresh list. */
+export function readAgain(): Promise<void> {
   const next = writing.then(() => {
-    removeWhole(store);
-    cached = [];
+    cached = undefined;
     damaged = false;
   });
   writing = next.catch(() => {});

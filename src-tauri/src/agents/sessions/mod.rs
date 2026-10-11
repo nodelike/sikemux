@@ -1,6 +1,7 @@
 mod claude;
 mod codex;
 pub(crate) mod context;
+pub(crate) mod delete;
 mod grok;
 mod hermes;
 mod omp;
@@ -23,7 +24,7 @@ use tauri::async_runtime::spawn_blocking;
 use tokio::process::Command;
 
 use super::executable::{apply_login_environment, apply_process_config, expand_user_path};
-use super::{allowed_agent_path, AgentKind, AgentSession};
+use super::{AgentKind, AgentSession};
 use claude::claude_sessions;
 use codex::codex_sessions;
 use grok::grok_sessions;
@@ -83,11 +84,7 @@ pub async fn live_agent_sessions(
     let executable = executable_path
         .as_deref()
         .map(expand_user_path)
-        .or_else(|| {
-            crate::system::find_executable_matching("claude", |candidate| {
-                allowed_agent_path("claude", candidate)
-            })
-        })
+        .or_else(|| crate::system::find_executable("claude"))
         .ok_or_else(|| "claude is not available".to_string())?;
     let mut command = Command::from(sikemux_process::user_environment::command(executable));
     apply_login_environment(&mut command);

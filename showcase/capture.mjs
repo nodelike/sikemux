@@ -5,6 +5,7 @@ import {
   readFile,
   writeFile,
 } from "node:fs/promises";
+import { createServer as createNetServer } from "node:net";
 import { resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { chromium } from "playwright-core";
@@ -33,12 +34,30 @@ const viewport = {
   height: Number(options.height),
 };
 
+/** `pnpm showcase:serve` keeps 1471, so a capture takes whichever port is free. */
+const freePort = () =>
+  new Promise((settle, fail) => {
+    const probe = createNetServer().listen(0, "localhost", () => {
+      const { port } = probe.address();
+      probe.close(() => settle(port));
+    });
+    probe.on("error", fail);
+  });
+
 const server = await createServer({
   configFile: resolve(root, "showcase/vite.config.ts"),
   logLevel: "warn",
+  server: { port: await freePort(), strictPort: true },
 });
 await server.listen();
 const origin = `http://localhost:${server.config.server.port}`;
+
+// The chat's markdown comes from the app's Rust parser, which may need building first;
+// without this the first scene is taken before its prose arrives.
+await fetch(`${origin}/__showcase/markdown`, {
+  method: "POST",
+  body: JSON.stringify({ requests: [{ text: "ready" }] }),
+});
 
 const browser = await chromium.launch({ channel: "chrome" });
 const context = await browser.newContext({

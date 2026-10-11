@@ -6,8 +6,7 @@
     flex: 0 1 auto;
     min-width: 0;
 }
-.tb-deploy-chip,
-.tb-deploy-checkout {
+.tb-deploy-chip {
     display: inline-flex;
     align-items: center;
     gap: 6px;
@@ -31,17 +30,9 @@
 .tb-deploy-chip > .tb-deploy-branch {
     flex: 0 1 auto;
 }
-.tb-deploy-chip:hover,
-.tb-deploy-checkout:hover:not(:disabled) {
+.tb-deploy-chip:hover {
     color: var(--ink);
 }
-.tb-deploy-checkout {
-    gap: 4px;
-    max-width: 86px;
-    color: var(--ink-faint);
-    font-size: 10px;
-}
-.tb-deploy-checkout:disabled,
 .tb-deploy-menu .env-dd-item:disabled {
     opacity: 0.55;
     cursor: wait;
@@ -66,12 +57,6 @@
     text-overflow: ellipsis;
     white-space: nowrap;
     vertical-align: middle;
-}
-.tb-deploy-meta {
-    font-size: 10.5px;
-}
-.tb-deploy-meta.muted {
-    color: var(--ink-faint);
 }
 
 .tb-git {

@@ -9,7 +9,7 @@ import { backdropPicture, grainDotColor } from "../remote/backdrop";
 import { usePaneImage } from "../lib/paneImage";
 import { readPalette } from "../remote/palette";
 import { remoteChats, remoteRecent, remoteTitles, remoteWorkspace } from "../remote/workspace";
-import { useResourceEnabled } from "../state/resources";
+import { useResource, useResourceEnabled } from "../state/resources";
 import { agentCatalogR } from "../state/resources.defs";
 import type { AgentType } from "../state/types";
 import { activeAgentId } from "../state/selectors";
@@ -35,9 +35,12 @@ export function RemoteWorkspaceBridge() {
     const sessionOrder = useStore((s) => s.sessionOrder);
     const profiles = useStore((s) => s.providerProfiles);
     const permissionMode = useStore((s) => s.defaultAgentPermissionMode);
+    const selections = useStore((s) => s.selectedProviderProfileIds);
+    const runtimeProfiles = useMemo(() => selectedAgentRuntimeProfiles(profiles, selections), [profiles, selections]);
+    const catalog = useResource(agentCatalogR, runtimeProfiles).data;
     const published = useMemo(
-        () => JSON.stringify(remoteWorkspace(sessions, sessionOrder, profiles, permissionMode)),
-        [sessions, sessionOrder, profiles, permissionMode],
+        () => JSON.stringify(remoteWorkspace(sessions, sessionOrder, profiles, permissionMode, catalog)),
+        [sessions, sessionOrder, profiles, permissionMode, catalog],
     );
     const agents = useStore((s) => s.agents);
     const windows = useStore((s) => s.windows);

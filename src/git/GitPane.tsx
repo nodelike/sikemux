@@ -55,6 +55,7 @@ import { GitGraph } from "./GitGraph";
 import { GitModalRenderer } from "./GitModalRenderer";
 import { VirtualPanelRows } from "./VirtualPanelRows";
 import { GitColumns } from "./GitColumns";
+import { FileStatus } from "./FileStatus";
 import { HISTORY_CLEARANCE, HISTORY_MIN, ResizeHandle } from "./ResizeHandle";
 import { SkeletonRows } from "../ui/Skeleton";
 import { EmptyState } from "../ui/Panel";
@@ -1681,12 +1682,6 @@ function GitWorkbench({
             <GitModalRenderer paneId={paneId} active={active} />
         </div>
     );
-}
-
-function FileStatus({ code }: { code: string }) {
-    const letter = code === "?" ? "U" : code.trim();
-    const cls = letter === "A" || letter === "U" ? "added" : letter === "D" ? "deleted" : letter === "R" || letter === "C" ? "renamed" : "modified";
-    return <span className={`git-status ${cls}`}>{letter}</span>;
 }
 
 function MoreButton({

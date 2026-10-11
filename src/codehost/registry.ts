@@ -92,6 +92,9 @@ export interface HostCapabilities {
     inbox: boolean;
 }
 
+/** Whether a thread belongs to a pull request or an issue. GitHub numbers both in one sequence; GitLab does not. */
+export type ThreadOf = "pull" | "issue";
+
 /** Every read and write a host answers. Each takes the repository it is about, whose `provider` names the host. */
 export interface CodeHostApi {
     /** Every call below that takes no repository is about `account`, or the default account when it is null. */
@@ -137,7 +140,8 @@ export interface CodeHostApi {
     /** The accounts behind recent commits' emails on a branch, so local history can show who wrote it. */
     commitAuthors?(repo: RepoRef, gitRef: string | null): Promise<CommitAuthor[]>;
     pullReviews(repo: RepoRef, number: number): Promise<Review[]>;
-    timeline(repo: RepoRef, number: number): Promise<TimelineItem[]>;
+    /** `of` says which a number names, for hosts that number pull requests and issues apart. */
+    timeline(repo: RepoRef, number: number, of?: ThreadOf): Promise<TimelineItem[]>;
     /** `sha` is the head commit the person saw; the host refuses the merge if the branch has moved since. */
     mergePull(repo: RepoRef, number: number, method: MergeMethod, sha: string): Promise<void>;
     createPull(repo: RepoRef, pull: NewPull): Promise<Pull>;
@@ -148,8 +152,8 @@ export interface CodeHostApi {
     issue(repo: RepoRef, number: number): Promise<Issue>;
     createIssue(repo: RepoRef, title: string, body: string): Promise<Issue>;
     setIssueState(repo: RepoRef, number: number, state: "open" | "closed"): Promise<void>;
-    comments(repo: RepoRef, number: number): Promise<Comment[]>;
-    addComment(repo: RepoRef, number: number, body: string): Promise<void>;
+    comments(repo: RepoRef, number: number, of?: ThreadOf): Promise<Comment[]>;
+    addComment(repo: RepoRef, number: number, body: string, of?: ThreadOf): Promise<void>;
 
     releases(repo: RepoRef): Promise<Release[]>;
     downloadAsset(repo: RepoRef, assetId: number, name: string, onProgress?: (progress: DownloadProgress) => void): Promise<SavedArtifact>;

@@ -34,7 +34,7 @@ const foldToolBody = leavingRef<HTMLDivElement>((body) => {
 const STEPPED_ROWS = 8;
 
 /* Opening grows the calls in and steps them down one after another. Only a
-   change of state animates: a group the list remounts on scroll just shows. */
+   change of state animates: a group mounted with the rest of a transcript just shows. */
 function useToolGroupUnfold(group: RefObject<HTMLDivElement | null>, open: boolean): void {
     const was = useRef<boolean | null>(null);
     useLayoutEffect(() => {

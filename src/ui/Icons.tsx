@@ -46,6 +46,9 @@ const makeSvgIcon = (children: React.ReactNode, opts?: { fill?: string; viewBox?
         );
     };
 
+/* Drawn on a 24 grid at the same weight as the 16-grid icons beside them. */
+const makeSvgIcon24 = (children: React.ReactNode) => makeSvgIcon(<g strokeWidth={2.1}>{children}</g>, { viewBox: "0 0 24 24" });
+
 export function Logo({ size = 16, className }: IconProps) {
     return (
         <svg width={size} height={size} viewBox="0 -30 420 420" fill="currentColor" className={className} aria-hidden="true">
@@ -210,6 +213,31 @@ export const IconPhone = makeSvgIcon(
         <path d="M7.2 11.8h1.6" />
     </>,
 );
+export const IconTablet = makeSvgIcon(
+    <>
+        <rect x="3" y="1.8" width="10" height="12.4" rx="1.6" />
+        <path d="M7.2 11.8h1.6" />
+    </>,
+);
+export const IconPower = makeSvgIcon(
+    <>
+        <path d="M8 2.2v5.2" />
+        <path d="M4.7 4.4a5 5 0 1 0 6.6 0" />
+    </>,
+);
+export const IconRotate = makeSvgIcon(
+    <>
+        <rect x="2.2" y="7.2" width="8.6" height="6.2" rx="1.2" />
+        <path d="M7.6 2.6a5.4 5.4 0 0 1 6 4.6" />
+        <path d="M11.9 5.9l1.7 1.5 1.5-1.7" />
+    </>,
+);
+export const IconCamera = makeSvgIcon(
+    <>
+        <path d="M2.4 5.6c0-.7.5-1.2 1.2-1.2h1.7l1-1.5h3.4l1 1.5h1.7c.7 0 1.2.5 1.2 1.2v6.3c0 .7-.5 1.2-1.2 1.2H3.6c-.7 0-1.2-.5-1.2-1.2z" />
+        <circle cx="8" cy="8.5" r="2.3" />
+    </>,
+);
 export const IconLaptop = makeSvgIcon(
     <>
         <rect x="3" y="3.2" width="10" height="7.3" rx="1.2" />
@@ -355,6 +383,103 @@ export const IconFolderPlus = makeSvgIcon(
     <>
         <path d="M2 4.4h4l1.6 2H14v7.2H2z" />
         <path d="M8 8.4v3.4M6.3 10.1h3.4" />
+    </>,
+);
+export const IconFilePlus = makeSvgIcon(<path d="M9 2H4v12h4.5M9 2l3 3v3M9 2v3h3M12 10.5v4M10 12.5h4" />);
+export const IconCollapseAll = makeSvgIcon(<path d="M5 2.5l3 3 3-3M5 13.5l3-3 3 3" />);
+export const IconStack = makeSvgIcon(
+    <>
+        <path d="M8 2.6 13.4 5.4 8 8.2 2.6 5.4Z" />
+        <path d="M2.6 8.2 8 11 13.4 8.2" />
+        <path d="M2.6 10.8 8 13.6 13.4 10.8" />
+    </>,
+);
+export const IconBuilding = makeSvgIcon(
+    <>
+        <path d="M3.4 13.6V3h6v10.6" />
+        <path d="M9.4 6.4h3.2v7.2" />
+        <path d="M2.4 13.6h11.2" />
+        <path d="M5.4 5.4h2M5.4 8h2M5.4 10.6h2" />
+    </>,
+);
+export const IconHome = makeSvgIcon(
+    <>
+        <path d="M2.6 7.4 8 2.8l5.4 4.6" />
+        <path d="M4 6.4v7.2h8V6.4" />
+        <path d="M6.6 13.6v-3.4h2.8v3.4" />
+    </>,
+);
+export const IconBriefcase = makeSvgIcon(
+    <>
+        <rect x="2.4" y="5" width="11.2" height="8" rx="1.2" />
+        <path d="M6 5V3.4h4V5" />
+        <path d="M2.4 8.6h11.2" />
+    </>,
+);
+export const IconCode = makeSvgIcon(
+    <>
+        <path d="M5.6 4.6 2.4 8l3.2 3.4" />
+        <path d="M10.4 4.6 13.6 8l-3.2 3.4" />
+        <path d="M9 3.4 7 12.6" />
+    </>,
+);
+export const IconFlask = makeSvgIcon(
+    <>
+        <path d="M6.4 2.6h3.2" />
+        <path d="M6.8 2.6v3.8L3.2 12.4a.8.8 0 0 0 .7 1.2h8.2a.8.8 0 0 0 .7-1.2L9.2 6.4V2.6" />
+        <path d="M4.8 9.8h6.4" />
+    </>,
+);
+export const IconRocket = makeSvgIcon(
+    <>
+        <path d="M9.8 2.6c2.2.2 3.4 1.4 3.6 3.6L9 10.6 5.4 7Z" />
+        <path d="M5.4 7 3.2 7.4 2.6 9l2.2.4" />
+        <path d="M9 10.6 8.6 12.8 7 13.4l-.4-2.2" />
+        <path d="M4.4 11.6 3 13" />
+    </>,
+);
+export const IconStar = makeSvgIcon(<path d="M8 2.6l1.6 3.4 3.7.5-2.7 2.6.7 3.7L8 11l-3.3 1.8.7-3.7-2.7-2.6 3.7-.5Z" />);
+export const IconHeart = makeSvgIcon(<path d="M8 13.2S2.6 10 2.6 6.4A2.8 2.8 0 0 1 8 5a2.8 2.8 0 0 1 5.4 1.4C13.4 10 8 13.2 8 13.2Z" />);
+export const IconBook = makeSvgIcon(
+    <>
+        <path d="M8 4.2C6.6 3.2 4.6 3 2.6 3.2v9.2c2-.2 4 0 5.4 1 1.4-1 3.4-1.2 5.4-1V3.2c-2-.2-4 0-5.4 1Z" />
+        <path d="M8 4.2v9.2" />
+    </>,
+);
+export const IconBolt = makeSvgIcon(<path d="M8.8 2.4 3.8 9h3.6l-.6 4.6L12.2 7H8.6Z" />);
+export const IconLeaf = makeSvgIcon(
+    <>
+        <path d="M3 13c0-5.6 3.4-9.4 10-10-.2 6.6-4 10-9 10" />
+        <path d="M3 13l5-5" />
+    </>,
+);
+export const IconCube = makeSvgIcon(
+    <>
+        <path d="M8 2.4 13.2 5.2v5.6L8 13.6 2.8 10.8V5.2Z" />
+        <path d="M2.8 5.2 8 8l5.2-2.8M8 8v5.6" />
+    </>,
+);
+export const IconTerminal = makeSvgIcon(
+    <>
+        <rect x="2.2" y="3" width="11.6" height="10" rx="1.4" />
+        <path d="M4.8 6.4 6.8 8l-2 1.6M8.4 10h2.8" />
+    </>,
+);
+export const IconMusic = makeSvgIcon(
+    <>
+        <path d="M6 11.6V3.6l6.4-1.2v8" />
+        <circle cx="4.6" cy="11.6" r="1.4" />
+        <circle cx="11" cy="10.4" r="1.4" />
+    </>,
+);
+export const IconGrip = makeSvgIcon(
+    <>
+        <circle cx="6" cy="4" r=".9" fill="currentColor" stroke="none" />
+        <circle cx="10" cy="4" r=".9" fill="currentColor" stroke="none" />
+        <circle cx="6" cy="8" r=".9" fill="currentColor" stroke="none" />
+        <circle cx="10" cy="8" r=".9" fill="currentColor" stroke="none" />
+        <circle cx="6" cy="12" r=".9" fill="currentColor" stroke="none" />
+        <circle cx="10" cy="12" r=".9" fill="currentColor" stroke="none" />
     </>,
 );
 
@@ -563,3 +688,134 @@ export function IconSparkle({ size = 16 }: { size?: number }) {
         </svg>
     );
 }
+
+export const IconWrench = makeSvgIcon24(
+    <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.4-3.4a6 6 0 0 1-7.9 7.9l-6.6 6.6a2.1 2.1 0 0 1-3-3l6.6-6.6a6 6 0 0 1 7.9-7.9z" />,
+);
+export const IconMove = makeSvgIcon24(<path d="M12 3v18M3 12h18M9 6l3-3 3 3M9 18l3 3 3-3M6 9l-3 3 3 3M18 9l3 3-3 3" />);
+export const IconLogLines = makeSvgIcon24(<path d="M8 6h12M8 12h12M8 18h8M4 6h.01M4 12h.01M4 18h.01" />);
+/** A page shown inside a reply: a frame with a header band. */
+export const IconPanel = makeSvgIcon24(
+    <>
+        <rect x="3" y="4" width="18" height="16" rx="2.5" />
+        <path d="M3 9h18" />
+    </>,
+);
+export const IconClick = makeSvgIcon24(
+    <>
+        <path d="M9 9l11 4.5-4.6 1.1-1.1 4.6z" />
+        <path d="M5.5 3.5l1 2.5M3.5 5.5l2.5 1M11 3l-.5 2.5" />
+    </>,
+);
+export const IconText = makeSvgIcon24(<path d="M5 7V5h14v2M12 5v14M9 19h6" />);
+export const IconKeyboard = makeSvgIcon24(
+    <>
+        <rect x="2.5" y="5" width="19" height="14" rx="2.5" />
+        <path d="M6.5 9h.01M10 9h.01M14 9h.01M17.5 9h.01M6.5 12.5h.01M17.5 12.5h.01M10 12.5h4M8 16h8" />
+    </>,
+);
+export const IconSteps = makeSvgIcon24(
+    <>
+        <path d="M10 6h10M10 12h10M10 18h10" />
+        <circle cx="5" cy="6" r="1.4" />
+        <circle cx="5" cy="12" r="1.4" />
+        <circle cx="5" cy="18" r="1.4" />
+    </>,
+);
+export const IconUpload = makeSvgIcon24(<path d="M20 15v3a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-3M16 8l-4-4-4 4M12 4v11" />);
+export const IconMessage = makeSvgIcon24(<path d="M20 14a2 2 0 0 1-2 2H8l-4 4V6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2z" />);
+export const IconResize = makeSvgIcon24(<path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" />);
+export const IconMouse = makeSvgIcon24(
+    <>
+        <rect x="6" y="3" width="12" height="18" rx="6" />
+        <path d="M12 7v3" />
+    </>,
+);
+export const IconNetwork = makeSvgIcon24(<path d="M7 4v16M3 8l4-4 4 4M17 20V4M13 16l4 4 4-4" />);
+export const IconHighlighter = makeSvgIcon24(
+    <>
+        <path d="M9 11l-6 6v3h9l3-3" />
+        <path d="M21 12l-4.6 4.6a2 2 0 0 1-2.8 0l-5.2-5.2a2 2 0 0 1 0-2.8L13 4" />
+    </>,
+);
+export const IconRecord = makeSvgIcon24(
+    <>
+        <circle cx="12" cy="12" r="8.5" />
+        <circle cx="12" cy="12" r="3.2" fill="currentColor" stroke="none" />
+    </>,
+);
+export const IconHourglass = makeSvgIcon24(<path d="M6 3h12M6 21h12M7 3v3.5a5 5 0 0 0 10 0V3M7 21v-3.5a5 5 0 0 1 10 0V21" />);
+export const IconTabs = makeSvgIcon24(
+    <>
+        <rect x="3" y="8" width="18" height="12" rx="2.2" />
+        <path d="M6 8V6a1.5 1.5 0 0 1 1.5-1.5h4A1.5 1.5 0 0 1 13 6v2M15.5 4.5h2A1.5 1.5 0 0 1 19 6v2" />
+    </>,
+);
+/** A finger landing on glass: the touch and the ring it sends out. */
+export const IconTap = makeSvgIcon24(
+    <>
+        <circle cx="12" cy="12" r="2.5" />
+        <circle cx="12" cy="12" r="7.5" strokeDasharray="2.4 3" />
+    </>,
+);
+export const IconSwipe = makeSvgIcon24(
+    <>
+        <circle cx="6" cy="12" r="2.4" />
+        <path d="M10 12h10M17 9l3 3-3 3" />
+    </>,
+);
+export const IconHomeButton = makeSvgIcon24(
+    <>
+        <circle cx="12" cy="12" r="8.5" />
+        <rect x="9" y="9" width="6" height="6" rx="1.6" />
+    </>,
+);
+export const IconLink = makeSvgIcon24(
+    <path d="M10 14a4.5 4.5 0 0 0 6.4 0l3-3a4.5 4.5 0 0 0-6.4-6.4l-1.2 1.2M14 10a4.5 4.5 0 0 0-6.4 0l-3 3a4.5 4.5 0 0 0 6.4 6.4l1.2-1.2" />,
+);
+export const IconUnlink = makeSvgIcon24(
+    <path d="M17.5 12.5l2-2a4.5 4.5 0 0 0-6.4-6.4l-2 2M6.5 11.5l-2 2a4.5 4.5 0 0 0 6.4 6.4l2-2M8 3v3M3 8h3M16 21v-3M21 16h-3" />,
+);
+export const IconTouchPath = makeSvgIcon24(
+    <>
+        <circle cx="18" cy="6" r="2.2" />
+        <circle cx="6" cy="18" r="2.2" />
+        <path d="M7.5 16.5C9 9 12 7 15.8 6.5" strokeDasharray="0.1 3" />
+    </>,
+);
+export const IconPinch = makeSvgIcon24(<path d="M4 14h6v6M20 10h-6V4M14 10l6-6M4 20l6-6" />);
+/** Moving an issue on to another status. */
+export const IconStatus = makeSvgIcon24(
+    <>
+        <circle cx="12" cy="12" r="8.5" />
+        <path d="M8.5 12h7M12.5 8.5L16 12l-3.5 3.5" />
+    </>,
+);
+export const IconSquarePlus = makeSvgIcon24(
+    <>
+        <rect x="3.5" y="3.5" width="17" height="17" rx="3" />
+        <path d="M8 12h8M12 8v8" />
+    </>,
+);
+export const IconWorkflow = makeSvgIcon24(
+    <>
+        <rect x="3" y="3" width="8" height="8" rx="2" />
+        <rect x="13" y="13" width="8" height="8" rx="2" />
+        <path d="M7 11v3a2 2 0 0 0 2 2h4" />
+    </>,
+);
+/** A trace's spans, each starting where the one above it called it. */
+export const IconWaterfall = makeSvgIcon24(
+    <>
+        <path d="M4 6h8M8 11h9M11 16h9" />
+        <path d="M4 20V4" opacity={0.5} />
+    </>,
+);
+export const IconDashboard = makeSvgIcon24(
+    <>
+        <rect x="3" y="3" width="7.5" height="9" rx="1.5" />
+        <rect x="13.5" y="3" width="7.5" height="5" rx="1.5" />
+        <rect x="13.5" y="11" width="7.5" height="10" rx="1.5" />
+        <rect x="3" y="15" width="7.5" height="6" rx="1.5" />
+    </>,
+);

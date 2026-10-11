@@ -122,24 +122,25 @@ export async function readImageSource(path: string): Promise<string | null> {
 
 /** Reads a local image as a data URL; null while it loads and if it cannot be shown. */
 export function useImagePreview(path: string | null): string | null {
-    const [src, setSrc] = useState<string | null>(null);
+    const image = path && isImagePath(path) ? path : null;
+    /* Read from the cache on the first render, so a row the transcript mounts
+       again is drawn at its full height straight away rather than growing. */
+    const [loaded, setLoaded] = useState(() => (image && previews.has(image) ? { path: image, src: previews.get(image) ?? null } : null));
     useEffect(() => {
-        if (!path || !isImagePath(path)) {
-            setSrc(null);
+        if (!image) return;
+        if (previews.has(image)) {
+            const src = previews.get(image) ?? null;
+            setLoaded((current) => (current?.path === image && current.src === src ? current : { path: image, src }));
             return;
         }
-        if (previews.has(path)) {
-            setSrc(previews.get(path) ?? null);
-            return;
-        }
-        setSrc(null);
         let live = true;
-        void loadPreview(path).then((loaded) => {
-            if (live) setSrc(loaded);
+        void loadPreview(image).then((src) => {
+            if (live) setLoaded({ path: image, src });
         });
         return () => {
             live = false;
         };
-    }, [path]);
-    return src;
+    }, [image]);
+    if (!image) return null;
+    return loaded?.path === image ? loaded.src : (previews.get(image) ?? null);
 }

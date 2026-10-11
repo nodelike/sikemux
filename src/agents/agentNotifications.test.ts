@@ -6,9 +6,10 @@ import { withAgents } from "../test/agents";
 const notification = vi.hoisted(() => {
     const sent = vi.fn();
     const state = { permission: "granted" };
-    const invoke = vi.fn(async (command: string, args?: { options: { title: string; body: string } }) => {
+    const invoke = vi.fn(async (command: string, args?: { options?: { title: string; body: string } }) => {
         if (command === "plugin:notification|request_permission") return state.permission;
         if (command === "plugin:notification|notify") sent(args?.options);
+        if (command === "notify_agent") sent(args);
     });
     const bips = vi.fn();
     const node = () => ({
@@ -101,7 +102,7 @@ describe("notifying outside the app", () => {
 
     it("notifies, bounces the dock and badges it while Sikemux is in the background", async () => {
         setState({ agentActivity: { a2: activity("blocked") } });
-        await vi.waitFor(() => expect(notification.sent).toHaveBeenCalledWith({ title: "Codex needs your input", body: "openjob" }));
+        await vi.waitFor(() => expect(notification.sent).toHaveBeenCalledWith({ agentId: "a2", title: "Codex needs your input", body: "openjob" }));
         expect(notification.bips).toHaveBeenCalledTimes(1);
         expect(appWindow.requestUserAttention).toHaveBeenCalledTimes(1);
         expect(appWindow.setBadgeCount).toHaveBeenLastCalledWith(1);

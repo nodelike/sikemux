@@ -4,6 +4,8 @@ import type { Agent, AgentPermissionMode, ProviderProfile } from "../state/types
 import * as cmd from "../state/commands";
 import { getState } from "../state/store";
 import { acpAccount, fallbackAccounts } from "../agents/accounts";
+import { noteSignedOut } from "../agents/statusRefresh";
+import { swallow } from "../state/toast";
 import type { FoldMemory } from "./longText";
 import { eventMessage, failureOf, permissionRequest, promptAction, recordOf, statusFromEvent } from "./acpEvents";
 import { permissionModeOf } from "./chatStatus";
@@ -50,6 +52,9 @@ export function useAcpSession({
     const reattachingRef = useRef(false);
     const [changingPermissions, setChangingPermissions] = useState(false);
     const [appliedPermissionMode, setAppliedPermissionMode] = useState<string | null>(null);
+    /* True while a resumed or reattached session is sending its history back,
+       which ends when starting or attaching it answers. */
+    const [replaying, setReplaying] = useState(false);
     const environmentKeys = JSON.stringify(profile?.environmentKeys ?? []);
     const permissionMode = permissionModeOf(agent);
 
@@ -76,6 +81,7 @@ export function useAcpSession({
         reattachingRef.current = false;
         const hold = Boolean(agentRef.current.resumeId) || reattaching;
         dispatch({ type: "reset", hold });
+        setReplaying(hold);
         if (!hold) {
             foldMemory.streamed.clear();
             foldMemory.expanded.clear();
@@ -169,17 +175,22 @@ export function useAcpSession({
                 if (sessionIdRef.current && agentRef.current.resumeId !== sessionIdRef.current) {
                     cmd.attachAgentSession(agent.id, sessionIdRef.current);
                 }
-                dispatch({ type: "turn_started" });
+                dispatch({ type: "turn_started", at: typeof event.payload.at === "number" ? event.payload.at : undefined });
             } else if (event.kind === "turn_completed") {
                 dispatch({
                     type: "turn_completed",
                     stopReason: typeof event.payload.stopReason === "string" ? event.payload.stopReason : undefined,
+                    at: typeof event.payload.at === "number" ? event.payload.at : undefined,
                 });
             } else if (event.kind === "permission_request") {
                 const request = permissionRequest(event.payload);
                 if (request) dispatch({ type: "permission_requested", request });
-            } else if (event.kind === "error") dispatch({ type: "error", message: eventMessage(event), failure: failureOf(event) });
-            else if (event.kind === "reattach") {
+            } else if (event.kind === "error") {
+                const failure = failureOf(event);
+                dispatch({ type: "error", message: eventMessage(event), failure });
+                if (failure?.kind === "signIn")
+                    void noteSignedOut(agentRef.current.type, profile?.configPath).catch(swallow("mark agent signed out"));
+            } else if (event.kind === "reattach") {
                 reattachingRef.current = true;
                 setRestartKey((value) => value + 1);
             }
@@ -229,10 +240,13 @@ export function useAcpSession({
                 sessionIdRef.current = response.sessionId;
                 flushUpdates();
                 dispatch({ type: "ready", capabilities: response.capabilities, setup: response.setup });
+                setReplaying(false);
                 setAppliedPermissionMode(appliedMode);
             })
             .catch((error: unknown) => {
                 if (!controller.signal.aborted && mounted) {
+                    flushUpdates();
+                    setReplaying(false);
                     const message = error instanceof Error ? error.message : String(error);
                     dispatch({ type: "error", message });
                     if (recoveryRef.current?.phase === "resuming") updateRecovery({ phase: "failed", detail: message });
@@ -242,6 +256,7 @@ export function useAcpSession({
         lifecycleRef.current = lifecycle;
         return () => {
             mounted = false;
+            setReplaying(false);
             sessionIdRef.current = null;
             if (updateFrameRef.current !== null) window.cancelAnimationFrame(updateFrameRef.current);
             updateFrameRef.current = null;
@@ -294,5 +309,5 @@ export function useAcpSession({
             });
     }, [agent.id, connection, permissionMode, appliedPermissionMode, changingPermissions, onError]);
 
-    return { agentRef, sessionIdRef, recovery, retry, changingPermissions, appliedPermissionMode, permissionMode };
+    return { agentRef, sessionIdRef, recovery, retry, replaying, changingPermissions, appliedPermissionMode, permissionMode };
 }

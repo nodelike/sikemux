@@ -92,15 +92,9 @@
     font-weight: var(--weight-medium);
     color: var(--text-secondary);
 }
-.gha-page-branches {
-    gap: var(--space-1h);
-}
 .gha-page-sub .gha-branch > span {
     font-family: inherit;
     font-size: inherit;
-}
-.gha-page-arrow {
-    color: var(--text-disabled);
 }
 .gha-state-word {
     --state: var(--text-tertiary);

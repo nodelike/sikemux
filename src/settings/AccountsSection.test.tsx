@@ -28,6 +28,7 @@ const initial = getState();
 function signedIn(configPath?: string) {
     return {
         signedIn: true,
+        name: null,
         email: configPath ? "work@example.com" : "me@example.com",
         plan: "max",
         organization: null,

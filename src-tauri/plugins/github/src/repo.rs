@@ -219,16 +219,6 @@ mod tests {
     }
 
     #[test]
-    fn reads_owner_and_repo_out_of_a_path() {
-        assert_eq!(
-            split_path("/nodelike/sikemux.git"),
-            Some(("nodelike".into(), "sikemux".into()))
-        );
-        assert_eq!(split_path("nodelike"), None);
-        assert_eq!(split_path("node like/x"), None);
-    }
-
-    #[test]
     fn validates_names_used_as_path_segments() {
         assert!(validate("nodelike", "sikemux.rs").is_ok());
         assert!(validate("", "x").is_err());

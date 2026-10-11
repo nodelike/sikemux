@@ -1,6 +1,6 @@
 import 'expo-router/entry';
-import { AppRegistry } from 'react-native';
+import { AppRegistry, Platform } from 'react-native';
 
 import { answerTask } from './src/notify/cards';
 
-AppRegistry.registerHeadlessTask('SikemuxAnswer', () => answerTask);
+if (Platform.OS === 'android') AppRegistry.registerHeadlessTask('SikemuxAnswer', () => answerTask);

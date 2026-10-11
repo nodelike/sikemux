@@ -1,13 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-    branchMergedLocally,
-    branchSlug,
-    cwdInWorktree,
-    cwdOutsideWorktree,
-    pickWorktreeTarget,
-    worktreeCandidates,
-    worktreesFolder,
-} from "./worktreePlan";
+import { branchSlug, cwdInWorktree, cwdOutsideWorktree, pickWorktreeTarget, worktreeCandidates, worktreesFolder } from "./worktreePlan";
 
 const worktree = { repo: "/code/sikemux", path: "/code/sikemux.worktrees/fix-pty", branch: "sikemux/fix-pty", base: "main", startSha: "abc" };
 
@@ -54,14 +46,5 @@ describe("worktree targets", () => {
         expect(cwdInWorktree("/w/lane", "/elsewhere", "/code/repo")).toBe("/w/lane");
         expect(cwdOutsideWorktree(worktree, "/code/sikemux.worktrees/fix-pty/src")).toBe("/code/sikemux/src");
         expect(cwdOutsideWorktree(worktree, "/code/sikemux.worktrees/fix-pty")).toBe("/code/sikemux");
-    });
-});
-
-describe("branchMergedLocally", () => {
-    it("needs the branch to have moved and nothing left unmerged", () => {
-        expect(branchMergedLocally("abc", "abc", 0)).toBe(false);
-        expect(branchMergedLocally("def", "abc", 2)).toBe(false);
-        expect(branchMergedLocally("def", "abc", 0)).toBe(true);
-        expect(branchMergedLocally(null, "abc", 0)).toBe(false);
     });
 });

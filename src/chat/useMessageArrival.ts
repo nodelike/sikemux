@@ -2,8 +2,8 @@ import { useLayoutEffect, useRef, type RefObject } from "react";
 import { animate } from "../lib/motion";
 import type { ChatMessage } from "./types";
 
-/* A message that has just arrived rises into place. Only new ones: a row
-   the list remounts on scroll, or a transcript restored all at once, just shows. */
+/* A message that has just arrived rises into place. Only new ones: a
+   transcript restored or mounted all at once just shows. */
 export function useMessageArrival(scrollRef: RefObject<HTMLDivElement | null>, messages: ChatMessage[]): void {
     const shownMessages = useRef<Set<string> | null>(null);
     useLayoutEffect(() => {
@@ -17,7 +17,7 @@ export function useMessageArrival(scrollRef: RefObject<HTMLDivElement | null>, m
         for (const id of fresh) shown.add(id);
         if (fresh.length === 0 || fresh.length > 2) return;
         for (const id of fresh) {
-            const row = scrollRef.current?.querySelector<HTMLElement>(`.chat-virtual-row[data-index="${ids.indexOf(id)}"] > *`);
+            const row = scrollRef.current?.querySelector<HTMLElement>(`.chat-row[data-index="${ids.indexOf(id)}"] > *`);
             animate(
                 row,
                 [

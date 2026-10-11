@@ -2,8 +2,9 @@ import { cleanup, render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import { useRailDock } from "./railMotion";
 
-function Shell({ visible, present = true }: { visible: boolean; present?: boolean }) {
-    useRailDock(visible, present, ".side-rail");
+function Shell({ visible, present = true, drawn = true }: { visible: boolean; present?: boolean; drawn?: boolean }) {
+    useRailDock(visible, present, ".side-rail", drawn);
+    if (!drawn) return null;
     return (
         <div className="shell">
             <div className="body">{present && <aside className="side-rail" data-testid="rail" />}</div>
@@ -30,6 +31,13 @@ describe("useRailDock", () => {
 
     it("hides a rail that mounts while its side is closed", () => {
         const view = render(<Shell visible={false} present={false} />);
+        view.rerender(<Shell visible={false} />);
+        expect(view.getByTestId("rail").style.display).toBe("none");
+    });
+
+    it("hides a closed rail once the window is drawn after starting up", () => {
+        const view = render(<Shell visible={false} present={false} drawn={false} />);
+        view.rerender(<Shell visible={false} drawn={false} />);
         view.rerender(<Shell visible={false} />);
         expect(view.getByTestId("rail").style.display).toBe("none");
     });

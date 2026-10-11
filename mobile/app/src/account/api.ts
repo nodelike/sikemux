@@ -1,5 +1,6 @@
 import { Platform } from 'react-native';
 import type {
+  Account,
   AccountDeletion,
   AccountDeletionRequest,
   ApiError,
@@ -39,6 +40,13 @@ export class AccountProblem extends Error {
 /** The server wants a recent proof of the person's password or email before it deletes the account. */
 export class ReverifyNeeded extends Error {}
 
+/** The account was deleted and can still be restored, until `deletesAt`. */
+export class AccountDeleting extends Error {
+  constructor(readonly deletesAt: string) {
+    super('This account is being deleted.');
+  }
+}
+
 async function call<T>(token: TokenSource, path: string, init: { method?: string; body?: unknown } = {}): Promise<T> {
   let bearer: string | null;
   try {
@@ -69,8 +77,22 @@ async function call<T>(token: TokenSource, path: string, init: { method?: string
   return (await response.json()) as T;
 }
 
-/** Adds this phone to the account, proving it holds its key. Doing it again only updates its name. */
+/**
+ * Adds this phone to the account, proving it holds its key. Doing it again only updates its name.
+ * A deleted account that can still be restored throws AccountDeleting.
+ */
 export async function registerPhone(token: TokenSource, userId: string): Promise<Device> {
+  try {
+    return await addPhone(token, userId);
+  } catch (error) {
+    if (!(error instanceof AccountProblem) || error.status !== 401) throw error;
+    const account = await call<Account>(token, '/v1/account').catch(() => null);
+    if (account?.status === 'deleting' && account.deletesAt) throw new AccountDeleting(account.deletesAt);
+    throw error;
+  }
+}
+
+async function addPhone(token: TokenSource, userId: string): Promise<Device> {
   const challenge = await call<Challenge>(token, '/v1/devices/challenge', { method: 'POST' });
   const device = await deviceIdentity();
   const registration: DeviceRegistration = {
@@ -133,6 +155,11 @@ export async function joinTicket(token: TokenSource, host: string): Promise<Join
   const device = await deviceIdentity();
   const request: JoinRequest = { host };
   return call<JoinTicket>(token, `/v1/devices/${device.id()}/join`, { method: 'POST', body: request });
+}
+
+/** Takes back the account's deletion while it can still be restored. */
+export async function restoreAccount(token: TokenSource): Promise<Account> {
+  return call<Account>(token, '/v1/account/restore', { method: 'POST' });
 }
 
 /** Deletes the account and every device on it, with Apple's code for the server to revoke when it signs in with Apple. */

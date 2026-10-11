@@ -2,11 +2,11 @@ import { useEffect, useState, type ReactNode } from "react";
 import { accountApi, type AccountStatus } from "../api/account";
 import { portsApi } from "../api/ports";
 import { AccountAvatar } from "../account/AccountAvatar";
-import { loadAccount, setAccount, useAccount } from "../account/account";
+import { loadAccount, offerAccountPhones, setAccount, useAccount } from "../account/account";
 import { remoteApi, type AccountLink, type DeviceAccess, type NotificationState, type PairedDevice, type RemoteStatus } from "../api/remote";
 import { ACCESS_OPTIONS, platformName } from "../remote/access";
 import * as cmd from "../state/commands";
-import { reportError } from "../state/toast";
+import { reportError, swallow } from "../state/toast";
 import { Dropdown } from "../ui/Dropdown";
 import { Switch } from "../ui/Controls";
 import { IconGlobe, IconTrash } from "../ui/Icons";
@@ -17,7 +17,7 @@ const DELETE_ACCOUNT_URL = import.meta.env.DEV ? "http://localhost:5173/delete-a
 export const PHONE_URL = "https://sikemux.com/phone";
 
 /** How a phone's notifications from this host read beside its name, or nothing when it asked for none. */
-export function notificationNote(state: NotificationState | undefined): string | null {
+function notificationNote(state: NotificationState | undefined): string | null {
     switch (state) {
         case "on":
             return "notifications on";
@@ -47,14 +47,14 @@ export function seenLabel(at: number | null, now: number): string {
 }
 
 /** How the live connection to the account reads under the account's email. */
-export function accountLine(link: AccountLink | null): string {
+function accountLine(link: AccountLink | null): string {
     if (link?.state === "connecting") return "Connecting to your account";
     if (link?.state === "offline") return "Can't reach your account, retrying";
     return "Signed in to Sikemux";
 }
 
 /** Why this host is signed out, when the account let it go rather than the person here. */
-export function removalNote(link: AccountLink | null): string | null {
+function removalNote(link: AccountLink | null): string | null {
     if (link?.state !== "removed") return null;
     if (link.reason === "account_deleted") return "Your account was deleted. Phones already allowed stay allowed.";
     if (link.reason === "signed_out") return "This computer was signed out of your account. Phones already allowed stay allowed.";
@@ -236,6 +236,7 @@ function SignInCall({ removed }: { removed: string | null }) {
         try {
             setAccount(await accountApi.signIn());
             cmd.openSettings("devices");
+            offerAccountPhones().catch(swallow("phones on the account"));
         } catch (error) {
             if (!String(error).includes("cancelled")) reportError("Sign in")(error);
         } finally {

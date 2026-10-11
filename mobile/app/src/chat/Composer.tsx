@@ -1,7 +1,8 @@
 import { memo, useMemo, useRef, useState, type ReactNode } from 'react';
 import { ActivityIndicator, PanResponder, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import Svg, { Circle } from 'react-native-svg';
+import MaskedView from '@react-native-masked-view/masked-view';
+import Svg, { Circle, Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
 
 import { toolDiff } from '@mac/chat/diff';
 import { pickerSlots, sessionConfigs, type SessionConfig } from '@mac/chat/sessionConfig';
@@ -235,7 +236,32 @@ export function runsWithoutAsking(mode: string): boolean {
 }
 
 /** YOLO or safe, as the Mac's toggle says it; a tap switches it where the host can. */
-function YoloToggle({
+/** The Mac's YOLO word, in its rainbow. */
+function YoloWord() {
+  const colors = useColors();
+  const styles = useStyles(makeStyles);
+  const stops = [colors.accent, colors.cmd, colors.danger, colors.warn, colors.live, colors.accent];
+  return (
+    <MaskedView maskElement={<Text style={styles.yoloText}>yolo</Text>}>
+      <Text style={[styles.yoloText, { opacity: 0 }]} importantForAccessibility="no" accessibilityElementsHidden>
+        yolo
+      </Text>
+      <Svg style={StyleSheet.absoluteFill}>
+        <Defs>
+          {/* Twice the word's width, as the Mac draws it, so the word shows the first half. */}
+          <LinearGradient id="yolo" x1="0" y1="0" x2="2" y2="0">
+            {stops.map((color, index) => (
+              <Stop key={index} offset={index / (stops.length - 1)} stopColor={color} />
+            ))}
+          </LinearGradient>
+        </Defs>
+        <Rect x="0" y="0" width="100%" height="100%" fill="url(#yolo)" />
+      </Svg>
+    </MaskedView>
+  );
+}
+
+export function YoloToggle({
   mode,
   provider,
   locked,
@@ -254,7 +280,7 @@ function YoloToggle({
   const look = (
     <>
       <Icon name={on ? 'IconShieldBolt' : 'IconShield'} size={13} color={on ? colors.accent : colors.inkFaint} />
-      <Text style={[styles.yoloText, on && { color: colors.accent }]}>{on ? 'yolo' : 'safe'}</Text>
+      {on ? <YoloWord /> : <Text style={styles.yoloText}>safe</Text>}
     </>
   );
   if (!switches) {
@@ -359,10 +385,10 @@ function ConfigSheet({
   );
 }
 
-type Source = 'photos' | 'files';
+export type Source = 'photos' | 'files';
 
 /** Where a message's photos and files come from. */
-function AttachSheet({
+export function AttachSheet({
   visible,
   onClose,
   onPick,

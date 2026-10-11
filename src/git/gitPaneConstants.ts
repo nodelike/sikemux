@@ -17,8 +17,6 @@ export const AI_MODELS: Record<GitAiProvider, string[]> = {
 };
 
 export const DEFAULT_AI_PROVIDER: GitAiProvider = "hermes";
-export const AI_PROVIDER_STORAGE = "sikemux.git.ai.provider";
-export const AI_MODEL_STORAGE = "sikemux.git.ai.model";
 
 /** Height of the Git pane's built-in terminal, as a percent of the right column. */
 

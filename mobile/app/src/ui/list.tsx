@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import { Pressable, StyleSheet, Text, View, type StyleProp, type ViewStyle } from 'react-native';
 
+import { Icon } from './Icon';
 import { fonts, type Palette, translucent, typeFor, useColors, useStyles } from './theme';
 
 /** A list's small-caps label, with a hairline running to the right as on the Mac's rail. */
@@ -26,19 +27,19 @@ export function Row({
   mark,
   title,
   detail,
+  place,
   end,
   onPress,
   dim,
-  bright,
 }: {
   mark?: ReactNode;
   title: string;
   detail?: ReactNode;
+  /** The project the row belongs to, marked with the folder the Mac's rail puts beside it. */
+  place?: string;
   end?: ReactNode;
   onPress?: () => void;
   dim?: boolean;
-  /** Titles the row in full ink, for the one that is waiting on the person. */
-  bright?: boolean;
 }) {
   const colors = useColors();
   const styles = useStyles(makeStyles);
@@ -49,10 +50,18 @@ export function Row({
       style={({ pressed }) => [styles.row, pressed && onPress && styles.rowPressed]}>
       {mark ? <View style={styles.mark}>{mark}</View> : null}
       <View style={styles.rowBody}>
-        <Text style={[styles.rowTitle, { color: dim ? colors.tertiary : bright ? colors.ink : colors.secondary }]} numberOfLines={1}>
+        <Text style={[styles.rowTitle, { color: dim ? colors.tertiary : colors.ink }]} numberOfLines={1}>
           {title}
         </Text>
-        {detail ? (
+        {place ? (
+          <View style={styles.rowPlace}>
+            <Icon name="IconFolder" size={11} color={colors.live} />
+            <Text style={[styles.rowDetail, styles.rowPlaceText]} numberOfLines={1}>
+              {place}
+              {detail ? <> · {detail}</> : null}
+            </Text>
+          </View>
+        ) : detail ? (
           <Text style={styles.rowDetail} numberOfLines={1}>
             {detail}
           </Text>
@@ -77,6 +86,8 @@ const makeStyles = (colors: Palette) => {
     rowBody: { flex: 1, minWidth: 0 },
     rowTitle: { ...type.row, fontSize: 14.5 },
     rowDetail: { ...type.meta, fontSize: 12, marginTop: 1 },
+    rowPlace: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 1 },
+    rowPlaceText: { flexShrink: 1, marginTop: 0 },
     rowEnd: { minWidth: 20, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 6 },
   });
 };

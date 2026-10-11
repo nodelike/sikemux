@@ -19,6 +19,7 @@ use tokio::runtime::{Handle, Runtime};
 use tokio::task::JoinHandle;
 
 use crate::error::{AppError, AppResult};
+use crate::pty::PtyManager;
 
 struct Loaded {
     plugin: Arc<dyn Plugin>,
@@ -132,6 +133,12 @@ impl PluginHost {
             .disabled
             .write()
             .unwrap_or_else(std::sync::PoisonError::into_inner) = ids.into_iter().collect();
+    }
+
+    fn offers_agents_tools(&self, id: &str) -> bool {
+        self.plugins
+            .get(id)
+            .is_some_and(|loaded| !loaded.plugin.manifest().tools.is_empty())
     }
 
     pub fn manifests(&self) -> Vec<Manifest> {
@@ -303,9 +310,24 @@ pub enum StreamEvent {
     Error { error: PluginError },
 }
 
+/// Running agents list plugin tools again, since a plugin the person just
+/// signed in to or switched on may now offer theirs.
+fn tell_agents(manager: &PtyManager) {
+    if let Some(client) = manager.current_client() {
+        tauri::async_runtime::spawn(async move {
+            let _ = client.plugins_changed().await;
+        });
+    }
+}
+
 #[tauri::command]
-pub fn plugin_set_disabled(host: tauri::State<'_, PluginHost>, ids: Vec<String>) {
+pub fn plugin_set_disabled(
+    host: tauri::State<'_, PluginHost>,
+    manager: tauri::State<'_, PtyManager>,
+    ids: Vec<String>,
+) {
     host.set_disabled(ids);
+    tell_agents(&manager);
 }
 
 #[tauri::command]
@@ -316,11 +338,16 @@ pub fn plugin_manifests(host: tauri::State<'_, PluginHost>) -> Vec<Manifest> {
 #[tauri::command]
 pub async fn plugin_call(
     host: tauri::State<'_, PluginHost>,
+    manager: tauri::State<'_, PtyManager>,
     plugin: String,
     method: String,
     params: Value,
 ) -> AppResult<Value> {
-    host.call(&plugin, &method, params).await
+    let result = host.call(&plugin, &method, params).await;
+    if host.offers_agents_tools(&plugin) {
+        tell_agents(&manager);
+    }
+    result
 }
 
 #[tauri::command]

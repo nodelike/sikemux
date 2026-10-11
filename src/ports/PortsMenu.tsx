@@ -1,9 +1,10 @@
 import { useEffect, useRef, type RefObject } from "react";
 import { useStore } from "../state/store";
 import { AgentIcon, IconAgent, IconCommand, IconCopy, IconExternal, IconGlobe, IconRun, IconWindow } from "../ui/Icons";
+import { ThemeIcon } from "../ui/FileIcon";
 import { Tooltip } from "../ui/Tooltip";
 import { copyPortUrl, openPortExternally, openPortOnDesk, revealPortOwner } from "./portActions";
-import { processGlyph } from "./processGlyph";
+import { processIcon } from "./processIcon";
 import { deskAgentFor, type ProjectPort } from "./projectPorts";
 import "../styles/ports-menu.css";
 
@@ -34,13 +35,9 @@ function useMenuKeys(menu: RefObject<HTMLDivElement | null>, close: () => void) 
 }
 
 function ProcessIcon({ process }: { process: string }) {
-    const glyph = processGlyph(process);
-    if (!glyph) return <IconGlobe size={13} />;
-    return (
-        <span className="tb-port-glyph" style={{ color: glyph.color }}>
-            {glyph.char}
-        </span>
-    );
+    const icon = processIcon(process);
+    if (!icon) return <IconGlobe size={13} />;
+    return <ThemeIcon icon={icon} size={14} />;
 }
 
 function OwnerIcon({ owner }: { owner: ProjectPort["owner"] }) {

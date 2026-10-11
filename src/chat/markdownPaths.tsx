@@ -1,6 +1,6 @@
 import type { ComponentType, ReactNode } from "react";
 import type { MarkdownComponents } from "../markdown/Markdown";
-import { scanPathCandidates } from "./filePath";
+import { namesWholePath, scanPathCandidates } from "./filePath";
 
 /** A link made from a name the message only mentioned: written plainly, or between backticks. */
 export type PathGuess = "text" | "code";
@@ -32,8 +32,7 @@ export function pathComponents(Link: GuessingLink): Pick<MarkdownComponents, "te
         return out;
     }
     function PathCode({ text }: { text: string }) {
-        const [only] = scanPathCandidates(text);
-        if (!only || only.start !== 0 || only.end !== text.length) return <code>{text}</code>;
+        if (!namesWholePath(text)) return <code>{text}</code>;
         return (
             <Link href={text} guess="code">
                 {text}

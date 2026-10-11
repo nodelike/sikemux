@@ -4,25 +4,52 @@ import { swallow } from "../state/toast";
 import type { MarkdownOptions, MdElement } from "./types";
 
 /* A finished message is read once. A transcript scrolled back and forth mounts
-   the same messages again, and they should draw in the frame they mount. */
-const REMEMBERED_PER_KIND = 256;
-const remembered = new Map<string, Map<string, MdElement[]>>();
+   the same messages again, and they should draw in the frame they mount, so a
+   whole long transcript is kept, bounded by how much text that is. */
+const REMEMBERED_CHARS_PER_KIND = 4_000_000;
+const remembered = new Map<string, { texts: Map<string, MdElement[]>; chars: number }>();
 
 function kindOf(options: MarkdownOptions): string {
     return `${+options.gfm}${+options.htmlAsText}${+options.fileLinks}`;
 }
 
 function recall(options: MarkdownOptions, text: string): MdElement[] | undefined {
-    return remembered.get(kindOf(options))?.get(text);
+    return remembered.get(kindOf(options))?.texts.get(text);
 }
 
 function remember(options: MarkdownOptions, text: string, blocks: MdElement[]): void {
     const kind = kindOf(options);
     let shelf = remembered.get(kind);
-    if (!shelf) remembered.set(kind, (shelf = new Map()));
-    shelf.delete(text);
-    shelf.set(text, blocks);
-    if (shelf.size > REMEMBERED_PER_KIND) shelf.delete(shelf.keys().next().value!);
+    if (!shelf) remembered.set(kind, (shelf = { texts: new Map(), chars: 0 }));
+    if (shelf.texts.delete(text)) shelf.chars -= text.length;
+    shelf.texts.set(text, blocks);
+    shelf.chars += text.length;
+    for (const oldest of shelf.texts.keys()) {
+        if (shelf.chars <= REMEMBERED_CHARS_PER_KIND || oldest === text) break;
+        shelf.texts.delete(oldest);
+        shelf.chars -= oldest.length;
+    }
+}
+
+/* Read in slices, so a transcript of thousands of messages never holds one
+   frame for a single huge answer from the parser. */
+const WARM_SLICE = 64;
+
+export interface MarkdownText {
+    readonly text: string;
+    readonly options: MarkdownOptions;
+}
+
+/** Reads finished texts ahead of anything drawing them, in the order given. */
+export async function warmMarkdown(texts: readonly MarkdownText[]): Promise<void> {
+    const unread = texts.filter(({ text, options }) => text && !recall(options, text));
+    for (let start = 0; start < unread.length; start += WARM_SLICE) {
+        const slice = unread.slice(start, start + WARM_SLICE).filter(({ text, options }) => !recall(options, text));
+        const read = await Promise.all(slice.map(({ text, options }) => markdownApi.parse({ text, options, skip: 0 }).catch(() => null)));
+        read.forEach((blocks, index) => {
+            if (blocks) remember(slice[index].options, slice[index].text, blocks);
+        });
+    }
 }
 
 export function forgetMarkdownForTests(): void {

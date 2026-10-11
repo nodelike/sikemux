@@ -1089,7 +1089,7 @@ export function EditorPane({
                                 tabId: `editor-tab-${paneId}-${encodeURIComponent(path)}`,
                                 panelId: `editor-content-${paneId}`,
                                 label: name,
-                                icon: <FileIcon name={name} size={18} />,
+                                icon: <FileIcon name={name} size={15} />,
                                 dirty: dirty.has(path),
                                 active: activePath === path,
                                 closable: false,

@@ -16,7 +16,7 @@ const MAX_ITEM_COUNT: usize = 4_096;
 const MAX_ITEM_STATE_BYTES: usize = 1024 * 1024;
 const MAX_ITEM_ID_BYTES: usize = 256;
 const MAX_ITEM_KIND_BYTES: usize = 128;
-const APPLICATION_STATE_VERSION: i64 = 18;
+const APPLICATION_STATE_VERSION: i64 = 19;
 const CURRENT_SLOT: i64 = 0;
 const BACKUP_SLOT: i64 = 1;
 const RECOVERY_SNAPSHOT_ID: i64 = 1;
@@ -127,8 +127,8 @@ fn quarantine_database(path: &Path) -> AppResult<PathBuf> {
 ///
 /// SQLite recovery can wait for its bounded busy timeout and can also perform
 /// migration, quarantine, and repair I/O. Keep this synchronous helper out of
-/// Tauri's command executor; [`state_load`] and the combined boot command both
-/// offload it through `spawn_blocking`.
+/// Tauri's command executor; the boot command offloads it through
+/// `spawn_blocking`.
 pub(crate) fn state_load_sync() -> String {
     let observer = global_observability();
     let timer = observer.slow_operation(
@@ -146,13 +146,6 @@ pub(crate) fn state_load_sync() -> String {
     observer.set_gauge("state.sqlite.last_loaded_bytes", loaded.len() as f64);
     timer.finish(SpanOutcome::Success);
     loaded
-}
-
-#[tauri::command]
-pub async fn state_load() -> AppResult<String> {
-    tauri::async_runtime::spawn_blocking(state_load_sync)
-        .await
-        .map_err(|error| AppError::Other(format!("state_load join: {error}")))
 }
 
 fn state_load_from_paths(database: &Path, legacy: &Path) -> String {

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { asking } from './asking';
 
-const request = (toolCall: unknown) => ({ requestJson: JSON.stringify({ requestId: 'r', sessionId: 's', toolCall, options: [] }) });
+const request = (toolCall: unknown) => ({ request: { requestId: 'r', sessionId: 's', toolCall, options: [] } });
 
 describe('asking', () => {
   it('names the command an agent wants to run', () => {
@@ -21,7 +21,7 @@ describe('asking', () => {
   });
 
   it('gives nothing for a request it cannot read', () => {
-    expect(asking({ requestJson: 'not json' })).toBeNull();
+    expect(asking({})).toBeNull();
     expect(asking(request(undefined))).toBeNull();
     expect(asking(request({ toolCallId: 't', title: '' }))).toBeNull();
   });

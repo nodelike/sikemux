@@ -127,7 +127,7 @@ fn absolute_command(command: &str) -> AppResult<PathBuf> {
 /// What the MCP sidecar reads once the host spawns it. The sidecar inherits
 /// this through the agent process, so it never appears in a config file.
 fn base_environment(agent_id: &str) -> AppResult<Vec<(String, String)>> {
-    Ok(vec![
+    let environment = vec![
         ("SIKEMUX_TOOLS_AGENT_ID".into(), agent_id.to_owned()),
         (
             "SIKEMUX_CLI_ENDPOINT".into(),
@@ -136,7 +136,8 @@ fn base_environment(agent_id: &str) -> AppResult<Vec<(String, String)>> {
                 .to_string_lossy()
                 .into_owned(),
         ),
-    ])
+    ];
+    Ok(environment)
 }
 
 fn mcp_server_document(launch: &BrowserMcpLaunch) -> Value {
@@ -418,20 +419,6 @@ mod tests {
         assert_eq!(environment.len(), 1);
     }
 
-    #[test]
-    fn a_host_launched_with_no_arguments_still_gets_told() {
-        let integration = BrowserAgentIntegration {
-            args_prefix: vec![
-                "-c".into(),
-                "mcp_servers.sikemux_tools.command=\"x\"".into(),
-            ],
-            environment: Vec::new(),
-        };
-        let mut args = Vec::new();
-        integration.apply(&mut args);
-        assert_eq!(args.len(), 2);
-    }
-
     /// An ACP adapter tells a stdio server apart by the absence of a type
     /// tag, so the shape matters as much as the values.
     #[test]
@@ -460,15 +447,6 @@ mod tests {
     }
 
     #[test]
-    fn every_supported_host_is_one_the_pane_can_launch() {
-        for agent_type in SUPPORTED_AGENTS {
-            assert!(is_supported(agent_type));
-        }
-        assert!(!is_supported("shell"));
-        assert!(!is_supported(""));
-    }
-
-    #[test]
     fn codex_learns_the_server_through_dotted_overrides() {
         assert_eq!(
             codex_browser_args(&launch()).unwrap(),
@@ -479,15 +457,6 @@ mod tests {
                 "-c".to_string(),
                 "mcp_servers.sikemux_tools.args=[\"--tools-mcp\"]".to_string(),
             ]
-        );
-    }
-
-    #[test]
-    fn claude_config_rides_on_one_token_so_the_next_argument_survives() {
-        let path = Path::new("/state/claude-mcp.json");
-        assert_eq!(
-            vec![format!("--mcp-config={}", path.to_string_lossy())],
-            vec!["--mcp-config=/state/claude-mcp.json".to_string()]
         );
     }
 

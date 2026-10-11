@@ -9,6 +9,9 @@ import { localPath } from "./imagePreview";
 
 export const ChatAgentContext = createContext<{ id: string; type: Agent["type"] }>({ id: "", type: "claude" });
 
+/** Scrolls the transcript as the reader asked, for a wheel turned over a page, which the transcript never sees. */
+export const ReaderScrollContext = createContext<(deltaY: number) => void>(() => {});
+
 export function openLink(href: string, agentId: string, external: boolean) {
     const path = localPath(href);
     const webUrl = safeWebUrl(href);

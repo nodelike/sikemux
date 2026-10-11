@@ -139,11 +139,16 @@ const budgets = [
     // agent's resuming state and its failed-resume row live here as well, and
     // so do Sikemux's own tool calls, drawn as a verb and what they acted on.
     // A turn that needs a sign-in or hit a usage limit offers the account to
-    // move to on its error, and the move shows in the transcript.
+    // move to on its error, and the move shows in the transcript. A page an
+    // agent built and shows sits in its reply too. The transcript lays itself
+    // out from the bottom, and tool rows draw an icon for what each call does.
+    // A sent message can be opened again, edited and sent in its place.
+    // GitLab's agent tools add their rows. A finished answer folds its work
+    // under how long it took.
     label: "ACP chat lazy chunk",
     pattern: /^AgentSurface-.*\.js$/,
-    raw: 125_000,
-    gzip: 39_000,
+    raw: 141_000,
+    gzip: 44_000,
   },
   {
     // Shiki, its JavaScript regex engine and vscode-textmate, with no
@@ -170,13 +175,14 @@ const budgets = [
     // terminals and tasks back from the core at launch added a little more.
     // The account picture in the top bar and renaming tabs added a little more.
     // So did the agent accounts in the rail's footer and the desk's tab kinds.
+    // Jira boards, the GitLab code host and the database pane added a little more.
     label:
       "default-path JavaScript except the highlighter and its grammar chunks",
     pattern: new RegExp(
       `^(?!(?:highlighter|paper-shaders|xterm-webgl|${diffLanguageChunkNames.join("|")})-).*\\.js$`,
     ),
-    raw: 3_600_000,
-    gzip: 1_170_000,
+    raw: 3_700_000,
+    gzip: 1_200_000,
   },
   {
     label: "opt-in shader renderer",
@@ -195,24 +201,27 @@ const budgets = [
     // transcripts, background tasks, queued messages, the reconnect states,
     // code block copy buttons, the composer microphone, a tool call's output,
     // context chips, the resuming states, a terminal agent's among them,
-    // attached files drawn as cards, and the agent header floated as pills. It
+    // attached files drawn as cards, the agent header floated as pills, the
+    // editor a sent message opens in to be written again, and the line a
+    // finished answer's work folds under. It
     // is one lazily loaded sheet behind an agent pane, so this buys those rows
     // room without touching what the app loads at startup.
     // Lightning CSS, Vite's minifier, keeps the spaces inside color-mix().
     label: "ACP chat CSS",
     pattern: /^AgentSurface-.*\.css$/,
-    raw: 49_000,
-    gzip: 9_100,
+    raw: 51_500,
+    gzip: 9_300,
   },
   {
     // Includes the JetBrainsMono Nerd Font @font-face rules: a base face per
     // weight/style plus an icons face, each carrying an explicit
     // unicode-range so the ~930 KB icons file only downloads once a PUA
     // glyph is actually rendered. Plugin panes bring their own sheets.
-    // The rail's account cards and the desk's stepped edge and tab kinds add to it.
+    // The rail's account cards and the desk's stepped edge and tab kinds add to it,
+    // as do the simulator's device and controls in the desk's strip and the tree's ignored files.
     label: "application CSS",
     pattern: /^index-.*\.css$/,
-    raw: 230_000,
+    raw: 234_000,
     gzip: 40_500,
   },
   {

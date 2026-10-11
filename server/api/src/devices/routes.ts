@@ -132,7 +132,7 @@ export function deviceRoutes(
           throw new ApiFailure(
             401,
             "unauthorized",
-            "This account was deleted.",
+            "This account was deleted. Sign in to the phone app or app.sikemux.com to restore it.",
           );
         const existing = await trx
           .selectFrom("devices")

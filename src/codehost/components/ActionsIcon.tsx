@@ -107,14 +107,6 @@ export function SectionIcon({ section, size = 14 }: { section: Section; size?: n
     }
 }
 
-export function UpDown({ size = 12 }: { size?: number }) {
-    return (
-        <Stroke size={size}>
-            <path d="M5 6l3-3 3 3M5 10l3 3 3-3" />
-        </Stroke>
-    );
-}
-
 export function SignOutIcon({ size = 14 }: { size?: number }) {
     return (
         <Stroke size={size}>

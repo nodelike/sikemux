@@ -1,23 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { MIN_FRAC, collectPanes, computeLayout, makePane, neighborPane, removePane, resizeTowards, setSplitSizes, splitPane } from "./layout";
+import { MIN_FRAC, collectPanes, computeLayout, neighborPane, removePane, resizeTowards, setSplitSizes, splitPane } from "./layout";
 import type { LayoutNode, PaneNode } from "./types";
 
 const pane = (id: string): PaneNode => ({ type: "pane", id, cwd: `/tmp/${id}`, kind: "terminal", title: id });
 
 describe("layout helpers", () => {
-    it("creates panes with stable defaults", () => {
-        const p = makePane("/repo");
-        expect(p.type).toBe("pane");
-        expect(p.id).toMatch(/^pane-/);
-        expect(p.cwd).toBe("/repo");
-        expect(p.kind).toBe("terminal");
-        expect(p.title).toBe("shell");
-
-        expect(makePane("/repo", { kind: "editor" }).title).toBe("editor");
-        expect(makePane("/repo", { kind: "sikemux.example:view" }).title).toBe("sikemux.example:view");
-        expect(makePane("/repo", { startup: "top" }).title).toBe("top");
-    });
-
     it("collects panes from nested trees in render order", () => {
         const tree: LayoutNode = {
             type: "split",

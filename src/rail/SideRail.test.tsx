@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { getState, setState } from "../state/store";
 import type { Session, SessionKind } from "../state/types";
@@ -165,7 +165,7 @@ describe("leaving settings from the rail", () => {
 
 describe("project spaces", () => {
     function withSpaces() {
-        const work = cmd.createSpace("Work", "💼")!;
+        const work = cmd.createSpace("Work", "briefcase")!;
         const home = cmd.createSpace("Home")!;
         cmd.setProjectSpace("/alpha", work);
         cmd.setProjectSpace("/beta", home);
@@ -195,7 +195,7 @@ describe("project spaces", () => {
         render(<SideRail />);
         expect(screen.queryByRole("radiogroup", { name: "Projects shown" })).not.toBeInTheDocument();
 
-        fireEvent.click(screen.getByRole("button", { name: "Create space" }));
+        fireEvent.click(screen.getByRole("button", { name: "New space" }));
         const dialog = useDialogs.getState().dialog!;
         expect(dialog).toMatchObject({ kind: "prompt", title: "Create space" });
         await act(async () => acceptDialog(dialog.id, "Client A"));
@@ -209,7 +209,7 @@ describe("project spaces", () => {
         render(<SideRail />);
 
         fireEvent.contextMenu(screen.getByRole("button", { name: "gamma" }));
-        fireEvent.click(screen.getByText("H Home"));
+        fireEvent.click(screen.getByRole("menuitem", { name: "Home" }));
         expect(getState().projectSpaces["/gamma"]).toBe(home);
 
         fireEvent.contextMenu(screen.getByRole("button", { name: "gamma" }));
@@ -230,5 +230,37 @@ describe("project spaces", () => {
         expect(getState().projectSpaces["/alpha"]).toBeUndefined();
         expect(getState().activeSpaceId).toBeNull();
         expect(screen.getByRole("button", { name: "beta" })).toBeInTheDocument();
+    });
+
+    it("changes a space's icon from its right-click menu", () => {
+        const { work } = withSpaces();
+        render(<SideRail />);
+
+        fireEvent.contextMenu(screen.getByRole("radio", { name: "Work" }));
+        fireEvent.click(screen.getByRole("menuitem", { name: "Change Icon…" }));
+        fireEvent.click(within(screen.getByRole("dialog", { name: "Space icon" })).getByRole("button", { name: "rocket" }));
+        expect(getState().spaces.find((space) => space.id === work)?.icon).toBe("rocket");
+
+        fireEvent.contextMenu(screen.getByRole("radio", { name: "Work" }));
+        fireEvent.click(screen.getByRole("menuitem", { name: "Remove Icon" }));
+        expect(getState().spaces.find((space) => space.id === work)?.icon).toBe("");
+    });
+
+    it("renames a space and picks its icon in the space editor, then goes back to the editor", () => {
+        const { home } = withSpaces();
+        render(<SideRail />);
+
+        fireEvent.contextMenu(screen.getByRole("radio", { name: "All" }));
+        fireEvent.click(screen.getByRole("menuitem", { name: "Edit Spaces…" }));
+        const editor = screen.getByRole("dialog", { name: "Edit spaces" });
+        const name = within(editor).getByRole("textbox", { name: "Name of Home" });
+        fireEvent.change(name, { target: { value: "House" } });
+        fireEvent.blur(name);
+        expect(getState().spaces.find((space) => space.id === home)?.name).toBe("House");
+
+        fireEvent.click(within(editor).getByRole("button", { name: "Icon for House" }));
+        fireEvent.click(within(screen.getByRole("dialog", { name: "Space icon" })).getByRole("button", { name: "home" }));
+        expect(getState().spaces.find((space) => space.id === home)?.icon).toBe("home");
+        expect(screen.getByRole("dialog", { name: "Edit spaces" })).toBeInTheDocument();
     });
 });

@@ -199,6 +199,8 @@ struct RowLine: View {
             if agent.state != .idle {
                 SinceText(state: agent.state, since: store.since[agent.id]).frame(minWidth: 44, alignment: .trailing)
                 StateMark(state: agent.state)
+            } else if agent.background {
+                StillRunning()
             }
         }
     }

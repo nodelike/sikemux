@@ -35,6 +35,7 @@ function demoDays(today: number): ActivityDay[] {
       agentMs: Math.round(3.4 * HOUR * load),
       commits: Math.round(11 * load * (0.4 + random() * 0.9)),
       tokens: Math.round(46_000_000 * load),
+      costUsd: Math.round(4_100 * load * (0.8 + random() * 0.4)) / 100,
     });
   }
   return days;
@@ -51,6 +52,7 @@ function share(
     agentMs: Math.round(totals.agentMs * part),
     commits: Math.round(totals.commits * part),
     tokens: Math.round(totals.tokens * part),
+    costUsd: totals.costUsd * part,
   };
 }
 
@@ -63,7 +65,24 @@ export function demoActivity(): ActivitySummary {
     agentMs: sum("agentMs"),
     commits: sum("commits"),
     tokens: sum("tokens"),
+    costUsd: sum("costUsd"),
   };
+  const model = (
+    name: string,
+    agent: "claude" | "codex",
+    part: number,
+    fast: number,
+  ) => ({
+    model: name,
+    agent,
+    input: Math.round(whole.tokens * 0.38 * part),
+    output: Math.round(whole.tokens * 0.2 * part),
+    cacheRead: Math.round(whole.tokens * 8.2 * part),
+    cacheWrite: Math.round(whole.tokens * 0.42 * part),
+    costUsd: whole.costUsd * part,
+    fastCostUsd: whole.costUsd * part * fast,
+    priced: true,
+  });
   return {
     totals: {
       sessions: whole.sessions,
@@ -77,6 +96,9 @@ export function demoActivity(): ActivitySummary {
       cacheRead: Math.round(whole.tokens * 0.87),
       cacheWrite: Math.round(whole.tokens * 0.07),
       firstAtMs: dayDate(days[0].day).getTime(),
+      costUsd: whole.costUsd,
+      cacheSavingsUsd: whole.costUsd * 0.41,
+      unpricedTokens: 0,
     },
     days,
     agents: [
@@ -89,5 +111,12 @@ export function demoActivity(): ActivitySummary {
       share(MOODBOARD, 0.24, whole),
       share(FRONT, 0.15, whole),
     ],
+    models: [
+      model("claude-opus-5-5", "claude", 0.66, 0.18),
+      model("gpt-5.6-sol", "codex", 0.24, 0),
+      model("claude-sonnet-5-5", "claude", 0.08, 0),
+      model("claude-haiku-4-5", "claude", 0.02, 0),
+    ],
+    pricing: { status: "fresh", fetchedAtMs: Date.now() },
   };
 }

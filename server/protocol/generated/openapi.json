@@ -383,6 +383,28 @@
       }
     },
     "/v1/account": {
+      "get": {
+        "operationId": "getAccount",
+        "summary": "Whether your account is in use or waiting to be deleted",
+        "responses": {
+          "200": {
+            "description": "The account's status. A deleted account still answers, so an app can offer to restore it.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Account" }
+              }
+            }
+          },
+          "default": {
+            "description": "Something went wrong.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          }
+        }
+      },
       "delete": {
         "operationId": "deleteAccount",
         "summary": "Delete your account and take every device off it",
@@ -398,7 +420,7 @@
         },
         "responses": {
           "202": {
-            "description": "The account is deleted here. Repeating the call answers the same way. Revoking Sign in with Apple is tried once, and the deletion goes ahead whether or not it works.",
+            "description": "The account is deleted here and its devices revoked; the sign-in is deleted in Clerk at deletesAt unless the account is restored first. Repeating the call answers the same way. Revoking Sign in with Apple is tried once, and the deletion goes ahead whether or not it works.",
             "content": {
               "application/json": {
                 "schema": { "$ref": "#/components/schemas/AccountDeletion" }
@@ -415,6 +437,38 @@
           },
           "403": {
             "description": "Only the phone and web app may delete an account, after verifying the sign-in again in the last 10 minutes (message reverify).",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "default": {
+            "description": "Something went wrong.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/account/restore": {
+      "post": {
+        "operationId": "restoreAccount",
+        "summary": "Take back a deletion before it is final",
+        "responses": {
+          "200": {
+            "description": "The account is in use again, with no devices on it; each signs in again. Restoring an account in use changes nothing.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Account" }
+              }
+            }
+          },
+          "404": {
+            "description": "The sign-in is already deleted in Clerk, so the account can no longer be restored.",
             "content": {
               "application/json": {
                 "schema": { "$ref": "#/components/schemas/ApiError" }
@@ -470,14 +524,33 @@
   },
   "components": {
     "schemas": {
+      "Account": {
+        "description": "Whether the signed-in account is in use or waiting to be deleted.",
+        "type": "object",
+        "properties": {
+          "status": { "$ref": "#/components/schemas/AccountStatus" },
+          "deletesAt": {
+            "description": "Only while deleting: when the account is deleted for good unless restored first.",
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": ["status"],
+        "additionalProperties": false
+      },
       "AccountDeletion": {
-        "description": "The account and its devices are gone from the moment this is answered; every device is revoked and every token refused.",
+        "description": "Every device is revoked and every token refused from the moment this is answered, except to read or restore the account. Signing in again before deletesAt can restore it.",
         "type": "object",
         "properties": {
           "status": { "$ref": "#/components/schemas/AccountDeletionStatus" },
-          "requestedAt": { "type": "string", "format": "date-time" }
+          "requestedAt": { "type": "string", "format": "date-time" },
+          "deletesAt": {
+            "description": "When the sign-in is deleted for good and the account can no longer be restored.",
+            "type": "string",
+            "format": "date-time"
+          }
         },
-        "required": ["status", "requestedAt"],
+        "required": ["status", "requestedAt", "deletesAt"],
         "additionalProperties": false
       },
       "AccountDeletionRequest": {
@@ -494,7 +567,7 @@
         "additionalProperties": false
       },
       "AccountDeletionStatus": {
-        "description": "Deleted once Clerk confirms it deleted the sign-in too; deleting until then, while the server retries.",
+        "description": "Deleting while the account can still be restored, until the server deletes the sign-in in Clerk at deletesAt; deleted once Clerk has.",
         "type": "string",
         "enum": ["deleting", "deleted"]
       },
@@ -529,6 +602,11 @@
           "device.revoked",
           "account.deleted"
         ]
+      },
+      "AccountStatus": {
+        "description": "Active, or deleting: deleted on request and still restorable until deletesAt.",
+        "type": "string",
+        "enum": ["active", "deleting"]
       },
       "ApiError": {
         "description": "The body of every response that is not a success.",

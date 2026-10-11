@@ -2,7 +2,7 @@ import type { PluginManifest } from "../../api/plugins";
 import { fixedSessionName } from "../sessionNames";
 import { isPluginKind, pluginIdOf, type PluginKind } from "../../plugins/kinds";
 import { RAIL_GROUP_ORDER, railGroupOf } from "../railGroups";
-import { firstGrapheme, isProjectShown, spaceName } from "../projectSpaces";
+import { DEFAULT_SPACE_ICON, isProjectShown, spaceName, type SpaceIcon } from "../projectSpaces";
 import { filesApi } from "../../api/files";
 import { lsp } from "../../api/lsp";
 import { sshApi } from "../../api/ssh";
@@ -132,11 +132,11 @@ export function selectSession(id: string): void {
 }
 
 /** Makes a space and returns its id, or null when the name is blank. */
-export function createSpace(name: string, icon = ""): string | null {
+export function createSpace(name: string, icon: SpaceIcon | "" = DEFAULT_SPACE_ICON): string | null {
     const clean = spaceName(name);
     if (!clean) return null;
     const id = newId("space");
-    setState((s) => ({ spaces: [...s.spaces, { id, name: clean, icon: firstGrapheme(icon) }] }));
+    setState((s) => ({ spaces: [...s.spaces, { id, name: clean, icon }] }));
     return id;
 }
 
@@ -146,9 +146,19 @@ export function renameSpace(id: string, name: string): void {
     setState((s) => ({ spaces: s.spaces.map((space) => (space.id === id ? { ...space, name: clean } : space)) }));
 }
 
-/** Takes the first emoji or character given; an empty icon shows the name's first letter. */
-export function setSpaceIcon(id: string, icon: string): void {
-    setState((s) => ({ spaces: s.spaces.map((space) => (space.id === id ? { ...space, icon: firstGrapheme(icon) } : space)) }));
+export function setSpaceIcon(id: string, icon: SpaceIcon | ""): void {
+    setState((s) => ({ spaces: s.spaces.map((space) => (space.id === id ? { ...space, icon } : space)) }));
+}
+
+export function moveSpace(id: string, toIndex: number): void {
+    setState((s) => {
+        const from = s.spaces.findIndex((space) => space.id === id);
+        if (from < 0) return {};
+        const spaces = [...s.spaces];
+        const [space] = spaces.splice(from, 1);
+        spaces.splice(Math.max(0, Math.min(toIndex, spaces.length)), 0, space);
+        return { spaces };
+    });
 }
 
 /** Removes a space; its projects stay open and show under All. */

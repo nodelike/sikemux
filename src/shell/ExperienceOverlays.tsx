@@ -10,6 +10,7 @@ import { agentDetectionApi, type ManifestReport } from "../api/agentDetection";
 import { selectedAgentRuntimeProfiles } from "../agents/agentProfiles";
 import { actionForEvent, keybindingLabelForAction, type CoreKeybindingActionId } from "../commands/keybindings";
 import { AgentIcon, IconAgent, IconCommand, IconFolder, IconSearch, Logo } from "../ui/Icons";
+import { agentStatusLabel } from "../agents/agentStatus";
 import { Kbd } from "../ui/Kbd";
 import { ShaderField } from "../ui/ShaderField";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -217,17 +218,35 @@ export function Onboarding() {
                         <p className="welcome-muted">None found. Install Claude Code, Codex or another supported CLI.</p>
                     ) : (
                         <ul className="welcome-agents">
-                            {agents.map((agent) => (
-                                <li
-                                    key={agent.profileId ?? agent.type}
-                                    className={agent.available === false ? "is-missing" : ""}
-                                    title={agent.available === false ? `${agent.command} is not installed` : agent.command}>
-                                    <span className={`agent-glyph ${agent.type}`}>
-                                        <AgentIcon type={agent.type} size={18} />
-                                    </span>
-                                    <span>{agent.label}</span>
-                                </li>
-                            ))}
+                            {agents.map((agent) => {
+                                const status = agentStatusLabel(agent.status);
+                                const classes = [
+                                    agent.available === false ? "is-missing" : "",
+                                    agent.status?.state === "signedOut" ? "is-signed-out" : "",
+                                ]
+                                    .filter(Boolean)
+                                    .join(" ");
+                                return (
+                                    <li
+                                        key={agent.profileId ?? agent.type}
+                                        className={classes}
+                                        title={
+                                            agent.status?.state === "broken"
+                                                ? agent.status.reason
+                                                : agent.available === false
+                                                  ? `${agent.command} is not installed`
+                                                  : agent.command
+                                        }>
+                                        <span className={`agent-glyph ${agent.type}`}>
+                                            <AgentIcon type={agent.type} size={18} />
+                                        </span>
+                                        <span className="welcome-agent-name">
+                                            <span>{agent.label}</span>
+                                            {status && <small>{status}</small>}
+                                        </span>
+                                    </li>
+                                );
+                            })}
                         </ul>
                     )}
                 </div>

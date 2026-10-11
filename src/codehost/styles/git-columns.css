@@ -95,21 +95,6 @@ button.git-file-row {
     font: inherit;
     font-size: var(--text-sm);
 }
-.pr-verdict {
-    flex: none;
-    height: 16px;
-    margin-right: var(--space-2);
-    padding: 0 6px;
-    border-radius: var(--radius-full);
-    border: 1px solid color-mix(in oklab, var(--danger) 40%, transparent);
-    color: var(--danger);
-    font-size: var(--text-3xs);
-    line-height: 14px;
-}
-.pr-verdict[data-tone="live"] {
-    border-color: color-mix(in oklab, var(--live) 40%, transparent);
-    color: var(--live);
-}
 .pr-title-row {
     display: flex;
     align-items: flex-start;
@@ -226,7 +211,6 @@ button.git-file-row {
 .issue-page > .gha-detail {
     padding-top: var(--space-3);
 }
-.git-right > .gha-empty,
 .git-right > .empty-state {
     margin: auto;
 }

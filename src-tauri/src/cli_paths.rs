@@ -83,24 +83,6 @@ fn link_cli(executable: &Path, directory: &Path) -> std::io::Result<PathBuf> {
     Ok(link)
 }
 
-#[derive(serde::Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct CliRuntimeInfo {
-    endpoint: String,
-    executable: Option<String>,
-}
-
-#[tauri::command]
-pub fn cli_runtime_info() -> CliRuntimeInfo {
-    CliRuntimeInfo {
-        endpoint: cli_endpoint_path()
-            .unwrap_or_default()
-            .to_string_lossy()
-            .into_owned(),
-        executable: cli_executable_path().map(|path| path.to_string_lossy().into_owned()),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

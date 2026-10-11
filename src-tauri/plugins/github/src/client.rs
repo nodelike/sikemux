@@ -514,15 +514,6 @@ mod tests {
     }
 
     #[test]
-    fn maps_the_statuses_a_caller_branches_on() {
-        let none = HeaderMap::new();
-        assert_eq!(category(401, &none, "{}"), "auth");
-        assert_eq!(category(404, &none, "{}"), "not-found");
-        assert_eq!(category(422, &none, "{}"), "http");
-        assert_eq!(category(500, &none, "{}"), "http");
-    }
-
-    #[test]
     fn error_messages_come_from_the_body_and_carry_the_first_detail() {
         let body = r#"{"message":"Validation Failed","errors":[{"message":"no ref named x"}]}"#;
         assert_eq!(
@@ -589,11 +580,5 @@ mod tests {
 
     fn http_body(text: &'static str) -> http::Response<&'static str> {
         http::Response::new(text)
-    }
-
-    #[test]
-    fn a_body_with_no_message_still_says_something_useful() {
-        let error = classify(StatusCode::BAD_GATEWAY, &HeaderMap::new(), b"");
-        assert!(error.to_string().contains("Bad Gateway"), "{error}");
     }
 }

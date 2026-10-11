@@ -1,6 +1,6 @@
-//! Agents that speak ACP themselves rather than through an adapter Sikemux
-//! installs. Each one shapes its session a little differently, so the choices
-//! here are read from what the session offers rather than assumed.
+//! Agents that speak ACP themselves. Each one shapes its session a little
+//! differently, so the choices here are read from what the session offers
+//! rather than assumed.
 
 use agent_client_protocol::schema::v1::{
     LoadSessionRequest, NewSessionRequest, PermissionOption, PermissionOptionKind,

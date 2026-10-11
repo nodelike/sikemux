@@ -1,4 +1,4 @@
-import { ChatState, type ChatInfo } from '@/core/protocol';
+import type { ChatInfo } from '@/core/protocol';
 
 const PROVIDER_NAMES: Record<string, string> = {
   claude: 'Claude Code',
@@ -27,8 +27,8 @@ export function chatTitle(chat: Pick<ChatInfo, 'title' | 'provider'>): string {
 export function chatState(chat: ChatInfo): string {
   if (chat.pendingPermissions.length) return 'Needs input';
   if (chat.asleep) return 'Sleeping';
-  if (chat.state === ChatState.Stopped) return 'Stopped';
-  if (chat.state === ChatState.Starting) return 'Starting…';
+  if (chat.state === 'stopped') return 'Stopped';
+  if (chat.state === 'starting') return 'Starting…';
   return chat.running ? 'Working' : 'Ready';
 }
 
