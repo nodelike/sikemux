@@ -105,7 +105,7 @@ describe("PairingPrompt", () => {
 
         transport.emit(REMOTE_STATUS_EVENT, status());
         await waitFor(() => expect(takeover(PIXEL_ASKS)).not.toBeInTheDocument());
-        expect(container.inert).toBe(false);
+        await waitFor(() => expect(container.inert).toBe(false));
     });
 
     it("allows the phone with the access the person chose", async () => {
