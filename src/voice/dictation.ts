@@ -28,6 +28,8 @@ const START_DELAY_MS = 150;
 let lifecycle: Promise<void> = Promise.resolve();
 let pendingStart: number | null = null;
 let recording = false;
+/* Whether right Option started this recording, so another key means a shortcut rather than speech. */
+let held = false;
 
 const set = (next: Partial<VoiceState>) => useVoice.setState(next);
 
@@ -103,6 +105,7 @@ export function handleVoiceEvent(event: VoiceEvent): void {
 }
 
 function abandonHold(): void {
+    held = false;
     if (pendingStart !== null) {
         window.clearTimeout(pendingStart);
         pendingStart = null;
@@ -133,6 +136,7 @@ function startWhenReady(): void {
 
 function beginHold(): void {
     if (pendingStart !== null || recording) return;
+    held = true;
     set({ target: focusedTextInsertTarget() });
     pendingStart = window.setTimeout(() => {
         pendingStart = null;
@@ -147,6 +151,7 @@ function finishRecording(): void {
 }
 
 function endHold(): void {
+    held = false;
     if (pendingStart !== null) {
         abandonHold();
         return;
@@ -191,7 +196,7 @@ export function toggleDictation(into: HTMLElement): void {
 
 export function onVoiceKeyDown(event: KeyboardEvent): void {
     if (event.code !== HOLD_KEY) {
-        abandonHold();
+        if (held) abandonHold();
         return;
     }
     if (event.repeat || event.metaKey || event.ctrlKey || event.shiftKey) return;
@@ -215,7 +220,7 @@ export function useVoiceDictation(): void {
         });
         window.addEventListener("keydown", onVoiceKeyDown, { capture: true, signal: controller.signal });
         window.addEventListener("keyup", onVoiceKeyUp, { capture: true, signal: controller.signal });
-        window.addEventListener("blur", abandonHold, { signal: controller.signal });
+        window.addEventListener("blur", () => held && abandonHold(), { signal: controller.signal });
         return () => {
             controller.abort();
             inOrder(shutdown);
