@@ -43,8 +43,8 @@ function DictationPreview({ draft, heard, editor }: { draft: string; heard: stri
     }, [draft, heard, editor]);
     return (
         <div className="chat-dictation-preview" ref={preview} aria-live="polite">
-            <span className="typed">{draft && !/\s$/.test(draft) ? `${draft} ` : draft}</span>
-            <span className="heard">{heard}</span>
+            <span>{draft && !/\s$/.test(draft) ? `${draft} ` : draft}</span>
+            {heard}
         </div>
     );
 }
