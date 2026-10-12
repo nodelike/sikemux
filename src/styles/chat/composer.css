@@ -47,6 +47,38 @@
     user-select: text;
 }
 
+/* The live dictation sits in the same cell as the text box, over it, so the
+   box grows to fit whichever of the two is taller. */
+.chat-field {
+    display: grid;
+    grid-template-areas: "attachments" "editor";
+}
+
+.chat-field > textarea,
+.chat-dictation-preview {
+    grid-area: editor;
+}
+
+.chat-dictation-preview {
+    max-height: min(320px, 40vh);
+    overflow: hidden;
+    padding: 10px 12px;
+    font-family: var(--ui);
+    font-size: calc(14.5px * var(--chat-text-em, 1));
+    line-height: 1.5;
+    white-space: pre-wrap;
+    overflow-wrap: break-word;
+    pointer-events: none;
+}
+
+.chat-dictation-preview .typed {
+    visibility: hidden;
+}
+
+.chat-dictation-preview .heard {
+    color: var(--ink-faint);
+}
+
 .chat-composer textarea::placeholder {
     color: var(--ink-faint);
 }
@@ -56,6 +88,7 @@
 }
 
 .chat-attachments {
+    grid-area: attachments;
     display: flex;
     flex-wrap: wrap;
     gap: 7px;

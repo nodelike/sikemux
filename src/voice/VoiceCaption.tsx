@@ -34,6 +34,7 @@ export function VoiceCaption() {
     const phase = useVoice((s) => s.phase);
     const { lines, onScroll } = useFollowNewest(partial);
     if (!partial || (phase !== "listening" && phase !== "transcribing")) return null;
+    if (target?.querySelector(".chat-composer")) return null;
 
     return (
         <div

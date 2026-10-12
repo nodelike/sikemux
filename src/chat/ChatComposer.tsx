@@ -34,6 +34,21 @@ import type { TrackedMatches } from "./TrackedSource";
 import { ContextMark } from "./ContextChip";
 import { contextChip } from "./promptContext";
 
+/** Shows the words still being spoken, dimmed, right after what is already typed in the box. */
+function DictationPreview({ draft, heard, editor }: { draft: string; heard: string; editor: RefObject<HTMLTextAreaElement | null> }) {
+    const preview = useRef<HTMLDivElement>(null);
+    useLayoutEffect(() => {
+        if (preview.current) preview.current.scrollTop = preview.current.scrollHeight;
+        if (editor.current) editor.current.scrollTop = editor.current.scrollHeight;
+    }, [draft, heard, editor]);
+    return (
+        <div className="chat-dictation-preview" ref={preview} aria-live="polite">
+            <span className="typed">{draft && !/\s$/.test(draft) ? `${draft} ` : draft}</span>
+            <span className="heard">{heard}</span>
+        </div>
+    );
+}
+
 function ComposerAttachment({ path, onRemove }: { path: string; onRemove: () => void }) {
     const preview = useImagePreview(path);
     return (
@@ -426,6 +441,9 @@ export function ChatComposer({
     const dictating = useVoice(
         (state) => (state.phase === "listening" || state.phase === "transcribing") && writesInto(state.target, paneRef.current),
     );
+    const heard = useVoice((state) =>
+        (state.phase === "listening" || state.phase === "transcribing") && writesInto(state.target, paneRef.current) ? state.partial : "",
+    );
     const stopping = running && !drafted && !dictating;
     const sendButton = useRef<HTMLButtonElement>(null);
     const wasStopping = useRef(stopping);
@@ -529,7 +547,7 @@ export function ChatComposer({
                     ref={editorRef}
                     value={draft}
                     aria-label="Message agent"
-                    placeholder={placeholder}
+                    placeholder={heard ? "" : placeholder}
                     rows={2}
                     onChange={(event) => {
                         setDraft(event.target.value);
@@ -606,6 +624,7 @@ export function ChatComposer({
                         }
                     }}
                 />
+                {heard && <DictationPreview draft={draft} heard={heard} editor={editorRef} />}
             </div>
             {error && <div className="chat-composer-error">{error}</div>}
             <div className="chat-composer-bar">
