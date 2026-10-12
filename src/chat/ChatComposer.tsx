@@ -445,6 +445,9 @@ export function ChatComposer({
         (state.phase === "listening" || state.phase === "transcribing") && writesInto(state.target, paneRef.current) ? state.partial : "",
     );
     const stopping = running && !drafted && !dictating;
+    useEffect(() => {
+        if (dictating) editorRef.current?.focus();
+    }, [dictating]);
     const sendButton = useRef<HTMLButtonElement>(null);
     const wasStopping = useRef(stopping);
     useLayoutEffect(() => {
@@ -620,6 +623,7 @@ export function ChatComposer({
                                 onSteerQueued();
                                 return;
                             }
+                            if (finishDictationInto(paneRef.current)) return;
                             send(hasPrimaryModifier(event.nativeEvent));
                         }
                     }}
