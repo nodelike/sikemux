@@ -203,14 +203,14 @@ const budgets = [
     // context chips, the resuming states, a terminal agent's among them,
     // attached files drawn as cards, the agent header floated as pills, the
     // editor a sent message opens in to be written again, and the line a
-    // finished answer's work folds under. It
+    // finished answer's work folds under, and the words being dictated. It
     // is one lazily loaded sheet behind an agent pane, so this buys those rows
     // room without touching what the app loads at startup.
     // Lightning CSS, Vite's minifier, keeps the spaces inside color-mix().
     label: "ACP chat CSS",
     pattern: /^AgentSurface-.*\.css$/,
     raw: 51_500,
-    gzip: 9_300,
+    gzip: 9_400,
   },
   {
     // Includes the JetBrainsMono Nerd Font @font-face rules: a base face per
