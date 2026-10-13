@@ -10,13 +10,13 @@ use tokio::task::AbortHandle;
 
 use crate::acp::account::{Failure, FailureKind};
 
+use super::super::super::feed;
+use super::super::super::states::{self, Held, Subagent, Task as TaskState};
+use super::super::json::{self, text};
 use super::super::session::{Sink, TurnEnd};
 use super::control::Control;
 use super::permission;
 use super::tools::{self, TaskPlan};
-
-/// A child session's updates are held until it is announced, but only so many.
-const MAX_HELD_PER_CHILD: usize = 64;
 
 /// Text Claude Code shows instead of an answer when the account is out of
 /// usage, taken from the Agent SDK.
@@ -51,9 +51,13 @@ const TERMINAL_COMMANDS: [&str; 8] = [
 /// both see it.
 pub(crate) struct Turn {
     pub number: u64,
-    /// The last message sent into the turn: its prompt, or a message steered
-    /// into it since. The result that answers it ends the turn.
-    pub latest: String,
+    /// Every message sent into the turn: its prompt and any steered in since.
+    /// Claude Code answers a steered message folded into the turn with the
+    /// result for the prompt, and one it held until the turn ended with its own.
+    pub messages: HashSet<String>,
+    /// Steered messages Claude Code has queued but not yet taken in, whose
+    /// own result is still to come.
+    pub waiting: HashSet<String>,
     pub cancelled: bool,
     pub failure: Option<Failure>,
 }
@@ -78,8 +82,11 @@ struct Tool {
 }
 
 struct Child {
-    session_id: String,
+    name: String,
+    /// The session whose transcript holds this subagent's card.
+    parent: String,
     ended: bool,
+    background: bool,
 }
 
 struct Task {
@@ -99,11 +106,16 @@ pub(crate) struct Reader {
     stream_message_id: Option<String>,
     tools: HashMap<String, Tool>,
     shown: HashSet<String>,
-    /// Subagents by the tool call that spawned them.
-    children: HashMap<String, Child>,
-    generations: HashMap<String, u32>,
-    held: HashMap<String, Vec<Value>>,
+    /// The subagent each spawning or resuming tool call speaks for, by the call.
+    children: HashMap<String, String>,
+    /// Subagents by their session, which is the task id Claude gave them.
+    subagents: HashMap<String, Child>,
+    held: HashMap<String, Held<Value>>,
     tasks: HashMap<String, Task>,
+    /// Shell commands Claude Code waits on in the turn, as it reported them
+    /// starting. It reports their end like background work's, but their tool
+    /// result already says it. One moved to the background is shown then.
+    foreground: HashMap<String, Value>,
     compaction: Option<String>,
     /// The list Claude's task tools keep, shown as the chat's plan.
     task_plan: TaskPlan,
@@ -111,13 +123,6 @@ pub(crate) struct Reader {
     size: u64,
     model: Option<String>,
     permissions: Arc<Mutex<HashMap<String, AbortHandle>>>,
-}
-
-fn text<'a>(value: &'a Value, key: &str) -> Option<&'a str> {
-    value
-        .get(key)
-        .and_then(Value::as_str)
-        .filter(|text| !text.is_empty())
 }
 
 fn usage_total(usage: &Value) -> Option<u64> {
@@ -182,17 +187,7 @@ pub(crate) fn available_commands(commands: &Value) -> Value {
 /// of an answer.
 fn failure_of(message: &Value) -> Option<Failure> {
     let inner = message.get("message")?;
-    let said: String = inner
-        .get("content")
-        .and_then(Value::as_array)
-        .map(|blocks| {
-            blocks
-                .iter()
-                .filter_map(|block| text(block, "text"))
-                .collect::<Vec<_>>()
-                .join("\n")
-        })
-        .unwrap_or_default();
+    let said = json::joined_text(inner.get("content").filter(|content| content.is_array()));
     let synthetic = text(inner, "model") == Some("<synthetic>");
     let title = |fallback: &str| {
         if said.trim().is_empty() {
@@ -254,32 +249,11 @@ fn local_output(content: &str) -> Option<String> {
     (!output.is_empty()).then(|| output.to_owned())
 }
 
-fn task_state(status: &str) -> Option<&'static str> {
-    Some(match status {
-        "pending" | "running" => "running",
-        "paused" => "paused",
-        "completed" => "completed",
-        "failed" => "failed",
-        "killed" | "cancelled" | "stopped" => "stopped",
-        _ => return None,
-    })
-}
-
-fn subagent_state(status: &str) -> Option<&'static str> {
-    Some(match status {
-        "completed" => "completed",
-        "failed" => "failed",
-        "killed" | "cancelled" | "stopped" => "cancelled",
-        "disconnected" => "disconnected",
-        _ => return None,
-    })
-}
-
 fn task_type(kind: Option<&str>) -> String {
     match kind {
         Some("local_bash") => "shell".into(),
         Some("local_workflow") => "workflow".into(),
-        Some("local_monitor" | "mcp") => "monitor".into(),
+        Some("monitor_mcp" | "monitor_ws") => "monitor".into(),
         Some(other) => other.into(),
         None => "task".into(),
     }
@@ -304,9 +278,10 @@ impl Reader {
             tools: HashMap::new(),
             shown: HashSet::new(),
             children: HashMap::new(),
-            generations: HashMap::new(),
+            subagents: HashMap::new(),
             held: HashMap::new(),
             tasks: HashMap::new(),
+            foreground: HashMap::new(),
             compaction: None,
             task_plan: TaskPlan::default(),
             used: None,
@@ -333,21 +308,13 @@ impl Reader {
     /// subagent a tool call spawned. A subagent not yet announced holds it.
     fn send(&mut self, parent: Option<&str>, update: Value) {
         let Some(parent) = parent else {
-            if !self.turn_running() {
-                self.sink.work_started();
-            }
             self.sink.update(&self.session_id, update);
             return;
         };
         match self.children.get(parent) {
-            Some(child) if child.ended => {}
-            Some(child) => self.sink.update(&child.session_id, update),
-            None => {
-                let held = self.held.entry(parent.to_owned()).or_default();
-                if held.len() < MAX_HELD_PER_CHILD {
-                    held.push(update);
-                }
-            }
+            Some(session) if self.subagents.get(session).is_none_or(|child| child.ended) => {}
+            Some(session) => self.sink.update(session, update),
+            None => self.held.entry(parent.to_owned()).or_default().push(update),
         }
     }
 
@@ -355,7 +322,7 @@ impl Reader {
     fn session_of(&self, parent: Option<&str>) -> String {
         parent
             .and_then(|parent| self.children.get(parent))
-            .map_or_else(|| self.session_id.clone(), |child| child.session_id.clone())
+            .map_or_else(|| self.session_id.clone(), Clone::clone)
     }
 
     pub fn handle(&mut self, message: Value) {
@@ -379,6 +346,18 @@ impl Reader {
             Some("user") => self.user(&message),
             Some("result") => self.result(&message),
             Some("system") => self.system(&message),
+            Some("command_lifecycle") => {
+                if text(&message, "state") == Some("queued") {
+                    return;
+                }
+                if let (Some(uuid), Ok(mut shared)) =
+                    (text(&message, "command_uuid"), self.shared.lock())
+                {
+                    if let Some(turn) = shared.turn.as_mut() {
+                        turn.waiting.remove(uuid);
+                    }
+                }
+            }
             Some("conversation_reset") => {
                 self.task_plan.clear();
                 self.send(None, self.task_plan.plan());
@@ -733,7 +712,6 @@ impl Reader {
             }
             let update = tools::tool_result(&id, &name, &input, result, structured, &self.cwd);
             self.sink.update(&session, update);
-            self.background_shell(&id, &input, result);
         }
     }
 
@@ -748,60 +726,6 @@ impl Reader {
             parent,
             json!({ "sessionUpdate": "agent_message_chunk", "content": { "type": "text", "text": output } }),
         );
-    }
-
-    /// A shell command sent to the background answers with where its output
-    /// goes, and runs on as a task.
-    fn background_shell(&mut self, tool_id: &str, input: &Value, result: &Value) {
-        let said = match result.get("content") {
-            Some(Value::String(said)) => said.clone(),
-            Some(Value::Array(blocks)) => blocks
-                .iter()
-                .filter_map(|block| text(block, "text"))
-                .collect::<Vec<_>>()
-                .join("\n"),
-            _ => return,
-        };
-        let Some(rest) = said.split("Command running in background with ID: ").nth(1) else {
-            return;
-        };
-        let Some(task_id) = rest
-            .split(|ch: char| ch == '.' || ch.is_whitespace())
-            .next()
-        else {
-            return;
-        };
-        if task_id.is_empty() || self.tasks.contains_key(task_id) {
-            return;
-        }
-        let output = said
-            .split("Output is being written to: ")
-            .nth(1)
-            .and_then(|rest| rest.split(". You will be notified").next())
-            .map(str::trim)
-            .filter(|path| !path.is_empty());
-        let description = text(input, "command").unwrap_or("Shell").to_owned();
-        self.tasks.insert(
-            task_id.to_owned(),
-            Task {
-                name: description.clone(),
-                ended: false,
-            },
-        );
-        let mut update = json!({
-            "sessionUpdate": "async_task_spawned",
-            "asyncTaskId": task_id,
-            "name": description,
-            "taskType": "shell",
-            "description": description,
-            "showInTranscript": true,
-            "canStop": true,
-            "toolCallId": tool_id,
-        });
-        if let Some(output) = output {
-            update["outputFilePath"] = json!(output);
-        }
-        self.sink.update(&self.session_id, update);
     }
 
     fn result(&mut self, result: &Value) {
@@ -822,14 +746,16 @@ impl Reader {
             self.sink.update(&self.session_id, update);
         }
         let answers = text(result, "user_message_uuid");
+        // A turn that background work started, rather than a message, carries its origin.
+        let woken = result.get("origin").is_some();
         let ended = {
             let Ok(mut shared) = self.shared.lock() else {
                 return;
             };
-            let ends = shared
-                .turn
-                .as_ref()
-                .is_some_and(|turn| answers.is_none_or(|uuid| uuid == turn.latest));
+            let ends = shared.turn.as_ref().is_some_and(|turn| match answers {
+                Some(uuid) => turn.messages.contains(uuid) && turn.waiting.is_empty(),
+                None => !woken,
+            });
             if ends {
                 shared.turn.take()
             } else {
@@ -910,16 +836,8 @@ impl Reader {
                 .await;
             let title = named
                 .ok()
-                .and_then(|named| {
-                    named
-                        .get("title")
-                        .and_then(Value::as_str)
-                        .map(str::to_owned)
-                })
-                .map(|title| title.split_whitespace().collect::<Vec<_>>().join(" "))
-                .filter(|title| !title.is_empty());
+                .and_then(|named| feed::title(text(&named, "title")?));
             if let Some(title) = title {
-                let title: String = title.chars().take(256).collect();
                 sink.update(
                     &session_id,
                     json!({ "sessionUpdate": "session_info_update", "title": title }),
@@ -946,6 +864,8 @@ impl Reader {
     fn system(&mut self, message: &Value) {
         match text(message, "subtype") {
             Some("session_state_changed") if text(message, "state") == Some("idle") => self.idle(),
+            // Claude Code opens every turn with this, including the ones background work starts.
+            Some("init") if !self.turn_running() => self.sink.work_started(),
             Some("status") => self.status(message),
             Some("compact_boundary") => {
                 if let Some(used) = message
@@ -963,6 +883,9 @@ impl Reader {
                     return;
                 };
                 let patch = message.get("patch").cloned().unwrap_or(Value::Null);
+                if patch.get("is_backgrounded").and_then(Value::as_bool) == Some(true) {
+                    self.backgrounded(&id);
+                }
                 if let Some(status) = text(&patch, "status") {
                     self.task_ended(&id, status, None, text(&patch, "output_file"));
                 }
@@ -972,12 +895,21 @@ impl Reader {
                     return;
                 };
                 let status = text(message, "status").unwrap_or("completed").to_owned();
-                self.task_ended(
-                    &id,
-                    &status,
-                    text(message, "summary"),
-                    text(message, "output_file"),
-                );
+                let summary = text(message, "summary");
+                // Work started outside any tracked task still wakes the agent.
+                if !self.tasks.contains_key(&id) && !self.subagents.contains_key(&id) {
+                    if self.foreground.contains_key(&id) {
+                        return;
+                    }
+                    let name = summary
+                        .and_then(|summary| summary.split('"').nth(1))
+                        .or(summary)
+                        .unwrap_or("Background task")
+                        .to_owned();
+                    self.task_notice(&id, &name, &status);
+                    return;
+                }
+                self.task_ended(&id, &status, summary, text(message, "output_file"));
             }
             Some("background_tasks_changed") => {
                 let live: HashSet<&str> = message
@@ -1164,10 +1096,23 @@ impl Reader {
             Some(backgrounded) => backgrounded,
             None => !matches!(kind, Some("local_bash" | "local_agent")),
         };
-        if !backgrounded || self.tasks.contains_key(&task_id) {
+        if !backgrounded {
+            self.foreground.insert(task_id, message.clone());
             return;
         }
-        let task_type = task_type(kind);
+        if self.tasks.contains_key(&task_id) {
+            return;
+        }
+        // Claude Code reports a monitor as a shell; only the tool that started it tells them apart.
+        let monitor = spawner
+            .as_deref()
+            .and_then(|id| self.tools.get(id))
+            .is_some_and(|tool| tool.name == "Monitor");
+        let task_type = if monitor {
+            "monitor".to_owned()
+        } else {
+            task_type(kind)
+        };
         let fallback = match task_type.as_str() {
             "shell" => "Shell",
             "workflow" => "Workflow",
@@ -1194,79 +1139,96 @@ impl Reader {
             "showInTranscript": message.get("skip_transcript").and_then(Value::as_bool) != Some(true),
             "canStop": true,
         });
+        if let Some(owner) = self.owner_of(spawner.as_deref()) {
+            update["owner"] = json!(owner);
+        }
         if let Some(spawner) = spawner {
             update["toolCallId"] = json!(spawner);
         }
         self.sink.update(&self.session_id, update);
     }
 
+    /// The subagent whose tool call started a background task, since the task
+    /// is listed with the chat's own and would otherwise look like the chat's.
+    fn owner_of(&self, tool_id: Option<&str>) -> Option<String> {
+        let session = &self.tools.get(tool_id?)?.session;
+        (session != &self.session_id)
+            .then(|| self.subagents.get(session).map(|child| child.name.clone()))
+            .flatten()
+    }
+
     fn spawn_child(&mut self, task_id: &str, spawner: &str, message: &Value) {
+        let session_id = task_id.to_owned();
+        // An agent that finished with its own background work still running is
+        // started again by that work, under the call that first spawned it.
+        if self.subagents.contains_key(task_id) {
+            self.resume_child(&session_id, spawner, message);
+            return;
+        }
         if self.children.contains_key(spawner) {
             return;
         }
-        let generation = self.generations.entry(task_id.to_owned()).or_insert(0);
-        *generation += 1;
-        let session_id = if *generation == 1 {
-            task_id.to_owned()
-        } else {
-            format!("{task_id}:generation:{generation}")
-        };
         let (input, parent_session) = self.tools.get(spawner).map_or_else(
             || (Value::Null, self.session_id.clone()),
             |tool| (tool.input.clone(), tool.session.clone()),
         );
-        let first = |values: &[Option<&str>]| {
-            values
-                .iter()
-                .flatten()
-                .map(|value| value.trim())
-                .find(|value| !value.is_empty())
-                .map(str::to_owned)
-        };
-        let name = first(&[
+        let name = states::first_text(&[
             text(&input, "name"),
             text(&input, "description"),
             text(&input, "subagent_type"),
             text(message, "description"),
             text(message, "subagent_type"),
         ])
-        .unwrap_or_else(|| {
-            let tail: String = task_id
-                .chars()
-                .rev()
-                .take(8)
-                .collect::<Vec<_>>()
-                .into_iter()
-                .rev()
-                .collect();
-            format!("Agent {tail}")
-        });
-        let task = first(&[
+        .unwrap_or_else(|| states::unnamed(task_id));
+        let task = states::first_text(&[
             text(&input, "prompt"),
             text(&input, "description"),
             text(message, "prompt"),
             text(message, "description"),
         ])
-        .unwrap_or_else(|| "Delegated task".to_owned());
-        self.sink.update(
-            &parent_session,
-            json!({
-                "sessionUpdate": "subagent_spawned",
-                "subagentSessionId": session_id,
-                "name": name,
-                "task": task,
-                "capabilities": {},
-            }),
-        );
-        self.children.insert(
-            spawner.to_owned(),
+        .unwrap_or_else(|| states::UNNAMED_TASK.to_owned());
+        self.sink
+            .update(&parent_session, states::spawned(&session_id, &name, &task));
+        let background = message
+            .get("is_backgrounded")
+            .and_then(Value::as_bool)
+            .unwrap_or_else(|| {
+                input.get("run_in_background").and_then(Value::as_bool) == Some(true)
+            });
+        self.children.insert(spawner.to_owned(), session_id.clone());
+        self.subagents.insert(
+            session_id.clone(),
             Child {
-                session_id: session_id.clone(),
+                name: name.clone(),
+                parent: parent_session,
                 ended: false,
+                background,
             },
         );
         for update in self.held.remove(spawner).unwrap_or_default() {
             self.sink.update(&session_id, update);
+        }
+    }
+
+    /// A message sent to a subagent wakes the one already on screen, so its
+    /// card picks up where it left off rather than a second card starting.
+    fn resume_child(&mut self, session_id: &str, spawner: &str, message: &Value) {
+        self.children
+            .insert(spawner.to_owned(), session_id.to_owned());
+        let Some(child) = self.subagents.get_mut(session_id) else {
+            return;
+        };
+        if let Some(background) = message.get("is_backgrounded").and_then(Value::as_bool) {
+            child.background = background;
+        }
+        let parent = child.parent.clone();
+        if child.ended {
+            child.ended = false;
+            self.sink
+                .update(&parent, Subagent::Running.update(session_id));
+        }
+        for update in self.held.remove(spawner).unwrap_or_default() {
+            self.sink.update(session_id, update);
         }
     }
 
@@ -1305,46 +1267,40 @@ impl Reader {
         summary: Option<&str>,
         output: Option<&str>,
     ) {
-        if let Some(child) = self.children.values_mut().find(|child| {
-            child.session_id == task_id
-                || child
-                    .session_id
-                    .starts_with(&format!("{task_id}:generation:"))
-        }) {
-            let Some(state) = subagent_state(status) else {
+        if let Some(child) = self.subagents.get_mut(task_id) {
+            let Some(state) = states::outcome(status).map(Subagent::from) else {
                 return;
             };
             if child.ended {
                 return;
             }
             child.ended = true;
-            let session_id = child.session_id.clone();
-            let parent = self
-                .tools
-                .iter()
-                .find(|(id, _)| {
-                    self.children
-                        .get(*id)
-                        .is_some_and(|child| child.session_id == session_id)
-                })
-                .map_or_else(|| self.session_id.clone(), |(_, tool)| tool.session.clone());
-            self.sink.update(
-                &parent,
-                json!({ "sessionUpdate": "subagent_state_update", "subagentSessionId": session_id, "state": state }),
-            );
+            let (parent, background, name) =
+                (child.parent.clone(), child.background, child.name.clone());
+            // An agent whose spawner has already finished reports to the chat itself.
+            let reports_to_chat = parent == self.session_id
+                || self
+                    .subagents
+                    .get(&parent)
+                    .is_some_and(|spawner| spawner.ended);
+            let woke = (background && reports_to_chat).then_some(name);
+            self.sink.update(&parent, state.update(task_id));
+            if let Some(name) = woke {
+                self.task_notice(task_id, &name, status);
+            }
             return;
         }
-        let Some(state) = task_state(status) else {
+        let Some(state) = TaskState::from_status(status).filter(|state| state.ended()) else {
             return;
         };
         let Some(task) = self.tasks.get_mut(task_id) else {
             return;
         };
-        if task.ended || state == "running" || state == "paused" {
+        if task.ended {
             return;
         }
         task.ended = true;
-        let mut update = json!({ "sessionUpdate": "async_task_state_update", "asyncTaskId": task_id, "state": state });
+        let mut update = state.update(task_id);
         if let Some(summary) = summary {
             update["summary"] = json!(summary);
         }
@@ -1352,6 +1308,18 @@ impl Reader {
             update["outputFilePath"] = json!(output);
         }
         self.sink.update(&self.session_id, update);
+    }
+
+    /// Background work Claude Code reports ending, which wakes the agent; the
+    /// transcript shows it so the turn that follows has a reason.
+    fn task_notice(&mut self, task_id: &str, name: &str, status: &str) {
+        let Some(state) = TaskState::from_status(status).filter(|state| state.ended()) else {
+            return;
+        };
+        self.sink.update(
+            &self.session_id,
+            json!({ "sessionUpdate": "task_notice", "taskId": task_id, "name": name, "state": state.as_str() }),
+        );
     }
 
     /// A task the person stopped from the app, said at once rather than when
@@ -1362,40 +1330,30 @@ impl Reader {
         };
         task.ended = true;
         let name = task.name.clone();
-        self.sink.update(
-            &self.session_id,
-            json!({ "sessionUpdate": "async_task_state_update", "asyncTaskId": task_id, "state": "stopped" }),
-        );
+        self.sink
+            .update(&self.session_id, TaskState::Stopped.update(task_id));
         self.sink.update(
             &self.session_id,
             json!({ "sessionUpdate": "notice", "severity": "info", "title": "Task stopped by user", "description": format!("{name}.") }),
         );
     }
 
-    /// Every subagent and task still running is gone with the agent.
+    /// Work the turn was waiting on that Claude Code moved to the background,
+    /// which then runs on past the turn.
+    fn backgrounded(&mut self, task_id: &str) {
+        if let Some(child) = self.subagents.get_mut(task_id) {
+            child.background = true;
+            return;
+        }
+        if let Some(mut started) = self.foreground.remove(task_id) {
+            started["is_backgrounded"] = json!(true);
+            self.task_started(&started);
+        }
+    }
+
+    /// Claude Code is gone: nothing it asked can be answered any more.
     pub fn close(&mut self) {
         self.control.close();
-        let live: Vec<(String, String)> = self
-            .children
-            .iter()
-            .filter(|(_, child)| !child.ended)
-            .map(|(spawner, child)| {
-                let parent = self
-                    .tools
-                    .get(spawner)
-                    .map_or_else(|| self.session_id.clone(), |tool| tool.session.clone());
-                (parent, child.session_id.clone())
-            })
-            .collect();
-        for (parent, session_id) in live {
-            self.sink.update(
-                &parent,
-                json!({ "sessionUpdate": "subagent_state_update", "subagentSessionId": session_id, "state": "disconnected" }),
-            );
-        }
-        for child in self.children.values_mut() {
-            child.ended = true;
-        }
         if let Ok(permissions) = self.permissions.lock() {
             for handle in permissions.values() {
                 handle.abort();

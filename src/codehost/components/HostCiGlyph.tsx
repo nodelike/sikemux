@@ -5,10 +5,11 @@ import { Tooltip } from "../../plugin-api/ui";
 import { openGitArea } from "../../state/commands";
 import { useHostRepo } from "../project";
 import { hostStatusR, runsR } from "../resources";
-import { formatAgo, isUnfinished, outcomeOf, OUTCOME_LABEL } from "../runStatus";
+import { isUnfinished, outcomeOf, OUTCOME_LABEL } from "../runStatus";
 import { OutcomeIcon } from "./ActionsIcon";
-import { useEvery } from "./hooks";
+import { useEvery } from "../../plugin-api/hooks";
 import "../topbar.css";
+import { formatAgo } from "../../lib/format";
 
 const LIVE_REFRESH_MS = 10_000;
 const IDLE_REFRESH_MS = 20_000;

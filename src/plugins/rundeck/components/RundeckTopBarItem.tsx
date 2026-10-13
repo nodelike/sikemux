@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState } from "react";
 import type { PluginTopBarProps } from "../../../plugin-api";
-import { git, gitOverviewR, notify, reportError } from "../../../plugin-api/host";
+import { currentBranch, git, gitOverviewR, notify, reportError } from "../../../plugin-api/host";
 import { invalidate, peekResource, useResourceEnabled } from "../../../plugin-api/resources";
 import { IconChevron, IconGit, IconRundeck, Tooltip } from "../../../plugin-api/ui";
 import type { MatrixCell, RundeckJob } from "../api";
@@ -132,9 +132,9 @@ function LocationPicker({
 
 function DeployChip({ job, cell, repo }: { job: RundeckJob; cell: MatrixCell | null; repo: string }) {
     const repoStatus = useResourceEnabled(true, gitOverviewR, repo);
-    const head = repoStatus.data?.status.branch.trim() ?? "";
-    const detached = head === "HEAD";
-    const currentBranch = detached ? "" : head;
+    const checkedOut = currentBranch(repoStatus.data?.status);
+    const detached = !!repoStatus.data && checkedOut === null;
+    const branch = checkedOut ?? "";
     const deployed = cell?.deployed?.branch ?? null;
     const latest = cell?.latest ?? null;
     const runsBranch = !cell || deployed !== null || latest?.branch != null;
@@ -147,7 +147,7 @@ function DeployChip({ job, cell, repo }: { job: RundeckJob; cell: MatrixCell | n
         setMenuOpen(false);
         openRundeckJob(
             { project: job.project, jobId: job.id, name: job.name, group: job.group, repoPath: repo },
-            { branch: runsBranch ? currentBranch : undefined },
+            { branch: runsBranch ? branch : undefined },
         );
     };
     const checkoutBranch = () => {
@@ -169,7 +169,7 @@ function DeployChip({ job, cell, repo }: { job: RundeckJob; cell: MatrixCell | n
         : `Rundeck actions for ${locationLabel(job)}`;
     const deployLabel = !runsBranch
         ? "run"
-        : repoStatus.status === "loading" && !head
+        : repoStatus.status === "loading" && !repoStatus.data
           ? "deploy (loading branch…)"
           : detached
             ? "deploy (detached HEAD)"
@@ -192,12 +192,10 @@ function DeployChip({ job, cell, repo }: { job: RundeckJob; cell: MatrixCell | n
                             className="env-dd-item"
                             role="menuitem"
                             onClick={deployBranch}
-                            disabled={runsBranch && repoStatus.status === "loading" && !head}>
+                            disabled={runsBranch && repoStatus.status === "loading" && !repoStatus.data}>
                             <IconRundeck size={12} />
                             <span>{deployLabel}</span>
-                            {runsBranch && currentBranch && (
-                                <span className={`tb-deploy-menu-branch rnd-branch-${branchKind(currentBranch)}`}>{currentBranch}</span>
-                            )}
+                            {runsBranch && branch && <span className={`tb-deploy-menu-branch rnd-branch-${branchKind(branch)}`}>{branch}</span>}
                         </button>
                         {deployed && (
                             <Tooltip
@@ -207,7 +205,7 @@ function DeployChip({ job, cell, repo }: { job: RundeckJob; cell: MatrixCell | n
                                     className="env-dd-item"
                                     role="menuitem"
                                     onClick={checkoutBranch}
-                                    disabled={checkingOut || deployed === currentBranch}>
+                                    disabled={checkingOut || deployed === branch}>
                                     <IconGit size={12} />
                                     <span>{checkingOut ? "checking out…" : "checkout"}</span>
                                 </button>

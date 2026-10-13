@@ -6,9 +6,50 @@ fn main() {
     record_helper("sikemux-voice", "VOICE");
     record_helper("sikemux-sim", "SIM");
     record_build_identity();
+    sign_core_as_the_app();
     let attributes = tauri_build::Attributes::new()
         .app_manifest(tauri_build::AppManifest::new().commands(IPC_COMMANDS));
     tauri_build::try_build(attributes).expect("failed to prepare Sikemux native capabilities");
+}
+
+/// Agents run under the background core, so macOS asks the user to grant it
+/// screen recording, the camera and the rest under the app's name. The grant
+/// only holds if the core is signed with the app's identifier, which codesign
+/// takes from a property list embedded in the binary.
+fn sign_core_as_the_app() {
+    if std::env::var("CARGO_CFG_TARGET_OS").as_deref() != Ok("macos")
+        || std::env::var("PROFILE").as_deref() != Ok("release")
+    {
+        return;
+    }
+    println!("cargo:rerun-if-changed=tauri.conf.json");
+    let config: serde_json::Value = serde_json::from_slice(
+        &std::fs::read("tauri.conf.json").expect("could not read tauri.conf.json"),
+    )
+    .expect("tauri.conf.json is not valid JSON");
+    let identifier = config["identifier"]
+        .as_str()
+        .expect("tauri.conf.json has no identifier");
+    let plist = std::path::Path::new(&std::env::var("OUT_DIR").unwrap()).join("core-Info.plist");
+    std::fs::write(
+        &plist,
+        format!(
+            r#"<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleIdentifier</key>
+  <string>{identifier}</string>
+</dict>
+</plist>
+"#
+        ),
+    )
+    .expect("could not write the core's Info.plist");
+    println!(
+        "cargo:rustc-link-arg-bin=sikemux-editor=-Wl,-sectcreate,__TEXT,__info_plist,{}",
+        plist.display()
+    );
 }
 
 /// The voice and simulator helpers are published beside each release instead of

@@ -1,3 +1,4 @@
+import { hasUsage } from "../../agents/catalog";
 import { pluginDocuments } from "../../plugins/documents";
 import { taskPtyBindings } from "../../tasks/nativeRuntime";
 import { invalidate } from "../resources";
@@ -6,7 +7,16 @@ import { agentPaneId, editorPaneOf, nextInCycle, ownerSessionId, selectTabRefs, 
 import { collectPanes, cloneLayout, newId } from "../layout";
 import type { Window, WindowRole, TabRef } from "../types";
 import { setEditorView } from "./editor";
-import { closeAgentDesk, closeDocument, dirtyPathsForWindow, guardDiscardDirty, makeWindow, pruneWindowViews, withActiveSession } from "./shared";
+import {
+    closeAgentDesk,
+    closeDocument,
+    dirtyPathsForWindow,
+    guardCloseAgents,
+    guardDiscardDirty,
+    makeWindow,
+    pruneWindowViews,
+    withActiveSession,
+} from "./shared";
 
 /**
  * Drops the fixed editor, diff and search tabs that older sessions were built
@@ -138,10 +148,28 @@ export function duplicateWindow(id: string): void {
 }
 
 export function closeWindowById(id: string): void {
+    closeWindowsById([id]);
+}
+
+/**
+ * Closes these tabs, asking once first if that would stop a busy agent or
+ * lose unsaved edits. `askToStop` is off only for agents already gone from the core.
+ */
+export function closeWindowsById(ids: readonly string[], askToStop = true): void {
     const st = getState();
-    const closing = st.windows[id];
-    if (!closing || closing.fixed) return;
-    guardDiscardDirty(dirtyPathsForWindow(st, closing), "close window", () => closeWindowNow(id));
+    const closing = ids.map((id) => st.windows[id]).filter((win): win is Window => !!win && !win.fixed);
+    if (closing.length === 0) return;
+    const agentIds = closing.flatMap((win) => (win.role === "agent" ? (agentPaneId(win) ?? []) : []));
+    const title =
+        closing.length === 1 && agentIds.length === 1 ? `Close ${st.agents[agentIds[0]]?.title ?? "agent"}?` : `Close ${closing.length} tabs?`;
+    const close = () =>
+        guardDiscardDirty(
+            closing.flatMap((win) => dirtyPathsForWindow(getState(), win)),
+            closing.length === 1 ? "close window" : "close windows",
+            () => closing.forEach((win) => closeWindowNow(win.id)),
+        );
+    if (askToStop) guardCloseAgents(agentIds, title, close);
+    else close();
 }
 
 function closeWindowNow(id: string): void {
@@ -183,7 +211,7 @@ function closeWindowNow(id: string): void {
         for (const paneId of taskPaneIds) taskPtyBindings.release(paneId);
         if (closingAgent) {
             closeAgentDesk(closingAgent.id);
-            if (closingAgent.type === "claude" || closingAgent.type === "codex") {
+            if (hasUsage(closingAgent.type)) {
                 invalidate((kind) => kind === "agents.catalog" || kind === "agents.usage");
             }
         }

@@ -3,7 +3,7 @@ import { lazy, Suspense, useEffect, useRef, useState, useSyncExternalStore } fro
 import { invokeCommand as invoke } from "./api/invoke";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { checkForUpdate } from "./api/updater";
+import { checkForUpdate, UPDATES_IN_APP } from "./api/updater";
 import { reportActive } from "./api/usage";
 import { TopBar } from "./shell/TopBar";
 import { SideRail } from "./rail/SideRail";
@@ -36,7 +36,7 @@ import { CliOpenBridge } from "./shell/CliOpenBridge";
 import { DeepLinkBridge } from "./shell/DeepLinkBridge";
 import { git } from "./api/git";
 import { runKeybindingAction, useKeymap } from "./commands/keymap";
-import { getKeybindingAction } from "./commands/keybindings";
+import { getKeybindingAction, QUIT_AND_STOP_SHORTCUT } from "./commands/keybindings";
 import { usePinchZoom } from "./shell/pinchZoom";
 import { introduceNotifications, useAgentNotifications } from "./agents/agentNotifications";
 import { useVoiceDictation } from "./voice/dictation";
@@ -52,8 +52,8 @@ import { fsapi } from "./api/fs";
 import { emit } from "./state/bus";
 import * as cmd from "./state/commands";
 import { offerSavedSessions, restoreCoreSessions } from "./workspace/restoreCoreSessions";
+import { startSpareShells } from "./terminal/spareShell";
 import { coreSessionsApi } from "./api/coreSessions";
-import { IS_MACOS } from "./lib/platform";
 import { applyHydrate, canFlushPersist, flushPersist, hydrationAllowsPersistence, subscribePersist, type HydrationResult } from "./state/persist";
 import {
     dispatchFolder,
@@ -647,7 +647,7 @@ function ApplicationCommandPalette() {
             title: "Quit and Stop Everything",
             detail: "Stop every terminal, terminal agent and task, then quit. Plain Quit leaves them running.",
             category: "Application",
-            shortcut: IS_MACOS ? "⌥⌘Q" : undefined,
+            shortcut: QUIT_AND_STOP_SHORTCUT ?? undefined,
             execute: runStandalone("app.quit-and-stop-everything", () => void quitAndStopEverything()),
         },
         {
@@ -748,6 +748,7 @@ export default function App() {
     useEffect(() => {
         let disposed = false;
         let unsub = () => {};
+        let stopSpareShells = () => {};
         let bootFinished = false;
         let hydrationResult: HydrationResult | null = null;
         const bootSpan = performanceTelemetry.startTrace("startup.boot");
@@ -812,6 +813,7 @@ export default function App() {
                     setBootReady(true);
                     introduceNotifications();
                     void restoreCoreSessions();
+                    stopSpareShells = startSpareShells();
                 }
                 finishBoot(disposed ? "cancelled" : writable ? "success" : "error");
             });
@@ -819,6 +821,7 @@ export default function App() {
             disposed = true;
             finishBoot("cancelled");
             unsub();
+            stopSpareShells();
             workbenchRuntime.stop();
         };
     }, []);
@@ -881,7 +884,7 @@ export default function App() {
     }, []);
 
     useEffect(() => {
-        if (import.meta.env.DEV) return;
+        if (import.meta.env.DEV || !UPDATES_IN_APP) return;
         const firstCheck = window.setTimeout(() => void checkForUpdate(), 4000);
         const poll = window.setInterval(() => void checkForUpdate(), 30 * 60_000);
         return () => {

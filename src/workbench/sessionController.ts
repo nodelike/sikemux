@@ -160,29 +160,33 @@ export class SessionController {
         private readonly registry: Pick<WorkbenchItemRegistry, "create"> = workbenchItemRegistry,
     ) {}
 
-    reconcile(session: Session, windows: readonly Window[], activeSessionId: string): void {
-        if (this.disposed) throw new Error("cannot reconcile a disposed session controller");
-        if (session.id !== this.sessionId) throw new Error("session controller received a different session");
-
+    /** Lets go of items that left this session, so another session can claim them in the same pass. */
+    release(windows: readonly Window[]): void {
+        if (this.disposed) return;
         const next = new Map<ItemId, WorkbenchItemRef>();
         for (const window of windows) {
             for (const pane of collectPanes(window.root)) {
                 const ref = createWorkbenchItemRef(pane.id, pane.kind);
                 next.set(ref.id, ref);
-                const current = this.items.get(ref.id);
-                if (current?.ref.kind === ref.kind) continue;
-                if (current) {
-                    this.items.delete(ref.id);
-                    this.retire(current);
-                }
-                this.items.set(ref.id, createOwnedItemRuntime(ref, this.registry));
             }
         }
-
         for (const [id, current] of this.items) {
-            if (next.has(id)) continue;
+            if (next.get(id)?.kind === current.ref.kind) continue;
             this.items.delete(id);
             this.retire(current);
+        }
+    }
+
+    reconcile(session: Session, windows: readonly Window[], activeSessionId: string): void {
+        if (this.disposed) throw new Error("cannot reconcile a disposed session controller");
+        if (session.id !== this.sessionId) throw new Error("session controller received a different session");
+
+        this.release(windows);
+        for (const window of windows) {
+            for (const pane of collectPanes(window.root)) {
+                const ref = createWorkbenchItemRef(pane.id, pane.kind);
+                if (!this.items.has(ref.id)) this.items.set(ref.id, createOwnedItemRuntime(ref, this.registry));
+            }
         }
 
         const activeWindow = windows.find((window) => window.id === session.activeWindowId);

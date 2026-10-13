@@ -4,7 +4,6 @@ import { FontView } from "./FontView";
 import { HexView } from "./HexView";
 import { ImageView } from "./ImageView";
 import { MediaView } from "./MediaView";
-import { PdfView } from "./PdfView";
 import { previewUrl, viewerKind } from "./fileKinds";
 import { ViewerBar, ViewerMessage } from "./ViewerBar";
 
@@ -37,8 +36,6 @@ export default function FileViewer({ viewer, visible, onReload }: { viewer: View
         case "video":
         case "audio":
             return <MediaView key={url} kind={kind} visible={visible} {...props} />;
-        case "pdf":
-            return <PdfView key={url} {...props} />;
         case "font":
             return <FontView key={url} {...props} />;
         case "document":

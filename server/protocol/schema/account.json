@@ -49,9 +49,14 @@
           "description": "Only while deleting: when the account is deleted for good unless restored first.",
           "type": "string",
           "format": "date-time"
+        },
+        "restorableDays": {
+          "description": "How many days a deleted account can still be restored: deletesAt is this long after the deletion.",
+          "type": "integer",
+          "minimum": 1
         }
       },
-      "required": ["status"],
+      "required": ["status", "restorableDays"],
       "additionalProperties": false
     }
   }

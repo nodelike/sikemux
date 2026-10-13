@@ -157,6 +157,8 @@ export const TOOL_ROWS = {
     jira_comment: { verb: "comment", kind: "edit", icon: "message", target: ["{key}"], detail: ["{site}"], plugin: "sikemux.jira" },
     jira_transition: { verb: "move", kind: "move", icon: "status", target: ["{key} to {to}", "{key}"], detail: ["{site}"], plugin: "sikemux.jira" },
     jira_create: { verb: "create", kind: "edit", icon: "square-plus", target: ["{summary}"], detail: ["{project}"], plugin: "sikemux.jira" },
+    jira_edit: { verb: "edit", kind: "edit", icon: "issue", target: ["{key}"], detail: ["{site}"], plugin: "sikemux.jira" },
+    jira_link: { verb: "link", kind: "edit", icon: "link", target: ["{key} {relation} {other}"], detail: ["{site}"], plugin: "sikemux.jira" },
     jira_worklog: { verb: "log", kind: "edit", icon: "clock", target: ["{key}"], detail: ["{time}"], plugin: "sikemux.jira" },
     signoz_services: {
         verb: "service",

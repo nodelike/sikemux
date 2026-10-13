@@ -195,12 +195,13 @@ struct RowLine: View {
                 .lineLimit(1)
                 .frame(maxWidth: .infinity, alignment: .leading)
             if agent.subagents > 0 { SubagentCount(count: agent.subagents) }
+            if agent.tasks > 0 { ShellCount(count: agent.tasks) }
             ProjectLabel(project: agent.project).frame(maxWidth: 150, alignment: .trailing).fixedSize()
             if agent.state != .idle {
                 SinceText(state: agent.state, since: store.since[agent.id]).frame(minWidth: 44, alignment: .trailing)
                 StateMark(state: agent.state)
-            } else if agent.background {
-                StillRunning()
+            } else if let word = agent.status.word {
+                Text(word).font(Theme.ui(11.5)).foregroundStyle(Theme.inkFaint)
             }
         }
     }

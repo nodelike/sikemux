@@ -90,23 +90,20 @@ impl From<serde_json::Error> for SlackError {
 
 impl From<SlackError> for PluginError {
     fn from(error: SlackError) -> Self {
-        let (category, status) = match &error {
-            SlackError::Unconfigured => ("unconfigured", None),
-            SlackError::Auth(_) => ("auth", None),
-            SlackError::MissingScope(_) => ("forbidden", Some(403)),
-            SlackError::RateLimited { .. } => ("rate-limited", Some(429)),
-            SlackError::Api(_) => ("slack", None),
-            SlackError::Http { status, .. } => ("http", Some(*status)),
-            SlackError::BadArg(_) => ("bad-params", None),
-            SlackError::NotFound(_) => ("not-found", Some(404)),
-            SlackError::Keychain(_) => ("keychain", None),
-            SlackError::Transport(_) => ("slack", None),
-            SlackError::Response(_) => ("response", None),
-        };
-        let plugin_error = PluginError::new(category, error.to_string());
-        match status {
-            Some(status) => plugin_error.with_status(status),
-            None => plugin_error,
+        let message = error.to_string();
+        match error {
+            SlackError::Unconfigured => PluginError::new("unconfigured", message),
+            SlackError::Auth(_) => PluginError::new("auth", message),
+            SlackError::MissingScope(_) => PluginError::forbidden(message),
+            SlackError::RateLimited { .. } => {
+                PluginError::new("rate-limited", message).with_status(429)
+            }
+            SlackError::Api(_) | SlackError::Transport(_) => PluginError::new("slack", message),
+            SlackError::Http { status, .. } => PluginError::http(status, message),
+            SlackError::BadArg(_) => PluginError::new("bad-params", message),
+            SlackError::NotFound(_) => PluginError::new("not-found", message).with_status(404),
+            SlackError::Keychain(_) => PluginError::new("keychain", message),
+            SlackError::Response(_) => PluginError::new("response", message),
         }
     }
 }

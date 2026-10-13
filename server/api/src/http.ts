@@ -3,6 +3,7 @@ import {
   type ApiError,
   type Definitions,
   type ErrorCode,
+  type ErrorDetail,
 } from "@sikemux/protocol";
 import type { Context, MiddlewareHandler } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
@@ -16,16 +17,36 @@ export interface Env {
   };
 }
 
+/** What an error says beyond its code and message, such as how recently to verify again. */
+export type ErrorExtras = Omit<ErrorDetail, "code" | "message" | "requestId">;
+
 /** Thrown by a handler to answer with an error the caller can act on. */
 export class ApiFailure extends Error {
   readonly status: ContentfulStatusCode;
   readonly code: ErrorCode;
+  readonly extras: ErrorExtras;
 
-  constructor(status: ContentfulStatusCode, code: ErrorCode, message: string) {
+  constructor(
+    status: ContentfulStatusCode,
+    code: ErrorCode,
+    message: string,
+    extras: ErrorExtras = {},
+  ) {
     super(message);
     this.status = status;
     this.code = code;
+    this.extras = extras;
   }
+}
+
+/** The body of every error the API answers, HTTP or a refused WebSocket upgrade. */
+export function errorBody(
+  requestId: string,
+  code: ErrorCode,
+  message: string,
+  extras: ErrorExtras = {},
+): ApiError {
+  return { error: { code, message, requestId, ...extras } };
 }
 
 export function errorResponse(
@@ -33,11 +54,9 @@ export function errorResponse(
   status: ContentfulStatusCode,
   code: ErrorCode,
   message: string,
+  extras: ErrorExtras = {},
 ) {
-  const body: ApiError = {
-    error: { code, message, requestId: c.get("requestId") },
-  };
-  return c.json(body, status);
+  return c.json(errorBody(c.get("requestId"), code, message, extras), status);
 }
 
 /** Gives each request an id, a logger that carries it, and one log line when it finishes. */

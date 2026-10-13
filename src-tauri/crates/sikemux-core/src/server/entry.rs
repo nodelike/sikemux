@@ -168,7 +168,7 @@ pub fn main(args: impl Iterator<Item = String>, build: BuildIdentity) -> i32 {
 fn with_system_path(path: &str) -> Option<String> {
     let mut parts: Vec<&str> = path.split(':').filter(|part| !part.is_empty()).collect();
     let before = parts.len();
-    for system in ["/usr/bin", "/bin", "/usr/sbin", "/sbin"] {
+    for system in sikemux_process::paths::SYSTEM_PATH {
         if !parts.contains(&system) {
             parts.push(system);
         }

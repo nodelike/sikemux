@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { ActivityIndicator, Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
+import { basename } from '@mac/lib/paths';
 import { Icon } from '@/ui/Icon';
 import { fonts, type Palette, useColors, useStyles } from '@/ui/theme';
 import { useHostFile } from './hostFiles';
@@ -9,10 +10,6 @@ import { sizeLabel } from './pick';
 import type { Attachment } from './session';
 
 const IMAGE_PATH = /\.(jpe?g|png|gif|webp|heic|heif|bmp|tiff?)$/i;
-
-function baseName(path: string): string {
-  return path.split(/[\\/]/).filter(Boolean).pop() ?? path;
-}
 
 function FileChip({ name, size, image, tall }: { name: string; size?: number; image?: boolean; tall?: boolean }) {
   const colors = useColors();
@@ -104,7 +101,7 @@ function SentImage({ path, picked }: { path: string; picked?: Attachment }) {
   const [open, setOpen] = useState(false);
   const fetched = useHostFile(path, !picked);
   const uri = picked?.uri ?? fetched;
-  const name = picked?.name ?? baseName(path);
+  const name = picked?.name ?? basename(path);
   return (
     <>
       <Pressable onPress={() => setOpen(true)} accessibilityRole="imagebutton" accessibilityLabel={`${name}, open`}>
@@ -124,8 +121,8 @@ export function SentAttachments({ paths, sentFiles }: { paths: readonly string[]
         const picked = sentFiles.get(path);
         if (picked ? picked.kind === 'image' : IMAGE_PATH.test(path)) return <SentImage key={path} path={path} picked={picked} />;
         return (
-          <View key={path} accessible accessibilityLabel={`File ${baseName(path)}`}>
-            <FileChip name={picked?.name ?? baseName(path)} size={picked?.size} />
+          <View key={path} accessible accessibilityLabel={`File ${basename(path)}`}>
+            <FileChip name={picked?.name ?? basename(path)} size={picked?.size} />
           </View>
         );
       })}

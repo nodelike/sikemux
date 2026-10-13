@@ -38,7 +38,7 @@ export function agentMenu(
             : []),
         { sep: true },
         { label: "Close", hint: hints.close, run: () => cmd.closeAgent(agent.id) },
-        { label: "Close Others", disabled: others.length === 0, run: () => others.forEach((x) => cmd.closeAgent(x.id)) },
+        { label: "Close Others", disabled: others.length === 0, run: () => cmd.closeAgents(others.map((x) => x.id)) },
     ];
     if (cmd.agentSupportsSkipPermissions(agent.type)) {
         const skip = agent.permissionMode === "bypass" || agent.skipPermissions === true;

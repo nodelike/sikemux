@@ -1,0 +1,74 @@
+{
+    "agents": [
+        {
+            "type": "claude",
+            "label": "Claude",
+            "command": "claude",
+            "brand": "#d97757",
+            "accounts": true,
+            "usage": true,
+            "deletableChats": true,
+            "bypass": true
+        },
+        {
+            "type": "codex",
+            "label": "Codex",
+            "command": "codex",
+            "brand": "#7a9dff",
+            "accounts": true,
+            "usage": true,
+            "deletableChats": true,
+            "bypass": true
+        },
+        {
+            "type": "hermes",
+            "label": "Hermes",
+            "command": "hermes",
+            "brand": "#e0a050",
+            "accounts": false,
+            "usage": false,
+            "deletableChats": false,
+            "bypass": true
+        },
+        {
+            "type": "pi",
+            "label": "Pi",
+            "command": "pi",
+            "brand": "#7dd3fc",
+            "accounts": false,
+            "usage": false,
+            "deletableChats": false,
+            "bypass": false
+        },
+        {
+            "type": "opencode",
+            "label": "OpenCode",
+            "command": "opencode",
+            "brand": "#a78bfa",
+            "accounts": false,
+            "usage": false,
+            "deletableChats": false,
+            "bypass": false
+        },
+        {
+            "type": "omp",
+            "label": "OMP",
+            "command": "omp",
+            "brand": "#f97316",
+            "accounts": false,
+            "usage": false,
+            "deletableChats": false,
+            "bypass": true
+        },
+        {
+            "type": "grok",
+            "label": "Grok",
+            "command": "grok",
+            "brand": "#fcfcfc",
+            "accounts": false,
+            "usage": false,
+            "deletableChats": false,
+            "bypass": true
+        }
+    ]
+}

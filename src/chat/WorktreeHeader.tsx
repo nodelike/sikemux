@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import { git } from "../api/git";
 import { branchMergedLocally } from "../agents/worktreePlan";
-import { pullMerged, useBranchPull, useHostRepo } from "../codehost/project";
+import { PULL_STATE_LABEL, pullMerged, pullState, useBranchPull, useHostRepo } from "../codehost/project";
 import { subscribe } from "../state/bus";
 import * as cmd from "../state/commands";
 import { invalidate, resource, useResourceEnabled } from "../state/resources";
@@ -9,7 +9,6 @@ import type { AgentWorktree } from "../state/types";
 import { IconPullRequest } from "../ui/Icons";
 import "../styles/chat/worktree.css";
 
-const PULL_STATE_LABEL: Record<string, string> = { open: "Open", draft: "Draft", merged: "Merged", closed: "Closed" };
 const RECHECK_AFTER_CHANGE_MS = 1_500;
 
 const worktreeMergedR = resource({
@@ -55,7 +54,7 @@ export default function WorktreeHeader({ agentId, worktree, visible }: { agentId
     useRecheckOnChange(worktree, visible && !!worktree.base);
     const prMerged = pullMerged(pull);
     const merged = prMerged || local.data === true;
-    const state = prMerged ? "merged" : pull?.draft && pull.state === "open" ? "draft" : (pull?.state ?? "");
+    const state = pull ? pullState(pull) : "";
     return (
         <>
             {pull && (

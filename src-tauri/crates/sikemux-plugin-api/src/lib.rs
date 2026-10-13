@@ -4,6 +4,7 @@
 
 mod error;
 mod manifest;
+pub mod watch;
 
 use std::future::Future;
 use std::path::{Path, PathBuf};

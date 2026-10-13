@@ -69,6 +69,7 @@ const archs = {
 if (!archs) fail(`unsupported target ${target}`);
 
 run("node", [join(root, "scripts", "generate-notch-icons.mjs"), "--check"]);
+run("node", [join(root, "scripts", "generate-notch-sources.mjs"), "--check"]);
 
 const swiftArgs = [
   "build",

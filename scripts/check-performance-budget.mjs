@@ -144,11 +144,12 @@ const budgets = [
     // out from the bottom, and tool rows draw an icon for what each call does.
     // A sent message can be opened again, edited and sent in its place.
     // GitLab's agent tools add their rows, and so do Slack's. A finished
-    // answer folds its work under how long it took.
+    // answer folds its work under how long it took. Subagents nest in their
+    // cards, and a table copies as markdown.
     label: "ACP chat lazy chunk",
     pattern: /^AgentSurface-.*\.js$/,
-    raw: 141_000,
-    gzip: 44_000,
+    raw: 146_000,
+    gzip: 45_000,
   },
   {
     // Shiki, its JavaScript regex engine and vscode-textmate, with no

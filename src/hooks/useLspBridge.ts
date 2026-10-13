@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { documentLanguageIdFromPath, languageFromPath, lsp, type LspTextChange } from "../api/lsp";
+import { languageFromPath, loadServedLanguages, lsp, type LspTextChange } from "../api/lsp";
+import { documentLanguageOf } from "../languages";
 import { languageServersAllowed } from "../editor/languageServerTrust";
 import { dismissToast, errCategory, errMessage, notify, swallow } from "../state/toast";
 import { projectDiagnosticsRuntime, type ProjectDiagnosticsLease } from "../workbench/projectDiagnostics";
@@ -139,7 +140,7 @@ export function useLspBridge(cwd: string) {
         async (lang: string, path: string, content: string, key: string): Promise<void> => {
             if (!(await startServer(lang))) return;
             if (!opened.current.has(key)) {
-                await lsp.open(cwd, lang, path, content, documentLanguageIdFromPath(path) ?? lang);
+                await lsp.open(cwd, lang, path, content, documentLanguageOf(path) ?? lang);
                 versions.current.set(path, 1);
                 opened.current.add(key);
                 return;
@@ -151,9 +152,11 @@ export function useLspBridge(cwd: string) {
     );
 
     const openDoc = useCallback(
-        (path: string, content: string): Promise<void> => {
+        async (path: string, content: string): Promise<void> => {
+            if (!cwd) return;
+            await loadServedLanguages();
             const lang = languageFromPath(path);
-            if (!lang || !cwd) return Promise.resolve();
+            if (!lang) return;
             const key = openKey(lang, path);
             return enqueue(path, async () => {
                 try {
@@ -204,7 +207,7 @@ export function useLspBridge(cwd: string) {
                             // If a user edits before the didOpen handshake settles, open with
                             // the latest full document and drop the queued deltas — applying
                             // them after didOpen would duplicate the edit.
-                            await lsp.open(cwd, lang, path, (fullGetter ?? getContent)(), documentLanguageIdFromPath(path) ?? lang);
+                            await lsp.open(cwd, lang, path, (fullGetter ?? getContent)(), documentLanguageOf(path) ?? lang);
                             versions.current.set(path, 1);
                             opened.current.add(key);
                             return;
@@ -243,7 +246,7 @@ export function useLspBridge(cwd: string) {
                     const key = openKey(lang, path);
                     if (content != null) {
                         if (!opened.current.has(key)) {
-                            await lsp.open(cwd, lang, path, content, documentLanguageIdFromPath(path) ?? lang);
+                            await lsp.open(cwd, lang, path, content, documentLanguageOf(path) ?? lang);
                             versions.current.set(path, 1);
                             opened.current.add(key);
                         } else {

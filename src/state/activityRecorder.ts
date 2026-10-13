@@ -1,4 +1,5 @@
 import { activityApi } from "../api/activity";
+import { profileOf } from "./commands/agentLaunchCommand";
 import { agentWindowId, ownerSessionId } from "./selectors";
 import { useStore, type StoreState } from "./store";
 import type { Agent } from "./types";
@@ -11,8 +12,7 @@ function agentCwd(state: StoreState, agent: Agent): string | undefined {
 }
 
 function agentConfigPath(state: StoreState, agent: Agent): string | undefined {
-    if (!agent.profileId) return undefined;
-    return state.providerProfiles.find((profile) => profile.id === agent.profileId && profile.provider === agent.type)?.configPath;
+    return profileOf(state, agent)?.configPath;
 }
 
 const isWorking = (state: StoreState, id: string): boolean => state.agentActivity[id]?.backendState === "working";

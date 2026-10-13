@@ -1,8 +1,9 @@
-import { createPluginBackend, isPluginFailure } from "../../plugin-api/backend";
-import { invalidate } from "../../plugin-api/resources";
+import { createPluginBackend, type PluginStreamHandlers } from "../../plugin-api/backend";
 import { SIGNOZ_PLUGIN_ID } from "./kinds";
 
-const backend = createPluginBackend(SIGNOZ_PLUGIN_ID);
+export { failureMessage } from "../../plugin-api/backend";
+
+const backend = createPluginBackend(SIGNOZ_PLUGIN_ID, { signInStatus: (kind) => kind === "signoz.status" });
 
 export type AuthMode = "session" | "apiKey";
 
@@ -241,29 +242,6 @@ export interface PanelRequest extends Scope {
     variables: Record<string, string>;
 }
 
-export function failureMessage(error: unknown): string {
-    return isPluginFailure(error) ? error.message : String(error);
-}
-
-function isSignedOut(error: unknown): boolean {
-    if (!isPluginFailure(error)) return false;
-    return (
-        error.category === "auth" ||
-        error.category === "unconfigured" ||
-        (error.category === "http" && (error.status === 401 || error.status === 403))
-    );
-}
-
-/** A lapsed session makes every cached answer stale, so the next read lands on the sign-in form. */
-async function read<T>(method: string, params?: unknown): Promise<T> {
-    try {
-        return await backend.call<T>(method, params);
-    } catch (error) {
-        if (isSignedOut(error)) invalidate((kind) => kind.startsWith("signoz."));
-        throw error;
-    }
-}
-
 export const signozApi = {
     status: () => backend.call<SignozStatus>("status"),
     inspect: (url: string, email?: string) => backend.call<Inspection>("inspect", { url, email }),
@@ -271,20 +249,19 @@ export const signozApi = {
     useApiKey: (url: string, apiKey?: string, account?: string) => backend.call<SignozStatus>("useApiKey", { url, apiKey, account }),
     signOut: () => backend.call<void>("signOut"),
 
-    services: (scope: Scope) => read<ServiceHealth[]>("services", scope),
-    serviceOverview: (scope: Scope) => read<ServiceOverview>("serviceOverview", scope),
-    operations: (scope: Scope) => read<Operation[]>("operations", scope),
-    errorGroups: (scope: Scope) => read<ErrorGroup[]>("errorGroups", scope),
-    searchLogs: (search: LogSearch) => read<LogPage>("searchLogs", { ...search, view: "pane" }),
-    searchTraces: (search: TraceSearch) => read<TracePage>("searchTraces", search),
-    trace: (traceId: string) => read<Trace>("trace", { traceId, view: "pane" }),
-    logVolume: (search: LogSearch & { buckets?: number }) => read<VolumeBucket[]>("logVolume", search),
-    dashboards: () => read<DashboardSummary[]>("dashboards"),
-    dashboard: (id: string) => read<Dashboard>("dashboard", { id, view: "pane" }),
-    panel: (request: PanelRequest) => read<PanelData>("panel", request),
-    fieldKeys: (signal: Signal, search: string) => read<FieldKey[]>("fieldKeys", { signal, search }),
-    fieldValues: (signal: Signal, name: string, search: string) => read<string[]>("fieldValues", { signal, name, search }),
+    services: (scope: Scope) => backend.call<ServiceHealth[]>("services", scope),
+    serviceOverview: (scope: Scope) => backend.call<ServiceOverview>("serviceOverview", scope),
+    operations: (scope: Scope) => backend.call<Operation[]>("operations", scope),
+    errorGroups: (scope: Scope) => backend.call<ErrorGroup[]>("errorGroups", scope),
+    searchLogs: (search: LogSearch) => backend.call<LogPage>("searchLogs", { ...search, view: "pane" }),
+    searchTraces: (search: TraceSearch) => backend.call<TracePage>("searchTraces", search),
+    trace: (traceId: string) => backend.call<Trace>("trace", { traceId, view: "pane" }),
+    logVolume: (search: LogSearch & { buckets?: number }) => backend.call<VolumeBucket[]>("logVolume", search),
+    dashboards: () => backend.call<DashboardSummary[]>("dashboards"),
+    dashboard: (id: string) => backend.call<Dashboard>("dashboard", { id, view: "pane" }),
+    panel: (request: PanelRequest) => backend.call<PanelData>("panel", request),
+    fieldKeys: (signal: Signal, search: string) => backend.call<FieldKey[]>("fieldKeys", { signal, search }),
+    fieldValues: (signal: Signal, name: string, search: string) => backend.call<string[]>("fieldValues", { signal, name, search }),
 
-    tailStart: (search: LogSearch, onTick: (tick: TailTick) => void) => backend.openStream<TailTick>("tailLogs", search, onTick),
-    tailStop: (id: number) => backend.closeStream(id),
+    tail: (search: LogSearch, handlers: PluginStreamHandlers<TailTick>) => backend.stream<TailTick>("tailLogs", search, handlers),
 };

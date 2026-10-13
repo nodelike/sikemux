@@ -1,5 +1,5 @@
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use rayon::prelude::*;
 use serde_json::Value;
@@ -14,11 +14,58 @@ use crate::agents::config::agent_config_root;
 use crate::agents::AgentSession;
 
 // ---- claude — ~/.claude/projects/<cwd-dashed>/<uuid>.jsonl --------------
+const MAX_PROJECT_DIR_NAME: usize = 200;
+
+/// Claude Code turns every character of the cwd that is not an ASCII letter or digit into
+/// `-`, counting UTF-16 units, and cuts names past 200 characters before adding a hash.
+pub(crate) fn claude_project_dir(root: &Path, cwd: &str) -> PathBuf {
+    let projects = root.join("projects");
+    let mut name = String::new();
+    for c in cwd.chars() {
+        if c.is_ascii_alphanumeric() {
+            name.push(c);
+        } else {
+            name.extend(std::iter::repeat_n('-', c.len_utf16()));
+        }
+    }
+    if name.len() <= MAX_PROJECT_DIR_NAME {
+        return projects.join(name);
+    }
+    let prefix = format!("{}-", &name[..MAX_PROJECT_DIR_NAME]);
+    fs::read_dir(&projects)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|entry| entry.path())
+        .find(|path| {
+            path.file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| name.starts_with(&prefix))
+        })
+        .unwrap_or_else(|| projects.join(prefix))
+}
+
+/// A session's transcript, looked up in its project's folder first and then in every project.
+pub(crate) fn claude_transcript(root: &Path, cwd: &str, session_id: &str) -> PathBuf {
+    let file_name = format!("{session_id}.jsonl");
+    let expected = claude_project_dir(root, cwd).join(&file_name);
+    if expected.is_file() {
+        return expected;
+    }
+    fs::read_dir(root.join("projects"))
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|entry| entry.path().join(&file_name))
+        .find(|path| path.is_file())
+        .unwrap_or(expected)
+}
+
 pub(super) fn claude_sessions(cwd: &str, config_path: Option<&str>) -> Vec<AgentSession> {
     let Some(root) = agent_config_root("claude", config_path) else {
         return Vec::new();
     };
-    let dir = root.join("projects").join(cwd.replace('/', "-"));
+    let dir = claude_project_dir(&root, cwd);
     let Ok(entries) = fs::read_dir(&dir) else {
         return Vec::new();
     };
@@ -54,8 +101,7 @@ pub(super) fn claude_recent(scan: &PageScan<'_>, config_path: Option<&str>) -> V
     };
     let mut listed = Vec::new();
     for project in scan.projects() {
-        let Ok(entries) = fs::read_dir(root.join("projects").join(project.replace('/', "-")))
-        else {
+        let Ok(entries) = fs::read_dir(claude_project_dir(&root, project)) else {
             continue;
         };
         for path in entries
@@ -198,7 +244,16 @@ fn claude_title(path: &Path) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{claude_sessions, CLAUDE_HEAD_BYTES};
+    use super::{claude_project_dir, claude_sessions, CLAUDE_HEAD_BYTES};
+
+    #[test]
+    fn project_folders_dash_every_character_claude_code_does() {
+        let root = std::path::Path::new("/c");
+        assert_eq!(
+            claude_project_dir(root, "/Users/me/.superset/my_repo v2"),
+            root.join("projects/-Users-me--superset-my-repo-v2")
+        );
+    }
 
     #[test]
     fn claude_sessions_omit_titleless_command_artifacts() {

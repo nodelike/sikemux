@@ -176,12 +176,7 @@ pub fn build(source: &Path) -> Result<String, String> {
 }
 
 fn resolve(folder: &Path, reference: &str) -> PathBuf {
-    if let Some(rest) = reference.strip_prefix("~/") {
-        if let Some(home) = std::env::var_os("HOME") {
-            return PathBuf::from(home).join(rest);
-        }
-    }
-    folder.join(reference)
+    folder.join(sikemux_process::paths::expand_home(reference))
 }
 
 fn image_data(path: &Path) -> Result<Option<String>, String> {

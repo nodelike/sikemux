@@ -1,16 +1,12 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
-import type { LogTick } from "../api";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { PluginStreamHandlers } from "../../../plugin-api/backend";
+import type { LogTick, WatchUpdate } from "../api";
 
-const { watchStart, watchStop, logsStart, logsStop } = vi.hoisted(() => ({
-    watchStart: vi.fn(),
-    watchStop: vi.fn(() => Promise.resolve()),
-    logsStart: vi.fn(),
-    logsStop: vi.fn(() => Promise.resolve()),
-}));
+const { watch, logs } = vi.hoisted(() => ({ watch: vi.fn(), logs: vi.fn() }));
 vi.mock("../api", () => ({
-    rundeckApi: { watchStart, watchStop, logsStart, logsStop, abort: vi.fn(), jobDetail: () => new Promise(() => {}) },
-    errorMessage: (e: unknown) => String(e),
+    rundeckApi: { watch, logs, abort: vi.fn(), jobDetail: () => new Promise(() => {}) },
+    failureMessage: (e: unknown) => String(e),
 }));
 vi.mock("../../../plugin-api/ui", async (importOriginal) => ({ ...(await importOriginal<object>()), VirtualLogList: () => null }));
 
@@ -19,13 +15,20 @@ import { appendLogTick } from "./useExecutionStreams";
 
 const level = { kind: "execution" as const, executionId: 42, project: "ops", jobId: "job-1", name: "api", group: null };
 
-function deferred<T>() {
-    let resolve!: (value: T) => void;
-    const promise = new Promise<T>((res) => {
-        resolve = res;
-    });
-    return { promise, resolve };
+interface Stream<Item> {
+    handlers: PluginStreamHandlers<Item>;
+    stop: ReturnType<typeof vi.fn>;
 }
+
+const opened = <Item,>(mock: ReturnType<typeof vi.fn>): Stream<Item>[] => mock.mock.results.map((result) => result.value as Stream<Item>);
+
+beforeEach(() => {
+    watch.mockReset().mockImplementation((_id: number, handlers: PluginStreamHandlers<WatchUpdate>) => ({ handlers, stop: vi.fn() }));
+    logs.mockReset().mockImplementation((_id: number, _offset: string | null, handlers: PluginStreamHandlers<LogTick>) => ({
+        handlers,
+        stop: vi.fn(),
+    }));
+});
 
 function setHidden(hidden: boolean) {
     Object.defineProperty(document, "hidden", { configurable: true, get: () => hidden });
@@ -37,62 +40,42 @@ afterEach(() => {
 });
 
 describe("RundeckExecution", () => {
-    it("stops subscriptions whose ids arrive after unmount", async () => {
-        const watch = deferred<number>();
-        const logs = deferred<number>();
-        watchStart.mockReset().mockReturnValue(watch.promise);
-        logsStart.mockReset().mockReturnValue(logs.promise);
-        watchStop.mockClear();
-        logsStop.mockClear();
-
+    it("stops both streams when it closes", () => {
         const { unmount } = render(<RundeckExecution paneId="pane" active level={level} />);
         unmount();
-        await act(async () => {
-            watch.resolve(7);
-            logs.resolve(8);
-        });
-
-        expect(watchStop).toHaveBeenCalledWith(7);
-        expect(logsStop).toHaveBeenCalledWith(8);
+        expect(opened(watch)[0].stop).toHaveBeenCalled();
+        expect(opened(logs)[0].stop).toHaveBeenCalled();
     });
 
     it("resumes the log from the last offset when the window is shown again", async () => {
-        watchStart.mockReset().mockResolvedValue(1);
-        logsStart.mockReset().mockResolvedValue(2);
-        logsStop.mockClear();
-
         const { unmount } = render(<RundeckExecution paneId="pane" active level={level} />);
         await act(async () => {});
-        const onTick = logsStart.mock.calls[0][3] as (tick: LogTick) => void;
-        expect(logsStart.mock.calls[0][1]).toBeNull();
-        act(() => onTick({ entries: [], offset: "1234", completed: false, failed: false, error: null }));
+        expect(logs.mock.calls[0][1]).toBeNull();
+        act(() => opened<LogTick>(logs)[0].handlers.onItem({ entries: [], offset: "1234", completed: false, failed: false, error: null }));
 
         await act(async () => setHidden(true));
-        expect(logsStop).toHaveBeenCalledWith(2);
+        expect(opened(logs)[0].stop).toHaveBeenCalled();
         await act(async () => setHidden(false));
-        expect(logsStart).toHaveBeenCalledTimes(2);
-        expect(logsStart.mock.calls[1][1]).toBe("1234");
+        expect(logs).toHaveBeenCalledTimes(2);
+        expect(logs.mock.calls[1][1]).toBe("1234");
         unmount();
     });
 });
 
 describe("RundeckExecution notices", () => {
     it("offers to say when a running run ends, and then says it will", async () => {
-        watchStart.mockReset().mockImplementation(async (_id: number, onUpdate: (update: unknown) => void) => {
-            onUpdate({
-                execution: { id: 42, status: "running", customStatus: null, job: null, project: "ops", permalink: null },
+        const { unmount } = render(<RundeckExecution paneId="pane" active level={level} />);
+        act(() =>
+            opened<WatchUpdate>(watch)[0].handlers.onItem({
+                execution: { id: 42, status: "running", customStatus: null, job: null, project: "ops", permalink: null } as never,
                 state: null,
                 error: null,
                 terminal: false,
-            });
-            return 1;
-        });
-        logsStart.mockReset().mockResolvedValue(2);
-
-        const { unmount } = render(<RundeckExecution paneId="pane" active level={level} />);
+            }),
+        );
         const button = await screen.findByRole("button", { name: /Notify me/ });
         await act(async () => fireEvent.click(button));
-        expect(watchStart).toHaveBeenCalledTimes(2);
+        expect(watch).toHaveBeenCalledTimes(2);
         expect(screen.getByRole("button", { name: /Will notify/ })).toBeDisabled();
         unmount();
     });

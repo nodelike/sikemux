@@ -4,16 +4,11 @@ import type { PluginStreamHandlers } from "../../plugin-api/backend";
 const fake = vi.hoisted(() => ({
     call: vi.fn(),
     stream: vi.fn(),
-    openStream: vi.fn(),
-    closeStream: vi.fn(),
     invalidate: vi.fn(),
 }));
 
-vi.mock("../../plugin-api/backend", async (importOriginal) => ({
-    ...(await importOriginal<object>()),
-    createPluginBackend: () => fake,
-}));
-vi.mock("../../plugin-api/resources", () => ({ invalidate: fake.invalidate }));
+vi.mock("../../api/plugins", async () => (await import("../../plugin-api/fakeTransport")).fakeTransport(fake));
+vi.mock("../../state/resources", async (importOriginal) => ({ ...(await importOriginal<object>()), invalidate: fake.invalidate }));
 
 import { actionsApi, avatarForEmail, avatarForLogin, failureMessage, githubHostApi, type RunTick } from "./api";
 
@@ -21,9 +16,10 @@ const repo = { provider: "sikemux.github", owner: "nodelike", name: "sikemux" };
 const refused = { category: "auth", message: "github: sign-in failed: Bad credentials" };
 const conflict = { category: "http", message: "github: http 409: the branch moved", status: 409 };
 
-const clearedGithub = () =>
+/** Only the sign-in status is read again: re-reading the answer that just failed would fail again, forever. */
+const recheckedSignIn = () =>
     fake.invalidate.mock.calls.some(
-        ([matches]) => (matches as (kind: string) => boolean)("host.pulls") && !(matches as (kind: string) => boolean)("other.kind"),
+        ([matches]) => (matches as (kind: string) => boolean)("host.status") && !(matches as (kind: string) => boolean)("host.pulls"),
     );
 
 beforeEach(() => {
@@ -31,10 +27,10 @@ beforeEach(() => {
 });
 
 describe("a refused token", () => {
-    it("clears what the GitHub views remember when a write finds out", async () => {
+    it("has the sign-in status read again when a write finds out", async () => {
         fake.call.mockRejectedValue(refused);
         await expect(actionsApi.mergePull(repo, 1, "squash", "a".repeat(40))).rejects.toBe(refused);
-        expect(clearedGithub()).toBe(true);
+        expect(recheckedSignIn()).toBe(true);
     });
 
     it("leaves it alone when a write fails for any other reason", async () => {
@@ -43,26 +39,24 @@ describe("a refused token", () => {
         expect(fake.invalidate).not.toHaveBeenCalled();
     });
 
-    it("clears it when a download is refused", async () => {
+    it("has it read again when a download is refused", async () => {
         fake.stream.mockImplementation((_method: string, _params: unknown, handlers: PluginStreamHandlers<unknown>) => {
             handlers.onError?.(refused);
-            return { stop() {} };
         });
         await expect(actionsApi.downloadArtifact(repo, "3", "build")).rejects.toBe(refused);
-        expect(clearedGithub()).toBe(true);
+        expect(recheckedSignIn()).toBe(true);
     });
 
-    it("clears it when a watched run finds the account signed out", async () => {
+    it("has it read again when a watched run finds the account signed out", () => {
         let onTick: (tick: RunTick) => void = () => {};
-        fake.openStream.mockImplementation((_method: string, _params: unknown, deliver: (tick: RunTick) => void) => {
-            onTick = deliver;
-            return Promise.resolve(1);
+        fake.stream.mockImplementation((_method: string, _params: unknown, handlers: PluginStreamHandlers<RunTick>) => {
+            onTick = handlers.onItem;
         });
         const seen = vi.fn();
-        await actionsApi.watchStart(repo, "7", seen);
+        actionsApi.watch(repo, "7", { onItem: seen });
         onTick({ run: null, jobs: [], error: "github: not signed in", finished: true, fatal: true, signedOut: true });
         expect(seen).toHaveBeenCalledTimes(1);
-        expect(clearedGithub()).toBe(true);
+        expect(recheckedSignIn()).toBe(true);
     });
 });
 
@@ -97,16 +91,16 @@ describe("avatarForEmail", () => {
 });
 
 describe("failures", () => {
-    it("clears the GitHub views when a read finds the token refused by status", async () => {
+    it("has the sign-in status read again when a read finds the token refused by status", async () => {
         fake.call.mockRejectedValue({ category: "http", message: "github: http 401", status: 401 });
         await expect(actionsApi.pulls(repo, "open")).rejects.toMatchObject({ status: 401 });
-        expect(clearedGithub()).toBe(true);
+        expect(recheckedSignIn()).toBe(true);
     });
 
-    it("clears the GitHub views when the host was never set up", async () => {
+    it("has it read again when the host was never set up", async () => {
         fake.call.mockRejectedValue({ category: "unconfigured", message: "github: not signed in" });
         await expect(actionsApi.issues(repo, "open", 1)).rejects.toBeTruthy();
-        expect(clearedGithub()).toBe(true);
+        expect(recheckedSignIn()).toBe(true);
     });
 
     it("drops only the remembered rate limit when GitHub says to slow down", async () => {
@@ -127,13 +121,19 @@ describe("failures", () => {
 
     it("reads the message of a plugin failure and of anything else", () => {
         expect(failureMessage(refused)).toBe("github: sign-in failed: Bad credentials");
-        expect(failureMessage(new Error("boom"))).toBe("Error: boom");
+        expect(failureMessage(new Error("boom"))).toBe("boom");
         expect(failureMessage("plain")).toBe("plain");
     });
 
-    it("does not clear anything when signing in fails", async () => {
+    it("leaves the views alone when signing in fails", async () => {
         fake.call.mockRejectedValue(refused);
         await expect(actionsApi.signIn("github.com", "bad")).rejects.toBe(refused);
+        expect(fake.invalidate.mock.calls.some(([matches]) => (matches as (kind: string) => boolean)("host.pulls"))).toBe(false);
+    });
+
+    it("leaves a 403 alone: the token works, it is just not allowed this", async () => {
+        fake.call.mockRejectedValue({ category: "forbidden", message: "github: not allowed: admin only", status: 403 });
+        await expect(actionsApi.deleteRun(repo, "7")).rejects.toBeTruthy();
         expect(fake.invalidate).not.toHaveBeenCalled();
     });
 });
@@ -221,24 +221,25 @@ describe("downloads", () => {
 });
 
 describe("watching a run", () => {
-    it("hands over ticks with text ids and keeps the views while signed in", async () => {
+    it("hands over ticks with text ids and keeps the views while signed in", () => {
         let onTick: (tick: unknown) => void = () => {};
-        fake.openStream.mockImplementation((_method: string, _params: unknown, deliver: (tick: unknown) => void) => {
-            onTick = deliver;
-            return Promise.resolve(3);
+        fake.stream.mockImplementation((_method: string, _params: unknown, handlers: PluginStreamHandlers<unknown>) => {
+            onTick = handlers.onItem;
         });
         const seen = vi.fn();
-        await expect(actionsApi.watchStart(repo, "7", seen)).resolves.toBe(3);
-        expect(fake.openStream).toHaveBeenCalledWith("watchRun", { ...repo, runId: 7 }, expect.any(Function));
+        actionsApi.watch(repo, "7", { onItem: seen });
+        expect(fake.stream).toHaveBeenCalledWith("watchRun", { ...repo, runId: 7 }, expect.anything());
         onTick({ run: { id: 7, workflowId: 1 }, jobs: [{ id: 5, checkRunId: 6 }], error: null, finished: false, fatal: false, signedOut: false });
         expect(seen.mock.calls[0][0]).toMatchObject({ run: { id: "7" }, jobs: [{ id: "5", checkRunId: "6" }] });
         expect(fake.invalidate).not.toHaveBeenCalled();
     });
 
-    it("clears the views when the watch cannot start for a refused token", async () => {
-        fake.openStream.mockRejectedValue(refused);
-        await expect(actionsApi.watchStart(repo, "7", vi.fn())).rejects.toBe(refused);
-        expect(clearedGithub()).toBe(true);
+    it("has the sign-in status read again when the watch fails for a refused token", () => {
+        const onError = vi.fn();
+        fake.stream.mockImplementation((_method: string, _params: unknown, handlers: PluginStreamHandlers<unknown>) => handlers.onError?.(refused));
+        actionsApi.watch(repo, "7", { onItem: vi.fn(), onError });
+        expect(onError).toHaveBeenCalledWith(refused);
+        expect(recheckedSignIn()).toBe(true);
     });
 });
 
@@ -313,6 +314,6 @@ describe("githubHostApi", () => {
             { id: "1", login: "ada", detail: null, avatarUrl: "https://avatars.githubusercontent.com/ada?s=64", isDefault: true },
             { id: "2", login: "grace", detail: "git.corp.example", avatarUrl: "https://git.corp.example/grace.png?size=64", isDefault: false },
         ]);
-        expect(fake.call).toHaveBeenCalledWith("accounts");
+        expect(fake.call).toHaveBeenCalledWith("accounts", null);
     });
 });

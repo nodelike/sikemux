@@ -1,4 +1,5 @@
 import { useEffect, useId, useState } from "react";
+import { useDebounced } from "../../../plugin-api/hooks";
 import { useResourceEnabled } from "../../../plugin-api/resources";
 import { IconSearch, Switch } from "../../../plugin-api/ui";
 import type { Filter, FilterOp, Signal, TraceOrder } from "../api";
@@ -18,23 +19,14 @@ export const OP_LABELS: Record<FilterOp, string> = {
 
 const takesValue = (op: FilterOp) => op !== "exists" && op !== "not-exists";
 
-function useSettled<T>(value: T): T {
-    const [settled, setSettled] = useState(value);
-    useEffect(() => {
-        const timer = window.setTimeout(() => setSettled(value), TYPE_PAUSE_MS);
-        return () => window.clearTimeout(timer);
-    }, [value]);
-    return settled;
-}
-
 function FilterEditor({ signal, onAdd, onClose }: { signal: Signal; onAdd: (filter: Filter) => void; onClose: () => void }) {
     const [key, setKey] = useState("");
     const [op, setOp] = useState<FilterOp>("equals");
     const [value, setValue] = useState("");
     const keysId = useId();
     const valuesId = useId();
-    const keyTyped = useSettled(key.trim());
-    const valueTyped = useSettled(value.trim());
+    const keyTyped = useDebounced(key.trim(), TYPE_PAUSE_MS);
+    const valueTyped = useDebounced(value.trim(), TYPE_PAUSE_MS);
     const keys = useResourceEnabled(true, signozFieldKeysR, signal, keyTyped);
     const values = useResourceEnabled(!!keyTyped && takesValue(op), signozFieldValuesR, signal, keyTyped, valueTyped);
     const ready = !!key.trim() && (!takesValue(op) || !!value.trim());
@@ -109,7 +101,7 @@ export function FilterBar({ paneId, signal }: { paneId: string; signal: Signal }
     const [showExpression, setShowExpression] = useState(view.expression !== "");
     const [text, setText] = useState(view.text);
     const [expression, setExpression] = useState(view.expression);
-    const settledText = useSettled(text);
+    const settledText = useDebounced(text, TYPE_PAUSE_MS);
 
     useEffect(() => {
         if (settledText !== view.text) updateView(paneId, { text: settledText });

@@ -2,15 +2,15 @@ import type { PushTokenState } from "@sikemux/protocol";
 import { Hono } from "hono";
 import { sql } from "kysely";
 
-import type { AuthEnv } from "../auth.ts";
+import { audit } from "../audit.ts";
+import { requireSession, type AuthEnv } from "../auth.ts";
 import type { Database } from "../db.ts";
+import { consumeChallenge } from "../devices/challenge.ts";
+import { ownedDevice } from "../devices/owned.ts";
 import { pushTokenMessage, signedBy } from "../devices/signature.ts";
 import { ApiFailure, readBody } from "../http.ts";
 import { limit, type RateLimiter } from "../limits.ts";
 import type { PushSettings } from "./settings.ts";
-
-const notYours = () =>
-  new ApiFailure(404, "not_found", "None of your devices has that key.");
 
 /** PUT and DELETE /v1/devices/{key}/push, mounted under the device routes, which sign the caller in. */
 export function pushTokenRoutes(
@@ -22,15 +22,10 @@ export function pushTokenRoutes(
     limit<AuthEnv>(limiter, name, perMinute, (c) => c.get("identity").userId);
 
   return new Hono<AuthEnv>()
+    .use("/:key/push", requireSession())
     .put("/:key/push", perUser("push-token", 20), async (c) => {
-      const { userId, via } = c.get("identity");
+      const { userId } = c.get("identity");
       const key = c.req.param("key");
-      if (via !== "session")
-        throw new ApiFailure(
-          403,
-          "forbidden",
-          "Only the phone registers its push token.",
-        );
       const registration = await readBody(c, "PushTokenRegistration");
       if (
         (registration.platform === "apns") !==
@@ -54,35 +49,10 @@ export function pushTokenRoutes(
           "This server does not deliver through Apple's sandbox.",
         );
 
-      const challenge = await db
-        .deleteFrom("challenges")
-        .where("nonce", "=", registration.nonce)
-        .where("user_id", "=", userId)
-        .where("expires_at", ">", sql<Date>`now()`)
-        .returning("nonce")
-        .executeTakeFirst();
-      if (!challenge)
-        throw new ApiFailure(
-          400,
-          "bad_request",
-          "The challenge is unknown, already used, or expired.",
-        );
+      await consumeChallenge(db, userId, registration.nonce);
 
       const updatedAt = await db.transaction().execute(async (trx) => {
-        const device = await trx
-          .selectFrom("devices")
-          .select("role")
-          .where("key", "=", key)
-          .where("user_id", "=", userId)
-          .forUpdate()
-          .executeTakeFirst();
-        if (!device) throw notYours();
-        if (device.role !== "client")
-          throw new ApiFailure(
-            400,
-            "bad_request",
-            "Only phones receive notifications.",
-          );
+        await ownedDevice(trx, userId, key, { role: "client", lock: true });
         if (
           !signedBy(
             key,
@@ -120,16 +90,13 @@ export function pushTokenRoutes(
           )
           .returning("updated_at")
           .executeTakeFirstOrThrow();
-        await trx
-          .insertInto("audit")
-          .values({
-            user_id: userId,
-            actor: `user:${userId}`,
-            action: "push.enabled",
-            subject: key,
-            detail: JSON.stringify({ platform: registration.platform }),
-          })
-          .execute();
+        await audit(trx, {
+          userId,
+          actor: `user:${userId}`,
+          action: "push.enabled",
+          subject: key,
+          detail: { platform: registration.platform },
+        });
         return row.updated_at;
       });
       c.get("log").info(
@@ -146,27 +113,18 @@ export function pushTokenRoutes(
       const { userId } = c.get("identity");
       const key = c.req.param("key");
       const cleared = await db.transaction().execute(async (trx) => {
-        const device = await trx
-          .selectFrom("devices")
-          .select("key")
-          .where("key", "=", key)
-          .where("user_id", "=", userId)
-          .executeTakeFirst();
-        if (!device) throw notYours();
+        await ownedDevice(trx, userId, key, { role: "client" });
         const removed = await trx
           .deleteFrom("push_tokens")
           .where("device_key", "=", key)
           .executeTakeFirst();
         if (removed.numDeletedRows > 0n)
-          await trx
-            .insertInto("audit")
-            .values({
-              user_id: userId,
-              actor: `user:${userId}`,
-              action: "push.disabled",
-              subject: key,
-            })
-            .execute();
+          await audit(trx, {
+            userId,
+            actor: `user:${userId}`,
+            action: "push.disabled",
+            subject: key,
+          });
         return removed.numDeletedRows > 0n;
       });
       if (cleared)

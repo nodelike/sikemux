@@ -1,5 +1,5 @@
-import { create } from "zustand";
-import { onPaneClosed, openSurface } from "../../plugin-api/host";
+import { openSurface } from "../../plugin-api/host";
+import { definePaneViews } from "../../plugin-api/paneViews";
 import type { SlackThread } from "./api";
 import { SLACK_MESSAGES } from "./kinds";
 
@@ -11,23 +11,10 @@ export interface SlackView {
     thread: { channel: string; ts: string } | null;
 }
 
-const FIRST_VIEW: SlackView = { workspace: "", channel: null, thread: null };
+const views = definePaneViews<SlackView>({ workspace: "", channel: null, thread: null });
 
-const useViews = create<{ views: Record<string, SlackView> }>(() => ({ views: {} }));
-
-onPaneClosed((paneId) =>
-    useViews.setState((state) => {
-        const views = { ...state.views };
-        delete views[paneId];
-        return { views };
-    }),
-);
-
-export const useSlackView = (paneId: string): SlackView => useViews((state) => state.views[paneId] ?? FIRST_VIEW);
-
-export function updateSlackView(paneId: string, change: Partial<SlackView>): void {
-    useViews.setState((state) => ({ views: { ...state.views, [paneId]: { ...(state.views[paneId] ?? FIRST_VIEW), ...change } } }));
-}
+export const useSlackView = views.use;
+export const updateSlackView = views.update;
 
 export const openSlack = (): string | null => openSurface(SLACK_MESSAGES);
 

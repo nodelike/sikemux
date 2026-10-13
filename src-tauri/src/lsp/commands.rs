@@ -27,6 +27,13 @@ use crate::error::{AppError, AppResult};
 use crate::observability::{global_observability, Metadata, SpanOutcome};
 
 #[tauri::command]
+pub async fn lsp_languages() -> AppResult<Vec<String>> {
+    task::spawn_blocking(super::discovery::server_languages)
+        .await
+        .map_err(|e| AppError::Lsp(format!("join: {e}")))
+}
+
+#[tauri::command]
 pub async fn lsp_install_server(language: String) -> AppResult<String> {
     match language.as_str() {
         "go" => task::spawn_blocking(install_gopls)

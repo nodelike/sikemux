@@ -1,14 +1,14 @@
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { PluginStreamHandlers } from "../../../plugin-api/backend";
 import type { LogLine, TailTick } from "../api";
 
-const { tailStart, tailStop, searchLogs, logVolume } = vi.hoisted(() => ({
-    tailStart: vi.fn(),
-    tailStop: vi.fn(() => Promise.resolve()),
+const { tail, searchLogs, logVolume } = vi.hoisted(() => ({
+    tail: vi.fn(),
     searchLogs: vi.fn(),
     logVolume: vi.fn(() => Promise.resolve([])),
 }));
-vi.mock("../api", async (importOriginal) => ({ ...(await importOriginal<object>()), signozApi: { tailStart, tailStop, searchLogs, logVolume } }));
+vi.mock("../api", async (importOriginal) => ({ ...(await importOriginal<object>()), signozApi: { tail, searchLogs, logVolume } }));
 vi.mock("../../../plugin-api/ui", async (importOriginal) => ({
     ...(await importOriginal<object>()),
     SendToAgentMenu: ({ delivery }: { delivery: () => { text?: string } }) => <pre data-testid="send-menu">{delivery().text}</pre>,
@@ -20,7 +20,26 @@ vi.mock("../../../plugin-api/ui", async (importOriginal) => ({
 import { setLive } from "../state";
 import { LogFeed, pickLines } from "./LogFeed";
 
-afterEach(cleanup);
+interface Tail {
+    handlers: PluginStreamHandlers<TailTick>;
+    stop: ReturnType<typeof vi.fn>;
+}
+
+const tails = (): Tail[] => tail.mock.results.map((result) => result.value as Tail);
+
+function setHidden(hidden: boolean) {
+    Object.defineProperty(document, "hidden", { configurable: true, get: () => hidden });
+    document.dispatchEvent(new Event("visibilitychange"));
+}
+
+beforeEach(() => {
+    tail.mockReset().mockImplementation((_search: unknown, handlers: PluginStreamHandlers<TailTick>) => ({ handlers, stop: vi.fn() }));
+});
+
+afterEach(() => {
+    cleanup();
+    Object.defineProperty(document, "hidden", { configurable: true, get: () => false });
+});
 
 const line: LogLine = {
     id: "l1",
@@ -35,29 +54,34 @@ const line: LogLine = {
 };
 
 describe("LogFeed", () => {
-    it("stops a tail whose id arrives after the pane has gone", async () => {
-        let resolveId!: (id: number) => void;
-        tailStart.mockReturnValue(new Promise<number>((resolve) => (resolveId = resolve)));
+    it("stops the tail when the pane goes", () => {
         const { unmount } = render(<LogFeed paneId="pane-late" active />);
         unmount();
-        await act(async () => resolveId(9));
-        expect(tailStop).toHaveBeenCalledWith(9);
+        expect(tails()[0].stop).toHaveBeenCalled();
+    });
+
+    it("stops tailing while the app is hidden and picks up again, keeping its lines, once it shows", async () => {
+        render(<LogFeed paneId="pane-hidden" active />);
+        await act(async () => tails()[0].handlers.onItem({ lines: [line], error: null }));
+        await act(async () => setHidden(true));
+        expect(tails()[0].stop).toHaveBeenCalled();
+        await act(async () => setHidden(false));
+        expect(tail).toHaveBeenCalledTimes(2);
+        expect(screen.getByText("Request completed with server error")).toBeTruthy();
     });
 
     it("asks for errors only until told otherwise", () => {
-        tailStart.mockReset().mockReturnValue(new Promise<number>(() => {}));
         render(<LogFeed paneId="pane-errors" active />);
-        expect(tailStart.mock.calls[0][0]).toMatchObject({ severities: ["FATAL", "ERROR"], minutes: 15 });
+        expect(tail.mock.calls[0][0]).toMatchObject({ severities: ["FATAL", "ERROR"], minutes: 15 });
     });
 
     it("reads a held window page by page instead of tailing it", async () => {
-        tailStart.mockReset();
         searchLogs.mockReset().mockResolvedValue({ lines: [line], nextOffset: 200 });
         setLive("pane-held", false);
         await act(async () => {
             render(<LogFeed paneId="pane-held" active />);
         });
-        expect(tailStart).not.toHaveBeenCalled();
+        expect(tail).not.toHaveBeenCalled();
         expect(searchLogs.mock.calls[0][0]).toMatchObject({ offset: 0, limit: 200 });
         expect(searchLogs.mock.calls[0][0].start).toBeTypeOf("number");
         await act(async () => {
@@ -67,25 +91,17 @@ describe("LogFeed", () => {
     });
 
     it("narrows the feed to an attribute's value from the line itself", async () => {
-        let deliver!: (tick: TailTick) => void;
-        tailStart.mockReset().mockImplementation((_search: unknown, onTick: (tick: TailTick) => void) => {
-            deliver = onTick;
-            return new Promise<number>(() => {});
-        });
+        const deliver = (tick: TailTick) => tails()[0].handlers.onItem(tick);
         render(<LogFeed paneId="pane-narrow" active />);
         await act(async () => deliver({ lines: [line], error: null }));
         fireEvent.click(screen.getByText("Request completed with server error"));
         fireEvent.click(screen.getByTitle("Only lines where path is this"));
-        const restarted = tailStart.mock.calls.at(-1)![0];
+        const restarted = tail.mock.calls.at(-1)![0];
         expect(restarted.filters).toEqual([{ key: "path", op: "equals", value: "/upload" }]);
     });
 
     it("sends the picked lines together from any one of them", async () => {
-        let deliver!: (tick: TailTick) => void;
-        tailStart.mockReset().mockImplementation((_search: unknown, onTick: (tick: TailTick) => void) => {
-            deliver = onTick;
-            return new Promise<number>(() => {});
-        });
+        const deliver = (tick: TailTick) => tails()[0].handlers.onItem(tick);
         render(<LogFeed paneId="pane-send" active />);
         const second = { ...line, id: "l2", body: "Retrying upload" };
         await act(async () => deliver({ lines: [line, second], error: null }));

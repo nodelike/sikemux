@@ -6,12 +6,11 @@ import { EmptyState, IconExternal, IconGit, IconRefresh, SkeletonRows, Tooltip }
 import { hostApi, failureMessage, type Release, type RepoRef } from "../api";
 import { useHost } from "../registry";
 import { releasesR } from "../resources";
-import { formatAgo } from "../runStatus";
 import { SectionIcon } from "./ActionsIcon";
-import { formatBytes } from "./Artifacts";
 import { Who } from "./Bits";
-import { useNow } from "./hooks";
+import { useNow } from "../../plugin-api/hooks";
 import { Prose } from "./Pictures";
+import { formatAgo, formatBytes } from "../../lib/format";
 
 /** How many releases the backend reads, newest first. */
 const RELEASES_READ = 100;

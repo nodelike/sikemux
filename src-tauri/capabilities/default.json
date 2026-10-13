@@ -198,6 +198,7 @@
     "allow-git-checkout-remote-branch",
     "allow-git-delete-remote-branch",
     "allow-git-set-upstream",
+    "allow-lsp-languages",
     "allow-lsp-install-server",
     "allow-lsp-start",
     "allow-lsp-stop",

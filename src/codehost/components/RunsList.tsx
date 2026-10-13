@@ -5,12 +5,14 @@ import { Dropdown, EmptyState, IconCommit, IconGit, IconPullRequest, IconRefresh
 import { failureMessage, type RepoRef, type Run, type Workflow } from "../api";
 import { useHost } from "../registry";
 import { pullsR, runsR, workflowsR } from "../resources";
-import { elapsedMs, formatAgo, formatDuration, isUnfinished, OUTCOME_LABEL, outcomeOf, statusParam } from "../runStatus";
+import { elapsedMs, isUnfinished, OUTCOME_LABEL, outcomeOf, statusParam } from "../runStatus";
 import { filterBy, hostSettings, setFollowBranch, showRun, STATUS_FILTERS, updateView, type HostView, type StatusFilter } from "../state";
 import { RingedOutcome } from "./ActionsIcon";
 import { RunMenu } from "./RunMenu";
 import { Face } from "./CommentThread";
-import { coarse, useEvery, useNow } from "./hooks";
+import { coarse } from "./hooks";
+import { useEvery, useNow } from "../../plugin-api/hooks";
+import { formatAgo, formatDuration } from "../../lib/format";
 
 const LIVE_REFRESH_MS = 10_000;
 const IDLE_REFRESH_MS = 20_000;

@@ -2,6 +2,7 @@ import { IconCheck, IconClose } from "../../../plugin-api/ui";
 import type { RunResult } from "../lib/run";
 import type { BrunoResTab } from "../state";
 import { BrunoCode, type BrunoLang } from "./BrunoCode";
+import { formatBytes, formatDuration } from "../../../plugin-api/format";
 
 interface Props {
     result: RunResult | null;
@@ -17,12 +18,6 @@ function statusClass(status: number): string {
     if (status >= 300 && status < 400) return "redir";
     if (status >= 400 && status < 500) return "clienterr";
     return "servererr";
-}
-
-function humanSize(n: number): string {
-    if (n < 1024) return `${n} B`;
-    if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
-    return `${(n / 1024 / 1024).toFixed(2)} MB`;
 }
 
 /** Pretty-print + pick a highlighting language for the response body. */
@@ -55,8 +50,8 @@ export function BrunoResponseView({ result, running, tab, onTab }: Props) {
                         <span className={`bruno-resp-status ${statusClass(resp.status)}`}>
                             {resp.status} {resp.status_text}
                         </span>
-                        <span className="bruno-resp-meta">{resp.duration_ms} ms</span>
-                        <span className="bruno-resp-meta">{humanSize(resp.size_bytes)}</span>
+                        <span className="bruno-resp-meta">{formatDuration(resp.duration_ms)}</span>
+                        <span className="bruno-resp-meta">{formatBytes(resp.size_bytes)}</span>
                     </>
                 ) : result?.error ? (
                     <span className="bruno-resp-status servererr">request failed</span>
@@ -84,7 +79,7 @@ export function BrunoResponseView({ result, running, tab, onTab }: Props) {
                 {resp &&
                     tab === "body" &&
                     (resp.is_binary ? (
-                        <div className="bruno-muted">[binary response · {humanSize(resp.size_bytes)}]</div>
+                        <div className="bruno-muted">[binary response · {formatBytes(resp.size_bytes)}]</div>
                     ) : (
                         <BrunoCode value={body!.text} lang={body!.lang} readOnly className="bruno-cm-fill" />
                     ))}
@@ -103,7 +98,7 @@ export function BrunoResponseView({ result, running, tab, onTab }: Props) {
                         <pre className="bruno-pre">
                             {`${result.request.method} ${result.request.url}\n`}
                             {result.request.headers.map(([k, v]) => `${k}: ${v}`).join("\n")}
-                            {`\n\n→ ${resp.status} ${resp.status_text} · ${resp.duration_ms} ms · ${humanSize(resp.size_bytes)}`}
+                            {`\n\n→ ${resp.status} ${resp.status_text} · ${formatDuration(resp.duration_ms)} · ${formatBytes(resp.size_bytes)}`}
                         </pre>
                         {result.logs.length > 0 && (
                             <div className="bruno-logs">

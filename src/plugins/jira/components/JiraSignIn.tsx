@@ -1,7 +1,7 @@
-import { useEffect, useRef, useState } from "react";
-import { openUrl, swallow } from "../../../plugin-api/host";
-import { SignInScreen, SignInWaiting } from "../../../plugin-api/ui";
-import { failureMessage, jiraApi, type BrowserSignIn, type JiraStatus } from "../api";
+import { useState } from "react";
+import { openSignInUrl, openUrl, swallow } from "../../../plugin-api/host";
+import { SignInError, SignInScreen, SignInWaiting, useSignInAttempt } from "../../../plugin-api/ui";
+import { jiraApi, type JiraStatus } from "../api";
 import { JiraMark } from "./JiraMark";
 
 const API_TOKENS_PAGE = "https://id.atlassian.com/manage-profile/security/api-tokens";
@@ -13,46 +13,22 @@ export function JiraSignIn({ status, onSignedIn }: { status: JiraStatus | undefi
     const [site, setSite] = useState("");
     const [email, setEmail] = useState("");
     const [token, setToken] = useState("");
-    const [busy, setBusy] = useState(false);
-    const [waiting, setWaiting] = useState<BrowserSignIn | null>(null);
-    const [error, setError] = useState<string | null>(status?.authFailed ? status.message : null);
-    const checking = useRef(false);
+    const attempt = useSignInAttempt(status);
+    const busy = attempt.busy;
 
-    useEffect(() => () => waiting?.cancel(), [waiting]);
-
-    const signInWithBrowser = () => {
-        setError(null);
-        const attempt = jiraApi.signInWithBrowser((url) => void openUrl(url).catch(swallow("open Atlassian")));
-        setWaiting(attempt);
-        attempt.done.then(
-            (result) => {
-                setWaiting(null);
-                onSignedIn(result);
-            },
-            (failure: unknown) => {
-                setWaiting(null);
-                if (!(failure instanceof Error && failure.message === "cancelled")) setError(failureMessage(failure));
-            },
+    const signInWithBrowser = () =>
+        attempt.follow(
+            jiraApi.signInWithBrowser((url) => void openSignInUrl(url).catch(swallow("open Atlassian"))),
+            (result) => onSignedIn(result),
         );
-    };
 
     const canSubmit = !busy && !!site.trim() && !!email.trim() && !!token.trim();
-    const submit = async () => {
-        if (checking.current || !canSubmit) return;
-        checking.current = true;
-        setBusy(true);
-        setError(null);
-        try {
-            onSignedIn(await jiraApi.signIn(site.trim(), email.trim(), token.trim()));
-        } catch (failure) {
-            setError(failureMessage(failure));
-        } finally {
-            checking.current = false;
-            setBusy(false);
-        }
+    const submit = () => {
+        if (!canSubmit) return;
+        attempt.run(async () => onSignedIn(await jiraApi.signIn(site.trim(), email.trim(), token.trim())));
     };
     const onEnter = (event: { key: string }) => {
-        if (event.key === "Enter") void submit();
+        if (event.key === "Enter") submit();
     };
 
     return (
@@ -103,23 +79,19 @@ export function JiraSignIn({ status, onSignedIn }: { status: JiraStatus | undefi
                             spellCheck={false}
                         />
                     </label>
-                    <button type="button" className="signin-btn primary" disabled={!canSubmit} onClick={() => void submit()}>
+                    <button type="button" className="signin-btn primary" disabled={!canSubmit} onClick={submit}>
                         {busy ? "Checking…" : "Sign in"}
                     </button>
                 </div>
-            ) : waiting ? (
-                <SignInWaiting onCancel={() => waiting.cancel()}>Finish signing in in your browser</SignInWaiting>
+            ) : attempt.waiting ? (
+                <SignInWaiting onCancel={attempt.cancel}>Finish signing in in your browser</SignInWaiting>
             ) : (
                 <button type="button" className="signin-btn primary" onClick={signInWithBrowser}>
                     <JiraMark size={14} color="currentColor" />
                     Continue with Atlassian
                 </button>
             )}
-            {error && (
-                <div className="signin-callout" data-tone="danger">
-                    {error}
-                </div>
-            )}
+            <SignInError error={attempt.error} />
             <div className="signin-alt">
                 {withToken ? (
                     status?.browserSignIn ? (
@@ -132,7 +104,7 @@ export function JiraSignIn({ status, onSignedIn }: { status: JiraStatus | undefi
                         </button>
                     )
                 ) : (
-                    <button type="button" className="signin-link" disabled={!!waiting} onClick={() => setChoseToken(true)}>
+                    <button type="button" className="signin-link" disabled={attempt.waiting} onClick={() => setChoseToken(true)}>
                         Use an API token instead
                     </button>
                 )}

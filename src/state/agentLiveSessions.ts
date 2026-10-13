@@ -1,4 +1,5 @@
 import { agentApi } from "../api/agents";
+import { profileOf } from "./commands/agentLaunchCommand";
 import type { StoreState } from "./store";
 
 /* The GUI hears about a shell or a monitor over its own connection, but a TUI
@@ -12,7 +13,7 @@ export async function agentIdsWithLiveSessions(state: StoreState, ids: readonly 
 
     const byConfig = new Map<string, typeof asking>();
     for (const agent of asking) {
-        const configPath = state.providerProfiles.find((profile) => profile.id === agent.profileId && profile.provider === "claude")?.configPath;
+        const configPath = profileOf(state, agent)?.configPath;
         const group = byConfig.get(configPath ?? "");
         if (group) group.push(agent);
         else byConfig.set(configPath ?? "", [agent]);

@@ -6,6 +6,7 @@ import {
   signAppleToken,
   type AppleKey,
 } from "../apple-key.ts";
+import { audit } from "../audit.ts";
 import type { Tables } from "../db.ts";
 import type { Logger } from "../log.ts";
 import { APNS_TOPICS } from "../push/apns.ts";
@@ -170,27 +171,19 @@ export async function revokeAppleSignIn(
       { userId, via, reason: (error as Error).message },
       "could not revoke Sign in with Apple for a deleted account",
     );
-    await audit(db, userId, "account.apple_revoke_failed", via);
+    await audit(db, {
+      userId,
+      actor: `user:${userId}`,
+      action: "account.apple_revoke_failed",
+      detail: { via },
+    });
     return;
   }
   log.info({ userId, via }, "revoked Sign in with Apple");
-  await audit(db, userId, "account.apple_revoked", via);
-}
-
-async function audit(
-  db: Kysely<Tables>,
-  userId: string,
-  action: string,
-  via: string,
-) {
-  await db
-    .insertInto("audit")
-    .values({
-      user_id: userId,
-      actor: `user:${userId}`,
-      action,
-      subject: null,
-      detail: JSON.stringify({ via }),
-    })
-    .execute();
+  await audit(db, {
+    userId,
+    actor: `user:${userId}`,
+    action: "account.apple_revoked",
+    detail: { via },
+  });
 }

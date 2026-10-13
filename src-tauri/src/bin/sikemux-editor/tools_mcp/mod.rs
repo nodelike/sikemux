@@ -60,8 +60,7 @@ fn validate_agent_id(value: &str) -> Result<String, String> {
     if agent_id.is_empty() {
         return Err("Missing SIKEMUX_TOOLS_AGENT_ID; launch this MCP through Sikemux".into());
     }
-    let allowed = |byte: u8| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b':' | b'-');
-    if agent_id.len() > 128 || !agent_id.bytes().all(allowed) {
+    if !sikemux_core::cli::protocol::is_tool_agent_id(agent_id) {
         return Err("Invalid SIKEMUX_TOOLS_AGENT_ID".into());
     }
     Ok(agent_id.to_owned())

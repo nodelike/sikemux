@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { elapsedLabel } from "./durationLabel";
+import { secondsSince } from "./toolView";
 
 /* Counts up in whole seconds like the Thinking row does, on a clock of its own
    so the tick redraws this label and nothing around it. */
@@ -12,7 +12,7 @@ export function LiveSeconds({ since, spent = 0 }: { since?: number; spent?: numb
     }, []);
     return (
         <span className="chat-tool-elapsed" aria-hidden="true">
-            {elapsedLabel(Math.max(0, Math.floor((spent + now - started) / 1000)))}
+            {secondsSince(started, now, spent)}
         </span>
     );
 }

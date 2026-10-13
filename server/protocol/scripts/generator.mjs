@@ -130,7 +130,7 @@ function resolveRef(where, ref, file, definitions) {
 }
 
 function kindOf(schema) {
-  if (schema.oneOf) return "union";
+  if (schema.oneOf) return schema.type === "integer" ? "numbered" : "union";
   if (schema.type === "object") return "object";
   if (schema.type === "string" && schema.enum) return "enum";
   return "alias";
@@ -240,6 +240,30 @@ function check({ name, file, schema }, definitions) {
         where,
         `"unknown" is reserved for values a client does not know yet`,
       );
+  } else if (kind === "numbered") {
+    onlyKeys(where, schema, new Set(["description", "type", "oneOf"]));
+    if (!Array.isArray(schema.oneOf) || schema.oneOf.length === 0)
+      fail(where, "oneOf lists the numbers");
+    const values = new Set();
+    const names = new Set();
+    for (const member of schema.oneOf) {
+      onlyKeys(where, member, new Set(["const", "title", "description"]));
+      if (!Number.isSafeInteger(member.const))
+        fail(where, `${JSON.stringify(member.const)} is not an integer`);
+      if (
+        typeof member.title !== "string" ||
+        !/^[a-z][A-Za-z0-9]*$/.test(member.title)
+      )
+        fail(where, `${member.const} needs a camelCase title to name it`);
+      if (typeof member.description !== "string")
+        fail(where, `${member.title} needs a description of what it means`);
+      if (values.has(member.const))
+        fail(where, `${member.const} is listed twice`);
+      if (names.has(member.title))
+        fail(where, `"${member.title}" names two numbers`);
+      values.add(member.const);
+      names.add(member.title);
+    }
   } else {
     propertyType(where, schema, file, definitions);
   }
@@ -251,10 +275,13 @@ function propertyType(where, schema, file, definitions) {
     fail(where, "expected a schema");
   if (schema.$ref) {
     onlyKeys(where, schema, new Set(["$ref", "description"]));
-    return {
-      ref: resolveRef(where, schema.$ref, file, definitions),
-      nullable: false,
-    };
+    const ref = resolveRef(where, schema.$ref, file, definitions);
+    if (kindOf(definitions.get(ref).schema) === "numbered")
+      fail(
+        where,
+        `"${ref}" names numbers sent outside JSON, like close codes, so it is not a property's type`,
+      );
+    return { ref, nullable: false };
   }
   if ("const" in schema) {
     onlyKeys(where, schema, new Set(["const", "description"]));
@@ -373,6 +400,14 @@ export function typescript(definitions) {
       out += `export type ${name} =\n${schema.oneOf.map((member) => `  | ${resolveRef(name, member.$ref, file, definitions)}`).join("\n")};\n`;
     } else if (kind === "enum") {
       out += `export type ${name} = ${schema.enum.map((value) => JSON.stringify(value)).join(" | ")};\n`;
+      out += `export const ${name[0].toLowerCase()}${name.slice(1)}Values: readonly ${name}[] = ${JSON.stringify(schema.enum)};\n`;
+    } else if (kind === "numbered") {
+      out += `export const ${name} = {\n`;
+      for (const member of schema.oneOf) {
+        out += docComment(member.description, "  ", "/**");
+        out += `  ${member.title}: ${member.const},\n`;
+      }
+      out += `} as const;\nexport type ${name} = (typeof ${name})[keyof typeof ${name}];\n`;
     } else {
       out += `export type ${name} = ${tsType(propertyType(name, schema, file, definitions))};\n`;
     }
@@ -411,7 +446,7 @@ function rustEq(type, definitions, file, seen = new Set()) {
   seen.add(type.ref);
   const target = definitions.get(type.ref);
   const kind = kindOf(target.schema);
-  if (kind === "enum") return true;
+  if (kind === "enum" || kind === "numbered") return true;
   if (kind === "union")
     return target.schema.oneOf.every((member) =>
       rustEq(
@@ -436,6 +471,39 @@ function rustEq(type, definitions, file, seen = new Set()) {
       seen,
     ),
   );
+}
+
+/** A plain Rust enum for named numbers, read and written as the number itself. */
+function rustNumbered(name, members) {
+  const variant = (member) => pascalCase(member.title);
+  let out = "#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]\n";
+  out += `pub enum ${name} {\n`;
+  for (const member of members) {
+    out += docComment(member.description, "    ", "///");
+    out += `    ${variant(member)},\n`;
+  }
+  out += "}\n\n";
+  out += `impl ${name} {\n    pub const fn code(self) -> i64 {\n        match self {\n`;
+  for (const member of members)
+    out += `            Self::${variant(member)} => ${member.const},\n`;
+  out += "        }\n    }\n\n";
+  out +=
+    "    pub const fn from_code(code: i64) -> Option<Self> {\n        match code {\n";
+  for (const member of members)
+    out += `            ${member.const} => Some(Self::${variant(member)}),\n`;
+  out += "            _ => None,\n        }\n    }\n}\n\n";
+  out += `impl Serialize for ${name} {\n`;
+  out +=
+    "    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {\n";
+  out += "        serializer.serialize_i64(self.code())\n    }\n}\n\n";
+  out += `impl<'de> Deserialize<'de> for ${name} {\n`;
+  out +=
+    "    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {\n";
+  out += "        let code = i64::deserialize(deserializer)?;\n";
+  out += "        Self::from_code(code)\n";
+  out += `            .ok_or_else(|| serde::de::Error::custom(format!("{code} is not a ${name}")))\n`;
+  out += "    }\n}\n";
+  return out;
 }
 
 export function rust(definitions) {
@@ -491,6 +559,8 @@ export function rust(definitions) {
       out +=
         "    /// A value added after this build, which it cannot act on.\n";
       out += "    #[serde(other)]\n    Unknown,\n}\n";
+    } else if (kind === "numbered") {
+      out += rustNumbered(name, schema.oneOf);
     } else {
       out += `pub type ${name} = ${rustType(propertyType(name, schema, file, definitions))};\n`;
     }
@@ -507,8 +577,11 @@ export function rust(definitions) {
   return out;
 }
 
-const AUTH = new Set(["none", "session", "device", "webhook"]);
+const AUTH = new Set(["none", "signedIn", "session", "device", "webhook"]);
+const SIGNED_IN = new Set(["signedIn", "session"]);
 const AUTH_NOTES = {
+  session:
+    "Only the phone's and the web app's sign-ins; the Mac app's OAuth token is refused with 403.",
   device:
     "A WebSocket. The device proves who it is in its first message, since browsers cannot set headers on one. `send` is what the device sends; `receive` is what the server sends.",
   webhook: "Called by Clerk, signed with Svix's headers.",
@@ -623,7 +696,7 @@ export function openapi(definitions, routes) {
     paths[route.path][route.method] = {
       operationId: route.operationId,
       summary: route.summary,
-      ...(route.auth === "session" ? {} : { security: [] }),
+      ...(SIGNED_IN.has(route.auth) ? {} : { security: [] }),
       ...(AUTH_NOTES[route.auth]
         ? { description: AUTH_NOTES[route.auth] }
         : {}),
@@ -651,7 +724,8 @@ export function openapi(definitions, routes) {
         session: {
           type: "http",
           scheme: "bearer",
-          description: "A Clerk session token.",
+          description:
+            "A Clerk sign-in: a session token from the phone or the web app, or the Mac app's OAuth access token.",
         },
       },
     },

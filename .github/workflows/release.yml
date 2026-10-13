@@ -168,11 +168,62 @@ jobs:
             src-tauri/binaries/sikemux-sim-*
             latest.json
 
+  build-linux:
+    name: Build Linux packages
+    needs: approve
+    if: ${{ !cancelled() && (needs.approve.result == 'success' || needs.approve.result == 'skipped') }}
+    # The oldest runner GitHub still supports; its glibc decides the oldest distribution the packages run on.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    environment: release
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
+        with:
+          run_install: false
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Setup Rust
+        run: rustup toolchain install "$(sed -n 's/^channel = "\(.*\)"$/\1/p' rust-toolchain.toml)" --profile minimal --no-self-update
+
+      - name: Install the Tauri Linux packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev librsvg2-dev libayatana-appindicator3-dev libxdo-dev build-essential file
+
+      - name: Install frontend dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build the deb, rpm and AppImage
+        env:
+          BITBUCKET_OAUTH_SECRET: ${{ secrets.BITBUCKET_OAUTH_SECRET }}
+          JIRA_OAUTH_SECRET: ${{ secrets.JIRA_OAUTH_SECRET }}
+        run: pnpm build:linux
+
+      - name: Keep the built packages on the run
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: sikemux-linux-${{ github.ref_name }}
+          if-no-files-found: error
+          path: |
+            src-tauri/target/release/bundle/deb/*.deb
+            src-tauri/target/release/bundle/rpm/*.rpm
+            src-tauri/target/release/bundle/appimage/*.AppImage
+
   publish:
     name: Publish
-    needs: [build, pushed-checks, checks]
+    needs: [build, build-linux, pushed-checks, checks]
     if: >-
-      !cancelled() && needs.build.result == 'success' && needs.pushed-checks.result == 'success' &&
+      !cancelled() && needs.build.result == 'success' && needs.build-linux.result == 'success' &&
+      needs.pushed-checks.result == 'success' &&
       (needs.pushed-checks.outputs.passed == 'true' || needs.checks.result == 'success')
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -187,6 +238,12 @@ jobs:
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: sikemux-${{ needs.build.outputs.version }}
+
+      - name: Fetch the Linux packages
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: sikemux-linux-${{ github.ref_name }}
+          path: src-tauri/target/release/bundle
 
       - name: Publish
         env:

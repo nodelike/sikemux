@@ -3,6 +3,7 @@ import type { AgentAccountStatus, AgentUsage } from "../api/agents";
 import { accountsOf, type AccountProvider } from "../agents/accounts";
 import { accountsSectionTitle } from "../settings/AccountsSection";
 import { selectedProviderProfile } from "../agents/agentProfiles";
+import { agentLabel } from "../agents/catalog";
 import * as cmd from "../state/commands";
 import { fetchResource, invalidate, peekResource, type ResourceHandle, useResource } from "../state/resources";
 import { agentAccountR, agentUsageR } from "../state/resources.defs";
@@ -44,13 +45,11 @@ function accountName(account: ProviderProfile, status: AgentAccountStatus | unde
 export function AgentAccountsPanel({
     provider,
     usage,
-    label,
     command,
 }: {
     provider: AccountProvider;
     /** The limits of the account new chats start on, which the rail already reads. */
     usage: ResourceHandle<AgentUsage>;
-    label?: string;
     command?: string;
 }) {
     const profiles = useStore((s) => s.providerProfiles);
@@ -59,7 +58,7 @@ export function AgentAccountsPanel({
     const current = selectedProviderProfile(provider, profiles, selections) ?? accounts[0];
     const [menu, setMenu] = useState<{ x: number; y: number; width: number } | null>(null);
     const head = useRef<HTMLDivElement>(null);
-    const providerLabel = label ?? (provider === "claude" ? "Claude" : "Codex");
+    const providerLabel = agentLabel(provider);
     const status = useResource(agentAccountR, provider, current?.executablePath, current?.configPath);
     const signedOut = status.data?.signedIn === false;
 

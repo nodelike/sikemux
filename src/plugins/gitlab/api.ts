@@ -1,5 +1,4 @@
-import { createPluginBackend, isPluginFailure } from "../../plugin-api/backend";
-import { invalidate } from "../../plugin-api/resources";
+import { createPluginBackend, type PluginStreamHandlers } from "../../plugin-api/backend";
 import type {
     Annotation,
     Artifact,
@@ -35,9 +34,13 @@ import type {
     Workflow,
     WorkflowFile,
 } from "../../plugin-api/codehost";
+import { createCodeHostClient } from "../../plugin-api/codehost";
 import { GITLAB_PLUGIN_ID } from "./kinds";
 
-const backend = createPluginBackend(GITLAB_PLUGIN_ID);
+export { failureMessage } from "../../plugin-api/backend";
+
+const backend = createPluginBackend(GITLAB_PLUGIN_ID, { signInStatus: (kind) => kind === "host.status" || kind === "host.gitlabStatus" });
+const { call, image, watch } = createCodeHostClient(backend);
 
 export interface GitlabStatus {
     configured: boolean;
@@ -53,48 +56,7 @@ export interface GitlabStatus {
     message: string | null;
 }
 
-export function failureMessage(error: unknown): string {
-    return isPluginFailure(error) ? error.message : String(error);
-}
-
-function isSignedOut(error: unknown): boolean {
-    if (!isPluginFailure(error)) return false;
-    return error.category === "auth" || error.category === "unconfigured" || (error.category === "http" && error.status === 401);
-}
-
-/** A token GitLab has stopped accepting makes every cached answer stale, whichever call found out. */
-function forgetSignedOut(): void {
-    invalidate((kind) => kind.startsWith("host."));
-}
-
-async function call<T>(method: string, params?: unknown): Promise<T> {
-    try {
-        return await backend.call<T>(method, params);
-    } catch (error) {
-        if (isSignedOut(error)) forgetSignedOut();
-        if (isPluginFailure(error, "rate-limited")) invalidate((kind) => kind === "host.rateLimit");
-        throw error;
-    }
-}
-
 const cannot = (what: string) => (): Promise<never> => Promise.reject(new Error(`GitLab cannot ${what} here yet`));
-
-const IMAGES_KEPT = 400;
-const images = new Map<string, Promise<string>>();
-
-/** An avatar as a `data:` address, since the window cannot load GitLab's images itself. One that failed is tried again next time. */
-function image(url: string): Promise<string> {
-    const known = images.get(url);
-    if (known) return known;
-    const fetched = call<string>("image", { url });
-    images.set(url, fetched);
-    fetched.catch(() => images.delete(url));
-    if (images.size > IMAGES_KEPT) {
-        const oldest = images.keys().next().value;
-        if (oldest !== undefined) images.delete(oldest);
-    }
-    return fetched;
-}
 
 export const gitlabApi = {
     status: (account: string | null = null) => backend.call<GitlabStatus>("status", { account }),
@@ -169,17 +131,7 @@ export const gitlabHostApi: CodeHostApi = {
     deleteRun: (repo: RepoRef, runId: string) => call<void>("deleteRun", { ...repo, runId }),
     reviewDeployment: cannot("approve a deployment"),
     downloadArtifact: cannot("download job artifacts"),
-    watchStart: (repo: RepoRef, runId: string, onTick: (tick: RunTick) => void) =>
-        backend
-            .openStream<RunTick>("watchRun", { ...repo, runId }, (tick) => {
-                if (tick.signedOut) forgetSignedOut();
-                onTick(tick);
-            })
-            .catch((error: unknown) => {
-                if (isSignedOut(error)) forgetSignedOut();
-                throw error;
-            }),
-    watchStop: (streamId: number) => backend.closeStream(streamId),
+    watch: (repo: RepoRef, runId: string, handlers: PluginStreamHandlers<RunTick>) => watch<RunTick>({ ...repo, runId }, handlers),
 
     pulls: (repo: RepoRef, state: string) => call<Pull[]>("pulls", { ...repo, state }),
     pull: (repo: RepoRef, number: number) => call<Pull>("pull", { ...repo, number }),

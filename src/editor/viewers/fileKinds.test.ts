@@ -19,7 +19,7 @@ describe("file kinds", () => {
     it("picks a viewer from the type the backend reports", () => {
         expect(viewerKind("image/heic")).toBe("image");
         expect(viewerKind("image/vnd.adobe.photoshop")).toBe("document");
-        expect(viewerKind("application/pdf")).toBe("pdf");
+        expect(viewerKind("application/pdf")).toBe("document");
         expect(viewerKind("video/quicktime")).toBe("video");
         expect(viewerKind("video/x-matroska")).toBe("binary");
         expect(viewerKind("audio/mp4")).toBe("audio");

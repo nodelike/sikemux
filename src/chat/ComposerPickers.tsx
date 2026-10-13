@@ -2,25 +2,17 @@ import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "rea
 import { AgentIcon, IconCheck, IconChevron } from "../ui/Icons";
 import { agentSupportsChat, CHAT_AGENT_TYPES, type ChatAgentType } from "../agents/agentLaunch";
 import { selectedAgentRuntimeProfiles } from "../agents/agentProfiles";
+import { agentLabel } from "../agents/catalog";
 import { useResource } from "../state/resources";
 import { agentCatalogR } from "../state/resources.defs";
 import { useStore } from "../state/store";
 import { DEFAULT_PROVIDER_PROFILE_SELECTION, type Agent, type ProviderProfile } from "../state/types";
 import { leavingMenu } from "../lib/motion";
-import { pickerSlots, sessionConfigs, type ConfigChoice, type SessionConfig } from "./sessionConfig";
+import { currentLabel, pickerSlots, sessionConfigs, type ConfigChoice, type SessionConfig } from "./sessionConfig";
 
 interface Choice extends ConfigChoice {
     icon?: ReactNode;
 }
-
-const HARNESS_LABELS: Record<ChatAgentType, string> = {
-    codex: "Codex",
-    claude: "Claude",
-    opencode: "OpenCode",
-    omp: "OMP",
-    grok: "Grok",
-    hermes: "Hermes",
-};
 
 /* Claude and Codex install their adapter on first use, so they are offered
    whether or not their CLI is found yet. The rest need their own CLI. */
@@ -206,7 +198,7 @@ export function ComposerPickers({
     const configs = sessionConfigs(setup);
     const harnesses = CHAT_AGENT_TYPES.filter((type) => ALWAYS_OFFERED.has(type) || type === agent.type || installed.has(type));
     const agentOptions = harnesses.flatMap((type) => {
-        const label = HARNESS_LABELS[type];
+        const label = agentLabel(type);
         const icon = <AgentIcon type={type} size={15} className={`agent-glyph ${type}`} />;
         const owned = profiles.filter((item) => item.provider === type);
         if (owned.length === 0) return [{ value: type, label, icon }];
@@ -249,10 +241,7 @@ export function ComposerPickers({
             {pickerSlots(configs, agent.type).map(({ id, config }) => {
                 const model = id === "model";
                 const name = model ? "Model" : "Reasoning effort";
-                const label =
-                    config?.options.find((option) => option.value === config.currentValue)?.label ??
-                    config?.currentValue ??
-                    (model ? agent.model || "Model" : agent.effort || "Effort");
+                const label = currentLabel(config) ?? (model ? agent.model || "Model" : agent.effort || "Effort");
                 const options = config?.options || [];
                 return (
                     <Picker

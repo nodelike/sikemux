@@ -13,26 +13,25 @@ use tokio::sync::{watch, Notify};
 use tokio_websockets::{ClientBuilder, Connector, MaybeTlsStream, Message, WebSocketStream};
 
 use super::protocol::{
-    AccountEvent, LiveAck, LiveApp, LiveDeviceMessage, LiveHello, LiveLeave, LivePong, LivePush,
-    LiveRole, LiveServerMessage, PushKind, PushResult, RevokeReason,
+    AccountEvent, LiveAck, LiveApp, LiveCloseCode, LiveDeviceMessage, LiveHello, LiveLeave,
+    LivePong, LivePush, LiveRole, LiveServerMessage, PushKind, PushResult, RevokeReason,
 };
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
 const CHALLENGE_WAIT: Duration = Duration::from_secs(10);
-/// The server pings every 25 s; this long without a frame means the
-/// connection is dead even if the network has not said so.
-const SILENCE: Duration = Duration::from_secs(60);
+/// How often the server pings until its `ready` says. Two of these without
+/// a frame means the connection is dead even if the network has not said so.
+const HEARTBEAT: Duration = Duration::from_secs(25);
 const BACKOFF_BASE: Duration = Duration::from_secs(1);
 const BACKOFF_CAP: Duration = Duration::from_secs(5 * 60);
 /// Another connection with this key took over, which happens while a core
 /// hands over to its replacement. Coming straight back would push it off.
 const REPLACED_WAIT: Duration = Duration::from_secs(60);
+/// The server's limits count over a minute, so coming back sooner only
+/// prolongs the lockout.
+const OVER_LIMIT_WAIT: Duration = Duration::from_secs(30);
 
 const CLOSE_WAIT: Duration = Duration::from_secs(2);
-
-const CLOSE_NOT_SIGNED_IN: u16 = 4401;
-const CLOSE_REVOKED: u16 = 4403;
-const CLOSE_REPLACED: u16 = 4409;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Want {
@@ -416,9 +415,10 @@ async fn session<A: Account>(
     let mut ready = false;
     let mut leaving = false;
     let mut hint = None;
+    let mut silence = HEARTBEAT * 2;
     loop {
         let frame = tokio::select! {
-            frame = next_frame(&mut socket, SILENCE) => frame,
+            frame = next_frame(&mut socket, silence) => frame,
             _ = outbox.ready.notified(), if ready && !leaving => {
                 if !flush(&mut socket, outbox).await {
                     return retry(hint, ready);
@@ -443,16 +443,19 @@ async fn session<A: Account>(
             Frame::Server(message) => message,
             Frame::Other => continue,
             Frame::Closed(code) => {
-                return match code {
-                    Some(CLOSE_NOT_SIGNED_IN) if !ready => {
+                return match code.and_then(|code| LiveCloseCode::from_code(code.into())) {
+                    Some(LiveCloseCode::Unauthenticated) if !ready => {
                         account.removed(None);
                         Ended::Done
                     }
-                    Some(CLOSE_REVOKED) => {
+                    Some(LiveCloseCode::Revoked) => {
                         account.removed(None);
                         Ended::Done
                     }
-                    Some(CLOSE_REPLACED) => retry(Some(REPLACED_WAIT), ready),
+                    Some(LiveCloseCode::Replaced) => retry(Some(REPLACED_WAIT), ready),
+                    Some(LiveCloseCode::OverLimit) => {
+                        retry(Some(hint.unwrap_or_default().max(OVER_LIMIT_WAIT)), ready)
+                    }
                     _ => retry(hint, ready),
                 };
             }
@@ -460,6 +463,9 @@ async fn session<A: Account>(
         let answered = match message {
             LiveServerMessage::Ready(server) => {
                 ready = true;
+                if let Ok(ms) = u64::try_from(server.heartbeat_ms) {
+                    silence = Duration::from_millis(ms) * 2;
+                }
                 account.rewind(server.latest);
                 account.link(Link::Live);
                 if account.want() == Want::Leave {

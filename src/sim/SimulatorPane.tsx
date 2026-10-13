@@ -10,17 +10,8 @@ import {
     type WheelEvent,
 } from "react";
 import { createPortal } from "react-dom";
-import {
-    simApi,
-    type SimButton,
-    type SimChrome,
-    type SimChromeButton,
-    type SimDevice,
-    type SimOrientation,
-    type SimScreen,
-    type SimStreamFormat,
-} from "../api/sim";
-import { AGENT_NAMES } from "../agents/agentLaunch";
+import { simApi, type SimButton, type SimChrome, type SimChromeButton, type SimDevice, type SimScreen, type SimStreamFormat } from "../api/sim";
+import { agentLabel } from "../agents/catalog";
 import { readClipboardText } from "../lib/clipboard";
 import { basename } from "../lib/paths";
 import * as cmd from "../state/commands";
@@ -34,12 +25,12 @@ import { IconCamera, IconHome, IconLock, IconPhone, IconPower, IconRotate, IconT
 import { EmptyState } from "../ui/Panel";
 import { Tooltip } from "../ui/Tooltip";
 import { useDocumentVisible } from "./documentVisible";
+import { turnDegrees, TURNS } from "./orientation";
 import { playScreen, type ScreenPlayer } from "./screenStream";
 import { loadSimStatus, prepareSim, simUsable, useSimStatus } from "./simStatus";
 import "../styles/simulator.css";
 
 const NAMED_KEYS = new Set(["Enter", "Escape", "Backspace", "Delete", "ArrowRight", "ArrowLeft", "ArrowDown", "ArrowUp"]);
-const TURNS: SimOrientation[] = ["portrait", "landscapeRight", "portraitUpsideDown", "landscapeLeft"];
 const REFRESH_MS = 5000;
 const WHEEL_LIFT_MS = 90;
 /** A stream that ran this long before ending comes back on its own; one that ends sooner waits for Reconnect. */
@@ -119,8 +110,6 @@ function deviceIcon(name: string | undefined): ReactNode {
     return name?.startsWith("iPad") ? <IconTablet size={14} /> : <IconPhone size={14} />;
 }
 
-const TURN_DEGREES: Partial<Record<SimScreen["orientation"], number>> = { landscapeLeft: -90, landscapeRight: 90, portraitUpsideDown: 180 };
-
 export interface FrameLayout {
     /** CSS pixels per point. */
     scale: number;
@@ -140,7 +129,7 @@ export function frameLayout(art: SimChrome, screen: SimScreen, room: { width: nu
     const turnedHeight = sideways ? width : height;
     const scale = Math.min(room.width / turnedWidth, room.height / turnedHeight);
     if (!(scale > 0)) return null;
-    const degrees = TURN_DEGREES[screen.orientation] ?? 0;
+    const degrees = turnDegrees(screen.orientation);
     const radians = (degrees * Math.PI) / 180;
     const offsetX = art.padding.left + art.width / 2 - width / 2;
     const offsetY = art.padding.top + art.height / 2 - height / 2;
@@ -254,7 +243,7 @@ export function SimulatorPane({
     const starting = transition === "booting";
     const stopping = transition === "shuttingDown";
     const agentType = useStore((state) => state.agents[agentId]?.type);
-    const agentName = agentType ? AGENT_NAMES[agentType] : "The agent";
+    const agentName = agentType ? agentLabel(agentType) : "The agent";
     const attachments = useSimulatorAttachments();
     const acting = useSimulatorActing(agentId);
     const ownDevice = attachments[agentId] ?? null;
@@ -506,7 +495,7 @@ export function SimulatorPane({
             const type = getState().agents[holder.agentId]?.type;
             const confirmed = await confirmDialog({
                 title: `Shut down ${device?.name ?? "this device"}?`,
-                body: `${type ? AGENT_NAMES[type] : "An agent"} is using this device.`,
+                body: `${type ? agentLabel(type) : "An agent"} is using this device.`,
                 confirmLabel: "Shut down",
                 destructive: true,
             });

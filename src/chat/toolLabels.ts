@@ -1,5 +1,5 @@
 import { basename } from "../lib/paths";
-import { safeWebUrl } from "../terminal/interactions";
+import { safeWebUrl } from "../lib/urls";
 import { rowArguments, sikemuxToolRow, toolArguments } from "./toolRows";
 import type { AcpToolCall, ChatMessage } from "./types";
 

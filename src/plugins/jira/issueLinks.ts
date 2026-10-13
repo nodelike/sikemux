@@ -1,4 +1,4 @@
-import { copyText, notify, openUrl, reportError, swallow } from "../../plugin-api/host";
+import { copyWithNotice, openUrl, swallow } from "../../plugin-api/host";
 import type { ContextMenuItem } from "../../plugin-api/ui";
 
 export interface LinkedIssue {
@@ -12,7 +12,7 @@ export function openIssue(issue: LinkedIssue): void {
 }
 
 export function copyIssue(text: string, what: string): void {
-    void copyText(text).then(() => notify("success", `copied the ${what}`), reportError("copy"));
+    copyWithNotice(text, `the ${what}`);
 }
 
 /** Ways to take an issue out of Sikemux: to the browser, or to the clipboard in the shapes people paste. */

@@ -1,4 +1,5 @@
-import type { AgentType, ProviderProfile, ProviderProfileSelection } from "../state/types";
+import { DEFAULT_PROVIDER_PROFILES, type AgentProvider, type AgentType, type ProviderProfile, type ProviderProfileSelection } from "../state/types";
+import { ACCOUNT_AGENT_TYPES } from "./catalog";
 
 export interface AgentRuntimeProfile {
     type: AgentType;
@@ -17,7 +18,7 @@ export function selectedProviderProfile(
 }
 
 export function selectedAgentRuntimeProfiles(profiles: readonly ProviderProfile[], selections: ProviderProfileSelection): AgentRuntimeProfile[] {
-    return (["claude", "codex"] as const).map((type) => {
+    return ACCOUNT_AGENT_TYPES.map((type) => {
         const profile = selectedProviderProfile(type, profiles, selections);
         return {
             type,
@@ -26,4 +27,9 @@ export function selectedAgentRuntimeProfiles(profiles: readonly ProviderProfile[
             configPath: profile?.configPath,
         };
     });
+}
+
+/** The colour a new profile takes: its provider's brand. */
+export function providerAccent(provider: AgentProvider): string {
+    return DEFAULT_PROVIDER_PROFILES.find((profile) => profile.provider === provider)!.accent;
 }

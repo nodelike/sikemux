@@ -5,7 +5,7 @@ import { EmptyState, SkeletonRows, VirtualLogList } from "../../plugin-api/ui";
 import { failureMessage, type Job, type LogLine, type RepoRef } from "../api";
 import { stepStarts } from "../jobGraph";
 import { jobLogR } from "../resources";
-import { useEvery } from "./hooks";
+import { useEvery } from "../../plugin-api/hooks";
 
 /** Runner logs mark their sections with `##[...]`, which is noise on screen. */
 const MARKUP = /^##\[(?:group|endgroup|section|command)\]/u;

@@ -7,6 +7,7 @@ pub(crate) mod feed;
 mod history;
 mod native;
 mod rebind;
+mod states;
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -18,14 +19,14 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tokio::sync::{mpsc, oneshot, watch};
 
-use crate::acp::{bounded_text, current_choice, native as acp_native};
+use crate::acp::{bounded_text, current_choice, native as acp_native, permission};
 use crate::protocol::{
     Attention, AttentionKind, ChatAccount, ChatAttachment, ChatContext, ChatEventKind, ChatInfo,
     ChatLaunch, ChatMark, ChatStart, ChatState, Event, RequestId, Response,
 };
 
+use super::activity::Activity;
 use super::connection::{ClientConn, ClientId};
-use super::notify::Signal;
 use super::remote::unix_ms;
 use super::{Core, CoreError, CoreResult};
 use feed::{Feed, Standing};
@@ -37,6 +38,9 @@ const NOT_RUNNING: &str = "ACP session is not running";
 const STOPPED: &str = "ACP session stopped";
 /// How long a stop waits for an agent's process to be gone.
 const STOP_SETTLE: Duration = Duration::from_secs(2);
+/// How long a stopped turn may keep running before the agent is killed. The
+/// agent only reads a stop between steps, and a wedged tool never gets there.
+const CANCEL_GRACE: Duration = Duration::from_secs(10);
 
 pub(crate) enum ChatCommand {
     Prompt {
@@ -77,8 +81,6 @@ pub(crate) enum ChatCommand {
         text: String,
         paths: Vec<String>,
         context: Vec<ChatContext>,
-        /// Puts the files back as they were before that message too.
-        restore_files: bool,
         reply: oneshot::Sender<Result<(), String>>,
     },
     Cancel,
@@ -159,33 +161,66 @@ impl Chat {
             self.turned.store(true, Ordering::Release);
         }
         if let Some(core) = self.core.upgrade() {
-            let agent_id = self.agent_id().to_owned();
-            match kind {
-                ChatEventKind::TurnStarted => {
-                    core.seen.working(&agent_id);
-                    core.notify.send(Signal::TurnStarted { agent_id });
-                }
-                ChatEventKind::TurnCompleted => {
-                    core.seen.wants_a_look(&agent_id);
-                    let cancelled =
-                        payload.get("stopReason").and_then(Value::as_str) == Some("cancelled");
-                    core.notify.send(Signal::TurnCompleted {
-                        agent_id,
-                        cancelled,
-                    });
-                }
-                ChatEventKind::Error => {
-                    let message = payload
+            let activity = match kind {
+                ChatEventKind::TurnStarted => Some(Activity::Started),
+                ChatEventKind::TurnCompleted => Some(Activity::Finished {
+                    cancelled: payload.get("stopReason").and_then(Value::as_str)
+                        == Some("cancelled"),
+                }),
+                ChatEventKind::Error => Some(Activity::Problem(
+                    payload
                         .get("message")
                         .and_then(Value::as_str)
-                        .unwrap_or_default()
-                        .to_owned();
-                    core.notify.send(Signal::ChatError { agent_id, message });
-                }
-                _ => {}
+                        .unwrap_or_default(),
+                )),
+                _ => None,
+            };
+            if let Some(activity) = activity {
+                core.note_activity(self.agent_id(), activity);
             }
         }
         self.feed.emit(kind, payload);
+    }
+
+    /// The agent began work nobody here asked for, such as answering a
+    /// background task that finished.
+    pub(crate) fn work_started(&self) {
+        if !self.running.load(Ordering::Acquire) && !self.unprompted.swap(true, Ordering::AcqRel) {
+            self.emit(ChatEventKind::TurnStarted, serde_json::json!({}));
+        }
+    }
+
+    /// The work nobody here asked for is over.
+    pub(crate) fn work_ended(&self, stop_reason: &str) {
+        if self.unprompted.swap(false, Ordering::AcqRel) {
+            self.emit(
+                ChatEventKind::TurnCompleted,
+                serde_json::json!({ "stopReason": stop_reason }),
+            );
+        }
+    }
+
+    /// The agent was asked to stop, with `sent` saying whether the ask got
+    /// there. Turn `turn`, when it runs, has a while to end before `stalled`
+    /// is told; work nobody here asked for is over at once.
+    pub(crate) fn cancel_sent(
+        &self,
+        sent: Result<(), String>,
+        turn: u64,
+        stalled: &mpsc::UnboundedSender<u64>,
+    ) {
+        if let Err(error) = sent {
+            self.emit(ChatEventKind::Error, rebind::error_message(error));
+        }
+        if self.running.load(Ordering::Acquire) {
+            let stalled = stalled.clone();
+            tokio::spawn(async move {
+                tokio::time::sleep(CANCEL_GRACE).await;
+                let _ = stalled.send(turn);
+            });
+        } else {
+            self.work_ended("cancelled");
+        }
     }
 
     pub(crate) fn turn_running(&self) -> bool {
@@ -263,7 +298,7 @@ impl Chat {
         permissions.insert(request_id, pending);
         drop(permissions);
         if let Some(core) = self.core.upgrade() {
-            core.seen.wants_a_look(self.agent_id());
+            core.note_activity(self.agent_id(), Activity::NeedsYou);
         }
         self.announce(&Event::Attention { attention });
         true
@@ -278,6 +313,7 @@ impl Chat {
             cwd: self.launch.cwd.clone(),
             request: pending.request.clone(),
             at: pending.at,
+            choices: permission::choices(&pending.request),
         }
     }
 
@@ -383,6 +419,9 @@ impl Chat {
             asleep: false,
             unread: false,
             active_at: None,
+            group: Default::default(),
+            status: Default::default(),
+            attention_rank: 0,
         }
     }
 
@@ -678,6 +717,7 @@ fn launch(core: &Arc<Core>, chat: &Arc<Chat>, mut queue: mpsc::UnboundedReceiver
                 }
                 None => connection::run(ending.clone(), launch, &mut queue, rebind.take()).await,
             };
+            ending.feed.agent_gone();
             match ran {
                 Ok(rebind::Outcome::Rebind(next)) => {
                     ending.set_current(next.launch.clone());
@@ -723,7 +763,7 @@ pub(crate) fn begin(
         launcher,
     };
     let (chat, queue) = core.chats.insert(core, launch_spec, origin)?;
-    core.seen.opened(chat.agent_id());
+    core.seen.active(chat.agent_id());
     if let Some(client) = subscriber {
         chat.feed.subscribe(client);
     }
@@ -847,7 +887,6 @@ pub(crate) fn prompt(
     })
 }
 
-#[allow(clippy::too_many_arguments)]
 pub(crate) async fn edit(
     core: &Core,
     from: ClientId,
@@ -856,7 +895,6 @@ pub(crate) async fn edit(
     text: String,
     paths: Vec<String>,
     context: Vec<ChatContext>,
-    restore_files: bool,
 ) -> CoreResult<()> {
     bounded_text("message id", &message_id, 256)?;
     let (reply, answer) = oneshot::channel();
@@ -866,7 +904,6 @@ pub(crate) async fn edit(
         text,
         paths,
         context,
-        restore_files,
         reply,
     })?;
     answer

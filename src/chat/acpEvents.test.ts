@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { AcpEvent } from "../api/acp";
-import { permissionRequest, promptAction, statusFromEvent } from "./acpEvents";
+import { chatActions, permissionRequest, promptAction, statusFromEvent } from "./acpEvents";
 
 const event = (kind: AcpEvent["kind"], payload: Record<string, unknown>): AcpEvent => ({ agentId: "a1", kind, payload });
 
@@ -66,5 +66,13 @@ describe("promptAction", () => {
 
     it("ignores a prompt with no text", () => {
         expect(promptAction({ paths: [] })).toBeNull();
+    });
+});
+
+describe("chatActions", () => {
+    it("keeps why a turn failed when the account was to blame", () => {
+        expect(chatActions(event("error", { message: "Not logged in", failure: { kind: "signIn", account: "Work" } }))).toEqual([
+            { type: "error", message: "Not logged in", failure: { kind: "signIn", account: "Work" } },
+        ]);
     });
 });

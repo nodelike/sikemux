@@ -1,36 +1,35 @@
 import { agentApi, type AgentSession } from "../../api/agents";
 import type { AcpChat } from "../../api/acp";
 import { profileOfLauncher } from "../../remote/workspace";
-import { agentSupportsChat, isAgentType, MAX_AGENT_MODEL_LENGTH, normalizePermissionMode, type ChatAgentType } from "../../agents/agentLaunch";
+import { isAgentType } from "../../agents/catalog";
+import { agentSupportsChat, effectiveMode, MAX_AGENT_MODEL_LENGTH, normalizePermissionMode, type ChatAgentType } from "../../agents/agentLaunch";
+import { selectedAgentRuntimeProfiles } from "../../agents/agentProfiles";
 import { emit } from "../bus";
-import { reduceAgentState } from "../agentStatus";
+import { isAgentBusy, reduceAgentState } from "../agentStatus";
 import { confirmDialog } from "../dialog";
 import { invalidate, peekResource } from "../resources";
-import { agentSessionsR } from "../resources.defs";
+import { agentCatalogR, agentSessionsR } from "../resources.defs";
 import { getState, mutate, type StoreState } from "../store";
 import { notify, reportError, swallow } from "../toast";
 import { agentIdsWithLiveSessions } from "../agentLiveSessions";
 import { agentSupportsSkipPermissions } from "./agentLogic";
-import { agentDirectCommand, agentStartup } from "./agentLaunchCommand";
+import { agentExecutablePath, profileOf, relaunchSpec } from "./agentLaunchCommand";
 import { activeAgentId, agentIdsOf, agentWindowId, ownerSessionId } from "../selectors";
 import { agentWindow } from "../agentWindow";
 import { newId } from "../layout";
-import type { Agent, AgentEffort, AgentPermissionMode, AgentType, AgentWorktree, ProviderProfile } from "../types";
+import type { Agent, AgentEffort, AgentPermissionMode, AgentType, AgentWorktree } from "../types";
 import { selectSession } from "./sessions";
 import { keepOpenedProjectInView, openProjectSession, projectSessionInBackground, withActiveSession } from "./shared";
-import { closeWindowById } from "./tabs";
+import { closeWindowsById } from "./tabs";
 
 const FALLBACK_AGENT_TITLE_MAX = 13;
 /** Providers list a session under at most this many characters. */
 const SESSION_TITLE_MAX = 72;
 
-function profileLaunchOptions(profile: ProviderProfile | undefined, model?: string, effort?: AgentEffort) {
-    return {
-        model,
-        effort,
-        configPath: profile?.configPath,
-        environmentKeys: profile?.environmentKeys,
-    };
+/** The CLI the agent catalog found for this provider under the selected accounts, once it has looked. */
+function detectedExecutablePath(state: StoreState, type: AgentType): string | undefined {
+    const runtime = selectedAgentRuntimeProfiles(state.providerProfiles, state.selectedProviderProfileIds);
+    return peekResource(agentCatalogR, runtime)?.find((agent) => agent.type === type && agent.available !== false)?.command;
 }
 
 function usableAgentSessionTitle(row: AgentSession, current: string): string {
@@ -50,9 +49,8 @@ export function agentSessionMetadataPending(agent: Agent): boolean {
 export function configureEmptyAgent(id: string, type: ChatAgentType, profileId?: string): void {
     mutate((d) => {
         const agent = d.agents[id];
-        const activity = d.agentActivity[id];
-        if (!agent || activity?.backendState === "working" || activity?.backendState === "blocked") return;
-        const profile = profileId ? d.providerProfiles.find((item) => item.id === profileId && item.provider === type) : undefined;
+        if (!agent || isAgentBusy(d.agentActivity[id])) return;
+        const profile = profileId ? profileOf(d, { profileId, type }) : undefined;
         if (profileId && !profile) return;
         const mode = normalizePermissionMode(type, agent.permissionMode ?? d.defaultAgentPermissionMode);
         agent.type = type;
@@ -65,9 +63,7 @@ export function configureEmptyAgent(id: string, type: ChatAgentType, profileId?:
         delete agent.model;
         delete agent.effort;
         delete agent.baselineSessionIds;
-        const options = profileLaunchOptions(profile);
-        agent.startup = agentStartup(type, undefined, mode, profile?.executablePath, options);
-        agent.directCommand = agentDirectCommand(type, undefined, mode, profile?.executablePath, options);
+        Object.assign(agent, relaunchSpec(d, agent));
     });
 }
 
@@ -77,12 +73,7 @@ export function setAgentModelPreferences(id: string, model: string | undefined, 
         if (!agent) return;
         agent.model = model;
         agent.effort = effort;
-        const profile = d.providerProfiles.find((item) => item.id === agent.profileId && item.provider === agent.type);
-        const options = profileLaunchOptions(profile, model, effort);
-        const executable = profile?.executablePath || agent.executablePath;
-        const mode = agent.permissionMode ?? (agent.skipPermissions ? "bypass" : "workspace-write");
-        agent.startup = agentStartup(agent.type, agent.resumeId, mode, executable, options);
-        agent.directCommand = agentDirectCommand(agent.type, agent.resumeId, mode, executable, options);
+        Object.assign(agent, relaunchSpec(d, agent));
     });
 }
 
@@ -90,42 +81,29 @@ export function setAgentModelPreferences(id: string, model: string | undefined, 
 export function setAgentAccount(id: string, profileId: string): void {
     mutate((d) => {
         const agent = d.agents[id];
-        const profile = d.providerProfiles.find((item) => item.id === profileId && item.provider === agent?.type);
+        const profile = agent ? profileOf(d, { profileId, type: agent.type }) : undefined;
         if (!agent || !profile || agent.profileId === profile.id) return;
         agent.profileId = profile.id;
-        const options = profileLaunchOptions(profile, agent.model, agent.effort);
-        const executable = profile.executablePath || agent.executablePath;
-        const mode = agent.permissionMode ?? (agent.skipPermissions ? "bypass" : "workspace-write");
-        agent.startup = agentStartup(agent.type, agent.resumeId, mode, executable, options);
-        agent.directCommand = agentDirectCommand(agent.type, agent.resumeId, mode, executable, options);
+        Object.assign(agent, relaunchSpec(d, agent));
     });
 }
 
 export function setAgentPermissionMode(id: string, requestedMode: AgentPermissionMode): void {
     mutate((d) => {
-        const currentAgent = d.agents[id];
-        const profile = currentAgent?.profileId
-            ? d.providerProfiles.find((item) => item.id === currentAgent.profileId && item.provider === currentAgent.type)
-            : undefined;
         const a = d.agents[id];
         if (!a) return;
         const next = normalizePermissionMode(a.type, requestedMode);
-        const current = a.permissionMode ?? (a.skipPermissions ? "bypass" : normalizePermissionMode(a.type, "workspace-write"));
-        if (next === current) return;
+        if (next === effectiveMode(a)) return;
         a.permissionMode = next;
         a.skipPermissions = next === "bypass";
-        const launchOptions = profileLaunchOptions(profile, a.model, a.effort);
-        const executablePath = profile?.executablePath || a.executablePath;
-        a.startup = agentStartup(a.type, a.resumeId, next, executablePath, launchOptions);
-        a.directCommand = agentDirectCommand(a.type, a.resumeId, next, executablePath, launchOptions);
+        Object.assign(a, relaunchSpec(d, a));
     });
 }
 
 export function toggleAgentSkipPermissions(id: string): void {
     const agent = getState().agents[id];
     if (!agent || !agentSupportsSkipPermissions(agent.type)) return;
-    const current = agent.permissionMode ?? (agent.skipPermissions ? "bypass" : normalizePermissionMode(agent.type, "workspace-write"));
-    const next = current === "bypass" ? normalizePermissionMode(agent.type, "workspace-write") : "bypass";
+    const next = effectiveMode(agent) === "bypass" ? normalizePermissionMode(agent.type, "workspace-write") : "bypass";
     setAgentPermissionMode(id, next);
 }
 
@@ -151,6 +129,7 @@ export interface AddAgentOptions {
 
 export function addAgent(type: AgentType, resumeId?: string, title?: string, options: AddAgentOptions = {}): boolean {
     if ((options.model?.trim().length ?? 0) > MAX_AGENT_MODEL_LENGTH) return false;
+    const detected = options.detectedExecutablePath ?? detectedExecutablePath(getState(), type);
     let attached = false;
     mutate((d) => {
         const session = d.sessions[options.sessionId ?? d.activeSessionId];
@@ -173,20 +152,16 @@ export function addAgent(type: AgentType, resumeId?: string, title?: string, opt
         }
         const permissionMode = normalizePermissionMode(type, options.permissionMode ?? d.defaultAgentPermissionMode);
         const requestedProfileId = options.profileId === undefined ? d.selectedProviderProfileIds[type] : options.profileId;
-        const profileId = requestedProfileId
-            ? d.providerProfiles.find((profile) => profile.id === requestedProfileId && profile.provider === type)?.id
-            : undefined;
+        const profile = requestedProfileId ? profileOf(d, { profileId: requestedProfileId, type }) : undefined;
+        const profileId = profile?.id;
         const cwd = options.cwd || session.cwd;
         const model = options.model?.trim() || undefined;
-        const profile = profileId ? d.providerProfiles.find((item) => item.id === profileId) : undefined;
-        const executablePath = profile?.executablePath || options.detectedExecutablePath;
-        const launchOptions = profileLaunchOptions(profile, model, options.effort);
+        const executablePath = profile?.executablePath || detected;
         const agent: Agent = {
             id: newId("agent"),
             type,
             title: title ?? type,
-            startup: agentStartup(type, resumeId, permissionMode, executablePath, launchOptions),
-            directCommand: agentDirectCommand(type, resumeId, permissionMode, executablePath, launchOptions),
+            ...relaunchSpec(d, { type, resumeId, permissionMode, profileId, executablePath, model, effort: options.effort }),
             resumeId,
             createdAt: Date.now(),
             permissionMode,
@@ -229,17 +204,15 @@ export function adoptChat(chat: AcpChat): boolean {
         const sessionId = projectSessionInBackground(d as unknown as StoreState, chat.cwd);
         const permissionMode = normalizePermissionMode(type, chat.permissionMode as AgentPermissionMode);
         const profileId = profileOfLauncher(chat.launcher, d.providerProfiles, type);
-        const profile = profileId ? d.providerProfiles.find((item) => item.id === profileId) : undefined;
+        const profile = profileOf(d, { profileId, type });
         const model = chat.model ?? undefined;
         const effort = (chat.effort ?? undefined) as AgentEffort | undefined;
         const resumeId = chat.sessionId ?? undefined;
-        const launchOptions = profileLaunchOptions(profile, model, effort);
         const agent: Agent = {
             id: chat.agentId,
             type,
             title: type,
-            startup: agentStartup(type, resumeId, permissionMode, profile?.executablePath, launchOptions),
-            directCommand: agentDirectCommand(type, resumeId, permissionMode, profile?.executablePath, launchOptions),
+            ...relaunchSpec(d, { type, resumeId, permissionMode, profileId, executablePath: profile?.executablePath, model, effort }),
             resumeId,
             createdAt: Date.now(),
             permissionMode,
@@ -271,9 +244,7 @@ export function reconcileAgentSessions(type: AgentType, cwd: string, configPath:
             if (session?.kind !== "project") continue;
             for (const agentId of agentIdsOf(d, sessionId)) {
                 const agent = d.agents[agentId];
-                const agentConfigPath = agent?.profileId
-                    ? d.providerProfiles.find((profile) => profile.id === agent.profileId && profile.provider === agent.type)?.configPath
-                    : undefined;
+                const agentConfigPath = agent ? profileOf(d, agent)?.configPath : undefined;
                 if (agent?.type === type && (agent.cwd || session.cwd) === cwd && agentConfigPath === configPath) matchingAgents.push(agent);
             }
         }
@@ -319,24 +290,7 @@ export function reconcileAgentSessions(type: AgentType, cwd: string, configPath:
             agent.resumeId = row.id;
             if (agent.renamed) unsavedNames.push({ sessionId: row.id, name: agent.title, executablePath: agentExecutablePath(d, agent) });
             else agent.title = usableAgentSessionTitle(row, agent.title);
-            const profile = agent.profileId
-                ? d.providerProfiles.find((item) => item.id === agent.profileId && item.provider === agent.type)
-                : undefined;
-            const launchOptions = profileLaunchOptions(profile, agent.model, agent.effort);
-            agent.startup = agentStartup(
-                agent.type,
-                agent.resumeId,
-                agent.permissionMode ?? (agent.skipPermissions ? "bypass" : "workspace-write"),
-                profile?.executablePath || agent.executablePath,
-                launchOptions,
-            );
-            agent.directCommand = agentDirectCommand(
-                agent.type,
-                agent.resumeId,
-                agent.permissionMode ?? (agent.skipPermissions ? "bypass" : "workspace-write"),
-                profile?.executablePath || agent.executablePath,
-                launchOptions,
-            );
+            Object.assign(agent, relaunchSpec(d, agent));
             delete agent.baselineSessionIds;
             claimed.add(row.id);
         }
@@ -351,26 +305,8 @@ export function attachAgentSession(id: string, resumeId: string): void {
     mutate((d) => {
         const agent = d.agents[id];
         if (!agent || agent.resumeId === resumeId) return;
-        const profile = agent.profileId
-            ? d.providerProfiles.find((candidate) => candidate.id === agent.profileId && candidate.provider === agent.type)
-            : undefined;
-        const launchOptions = profileLaunchOptions(profile, agent.model, agent.effort);
-        const executablePath = profile?.executablePath || agent.executablePath;
         agent.resumeId = resumeId;
-        agent.startup = agentStartup(
-            agent.type,
-            resumeId,
-            agent.permissionMode ?? (agent.skipPermissions ? "bypass" : "workspace-write"),
-            executablePath,
-            launchOptions,
-        );
-        agent.directCommand = agentDirectCommand(
-            agent.type,
-            resumeId,
-            agent.permissionMode ?? (agent.skipPermissions ? "bypass" : "workspace-write"),
-            executablePath,
-            launchOptions,
-        );
+        Object.assign(agent, relaunchSpec(d, agent));
         delete agent.baselineSessionIds;
     });
 }
@@ -408,7 +344,7 @@ export function moveAgentToProject(id: string, cwd: string): void {
         agent.cwd = cwd;
         const root = d.windows[winId].root;
         if (root.type === "pane") root.cwd = cwd;
-        const configPath = agent.profileId ? d.providerProfiles.find((profile) => profile.id === agent.profileId)?.configPath : undefined;
+        const configPath = profileOf(d, agent)?.configPath;
         const known = peekResource(agentSessionsR, agent.type, cwd, configPath)?.map((row) => row.id);
         if (known) agent.baselineSessionIds = [...new Set(known)];
         else delete agent.baselineSessionIds;
@@ -460,11 +396,6 @@ async function saveSessionName(session: SavedSession, name: string): Promise<voi
     }
 }
 
-function agentExecutablePath(state: Pick<StoreState, "providerProfiles">, agent: Agent): string | undefined {
-    const profile = agent.profileId ? state.providerProfiles.find((item) => item.id === agent.profileId && item.provider === agent.type) : undefined;
-    return profile?.executablePath || agent.executablePath;
-}
-
 export function renameAgent(id: string, title: string): void {
     const name = sessionName(title);
     if (!name || getState().agents[id]?.title === name) return;
@@ -482,9 +413,7 @@ export function renameAgent(id: string, title: string): void {
     const sessionId = winId ? ownerSessionId(state, winId) : null;
     const cwd = agent?.cwd || (sessionId ? state.sessions[sessionId]?.cwd : undefined);
     if (!agent?.resumeId || !cwd) return;
-    const configPath = agent.profileId
-        ? state.providerProfiles.find((profile) => profile.id === agent.profileId && profile.provider === agent.type)?.configPath
-        : undefined;
+    const configPath = profileOf(state, agent)?.configPath;
     void saveSessionName(
         { type: agent.type, cwd, sessionId: agent.resumeId, configPath, executablePath: agentExecutablePath(state, agent) },
         name,
@@ -524,8 +453,7 @@ export function titleAgentFromPrompt(id: string, text: string): void {
     mutate((d) => {
         const agent = d.agents[id];
         if (!agent || agent.renamed) return;
-        const profile = agent.profileId ? d.providerProfiles.find((item) => item.id === agent.profileId && item.provider === agent.type) : undefined;
-        if (agent.title !== (profile?.name || agent.type)) return;
+        if (agent.title !== (profileOf(d, agent)?.name || agent.type)) return;
         agent.title = [...title].slice(0, SESSION_TITLE_MAX).join("");
     });
 }
@@ -577,16 +505,31 @@ export function resumeAgent(id: string): void {
 export function noteAgentBackgroundWork(id: string, tasks: number, subagents: number): void {
     mutate((d) => {
         if (!d.agents[id]) return;
-        const count = tasks + subagents;
-        if (count > 0) d.agentBackgroundWork[id] = count;
-        else delete d.agentBackgroundWork[id];
+        if (tasks > 0) d.agentTasks[id] = tasks;
+        else delete d.agentTasks[id];
         if (subagents > 0) d.agentSubagents[id] = subagents;
         else delete d.agentSubagents[id];
     });
 }
 
 export function agentHasBackgroundWork(state: StoreState, id: string): boolean {
-    return (state.agentBackgroundWork[id] ?? 0) > 0;
+    return (state.agentTasks[id] ?? 0) + (state.agentSubagents[id] ?? 0) > 0;
+}
+
+/**
+ * Whether an agent can be put to sleep without losing anything: it can be resumed, nothing it
+ * started is still running, and it is surely idle rather than guessed idle from a quiet terminal.
+ */
+export function isAgentSleepable(state: StoreState, agent: Agent): boolean {
+    const activity = state.agentActivity[agent.id];
+    return (
+        agent.launchState !== "dormant" &&
+        !!agent.resumeId &&
+        !agent.keepAlive &&
+        !agentHasBackgroundWork(state, agent.id) &&
+        activity?.backendState === "idle" &&
+        activity.confidence !== "low"
+    );
 }
 
 export function sleepAgents(ids: readonly string[]): string[] {
@@ -597,7 +540,7 @@ export function sleepAgents(ids: readonly string[]): string[] {
             const agent = d.agents[id];
             if (!agent?.resumeId || agent.launchState === "dormant") continue;
             agent.launchState = "dormant";
-            delete d.agentBackgroundWork[id];
+            delete d.agentTasks[id];
             delete d.agentSubagents[id];
             slept.push(id);
         }
@@ -626,14 +569,7 @@ export function setAgentKeepAlive(id: string, keepAlive: boolean): void {
 export async function sleepIdleAgents(): Promise<number> {
     const state = getState();
     const ids = Object.values(state.agents)
-        .filter(
-            (agent) =>
-                agent.launchState !== "dormant" &&
-                !!agent.resumeId &&
-                !agent.keepAlive &&
-                !agentHasBackgroundWork(state, agent.id) &&
-                state.agentActivity[agent.id]?.backendState === "idle",
-        )
+        .filter((agent) => isAgentSleepable(state, agent))
         .map((agent) => agent.id);
     const live = await agentIdsWithLiveSessions(state, ids);
     const count = sleepAgents(ids.filter((id) => !live.has(id))).length;
@@ -683,10 +619,23 @@ export function clearAgentUnread(id: string): void {
     });
 }
 
-/** An agent closes as its window does; the window's close handles its browser. */
+/** An agent closes as its window does; the window's close handles its browser and asks first if the agent is busy. */
 export function closeAgent(id: string): void {
-    const winId = agentWindowId(getState(), id);
-    if (winId) closeWindowById(winId);
+    closeAgents([id]);
+}
+
+export function closeAgents(ids: readonly string[]): void {
+    const state = getState();
+    closeWindowsById(ids.flatMap((id) => agentWindowId(state, id) ?? []));
+}
+
+/** Closes agents the core no longer has, without asking: there is nothing left running to stop. */
+export function dropAgents(ids: readonly string[]): void {
+    const state = getState();
+    closeWindowsById(
+        ids.flatMap((id) => agentWindowId(state, id) ?? []),
+        false,
+    );
 }
 
 export function focusAgents(): void {

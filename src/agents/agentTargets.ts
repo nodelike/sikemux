@@ -1,7 +1,7 @@
 import type { AgentInfo } from "../api/agents";
 import type { StoreState } from "../state/store";
 import { collectPanes } from "../state/layout";
-import { activeAgentId, agentIdsOf, ownerSessionId } from "../state/selectors";
+import { activeAgentId, agentIdsOf, ownerSessionId, projectSessionId } from "../state/selectors";
 import type { AgentType } from "../state/types";
 import type { AgentTarget } from "./sendToAgent";
 
@@ -49,8 +49,7 @@ export function projectSessionForCwd(
     state: Pick<StoreState, "sessions" | "sessionOrder" | "activeSessionId" | "lastSessionId">,
     cwd: string | null,
 ): string | null {
-    const own = cwd ? state.sessionOrder.find((id) => state.sessions[id]?.kind === "project" && state.sessions[id].cwd === cwd) : undefined;
-    return own ?? nearestProjectSessionId(state);
+    return (cwd ? projectSessionId(state, cwd) : null) ?? nearestProjectSessionId(state);
 }
 
 /** A Markdown code block that still closes when the text itself contains backticks. */

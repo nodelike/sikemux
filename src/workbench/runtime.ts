@@ -89,6 +89,14 @@ export class WorkbenchRuntime {
         const span = performanceTelemetry.startTrace("workbench.reconcile", { sessions: state.sessionOrder.length });
         try {
             const live = new Set(state.sessionOrder);
+            for (const [sessionId, controller] of this.sessions) {
+                if (live.has(sessionId)) continue;
+                controller.dispose();
+                this.sessions.delete(sessionId);
+            }
+            const windowsOf = (sessionId: string) =>
+                (state.windowsBySession[sessionId] ?? []).map((id) => state.windows[id]).filter((window) => window !== undefined);
+            for (const [sessionId, controller] of this.sessions) controller.release(windowsOf(sessionId));
             for (const sessionId of state.sessionOrder) {
                 const session = state.sessions[sessionId];
                 if (!session) continue;
@@ -97,13 +105,7 @@ export class WorkbenchRuntime {
                     controller = new SessionController(sessionId);
                     this.sessions.set(sessionId, controller);
                 }
-                const windows = (state.windowsBySession[sessionId] ?? []).map((id) => state.windows[id]).filter((window) => window !== undefined);
-                controller.reconcile(session, windows, state.activeSessionId);
-            }
-            for (const [sessionId, controller] of this.sessions) {
-                if (live.has(sessionId)) continue;
-                controller.dispose();
-                this.sessions.delete(sessionId);
+                controller.reconcile(session, windowsOf(sessionId), state.activeSessionId);
             }
             this.reconciliations += 1;
             performanceTelemetry.incrementCounter("workbench.reconciliations");

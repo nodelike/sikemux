@@ -1,4 +1,4 @@
-import { memo, useContext, useMemo, useState } from "react";
+import { memo, useContext, useMemo, useState, type ReactNode } from "react";
 import { CopyButton } from "../ui/CopyButton";
 import { basename } from "../lib/paths";
 import {
@@ -26,42 +26,21 @@ import { FoldedMarkdown, warmChatMarkdown } from "./ChatMarkdown";
 import { ChatPage } from "./ChatPage";
 import { ToolGroup } from "./ToolGroup";
 import { ToolRow } from "./ToolRow";
-import { attachmentName, formatDetail, groupParts, outlivesFold, subagentTask } from "./transcript";
+import { callCount } from "./toolView";
+import {
+    attachmentName,
+    formatDetail,
+    groupParts,
+    sentParts,
+    shownParts,
+    SUBAGENT_MARKS,
+    SUBAGENT_WORDS,
+    subagentTask,
+    type SubagentMark,
+} from "./transcript";
 import type { AccountMove, AcpSubagent, AcpTaskNotice, AgentNotice, ChatMessage, ChatPart } from "./types";
 import { ContextChipLabel } from "./ContextChip";
 import { Shimmer } from "./Shimmer";
-import { splitSentContext, type SentContext } from "./promptContext";
-
-function embeddedContext(content: Extract<ChatPart, { kind: "content" }>["content"]): SentContext | null {
-    if (content.type !== "resource" || !content.resource || typeof content.resource !== "object") return null;
-    const resource = content.resource as { uri?: unknown; text?: unknown };
-    if (typeof resource.uri !== "string") return null;
-    const firstLine = typeof resource.text === "string" ? resource.text.split("\n", 1)[0] : "";
-    return { uri: resource.uri, title: firstLine || resource.uri };
-}
-
-/* What a person sent with a message is shown by name: their own text stays
-   prose, and an issue they handed over stays a chip, not its whole text. */
-function sentParts(message: ChatMessage): { parts: ChatPart[]; context: SentContext[] } {
-    const context = [...(message.context ?? [])];
-    if (message.role !== "user") return { parts: message.parts, context };
-    const parts: ChatPart[] = [];
-    for (const part of message.parts) {
-        const embedded = part.kind === "content" ? embeddedContext(part.content) : null;
-        if (embedded) {
-            context.push(embedded);
-            continue;
-        }
-        if (part.kind !== "text") {
-            parts.push(part);
-            continue;
-        }
-        const split = splitSentContext(part.text);
-        context.push(...split.context);
-        if (split.text) parts.push(split.context.length ? { ...part, text: split.text } : part);
-    }
-    return { parts, context: context.filter((item, index) => context.findIndex((other) => other.uri === item.uri) === index) };
-}
 
 function ResourceLinkPart({ content }: { content: Extract<ChatPart, { kind: "content" }>["content"] }) {
     const uri = typeof content.uri === "string" ? content.uri : undefined;
@@ -211,29 +190,19 @@ function AccountPart({ move }: { move: AccountMove }) {
     );
 }
 
-const SUBAGENT_WORDS: Record<AcpSubagent["state"], string> = {
-    running: "working",
-    completed: "done",
-    failed: "failed",
-    cancelled: "stopped",
-    disconnected: "lost",
+const SUBAGENT_ICONS: Record<Exclude<SubagentMark, "spinner">, ReactNode> = {
+    check: <IconCheck size={13} />,
+    warning: <IconWarning size={12} />,
+    plug: <IconPlug size={12} />,
+    close: <IconClose size={11} />,
 };
 
 function SubagentStateMark({ state }: { state: AcpSubagent["state"] }) {
     const word = SUBAGENT_WORDS[state];
+    const mark = SUBAGENT_MARKS[state];
     return (
         <span className="chat-subagent-state" role="img" aria-label={word} title={word}>
-            {state === "running" ? (
-                <span className="chat-subagent-spinner" aria-hidden="true" />
-            ) : state === "completed" ? (
-                <IconCheck size={13} />
-            ) : state === "failed" ? (
-                <IconWarning size={12} />
-            ) : state === "disconnected" ? (
-                <IconPlug size={12} />
-            ) : (
-                <IconClose size={11} />
-            )}
+            {mark === "spinner" ? <span className="chat-subagent-spinner" aria-hidden="true" /> : SUBAGENT_ICONS[mark]}
         </span>
     );
 }
@@ -261,11 +230,7 @@ function SubagentPart({ subagent }: { subagent: AcpSubagent }) {
                     <span className="chat-subagent-task">{subagentTask(subagent.task)}</span>
                 )}
                 <span className="chat-subagent-end">
-                    {calls > 0 && (
-                        <span className="chat-subagent-calls">
-                            {calls} {calls === 1 ? "call" : "calls"}
-                        </span>
-                    )}
+                    {calls > 0 && <span className="chat-subagent-calls">{callCount(calls)}</span>}
                     <SubagentStateMark state={subagent.state} />
                 </span>
             </summary>
@@ -290,7 +255,6 @@ export const ChatMessageRow = memo(function ChatMessageRow({
     at,
     took,
     onEdit,
-    canRestoreFiles = false,
     from = 0,
 }: {
     message: ChatMessage;
@@ -300,13 +264,12 @@ export const ChatMessageRow = memo(function ChatMessageRow({
     at: number | null;
     took: number | null;
     /** Given when the person may write this message again. */
-    onEdit?: (message: ChatMessage, text: string, restoreFiles: boolean) => void;
-    canRestoreFiles?: boolean;
+    onEdit?: (message: ChatMessage, text: string) => void;
     /** Where the shown parts start, when the work before them is folded away. */
     from?: number;
 }) {
     const { parts, context } = useMemo(() => sentParts(message), [message]);
-    const shown = useMemo(() => (from > 0 ? parts.filter((part, index) => index >= from || outlivesFold(part)) : parts), [parts, from]);
+    const shown = useMemo(() => shownParts(parts, from), [parts, from]);
     const [editing, setEditing] = useState(false);
     const attachments = message.attachments ?? [];
     if (editing && onEdit) {
@@ -316,11 +279,10 @@ export const ChatMessageRow = memo(function ChatMessageRow({
                 <div className="chat-message-content">
                     <MessageEditor
                         initial={written}
-                        canRestoreFiles={canRestoreFiles}
                         onCancel={() => setEditing(false)}
-                        onSend={(text, restoreFiles) => {
+                        onSend={(text) => {
                             setEditing(false);
-                            onEdit(message, text, restoreFiles);
+                            onEdit(message, text);
                         }}
                     />
                 </div>

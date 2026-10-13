@@ -61,25 +61,29 @@ export function NeedsYou() {
   );
 }
 
-/** Shells or monitors an agent left running, in the Mac's terminal glyph so it does not read as the dot that waits on you. */
-export function StillRunning() {
-  const colors = useColors();
-  const styles = useStyles(makeStyles);
-  return (
-    <View style={styles.dotBox} accessible accessibilityLabel="Shells or monitors still running">
-      <Icon name="IconCommand" size={11} color={colors.warn} />
-    </View>
-  );
-}
-
 /** The subagents an agent still has running, as the Mac's tabs and rail count them. */
 export function SubagentCount({ count }: { count: number }) {
   const colors = useColors();
   const styles = useStyles(makeStyles);
   return (
-    <View style={styles.subagents} accessible accessibilityLabel={`${count} ${count === 1 ? 'subagent' : 'subagents'} running`}>
+    <View style={styles.count} accessible accessibilityLabel={`${count} ${count === 1 ? 'subagent' : 'subagents'} running`}>
       <Icon name="IconAgent" size={11} color={translucent(colors.live, 0.75)} filled />
-      <Text style={styles.subagentCount}>{count}</Text>
+      <Text style={styles.countText}>{count}</Text>
+    </View>
+  );
+}
+
+/** The shells and monitors an agent still has running, counted beside the Mac's terminal glyph. */
+export function ShellCount({ count }: { count: number }) {
+  const colors = useColors();
+  const styles = useStyles(makeStyles);
+  return (
+    <View
+      style={styles.count}
+      accessible
+      accessibilityLabel={`${count} ${count === 1 ? 'shell or monitor' : 'shells or monitors'} running`}>
+      <Icon name="IconCommand" size={11} color={translucent(colors.warn, 0.75)} />
+      <Text style={styles.countText}>{count}</Text>
     </View>
   );
 }
@@ -102,7 +106,7 @@ const makeStyles = (colors: Palette) => {
     dotBox: { width: 16, height: 16, alignItems: 'center', justifyContent: 'center' },
     ring: { position: 'absolute', width: 16, height: 16, borderRadius: 8, borderWidth: 1.5, borderColor: colors.ink },
     dot: { width: 8, height: 8, borderRadius: 4 },
-    subagents: { flexDirection: 'row', alignItems: 'center', gap: 3 },
-    subagentCount: { fontFamily: fonts.uiMedium, fontSize: 12, color: colors.tertiary, fontVariant: ['tabular-nums'] },
+    count: { flexDirection: 'row', alignItems: 'center', gap: 3 },
+    countText: { fontFamily: fonts.uiMedium, fontSize: 12, color: colors.tertiary, fontVariant: ['tabular-nums'] },
   });
 };

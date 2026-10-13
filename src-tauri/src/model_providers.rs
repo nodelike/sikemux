@@ -176,11 +176,9 @@ impl Store {
         if !changed {
             return Ok(());
         }
-        if let Some(parent) = self.path.parent() {
-            std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
-        }
         let bytes = serde_json::to_vec(&*ids).map_err(|error| error.to_string())?;
-        std::fs::write(&self.path, bytes).map_err(|error| error.to_string())
+        sikemux_process::files::write_atomic(&self.path, &bytes, false)
+            .map_err(|error| error.to_string())
     }
 
     fn remember_key(&self, id: &str, key: Option<String>) {

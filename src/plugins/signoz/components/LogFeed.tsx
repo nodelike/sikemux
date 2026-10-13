@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { copyText, reportError, swallow } from "../../../plugin-api/host";
+import { copyText, reportError } from "../../../plugin-api/host";
+import { useVisibleStream } from "../../../plugin-api/hooks";
 import { ContextMenu, EmptyState, SendToAgentMenu, VirtualLogList } from "../../../plugin-api/ui";
 import { failureMessage, signozApi, type LogLine, type LogSearch } from "../api";
 import { useResourceEnabled } from "../../../plugin-api/resources";
@@ -25,7 +26,7 @@ function useLogSearch(paneId: string): LogSearch {
     );
 }
 
-/** Streams new lines while live. Held still, reads the window page by page, back from its end. */
+/** Streams new lines while live and the app shows. Held still, reads the window page by page, back from its end. */
 function useLines(paneId: string, active: boolean, search: LogSearch, live: boolean) {
     const [lines, setLines] = useState<LogLine[]>([]);
     const [error, setError] = useState<string | null>(null);
@@ -38,38 +39,39 @@ function useLines(paneId: string, active: boolean, search: LogSearch, live: bool
         setLines([]);
         setError(null);
         setOlderAt(null);
+        if (live) return;
         let alive = true;
-        if (!live) {
-            signozApi
-                .searchLogs({ ...search, limit: PAGE, offset: 0 })
-                .then((page) => {
-                    if (!alive) return;
-                    setLines([...page.lines].reverse());
-                    setOlderAt(page.nextOffset);
-                })
-                .catch((failure: unknown) => alive && setError(failureMessage(failure)));
-            return () => {
-                alive = false;
-            };
-        }
-        let streamId: number | null = null;
         signozApi
-            .tailStart({ ...search, limit: PAGE }, (tick) => {
+            .searchLogs({ ...search, limit: PAGE, offset: 0 })
+            .then((page) => {
                 if (!alive) return;
-                setError(tick.error);
-                if (tick.lines.length > 0) setLines((current) => current.concat(tick.lines).slice(-KEPT_LINES));
-            })
-            .then((id) => {
-                if (alive) streamId = id;
-                else void signozApi.tailStop(id);
+                setLines([...page.lines].reverse());
+                setOlderAt(page.nextOffset);
             })
             .catch((failure: unknown) => alive && setError(failureMessage(failure)));
         return () => {
             alive = false;
-            if (streamId !== null) void signozApi.tailStop(streamId).catch(swallow("stop SigNoz tail"));
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps -- the key compares the search by value, so the same filters keep the same feed
     }, [active, key, live, paneId]);
+
+    useVisibleStream(
+        active && live
+            ? () =>
+                  signozApi.tail(
+                      { ...search, limit: PAGE },
+                      {
+                          onItem: (tick) => {
+                              setError(tick.error);
+                              if (tick.lines.length > 0) setLines((current) => current.concat(tick.lines).slice(-KEPT_LINES));
+                          },
+                          onError: (failure) => setError(failureMessage(failure)),
+                      },
+                  )
+            : null,
+        [key, paneId],
+        { pauseWhenHidden: true },
+    );
 
     const loadOlder = () => {
         if (olderAt === null || loadingOlder) return;

@@ -1,5 +1,4 @@
-import { createPluginBackend, isPluginFailure } from "../../plugin-api/backend";
-import { invalidate } from "../../plugin-api/resources";
+import { browserSignIn, createPluginBackend, type PluginStreamHandlers } from "../../plugin-api/backend";
 import type {
     Annotation,
     Artifact,
@@ -36,9 +35,13 @@ import type {
     Workflow,
     WorkflowFile,
 } from "../../plugin-api/codehost";
+import { createCodeHostClient } from "../../plugin-api/codehost";
 import { BITBUCKET_PLUGIN_ID } from "./kinds";
 
-const backend = createPluginBackend(BITBUCKET_PLUGIN_ID);
+export { failureMessage } from "../../plugin-api/backend";
+
+const backend = createPluginBackend(BITBUCKET_PLUGIN_ID, { signInStatus: (kind) => kind === "host.status" || kind === "host.bitbucketStatus" });
+const { call, image, watch } = createCodeHostClient(backend);
 
 export interface BitbucketStatus {
     configured: boolean;
@@ -56,88 +59,13 @@ export interface BitbucketStatus {
     browserSignIn: boolean;
 }
 
-export function failureMessage(error: unknown): string {
-    return isPluginFailure(error) ? error.message : String(error);
-}
-
-function isSignedOut(error: unknown): boolean {
-    if (!isPluginFailure(error)) return false;
-    return error.category === "auth" || error.category === "unconfigured" || (error.category === "http" && error.status === 401);
-}
-
-/** A sign-in Bitbucket has stopped accepting makes every cached answer stale, whichever call found out, so the next read lands on the sign-in form. */
-function forgetSignedOut(): void {
-    invalidate((kind) => kind.startsWith("host."));
-}
-
-async function call<T>(method: string, params?: unknown): Promise<T> {
-    try {
-        return await backend.call<T>(method, params);
-    } catch (error) {
-        if (isSignedOut(error)) forgetSignedOut();
-        if (isPluginFailure(error, "rate-limited")) invalidate((kind) => kind === "host.rateLimit");
-        throw error;
-    }
-}
-
 const cannot = (what: string) => (): Promise<never> => Promise.reject(new Error(`Bitbucket cannot ${what}`));
-
-const IMAGES_KEPT = 400;
-const images = new Map<string, Promise<string>>();
-
-/** An avatar as a `data:` address, since the window cannot load Bitbucket's images itself. One that failed is tried again next time. */
-function image(url: string): Promise<string> {
-    const known = images.get(url);
-    if (known) return known;
-    const fetched = call<string>("image", { url });
-    images.set(url, fetched);
-    fetched.catch(() => images.delete(url));
-    if (images.size > IMAGES_KEPT) {
-        const oldest = images.keys().next().value;
-        if (oldest !== undefined) images.delete(oldest);
-    }
-    return fetched;
-}
-
-interface BrowserSignInItem extends Partial<BitbucketStatus> {
-    url?: string;
-}
-
-export interface BrowserSignIn {
-    /** Resolves with the account once the browser comes back, and rejects if it never does. */
-    done: Promise<BitbucketStatus>;
-    cancel(): void;
-}
-
-/** Waits for the browser to come back from Bitbucket's sign-in page, which `openPage` is handed to show. */
-function signInWithBrowser(openPage: (url: string) => void): BrowserSignIn {
-    let cancel = () => {};
-    const done = new Promise<BitbucketStatus>((resolve, reject) => {
-        let status: BitbucketStatus | null = null;
-        const stream = backend.stream<BrowserSignInItem>(
-            "signInWithBrowser",
-            {},
-            {
-                onItem: (item) => {
-                    if (item.url) openPage(item.url);
-                    else status = item as BitbucketStatus;
-                },
-                onEnd: () => (status ? resolve(status) : reject(new Error("the sign-in ended without an account"))),
-                onError: reject,
-            },
-        );
-        cancel = () => {
-            stream.stop();
-            reject(new Error("cancelled"));
-        };
-    });
-    return { done, cancel: () => cancel() };
-}
 
 export const bitbucketApi = {
     status: (account: string | null = null) => backend.call<BitbucketStatus>("status", { account }),
     signInWithToken: (token: string, email: string | null) => backend.call<BitbucketStatus>("signInWithToken", { token, email }),
-    signInWithBrowser,
+    /** Waits for the browser to come back from Bitbucket's sign-in page, which `openPage` is handed to show. */
+    signInWithBrowser: (openPage: (url: string) => void) => browserSignIn<BitbucketStatus>(backend, "signInWithBrowser", openPage),
 };
 
 function accountOf(status: BitbucketStatus): HostAccount {
@@ -203,17 +131,7 @@ export const bitbucketHostApi: CodeHostApi = {
     deleteRun: cannot("delete a pipeline"),
     reviewDeployment: cannot("approve a deployment"),
     downloadArtifact: cannot("download pipeline artifacts"),
-    watchStart: (repo: RepoRef, runId: string, onTick: (tick: RunTick) => void) =>
-        backend
-            .openStream<RunTick>("watchRun", { ...repo, runId }, (tick) => {
-                if (tick.signedOut) forgetSignedOut();
-                onTick(tick);
-            })
-            .catch((error: unknown) => {
-                if (isSignedOut(error)) forgetSignedOut();
-                throw error;
-            }),
-    watchStop: (streamId: number) => backend.closeStream(streamId),
+    watch: (repo: RepoRef, runId: string, handlers: PluginStreamHandlers<RunTick>) => watch<RunTick>({ ...repo, runId }, handlers),
 
     pulls: (repo: RepoRef, state: string) => call<Pull[]>("pulls", { ...repo, state }),
     pull: (repo: RepoRef, number: number) => call<Pull>("pull", { ...repo, number }),

@@ -579,7 +579,16 @@ export function IconBattery({ size = 14, percent, charging, className }: IconPro
             <rect x="1" y="2.5" width="19" height="11" rx="1.4" stroke="currentColor" strokeWidth="1.4" />
             <rect x="20.6" y="5.5" width="2" height="5" rx="0.6" fill="currentColor" />
             <rect x={fillX} y={2.5 + padding} width={fillW} height={11 - padding * 2} rx="0.4" fill="currentColor" />
-            {charging && <path d="M11 5 L8 9 H10.5 L9.6 12 L13 7.6 H10.6 L11 5 Z" fill="var(--void, #100e16)" />}
+            {charging && (
+                <path
+                    d="M11 5 L8 9 H10.5 L9.6 12 L13 7.6 H10.6 L11 5 Z"
+                    fill="currentColor"
+                    stroke="var(--void, #100e16)"
+                    strokeWidth="1.2"
+                    strokeLinejoin="round"
+                    paintOrder="stroke"
+                />
+            )}
         </svg>
     );
 }

@@ -1,14 +1,14 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { confirmDialog, git, notify, swallow } from "../../../plugin-api/host";
+import { confirmDialog, currentBranch, git, notify } from "../../../plugin-api/host";
 import { invalidate, useResourceEnabled } from "../../../plugin-api/resources";
 import { IconRun, IconWarning, SkeletonRows } from "../../../plugin-api/ui";
-import { errorMessage, rundeckApi, type JobDetail, type JobOption, type PlanResult } from "../api";
+import { failureMessage, rundeckApi, type JobDetail, type JobOption, type PlanResult } from "../api";
 import * as cmd from "../state";
 import type { JobRef } from "../state";
 import { rndExecutionsR, rndJobDetailR, rndJobsR, rndPlanR } from "../resources";
 import { branchOf, branchOptionName, envOf, isLiveStatus, isProdTarget, localDateTimeToIso, qualifiedName } from "../shape";
 import { watchRun } from "../runWatch";
-import { useDebounced } from "./hooks";
+import { useDebounced } from "../../../plugin-api/hooks";
 import { initialOptionValues, runOptionValues, validateOptions, type OptionValues, type RemoteValues } from "./options";
 import { RundeckAdvanced, type AdvancedRun } from "./RundeckAdvanced";
 import { RundeckOptionsForm } from "./RundeckOptionsForm";
@@ -194,9 +194,9 @@ function RunForm({ paneId, level, active, detail, permalink, children }: FormPro
             }
 
             if (runsBranch && plan.data?.push_action === "will-push-current" && repoPath) {
-                const status = await git.status(repoPath);
-                if (status.branch !== branch) {
-                    setError(`The checkout is now on ${status.branch}, not ${branch}. Nothing was pushed or run.`);
+                const checkedOut = currentBranch(await git.status(repoPath));
+                if (checkedOut !== branch) {
+                    setError(`The checkout is now on ${checkedOut ?? "a detached HEAD"}, not ${branch}. Nothing was pushed or run.`);
                     return;
                 }
                 await git.push(repoPath);
@@ -204,16 +204,16 @@ function RunForm({ paneId, level, active, detail, permalink, children }: FormPro
             }
 
             const result = await runJob(detail.options, values, advanced, detail.node_filter, level.jobId, runAtTime).catch((e: unknown) => {
-                throw pushed ? new Error(`${branch} was pushed, but Rundeck rejected the run: ${errorMessage(e)}`) : e;
+                throw pushed ? new Error(`${branch} was pushed, but Rundeck rejected the run: ${failureMessage(e)}`) : e;
             });
             if (result.recovered) notify("info", "The run request timed out, but the run was found in Rundeck.");
             invalidate(
                 (kind, args) => (kind === "rnd.executions" && args[0] === level.jobId) || (kind === "rnd.matrix" && args[0] === level.project),
             );
-            void watchRun(cmd.jobRefOf(level), result.id).catch(swallow("watch the run"));
+            watchRun(cmd.jobRefOf(level), result.id);
             cmd.rundeckReplace(paneId, { kind: "execution", ...cmd.jobRefOf(level), executionId: result.id });
         } catch (e) {
-            setError(errorMessage(e));
+            setError(failureMessage(e));
         } finally {
             setBusy(false);
         }

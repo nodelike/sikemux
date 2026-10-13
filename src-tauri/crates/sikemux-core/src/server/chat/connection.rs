@@ -3,7 +3,6 @@
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, OnceLock};
-use std::time::Duration;
 
 use agent_client_protocol::schema::v1::{
     CancelNotification, Implementation, InitializeRequest, LoadSessionRequest, McpServer,
@@ -18,17 +17,13 @@ use tokio::sync::{mpsc, oneshot};
 use uuid::Uuid;
 
 use crate::acp::account::{self, Failure, FailureKind};
-use crate::acp::{air, native, permission_mode_id, prompt_blocks, SessionEnd};
+use crate::acp::{air, native, permission, permission_mode_id, prompt_blocks, SessionEnd};
 use crate::protocol::{ChatEventKind, ChatLaunch, ChatStart};
 
 use super::rebind::{
     error_message, next_account, on_account, switch_notice, Carried, Outcome, Rebind, Replay,
 };
 use super::{Chat, ChatCommand};
-
-/// How long a stopped turn may keep running before the agent is killed. The
-/// agent only reads a cancel between steps, and a wedged tool never gets there.
-const CANCEL_GRACE: Duration = Duration::from_secs(10);
 
 /// A turn that failed in a way a new agent process or another account may fix.
 struct Failed {
@@ -252,11 +247,12 @@ pub(super) async fn run(
         .on_receive_request(
             async move |request: RequestPermissionRequest, responder, _connection| {
                 let chat = &permission_chat;
+                let mut payload = serde_json::to_value(&request).unwrap_or_else(|_| json!({}));
                 if chat.approves() {
-                    if let Some(option) = native::approval(&request.options) {
+                    if let Some(option_id) = permission::approval(&payload) {
                         return responder.respond(RequestPermissionResponse::new(
                             RequestPermissionOutcome::Selected(SelectedPermissionOutcome::new(
-                                option.option_id.clone(),
+                                option_id,
                             )),
                         ));
                     }
@@ -267,7 +263,6 @@ pub(super) async fn run(
                     .iter()
                     .map(|option| option.option_id.to_string())
                     .collect();
-                let mut payload = serde_json::to_value(&request).unwrap_or_else(|_| json!({}));
                 if let Some(object) = payload.as_object_mut() {
                     object.insert("requestId".into(), Value::String(request_id.clone()));
                 }
@@ -740,17 +735,13 @@ pub(super) async fn run(
                             let _ = reply.send(Err("This agent cannot edit a sent message".into()));
                         }
                         ChatCommand::Cancel => {
-                            connection
-                                .send_notification(CancelNotification::new(session_id.clone()))?;
+                            let sent = connection
+                                .send_notification(CancelNotification::new(session_id.clone()))
+                                .map_err(|error| error.to_string());
                             if chat.running.load(Ordering::Acquire) {
                                 cancelled_turn.store(turn, Ordering::Release);
-                                let cancelled = turn;
-                                let stalled = stalled_tx.clone();
-                                tokio::spawn(async move {
-                                    tokio::time::sleep(CANCEL_GRACE).await;
-                                    let _ = stalled.send(cancelled);
-                                });
                             }
+                            chat.cancel_sent(sent, turn, &stalled_tx);
                         }
                     }
                 };

@@ -21,12 +21,10 @@ import { requestOpenFile } from "./editor";
 import { closeSession } from "./sessions";
 import { closeDesk, closeShownDeskTab } from "./desk";
 import {
-    busyAgentIds,
     closeDocument,
     dirtyPathsForPane,
     disposePaneState,
     guardDiscardDirty,
-    guardStopAgents,
     makeWindow,
     patchWindow,
     pruneWindowViews,
@@ -287,7 +285,7 @@ export function closeActiveFocusTarget(): void {
             guardDiscardDirty(dirtyPathsForPane(st, active.id), "close pane", closeActivePane);
             return;
         }
-        if (agentId) guardStopAgents(busyAgentIds(st, [agentId]), `Close ${st.agents[agentId]?.title ?? "agent"}?`, () => closeAgent(agentId));
+        if (agentId) closeAgent(agentId);
         return;
     }
     if (win?.role === "ssh-config") {

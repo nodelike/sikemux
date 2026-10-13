@@ -750,6 +750,19 @@ mod tests {
     }
 
     #[test]
+    fn a_paused_pipeline_stops_the_watch() {
+        for paused in [
+            json!({ "name": "PAUSED" }),
+            json!({ "name": "HALTED" }),
+            json!({ "name": "IN_PROGRESS", "stage": { "name": "PAUSED" } }),
+        ] {
+            assert!(crate::watch::settled(&status_of(Some(&state(paused))).0));
+        }
+        let running = json!({ "name": "IN_PROGRESS", "stage": { "name": "RUNNING" } });
+        assert!(!crate::watch::settled(&status_of(Some(&state(running))).0));
+    }
+
+    #[test]
     fn states_use_the_words_every_host_shares() {
         let cases = [
             (json!({ "name": "PENDING" }), ("queued", None)),

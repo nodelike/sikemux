@@ -462,7 +462,7 @@ describe("bundle and openapi", () => {
   it("refuses an unknown kind of auth", () => {
     expect(() =>
       openapi(withLive, { routes: [{ ...socket, auth: "cookie" }] }),
-    ).toThrow(/auth is one of none, session, device, webhook/);
+    ).toThrow(/auth is one of none, signedIn, session, device, webhook/);
   });
 
   it("marks a request body the caller may leave out", () => {

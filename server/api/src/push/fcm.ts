@@ -1,6 +1,8 @@
-import { createPrivateKey, sign, type KeyObject } from "node:crypto";
+import { createPrivateKey, type KeyObject } from "node:crypto";
 import { readFileSync } from "node:fs";
 
+import { signJwt } from "../jwt.ts";
+import { refused, unanswered, worthRetrying } from "./delivery.ts";
 import type { Delivery, PushMessage, PushProvider } from "./provider.ts";
 
 /** The parts of a Google service account's JSON key that sending to FCM needs. */
@@ -69,35 +71,24 @@ export function readServiceAccount(path: string): ServiceAccount {
   };
 }
 
-function base64url(value: string | Buffer): string {
-  return Buffer.from(value).toString("base64url");
-}
-
 /** The signed assertion Google trades for an access token (RFC 7523). */
 export function signAssertion(account: ServiceAccount, nowMs: number): string {
   const iat = Math.floor(nowMs / 1000);
-  const header = {
-    alg: "RS256",
-    typ: "JWT",
-    ...(account.privateKeyId ? { kid: account.privateKeyId } : {}),
-  };
-  const claims = {
-    iss: account.clientEmail,
-    scope: SCOPE,
-    aud: account.tokenUri,
-    iat,
-    exp: iat + ASSERTION_SECONDS,
-  };
-  const unsigned = `${base64url(JSON.stringify(header))}.${base64url(JSON.stringify(claims))}`;
-  const signature = sign("sha256", Buffer.from(unsigned), account.privateKey);
-  return `${unsigned}.${base64url(signature)}`;
-}
-
-/** Seconds from a Retry-After header, as milliseconds. */
-function retryAfter(response: Response): number | undefined {
-  const header = response.headers.get("retry-after");
-  const seconds = header === null ? NaN : Number(header);
-  return Number.isFinite(seconds) && seconds >= 0 ? seconds * 1000 : undefined;
+  return signJwt(
+    {
+      alg: "RS256",
+      typ: "JWT",
+      ...(account.privateKeyId ? { kid: account.privateKeyId } : {}),
+    },
+    {
+      iss: account.clientEmail,
+      scope: SCOPE,
+      aud: account.tokenUri,
+      iat,
+      exp: iat + ASSERTION_SECONDS,
+    },
+    account.privateKey,
+  );
 }
 
 interface FcmError {
@@ -158,8 +149,7 @@ export class FcmProvider implements PushProvider {
       return this.mintFailed(error);
     }
     let response = await this.post(message, token);
-    if (response instanceof Error)
-      return { outcome: "retry", reason: response.message };
+    if (response instanceof Error) return unanswered(response);
     if (response.status === 401) {
       this.accessToken = null;
       try {
@@ -168,8 +158,7 @@ export class FcmProvider implements PushProvider {
         return this.mintFailed(error);
       }
       response = await this.post(message, token);
-      if (response instanceof Error)
-        return { outcome: "retry", reason: response.message };
+      if (response instanceof Error) return unanswered(response);
     }
     if (response.ok) {
       await response.body?.cancel();
@@ -180,15 +169,7 @@ export class FcmProvider implements PushProvider {
       return { outcome: "dead", reason: code };
     if (code === "INVALID_ARGUMENT" || code === "SENDER_ID_MISMATCH")
       return { outcome: "dead", reason: code };
-    if (response.status === 429 || response.status >= 500) {
-      const afterMs = retryAfter(response);
-      return {
-        outcome: "retry",
-        reason: code,
-        ...(afterMs === undefined ? {} : { afterMs }),
-      };
-    }
-    return { outcome: "failed", reason: `${response.status} ${code}` };
+    return refused(response.status, code, response.headers.get("retry-after"));
   }
 
   private mintFailed(error: unknown): Delivery {
@@ -267,7 +248,7 @@ export class FcmProvider implements PushProvider {
     if (!response.ok || typeof body.access_token !== "string")
       throw new TokenRefused(
         `Google refused an access token: ${response.status} ${typeof body.error === "string" ? body.error : ""}`.trim(),
-        response.status === 429 || response.status >= 500,
+        worthRetrying(response.status),
       );
     const lifetimeMs =
       (typeof body.expires_in === "number" ? body.expires_in : 3600) * 1000;

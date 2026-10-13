@@ -1,17 +1,17 @@
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::time::Duration;
 
 use rusqlite::{Connection, OpenFlags};
 use tokio::process::Command;
 
 use super::recent::{Found, Hit, Listed, PageScan};
+use crate::agents::config::hermes_root;
 use crate::agents::executable::apply_login_environment;
 use crate::agents::AgentSession;
 
 // ---- hermes — `sessions` table in ~/.hermes/state.db (SQLite) -----------
 fn hermes_db() -> Option<Connection> {
-    let home = std::env::var("HOME").ok()?;
-    let db = PathBuf::from(&home).join(".hermes/state.db");
+    let db = hermes_root()?.join("state.db");
     Connection::open_with_flags(&db, OpenFlags::SQLITE_OPEN_READ_ONLY).ok()
 }
 

@@ -11,19 +11,10 @@ use std::path::PathBuf;
 use serde::Serialize;
 use serde_json::{json, Value};
 
-/// The variable each provider reads its account directory from.
-pub fn directory_variable(provider: &str) -> Option<&'static str> {
-    match provider {
-        "claude" => Some("CLAUDE_CONFIG_DIR"),
-        "codex" => Some("CODEX_HOME"),
-        _ => None,
-    }
-}
+pub use sikemux_pty::launch::account_variable as directory_variable;
 
 fn home() -> PathBuf {
-    std::env::var_os("HOME")
-        .map(PathBuf::from)
-        .unwrap_or_default()
+    sikemux_process::paths::home().unwrap_or_default()
 }
 
 /// The directory the provider keeps its account in under `env`, which wins

@@ -62,6 +62,8 @@ export interface AcpAsyncTask {
     lastToolName?: string;
     outputFilePath?: string;
     usage?: { totalTokens: number; toolUses: number; durationMs: number };
+    /** The subagent that started it, when the chat itself did not. */
+    owner?: string;
 }
 
 /* A subagent runs as its own ACP session, so its transcript is kept whole

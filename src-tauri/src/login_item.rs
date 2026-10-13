@@ -30,6 +30,8 @@ fn string(value: impl AsRef<std::ffi::OsStr>) -> String {
 
 /// The LaunchAgent: started at login, and again only if it crashed, so Quit
 /// and Stop Everything or a second core finding one running stays stopped.
+/// Without `Interactive`, launchd runs it at background priority, and so every
+/// shell it starts.
 pub(crate) fn agent_plist(label: &str, launch: &CoreLaunch, path_env: Option<&str>) -> String {
     let mut arguments = vec![string(&launch.binary), string("core"), string("--socket")];
     arguments.push(string(&launch.socket));
@@ -53,7 +55,9 @@ pub(crate) fn agent_plist(label: &str, launch: &CoreLaunch, path_env: Option<&st
   <array>
     {arguments}
   </array>
-{environment}  <key>RunAtLoad</key>
+{environment}  <key>ProcessType</key>
+  <string>Interactive</string>
+  <key>RunAtLoad</key>
   <true/>
   <key>KeepAlive</key>
   <dict>

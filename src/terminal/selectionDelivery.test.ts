@@ -25,8 +25,14 @@ describe("terminalName", () => {
 
     it("prefers the pane's own title over its window's", () => {
         const context = { sessionId: "s", sessionName: "repo", sessionKind: "project" as const, windowId: "w", paneId: "p" };
-        expect(terminalName({ windows: { w: win } }, context)).toBe("server");
-        expect(terminalName({ windows: { w: win } }, { ...context, paneId: "gone" })).toBe("Shells");
-        expect(terminalName({ windows: {} }, context)).toBeNull();
+        expect(terminalName({ windows: { w: win }, terminalTitles: {} }, context)).toBe("server");
+        expect(terminalName({ windows: { w: win }, terminalTitles: {} }, { ...context, paneId: "gone" })).toBe("Shells");
+        expect(terminalName({ windows: {}, terminalTitles: {} }, context)).toBeNull();
+    });
+
+    it("goes by the name the person gave the tab, then by the shell's title", () => {
+        const context = { sessionId: "s", sessionName: "repo", sessionKind: "project" as const, windowId: "w", paneId: "p" };
+        expect(terminalName({ windows: { w: win }, terminalTitles: { p: "~/repo" } }, context)).toBe("~/repo");
+        expect(terminalName({ windows: { w: { ...win, customName: "dev server" } }, terminalTitles: { p: "~/repo" } }, context)).toBe("dev server");
     });
 });

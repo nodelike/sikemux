@@ -9,7 +9,7 @@ import { confirmDialog } from "../state/dialog";
 import { joinPath } from "../lib/paths";
 import { projectPorts } from "../ports/projectPorts";
 import { collectPanes } from "../state/layout";
-import { agentIdsOf } from "../state/selectors";
+import { agentIdsOf, projectSessionId } from "../state/selectors";
 import { useStore, setState } from "../state/store";
 import * as commands from "../state/commands";
 import { appTaskRuntime } from "../tasks/application";
@@ -81,7 +81,8 @@ function integer(params: Record<string, unknown>, key: string, fallback: number,
 
 function projectSession(request: HarnessRequest) {
     const state = useStore.getState();
-    const session = Object.values(state.sessions).find((session) => session.kind === "project" && session.cwd === request.project);
+    const sessionId = projectSessionId(state, request.project);
+    const session = sessionId ? state.sessions[sessionId] : undefined;
     if (!session) throw new Error("Project is not open in Sikemux");
     if (request.agentId && !agentIdsOf(state, session.id).includes(request.agentId)) throw new Error("Agent does not belong to this project");
     return session;

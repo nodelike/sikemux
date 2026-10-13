@@ -8,6 +8,8 @@
 #   ssh sikemux-deploy@citadel roll-back-update <update id> < directive.json
 #                                                                 rolls phones back from an update
 set -euo pipefail
+# shellcheck source=lib.sh
+. "$(dirname "$0")/lib.sh"
 
 ROOT=/srv/sikemux
 RELEASES="$ROOT/releases"
@@ -17,7 +19,7 @@ MAX_BYTES=$((200 * 1024 * 1024))
 MAX_UPDATE_BYTES=$((100 * 1024 * 1024))
 MAX_DIRECTIVE_BYTES=$((16 * 1024))
 HEALTH=http://127.0.0.1:4000/v1/health
-export DATABASE_URL='postgresql://sikemux@%2Fvar%2Frun%2Fpostgresql/sikemux'
+export DATABASE_URL="$SIKEMUX_DATABASE_URL"
 
 say() { printf '[deploy] %s\n' "$*"; }
 fail() {
@@ -78,7 +80,6 @@ publish_update() {
 
 promote_update() {
   local id="$1"
-  update_id "$id"
 
   exec 9>"$ROOT/deploy.lock"
   flock 9
@@ -89,13 +90,8 @@ promote_update() {
   exit 0
 }
 
-update_id() {
-  [[ "${1:-}" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]] || usage
-}
-
 withdraw_update() {
   local id="$1"
-  update_id "$id"
 
   exec 9>"$ROOT/deploy.lock"
   flock 9
@@ -108,7 +104,6 @@ withdraw_update() {
 
 roll_back_update() {
   local id="$1"
-  update_id "$id"
 
   exec 9>"$ROOT/deploy.lock"
   flock 9

@@ -4,6 +4,7 @@ import { CommitReview } from "../../git/CommitReview";
 import { FoldPanel } from "../../git/FoldPanel";
 import { GitColumns } from "../../git/GitColumns";
 import { GitGraph } from "../../git/GitGraph";
+import { gitStatusDecoration } from "../../git/gitFileStatus";
 import { FileIcon } from "../../ui/FileIcon";
 import { basename, dirname } from "../../lib/paths";
 import { notify, reportError } from "../../plugin-api/host";
@@ -16,8 +17,6 @@ import { hostApi, type RepoRef } from "../api";
 import { defaultBase, isUsualBase } from "../compose";
 import { useHost } from "../registry";
 import { hostBranchesR } from "../resources";
-
-const STATUS_CLASS = { A: "added", M: "modified", D: "deleted", R: "renamed" } as const;
 
 type Comparison = { key: string; data: GitCompare | null; error: string | null };
 
@@ -223,6 +222,7 @@ export function NewPullForm({ paneId, repo, cwd, head: startingHead, active, onC
                     </div>
                     {files.map((file) => {
                         const dir = dirname(file.path);
+                        const status = gitStatusDecoration(file.status);
                         return (
                             <button
                                 key={file.path}
@@ -238,7 +238,11 @@ export function NewPullForm({ paneId, repo, cwd, head: startingHead, active, onC
                                     {basename(file.path)}
                                     {dir && <span className="git-row-dir">{dir}</span>}
                                 </span>
-                                <span className={`git-status ${STATUS_CLASS[file.status]}`}>{file.status}</span>
+                                {status && (
+                                    <span className={`git-status git-${status.cls}`} title={status.label}>
+                                        {status.letter}
+                                    </span>
+                                )}
                             </button>
                         );
                     })}

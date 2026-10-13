@@ -3,19 +3,34 @@ import { invokeCommand } from "../api/invoke";
 import { subscribe } from "../state/bus";
 import * as cmd from "../state/commands";
 import { getState, setState, useStore, type StoreState } from "../state/store";
+import { copyText } from "../lib/clipboard";
+import { notify, reportError } from "../state/toast";
 import type { PluginKind } from "../plugins/kinds";
+import type { GitStatus } from "../api/git";
 import type { GitArea } from "../state/types";
 
 export { fsapi as files, type DirEntry } from "../api/fs";
 export { git } from "../api/git";
 export { basename, dirname, joinPath, relativePath } from "../lib/paths";
-export { copyText } from "../lib/clipboard";
+export { copyText };
 export { confirmDialog, promptDialog } from "../state/dialog";
 export { gitOverviewR } from "../state/resources.defs";
 export { usePluginOverlay } from "../plugins/overlays";
 export { useModalFocus } from "../hooks/useModalFocus";
-export { notify, reportError, swallow } from "../state/toast";
+export { notify, reportError };
+export { swallow } from "../state/toast";
 export { postNotification as notifyDesktop } from "../agents/agentNotifications";
+
+/** The branch checked out, or null on a detached HEAD, which git reports as a branch named `HEAD`. */
+export function currentBranch(status: Pick<GitStatus, "branch"> | null | undefined): string | null {
+    const branch = status?.branch.trim() ?? "";
+    return branch && branch !== "HEAD" ? branch : null;
+}
+
+/** Copies `text` and says what was copied, such as "the link"; a copy that fails is reported. */
+export function copyWithNotice(text: string, what: string): void {
+    void copyText(text).then(() => notify("success", `copied ${what}`), reportError("copy"));
+}
 
 export function openUrl(url: string): Promise<void> {
     return invokeCommand<void>("open_url", { url, app: null, shortcut: null });

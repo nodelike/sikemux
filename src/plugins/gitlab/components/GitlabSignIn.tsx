@@ -1,7 +1,8 @@
-import { useRef, useState, type KeyboardEvent } from "react";
+import { useState, type KeyboardEvent } from "react";
 import { openUrl, swallow } from "../../../plugin-api/host";
-import { SignInScreen } from "../../../plugin-api/ui";
-import { failureMessage, gitlabApi } from "../api";
+import { resource, useResource } from "../../../plugin-api/resources";
+import { SignInError, SignInScreen, SkeletonRows, useSignInAttempt } from "../../../plugin-api/ui";
+import { gitlabApi, type GitlabStatus } from "../api";
 import { GitlabMark } from "./GitlabMark";
 
 /** Where to make a token: the server's own settings page, which is gitlab.com's unless another server is named. */
@@ -14,33 +15,37 @@ export function tokensPage(host: string): string {
     return `https://${server}/-/user_settings/personal_access_tokens?name=Sikemux&scopes=api,read_user`;
 }
 
-/** A personal access token on gitlab.com, or on a company's own server named above it. */
+/** The sign-in form says why GitLab stopped taking the token, which only GitLab's own status says. */
+const gitlabStatusR = resource({
+    kind: "host.gitlabStatus",
+    fetch: (): Promise<GitlabStatus> => gitlabApi.status(),
+    staleAfterMs: 60_000,
+});
+
 export function GitlabSignIn({ onSignedIn }: { onSignedIn: (account: string | null) => void }) {
-    const [host, setHost] = useState("");
+    const status = useResource(gitlabStatusR);
+    if (!status.data && status.status === "loading") return <SkeletonRows rows={4} label="Connecting to GitLab" />;
+    return <SignInForm status={status.data ?? null} onSignedIn={onSignedIn} />;
+}
+
+/** A personal access token on gitlab.com, or on a company's own server named above it. */
+export function SignInForm({ status, onSignedIn }: { status: GitlabStatus | null; onSignedIn: (account: string | null) => void }) {
+    const [host, setHost] = useState(status?.host && status.host !== "gitlab.com" ? status.host : "");
     const [token, setToken] = useState("");
-    const [busy, setBusy] = useState(false);
-    const [error, setError] = useState<string | null>(null);
-    const checking = useRef(false);
+    const attempt = useSignInAttempt(status);
+    const busy = attempt.busy;
 
     const canSubmit = !busy && !!token.trim();
-    const submit = async () => {
-        if (checking.current || !canSubmit) return;
-        checking.current = true;
-        setBusy(true);
-        setError(null);
-        try {
+    const submit = () => {
+        if (!canSubmit) return;
+        attempt.run(async () => {
             const result = await gitlabApi.signInWithToken(token.trim(), host.trim());
-            if (result.ok) onSignedIn(result.account);
-            else setError(result.message ?? "GitLab turned that token down");
-        } catch (failure) {
-            setError(failureMessage(failure));
-        } finally {
-            checking.current = false;
-            setBusy(false);
-        }
+            if (!result.ok) return result.message ?? "GitLab turned that token down";
+            onSignedIn(result.account);
+        });
     };
     const onEnter = (event: KeyboardEvent) => {
-        if (event.key === "Enter") void submit();
+        if (event.key === "Enter") submit();
     };
 
     return (
@@ -78,16 +83,12 @@ export function GitlabSignIn({ onSignedIn }: { onSignedIn: (account: string | nu
                     />
                     <small className="signin-hint">The api scope lets Sikemux start and retry pipelines; read_api only reads.</small>
                 </label>
-                <button type="button" className="signin-btn primary" disabled={!canSubmit} onClick={() => void submit()}>
+                <button type="button" className="signin-btn primary" disabled={!canSubmit} onClick={submit}>
                     {busy ? "Checking…" : "Sign in"}
                 </button>
             </div>
 
-            {error && (
-                <div className="signin-callout" data-tone="danger">
-                    {error}
-                </div>
-            )}
+            <SignInError error={attempt.error} />
 
             <div className="signin-alt">
                 <button type="button" className="signin-link" onClick={() => void openUrl(tokensPage(host)).catch(swallow("open GitLab"))}>

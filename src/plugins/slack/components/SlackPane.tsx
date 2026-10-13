@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { copyText, notify, openUrl, reportError, swallow } from "../../../plugin-api/host";
+import { copyWithNotice, notify, openUrl, reportError, swallow } from "../../../plugin-api/host";
 import { invalidate, useResourceEnabled } from "../../../plugin-api/resources";
 import { Dropdown, EmptyState, Markdown, SendToAgentMenu, SkeletonRows } from "../../../plugin-api/ui";
 import { failureMessage, refreshSlack, slackApi, type SlackChannel, type SlackMessage, type SlackStatus } from "../api";
@@ -267,12 +267,7 @@ function ThreadView({
                 </button>
                 {found?.permalink && (
                     <>
-                        <button
-                            type="button"
-                            className="slack-chip"
-                            onClick={() =>
-                                void copyText(found.permalink ?? "").then(() => notify("success", "copied the link"), reportError("copy"))
-                            }>
+                        <button type="button" className="slack-chip" onClick={() => copyWithNotice(found.permalink ?? "", "the link")}>
                             Copy link
                         </button>
                         <button type="button" className="slack-chip" onClick={() => void openUrl(found.permalink ?? "").catch(swallow("open Slack"))}>

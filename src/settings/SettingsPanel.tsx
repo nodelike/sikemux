@@ -18,7 +18,8 @@ import {
     type KeybindingOverrides,
 } from "../commands/keybindings";
 import { settingsApi } from "../api/settings";
-import { isUpdateBusy, updateCheckLabel } from "../api/updater";
+import { openInBrowser } from "../api/releases";
+import { isUpdateBusy, RELEASES_URL, updateCheckLabel, UPDATES_IN_APP } from "../api/updater";
 import { prettyPath } from "../lib/paths";
 import { IS_MACOS, PRIMARY_SHORTCUT } from "../lib/platform";
 import { notify, reportError } from "../state/toast";
@@ -54,6 +55,8 @@ import { Tooltip } from "../ui/Tooltip";
 import type { CommandContext, CustomCommand, CustomCommandPlacement } from "../commands/registry";
 import type { AgentProvider, ProjectRoot, ProviderProfile } from "../state/types";
 import { AGENT_PERMISSION_COPY, AGENT_PERMISSION_MODES } from "../agents/agentLaunch";
+import { providerAccent } from "../agents/agentProfiles";
+import { ACCOUNT_AGENT_TYPES, agentLabel, hasAccounts } from "../agents/catalog";
 import {
     searchSettings,
     SETTINGS_GROUPS,
@@ -512,12 +515,12 @@ function AgentsPage() {
                 id: `profile-${Date.now().toString(36)}`,
                 name: "Local provider",
                 provider: "claude",
-                accent: "#d97757",
+                accent: providerAccent("claude"),
             },
     );
     const isSaved = profiles.some((profile) => profile.id === draft.id);
     const newProfile = () =>
-        setDraft({ id: `profile-${Date.now().toString(36)}`, name: "", provider: "claude", accent: "#d97757", environmentKeys: [] });
+        setDraft({ id: `profile-${Date.now().toString(36)}`, name: "", provider: "claude", accent: providerAccent("claude"), environmentKeys: [] });
     return (
         <SettingsPage>
             <SettingsSection
@@ -591,7 +594,9 @@ function AgentsPage() {
                                         { value: "codex", label: "Codex" },
                                         { value: "gemini", label: "Gemini" },
                                     ]}
-                                    onChange={(value) => setDraft({ ...draft, provider: value as AgentProvider })}
+                                    onChange={(value) =>
+                                        setDraft({ ...draft, provider: value as AgentProvider, accent: providerAccent(value as AgentProvider) })
+                                    }
                                 />
                             </SettingsRow>
                             <SettingsRow label="Executable path" desc="Empty uses PATH." wide>
@@ -603,7 +608,7 @@ function AgentsPage() {
                                     onChange={(event) => setDraft({ ...draft, executablePath: event.target.value || undefined })}
                                 />
                             </SettingsRow>
-                            {(draft.provider === "claude" || draft.provider === "codex") && (
+                            {hasAccounts(draft.provider) && (
                                 <SettingsRow
                                     label="Profile directory"
                                     desc={`Set this only when keeping several ${draft.provider} accounts side by side.`}
@@ -642,12 +647,8 @@ function AgentsPage() {
                 </div>
 
                 <SettingsRows>
-                    {(["claude", "codex"] as const).map((type) => (
-                        <SettingsRow
-                            key={type}
-                            label={`${type[0].toUpperCase()}${type.slice(1)} default`}
-                            desc={`The profile a new ${type} session launches with.`}
-                            wide>
+                    {ACCOUNT_AGENT_TYPES.map((type) => (
+                        <SettingsRow key={type} label={`${agentLabel(type)} default`} desc={`The profile a new ${type} session launches with.`} wide>
                             <Dropdown
                                 className="settings-dd"
                                 label={`${type} default`}
@@ -818,26 +819,41 @@ function AboutPage() {
         <SettingsPage>
             <SettingsSection title="Updates">
                 <SettingsRows>
-                    <SettingsRow
-                        label="Channel"
-                        desc="Stable follows the latest signed release; nightly the newest build, prerelease or stable."
-                        wide>
-                        <Dropdown
-                            className="settings-dd"
-                            label="update channel"
-                            value={updateChannel}
-                            options={[
-                                { value: "stable", label: "Stable", detail: "Latest signed release" },
-                                { value: "nightly", label: "Nightly", detail: "Newest signed build, prerelease or stable" },
-                            ]}
-                            onChange={(value) => cmd.setUpdateChannel(value as "stable" | "nightly")}
-                        />
-                    </SettingsRow>
-                    <SettingsRow label="Last checked" desc={lastUpdateCheck ? updateCheckLabel(lastUpdateCheck) : "Not checked yet this session."}>
-                        <button className="settings-btn" disabled={isUpdateBusy(pendingUpdate?.state)} onClick={() => void cmd.checkForUpdates()}>
-                            Check now
-                        </button>
-                    </SettingsRow>
+                    {UPDATES_IN_APP ? (
+                        <>
+                            <SettingsRow
+                                label="Channel"
+                                desc="Stable follows the latest signed release; nightly the newest build, prerelease or stable."
+                                wide>
+                                <Dropdown
+                                    className="settings-dd"
+                                    label="update channel"
+                                    value={updateChannel}
+                                    options={[
+                                        { value: "stable", label: "Stable", detail: "Latest signed release" },
+                                        { value: "nightly", label: "Nightly", detail: "Newest signed build, prerelease or stable" },
+                                    ]}
+                                    onChange={(value) => cmd.setUpdateChannel(value as "stable" | "nightly")}
+                                />
+                            </SettingsRow>
+                            <SettingsRow
+                                label="Last checked"
+                                desc={lastUpdateCheck ? updateCheckLabel(lastUpdateCheck) : "Not checked yet this session."}>
+                                <button
+                                    className="settings-btn"
+                                    disabled={isUpdateBusy(pendingUpdate?.state)}
+                                    onClick={() => void cmd.checkForUpdates()}>
+                                    Check now
+                                </button>
+                            </SettingsRow>
+                        </>
+                    ) : (
+                        <SettingsRow label="New versions" desc="Linux builds do not update themselves yet. Download each new release from GitHub.">
+                            <button className="settings-btn" onClick={() => void openInBrowser(RELEASES_URL).catch(reportError("open releases"))}>
+                                Open releases
+                            </button>
+                        </SettingsRow>
+                    )}
                 </SettingsRows>
             </SettingsSection>
 

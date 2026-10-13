@@ -5,11 +5,9 @@ use std::collections::{HashMap, HashSet};
 
 use serde_json::{json, Map, Value};
 
+use super::super::file_link;
+use super::super::json::text_or_empty as text;
 use super::patch;
-
-fn text<'a>(value: &'a Value, key: &str) -> &'a str {
-    value[key].as_str().unwrap_or_default()
-}
 
 fn status(item: &Value) -> &'static str {
     match text(item, "status") {
@@ -477,13 +475,6 @@ fn reasoning_parts(item: &Value) -> Vec<&str> {
 
 /// A user message's inputs as the chat shows them on replay.
 pub(super) fn user_blocks(item: &Value) -> Vec<Value> {
-    let link = |name: Option<&str>, uri: &str| match name.filter(|name| !name.is_empty()) {
-        Some(name) => format!("[@{name}]({uri})"),
-        None => match uri.strip_prefix("file://") {
-            Some(path) => format!("[@{}]({uri})", path.rsplit('/').next().unwrap_or(path)),
-            None => uri.to_owned(),
-        },
-    };
     item["content"]
         .as_array()
         .into_iter()
@@ -491,7 +482,7 @@ pub(super) fn user_blocks(item: &Value) -> Vec<Value> {
         .filter_map(|input| {
             let said = match text(input, "type") {
                 "text" => Some(text(input, "text").to_owned()).filter(|said| !said.is_empty()),
-                "image" => Some(link(Some("image"), text(input, "url"))),
+                "image" => Some(file_link(Some("image"), text(input, "url"))),
                 "localImage" => {
                     let path = text(input, "path");
                     let uri = if path.starts_with("file://") {
@@ -499,7 +490,7 @@ pub(super) fn user_blocks(item: &Value) -> Vec<Value> {
                     } else {
                         format!("file://{path}")
                     };
-                    Some(link(None, &uri))
+                    Some(file_link(None, &uri))
                 }
                 "skill" => Some(format!(
                     "skill:{} ({})",

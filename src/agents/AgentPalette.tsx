@@ -1,6 +1,6 @@
 import { useModalFocus } from "../hooks/useModalFocus";
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
-import { type AgentInfo, type AgentSession } from "../api/agents";
+import { type AgentSession } from "../api/agents";
 import { selectedAgentRuntimeProfiles, selectedProviderProfile } from "./agentProfiles";
 import { useMouseActive } from "../hooks/useMouseActive";
 import { rankBy } from "../lib/fuzzy";
@@ -10,6 +10,8 @@ import { agentCatalogR, agentSessionsR } from "../state/resources.defs";
 import { useStore } from "../state/store";
 import type { AgentPermissionMode, AgentType } from "../state/types";
 import { AgentIcon, IconSearch, IconShield, IconShieldBolt } from "../ui/Icons";
+import { formatAge } from "../lib/format";
+import { agentLabel } from "./catalog";
 import { leavingOverlay } from "../lib/motion";
 
 type Row = AgentSession & { type: AgentType };
@@ -25,25 +27,12 @@ const MODE_CHOICES: { mode: AgentPermissionMode; label: string; title: string }[
     { mode: YOLO, label: "yolo", title: "YOLO mode — the agent launches without approvals." },
 ];
 
-function labelForType(type: AgentType, agents: readonly AgentInfo[]): string {
-    return agents.find((agent) => agent.type === type)?.label ?? type;
-}
-
 function sortRows(rows: Row[]): Row[] {
     return [...rows].sort((left, right) => right.mtime - left.mtime);
 }
 
 function typeForItem(item: AgentItem): AgentType {
     return item.kind === "new" ? item.type : item.row.type;
-}
-
-function ago(unixSecs: number): string {
-    if (!unixSecs) return "";
-    const delta = Math.max(0, Date.now() / 1000 - unixSecs);
-    if (delta < 90) return "now";
-    if (delta < 3600) return `${Math.round(delta / 60)}m`;
-    if (delta < 86400) return `${Math.round(delta / 3600)}h`;
-    return `${Math.round(delta / 86400)}d`;
 }
 
 export function AgentPalette() {
@@ -130,8 +119,8 @@ export function AgentPalette() {
     const items = useMemo(() => {
         const fresh = agents.map(({ type }): NewAgentItem => ({ kind: "new", type }));
         const resumable = rows.map((row): ResumeAgentItem => ({ kind: "resume", row }));
-        const rankedFresh = rankBy(query, fresh, (item) => `+ new ${labelForType(item.type, agents)} ${item.type}`);
-        const rankedResumable = rankBy(query, resumable, (item) => `${item.row.title} ${labelForType(item.row.type, agents)} ${item.row.type}`);
+        const rankedFresh = rankBy(query, fresh, (item) => `+ new ${agentLabel(item.type)} ${item.type}`);
+        const rankedResumable = rankBy(query, resumable, (item) => `${item.row.title} ${agentLabel(item.row.type)} ${item.row.type}`);
         return [...rankedFresh, ...rankedResumable];
     }, [agents, query, rows]);
 
@@ -267,7 +256,7 @@ export function AgentPalette() {
                         const provider = agents.find((agent) => agent.type === type);
                         const available = provider?.available !== false;
                         const key = item.kind === "new" ? `new-${type}` : `${type}-${item.row.id}`;
-                        const name = item.kind === "new" ? `+ new ${labelForType(type, agents)}` : item.row.title;
+                        const name = item.kind === "new" ? `+ new ${agentLabel(type)}` : item.row.title;
                         return (
                             <Fragment key={key}>
                                 {index === firstResumeIndex && firstResumeIndex > 0 && <div className="agent-palette-divider" />}
@@ -293,7 +282,7 @@ export function AgentPalette() {
                                                 ? provider?.status?.state === "signedOut"
                                                     ? "signed out"
                                                     : ""
-                                                : `${labelForType(type, agents)} · ${ago(item.row.mtime)}`}
+                                                : `${agentLabel(type)} · ${formatAge(item.row.mtime * 1000)}`}
                                     </span>
                                 </button>
                             </Fragment>

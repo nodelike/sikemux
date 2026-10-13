@@ -441,13 +441,7 @@ pub fn human_duration(ms: u64) -> String {
 /// Where autopsies live. Debug and release stay separate so a development run
 /// cannot bury the evidence from an installed build.
 pub fn autopsy_dir() -> Option<PathBuf> {
-    let home = std::env::var_os("HOME")?;
-    let name = if cfg!(debug_assertions) {
-        "autopsy.dev"
-    } else {
-        "autopsy"
-    };
-    Some(PathBuf::from(home).join(".config/sikemux").join(name))
+    sikemux_process::paths::config_file("autopsy", "")
 }
 
 /// Builds the listener the UI watchdog notifies. `None` when there is nowhere

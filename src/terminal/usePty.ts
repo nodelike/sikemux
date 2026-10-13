@@ -13,6 +13,7 @@ import { subscribePtyShellMetadata, type PtyShellMetadataEvent } from "../api/pt
 import { taskPtyBindings, type TaskPtyBinding } from "../tasks/nativeRuntime";
 import { coreSessionsApi } from "../api/coreSessions";
 import { noteSpawnedSession, takeResumableSession } from "./sessionResume";
+import { noteTerminalSize } from "./spareShell";
 
 type NativeChannel = Channel<ArrayBuffer>;
 export type NativePtyController = PtyLifecycleController<NativeChannel, PtyContext>;
@@ -66,7 +67,10 @@ const nativePtyApi: PtyApi<NativeChannel, PtyContext> = {
         return id;
     },
     write: (id, data) => invoke<void>("pty_write", { id, data }),
-    resize: (id, cols, rows) => invoke<void>("pty_resize", { id, cols, rows }),
+    resize: (id, cols, rows) => {
+        noteTerminalSize(cols, rows);
+        return invoke<void>("pty_resize", { id, cols, rows });
+    },
     kill: (id) => invoke<void>("pty_kill", { id }),
     attach: async (id, channel) => decodeAttachResponse(await invoke<ArrayBuffer>("pty_attach", { id, onEvent: channel })),
     detach: (id, subId) => invoke<void>("pty_unsubscribe", { id, subId }),

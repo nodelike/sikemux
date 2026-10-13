@@ -1,5 +1,6 @@
 import { create } from "zustand";
-import { onPaneClosed, openSurface } from "../../plugin-api/host";
+import { openSurface } from "../../plugin-api/host";
+import { definePaneViews } from "../../plugin-api/paneViews";
 import { definePluginSettings } from "../../plugin-api/settings";
 import type { Filter, Scope, TraceOrder } from "./api";
 import { SIGNOZ_EXPLORE, SIGNOZ_PLUGIN_ID } from "./kinds";
@@ -102,7 +103,9 @@ const FRESH: ExploreView = {
     tracesErrorsOnly: false,
 };
 
-export const useSignoz = create<{ views: Record<string, ExploreView>; paletteOpen: boolean }>()(() => ({ views: {}, paletteOpen: false }));
+export const useSignoz = create<{ paletteOpen: boolean }>()(() => ({ paletteOpen: false }));
+
+const views = definePaneViews(FRESH);
 
 export function togglePalette(): void {
     useSignoz.setState((state) => ({ paletteOpen: !state.paletteOpen }));
@@ -112,26 +115,9 @@ export function closePalette(): void {
     useSignoz.setState({ paletteOpen: false });
 }
 
-onPaneClosed((paneId) => {
-    if (!(paneId in useSignoz.getState().views)) return;
-    useSignoz.setState((state) => {
-        const views = { ...state.views };
-        delete views[paneId];
-        return { views };
-    });
-});
-
-export function useExploreView(paneId: string): ExploreView {
-    return useSignoz((state) => state.views[paneId] ?? FRESH);
-}
-
-export function viewOf(paneId: string): ExploreView {
-    return useSignoz.getState().views[paneId] ?? FRESH;
-}
-
-export function updateView(paneId: string, patch: Partial<ExploreView>): void {
-    useSignoz.setState((state) => ({ views: { ...state.views, [paneId]: { ...(state.views[paneId] ?? FRESH), ...patch } } }));
-}
+export const useExploreView = views.use;
+export const viewOf = views.get;
+export const updateView = views.update;
 
 /** One filter per attribute and operator: saying it again replaces it rather than stacking a copy. */
 export function addFilter(paneId: string, filter: Filter): void {

@@ -1,6 +1,8 @@
 import { sql, type Kysely } from "kysely";
 
+import { audit } from "../audit.ts";
 import type { Tables } from "../db.ts";
+import { pruneChallenges } from "../devices/challenge.ts";
 import type { Logger } from "../log.ts";
 
 /** How long each kind of history is kept. */
@@ -62,16 +64,12 @@ export async function purgeAccounts(
       await trx.deleteFrom("audit").where("user_id", "=", id).execute();
       await trx.deleteFrom("challenges").where("user_id", "=", id).execute();
       await trx.deleteFrom("users").where("id", "=", id).execute();
-      await trx
-        .insertInto("audit")
-        .values({
-          user_id: null,
-          actor: "system",
-          action: "account.purged",
-          subject: null,
-          detail: JSON.stringify({ devices: Number(removed.n) }),
-        })
-        .execute();
+      await audit(trx, {
+        userId: null,
+        actor: "system",
+        action: "account.purged",
+        detail: { devices: Number(removed.n) },
+      });
       return true;
     });
     if (done) purged += 1;
@@ -145,14 +143,7 @@ export async function pruneHistory(
     RETENTION_DAYS.removedDevices,
   );
   const audit = await olderThan("audit", "at", RETENTION_DAYS.audit);
-  const challenges = Number(
-    (
-      await db
-        .deleteFrom("challenges")
-        .where("expires_at", "<", sql<Date>`now() - interval '1 hour'`)
-        .executeTakeFirst()
-    ).numDeletedRows,
-  );
+  const challenges = await pruneChallenges(db);
   const pruned = { events, removedDevices, audit, challenges };
   log.info(pruned, "pruned old history");
   return pruned;

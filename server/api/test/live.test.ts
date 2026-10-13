@@ -1,3 +1,4 @@
+import { LiveCloseCode } from "@sikemux/protocol";
 import {
   afterAll,
   afterEach,
@@ -11,7 +12,7 @@ import {
 
 import type { Database } from "../src/db.ts";
 import { registrationMessage } from "../src/devices/signature.ts";
-import { CLOSE, LIVE_OPTIONS } from "../src/live/options.ts";
+import { LIVE_OPTIONS } from "../src/live/options.ts";
 import { LiveSocket } from "../src/live/socket.ts";
 import {
   caller,
@@ -167,7 +168,7 @@ describe("a host's live connection", () => {
     await older.until("ready");
     const newer = kept(await hostPeer(api.url, mac));
     await newer.until("ready");
-    expect(await older.closed).toBe(CLOSE.replaced);
+    expect(await older.closed).toBe(LiveCloseCode.replaced);
   });
 
   it("answers pings and is pinged", async () => {
@@ -188,7 +189,7 @@ describe("a host's live connection", () => {
     const bye = await peer.until("bye");
     expect(bye.reconnectAfterMs).toBeGreaterThanOrEqual(1_000);
     expect(bye.reconnectAfterMs).toBeLessThanOrEqual(3_000);
-    expect(await peer.closed).toBe(CLOSE.restarting);
+    expect(await peer.closed).toBe(LiveCloseCode.restarting);
   });
 
   it("says bye even to connections that have not said hello yet", async () => {
@@ -197,7 +198,7 @@ describe("a host's live connection", () => {
     await peer.challenge();
     await api.live.stop();
     expect((await peer.until("bye")).type).toBe("bye");
-    expect(await peer.closed).toBe(CLOSE.restarting);
+    expect(await peer.closed).toBe(LiveCloseCode.restarting);
   });
 
   it("records when the device was last seen", async () => {
@@ -224,7 +225,7 @@ describe("a removed device", () => {
     await removeAs("user_a", iphone.key);
     const revoked = await peer.until("revoked");
     expect(revoked.reason).toBe("removed");
-    expect(await peer.closed).toBe(CLOSE.revoked);
+    expect(await peer.closed).toBe(LiveCloseCode.revoked);
     expect(mac.key).toBeDefined();
   });
 
@@ -251,11 +252,11 @@ describe("a removed device", () => {
       }
     }
     expect(seen).toEqual(["events", "revoked"]);
-    expect(await peer.closed).toBe(CLOSE.revoked);
+    expect(await peer.closed).toBe(LiveCloseCode.revoked);
 
     await database.pool.query("delete from removed_devices");
     const purged = await hostPeer(api.url, mac);
-    expect(await purged.closed).toBe(CLOSE.unauthenticated);
+    expect(await purged.closed).toBe(LiveCloseCode.unauthenticated);
     expect(purged.messages.map((message) => message.type)).toEqual([
       "challenge",
     ]);
@@ -273,7 +274,7 @@ describe("a removed device", () => {
     await peer.until("ready");
     peer.send({ type: "leave" });
     expect((await peer.until("revoked")).reason).toBe("signed_out");
-    expect(await peer.closed).toBe(CLOSE.revoked);
+    expect(await peer.closed).toBe(LiveCloseCode.revoked);
 
     const frame = await hostSide.until("events");
     expect(frame.events).toMatchObject([
@@ -298,7 +299,7 @@ describe("a removed device", () => {
     const peer = await hostPeer(api.url, mac);
     await peer.until("ready");
     peer.send({ type: "leave", key: other.key });
-    expect(await peer.closed).toBe(CLOSE.badMessage);
+    expect(await peer.closed).toBe(LiveCloseCode.badMessage);
     const { rows } = await database.pool.query(
       "select count(*)::int as n from devices",
     );
@@ -374,7 +375,7 @@ describe("replay", () => {
       key: mac.key,
       signature: signLive(mac, nonce),
     });
-    expect(await second.closed).toBe(CLOSE.unauthenticated);
+    expect(await second.closed).toBe(LiveCloseCode.unauthenticated);
   });
 
   it("closes a second hello on the same connection", async () => {
@@ -388,7 +389,7 @@ describe("replay", () => {
       key: mac.key,
       signature: "0".repeat(128),
     });
-    expect(await peer.closed).toBe(CLOSE.badMessage);
+    expect(await peer.closed).toBe(LiveCloseCode.badMessage);
   });
 
   it("refuses a hello after the challenge expired", async () => {
@@ -403,7 +404,7 @@ describe("replay", () => {
       key: mac.key,
       signature: signLive(mac, nonce),
     });
-    expect(await peer.closed).toBe(CLOSE.unauthenticated);
+    expect(await peer.closed).toBe(LiveCloseCode.unauthenticated);
   });
 
   it("never takes a registration signature as a live one, or the reverse", async () => {
@@ -417,7 +418,7 @@ describe("replay", () => {
       key: mac.key,
       signature: signText(mac, registrationMessage(nonce, "user_a", mac.key)),
     });
-    expect(await peer.closed).toBe(CLOSE.unauthenticated);
+    expect(await peer.closed).toBe(LiveCloseCode.unauthenticated);
 
     const token = await macToken("user_a");
     const registerNonce = await challenge(api.app, token);
@@ -445,7 +446,7 @@ describe("impersonation", () => {
       key: victim.key,
       signature: signLive({ ...attacker, key: victim.key }, nonce),
     });
-    expect(await peer.closed).toBe(CLOSE.unauthenticated);
+    expect(await peer.closed).toBe(LiveCloseCode.unauthenticated);
   });
 
   it("refuses one account's token with another account's phone", async () => {
@@ -454,7 +455,7 @@ describe("impersonation", () => {
     const peer = await clientPeer(api.url, theirs, "user_a", {
       sessionId: "sess_a",
     });
-    expect(await peer.closed).toBe(CLOSE.unauthenticated);
+    expect(await peer.closed).toBe(LiveCloseCode.unauthenticated);
   });
 
   it("refuses a host key as a client, and a client key as a host", async () => {
@@ -462,9 +463,9 @@ describe("impersonation", () => {
     const mac = await host("user_a");
     const iphone = await phone("user_a");
     const asClient = await clientPeer(api.url, mac, "user_a");
-    expect(await asClient.closed).toBe(CLOSE.unauthenticated);
+    expect(await asClient.closed).toBe(LiveCloseCode.unauthenticated);
     const asHost = await hostPeer(api.url, iphone);
-    expect(await asHost.closed).toBe(CLOSE.unauthenticated);
+    expect(await asHost.closed).toBe(LiveCloseCode.unauthenticated);
   });
 
   it("refuses a client without its session, or with the Mac's token", async () => {
@@ -480,20 +481,20 @@ describe("impersonation", () => {
         signature: signLive(iphone, nonce),
         ...(token ? { token } : {}),
       });
-      expect(await peer.closed).toBe(CLOSE.unauthenticated);
+      expect(await peer.closed).toBe(LiveCloseCode.unauthenticated);
     }
   });
 
   it("refuses the Mac's OAuth token, or a phone's session, as the web app", async () => {
     await start();
     const mac = await webPeer(api.url, "user_a", await macToken("user_a"));
-    expect(await mac.closed).toBe(CLOSE.unauthenticated);
+    expect(await mac.closed).toBe(LiveCloseCode.unauthenticated);
     const native = await webPeer(
       api.url,
       "user_a",
       await sessionToken("user_a"),
     );
-    expect(await native.closed).toBe(CLOSE.unauthenticated);
+    expect(await native.closed).toBe(LiveCloseCode.unauthenticated);
   });
 
   it("refuses a deleted account's web token", async () => {
@@ -501,7 +502,7 @@ describe("impersonation", () => {
     await host("user_a");
     await database.pool.query("update users set deleted_at = now()");
     const peer = await webPeer(api.url, "user_a");
-    expect(await peer.closed).toBe(CLOSE.unauthenticated);
+    expect(await peer.closed).toBe(LiveCloseCode.unauthenticated);
   });
 
   it("refuses browsers on other sites", async () => {
@@ -558,7 +559,7 @@ describe("the web app's connection", () => {
       type: "auth",
       token: await sessionToken("user_a", { claims: { azp: APP_ORIGIN } }),
     });
-    expect(await stale.closed).toBe(CLOSE.unauthenticated);
+    expect(await stale.closed).toBe(LiveCloseCode.unauthenticated);
     expect(fresh.closeCode).toBeUndefined();
   });
 
@@ -570,7 +571,7 @@ describe("the web app's connection", () => {
       type: "auth",
       token: await sessionToken("user_b", { claims: { azp: APP_ORIGIN } }),
     });
-    expect(await peer.closed).toBe(CLOSE.unauthenticated);
+    expect(await peer.closed).toBe(LiveCloseCode.unauthenticated);
   });
 
   it("is not a device: it cannot leave", async () => {
@@ -578,7 +579,7 @@ describe("the web app's connection", () => {
     const peer = await webPeer(api.url, "user_a");
     await peer.until("ready");
     peer.send({ type: "leave" });
-    expect(await peer.closed).toBe(CLOSE.badMessage);
+    expect(await peer.closed).toBe(LiveCloseCode.badMessage);
   });
 });
 
@@ -608,7 +609,7 @@ describe("limits", () => {
         key: newDevice().key,
         signature: "0".repeat(128),
       });
-      expect(await peer.closed).toBe(CLOSE.unauthenticated);
+      expect(await peer.closed).toBe(LiveCloseCode.unauthenticated);
     }
     expect(await upgradeStatus(api.url, headers)).toBe(429);
   });
@@ -630,7 +631,7 @@ describe("limits", () => {
     const peer = await hostPeer(api.url, mac, {
       "x-forwarded-for": "198.51.100.200",
     });
-    expect(await peer.closed).toBe(CLOSE.overLimit);
+    expect(await peer.closed).toBe(LiveCloseCode.overLimit);
   });
 
   it("refuses the 21st connection for one account", async () => {
@@ -642,7 +643,7 @@ describe("limits", () => {
       open.push(peer);
     }
     const extra = await webPeer(api.url, "user_a");
-    expect(await extra.closed).toBe(CLOSE.overLimit);
+    expect(await extra.closed).toBe(LiveCloseCode.overLimit);
     expect(open.every((peer) => peer.closeCode === undefined)).toBe(true);
   });
 
@@ -652,7 +653,7 @@ describe("limits", () => {
     const peer = await hostPeer(api.url, mac);
     await peer.until("ready");
     for (let i = 0; i < 21; i++) peer.send({ type: "pong" });
-    expect(await peer.closed).toBe(CLOSE.overLimit);
+    expect(await peer.closed).toBe(LiveCloseCode.overLimit);
   });
 
   it("closes a connection sending a 9 KB frame", async () => {
@@ -668,7 +669,7 @@ describe("limits", () => {
     await start({ helloTimeoutMs: 100 });
     const peer = new Peer(api.url);
     await peer.challenge();
-    expect(await peer.closed).toBe(CLOSE.helloTimeout);
+    expect(await peer.closed).toBe(LiveCloseCode.helloTimeout);
   });
 
   it("closes a message that is not part of the protocol", async () => {
@@ -676,7 +677,7 @@ describe("limits", () => {
     const peer = new Peer(api.url);
     await peer.challenge();
     peer.send({ type: "subscribe", all: true });
-    expect(await peer.closed).toBe(CLOSE.badMessage);
+    expect(await peer.closed).toBe(LiveCloseCode.badMessage);
   });
 
   it("answers 404 for any other WebSocket path", async () => {

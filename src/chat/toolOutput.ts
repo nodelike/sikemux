@@ -1,3 +1,4 @@
+import { recordOf } from "./acpEvents";
 import type { AcpToolCall } from "./types";
 
 export interface ToolOutput {
@@ -13,10 +14,6 @@ export interface ToolOutput {
 const MAX_CHARS = 16_000;
 const MAX_LINES = 400;
 const MAX_IMAGE_CHARS = 1024 * 1024;
-
-function recordOf(value: unknown): Record<string, unknown> | undefined {
-    return typeof value === "object" && value !== null && !Array.isArray(value) ? (value as Record<string, unknown>) : undefined;
-}
 
 function textOf(value: unknown): string | undefined {
     return typeof value === "string" ? value : undefined;

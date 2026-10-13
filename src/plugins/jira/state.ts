@@ -1,5 +1,5 @@
-import { create } from "zustand";
-import { activeSurfacePane, onPaneClosed, openSurface } from "../../plugin-api/host";
+import { activeSurfacePane, openSurface } from "../../plugin-api/host";
+import { definePaneViews } from "../../plugin-api/paneViews";
 import { JIRA_ISSUES } from "./kinds";
 
 export type JiraList =
@@ -72,23 +72,10 @@ export interface JiraView {
     site: string;
 }
 
-const FIRST_VIEW: JiraView = { list: { kind: "mine" }, issue: null, site: "" };
+const views = definePaneViews<JiraView>({ list: { kind: "mine" }, issue: null, site: "" });
 
-const useViews = create<{ views: Record<string, JiraView> }>(() => ({ views: {} }));
-
-onPaneClosed((paneId) =>
-    useViews.setState((state) => {
-        const views = { ...state.views };
-        delete views[paneId];
-        return { views };
-    }),
-);
-
-export const useJiraView = (paneId: string): JiraView => useViews((state) => state.views[paneId] ?? FIRST_VIEW);
-
-export function updateJiraView(paneId: string, change: Partial<JiraView>): void {
-    useViews.setState((state) => ({ views: { ...state.views, [paneId]: { ...(state.views[paneId] ?? FIRST_VIEW), ...change } } }));
-}
+export const useJiraView = views.use;
+export const updateJiraView = views.update;
 
 export const openJira = (): string | null => openSurface(JIRA_ISSUES);
 

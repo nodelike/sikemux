@@ -22,7 +22,7 @@ use tokio::process::{ChildStdin, Command};
 use tokio::sync::oneshot;
 
 use super::config::agent_config_root;
-use super::executable::{apply_login_environment, apply_process_config, expand_user_path};
+use super::executable::{apply_login_environment, apply_process_config};
 use super::status::forget_status;
 use super::usage::{codex_app_server, forget_agent_usage};
 use super::AgentKind;
@@ -627,19 +627,20 @@ pub(crate) fn account_environment(
     provider: &str,
     config_path: Option<&str>,
 ) -> Vec<(String, String)> {
-    let Some(variable) = sikemux_core::acp::account::directory_variable(provider) else {
+    let Some(variable) = sikemux_pty::launch::account_variable(provider) else {
         return Vec::new();
     };
-    let Some(path) = config_path.map(str::trim).filter(|path| !path.is_empty()) else {
+    let directory = match config_path.map(str::trim).filter(|path| !path.is_empty()) {
+        Some(path) => sikemux_pty::launch::account_dir(path)
+            .to_string_lossy()
+            .into_owned(),
         // The default account is wherever the person's shell points the agent.
-        return sikemux_pty::user_shell::login_shell_environment()
-            .get(variable)
-            .filter(|path| !path.is_empty())
-            .map(|path| vec![(variable.to_owned(), path.clone())])
-            .unwrap_or_default();
+        None => match sikemux_pty::user_shell::user_variable(variable) {
+            Some(directory) => directory,
+            None => return Vec::new(),
+        },
     };
-    let root = agent_config_root(provider, Some(path)).unwrap_or_else(|| expand_user_path(path));
-    vec![(variable.to_owned(), root.to_string_lossy().into_owned())]
+    vec![(variable.to_owned(), directory)]
 }
 
 #[cfg(test)]

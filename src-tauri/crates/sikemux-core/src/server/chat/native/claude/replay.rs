@@ -3,7 +3,9 @@ use std::path::{Path, PathBuf};
 
 use serde_json::{json, Map, Value};
 
-use super::tools::{self, is_js_whitespace, js_str, truthy, TaskPlan};
+use super::super::super::states::{self, Subagent};
+use super::super::json::{self, is_js_whitespace, js_str, str_field, truthy};
+use super::tools::{self, TaskPlan};
 
 /// The transcript file for a session: search `<config_dir>/projects/*/<session_id>.jsonl` (config_dir = CLAUDE_CONFIG_DIR or ~/.claude).
 pub fn transcript_path(config_dir: &Path, session_id: &str) -> Option<PathBuf> {
@@ -174,10 +176,6 @@ fn parse_lines(bytes: &[u8]) -> Vec<Value> {
             ) && record.get("uuid").is_some_and(Value::is_string)
         })
         .collect()
-}
-
-fn str_field<'a>(record: &'a Value, key: &str) -> Option<&'a str> {
-    record.get(key).and_then(Value::as_str)
 }
 
 fn uuid_of(record: &Value) -> &str {
@@ -526,10 +524,12 @@ fn local_command_part(record: &Value) -> Option<LocalCommandPart> {
     .find_map(|(open, part)| text.starts_with(open).then_some(part))
 }
 
-const INTERRUPTION_PREFIXES: [&str; 6] = [
+const INTERRUPTION_PREFIXES: [&str; 8] = [
     "[Request interrupted by user]",
     "[Request interrupted by user for tool use]",
     "[Tool call did not complete: the turn was ended to deliver the message that follows. Nothing refused it; re-run it if still needed.]",
+    "[Tool call interrupted: the session ended before this call's result was recorded, so its outcome is unknown. Check whether it took effect before relying on it or running it again.]",
+    "[Tool call result not in this copy: this session was copied from another session before that session recorded this call's result. The call may have finished there, may still be running there, or may never have run. Check whether it took effect before relying on it or running it again.]",
     "The user doesn't want to take this action right now. STOP what you are doing and wait for the user to tell you how to proceed.",
     "[Tool call skipped: the turn was stopped before this call ran, by the check whose denial is on another call in this batch. Nothing refused this call and it had no effects; re-run it if still needed.]",
     "[Tool call skipped: the turn ended to deliver the message that follows before this call ran. Nothing refused it; re-run it if still needed.]",
@@ -719,19 +719,6 @@ pub fn resumed_model(records: &[Value]) -> Option<String> {
     })
 }
 
-/// The uuid of the record a rewind to just before user message `message_uuid` resumes at (its parentUuid, skipping back over records that are not user/assistant chain entries if needed), or None when it is the first message.
-pub fn rewind_point(records: &[Value], message_uuid: &str) -> Option<String> {
-    let index = records
-        .iter()
-        .position(|record| uuid_of(record) == message_uuid)?;
-    let parent = str_field(&records[index], "parentUuid")?;
-    if records.iter().any(|record| uuid_of(record) == parent) {
-        return Some(parent.to_string());
-    }
-    let previous = records[..index].last()?;
-    Some(uuid_of(previous).to_string())
-}
-
 /// The updates to replay, in order, as (session_id, update) pairs: root session id for top-level records, `<sid>:replay-subagent:<toolUseId>` children with subagent_spawned / subagent_state_update exactly as §11.2, user records as user_message_chunk with messageId = record uuid (after stripLocalCommandMetadata), assistant records via content_chunk/tool_call/tool_result, TodoWrite → plan, skipping Agent/Task calls, synthetic login/usage-limit handling.
 pub fn replay(records: &[Value], session_id: &str, cwd: &Path) -> Vec<(String, Value)> {
     let mut replay = Replay {
@@ -786,9 +773,16 @@ pub fn replay(records: &[Value], session_id: &str, cwd: &Path) -> Vec<(String, V
         let at = str_field(record, "timestamp").and_then(crate::accounts::live::parse_rfc3339);
         let updates = replay.convert(&content, role, message_id.as_deref());
         let main_thread = parent.is_none();
-        let mut opens_turn = is_assistant && main_thread && turn_over && !updates.is_empty();
+        let wakes = main_thread && wakes_agent(record);
+        let mut opens_turn =
+            (is_assistant || wakes) && main_thread && turn_over && !updates.is_empty();
         for mut update in updates {
-            if main_thread && str_field(&update, "sessionUpdate") == Some("user_message_chunk") {
+            // Claude's note to itself that background work ended wakes it; the turn
+            // that follows is still one it began by itself.
+            if main_thread
+                && str_field(&update, "sessionUpdate") == Some("user_message_chunk")
+                && !wakes
+            {
                 turn_over = false;
             }
             super::super::stamp_replayed(&mut update, at, opens_turn);
@@ -821,21 +815,19 @@ struct Child {
     task: String,
     reconstructable: bool,
     announced: bool,
-    terminal_state: Option<&'static str>,
-}
-
-fn first_non_blank(input: &Value, keys: &[&str]) -> Option<String> {
-    keys.iter()
-        .filter_map(|key| input.get(*key).and_then(Value::as_str))
-        .map(|value| value.trim_matches(is_js_whitespace))
-        .find(|value| !value.is_empty())
-        .map(str::to_string)
+    terminal_state: Option<Subagent>,
 }
 
 fn collect_children(records: &[Value], session_id: &str) -> Vec<Child> {
     let mut children: Vec<Child> = Vec::new();
-    let mut terminal_states: Vec<(String, &'static str)> = Vec::new();
+    let mut terminal_states: Vec<(String, Subagent)> = Vec::new();
+    let mut agent_ids: HashMap<String, String> = HashMap::new();
+    let mut notified: Vec<(String, Subagent)> = Vec::new();
     for record in records {
+        if let Some((agent_id, state)) = task_notification(record) {
+            notified.push((agent_id, state));
+            continue;
+        }
         let Some(blocks) = record
             .get("message")
             .and_then(|message| message.get("content"))
@@ -848,7 +840,19 @@ fn collect_children(records: &[Value], session_id: &str) -> Vec<Child> {
             let kind = str_field(block, "type").unwrap_or_default();
             if matches!(kind, "tool_result" | "mcp_tool_result") {
                 if let Some(id) = str_field(block, "tool_use_id") {
-                    let state = terminal_state(block);
+                    let reported = record.get("toolUseResult");
+                    if let Some(agent_id) =
+                        reported.and_then(|reported| str_field(reported, "agentId"))
+                    {
+                        agent_ids.insert(agent_id.to_string(), id.to_string());
+                    }
+                    // A background agent's launch is not its end; its notification is.
+                    if reported.and_then(|reported| str_field(reported, "status"))
+                        == Some("async_launched")
+                    {
+                        continue;
+                    }
+                    let state = terminal_state(record, block);
                     match terminal_states.iter_mut().find(|(known, _)| known == id) {
                         Some(entry) => entry.1 = state,
                         None => terminal_states.push((id.to_string(), state)),
@@ -864,19 +868,20 @@ fn collect_children(records: &[Value], session_id: &str) -> Vec<Child> {
             if !tools::is_subagent_tool(name) {
                 continue;
             }
-            let empty = Value::Object(Map::new());
-            let input = block
-                .get("input")
-                .filter(|input| input.is_object())
-                .unwrap_or(&empty);
+            let input = block.get("input").unwrap_or(&Value::Null);
+            let field = |key: &str| str_field(input, key);
             let child = Child {
                 tool_use_id: id.to_string(),
                 session_id: format!("{session_id}:replay-subagent:{id}"),
                 parent_tool_use_id: owner.clone(),
-                name: first_non_blank(input, &["name", "description", "subagent_type"])
-                    .unwrap_or_else(|| "Restored agent".to_string()),
-                task: first_non_blank(input, &["prompt", "description"])
-                    .unwrap_or_else(|| "Delegated task restored from session history".to_string()),
+                name: states::first_text(&[
+                    field("name"),
+                    field("description"),
+                    field("subagent_type"),
+                ])
+                .unwrap_or_default(),
+                task: states::first_text(&[field("prompt"), field("description")])
+                    .unwrap_or_else(|| states::UNNAMED_TASK.to_owned()),
                 reconstructable: true,
                 announced: false,
                 terminal_state: terminal_states
@@ -895,49 +900,71 @@ fn collect_children(records: &[Value], session_id: &str) -> Vec<Child> {
             child.terminal_state = Some(state);
         }
     }
+    for (agent_id, state) in notified {
+        let Some(spawner) = agent_ids.get(&agent_id) else {
+            continue;
+        };
+        if let Some(child) = children
+            .iter_mut()
+            .find(|child| &child.tool_use_id == spawner)
+        {
+            child.terminal_state = Some(state);
+        }
+    }
+    for child in children.iter_mut().filter(|child| child.name.is_empty()) {
+        let agent_id = agent_ids
+            .iter()
+            .find(|(_, spawner)| **spawner == child.tool_use_id)
+            .map(|(agent_id, _)| agent_id.as_str());
+        child.name = states::unnamed(agent_id.unwrap_or(&child.tool_use_id));
+    }
     children
 }
 
-fn terminal_state(result: &Value) -> &'static str {
+fn wakes_agent(record: &Value) -> bool {
+    json::joined_text(record.pointer("/message/content")).contains("<task-notification>")
+}
+
+/// The agent and end state a `<task-notification>` Claude Code wrote to itself reports.
+fn task_notification(record: &Value) -> Option<(String, Subagent)> {
+    if str_field(record, "type") != Some("user") {
+        return None;
+    }
+    let said = json::joined_text(record.pointer("/message/content"));
+    let tag = |name: &str| {
+        said.split(&format!("<{name}>"))
+            .nth(1)?
+            .split(&format!("</{name}>"))
+            .next()
+            .map(str::trim)
+    };
+    if !said.contains("<task-notification>") {
+        return None;
+    }
+    let state = states::outcome(tag("status")?).map(Subagent::from)?;
+    Some((tag("task-id")?.to_string(), state))
+}
+
+/// How a subagent whose call answered with `result` ended. Live, Claude Code
+/// says so in a status; the transcript keeps only the answer, which says the
+/// person stopped it in the words it stops any call with.
+fn terminal_state(record: &Value, result: &Value) -> Subagent {
     if result.get("is_error") != Some(&Value::Bool(true)) {
-        return "completed";
+        return Subagent::Completed;
     }
-    let text = content_text(result.get("content")).to_lowercase();
-    let stopped = ["cancelled", "canceled", "interrupted", "stopped", "killed"]
+    // A call stopped mid-run keeps the refusal text, but the record says the person stopped it.
+    if str_field(record, "toolUseResult") == Some("User rejected tool use") {
+        return Subagent::Cancelled;
+    }
+    let said = json::joined_text(result.get("content"));
+    if INTERRUPTION_PREFIXES
         .iter()
-        .any(|word| contains_word(&text, word));
-    if stopped {
-        "cancelled"
+        .any(|prefix| said.trim_start().starts_with(prefix))
+    {
+        Subagent::Cancelled
     } else {
-        "failed"
+        Subagent::Failed
     }
-}
-
-fn content_text(value: Option<&Value>) -> String {
-    match value {
-        Some(Value::String(text)) => text.clone(),
-        Some(Value::Array(items)) => items
-            .iter()
-            .map(|item| content_text(Some(item)))
-            .collect::<Vec<_>>()
-            .join(" "),
-        Some(Value::Object(map)) => ["text", "content", "message"]
-            .iter()
-            .map(|key| content_text(map.get(*key)))
-            .filter(|text| !text.is_empty())
-            .collect::<Vec<_>>()
-            .join(" "),
-        _ => String::new(),
-    }
-}
-
-fn contains_word(text: &str, word: &str) -> bool {
-    let is_word = |byte: u8| byte.is_ascii_alphanumeric() || byte == b'_';
-    let bytes = text.as_bytes();
-    text.match_indices(word).any(|(start, _)| {
-        let end = start + word.len();
-        (start == 0 || !is_word(bytes[start - 1])) && (end == bytes.len() || !is_word(bytes[end]))
-    })
 }
 
 struct Replay<'a> {
@@ -972,8 +999,8 @@ impl Replay<'_> {
                     tool_use_id: tool_use_id.to_string(),
                     session_id: format!("{}:replay-subagent:{tool_use_id}", self.root),
                     parent_tool_use_id: None,
-                    name: "Disconnected agent".to_string(),
-                    task: "Subagent restored without persisted launch metadata".to_string(),
+                    name: states::unnamed(tool_use_id),
+                    task: states::UNNAMED_TASK.to_owned(),
                     reconstructable: false,
                     announced: false,
                     terminal_state: None,
@@ -996,13 +1023,7 @@ impl Replay<'_> {
             let parent_session =
                 self.session_of(self.children[index].parent_tool_use_id.as_deref());
             let child = &self.children[index];
-            let update = json!({
-                "sessionUpdate": "subagent_spawned",
-                "subagentSessionId": child.session_id,
-                "name": child.name,
-                "task": child.task,
-                "capabilities": {},
-            });
+            let update = states::spawned(&child.session_id, &child.name, &child.task);
             self.updates.push((parent_session, update));
             self.children[index].announced = true;
         }
@@ -1115,16 +1136,11 @@ impl Replay<'_> {
             if !child.announced {
                 continue;
             }
-            let state = if child.reconstructable {
-                child.terminal_state.unwrap_or("disconnected")
-            } else {
-                "disconnected"
+            let state = match child.terminal_state {
+                Some(state) if child.reconstructable => state,
+                _ => Subagent::Disconnected,
             };
-            let update = json!({
-                "sessionUpdate": "subagent_state_update",
-                "subagentSessionId": child.session_id,
-                "state": state,
-            });
+            let update = state.update(&child.session_id);
             let parent_session = self.session_of(child.parent_tool_use_id.as_deref());
             self.updates.push((parent_session, update));
         }

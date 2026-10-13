@@ -1,3 +1,5 @@
+import { formatDuration } from "../../plugin-api/format";
+
 export const DEFAULT_PROD_ENVS = ["prod", "production", "prd", "live"];
 export const DEFAULT_BRANCH_OPTIONS = ["BRANCH", "GIT_BRANCH", "GIT_REF", "REF"];
 
@@ -104,29 +106,12 @@ export function basenameOf(path: string): string {
     return path.replace(/\/+$/, "").split("/").pop() ?? "";
 }
 
-export function relativeTime(iso: string, now = Date.now()): string {
-    const t = Date.parse(iso);
-    if (Number.isNaN(t)) return "";
-    const dt = (now - t) / 1000;
-    if (dt < 5) return "just now";
-    if (dt < 60) return `${Math.floor(dt)}s ago`;
-    if (dt < 3600) return `${Math.floor(dt / 60)}m ago`;
-    if (dt < 86400) return `${Math.floor(dt / 3600)}h ago`;
-    return `${Math.floor(dt / 86400)}d ago`;
-}
-
 export function duration(start: string | null, end: string | null, now = Date.now()): string {
     if (!start) return "";
     const a = Date.parse(start);
     const b = end ? Date.parse(end) : now;
     if (Number.isNaN(a) || Number.isNaN(b)) return "";
-    const s = Math.max(0, Math.round((b - a) / 1000));
-    if (s < 60) return `${s}s`;
-    const m = Math.floor(s / 60);
-    const rest = s % 60;
-    if (m < 60) return rest ? `${m}m ${rest}s` : `${m}m`;
-    const h = Math.floor(m / 60);
-    return `${h}h ${m % 60}m`;
+    return formatDuration(Math.max(0, b - a));
 }
 
 export function formatTime(iso: string, withSeconds = false): string {

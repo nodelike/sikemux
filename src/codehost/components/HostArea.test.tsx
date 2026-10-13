@@ -45,7 +45,7 @@ vi.mock("./DispatchDialog", () => ({
 
 import { invalidate } from "../../plugin-api/resources";
 import type { Section } from "../state";
-import { hostSettings, setFollowBranch, updateView, useHostViews, viewOf } from "../state";
+import { hostSettings, resetView, setFollowBranch, updateView, viewOf } from "../state";
 import { InHost, registerTestHost, TEST_HOST } from "../testHost";
 import { HostArea } from "./HostArea";
 
@@ -90,7 +90,7 @@ function show(section: Section, extra: { branch?: string | null; cwd?: string | 
 
 beforeEach(() => {
     invalidate(() => true);
-    useHostViews.setState({ views: {} });
+    resetView(PANE);
     api.status.mockReset().mockResolvedValue(signedIn);
     api.workflows.mockReset().mockResolvedValue([{ id: "12", name: "Deploy", path: ".github/workflows/deploy.yml", state: "active" }]);
     hostSettings(TEST_HOST).update((settings) => ({ ...settings, accountByProject: {}, followBranch: true }));

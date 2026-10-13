@@ -1,6 +1,7 @@
 import type { DeviceRole, RevokeReason } from "@sikemux/protocol";
 import { sql, type Transaction } from "kysely";
 
+import { audit, type Actor } from "../audit.ts";
 import type { Tables } from "../db.ts";
 import { appendEvent } from "../events/log.ts";
 
@@ -8,8 +9,7 @@ export interface Removal {
   userId: string;
   key: string;
   reason: RevokeReason;
-  /** Who asked, for the audit log: `user:<id>`, `device:<key>` or `clerk`. */
-  actor: string;
+  actor: Actor;
   detail?: Record<string, unknown>;
 }
 
@@ -54,21 +54,18 @@ export async function removeDevice(
     subjectRole: row.role as DeviceRole,
     reason,
   });
-  await trx
-    .insertInto("audit")
-    .values({
-      user_id: userId,
-      actor,
-      action: "device.removed",
-      subject: key,
-      detail: JSON.stringify({
-        role: row.role,
-        name: row.name,
-        reason,
-        ...detail,
-      }),
-    })
-    .execute();
+  await audit(trx, {
+    userId,
+    actor,
+    action: "device.removed",
+    subject: key,
+    detail: {
+      role: row.role,
+      name: row.name,
+      reason,
+      ...detail,
+    },
+  });
   return {
     key,
     role: row.role as DeviceRole,

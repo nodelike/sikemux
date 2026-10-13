@@ -74,6 +74,9 @@ jobs:
       - name: Check the generated agent tool list matches its source
         run: pnpm agent-tools:check
 
+      - name: Check the generated agent catalog matches its source
+        run: pnpm agent-catalog:check
+
       - name: Check the file icons match the installed icon theme
         run: pnpm file-icons:check
 
@@ -138,6 +141,32 @@ jobs:
 
       - name: Build without any plugins
         run: cargo clippy -p sikemux --no-default-features --all-targets -- -D warnings
+        working-directory: src-tauri
+
+  # Every release also ships Linux packages, so main must keep compiling there.
+  linux:
+    name: Linux compile check
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup Rust
+        run: rustup toolchain install "$(sed -n 's/^channel = "\(.*\)"$/\1/p' rust-toolchain.toml)" --profile minimal --no-self-update
+
+      - name: Install the Tauri Linux packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev librsvg2-dev libayatana-appindicator3-dev libxdo-dev build-essential file
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: src-tauri
+          cache-on-failure: true
+
+      - name: Check the app compiles on Linux
+        run: cargo check --workspace --all-targets --locked
         working-directory: src-tauri
 
   simulator-helper:

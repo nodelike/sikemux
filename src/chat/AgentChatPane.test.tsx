@@ -523,7 +523,7 @@ describe("AgentChatPane", () => {
         fireEvent.change(field, { target: { value: "Second try" } });
         fireEvent.keyDown(field, { key: "Enter" });
 
-        await waitFor(() => expect(mocks.edit).toHaveBeenCalledWith(agent.id, messageId, "Second try", [], [], false));
+        await waitFor(() => expect(mocks.edit).toHaveBeenCalledWith(agent.id, messageId, "Second try", [], []));
         expect(screen.queryByText("The old answer")).not.toBeInTheDocument();
         expect(screen.queryByText("First try")).not.toBeInTheDocument();
         expect(screen.getByText("Second try")).toBeInTheDocument();
@@ -1166,7 +1166,7 @@ describe("AgentChatPane", () => {
         await waitFor(() => expect(document.querySelector(".chat-code-title")).toHaveTextContent("100%"));
     });
 
-    it("watches a working subagent over the composer and settles its card when the turn ends", async () => {
+    it("keeps a subagent over the composer past a cancelled turn and settles its card when it stops", async () => {
         await openTranscript();
         emit("turn_started", {});
         emit("session_update", {
@@ -1195,6 +1195,12 @@ describe("AgentChatPane", () => {
         expect(card).not.toHaveTextContent("in the sikemux desktop app repo");
 
         emit("turn_completed", { stopReason: "cancelled" });
+        expect(screen.getByLabelText("1 subagent")).toBeInTheDocument();
+
+        emit("session_update", {
+            sessionId: "session-1",
+            update: { sessionUpdate: "subagent_state_update", subagentSessionId: "subagent-1", state: "cancelled" },
+        });
 
         await waitFor(() => expect(screen.queryByLabelText("1 subagent")).not.toBeInTheDocument());
         expect(document.querySelector('.chat-subagent [role="img"][aria-label="stopped"]')).not.toBeNull();
@@ -1206,7 +1212,7 @@ describe("AgentChatPane", () => {
         await waitFor(() => expect(mocks.eventListener).not.toBeNull());
 
         emit("status", { state: "starting" });
-        expect(screen.getAllByText("Starting agent…")[0]).toBeInTheDocument();
+        expect(document.querySelector(".chat-welcome")).not.toBeNull();
         emit("status", { state: "error", reason: "failed", message: "agent failed" });
         emit("error", { message: "agent failed" });
         expect(screen.getByText("Structured session unavailable.")).toBeInTheDocument();
@@ -1482,7 +1488,7 @@ describe("AgentChatPane", () => {
         const props = { agent, cwd: "/repo", active: true, onBusyChange: () => {} };
         const { rerender } = render(<AgentChatPane {...props} visible />);
         const editor = screen.getByRole("textbox", { name: "Message agent" }) as HTMLTextAreaElement;
-        expect(editor.placeholder).toBe("Connecting to agent session…");
+        expect(editor.placeholder).toContain("Ask about this project");
 
         await waitFor(() => expect(editor.placeholder).toContain("Ask about this project"));
         await nextFrame();

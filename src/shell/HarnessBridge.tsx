@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { invokeCommand } from "../api/invoke";
 import { getIpcTransport } from "../api/transport";
 import type { HarnessRequest } from "../harness/service";
+import { projectSessionId } from "../state/selectors";
 import { useStore } from "../state/store";
 import { errMessage, swallow } from "../state/toast";
 
@@ -53,11 +54,7 @@ export function HarnessBridge() {
             void invokeCommand("harness_stop_runs", selector).catch(swallow("harness stop"));
         const unsubscribe = useStore.subscribe((state, previous) => {
             for (const session of Object.values(previous.sessions)) {
-                if (
-                    session.kind === "project" &&
-                    !Object.values(state.sessions).some((current) => current.kind === "project" && current.cwd === session.cwd)
-                )
-                    stopRuns({ project: session.cwd });
+                if (session.kind === "project" && !projectSessionId(state, session.cwd)) stopRuns({ project: session.cwd });
             }
             if (state.agents === previous.agents) return;
             for (const agentId of Object.keys(previous.agents)) if (!state.agents[agentId]) stopRuns({ agentId });

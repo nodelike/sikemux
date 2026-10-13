@@ -232,18 +232,14 @@ fn account_environment(
     provider: &str,
     config_path: Option<&str>,
 ) -> Result<BTreeMap<String, String>, String> {
-    let mut env = BTreeMap::new();
-    let Some(key) = sikemux_core::acp::account::directory_variable(provider) else {
-        return Ok(env);
-    };
     if let Some(path) = config_path {
         bounded_text("config path", path, 4_096)?;
-        let path = expand_config_path(path);
-        env.insert(key.into(), path.to_string_lossy().into_owned());
-    } else if let Some(path) = shell_value(key).filter(|path| !path.is_empty()) {
-        env.insert(key.into(), path);
     }
-    Ok(env)
+    Ok(
+        crate::agents::accounts::account_environment(provider, config_path)
+            .into_iter()
+            .collect(),
+    )
 }
 
 fn native_program(executable: &Path, arguments: &[&str], environment_keys: &[String]) -> Program {
@@ -263,15 +259,6 @@ fn with_user_path(env: &mut BTreeMap<String, String>) {
     }
 }
 
-/// A variable as the person's shell has it. An app opened from the Dock has
-/// none of what `.zshrc` exports, so its own environment is only the fallback.
-fn shell_value(key: &str) -> Option<String> {
-    sikemux_pty::user_shell::login_shell_environment()
-        .get(key)
-        .cloned()
-        .or_else(|| sikemux_process::user_environment::var(key))
-}
-
 /// The variables the person's profile names, with the values their shell
 /// gives them, since the core may have started before they were set.
 fn forwarded_environment(environment_keys: &[String]) -> BTreeMap<String, String> {
@@ -281,33 +268,11 @@ fn forwarded_environment(environment_keys: &[String]) -> BTreeMap<String, String
         if !seen.insert(key) || !valid_environment_key(key) {
             continue;
         }
-        if let Some(value) = shell_value(key) {
+        if let Some(value) = sikemux_pty::user_shell::user_variable(key) {
             env.insert(key.clone(), value);
         }
     }
     env
-}
-
-fn expand_config_path(value: &str) -> PathBuf {
-    let trimmed = value.trim();
-    let expanded = if trimmed == "~" {
-        crate::system::user_home()
-    } else if let Some(rest) = trimmed
-        .strip_prefix("~/")
-        .or_else(|| trimmed.strip_prefix("~\\"))
-    {
-        crate::system::user_home().join(rest)
-    } else {
-        PathBuf::from(trimmed)
-    };
-    if matches!(
-        expanded.file_name().and_then(|value| value.to_str()),
-        Some("config.toml" | "settings.json" | "settings.local.json")
-    ) {
-        expanded.parent().map(PathBuf::from).unwrap_or(expanded)
-    } else {
-        expanded
-    }
 }
 
 fn valid_environment_key(key: &str) -> bool {
@@ -714,8 +679,7 @@ pub async fn acp_prompt(
 }
 
 /// Takes the chat back to before the person's message `message_id` and sends
-/// `text` in its place, putting the files back too when `restore_files`.
-#[allow(clippy::too_many_arguments)]
+/// `text` in its place.
 #[tauri::command]
 pub async fn acp_edit(
     pty: State<'_, PtyManager>,
@@ -724,11 +688,10 @@ pub async fn acp_edit(
     text: String,
     paths: Vec<String>,
     context: Vec<ChatContext>,
-    restore_files: bool,
 ) -> Result<(), String> {
     core(&pty)
         .await?
-        .acp_edit(agent_id, message_id, text, paths, context, restore_files)
+        .acp_edit(agent_id, message_id, text, paths, context)
         .await
         .map_err(failure)
 }
@@ -832,11 +795,11 @@ mod tests {
     #[test]
     fn config_files_name_their_directory() {
         assert_eq!(
-            expand_config_path("/home/me/.codex/config.toml"),
+            sikemux_pty::launch::account_dir("/home/me/.codex/config.toml"),
             Path::new("/home/me/.codex")
         );
         assert_eq!(
-            expand_config_path("/home/me/.claude"),
+            sikemux_pty::launch::account_dir("/home/me/.claude"),
             Path::new("/home/me/.claude")
         );
     }

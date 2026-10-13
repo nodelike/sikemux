@@ -36,7 +36,7 @@ interface Loaded {
     status: RecentChats["status"];
 }
 
-const chatKey = (chat: { agent: string; id: string }) => `${chat.agent}\0${chat.id}`;
+export const chatKey = (chat: { agent: string; id: string }) => `${chat.agent}\0${chat.id}`;
 
 /**
  * Saved chats a page at a time. Changing what is listed starts again from the

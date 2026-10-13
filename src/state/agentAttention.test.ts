@@ -36,7 +36,7 @@ describe("agents awaiting input", () => {
         const found = agentsAwaitingInput(getState());
 
         expect(found.map((entry) => entry.agentId)).toEqual(["a1", "a2"]);
-        expect(found[0]).toMatchObject({ agentTitle: "claude · api", agentType: "claude" });
+        expect(found[0]).toMatchObject({ agent: { title: "claude · api", type: "claude" } });
     });
 
     it("ignores an agent that is merely working", () => {

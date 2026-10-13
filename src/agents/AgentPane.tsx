@@ -1,6 +1,7 @@
 import { lazy, Suspense } from "react";
 import type { Session } from "../state/types";
 import * as cmd from "../state/commands";
+import { profileOf } from "../state/commands/agentLaunchCommand";
 import { useStore } from "../state/store";
 
 const AgentSurface = lazy(() => import("../chat/AgentSurface").then((module) => ({ default: module.AgentSurface })));
@@ -8,9 +9,7 @@ const AgentSurface = lazy(() => import("../chat/AgentSurface").then((module) => 
 /** An agent's pane. The pane's id is the agent's id, so the record is looked up by it. */
 export function AgentPane({ paneId, session, visible }: { paneId: string; session: Session; visible: boolean }) {
     const agent = useStore((state) => state.agents[paneId]);
-    const profile = useStore((state) =>
-        agent?.profileId ? state.providerProfiles.find((candidate) => candidate.id === agent.profileId) : undefined,
-    );
+    const profile = useStore((state) => (agent ? profileOf(state, agent) : undefined));
     if (!agent) return null;
     return (
         <>

@@ -11,6 +11,11 @@ vi.mock("./EditorFindBar", () => ({ EditorFindBar: () => null }));
 
 const initial = getState();
 
+function queueWithoutLine() {
+    const [target] = getState().pendingEditorOpens.pane;
+    setState({ pendingEditorOpens: { pane: [{ ...target, line: undefined, column: undefined }] } });
+}
+
 Range.prototype.getClientRects = () => [] as unknown as DOMRectList;
 Range.prototype.getBoundingClientRect = () => new DOMRect();
 
@@ -69,13 +74,10 @@ describe("EditorPane CLI queue", () => {
         expect(getState().pendingEditorOpens).toEqual({});
     });
 
-    it("renders the in-memory Markdown and disables source editing in preview mode", async () => {
+    it("opens Markdown in preview with source editing disabled, and switches to source", async () => {
+        queueWithoutLine();
         const { container } = render(<EditorPane paneId="pane" cwd="/repo" active visible showInsights={false} />);
         const editor = within(container);
-
-        const previewButton = await editor.findByRole("button", { name: "Preview README.md" });
-        expect(previewButton.querySelector("svg")).toBeInTheDocument();
-        fireEvent.click(previewButton);
 
         expect(await editor.findByRole("heading", { name: "Preview heading" })).toBeInTheDocument();
         expect(editor.getByText("locked", { selector: "strong" })).toBeInTheDocument();
@@ -94,6 +96,7 @@ describe("EditorPane CLI queue", () => {
         expect(container.querySelector(".ed-source-host")).not.toHaveAttribute("hidden");
         expect(container.querySelector(".ed-source-host")).toHaveAttribute("aria-hidden", "false");
         expect(container.querySelector(".cm-content")).toHaveAttribute("contenteditable", "true");
+        expect(editor.getByRole("button", { name: "Preview README.md" }).querySelector("svg")).toBeInTheDocument();
     });
 
     it("opens preview links outside the app window, and relative ones as files in the editor", async () => {
@@ -103,10 +106,9 @@ describe("EditorPane CLI queue", () => {
             if (command === "read_file_versioned") return { content: readme, version: "version-1" };
             return fallback(command, args);
         });
+        queueWithoutLine();
         const { container } = render(<EditorPane paneId="pane" cwd="/repo" active visible showInsights={false} />);
         const editor = within(container);
-        fireEvent.click(await editor.findByRole("button", { name: "Preview README.md" }));
-
         expect(fireEvent.click(await editor.findByRole("link", { name: "site" }))).toBe(false);
         expect(invoke).toHaveBeenCalledWith("open_url", { url: "https://example.com/docs", app: null, shortcut: null });
 

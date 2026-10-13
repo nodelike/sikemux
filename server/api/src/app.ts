@@ -100,7 +100,13 @@ export function createApp({
   );
   app.onError((error, c) => {
     if (error instanceof ApiFailure)
-      return errorResponse(c, error.status, error.code, error.message);
+      return errorResponse(
+        c,
+        error.status,
+        error.code,
+        error.message,
+        error.extras,
+      );
     c.get("log").error({ err: error }, "a request failed");
     return errorResponse(c, 500, "internal", "Something failed on the server.");
   });

@@ -1,9 +1,10 @@
 import { createContext, useContext, type ReactNode } from "react";
-import { IconChevron, IconGit, IconPanelLeft, IconRefresh, IconSearch, Tooltip } from "../../../plugin-api/ui";
+import { IconChevron, IconGit, IconPanelLeft, IconRefresh, Tooltip } from "../../../plugin-api/ui";
 import * as cmd from "../state";
 import type { JobRef, RundeckLevel } from "../state";
 import { groupSegments, isProdTarget } from "../shape";
-import { statusKind } from "./branchStyle";
+import { branchKind, statusKind } from "./branchStyle";
+import "../branch.css";
 
 /** The Rundeck server the pane is signed in to, as a host name. */
 export const RundeckHost = createContext<string | null>(null);
@@ -133,61 +134,6 @@ export function Header({
     );
 }
 
-export interface SegOption<V extends string> {
-    value: V;
-    label: ReactNode;
-    count?: number;
-}
-
-export function Seg<V extends string>({
-    options,
-    value,
-    onChange,
-    label,
-}: {
-    options: SegOption<V>[];
-    value: V;
-    onChange: (value: V) => void;
-    label: string;
-}) {
-    return (
-        <div className="rnd-seg" role="group" aria-label={label}>
-            {options.map((o) => (
-                <button
-                    key={o.value}
-                    type="button"
-                    className={o.value === value ? "on" : ""}
-                    aria-pressed={o.value === value}
-                    onClick={() => onChange(o.value)}>
-                    {o.label}
-                    {o.count !== undefined && <span className="rnd-seg-count">{o.count}</span>}
-                </button>
-            ))}
-        </div>
-    );
-}
-
-export function Filter({ value, onChange, placeholder }: { value: string; onChange: (value: string) => void; placeholder: string }) {
-    return (
-        <label className="rnd-filter">
-            <IconSearch size={14} />
-            <input
-                value={value}
-                placeholder={placeholder}
-                spellCheck={false}
-                onChange={(e) => onChange(e.target.value)}
-                onKeyDown={(e) => {
-                    if (e.key === "Escape" && value) {
-                        e.stopPropagation();
-                        onChange("");
-                    }
-                }}
-            />
-            <kbd>/</kbd>
-        </label>
-    );
-}
-
 const STATUS_LABEL: Record<ReturnType<typeof statusKind>, string> = {
     succeeded: "Succeeded",
     failed: "Failed",
@@ -210,9 +156,8 @@ export function Status({ status, label }: { status: string | null | undefined; l
 
 export function BranchChip({ branch }: { branch: string | null | undefined }) {
     if (!branch) return <span className="rnd-dim">—</span>;
-    const kind = branch.startsWith("feat") || branch.startsWith("feature") ? "feat" : /^(release|hotfix)\//.test(branch) ? "rel" : "";
     return (
-        <span className={`rnd-branch${kind ? ` ${kind}` : ""}`} title={branch}>
+        <span className={`rnd-branch rnd-branch-${branchKind(branch)}`} title={branch}>
             <IconGit size={12} />
             <span>{branch}</span>
         </span>

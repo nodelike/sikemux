@@ -7,6 +7,7 @@
 @import "./styles/editor-insights.css";
 @import "./styles/git.css";
 @import "./styles/agents.css";
+@import "./styles/generated/agent-brands.css";
 @import "./styles/desk.css";
 @import "./styles/codemirror.css";
 @import "./styles/feedback.css";

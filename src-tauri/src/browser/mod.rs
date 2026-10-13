@@ -7,6 +7,7 @@
 //! window": `get_webview_window("main")` returns `None` and commands taking a
 //! `WebviewWindow` fail. The app reaches the main window with `get_window`.
 
+pub mod address;
 pub mod agents;
 mod burst;
 mod discard;
@@ -398,6 +399,16 @@ impl BrowserManager {
         self.local_files.url_for(path)
     }
 
+    /// The page `input` opens: a web address, a search, or a local file served to the tab.
+    pub(crate) fn page_url(&self, input: &str) -> AppResult<String> {
+        match address::resolve(input) {
+            address::Address::Local(path) => {
+                self.local_files.url_for(&path).map_err(AppError::Other)
+            }
+            address::Address::Url(url) | address::Address::Search(url) => Ok(url),
+        }
+    }
+
     pub fn snapshot(&self, agent_id: &str) -> AppResult<BrowserSnapshot> {
         validate_agent_id(agent_id)?;
         Ok(self
@@ -417,7 +428,7 @@ impl BrowserManager {
         url: Option<&str>,
     ) -> AppResult<String> {
         validate_agent_id(agent_id)?;
-        let url = normalize_url(url.unwrap_or_default());
+        let url = self.page_url(url.unwrap_or_default())?;
         validate_url(&url)?;
         let parsed = Url::parse(&url).map_err(|_| AppError::BadArg("invalid browser url"))?;
         let tab_id = format!(
@@ -1025,17 +1036,18 @@ impl BrowserManager {
         })
     }
 
-    pub fn navigate(&self, app: &AppHandle, agent_id: &str, url: &str) -> AppResult<()> {
-        let url = normalize_url(url);
+    /// Opens `input` in the agent's tab and returns the address it went to.
+    pub fn navigate(&self, app: &AppHandle, agent_id: &str, input: &str) -> AppResult<String> {
+        let url = self.page_url(input)?;
         validate_url(&url)?;
         let parsed = Url::parse(&url).map_err(|_| AppError::BadArg("invalid browser url"))?;
         let (tab_id, view) = self.active_view(agent_id)?;
         view.navigate(parsed).map_err(window_error)?;
         self.note_page(app, agent_id, &tab_id, |page| {
-            page.url = url;
+            page.url = url.clone();
             page.loading = true;
         });
-        Ok(())
+        Ok(url)
     }
 
     pub fn reload(&self, agent_id: &str) -> AppResult<()> {
@@ -1330,12 +1342,7 @@ fn window_error(error: tauri::Error) -> AppError {
 }
 
 pub(crate) fn validate_agent_id(agent_id: &str) -> AppResult<()> {
-    if agent_id.is_empty()
-        || agent_id.len() > 128
-        || !agent_id
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b':'))
-    {
+    if !sikemux_core::cli::protocol::is_tool_agent_id(agent_id) {
         return Err(AppError::BadArg("invalid browser agent id"));
     }
     Ok(())
@@ -1574,27 +1581,6 @@ fn label_safe(agent_id: &str) -> String {
         .collect()
 }
 
-pub fn normalize_url(input: &str) -> String {
-    let value = input.trim();
-    if value.is_empty() {
-        return BLANK_URL.into();
-    }
-    if value == BLANK_URL || value.contains("://") {
-        return value.to_owned();
-    }
-    if value.starts_with("localhost") || value.starts_with("127.0.0.1") || value.contains('.') {
-        return format!(
-            "http{}://{value}",
-            if value.starts_with("localhost") || value.starts_with("127.0.0.1") {
-                ""
-            } else {
-                "s"
-            }
-        );
-    }
-    history::search_url(value)
-}
-
 #[tauri::command]
 pub async fn browser_snapshot(
     manager: State<'_, BrowserManager>,
@@ -1649,8 +1635,11 @@ pub async fn browser_navigate(
     agent_id: String,
     url: String,
 ) -> AppResult<()> {
-    manager.navigate(&app, &agent_id, &url)?;
-    manager.history.note_typed(&app, &normalize_url(&url));
+    let local = matches!(address::resolve(&url), address::Address::Local(_));
+    let opened = manager.navigate(&app, &agent_id, &url)?;
+    if !local {
+        manager.history.note_typed(&app, &opened);
+    }
     Ok(())
 }
 
@@ -1793,18 +1782,6 @@ mod tests {
         assert!(strip.remove("a"));
         assert_eq!(strip.active, None);
         assert!(!strip.remove("a"));
-    }
-
-    #[test]
-    fn normalizes_addresses_and_searches() {
-        assert_eq!(normalize_url("  "), BLANK_URL);
-        assert_eq!(normalize_url("example.com"), "https://example.com");
-        assert_eq!(normalize_url("localhost:3000/x"), "http://localhost:3000/x");
-        assert_eq!(normalize_url("http://a.b"), "http://a.b");
-        assert_eq!(
-            normalize_url("rust lifetimes"),
-            "https://www.google.com/search?q=rust+lifetimes"
-        );
     }
 
     #[test]

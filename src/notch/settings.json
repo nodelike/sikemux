@@ -1,0 +1,16 @@
+{
+    "settings": {
+        "enabled": { "default": true, "appOnly": true },
+        "displays": { "choices": ["all", "builtIn", "pointer"], "default": "all" },
+        "openWith": { "choices": ["hover", "click"], "default": "hover" },
+        "fullScreen": { "choices": ["needsYou", "always", "never"], "default": "needsYou" },
+        "peeks": { "choices": ["all", "needsYou", "never"], "default": "all" },
+        "answerInNotch": { "default": true },
+        "sound": { "default": true },
+        "haptics": { "default": true },
+        "yieldToDev": {
+            "default": true,
+            "doc": "Only a stable or nightly build reads this: whether it steps aside while Sikemux Dev runs."
+        }
+    }
+}

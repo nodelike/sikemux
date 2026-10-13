@@ -25,6 +25,7 @@ export default defineConfig({
     alias: [
       { find: /^@\//, replacement: here('./src/') },
       { find: /^@mac\//, replacement: here('../../src/') },
+      { find: /^@protocol$/, replacement: here('../../server/protocol/generated/types.ts') },
       ...mocked.map((name) => ({
         find: new RegExp(`^${name}$`),
         replacement: here(`./test/mocks/${name.replace('@', '').replace('/', '-')}.ts`),

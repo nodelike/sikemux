@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { fsapi } from "../api/fs";
 import { isImagePath, previewUrl } from "../editor/viewers/fileKinds";
+import { fileUriToPath } from "../lib/paths";
 
 const MAX_CACHED = 12;
 /* A preview is only ever drawn a few hundred pixels wide, so a picture bigger
@@ -92,13 +93,7 @@ function loadPreview(path: string): Promise<string | null> {
 export function localPath(uri: string | null | undefined): string | null {
     if (!uri) return null;
     if (!uri.startsWith("file://")) return uri.startsWith("/") ? uri : null;
-    let path: string;
-    try {
-        path = decodeURIComponent(new URL(uri).pathname);
-    } catch {
-        return null;
-    }
-    return /^\/[A-Za-z]:/.test(path) ? path.slice(1) : path;
+    return fileUriToPath(uri);
 }
 
 export function localImagePath(uri: string | null | undefined): string | null {

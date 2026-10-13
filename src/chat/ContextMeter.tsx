@@ -1,33 +1,17 @@
 import { Tooltip } from "../ui/Tooltip";
 import type { AgentType } from "../state/types";
+import { contextShare, contextTone, money, tokenCount } from "./contextUsage";
 import type { ContextUsage } from "./types";
-
-const tokens = new Intl.NumberFormat("en", { notation: "compact", maximumFractionDigits: 1 });
-
-/* An adapter names its own currency, and Intl throws on a code it does not know. */
-function money({ amount, currency }: NonNullable<ContextUsage["cost"]>): string {
-    try {
-        return new Intl.NumberFormat("en", { style: "currency", currency, maximumFractionDigits: 2 }).format(amount);
-    } catch {
-        return `${amount.toFixed(2)} ${currency}`;
-    }
-}
-
-function tone(percent: number): "steady" | "warm" | "hot" {
-    if (percent >= 90) return "hot";
-    if (percent >= 70) return "warm";
-    return "steady";
-}
 
 export function ContextMeter({ usage, agent }: { usage: ContextUsage | null; agent: AgentType }) {
     if (!usage) return null;
-    const percent = Math.min(100, Math.max(0, (usage.used / usage.size) * 100));
+    const percent = contextShare(usage) * 100;
     const rounded = Math.round(percent);
     const details = (
         <span className="chat-context-tip">
             <strong>Context window</strong>
             <span>
-                {rounded}% used · {tokens.format(usage.used)} of {tokens.format(usage.size)} tokens
+                {rounded}% used · {tokenCount(usage.used)} of {tokenCount(usage.size)} tokens
             </span>
             {usage.cost && <span>Session cost {money(usage.cost)}</span>}
         </span>
@@ -36,7 +20,7 @@ export function ContextMeter({ usage, agent }: { usage: ContextUsage | null; age
         <Tooltip label={details} side="top">
             <span
                 className={`chat-context ${agent}`}
-                data-tone={tone(percent)}
+                data-tone={contextTone(usage)}
                 tabIndex={0}
                 role="img"
                 aria-label={`Context window ${rounded}% used`}>

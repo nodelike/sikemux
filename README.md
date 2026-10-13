@@ -18,6 +18,16 @@ Bring Claude Code, Codex or OpenCode. Sikemux gives them your shell, browser, lo
 
 Download the latest `.dmg` from [sikemux.com](https://sikemux.com) or [Releases](https://github.com/nodelike/sikemux/releases/latest). It is about 16 MB, needs macOS 11 or later on Apple Silicon, and keeps itself up to date.
 
+On x86_64 Linux, take the `.deb`, `.rpm` or `.AppImage` from the same release:
+
+```bash
+sudo apt install ./Sikemux_<version>_amd64.deb      # Debian, Ubuntu
+sudo dnf install ./Sikemux-<version>-1.x86_64.rpm   # Fedora
+chmod +x Sikemux_<version>_amd64.AppImage           # any other distribution
+```
+
+The Linux build does not update itself yet, so install each new release the same way.
+
 ## What's inside
 
 - **Projects** with a code editor, terminals, Git, and search, all in one working directory

@@ -7,13 +7,14 @@ import { FileIcon } from "../ui/FileIcon";
 import { hasPrimaryModifier } from "../lib/platform";
 import { Markdown, type MarkdownComponents } from "../markdown/Markdown";
 import { warmMarkdown } from "../markdown/useMarkdownBlocks";
-import type { MarkdownOptions } from "../markdown/types";
+import { tableSource } from "../markdown/tableSource";
+import type { MarkdownOptions, MdElement } from "../markdown/types";
 import { fencedDiff } from "./diff";
 import { CodeTokens, fenceLanguage, useCodeTokens, useDiffTokens } from "./codeHighlight";
 import { localImagePath, useImagePreview } from "./imagePreview";
 import { ChatFileRef, useFileRef } from "./FileRef";
 import { pathComponents, type PathGuess } from "./markdownPaths";
-import { cutLongText, useLongTextFold } from "./longText";
+import { cutLongText, showRestLabel, useLongTextFold } from "./longText";
 import { ChatAgentContext, openLink } from "./chatAgent";
 import { ChatImage } from "./ChatImage";
 import { DiffText } from "./DiffView";
@@ -126,10 +127,14 @@ function CodeTitle({ info, text }: { info?: string; text: string }) {
     );
 }
 
-function ChatTable({ children }: { children?: ReactNode }) {
+function ChatTable({ children, table }: { children?: ReactNode; table: Extract<MdElement, { t: "table" }> }) {
+    const source = useMemo(() => tableSource(table), [table]);
     return (
-        <div className="chat-table">
-            <table>{children}</table>
+        <div className="chat-table-frame">
+            <div className="chat-table">
+                <table>{children}</table>
+            </div>
+            <CopyButton className="chat-table-copy" value={source} label="table" size={12} />
         </div>
     );
 }
@@ -157,7 +162,7 @@ export function FoldedMarkdown({ id, text, live, typed = false }: { id: string; 
         <>
             <LiveMarkdown text={cut.head} live={false} typed={typed} />
             <button type="button" className="chat-show-rest" onClick={expand}>
-                Show the rest — {Math.round(cut.hidden / 1000)}k more characters
+                {showRestLabel(cut.hidden)}
             </button>
         </>
     );

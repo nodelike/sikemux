@@ -11,6 +11,7 @@ import type { CustomCommand } from "../commands/registry";
 import type { SettingsPageId } from "../settings/settingsIndex";
 import { RAIL_WIDTH } from "../lib/railWidths";
 import { DEFAULT_PROVIDER_PROFILES, DEFAULT_PROVIDER_PROFILE_SELECTION } from "./types";
+import type { AccountAgentType } from "../agents/catalog";
 
 enableMapSet();
 import { makePane, newId } from "./layout";
@@ -98,7 +99,7 @@ export interface DomainState {
     /** The agent rail shows every CLI's chats instead of one provider's. */
     agentRailAllAgents: boolean;
     /** Providers whose chats move to the next signed-in account when one runs out of usage. */
-    accountAutoSwitch: Partial<Record<"claude" | "codex", boolean>>;
+    accountAutoSwitch: Partial<Record<AccountAgentType, boolean>>;
     agentRailScope: AgentRailScope;
     onboardingComplete: boolean;
     lastSeenVersion: string;
@@ -183,9 +184,9 @@ export interface ViewState {
 
     /** Runtime-only PTY activity for live agents. Never persisted or hydrated. */
     agentActivity: Record<string, import("./types").AgentRuntimeState>;
-    /** How many background shells, monitors and subagents each agent still has going. */
-    agentBackgroundWork: Record<string, number>;
-    /** How many of those are subagents, counted on their own so a tab can show them. */
+    /** How many background shells and monitors each agent still has going. */
+    agentTasks: Record<string, number>;
+    /** How many subagents each agent still has going. */
     agentSubagents: Record<string, number>;
 
     commandPaletteOpen: boolean;
@@ -312,7 +313,7 @@ export const useStore = create<StoreState>(() => {
         gitCmdLogOpen: false,
         globalSearchBySession: {},
         agentActivity: {},
-        agentBackgroundWork: {},
+        agentTasks: {},
         agentSubagents: {},
         commandPaletteOpen: false,
         onboardingOpen: false,

@@ -2,7 +2,7 @@ import { StreamLanguage, type StreamParser } from "@codemirror/language";
 import { Compartment, type Extension } from "@codemirror/state";
 import { themeCompartmentExtension } from "./themeBridge";
 import { hcl, makefile, sshConfig } from "./langs";
-import { grammarFor } from "../languages";
+import { grammarFor, languageOf } from "../languages";
 import { tags as t } from "@lezer/highlight";
 
 export type EditorLanguageHint = "ssh-config";
@@ -59,83 +59,24 @@ export function isSshConfigPath(path: string): boolean {
     return file === "ssh_config" || /(?:^|[\\/])\.ssh[\\/]config$/i.test(path);
 }
 
-export function languageIdFor(path: string, hint?: EditorLanguageHint): string | null {
-    const file = path.split(/[\\/]/).pop()?.toLowerCase() ?? "";
-    if (hint === "ssh-config") return "ssh-config";
-    if (file === "makefile" || file === "gnumakefile" || file.endsWith(".mk")) return "makefile";
-    if (file === "dockerfile" || file.startsWith("dockerfile.")) return "dockerfile";
-    // dotenv: .env, .env.local, .env.production, .env.example, etc.
-    if (file === ".env" || file.startsWith(".env.")) return "properties";
-    if (isSshConfigPath(path)) return "ssh-config";
+/** Languages the editor reads with a mode named differently from the language, or with a close relative's. */
+const EDITOR_MODES: Readonly<Record<string, string>> = {
+    docker: "dockerfile",
+    dotenv: "properties",
+    ini: "properties",
+    less: "css",
+    make: "makefile",
+    scss: "css",
+    shellscript: "shell",
+    terraform: "hcl",
+};
 
-    const ext = file.includes(".") ? file.split(".").pop()! : "";
-    switch (ext) {
-        case "ts":
-        case "mts":
-        case "cts":
-            return "typescript";
-        case "tsx":
-            return "tsx";
-        case "js":
-        case "mjs":
-        case "cjs":
-            return "javascript";
-        case "jsx":
-            return "jsx";
-        case "rs":
-            return "rust";
-        case "py":
-            return "python";
-        case "go":
-            return "go";
-        case "json":
-            return "json";
-        case "yaml":
-        case "yml":
-            return "yaml";
-        case "toml":
-            return "toml";
-        case "tf":
-        case "tfvars":
-        case "hcl":
-            return "hcl";
-        case "sh":
-        case "bash":
-        case "zsh":
-            return "shell";
-        case "rb":
-            return "ruby";
-        case "lua":
-            return "lua";
-        case "c":
-        case "h":
-            return "c";
-        case "cc":
-        case "cpp":
-        case "cxx":
-        case "hpp":
-            return "cpp";
-        case "java":
-            return "java";
-        case "css":
-        case "scss":
-        case "less":
-            return "css";
-        case "html":
-        case "htm":
-            return "html";
-        case "md":
-        case "markdown":
-            return "markdown";
-        case "conf":
-            return "nginx";
-        case "ini":
-        case "env":
-        case "properties":
-            return "properties";
-        default:
-            return null;
-    }
+export function languageIdFor(path: string, hint?: EditorLanguageHint): string | null {
+    if (hint === "ssh-config" || isSshConfigPath(path)) return "ssh-config";
+    const language = languageOf(path);
+    if (!language) return null;
+    const mode = Object.hasOwn(EDITOR_MODES, language) ? EDITOR_MODES[language] : language;
+    return Object.hasOwn(LANGUAGE_LOADERS, mode) ? mode : null;
 }
 
 /** The grammar for a path if its pack is already in memory; otherwise nothing, until {@link loadLanguage} settles. */

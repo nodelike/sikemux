@@ -5741,7 +5741,7 @@ dependencies = [
 
 [[package]]
 name = "sikemux"
-version = "0.5.1-nightly.7"
+version = "0.5.2-nightly.2"
 dependencies = [
  "base64 0.23.1",
  "block2",
@@ -5922,6 +5922,7 @@ dependencies = [
  "semver",
  "serde",
  "serde_json",
+ "tokio",
  "workspace-hack",
 ]
 

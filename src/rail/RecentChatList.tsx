@@ -1,27 +1,16 @@
 import { useState } from "react";
 import type { AgentInfo, RecentChat } from "../api/agents";
 import { selectedProviderProfile } from "../agents/agentProfiles";
+import { canDeleteChats } from "../agents/catalog";
 import { AgentTitleInput } from "../agents/AgentTitleInput";
 import * as cmd from "../state/commands";
+import { projectSessionId } from "../state/selectors";
 import { useStore } from "../state/store";
-import type { AgentType } from "../state/types";
 import { AgentIcon } from "../ui/Icons";
 import { Panel, PanelHeader } from "../ui/Panel";
 import { TreeContextMenu } from "./FileTree";
-import type { RecentChats } from "./useRecentChats";
-
-function ago(unixSecs: number): string {
-    if (!unixSecs) return "";
-    const d = Math.max(0, Date.now() / 1000 - unixSecs);
-    if (d < 90) return "now";
-    if (d < 3600) return `${Math.round(d / 60)}m`;
-    if (d < 86400) return `${Math.round(d / 3600)}h`;
-    return `${Math.round(d / 86400)}d`;
-}
-
-const chatKey = (chat: RecentChat) => `${chat.agent}\0${chat.id}`;
-
-const DELETABLE: ReadonlySet<AgentType> = new Set(["claude", "codex"]);
+import { chatKey, type RecentChats } from "./useRecentChats";
+import { formatAge } from "../lib/format";
 
 /** Saved chats, each resumed in the project it ran in. */
 export function RecentChatList({ recent, providers }: { recent: RecentChats; providers: AgentInfo[] }) {
@@ -36,8 +25,10 @@ export function RecentChatList({ recent, providers }: { recent: RecentChats; pro
     if (recent.chats.length === 0) return null;
 
     const providerOf = (chat: RecentChat) => providers.find((provider) => provider.type === chat.agent);
-    const projectOf = (chat: RecentChat) =>
-        sessionOrder.map((id) => sessions[id]).find((session) => session?.kind === "project" && session.cwd === chat.project);
+    const projectOf = (chat: RecentChat) => {
+        const id = projectSessionId({ sessionOrder, sessions }, chat.project);
+        return id ? sessions[id] : undefined;
+    };
 
     const open = (chat: RecentChat) => {
         const project = projectOf(chat);
@@ -99,7 +90,7 @@ export function RecentChatList({ recent, providers }: { recent: RecentChats; pro
                             onSave={(value) => rename(chat, value)}
                             onDone={() => setRenaming(null)}
                         />
-                        <span className="agent-ago">{ago(chat.mtime)}</span>
+                        <span className="agent-ago">{formatAge(chat.mtime * 1000)}</span>
                     </div>
                 ) : (
                     <button
@@ -113,7 +104,7 @@ export function RecentChatList({ recent, providers }: { recent: RecentChats; pro
                         }}>
                         {glyph}
                         <span className="agent-title">{chat.title}</span>
-                        <span className="agent-ago">{ago(chat.mtime)}</span>
+                        <span className="agent-ago">{formatAge(chat.mtime * 1000)}</span>
                     </button>
                 );
             })}
@@ -124,7 +115,7 @@ export function RecentChatList({ recent, providers }: { recent: RecentChats; pro
                     items={[
                         { label: "Open", run: () => open(menu.chat) },
                         { label: "Rename…", run: () => setRenaming(chatKey(menu.chat)) },
-                        ...(DELETABLE.has(menu.chat.agent) ? [{ sep: true }, { label: "Delete…", danger: true, run: () => remove(menu.chat) }] : []),
+                        ...(canDeleteChats(menu.chat.agent) ? [{ sep: true }, { label: "Delete…", danger: true, run: () => remove(menu.chat) }] : []),
                     ]}
                     onClose={() => setMenu(null)}
                 />

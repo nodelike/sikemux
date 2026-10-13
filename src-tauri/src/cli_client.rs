@@ -287,7 +287,9 @@ fn resolve_target(
     explicit_project: Option<&Path>,
     index: usize,
 ) -> Result<CliOpenTarget, String> {
-    let expanded = expand_home(operand)?;
+    let expanded = sikemux_process::paths::expand_home(operand)
+        .to_string_lossy()
+        .into_owned();
     let raw_path = absolute_candidate(Path::new(&expanded), cwd);
     let (path, line, column) = if raw_path.exists() {
         (raw_path, None, None)
@@ -327,20 +329,9 @@ fn resolve_target(
 }
 
 fn resolve_existing(path: &Path, cwd: &Path) -> Result<PathBuf, String> {
-    let expanded = expand_home(&path.to_string_lossy())?;
-    let path = absolute_candidate(Path::new(&expanded), cwd);
+    let expanded = sikemux_process::paths::expand_home(&path.to_string_lossy());
+    let path = absolute_candidate(&expanded, cwd);
     fs::canonicalize(&path).map_err(|error| format!("{}: {error}", path.display()))
-}
-
-fn expand_home(raw: &str) -> Result<String, String> {
-    if raw == "~" || raw.starts_with("~/") || raw.starts_with("~\\") {
-        let home = env::var_os("HOME")
-            .or_else(|| env::var_os("USERPROFILE"))
-            .ok_or("home directory is unavailable")?;
-        let suffix = raw.strip_prefix('~').unwrap_or_default();
-        return Ok(format!("{}{}", PathBuf::from(home).display(), suffix));
-    }
-    Ok(raw.into())
 }
 
 fn absolute_candidate(path: &Path, cwd: &Path) -> PathBuf {
@@ -395,16 +386,8 @@ fn endpoint_path() -> Result<PathBuf, String> {
     if let Some(path) = env::var_os("SIKEMUX_CLI_ENDPOINT") {
         return Ok(PathBuf::from(path));
     }
-    let home = env::var_os("HOME")
-        .or_else(|| env::var_os("USERPROFILE"))
-        .ok_or("home directory is unavailable")?;
-    Ok(PathBuf::from(home)
-        .join(".config/sikemux")
-        .join(if cfg!(debug_assertions) {
-            "cli.dev.json"
-        } else {
-            "cli.json"
-        }))
+    sikemux_process::paths::config_file("cli", "json")
+        .ok_or_else(|| "home directory is unavailable".into())
 }
 
 /// The endpoint once Sikemux's window is open, starting the app first when

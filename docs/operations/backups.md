@@ -10,13 +10,14 @@ key stays offline with the owner, and the restore drill takes it on stdin, never
 
 ## What runs
 
-| Piece           | On citadel                                       | From                             |
-| --------------- | ------------------------------------------------ | -------------------------------- |
-| Backup script   | `/usr/local/lib/sikemux/backup-database`         | `server/deploy/backup-database`  |
-| Restore script  | `/usr/local/lib/sikemux/restore-database`        | `server/deploy/restore-database` |
-| Units           | `sikemux-backup.service`, `sikemux-backup.timer` | `server/deploy/`                 |
-| R2 credentials  | `/etc/sikemux/backup.env` (root, 600)            | written by hand                  |
-| age public keys | `/etc/sikemux/backup-recipients.txt` (root, 644) | written by hand                  |
+| Piece               | On citadel                                       | From                             |
+| ------------------- | ------------------------------------------------ | -------------------------------- |
+| Backup script       | `/usr/local/lib/sikemux/backup-database`         | `server/deploy/backup-database`  |
+| Restore script      | `/usr/local/lib/sikemux/restore-database`        | `server/deploy/restore-database` |
+| R2 setup both share | `/usr/local/lib/sikemux/lib.sh`                  | `server/deploy/lib.sh`           |
+| Units               | `sikemux-backup.service`, `sikemux-backup.timer` | `server/deploy/`                 |
+| R2 credentials      | `/etc/sikemux/backup.env` (root, 600)            | written by hand                  |
+| age public keys     | `/etc/sikemux/backup-recipients.txt` (root, 644) | written by hand                  |
 
 `setup-citadel.sh` installs all of it, creates the OS user `sikemux-backup` and the database
 role `sikemux_backup`, which can read everything (`pg_read_all_data`) and write nothing, and

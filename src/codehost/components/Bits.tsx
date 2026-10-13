@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { openUrl, swallow } from "../../plugin-api/host";
 import { IconCheck, IconChevron, IconExternal, IconGit, IconMerge, IconPullRequest } from "../../plugin-api/ui";
 import type { Label } from "../api";
+import { PULL_STATE_LABEL, pullState } from "../project";
 import { useHost } from "../registry";
 import { CommentIcon, NotPlannedIcon, SectionIcon } from "./ActionsIcon";
 import { Face } from "./CommentThread";
@@ -47,21 +48,16 @@ export function Comments({ count }: { count: number }) {
     );
 }
 
-const PULL_LABEL: Record<string, string> = { open: "Open", closed: "Closed", merged: "Merged", draft: "Draft" };
 const ISSUE_LABEL: Record<string, string> = { open: "Open", closed: "Closed", not_planned: "Closed as not planned" };
 
-/** A draft is still open, but it reads as its own state the way GitHub shows it. */
-export function stateOf(state: string, draft: boolean): string {
-    return draft && state === "open" ? "draft" : state;
-}
-
 function toneOf(kind: "pull" | "issue", state: string, draft: boolean, reason: string | null): string {
-    return kind === "issue" && state === "closed" && reason === "not_planned" ? "not_planned" : stateOf(state, draft);
+    if (kind === "pull") return pullState({ state, draft, mergedAt: null });
+    return state === "closed" && reason === "not_planned" ? "not_planned" : state;
 }
 
 export function stateLabel(kind: "pull" | "issue", state: string, draft = false, reason: string | null = null): string {
     const tone = toneOf(kind, state, draft, reason);
-    return (kind === "pull" ? PULL_LABEL : ISSUE_LABEL)[tone] ?? tone;
+    return (kind === "pull" ? PULL_STATE_LABEL : ISSUE_LABEL)[tone] ?? tone;
 }
 
 export function StateMark({

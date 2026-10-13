@@ -301,7 +301,6 @@ async fn an_edited_claude_message_takes_the_chat_back_to_before_it() {
             "count".into(),
             Vec::new(),
             Vec::new(),
-            false,
         )
         .await
         .expect("edit");
@@ -478,7 +477,6 @@ async fn an_edited_codex_message_takes_the_thread_back_to_before_it() {
             "count".into(),
             Vec::new(),
             Vec::new(),
-            false,
         )
         .await
         .expect("edit");
@@ -627,7 +625,6 @@ async fn live_claude_streams_edits_and_resumes() {
             "How many messages did I send you before this one? Answer with just the digit.".into(),
             Vec::new(),
             Vec::new(),
-            false,
         )
         .await
         .expect("edit");

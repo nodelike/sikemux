@@ -5,10 +5,10 @@ import * as cmd from "../state/commands";
 import { agentWindowId, ownerSessionId } from "../state/selectors";
 import { getState } from "../state/store";
 import { swallow } from "../state/toast";
-import type { PtyContext, PtyDirectCommand } from "../state/types";
+import type { AgentType, PtyContext, PtyDirectCommand } from "../state/types";
 import { noteSpawnedSession, offerResumableSessions } from "../terminal/sessionResume";
 import { agentCwd, agentPtyContext } from "./agentPtyContext";
-import { AGENT_NAMES } from "./agentLaunch";
+import { agentLabel } from "./catalog";
 import { afterAgentExit, describeAgentExit, type AgentProcessExit } from "./tuiRecovery";
 
 export type TuiRecovery = { phase: "resuming" } | { phase: "failed"; detail: string | null };
@@ -74,8 +74,8 @@ export function clearTuiRecovery(agentId: string): void {
     if (tuiResumeView(agentId).recovery !== null) update(agentId, { recovery: null });
 }
 
-export function resumeNote(type: keyof typeof AGENT_NAMES): string {
-    return `— Resuming ${AGENT_NAMES[type]} —`;
+export function resumeNote(type: AgentType): string {
+    return `— Resuming ${agentLabel(type)} —`;
 }
 
 /**

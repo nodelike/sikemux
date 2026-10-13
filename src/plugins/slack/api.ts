@@ -1,8 +1,10 @@
-import { createPluginBackend, isPluginFailure } from "../../plugin-api/backend";
+import { createPluginBackend } from "../../plugin-api/backend";
 import { invalidate } from "../../plugin-api/resources";
 import { SLACK_PLUGIN_ID } from "./kinds";
 
-const backend = createPluginBackend(SLACK_PLUGIN_ID);
+export { failureMessage } from "../../plugin-api/backend";
+
+const backend = createPluginBackend(SLACK_PLUGIN_ID, { signInStatus: (kind) => kind === "slack.status" });
 
 export interface SlackWorkspace {
     id: string;
@@ -54,10 +56,6 @@ export interface SlackPosted {
     channel: string;
     ts: string;
     permalink: string | null;
-}
-
-export function failureMessage(error: unknown): string {
-    return isPluginFailure(error) ? error.message : String(error);
 }
 
 export const refreshSlack = () => invalidate((kind) => kind.startsWith("slack."));

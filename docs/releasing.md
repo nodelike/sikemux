@@ -9,7 +9,7 @@ git tag v0.4.1 && git push origin v0.4.1
 
 `make preflight` runs the two checks the pre-push hook does not: it launches the real app the way CI's desktop E2E job does, and builds the DMG against its size limit. Either failing would otherwise surface only in the Release run.
 
-A run is titled with its tag, so the approval names what it will publish, and it stops if the tag disagrees with `package.json`. The workflow reads the version from `package.json` and builds and verifies with `scripts/release.sh` while the full CI suite runs. Once both pass, `scripts/publish-release.sh` publishes the build. A prerelease version goes to the nightly channel and any other version to stable. Only one release runs at a time, and each run keeps its built artifacts.
+A run is titled with its tag, so the approval names what it will publish, and it stops if the tag disagrees with `package.json`. The workflow reads the version from `package.json` and builds and verifies with `scripts/release.sh` while the full CI suite runs. Beside it, `pnpm build:linux` builds the x86_64 `.deb`, `.rpm` and `.AppImage` on Ubuntu 24.04. They carry no updater signature, because the update feed lists only macOS builds. Once the builds and the checks pass, `scripts/publish-release.sh` publishes them together. A prerelease version goes to the nightly channel and any other version to stable. Only one release runs at a time, and each run keeps its built artifacts.
 
 If a release fails before it publishes, fix it and move the tag onto the fix. Only the owner can move a release tag, and moving it starts a fresh run:
 
@@ -156,7 +156,7 @@ A bad update is taken back the same way, with one of two actions. Each channel s
 - `withdraw` stops offering the update on every channel, so phones that have not taken it never do; the channel goes back to what it offered before. Phones that already run it keep it.
 - `roll-back` also withdraws it, and sends phones that run it a signed order to go back to the code in their build. Only updates prepared after the roll-back reach those phones again, so fix forward with a new push to `main`.
 
-Both need `server/deploy/receive-release` on citadel to be the current one; it is installed by `setup-citadel.sh`, not by a server deploy.
+Both need `server/deploy/receive-release` and the `lib.sh` beside it on citadel to be the current ones; they are installed by `setup-citadel.sh`, not by a server deploy.
 
 Locally, `node scripts/publish-update.mjs android nightly --dry-run` in `mobile/app` builds and signs an update without sending it, with the key from `UPDATES_SIGNING_KEY`. The key lives at `~/.config/sikemux/release/updates-signing-key.pem`.
 

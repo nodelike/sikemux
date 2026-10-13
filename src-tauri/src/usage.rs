@@ -99,10 +99,7 @@ fn load_record(path: &Path) -> AppResult<UsageRecord> {
 }
 
 fn save_record(path: &Path, record: &UsageRecord) -> AppResult<()> {
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)?;
-    }
-    fs::write(path, serde_json::to_vec(record)?)?;
+    sikemux_process::files::write_atomic(path, &serde_json::to_vec(record)?, false)?;
     Ok(())
 }
 

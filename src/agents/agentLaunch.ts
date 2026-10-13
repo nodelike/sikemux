@@ -1,4 +1,5 @@
 import type { AgentEffort, AgentPermissionMode, AgentType } from "../state/types";
+import { canBypassPermissions, isAgentType } from "./catalog";
 
 export interface AgentLaunchOptions {
     resumeId?: string;
@@ -8,16 +9,6 @@ export interface AgentLaunchOptions {
 }
 
 export const MAX_AGENT_MODEL_LENGTH = 256;
-
-export const AGENT_NAMES: Readonly<Record<AgentType, string>> = {
-    claude: "Claude",
-    codex: "Codex",
-    hermes: "Hermes",
-    pi: "Pi",
-    opencode: "OpenCode",
-    omp: "Oh My Pi",
-    grok: "Grok",
-};
 
 const AGENT_EFFORTS: Readonly<Record<AgentType, readonly AgentEffort[]>> = {
     claude: ["low", "medium", "high", "xhigh", "max"],
@@ -34,17 +25,11 @@ const AGENT_EFFORTS: Readonly<Record<AgentType, readonly AgentEffort[]>> = {
 export const AGENT_PERMISSION_MODES: readonly AgentPermissionMode[] = ["workspace-write", "bypass"];
 
 export function supportedPermissionModes(type: AgentType): readonly AgentPermissionMode[] {
-    return type === "claude" || type === "codex" || type === "hermes" || type === "omp" || type === "grok"
-        ? AGENT_PERMISSION_MODES
-        : ["workspace-write"];
+    return canBypassPermissions(type) ? AGENT_PERMISSION_MODES : ["workspace-write"];
 }
 
 /** Agents the built-in chat can drive over ACP. Pi has no ACP mode of its own. */
 export type ChatAgentType = Exclude<AgentType, "pi">;
-
-export function isAgentType(value: string): value is AgentType {
-    return Object.hasOwn(AGENT_EFFORTS, value);
-}
 
 export const CHAT_AGENT_TYPES: readonly ChatAgentType[] = ["codex", "claude", "opencode", "omp", "grok", "hermes"];
 
@@ -54,6 +39,11 @@ export function agentSupportsChat(type: AgentType): type is ChatAgentType {
 
 export function normalizePermissionMode(type: AgentType, mode: AgentPermissionMode): AgentPermissionMode {
     return supportedPermissionModes(type).includes(mode) ? mode : "workspace-write";
+}
+
+/** The permission mode an agent runs in. */
+export function effectiveMode(agent: { type: AgentType; permissionMode?: AgentPermissionMode; skipPermissions?: boolean }): AgentPermissionMode {
+    return agent.permissionMode ?? (agent.skipPermissions ? "bypass" : normalizePermissionMode(agent.type, "workspace-write"));
 }
 
 export const AGENT_PERMISSION_COPY: Record<AgentPermissionMode, { label: string; detail: string; tone: "safe" | "balanced" | "open" | "danger" }> = {
@@ -78,6 +68,14 @@ export const AGENT_PERMISSION_COPY: Record<AgentPermissionMode, { label: string;
         tone: "danger",
     },
 };
+
+/** Whether a mode lets the agent act without asking. "full-access" widens the sandbox but keeps the approvals. */
+export const isYolo = (mode: string | null | undefined): boolean => mode === "bypass";
+
+/* The core switches a running chat between safe and YOLO for every agent that
+   has a YOLO mode: in the CLI's own modes where it has them, or else by
+   answering the agent's permission requests itself. */
+export const canSwitchMode = (type: string): boolean => isAgentType(type) && canBypassPermissions(type);
 
 export function supportedEfforts(type: AgentType): readonly AgentEffort[] {
     return AGENT_EFFORTS[type];

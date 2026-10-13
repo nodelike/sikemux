@@ -1,3 +1,4 @@
+import { recordOf } from "./acpEvents";
 import type { AcpToolCall } from "./types";
 
 export interface DiffLine {
@@ -25,10 +26,6 @@ function splitLines(text: string): string[] {
     const lines = text.split("\n");
     if (lines.length > 1 && lines.at(-1) === "") lines.pop();
     return lines;
-}
-
-function recordOf(value: unknown): Record<string, unknown> | undefined {
-    return typeof value === "object" && value !== null && !Array.isArray(value) ? (value as Record<string, unknown>) : undefined;
 }
 
 function textOf(value: unknown): string | undefined {

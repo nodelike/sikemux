@@ -1,8 +1,6 @@
 import { create } from "zustand";
 import { openSurface } from "../../plugin-api/host";
-import { invalidate } from "../../plugin-api/resources";
 import { definePluginSettings } from "../../plugin-api/settings";
-import { whenSignedOut } from "./api";
 import { AWS_CONSOLE, AWS_PLUGIN_ID } from "./kinds";
 
 export type AwsService = "ecs" | "ec2" | "lambda" | "sqs" | "billing" | "s3";
@@ -79,5 +77,3 @@ export function setAwsCount(profile: string, service: AwsService, count: string)
 export function openAwsSession(): void {
     openSurface(AWS_CONSOLE);
 }
-
-whenSignedOut(() => invalidate((kind) => kind.startsWith("aws.")));

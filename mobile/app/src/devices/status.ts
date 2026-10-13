@@ -1,7 +1,7 @@
+import { formatAgo } from '@mac/lib/format';
 import type { Snapshot } from '@/core/protocol';
 import type { Live, Outdated } from './hub';
 import { channelLabel, type PairedDevice } from './paired';
-import { ago } from './words';
 
 /** How a host is doing, in the words every screen uses for it. */
 export type HostStatus = {
@@ -27,7 +27,7 @@ export function summary(snapshot: Snapshot): string {
 }
 
 function offline(device: Pick<PairedDevice, 'lastSeen'> | undefined, now: number): string {
-  return `Asleep or offline${device?.lastSeen ? ` · seen ${ago(device.lastSeen, now)}` : ''}`;
+  return `Asleep or offline${device?.lastSeen ? ` · seen ${formatAgo(device.lastSeen, now)}` : ''}`;
 }
 
 export function hostStatus(live: Live, device?: Pick<PairedDevice, 'channel' | 'lastSeen'>, now = Date.now()): HostStatus {

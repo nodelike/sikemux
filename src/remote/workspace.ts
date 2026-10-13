@@ -1,4 +1,5 @@
-import { AGENT_NAMES, CHAT_AGENT_TYPES, agentSupportsChat, normalizePermissionMode } from "../agents/agentLaunch";
+import { agentLabel } from "../agents/catalog";
+import { CHAT_AGENT_TYPES, agentSupportsChat, normalizePermissionMode } from "../agents/agentLaunch";
 import { selectedProviderProfile } from "../agents/agentProfiles";
 import { agentCwd } from "../agents/agentPtyContext";
 import type { AgentInfo, RecentChat } from "../api/agents";
@@ -43,7 +44,7 @@ export function remoteWorkspace(
                 {
                     id: launcherId(type),
                     provider: type,
-                    label: AGENT_NAMES[type],
+                    label: agentLabel(type),
                     environmentKeys: [],
                     permissionMode: mode,
                     status: statusOf(type),
@@ -52,7 +53,7 @@ export function remoteWorkspace(
         return own.map((profile) => ({
             id: launcherId(type, profile),
             provider: type,
-            label: own.length > 1 ? `${AGENT_NAMES[type]} · ${profile.name}` : AGENT_NAMES[type],
+            label: own.length > 1 ? `${agentLabel(type)} · ${profile.name}` : agentLabel(type),
             configPath: profile.configPath,
             executablePath: profile.executablePath,
             environmentKeys: profile.environmentKeys ?? [],

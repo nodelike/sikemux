@@ -42,7 +42,7 @@ import { setState } from "../../state/store";
 import { acceptDialog, resetDialogsForTests, useDialogs } from "../../state/dialog";
 import { useToasts } from "../../state/toast";
 import type { CodeHost } from "../registry";
-import { resetView, showItem, useHostViews } from "../state";
+import { resetView, showItem } from "../state";
 import { InHost, registerTestHost, TEST_HOST } from "../testHost";
 import { PullsView } from "./PullsView";
 
@@ -218,7 +218,7 @@ const leftColumn = () => document.querySelector(".git-left") as HTMLElement;
 
 describe("the list", () => {
     beforeEach(() => {
-        useHostViews.setState({ views: {} });
+        resetView("p-git");
     });
 
     it("shows how CI went on each one's head commit", async () => {

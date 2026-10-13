@@ -2,6 +2,7 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import { Hono } from "hono";
 
 import { markDeleted } from "../account/deletion.ts";
+import { audit } from "../audit.ts";
 import type { Database } from "../db.ts";
 import { ApiFailure, type Env } from "../http.ts";
 
@@ -110,15 +111,12 @@ export function clerkWebhookRoutes({ db }: Database, secret: string | null) {
       via: "webhook",
       deletedInClerk: true,
     });
-    await db
-      .insertInto("audit")
-      .values({
-        user_id: userId,
-        actor: "clerk",
-        action: "webhook.user_deleted",
-        subject: id,
-      })
-      .execute();
+    await audit(db, {
+      userId,
+      actor: "clerk",
+      action: "webhook.user_deleted",
+      subject: id,
+    });
     seen.remember(id);
     c.get("log").info({ userId }, "Clerk deleted a user");
     return c.body(null, 204);

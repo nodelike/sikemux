@@ -42,11 +42,13 @@ const pkg = JSON.parse(fs.readFileSync("package.json", "utf8"));
 const config = JSON.parse(fs.readFileSync("src-tauri/tauri.conf.json", "utf8"));
 const macConfig = JSON.parse(fs.readFileSync("src-tauri/tauri.macos.conf.json", "utf8"));
 const windowsConfig = JSON.parse(fs.readFileSync("src-tauri/tauri.windows.conf.json", "utf8"));
+const linuxConfig = JSON.parse(fs.readFileSync("src-tauri/tauri.linux.conf.json", "utf8"));
 const sidecarConfig = JSON.parse(fs.readFileSync("src-tauri/tauri.sidecar.conf.json", "utf8"));
 const notchConfig = JSON.parse(fs.readFileSync("src-tauri/tauri.notch.conf.json", "utf8"));
 const macBuild = fs.readFileSync("scripts/build-mac.sh", "utf8");
 const sidecarBuild = fs.readFileSync("scripts/build-cli-sidecar.mjs", "utf8");
 const publish = fs.readFileSync("scripts/publish-release.sh", "utf8");
+const releaseWorkflow = fs.readFileSync(".github/workflows/release.yml", "utf8");
 const fail = (message) => { throw new Error(message); };
 
 if (pkg.version !== config.version) fail("package.json and tauri.conf.json versions differ");
@@ -61,6 +63,12 @@ if (JSON.stringify(windowsConfig.bundle?.targets) !== JSON.stringify(["nsis"])) 
 if (windowsConfig.bundle?.createUpdaterArtifacts !== false) fail("unsigned Windows builds must not require updater credentials");
 if (!windowsConfig.bundle?.icon?.includes("icons/icon.ico")) fail("Windows icon is not configured");
 if (windowsConfig.bundle?.windows?.nsis?.installMode !== "currentUser") fail("unexpected Windows install mode");
+if (JSON.stringify(linuxConfig.bundle?.targets) !== JSON.stringify(["deb", "rpm", "appimage"])) fail("Linux bundle targets must be deb, rpm and appimage");
+if (linuxConfig.bundle?.createUpdaterArtifacts !== false) fail("Linux builds must not require updater credentials");
+if (!pkg.scripts?.["build:linux"]?.includes("build:sidecar")) fail("Linux build does not build sidecars");
+if (!pkg.scripts?.["build:linux"]?.includes("tauri.sidecar.conf.json")) fail("Linux build does not bundle the CLI sidecar");
+if (!releaseWorkflow.includes("run: pnpm build:linux")) fail("the Release workflow does not build the Linux packages");
+if (!publish.includes('"$DEB" "$RPM" "$APPIMAGE"')) fail("releases do not publish the Linux packages");
 if (JSON.stringify(sidecarConfig.bundle?.externalBin) !== JSON.stringify(["binaries/sikemux-editor"])) fail("sidecar bundle mapping is incomplete");
 if (!macBuild.includes("build-voice-helper.mjs")) fail("macOS build does not build the voice helper");
 if (!macBuild.includes("build-notch-helper.mjs")) fail("macOS build does not build the notch helper");

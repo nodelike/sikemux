@@ -328,7 +328,27 @@ describe("chat reducer", () => {
         expect(orphan.messages).toEqual([]);
     });
 
-    it("stops the work a finished turn left mid-flight", () => {
+    it("keeps a subagent's own subagents inside its card", () => {
+        const parent = update(initialChatState, {
+            sessionUpdate: "subagent_spawned",
+            subagentSessionId: "parent",
+            name: "Map pipeline",
+            task: "Map it",
+        });
+        const nested = update(parent, { sessionUpdate: "subagent_spawned", subagentSessionId: "child", name: "Explore", task: "Read" }, "parent");
+        const working = update(nested, { sessionUpdate: "tool_call", toolCallId: "tool-1", title: "Grep", status: "in_progress" }, "child");
+        const done = update(working, { sessionUpdate: "subagent_state_update", subagentSessionId: "child", state: "completed" }, "parent");
+
+        expect(done.messages).toHaveLength(1);
+        const [outer] = done.messages[0].parts;
+        if (outer.kind !== "subagent") throw new Error("expected the parent subagent");
+        const [inner] = outer.subagent.messages[0].parts;
+        if (inner.kind !== "subagent") throw new Error("expected the nested subagent");
+        expect(inner.subagent.state).toBe("completed");
+        expect(inner.subagent.messages[0].parts[0]).toMatchObject({ kind: "tool" });
+    });
+
+    it("stops the calls a finished turn left mid-flight but not its subagents", () => {
         const spawned = update(initialChatState, {
             sessionUpdate: "subagent_spawned",
             subagentSessionId: "subagent-1",
@@ -341,13 +361,13 @@ describe("chat reducer", () => {
 
         const [subagentPart, toolPart] = ended.messages[0].parts;
         if (subagentPart.kind !== "subagent" || toolPart.kind !== "tool") throw new Error("expected a subagent beside a tool call");
-        expect(subagentPart.subagent.state).toBe("cancelled");
+        expect(subagentPart.subagent.state).toBe("running");
         expect(toolPart.tool.status).toBe("cancelled");
         expect(toolPart.endedAt).toBeDefined();
 
         const nestedPart = subagentPart.subagent.messages[0].parts[0];
         if (nestedPart.kind !== "tool") throw new Error("expected the subagent's own call");
-        expect(nestedPart.tool.status).toBe("cancelled");
+        expect(nestedPart.tool.status).toBe("in_progress");
     });
 
     it("leaves a call that already answered alone when the turn ends", () => {
@@ -389,7 +409,7 @@ describe("chat reducer", () => {
         });
     });
 
-    it("keeps a background agent's notice out even when its report has paragraphs", () => {
+    it("turns a background agent's notification into a notice, never its report, even when the report has paragraphs", () => {
         const notified = update(initialChatState, {
             sessionUpdate: "user_message_chunk",
             content: {
@@ -402,7 +422,10 @@ describe("chat reducer", () => {
             },
         });
 
-        expect(notified.messages).toEqual([]);
+        expect(notified.messages.flatMap((message) => message.parts)).toEqual([
+            { id: "notice-a41", kind: "notice", notice: { name: "Background task", state: "completed" } },
+        ]);
+        expect(notified.messages.some((message) => message.role === "user")).toBe(false);
     });
 
     it("keeps pasted markup with paragraphs that the harness did not write", () => {

@@ -2,14 +2,15 @@ import { useSyncExternalStore } from "react";
 import { agentApi } from "../api/agents";
 import type { AcpAccount } from "../api/acp";
 import { invalidate } from "../state/resources";
+import { hasAccounts, type AccountAgentType } from "./catalog";
 import type { AgentProvider, AgentType, ProviderProfile } from "../state/types";
 
 /* An account is a provider profile: its directory holds one sign-in. */
 
-export type AccountProvider = "claude" | "codex";
+export type AccountProvider = AccountAgentType;
 
 export function isAccountProvider(type: AgentType | AgentProvider | null | undefined): type is AccountProvider {
-    return type === "claude" || type === "codex";
+    return hasAccounts(type);
 }
 
 export function accountsOf(provider: AccountProvider, profiles: readonly ProviderProfile[]): ProviderProfile[] {

@@ -2,7 +2,7 @@ import { useMemo } from "react";
 import type { PromptContext } from "../api/acp";
 import { useResourceEnabled } from "../plugin-api/resources";
 import { failureMessage } from "./api";
-import { useHostRepo } from "./project";
+import { pullState, useHostRepo } from "./project";
 import { codeHost, hostApi } from "./registry";
 import { hostStatusR, issuesR, pullsR } from "./resources";
 import type { Comment, Issue, Pull, RepoRef } from "./types";
@@ -84,7 +84,7 @@ export function trackedContext(kind: TrackedKind, item: Issue | Pull, comments: 
     const noun = kind === "issue" ? "Issue" : "Pull request";
     const pull = kind === "pull" ? (item as Pull) : null;
     const facts = [
-        `State: ${pull?.mergedAt ? "merged" : pull?.draft ? "draft" : item.state}`,
+        `State: ${pull ? pullState(pull) : item.state}`,
         item.labels.length > 0 ? `Labels: ${item.labels.map((label) => label.name).join(", ")}` : null,
         item.author ? `Author: @${item.author}` : null,
         pull?.head && pull.base ? `Branch: ${pull.head} → ${pull.base}` : null,

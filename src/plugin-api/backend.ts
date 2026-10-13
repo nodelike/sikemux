@@ -1,4 +1,5 @@
 import { pluginsApi, type PluginFailure } from "../api/plugins";
+import { invalidate } from "../state/resources";
 
 export interface PluginStreamHandlers<Item> {
     readonly onItem: (item: Item) => void;
@@ -13,9 +14,19 @@ export interface PluginStream {
 export interface PluginBackend {
     call<Result>(method: string, params?: unknown): Promise<Result>;
     stream<Item>(method: string, params: unknown, handlers: PluginStreamHandlers<Item>): PluginStream;
-    /** For a caller that keeps its own start and stop bookkeeping by stream id. */
-    openStream<Item>(method: string, params: unknown, onItem: (item: Item) => void): Promise<number>;
-    closeStream(streamId: number): Promise<void>;
+    /** For a stream item that says the person is signed out: reads the sign-in status again, as a failed call does. */
+    signedOut(): void;
+}
+
+export interface PluginBackendOptions {
+    /**
+     * The cached answers that say whether the person is signed in. A call that finds them signed out has only these
+     * read again, so the pane turns to its sign-in form. Re-reading every answer would re-read the one that just
+     * failed, which fails again, forever.
+     */
+    readonly signInStatus?: (kind: string) => boolean;
+    /** The plugin's own failure categories that also mean the person has to sign in again. */
+    readonly signedOutCategories?: readonly string[];
 }
 
 export function isPluginFailure(error: unknown, category?: string): error is PluginFailure {
@@ -25,34 +36,55 @@ export function isPluginFailure(error: unknown, category?: string): error is Plu
     return category === undefined || candidate.category === category;
 }
 
-export function createPluginBackend(pluginId: string): PluginBackend {
+/** What went wrong, in words: a plugin's failure, a thrown Error or a plain string. */
+export function failureMessage(error: unknown): string {
+    if (typeof error === "string") return error;
+    const message = (error as { message?: unknown } | null | undefined)?.message;
+    return typeof message === "string" ? message : String(error);
+}
+
+/** A sign-in the service no longer takes. A 403 is not one: the person is signed in, just not allowed. */
+export function isSignedOutFailure(error: unknown, alsoSignedOut: readonly string[] = []): boolean {
+    if (!isPluginFailure(error)) return false;
+    if (error.category === "auth" || error.category === "unconfigured") return true;
+    if (error.category === "http" && error.status === 401) return true;
+    return alsoSignedOut.includes(error.category);
+}
+
+export function createPluginBackend(pluginId: string, options: PluginBackendOptions = {}): PluginBackend {
+    const { signInStatus, signedOutCategories } = options;
+    const signedOut = () => {
+        if (signInStatus) invalidate(signInStatus);
+    };
+    const noticeFailure = (error: unknown) => {
+        if (isSignedOutFailure(error, signedOutCategories)) signedOut();
+    };
+
     return {
-        call: <Result>(method: string, params: unknown = null) => pluginsApi.call<Result>(pluginId, method, params),
+        signedOut,
 
-        openStream: <Item>(method: string, params: unknown, onItem: (item: Item) => void) =>
-            pluginsApi.streamStart(pluginId, method, params, (event) => {
-                if (event.kind === "item") onItem(event.value as Item);
+        call: <Result>(method: string, params: unknown = null) =>
+            pluginsApi.call<Result>(pluginId, method, params).catch((error: unknown) => {
+                noticeFailure(error);
+                throw error;
             }),
-
-        closeStream: (streamId: number) => pluginsApi.streamStop(streamId),
 
         stream<Item>(method: string, params: unknown, handlers: PluginStreamHandlers<Item>): PluginStream {
             let finished = false;
             let streamId: number | null = null;
-            const finish = () => {
+            const fail = (error: PluginFailure) => {
                 finished = true;
+                noticeFailure(error);
+                handlers.onError?.(error);
             };
             pluginsApi
                 .streamStart(pluginId, method, params, (event) => {
                     if (finished) return;
                     if (event.kind === "item") handlers.onItem(event.value as Item);
                     else if (event.kind === "end") {
-                        finish();
+                        finished = true;
                         handlers.onEnd?.();
-                    } else {
-                        finish();
-                        handlers.onError?.(event.error);
-                    }
+                    } else fail(event.error);
                 })
                 .then(
                     (id) => {
@@ -60,18 +92,59 @@ export function createPluginBackend(pluginId: string): PluginBackend {
                         if (finished) void pluginsApi.streamStop(id);
                     },
                     (error: unknown) => {
-                        if (finished) return;
-                        finish();
-                        handlers.onError?.(isPluginFailure(error) ? error : { category: "ipc", message: String(error) });
+                        if (!finished) fail(isPluginFailure(error) ? error : { category: "ipc", message: failureMessage(error) });
                     },
                 );
             return {
                 stop() {
                     if (finished) return;
-                    finish();
+                    finished = true;
                     if (streamId !== null) void pluginsApi.streamStop(streamId);
                 },
             };
         },
     };
+}
+
+export interface BrowserSignIn<Result> {
+    /** Resolves with what signing in gave once the browser comes back, and rejects if it never does. */
+    readonly done: Promise<Result>;
+    cancel(): void;
+}
+
+/** What a browser sign-in rejects with when the person cancels it, which is not a failure to show. */
+export class SignInCancelled extends Error {
+    constructor() {
+        super("cancelled");
+    }
+}
+
+/**
+ * Waits for the browser to come back from a service's sign-in page. The stream sends the page as `{ url }`, which
+ * `openPage` is handed to show, and then what signing in gave.
+ */
+export function browserSignIn<Result>(
+    backend: PluginBackend,
+    method: string,
+    openPage: (url: string) => void,
+    params: unknown = {},
+): BrowserSignIn<Result> {
+    let cancel = () => {};
+    const done = new Promise<Result>((resolve, reject) => {
+        let answer: { result: Result } | null = null;
+        const stream = backend.stream<unknown>(method, params, {
+            onItem: (item) => {
+                const url = (item as { url?: unknown } | null)?.url;
+                if (typeof url === "string") openPage(url);
+                else answer = { result: item as Result };
+            },
+            onEnd: () => (answer ? resolve(answer.result) : reject(new Error("the sign-in ended before it finished"))),
+            onError: reject,
+        });
+        cancel = () => {
+            stream.stop();
+            reject(new SignInCancelled());
+        };
+    });
+    return { done, cancel: () => cancel() };
 }

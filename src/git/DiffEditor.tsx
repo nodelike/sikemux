@@ -4,6 +4,7 @@ import { fsapi } from "../api/fs";
 import { currentTheme, subscribeTheme } from "../themes/bus";
 import { errMessage, swallow } from "../state/toast";
 import { joinPath } from "../lib/paths";
+import { formatBytes } from "../lib/format";
 import { subscribe } from "../state/bus";
 import { DiffView } from "./DiffView";
 
@@ -235,7 +236,7 @@ const MAX_INLINE_DIFF_CHARS = 1024 * 1024;
 
 function inlineDiffGuard(path: string, base: string, head: string): string | null {
     const largest = Math.max(base.length, head.length);
-    if (largest > MAX_INLINE_DIFF_CHARS) return `${path} is too large for inline diff (${humanChars(largest)}).`;
+    if (largest > MAX_INLINE_DIFF_CHARS) return `${path} is too large for inline diff (${formatBytes(largest)}).`;
     if (looksBinaryText(base) || looksBinaryText(head)) return `${path} looks binary; inline diff is disabled.`;
     return null;
 }
@@ -246,10 +247,6 @@ function looksBinaryText(value: string): boolean {
     let replacements = 0;
     for (let i = 0; i < sample.length; i++) if (sample.charCodeAt(i) === 0xfffd) replacements++;
     return replacements > 8;
-}
-
-function humanChars(value: number): string {
-    return value > 1024 * 1024 ? `${(value / 1024 / 1024).toFixed(1)} MB` : `${(value / 1024).toFixed(1)} KB`;
 }
 
 async function readWorkingFile(repo: string, path: string, absPath: string): Promise<string> {

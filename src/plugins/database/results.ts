@@ -17,13 +17,6 @@ export function summary(result: ResultSet): string {
     return result.truncated ? `First ${rows}; more were left out` : rows;
 }
 
-export function duration(millis: number): string {
-    if (millis < 1000) return `${millis} ms`;
-    if (millis < 60_000) return `${(millis / 1000).toFixed(millis < 10_000 ? 2 : 1)} s`;
-    const minutes = Math.floor(millis / 60_000);
-    return `${minutes} min ${Math.round((millis % 60_000) / 1000)} s`;
-}
-
 /** The result shown when a run gives several: the last one that returned rows, or else the last of all. */
 export function mainResult(outcome: QueryOutcome): number {
     for (let index = outcome.results.length - 1; index >= 0; index--) {
@@ -67,19 +60,6 @@ export function toMarkdown(result: ResultSet, maxRows = 50): string {
     const note =
         left > 0 || result.truncated ? `\n\n${summary(result)}${left > 0 ? `; ${plural(left, "more row", "more rows")} not shown` : ""}` : "";
     return [header, rule, ...rows].join("\n") + note;
-}
-
-/** How long ago a run happened, in the words a list would use. */
-export function ago(at: number, now: number): string {
-    const seconds = Math.max(0, Math.round((now - at) / 1000));
-    if (seconds < 60) return "just now";
-    const minutes = Math.round(seconds / 60);
-    if (minutes < 60) return `${minutes} min ago`;
-    const hours = Math.round(minutes / 60);
-    if (hours < 24) return `${hours} h ago`;
-    const days = Math.round(hours / 24);
-    if (days < 7) return days === 1 ? "yesterday" : `${days} days ago`;
-    return new Date(at).toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
 
 /** What an agent is handed: which database, the SQL that ran, and its results as a table. */

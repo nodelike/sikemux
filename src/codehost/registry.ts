@@ -1,4 +1,5 @@
 import { createContext, useContext, type ComponentType, type ReactNode } from "react";
+import type { PluginStream, PluginStreamHandlers } from "../plugin-api/backend";
 import { isPluginEnabled } from "../plugins/enabled";
 import type {
     Annotation,
@@ -130,8 +131,8 @@ export interface CodeHostApi {
     deleteRun(repo: RepoRef, runId: string): Promise<void>;
     reviewDeployment(repo: RepoRef, runId: string, environmentIds: number[], state: "approved" | "rejected", comment?: string): Promise<void>;
     downloadArtifact(repo: RepoRef, artifactId: string, name: string, onProgress?: (progress: DownloadProgress) => void): Promise<SavedArtifact>;
-    watchStart(repo: RepoRef, runId: string, onTick: (tick: RunTick) => void): Promise<number>;
-    watchStop(streamId: number): Promise<void>;
+    /** Follows a run while it goes, a tick a read, until it ends or the stream is stopped. */
+    watch(repo: RepoRef, runId: string, handlers: PluginStreamHandlers<RunTick>): PluginStream;
 
     pulls(repo: RepoRef, state: string): Promise<Pull[]>;
     pull(repo: RepoRef, number: number): Promise<Pull>;

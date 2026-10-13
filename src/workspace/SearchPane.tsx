@@ -15,6 +15,7 @@ import { FileIcon } from "../ui/FileIcon";
 import { IconSearch } from "../ui/Icons";
 import { basename, dirname, isPathWithin, joinPath, normalizePath } from "../lib/paths";
 import { PRIMARY_SHORTCUT, SHIFT_SHORTCUT } from "../lib/platform";
+import { ENTER_GLYPH } from "../commands/keybindings";
 
 const DEBOUNCE_MS = 250;
 const RESULT_FLUSH_MS = 50;
@@ -1041,13 +1042,13 @@ function Footer() {
     return (
         <div className="sp-foot">
             <span>
-                <kbd>↵</kbd> open
+                <kbd>{ENTER_GLYPH}</kbd> open
             </span>
             <span>
                 <kbd>tab</kbd> replace
             </span>
             <span>
-                <kbd>{PRIMARY_SHORTCUT}↵</kbd> replace all
+                <kbd>{`${PRIMARY_SHORTCUT}${ENTER_GLYPH}`}</kbd> replace all
             </span>
             <span>
                 <kbd>

@@ -1,3 +1,4 @@
+import { LiveCloseCode } from "@sikemux/protocol";
 import {
   afterAll,
   afterEach,
@@ -15,7 +16,6 @@ import { sweepClerk } from "../src/account/clerk-sweeper.ts";
 import { purgeAccounts, pruneHistory } from "../src/account/purge.ts";
 import type { Database } from "../src/db.ts";
 import { RateLimiter } from "../src/limits.ts";
-import { CLOSE } from "../src/live/options.ts";
 import {
   caller,
   emptyTables,
@@ -202,11 +202,11 @@ describe("deleting an account", () => {
     api = await runApi(database);
 
     const web = await webPeer(api.url, "user_a");
-    expect(await web.closed).toBe(CLOSE.unauthenticated);
+    expect(await web.closed).toBe(LiveCloseCode.unauthenticated);
     const host = await hostPeer(api.url, mac);
     const revoked = await host.until("revoked");
     expect(revoked.reason).toBe("account_deleted");
-    expect(await host.closed).toBe(CLOSE.revoked);
+    expect(await host.closed).toBe(LiveCloseCode.revoked);
     expect(host.messages.some((message) => message.type === "ready")).toBe(
       false,
     );

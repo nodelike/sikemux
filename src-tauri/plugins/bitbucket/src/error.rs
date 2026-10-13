@@ -69,23 +69,21 @@ impl From<serde_json::Error> for BitbucketError {
 
 impl From<BitbucketError> for PluginError {
     fn from(error: BitbucketError) -> Self {
-        let (category, status) = match &error {
-            BitbucketError::Unconfigured => ("unconfigured", None),
-            BitbucketError::Auth(_) => ("auth", None),
-            BitbucketError::Forbidden(_) => ("forbidden", Some(403)),
-            BitbucketError::RateLimited { .. } => ("rate-limited", Some(429)),
-            BitbucketError::Http { status, .. } => ("http", Some(*status)),
-            BitbucketError::BadArg(_) => ("bad-params", None),
-            BitbucketError::NotFound(_) => ("not-found", Some(404)),
-            BitbucketError::Unsupported(_) => ("unsupported", None),
-            BitbucketError::Keychain(_) => ("keychain", None),
-            BitbucketError::Transport(_) => ("bitbucket", None),
-            BitbucketError::Response(_) => ("response", None),
-        };
-        let plugin_error = PluginError::new(category, error.to_string());
-        match status {
-            Some(status) => plugin_error.with_status(status),
-            None => plugin_error,
+        let message = error.to_string();
+        match error {
+            BitbucketError::Unconfigured => PluginError::new("unconfigured", message),
+            BitbucketError::Auth(_) => PluginError::new("auth", message),
+            BitbucketError::Forbidden(_) => PluginError::forbidden(message),
+            BitbucketError::RateLimited { .. } => {
+                PluginError::new("rate-limited", message).with_status(429)
+            }
+            BitbucketError::Http { status, .. } => PluginError::http(status, message),
+            BitbucketError::BadArg(_) => PluginError::new("bad-params", message),
+            BitbucketError::NotFound(_) => PluginError::new("not-found", message).with_status(404),
+            BitbucketError::Unsupported(_) => PluginError::new("unsupported", message),
+            BitbucketError::Keychain(_) => PluginError::new("keychain", message),
+            BitbucketError::Transport(_) => PluginError::new("bitbucket", message),
+            BitbucketError::Response(_) => PluginError::new("response", message),
         }
     }
 }

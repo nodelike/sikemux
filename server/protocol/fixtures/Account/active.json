@@ -1,1 +1,4 @@
-{ "status": "active" }
+{
+  "status": "active",
+  "restorableDays": 30
+}

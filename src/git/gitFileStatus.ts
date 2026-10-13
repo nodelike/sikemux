@@ -2,23 +2,44 @@ import type { GitFile } from "../api/git";
 
 export interface GitStatusDecoration {
     letter: string;
-    cls: "m" | "u" | "a" | "d" | "r";
+    /** Which colour it takes, as the class `git-<cls>`: conflicted, untracked, added, deleted, renamed or modified. */
+    cls: "c" | "u" | "a" | "d" | "r" | "m";
     label: string;
 }
 
-function gitStatusDecoration(raw: string): GitStatusDecoration | null {
+const MODIFIED: GitStatusDecoration = { letter: "M", cls: "m", label: "modified" };
+
+const BY_CODE: Record<string, GitStatusDecoration> = {
+    "?": { letter: "U", cls: "u", label: "untracked" },
+    U: { letter: "U", cls: "c", label: "unmerged" },
+    A: { letter: "A", cls: "a", label: "added" },
+    D: { letter: "D", cls: "d", label: "deleted" },
+    R: { letter: "R", cls: "r", label: "renamed" },
+    C: { letter: "C", cls: "r", label: "copied" },
+    T: { letter: "T", cls: "m", label: "type changed" },
+    M: MODIFIED,
+};
+
+/** One side of git's two-letter status, such as `M` or `?`; null when that side has no change. */
+export function gitStatusDecoration(raw: string): GitStatusDecoration | null {
     const code = raw.trim();
     if (!code) return null;
-    if (code === "?" || code === "U") return { letter: "U", cls: "u", label: code === "?" ? "untracked" : "unmerged" };
-    if (code === "A") return { letter: "A", cls: "a", label: "added" };
-    if (code === "D") return { letter: "D", cls: "d", label: "deleted" };
-    if (code === "R") return { letter: "R", cls: "r", label: "renamed" };
-    if (code === "C") return { letter: "C", cls: "r", label: "copied" };
-    if (code === "T") return { letter: "T", cls: "m", label: "type changed" };
-    return { letter: code, cls: "m", label: code === "M" ? "modified" : code };
+    return BY_CODE[code] ?? { letter: code, cls: "m", label: code };
 }
 
-const RANK: GitStatusDecoration["cls"][] = ["u", "d", "a", "r", "m"];
+/** A code host's word for a changed file, such as `added` or `removed`, in git's letters and colours. */
+const BY_HOST_STATUS: Record<string, GitStatusDecoration> = {
+    added: BY_CODE.A,
+    removed: BY_CODE.D,
+    renamed: BY_CODE.R,
+    copied: BY_CODE.C,
+};
+
+export function hostFileStatus(status: string): GitStatusDecoration {
+    return BY_HOST_STATUS[status] ?? MODIFIED;
+}
+
+const RANK: GitStatusDecoration["cls"][] = ["c", "u", "d", "a", "r", "m"];
 
 function mostTelling(statuses: GitStatusDecoration[]): GitStatusDecoration | undefined {
     return RANK.map((cls) => statuses.find((status) => status.cls === cls)).find(Boolean) ?? statuses[0];
@@ -28,7 +49,7 @@ export function gitFileDecoration(file: GitFile): GitStatusDecoration {
     const statuses = [gitStatusDecoration(file.index), gitStatusDecoration(file.worktree)].filter(
         (status): status is GitStatusDecoration => status !== null,
     );
-    return mostTelling(statuses) ?? { letter: "M", cls: "m", label: "modified" };
+    return mostTelling(statuses) ?? MODIFIED;
 }
 
 /**
@@ -61,8 +82,8 @@ export function gitStatusBadge(raw: string, source: string): GitStatusBadge | nu
 // Git spells untracked as `??` and unmerged as `UU`. Both sides carry the same
 // letter, so those are one state, not a staged/unstaged pair.
 export function gitFileBadges(file: GitFile): GitStatusBadge[] {
-    if (file.index === "U" || file.worktree === "U") return [{ letter: "U", cls: "u", label: "unmerged", source: "unmerged" }];
-    if (file.index === "?" && file.worktree === "?") return [{ letter: "U", cls: "u", label: "untracked", source: "untracked" }];
+    if (file.index === "U" || file.worktree === "U") return [{ ...BY_CODE.U, source: "unmerged" }];
+    if (file.index === "?" && file.worktree === "?") return [{ ...BY_CODE["?"], source: "untracked" }];
     return [gitStatusBadge(file.index, "staged"), gitStatusBadge(file.worktree, "unstaged")].filter(
         (badge): badge is GitStatusBadge => badge !== null,
     );

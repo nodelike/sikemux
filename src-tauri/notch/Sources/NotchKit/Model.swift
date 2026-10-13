@@ -1,47 +1,5 @@
 import Foundation
 
-/// Any JSON value, kept whole for the parts the core passes through untouched.
-enum JSONValue: Decodable, Equatable {
-    case null
-    case bool(Bool)
-    case number(Double)
-    case string(String)
-    case array([JSONValue])
-    case object([String: JSONValue])
-
-    init(from decoder: Decoder) throws {
-        let container = try decoder.singleValueContainer()
-        if container.decodeNil() {
-            self = .null
-        } else if let value = try? container.decode(Bool.self) {
-            self = .bool(value)
-        } else if let value = try? container.decode(Double.self) {
-            self = .number(value)
-        } else if let value = try? container.decode(String.self) {
-            self = .string(value)
-        } else if let value = try? container.decode([JSONValue].self) {
-            self = .array(value)
-        } else {
-            self = .object(try container.decode([String: JSONValue].self))
-        }
-    }
-
-    subscript(key: String) -> JSONValue? {
-        if case .object(let fields) = self { return fields[key] }
-        return nil
-    }
-
-    var string: String? {
-        if case .string(let value) = self { return value }
-        return nil
-    }
-
-    var array: [JSONValue] {
-        if case .array(let values) = self { return values }
-        return []
-    }
-}
-
 struct DeviceView: Decodable, Equatable {
     let workspace: Workspace
     let sessions: [SessionInfo]
@@ -67,7 +25,8 @@ struct Launcher: Decodable, Equatable {
     let provider: String
     let label: String
     let permissionMode: String
-    let configOptions: JSONValue?
+    let model: ConfigSelect?
+    let effort: ConfigSelect?
 }
 
 struct SessionInfo: Decodable, Equatable {
@@ -81,6 +40,9 @@ struct SessionInfo: Decodable, Equatable {
     let title: String?
     let unread: Bool
     let activeAt: Double?
+    let group: AgentState?
+    let status: AgentStatus?
+    let attentionRank: Int?
 }
 
 struct ChatInfo: Decodable, Equatable {
@@ -97,6 +59,9 @@ struct ChatInfo: Decodable, Equatable {
     let asleep: Bool
     let unread: Bool
     let activeAt: Double?
+    let group: AgentState
+    let status: AgentStatus
+    let attentionRank: Int
 }
 
 struct Attention: Decodable, Equatable {
@@ -104,17 +69,37 @@ struct Attention: Decodable, Equatable {
     let agentId: String
     let provider: String
     let cwd: String
-    let request: JSONValue
     let at: Double
+    let choices: PermissionChoices
 }
 
-enum AgentState: Int, Comparable {
-    case idle = 0
-    case done = 1
-    case working = 2
-    case blocked = 3
+/// A permission request as the core reads it for the island's three buttons.
+struct PermissionChoices: Decodable, Equatable {
+    let allowOnce: String?
+    let allowAlways: String?
+    let reject: String?
+    let command: String?
+    let title: String?
+}
 
-    static func < (lhs: AgentState, rhs: AgentState) -> Bool { lhs.rawValue < rhs.rawValue }
+/// The group the core puts an agent in, most in need of the person first.
+enum AgentState: String, Decodable {
+    case blocked, working, done, idle
+}
+
+/// What the core says an agent is doing: its group, or why it is not running.
+enum AgentStatus: String, Decodable {
+    case blocked, working, done, idle, asleep, stopped, starting
+
+    /// The word for an agent that is not running, which its group does not say.
+    var word: String? {
+        switch self {
+        case .asleep: "Sleeping"
+        case .stopped: "Stopped"
+        case .starting: "Starting"
+        default: nil
+        }
+    }
 }
 
 /// One group on the closed island's right wing.
@@ -141,23 +126,17 @@ struct AgentItem: Identifiable, Equatable {
     let title: String
     let project: String
     let state: AgentState
+    let status: AgentStatus
     let subagents: Int
-    /// Shells, monitors or subagents still going once its turn is over.
-    let background: Bool
+    /// Shells and monitors it still has going.
+    let tasks: Int
     /// A chat agent can be answered from the notch; a terminal agent only in Sikemux.
     let isChat: Bool
     let ask: Ask?
-}
 
-let agentNames: [String: String] = [
-    "claude": "Claude",
-    "codex": "Codex",
-    "opencode": "OpenCode",
-    "grok": "Grok",
-    "pi": "Pi",
-    "omp": "OMP",
-    "hermes": "Hermes",
-]
+    /// Subagents, shells or monitors still going once its turn is over.
+    var background: Bool { subagents > 0 || tasks > 0 }
+}
 
 func agentName(_ provider: String) -> String {
     agentNames[provider] ?? provider.capitalized
@@ -172,127 +151,77 @@ extension DeviceView {
         return URL(fileURLWithPath: value).lastPathComponent
     }
 
-    /// Every agent open in the app, most in need of the person first, then
-    /// the most recently active.
+    /// Every agent open in the app, in the core's order: most in need of the person first.
     var agents: [AgentItem] {
-        var items: [(agent: AgentItem, activeAt: Double)] = []
+        var items: [(agent: AgentItem, rank: Int)] = []
         // A sleeping chat is still open in the app; it starts again when opened there.
         for chat in chats {
-            let ask = attentions.first { $0.agentId == chat.agentId }.map(Self.ask)
-            let state: AgentState =
-                !chat.pendingPermissions.isEmpty ? .blocked : chat.running ? .working : chat.unread ? .done : .idle
             items.append((AgentItem(
                 id: chat.agentId,
                 provider: chat.provider,
                 title: chat.title ?? "New \(agentName(chat.provider)) chat",
                 project: projectName(chat.cwd),
-                state: state,
+                state: chat.group,
+                status: chat.status,
                 subagents: chat.subagents,
-                background: chat.tasks > 0 || chat.subagents > 0,
+                tasks: chat.tasks,
                 isChat: true,
-                ask: ask
-            ), chat.activeAt ?? 0))
+                ask: attentions.first { $0.agentId == chat.agentId }.map(Self.ask)
+            ), chat.attentionRank))
         }
-        for session in sessions where session.kind == "terminal" && session.running {
-            guard let agentId = session.agentId, !items.contains(where: { $0.agent.id == agentId }) else { continue }
+        for session in sessions {
+            guard let agentId = session.agentId, let rank = session.attentionRank,
+                  let state = session.group, let status = session.status
+            else { continue }
             let provider = session.agentType ?? "agent"
-            let state: AgentState
-            switch session.agentState {
-            case "blocked": state = .blocked
-            case "working": state = .working
-            case "idle" where session.unread: state = .done
-            default: state = .idle
-            }
             items.append((AgentItem(
                 id: agentId,
                 provider: provider,
                 title: session.title ?? agentName(provider),
                 project: projectName(session.project),
                 state: state,
+                status: status,
                 subagents: 0,
-                background: false,
+                tasks: 0,
                 isChat: false,
                 ask: nil
-            ), session.activeAt ?? 0))
+            ), rank))
         }
-        return items.enumerated()
-            .sorted { a, b in
-                if a.element.agent.state != b.element.agent.state { return a.element.agent.state > b.element.agent.state }
-                if a.element.activeAt != b.element.activeAt { return a.element.activeAt > b.element.activeAt }
-                return a.offset < b.offset
-            }
-            .map(\.element.agent)
+        return items.sorted { $0.rank < $1.rank }.map(\.agent)
     }
 
     private static func ask(_ attention: Attention) -> Ask {
-        let toolCall = attention.request["toolCall"]
-        let raw = toolCall?["rawInput"]
-        let shell = raw?["command"]?.string ?? raw?["cmd"]?.string
-        let command = shell ?? toolCall?["title"]?.string ?? "a tool"
-        func option(_ kind: String) -> String? {
-            attention.request["options"]?.array.first { $0["kind"]?.string == kind }?["optionId"]?.string
-        }
+        let choices = attention.choices
         return Ask(
             attentionId: attention.id,
-            command: command,
-            isCommand: shell != nil,
-            allowOnce: option("allow_once"),
-            allowAlways: option("allow_always"),
-            reject: option("reject_once") ?? option("reject_always")
+            command: choices.command ?? choices.title ?? "a tool",
+            isCommand: choices.command != nil,
+            allowOnce: choices.allowOnce,
+            allowAlways: choices.allowAlways,
+            reject: choices.reject
         )
     }
 }
 
 /// One choice a session offers, such as a model.
-struct ConfigChoice: Equatable, Hashable {
+struct ConfigChoice: Decodable, Equatable, Hashable {
     let value: String
     let label: String
 }
 
-struct ConfigSelect: Equatable {
+struct ConfigSelect: Decodable, Equatable {
     let id: String
     let current: String
     let choices: [ConfigChoice]
 }
 
-/// The model and effort pickers a launcher's last session offered, read the
-/// way `src/chat/sessionConfig.ts` reads them.
+/// The model and effort pickers a launcher's last session offered, as the core reads them.
 struct LauncherConfig: Equatable {
     let model: ConfigSelect?
     let effort: ConfigSelect?
 
-    private static let legacyEffort = ["claude": "effort", "codex": "reasoning_effort"]
-
     init(_ launcher: Launcher?) {
-        let selects: [(category: String?, select: ConfigSelect)] = (launcher?.configOptions?.array ?? []).compactMap { row in
-            guard row["type"]?.string == "select", let id = row["id"]?.string, let current = row["currentValue"]?.string
-            else { return nil }
-            return (row["category"]?.string, ConfigSelect(id: id, current: current, choices: Self.choices(row["options"])))
-        }
-        model = selects.first { $0.select.id == "model" }?.select
-        let legacy = launcher.flatMap { Self.legacyEffort[$0.provider] }
-        effort = (selects.first { $0.category == "thought_level" } ?? selects.first { $0.select.id == legacy })?.select
-    }
-
-    private static func choices(_ value: JSONValue?) -> [ConfigChoice] {
-        (value?.array ?? []).flatMap { row -> [ConfigChoice] in
-            if case .array = row["options"] ?? .null { return choices(row["options"]) }
-            guard let value = row["value"]?.string, let name = row["name"]?.string else { return [] }
-            return [ConfigChoice(value: value, label: versioned(name, row["description"]?.string))]
-        }
-    }
-
-    /// The agent names a model without its release number ("Opus") and leaves
-    /// that number in the description ("Opus 5 with 1M context"), so put it back.
-    private static func versioned(_ label: String, _ description: String?) -> String {
-        guard let description,
-              let match = description.range(of: #"^\p{L}+\s+\d+(\.\d+)?\b"#, options: .regularExpression)
-        else { return label }
-        let named = description[match].split(separator: " ")
-        guard named.count == 2, let head = label.split(separator: " ").first else { return label }
-        let family = String(named[0])
-        let version = String(named[1])
-        guard head.lowercased() == family.lowercased(), !label.contains(version) else { return label }
-        return label.replacingOccurrences(of: String(head), with: "\(head) \(version)", options: .anchored)
+        model = launcher?.model
+        effort = launcher?.effort
     }
 }

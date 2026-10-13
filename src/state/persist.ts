@@ -10,13 +10,14 @@ import { parseReleaseCredits } from "../api/releases";
 import { normaliseKeybindingOverrides } from "../commands/keybindings";
 import type { CommandContext, CustomCommand, CustomCommandPlacement } from "../commands/registry";
 import { registerCustomThemes } from "../themes/bus";
-import { normalizePermissionMode } from "../agents/agentLaunch";
+import { effectiveMode, normalizePermissionMode } from "../agents/agentLaunch";
+import { ACCOUNT_AGENT_TYPES, AGENT_TYPES, hasAccounts, isAgentType } from "../agents/catalog";
 import { clampRailWidth } from "../lib/railWidths";
 import { mergePinnedIntoRoots, normaliseProjectRoots, pruneOnDemandWindows } from "./commands";
-import { agentPaneId } from "./selectors";
+import { agentInWindow } from "./selectors";
 import { collectPanes, newId, removePane } from "./layout";
 import { BROWSER_ACTIVE, deskEditorId, deskView, fileKey, simulatorKey } from "./desks";
-import { agentDirectCommand, agentStartup } from "./commands";
+import { agentExecutablePath, relaunchSpec } from "./commands/agentLaunchCommand";
 import { agentWindow } from "./agentWindow";
 import { getState, setState, useStore, type StoreState } from "./store";
 import { errMessage, notify } from "./toast";
@@ -323,7 +324,6 @@ function isRecent(value: unknown): value is RecentEntry {
     return isRecord(value) && isSessionKind(value.kind) && typeof value.name === "string" && typeof value.cwd === "string";
 }
 
-const AGENT_TYPES = new Set<AgentType>(["claude", "codex", "hermes", "pi", "opencode", "omp", "grok"]);
 const AGENT_PROVIDERS = new Set<AgentProvider>(["claude", "codex", "gemini"]);
 const AGENT_PERMISSION_MODES = new Set<AgentPermissionMode>(["read-only", "workspace-write", "full-access", "bypass"]);
 
@@ -370,7 +370,7 @@ function normaliseProviderProfiles(value: unknown, fallback: ProviderProfile[]):
 function normaliseAccountAutoSwitch(value: unknown): StoreState["accountAutoSwitch"] {
     const saved = value && typeof value === "object" ? (value as Record<string, unknown>) : {};
     const result: StoreState["accountAutoSwitch"] = {};
-    for (const provider of ["claude", "codex"] as const) if (saved[provider] === true) result[provider] = true;
+    for (const provider of ACCOUNT_AGENT_TYPES) if (saved[provider] === true) result[provider] = true;
     return result;
 }
 
@@ -386,7 +386,7 @@ function normaliseProviderProfileSelection(
         const selected = value[type];
         if (typeof selected !== "string") continue;
         const profile = profilesById.get(selected);
-        if (profile && (type === "claude" || type === "codex") && profile.provider === type) selection[type] = selected;
+        if (profile && hasAccounts(type) && profile.provider === type) selection[type] = selected;
     }
     return selection;
 }
@@ -407,7 +407,7 @@ function toAgentWorktree(value: unknown): AgentWorktree | undefined {
 
 const AGENT_EFFORTS = new Set(["off", "none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"]);
 function toPersistedAgent(value: unknown): PersistedAgent | null {
-    if (!isRecord(value) || typeof value.id !== "string" || !value.id || !AGENT_TYPES.has(value.type as AgentType)) return null;
+    if (!isRecord(value) || typeof value.id !== "string" || !value.id || !isAgentType(value.type)) return null;
     if (typeof value.title !== "string" || !value.title.trim()) return null;
     const resumeId = typeof value.resumeId === "string" && value.resumeId.trim() ? value.resumeId : undefined;
     const ptyId = isCoreSessionId(value.ptyId) ? value.ptyId : undefined;
@@ -492,7 +492,7 @@ function withoutEmptyDesks(window: Window): Window | null {
 function durableWindow(s: StoreState, id: string): Window | null {
     const window = s.windows[id];
     if (!window || window.transient) return null;
-    const agent = window.role === "agent" ? s.agents[agentPaneId(window) ?? ""] : null;
+    const agent = agentInWindow(s.agents, window);
     if (window.role === "agent" && !agent?.resumeId && agent?.ptyId === undefined) return null;
     return withoutEmptyDesks(window);
 }
@@ -530,10 +530,8 @@ function snapshot(): string {
             return window ? [window] : [];
         });
         for (const window of windowsBySession[sess.id]) {
-            if (window.role === "agent") {
-                const agent = s.agents[agentPaneId(window) ?? ""];
-                if (agent) agents.push(persistedAgent(agent));
-            }
+            const agent = agentInWindow(s.agents, window);
+            if (agent) agents.push(persistedAgent(agent));
             const pending = [window.root];
             while (pending.length > 0) {
                 const node = pending.pop()!;
@@ -994,20 +992,9 @@ export function applyHydrate(raw: string): HydrationResult {
                 if (claimedResumeIds.has(claim)) continue;
                 claimedResumeIds.add(claim);
             }
-            const permissionMode = normalizePermissionMode(
-                saved.type,
-                saved.permissionMode ?? (saved.skipPermissions ? "bypass" : "workspace-write"),
-            );
-            const profile = saved.profileId
-                ? providerProfiles.find((item) => item.id === saved.profileId && item.provider === saved.type)
-                : undefined;
-            const executablePath = profile?.executablePath || saved.executablePath;
-            const launchOptions = {
-                model: saved.model,
-                effort: saved.effort,
-                configPath: profile?.configPath,
-                environmentKeys: profile?.environmentKeys,
-            };
+            const permissionMode = normalizePermissionMode(saved.type, effectiveMode(saved));
+            const executablePath = agentExecutablePath({ providerProfiles }, saved);
+            const launch = relaunchSpec({ providerProfiles }, { ...saved, permissionMode });
             if (saved.profileId && !providerProfiles.some((profile) => profile.id === saved.profileId && profile.provider === saved.type)) {
                 delete saved.profileId;
             }
@@ -1016,8 +1003,7 @@ export function applyHydrate(raw: string): HydrationResult {
                 ...saved,
                 permissionMode,
                 executablePath,
-                startup: agentStartup(saved.type, saved.resumeId, permissionMode, executablePath, launchOptions),
-                directCommand: agentDirectCommand(saved.type, saved.resumeId, permissionMode, executablePath, launchOptions),
+                ...launch,
                 launchState: "dormant",
             };
             if (sid !== null) {
@@ -1034,7 +1020,7 @@ export function applyHydrate(raw: string): HydrationResult {
         windowsBySession[sid] = windowsBySession[sid].filter((id) => {
             const win = windows[id];
             if (win?.role !== "agent") return true;
-            if (sessions[sid].kind === "project" && agents[agentPaneId(win) ?? ""]) return true;
+            if (sessions[sid].kind === "project" && agentInWindow(agents, win)) return true;
             delete windows[id];
             return false;
         });
@@ -1109,7 +1095,7 @@ export function applyHydrate(raw: string): HydrationResult {
         sessionOrder,
         windowsBySession,
         agentActivity: {},
-        agentBackgroundWork: {},
+        agentTasks: {},
         agentSubagents: {},
         activeSessionId,
         recent: Array.isArray(decoded.recent) ? decoded.recent.filter(isRecent) : [],
@@ -1200,7 +1186,7 @@ export function applyHydrate(raw: string): HydrationResult {
                 : prefs.defaultAgentPermissionMode === "bypass"
                   ? "bypass"
                   : "workspace-write",
-        lastAgentType: AGENT_TYPES.has(prefs.lastAgentType as AgentType) ? (prefs.lastAgentType as AgentType) : null,
+        lastAgentType: isAgentType(prefs.lastAgentType) ? prefs.lastAgentType : null,
         languageServerTrust: booleansByPath(prefs.languageServerTrust),
         agentWorktreeDefaults: booleansByPath(prefs.agentWorktreeDefaults),
     });

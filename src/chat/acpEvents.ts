@@ -5,9 +5,9 @@ export function recordOf(value: unknown): Record<string, unknown> | null {
     return typeof value === "object" && value !== null && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
 }
 
-export function eventMessage(event: AcpEvent): string {
-    return typeof event.payload.message === "string" ? event.payload.message : "ACP session failed";
-}
+type ChatEvent = Pick<AcpEvent, "payload"> & { kind: string };
+
+const atOf = (payload: Record<string, unknown>) => (typeof payload.at === "number" ? payload.at : undefined);
 
 export function permissionRequest(payload: Record<string, unknown>): AcpPermissionRequest | null {
     const requestId = typeof payload.requestId === "string" ? payload.requestId : null;
@@ -28,7 +28,7 @@ export function permissionRequest(payload: Record<string, unknown>): AcpPermissi
     };
 }
 
-export function statusFromEvent(event: AcpEvent): "connecting" | "starting" | "initializing" | "ready" | "stopped" | "error" {
+export function statusFromEvent(event: Pick<AcpEvent, "payload">): "connecting" | "starting" | "initializing" | "ready" | "stopped" | "error" {
     const value = event.payload.state;
     return value === "starting" || value === "initializing" || value === "ready" || value === "stopped" || value === "error" ? value : "connecting";
 }
@@ -47,9 +47,48 @@ export function promptAction(payload: Record<string, unknown>): ChatAction | nul
 }
 
 /** Why a turn failed, when the core says it was the account's doing. */
-export function failureOf(event: AcpEvent): ChatFailure | undefined {
+export function failureOf(event: Pick<AcpEvent, "payload">): ChatFailure | undefined {
     const failure = recordOf(event.payload.failure);
     const kind = failure?.kind;
     if (kind !== "signIn" && kind !== "limit" && kind !== "other") return undefined;
     return { kind, account: typeof failure?.account === "string" ? failure.account : null };
+}
+
+/** What the chat's reducer makes of an event from the core, on the Mac and the phone alike. */
+export function chatActions(event: ChatEvent): ChatAction[] {
+    const payload = event.payload;
+    switch (event.kind) {
+        case "status":
+            return [{ type: "status", state: statusFromEvent(event) }];
+        case "ready":
+            return [{ type: "ready", capabilities: recordOf(payload.capabilities) ?? {}, setup: recordOf(payload.setup) ?? {} }];
+        case "session_update": {
+            const rows = Array.isArray(payload.updates) ? payload.updates : [payload];
+            return rows.flatMap((entry): ChatAction[] => {
+                const row = recordOf(entry);
+                const update = row && recordOf(row.update);
+                return update && typeof row.sessionId === "string" ? [{ type: "session_update", sessionId: row.sessionId, update }] : [];
+            });
+        }
+        case "prompt": {
+            const prompted = promptAction(payload);
+            return prompted ? [prompted] : [];
+        }
+        case "turn_started":
+            return [{ type: "turn_started", at: atOf(payload) }];
+        case "turn_completed":
+            return [
+                { type: "turn_completed", stopReason: typeof payload.stopReason === "string" ? payload.stopReason : undefined, at: atOf(payload) },
+            ];
+        case "permission_request": {
+            const request = permissionRequest(payload);
+            return request ? [{ type: "permission_requested", request }] : [];
+        }
+        case "error":
+            return [
+                { type: "error", message: typeof payload.message === "string" ? payload.message : "The agent stopped.", failure: failureOf(event) },
+            ];
+        default:
+            return [];
+    }
 }

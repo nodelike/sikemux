@@ -1,3 +1,4 @@
+import { agentBrand, type AgentType } from "../../agents/catalog";
 import type { PluginKind } from "../../plugins/kinds";
 import type { SpaceIcon } from "../projectSpaces";
 
@@ -56,7 +57,7 @@ export interface Window {
     transient?: true;
 }
 
-export type AgentType = "claude" | "codex" | "hermes" | "pi" | "opencode" | "omp" | "grok";
+export type { AgentType };
 
 /** The permission boundary applied when starting an agent process. */
 export type AgentPermissionMode = "read-only" | "workspace-write" | "full-access" | "bypass";
@@ -85,8 +86,8 @@ export interface ProviderProfile {
 export type ProviderProfileSelection = Partial<Record<AgentType, string>>;
 
 export const DEFAULT_PROVIDER_PROFILES: readonly ProviderProfile[] = [
-    { id: "builtin-claude", name: "Claude", provider: "claude", accent: "#d97757" },
-    { id: "builtin-codex", name: "Codex", provider: "codex", accent: "#7a9dff" },
+    { id: "builtin-claude", name: "Claude", provider: "claude", accent: agentBrand("claude") },
+    { id: "builtin-codex", name: "Codex", provider: "codex", accent: agentBrand("codex") },
     { id: "builtin-gemini", name: "Gemini", provider: "gemini", accent: "#4285f4" },
 ];
 

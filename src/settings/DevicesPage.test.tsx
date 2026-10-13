@@ -178,9 +178,9 @@ describe("seenLabel", () => {
     it("says when a device was last seen in the largest whole unit", () => {
         const now = Date.UTC(2026, 9, 2, 12);
         expect(seenLabel(null, now)).toBe("never connected");
-        expect(seenLabel(now - 20_000, now)).toBe("seen just now");
-        expect(seenLabel(now - 5 * 60_000, now)).toBe("seen 5 min ago");
-        expect(seenLabel(now - 3 * 3_600_000, now)).toBe("seen 3 h ago");
+        expect(seenLabel(now - 20_000, now)).toBe("seen now");
+        expect(seenLabel(now - 5 * 60_000, now)).toBe("seen 5m ago");
+        expect(seenLabel(now - 3 * 3_600_000, now)).toBe("seen 3h ago");
     });
 });
 

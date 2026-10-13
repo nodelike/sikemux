@@ -43,20 +43,16 @@ impl From<serde_json::Error> for JiraError {
 
 impl From<JiraError> for PluginError {
     fn from(error: JiraError) -> Self {
-        let (category, status) = match &error {
-            JiraError::Unconfigured => ("unconfigured", None),
-            JiraError::Auth(_) => ("auth", None),
-            JiraError::Http { status, .. } => ("http", Some(*status)),
-            JiraError::BadArg(_) => ("bad-params", None),
-            JiraError::NotFound(_) => ("not-found", None),
-            JiraError::Keychain(_) => ("keychain", None),
-            JiraError::Transport(_) => ("jira", None),
-            JiraError::Response(_) => ("response", None),
-        };
-        let plugin_error = PluginError::new(category, error.to_string());
-        match status {
-            Some(status) => plugin_error.with_status(status),
-            None => plugin_error,
+        let message = error.to_string();
+        match error {
+            JiraError::Unconfigured => PluginError::new("unconfigured", message),
+            JiraError::Auth(_) => PluginError::new("auth", message),
+            JiraError::Http { status, .. } => PluginError::http(status, message),
+            JiraError::BadArg(_) => PluginError::new("bad-params", message),
+            JiraError::NotFound(_) => PluginError::new("not-found", message),
+            JiraError::Keychain(_) => PluginError::new("keychain", message),
+            JiraError::Transport(_) => PluginError::new("jira", message),
+            JiraError::Response(_) => PluginError::new("response", message),
         }
     }
 }

@@ -43,20 +43,16 @@ impl From<serde_json::Error> for SignozError {
 
 impl From<SignozError> for PluginError {
     fn from(error: SignozError) -> Self {
-        let (category, status) = match &error {
-            SignozError::Unconfigured => ("unconfigured", None),
-            SignozError::Auth(_) => ("auth", None),
-            SignozError::Http { status, .. } => ("http", Some(*status)),
-            SignozError::BadArg(_) => ("bad-params", None),
-            SignozError::NotFound(_) => ("not-found", None),
-            SignozError::Keychain(_) => ("keychain", None),
-            SignozError::Transport(_) => ("signoz", None),
-            SignozError::Response(_) => ("response", None),
-        };
-        let plugin_error = PluginError::new(category, error.to_string());
-        match status {
-            Some(status) => plugin_error.with_status(status),
-            None => plugin_error,
+        let message = error.to_string();
+        match error {
+            SignozError::Unconfigured => PluginError::new("unconfigured", message),
+            SignozError::Auth(_) => PluginError::new("auth", message),
+            SignozError::Http { status, .. } => PluginError::http(status, message),
+            SignozError::BadArg(_) => PluginError::new("bad-params", message),
+            SignozError::NotFound(_) => PluginError::new("not-found", message),
+            SignozError::Keychain(_) => PluginError::new("keychain", message),
+            SignozError::Transport(_) => PluginError::new("signoz", message),
+            SignozError::Response(_) => PluginError::new("response", message),
         }
     }
 }

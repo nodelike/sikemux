@@ -21,7 +21,15 @@ import {
 } from "./navigation.ts";
 import { SignIn } from "./SignIn.tsx";
 
-const DELETED_QUERY = "?deleted";
+/** The deleted page's address, carrying when the account is deleted for good so it survives signing out. */
+function deletedPage(deletesAt?: string): string {
+  return `${DELETE_ACCOUNT}?deleted${deletesAt ? `=${encodeURIComponent(deletesAt)}` : ""}`;
+}
+
+function deletesAtOf(search: string): string | undefined {
+  const value = new URLSearchParams(search).get("deleted");
+  return value && Number.isFinite(Date.parse(value)) ? value : undefined;
+}
 
 /** Clerk leaves a nonzero `__client_uat` cookie once signed in, so the first paint can guess the right screen. */
 const SIGNED_IN_BEFORE = /(?:^|;\s*)__client_uat(?:_\w+)?=[1-9]/.test(
@@ -32,11 +40,11 @@ export function App() {
   const { isLoaded, isSignedIn } = useAuth();
   const { signOut } = useClerk();
   const { path, go, follow } = usePath();
-  const [deleted, setDeleted] = useState(false);
+  const [deleted, setDeleted] = useState<{ deletesAt?: string } | null>(null);
   const signingOut = useRef(false);
   const signedIn = isLoaded ? isSignedIn : SIGNED_IN_BEFORE;
   const showDeleted =
-    deleted ||
+    deleted !== null ||
     (path === DELETE_ACCOUNT &&
       new URLSearchParams(location.search).has("deleted") &&
       !signedIn);
@@ -63,14 +71,12 @@ export function App() {
   }, [returning]);
 
   /** Reached from this page or from the account's live connection, so it may run twice. */
-  const onDeleted = () => {
+  const onDeleted = (deletesAt?: string) => {
     if (signingOut.current) return;
     signingOut.current = true;
-    setDeleted(true);
-    go(`${DELETE_ACCOUNT}${DELETED_QUERY}`, { replace: true });
-    signOut({ redirectUrl: `${DELETE_ACCOUNT}${DELETED_QUERY}` }).catch(
-      () => undefined,
-    );
+    setDeleted({ deletesAt });
+    go(deletedPage(deletesAt), { replace: true });
+    signOut({ redirectUrl: deletedPage(deletesAt) }).catch(() => undefined);
   };
 
   return (
@@ -83,7 +89,9 @@ export function App() {
           </section>
         ) : showDeleted ? (
           <main className="center">
-            <AccountDeleted />
+            <AccountDeleted
+              deletesAt={deleted?.deletesAt ?? deletesAtOf(location.search)}
+            />
           </main>
         ) : path === "/sso-callback" ? (
           <section className="panel">
@@ -132,7 +140,7 @@ function Account({
   deleting: boolean;
   onDelete: (event: MouseEvent<HTMLAnchorElement>) => void;
   onBack: () => void;
-  onDeleted: () => void;
+  onDeleted: (deletesAt?: string) => void;
 }) {
   const { user } = useUser();
   const { isSignedIn } = useAuth();
@@ -145,7 +153,7 @@ function Account({
   useLive(ready && isSignedIn === true && active, {
     onEvents: devices.apply,
     onResync: devices.reload,
-    onAccountDeleted: onDeleted,
+    onAccountDeleted: () => onDeleted(),
   });
 
   return (
@@ -174,6 +182,9 @@ function Account({
         ) : deleting ? (
           <DeleteAccount
             email={email}
+            restorableDays={
+              account.state === "active" ? account.restorableDays : undefined
+            }
             load={devices.load}
             onBack={onBack}
             onDeleted={onDeleted}

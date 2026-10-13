@@ -2,14 +2,14 @@ import { useMemo, useState } from "react";
 import { confirmDialog, openUrl, swallow } from "../../../plugin-api/host";
 import { useResourceEnabled } from "../../../plugin-api/resources";
 import { IconCheck, IconClock, IconClose, IconExternal, IconFetch, IconGit, IconStop, IconTimer, IconUser } from "../../../plugin-api/ui";
-import { errorMessage, rundeckApi, type RundeckStep } from "../api";
+import { failureMessage, rundeckApi, type RundeckStep } from "../api";
 import * as cmd from "../state";
 import type { JobRef } from "../state";
 import { rndJobDetailR } from "../resources";
 import { useWatchingRun, watchRun } from "../runWatch";
 import { branchOf, displayStatus, duration, formatTime, isLiveStatus } from "../shape";
 import { executionProgress } from "./executionProgress";
-import { useNow } from "./hooks";
+import { useNow } from "../../../plugin-api/hooks";
 import { reusableOptions } from "./options";
 import { RundeckLogView } from "./RundeckLogView";
 import { useExecutionStreams } from "./useExecutionStreams";
@@ -72,7 +72,7 @@ export function RundeckExecution({ paneId, level, active }: Props) {
             const result = await rundeckApi.abort(level.executionId);
             if (result.abort?.status === "failed") setAbortErr(`Rundeck refused to abort: ${result.abort.reason ?? "no reason given"}`);
         } catch (e) {
-            setAbortErr(errorMessage(e));
+            setAbortErr(failureMessage(e));
         } finally {
             setAborting(false);
         }
@@ -122,7 +122,7 @@ export function RundeckExecution({ paneId, level, active }: Props) {
                                 className="rnd-btn"
                                 disabled={watching}
                                 title={watching ? "Sikemux will tell you when this run ends" : "Get a notification when this run ends"}
-                                onClick={() => void watchRun(cmd.jobRefOf(level), level.executionId).catch(swallow("watch the run"))}>
+                                onClick={() => watchRun(cmd.jobRefOf(level), level.executionId)}>
                                 <IconClock size={12} />
                                 {watching ? "Will notify" : "Notify me"}
                             </button>

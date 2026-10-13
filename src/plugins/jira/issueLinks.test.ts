@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-const host = vi.hoisted(() => ({ copyText: vi.fn(), notify: vi.fn(), openUrl: vi.fn() }));
+const host = vi.hoisted(() => ({ copyWithNotice: vi.fn(), openUrl: vi.fn() }));
 vi.mock("../../plugin-api/host", async (importOriginal) => ({ ...(await importOriginal<object>()), ...host }));
 
 import { issueMenu } from "./issueLinks";
@@ -16,19 +16,17 @@ const pick = (label: string) => {
 afterEach(() => vi.clearAllMocks());
 
 describe("issueMenu", () => {
-    it("copies the link, the key, the key with its title, and a Markdown link, and says so", async () => {
-        host.copyText.mockResolvedValue(undefined);
+    it("copies the link, the key, the key with its title, and a Markdown link, and says so", () => {
         pick("Copy link");
         pick("Copy key");
         pick("Copy key and title");
         pick("Copy as Markdown link");
-        expect(host.copyText.mock.calls.map((call) => call[0])).toEqual([
+        expect(host.copyWithNotice.mock.calls.map((call) => call[0])).toEqual([
             "https://acme.atlassian.net/browse/ABC-12",
             "ABC-12",
             "ABC-12 Fix the login redirect",
             "[ABC-12](https://acme.atlassian.net/browse/ABC-12) Fix the login redirect",
         ]);
-        await Promise.resolve();
-        expect(host.notify).toHaveBeenCalledWith("success", "copied the link");
+        expect(host.copyWithNotice).toHaveBeenCalledWith("https://acme.atlassian.net/browse/ABC-12", "the link");
     });
 });

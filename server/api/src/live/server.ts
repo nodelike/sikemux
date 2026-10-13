@@ -1,17 +1,18 @@
 import { randomUUID } from "node:crypto";
 import { STATUS_CODES, type IncomingMessage, type Server } from "node:http";
 import type { Duplex } from "node:stream";
-import type { ApiError, ErrorCode } from "@sikemux/protocol";
+import { LiveCloseCode, type ErrorCode } from "@sikemux/protocol";
 import { WebSocketServer } from "ws";
 
 import type { Verifier } from "../auth.ts";
 import type { Database } from "../db.ts";
-import type { RateLimiter } from "../limits.ts";
+import { errorBody } from "../http.ts";
+import { addressOf, type RateLimiter } from "../limits.ts";
 import type { Logger } from "../log.ts";
 import type { Pusher } from "../push/send.ts";
 import { Hub } from "./hub.ts";
 import { listenForEvents, type Listener } from "./listener.ts";
-import { CLOSE, LIVE_OPTIONS, type LiveOptions } from "./options.ts";
+import { LIVE_OPTIONS, type LiveOptions } from "./options.ts";
 import { failedHelloKeys, LiveSocket } from "./socket.ts";
 
 export interface LiveServices {
@@ -33,16 +34,17 @@ export interface Live {
 
 export const LIVE_PATH = "/v1/live";
 
+/** Answers an upgrade with the API's error body, and logs its request id as every request's is. */
 function refuse(
   socket: Duplex,
+  log: Logger,
   status: number,
   code: ErrorCode,
   message: string,
 ) {
-  const body: ApiError = {
-    error: { code, message, requestId: randomUUID() },
-  };
-  const text = JSON.stringify(body);
+  const requestId = randomUUID();
+  log.info({ requestId, status }, "refused a WebSocket upgrade");
+  const text = JSON.stringify(errorBody(requestId, code, message));
   socket.end(
     `HTTP/1.1 ${status} ${STATUS_CODES[status]}\r\n` +
       "Connection: close\r\n" +
@@ -50,14 +52,6 @@ function refuse(
       (status === 429 ? "Retry-After: 60\r\n" : "") +
       `Content-Length: ${Buffer.byteLength(text)}\r\n\r\n${text}`,
   );
-}
-
-function addressOf(request: IncomingMessage): string {
-  const forwarded = request.headers["x-forwarded-for"];
-  const first = (Array.isArray(forwarded) ? forwarded[0] : forwarded)
-    ?.split(",")[0]
-    ?.trim();
-  return first || request.socket.remoteAddress || "local";
 }
 
 /** Serves /v1/live on the API's own HTTP server, beside Hono, with one raw WebSocket per device. */
@@ -78,7 +72,6 @@ export function attachLive(server: Server, services: LiveServices): Live {
     limiter,
     log,
     options,
-    appOrigin,
     pusher: services.pusher,
   };
   let stopping = false;
@@ -90,18 +83,22 @@ export function attachLive(server: Server, services: LiveServices): Live {
   ) => {
     const path = new URL(request.url ?? "/", "http://api").pathname;
     if (path !== LIVE_PATH)
-      return refuse(socket, 404, "not_found", `No WebSocket at ${path}.`);
+      return refuse(socket, log, 404, "not_found", `No WebSocket at ${path}.`);
     if (stopping)
-      return refuse(socket, 503, "unavailable", "The API is restarting.");
+      return refuse(socket, log, 503, "unavailable", "The API is restarting.");
     const origin = request.headers.origin;
     if (origin !== undefined && origin !== appOrigin)
       return refuse(
         socket,
+        log,
         403,
         "forbidden",
         "Only the web app may connect from a browser.",
       );
-    const ip = addressOf(request);
+    const ip = addressOf(
+      request.headers["x-forwarded-for"],
+      request.socket.remoteAddress,
+    );
     const [failedFromHere] = failedHelloKeys(ip);
     if (
       (failedFromHere &&
@@ -110,6 +107,7 @@ export function attachLive(server: Server, services: LiveServices): Live {
     )
       return refuse(
         socket,
+        log,
         429,
         "rate_limited",
         "Too many connections; try again in a minute.",
@@ -117,7 +115,7 @@ export function attachLive(server: Server, services: LiveServices): Live {
 
     wss.handleUpgrade(request, socket, head, (ws) => {
       if (hub.open >= options.maxSockets) {
-        ws.close(CLOSE.overloaded, "too many connections");
+        ws.close(LiveCloseCode.overloaded, "too many connections");
         return;
       }
       new LiveSocket(ws, ip, context).start();

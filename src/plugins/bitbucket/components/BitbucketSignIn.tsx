@@ -1,8 +1,8 @@
-import { useEffect, useRef, useState } from "react";
-import { openUrl, swallow } from "../../../plugin-api/host";
+import { useState } from "react";
+import { openSignInUrl, openUrl, swallow } from "../../../plugin-api/host";
 import { resource, useResource } from "../../../plugin-api/resources";
-import { SignInScreen, SignInWaiting, SkeletonRows } from "../../../plugin-api/ui";
-import { bitbucketApi, failureMessage, type BitbucketStatus, type BrowserSignIn } from "../api";
+import { SignInError, SignInScreen, SignInWaiting, SkeletonRows, useSignInAttempt } from "../../../plugin-api/ui";
+import { bitbucketApi, type BitbucketStatus } from "../api";
 import { BitbucketMark } from "./BitbucketMark";
 
 const API_TOKENS_PAGE = "https://id.atlassian.com/manage-profile/security/api-tokens";
@@ -30,46 +30,26 @@ export function SignInForm({ status, onSignedIn }: Props) {
     const [withToken, setWithToken] = useState(!status.browserSignIn);
     const [token, setToken] = useState("");
     const [email, setEmail] = useState("");
-    const [busy, setBusy] = useState(false);
-    const [waiting, setWaiting] = useState<BrowserSignIn | null>(null);
-    const [error, setError] = useState<string | null>(status.authFailed ? status.message : null);
-    const checking = useRef(false);
+    const attempt = useSignInAttempt(status);
+    const busy = attempt.busy;
 
-    useEffect(() => () => waiting?.cancel(), [waiting]);
-
-    const signInWithBrowser = () => {
-        setError(null);
-        const attempt = bitbucketApi.signInWithBrowser((url) => void openUrl(url).catch(swallow("open Bitbucket")));
-        setWaiting(attempt);
-        attempt.done.then(
+    const signInWithBrowser = () =>
+        attempt.follow(
+            bitbucketApi.signInWithBrowser((url) => void openSignInUrl(url).catch(swallow("open Bitbucket"))),
             (result) => {
-                setWaiting(null);
-                if (result.ok) onSignedIn(result.account);
-                else setError(result.message ?? "Bitbucket did not let that account in");
-            },
-            (failure: unknown) => {
-                setWaiting(null);
-                if (!(failure instanceof Error && failure.message === "cancelled")) setError(failureMessage(failure));
+                if (!result.ok) return result.message ?? "Bitbucket did not let that account in";
+                onSignedIn(result.account);
             },
         );
-    };
 
     const canSubmit = !busy && !!token.trim();
-    const submit = async () => {
-        if (checking.current || !canSubmit) return;
-        checking.current = true;
-        setBusy(true);
-        setError(null);
-        try {
+    const submit = () => {
+        if (!canSubmit) return;
+        attempt.run(async () => {
             const result = await bitbucketApi.signInWithToken(token.trim(), email.trim() || null);
-            if (result.ok) onSignedIn(result.account);
-            else setError(result.message ?? "Bitbucket turned that token down");
-        } catch (failure) {
-            setError(failureMessage(failure));
-        } finally {
-            checking.current = false;
-            setBusy(false);
-        }
+            if (!result.ok) return result.message ?? "Bitbucket turned that token down";
+            onSignedIn(result.account);
+        });
     };
 
     return (
@@ -88,7 +68,7 @@ export function SignInForm({ status, onSignedIn }: Props) {
                             value={token}
                             onChange={(event) => setToken(event.target.value)}
                             onKeyDown={(event) => {
-                                if (event.key === "Enter") void submit();
+                                if (event.key === "Enter") submit();
                             }}
                             placeholder="ATATT… or ATCTT…"
                             autoFocus
@@ -103,7 +83,7 @@ export function SignInForm({ status, onSignedIn }: Props) {
                             value={email}
                             onChange={(event) => setEmail(event.target.value)}
                             onKeyDown={(event) => {
-                                if (event.key === "Enter") void submit();
+                                if (event.key === "Enter") submit();
                             }}
                             placeholder="you@example.com"
                             spellCheck={false}
@@ -114,12 +94,12 @@ export function SignInForm({ status, onSignedIn }: Props) {
                             An API token needs the email it belongs to. Leave it empty for a repository or workspace access token.
                         </small>
                     </label>
-                    <button type="button" className="signin-btn primary" disabled={!canSubmit} onClick={() => void submit()}>
+                    <button type="button" className="signin-btn primary" disabled={!canSubmit} onClick={submit}>
                         {busy ? "Checking…" : "Sign in"}
                     </button>
                 </div>
-            ) : waiting ? (
-                <SignInWaiting onCancel={() => waiting.cancel()}>Finish signing in in your browser</SignInWaiting>
+            ) : attempt.waiting ? (
+                <SignInWaiting onCancel={attempt.cancel}>Finish signing in in your browser</SignInWaiting>
             ) : (
                 <button type="button" className="signin-btn primary" onClick={signInWithBrowser}>
                     <BitbucketMark size={14} />
@@ -127,11 +107,7 @@ export function SignInForm({ status, onSignedIn }: Props) {
                 </button>
             )}
 
-            {error && (
-                <div className="signin-callout" data-tone="danger">
-                    {error}
-                </div>
-            )}
+            <SignInError error={attempt.error} />
 
             <div className="signin-alt">
                 {withToken ? (
@@ -145,7 +121,7 @@ export function SignInForm({ status, onSignedIn }: Props) {
                         </button>
                     )
                 ) : (
-                    <button type="button" className="signin-link" disabled={!!waiting} onClick={() => setWithToken(true)}>
+                    <button type="button" className="signin-link" disabled={attempt.waiting} onClick={() => setWithToken(true)}>
                         Use a token instead
                     </button>
                 )}

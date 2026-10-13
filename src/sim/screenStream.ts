@@ -1,4 +1,5 @@
 import { simApi, type SimScreen, type SimStreamFormat } from "../api/sim";
+import { turnDegrees } from "./orientation";
 import { avcDescription, codecName, isKeyFrame, lengthPrefixed, PPS, SPS, splitUnits, unitType } from "./h264";
 
 export type DecoderChoice = { kind: "annexb"; config: VideoDecoderConfig } | { kind: "avcc"; config: VideoDecoderConfig } | { kind: "mjpeg" };
@@ -49,16 +50,12 @@ export function turnTransform(
     width: number,
     height: number,
 ): [number, number, number, number, number, number] {
-    switch (orientation) {
-        case "landscapeLeft":
-            return [0, -1, 1, 0, 0, width];
-        case "landscapeRight":
-            return [0, 1, -1, 0, height, 0];
-        case "portraitUpsideDown":
-            return [-1, 0, 0, -1, width, height];
-        default:
-            return [1, 0, 0, 1, 0, 0];
-    }
+    const radians = (turnDegrees(orientation) * Math.PI) / 180;
+    const cos = Math.round(Math.cos(radians));
+    const sin = Math.round(Math.sin(radians));
+    const left = Math.min(0, cos * width) + Math.min(0, -sin * height);
+    const top = Math.min(0, sin * width) + Math.min(0, cos * height);
+    return [cos, sin, -sin, cos, -left || 0, -top || 0];
 }
 
 /**

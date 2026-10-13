@@ -210,7 +210,7 @@
        "content": [
         {
          "type": "text",
-         "text": "Agent was interrupted by the user"
+         "text": "[Request interrupted by user for tool use]"
         }
        ],
        "is_error": true
@@ -712,7 +712,7 @@
      "sessionUpdate": "subagent_spawned",
      "subagentSessionId": "11111111-2222-3333-4444-555555555555:replay-subagent:toolu_agent3",
      "name": "Deep",
-     "task": "Delegated task restored from session history",
+     "task": "Delegated task",
      "capabilities": {}
     }
    ],
@@ -732,8 +732,8 @@
     {
      "sessionUpdate": "subagent_spawned",
      "subagentSessionId": "11111111-2222-3333-4444-555555555555:replay-subagent:toolu_orphan",
-     "name": "Disconnected agent",
-     "task": "Subagent restored without persisted launch metadata",
+     "name": "Agent u_orphan",
+     "task": "Delegated task",
      "capabilities": {}
     }
    ],

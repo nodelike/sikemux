@@ -5,7 +5,7 @@
 //   oauth   — signing in through the browser with an Atlassian account
 //   auth    — signing in with an API token or the browser, and the status of each
 //   adf     — Jira's document format to markdown and back
-//   issues  — search, one issue, comments, transitions, assignment, new issues, worklogs, filters
+//   issues  — search, one issue, comments, transitions, assignment, new and edited issues, links, worklogs, filters
 
 mod adf;
 mod auth;
@@ -75,6 +75,8 @@ impl Plugin for Jira {
                 "assignable" => answer(issues::assignable(data_dir, params(input)?)).await,
                 "setTask" => answer(issues::set_task(data_dir, params(input)?)).await,
                 "create" => answer(issues::create(data_dir, params(input)?)).await,
+                "edit" => answer(issues::edit(data_dir, params(input)?)).await,
+                "link" => answer(issues::link(data_dir, params(input)?)).await,
                 "worklog" => answer(issues::worklog(data_dir, params(input)?)).await,
                 "filters" => answer(issues::filters(data_dir, params(input)?)).await,
                 "projects" => answer(issues::projects(data_dir, params(input)?)).await,
@@ -127,7 +129,7 @@ mod tests {
     }
 
     #[test]
-    fn its_manifest_parses_with_the_six_tools() {
+    fn its_manifest_parses_with_its_tools() {
         let plugin = plugin().map_err(|error| error.to_string());
         let names = plugin
             .as_ref()
@@ -148,6 +150,8 @@ mod tests {
                 "jira_comment",
                 "jira_transition",
                 "jira_create",
+                "jira_edit",
+                "jira_link",
                 "jira_worklog"
             ]
         );

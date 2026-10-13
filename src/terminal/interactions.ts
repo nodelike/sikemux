@@ -20,17 +20,6 @@ export function sanitizeTerminalTitle(raw: string): string | null {
     return chars.length <= MAX_TERMINAL_TITLE_CHARS ? clean : `${chars.slice(0, MAX_TERMINAL_TITLE_CHARS - 1).join("")}…`;
 }
 
-/** Accept only credential-free HTTP(S) links; Rust's `open_url` validates again before opening. */
-export function safeWebUrl(raw: string): string | null {
-    try {
-        const url = new URL(raw);
-        if ((url.protocol !== "http:" && url.protocol !== "https:") || url.username || url.password) return null;
-        return url.href;
-    } catch {
-        return null;
-    }
-}
-
 /** Produce readable text from the active xterm buffer while preserving soft-wrapped lines. */
 export function terminalBufferText(buffer: Pick<IBuffer, "length" | "getLine">): string {
     const out: string[] = [];

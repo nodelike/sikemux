@@ -1,9 +1,10 @@
 import { lazy, Suspense, type ReactNode } from "react";
-import type { CorePaneKind, PaneNode, PtyContext, Session, Window as WindowT } from "../state/types";
+import type { CorePaneKind, PaneNode, Session, Window as WindowT } from "../state/types";
 import { isPluginKind } from "../plugins/kinds";
 import { pluginSurface } from "../plugins/registry";
 import * as cmd from "../state/commands";
 import { TerminalPane } from "../terminal/TerminalPane";
+import { terminalContext } from "../terminal/spareShell";
 import { AgentPane } from "../agents/AgentPane";
 import { DeskHost } from "../workspace/Desk";
 
@@ -23,15 +24,6 @@ const DiffPane = lazy(() => import("../git/DiffPane").then((module) => ({ defaul
 const SearchPane = lazy(() => import("../workspace/SearchPane").then((module) => ({ default: module.SearchPane })));
 
 const paneCwd = (pane: PaneNode, session: Session) => pane.cwd || session.cwd;
-const terminalContext = (session: Session, win: WindowT, pane: PaneNode): PtyContext => ({
-    sessionId: session.id,
-    sessionName: session.name,
-    sessionKind: session.kind,
-    ...(session.kind === "project" && session.cwd ? { project: session.cwd } : {}),
-    windowId: win.id,
-    paneId: pane.id,
-    shellIntegration: session.kind === "project" || session.kind === "command",
-});
 
 function ItemFallback() {
     return <div style={{ width: "100%", height: "100%" }} />;
@@ -85,7 +77,7 @@ export const BUILTIN_ITEM_RENDERERS: Readonly<Record<CorePaneKind, (props: Workb
             reconnect={session.kind === "ssh" ? pane.startup : undefined}
             active={active}
             visible={visible}
-            context={terminalContext(session, win, pane)}
+            context={terminalContext(session, win.id, pane.id)}
             externallyOwned={pane.externalPty === true}
             retainPtyOnUnmount
             resumePtyId={pane.ptyId}

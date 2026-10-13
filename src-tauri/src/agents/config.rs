@@ -2,27 +2,28 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use serde_json::Value;
-use sikemux_pty::user_shell::login_shell_environment;
-
-use super::executable::expand_user_path;
-use super::home_path;
+use sikemux_process::paths::home;
+use sikemux_pty::launch::account_dir;
+use sikemux_pty::user_shell::user_variable;
 
 const MAX_MODEL_LENGTH: usize = 256;
 
-fn environment_path(key: &str) -> Option<PathBuf> {
-    std::env::var_os(key)
-        .map(PathBuf::from)
-        .or_else(|| login_shell_environment().get(key).map(PathBuf::from))
+pub(crate) fn environment_path(key: &str) -> Option<PathBuf> {
+    user_variable(key).map(PathBuf::from)
 }
 
-fn environment_string(key: &str) -> Option<String> {
-    std::env::var(key)
-        .ok()
-        .or_else(|| login_shell_environment().get(key).cloned())
+/// Where Hermes keeps its config and sessions.
+pub(crate) fn hermes_root() -> Option<PathBuf> {
+    environment_path("HERMES_HOME").or_else(|| Some(home()?.join(".hermes")))
+}
+
+/// Where Pi keeps its settings and sessions.
+pub(crate) fn pi_agent_root() -> Option<PathBuf> {
+    environment_path("PI_CODING_AGENT_DIR").or_else(|| Some(home()?.join(".pi/agent")))
 }
 
 fn omp_profile_name() -> Option<String> {
-    let raw = environment_string("OMP_PROFILE").or_else(|| environment_string("PI_PROFILE"))?;
+    let raw = user_variable("OMP_PROFILE").or_else(|| user_variable("PI_PROFILE"))?;
     let name = raw.trim();
     (!name.is_empty()
         && name != "default"
@@ -34,8 +35,8 @@ fn omp_profile_name() -> Option<String> {
 }
 
 fn omp_config_root() -> Option<PathBuf> {
-    let home = home_path()?;
-    let config = environment_string("PI_CONFIG_DIR").unwrap_or_else(|| ".omp".to_string());
+    let home = home()?;
+    let config = user_variable("PI_CONFIG_DIR").unwrap_or_else(|| ".omp".to_string());
     Some(home.join(config.trim_start_matches(['/', '\\'])))
 }
 
@@ -71,24 +72,15 @@ pub(super) fn omp_session_dirs() -> Vec<PathBuf> {
     dirs
 }
 
-pub(super) fn grok_root() -> Option<PathBuf> {
-    environment_path("GROK_HOME").or_else(|| Some(home_path()?.join(".grok")))
+pub(crate) fn grok_root() -> Option<PathBuf> {
+    environment_path("GROK_HOME").or_else(|| Some(home()?.join(".grok")))
 }
 
 pub(super) fn agent_config_root(kind: &str, configured: Option<&str>) -> Option<PathBuf> {
-    let home = home_path()?;
     if let Some(configured) = configured.map(str::trim).filter(|value| !value.is_empty()) {
-        let path = expand_user_path(configured);
-        let is_config_file = matches!(
-            path.file_name().and_then(|value| value.to_str()),
-            Some("config.toml" | "config.yml" | "settings.json" | "settings.local.json")
-        );
-        return if is_config_file {
-            path.parent().map(Path::to_path_buf)
-        } else {
-            Some(path)
-        };
+        return Some(account_dir(configured));
     }
+    let home = home()?;
     match kind {
         "claude" => {
             Some(environment_path("CLAUDE_CONFIG_DIR").unwrap_or_else(|| home.join(".claude")))
@@ -101,10 +93,9 @@ pub(super) fn agent_config_root(kind: &str, configured: Option<&str>) -> Option<
 }
 
 pub(super) fn configured_default_model(kind: &str, config_path: Option<&str>) -> Option<String> {
-    let home = home_path()?;
+    let home = home()?;
     match kind {
-        "claude" => std::env::var("ANTHROPIC_MODEL")
-            .ok()
+        "claude" => user_variable("ANTHROPIC_MODEL")
             .and_then(|value| clean_model(&value))
             .or_else(|| {
                 json_model(
@@ -124,34 +115,27 @@ pub(super) fn configured_default_model(kind: &str, config_path: Option<&str>) ->
                 .ok()
                 .and_then(|text| toml_model(&text))
         }
-        "hermes" => std::env::var("HERMES_INFERENCE_MODEL")
-            .ok()
+        "hermes" => user_variable("HERMES_INFERENCE_MODEL")
             .and_then(|value| clean_model(&value))
             .or_else(|| {
-                let text = fs::read_to_string(home.join(".hermes/config.yaml")).ok()?;
+                let text = fs::read_to_string(hermes_root()?.join("config.yaml")).ok()?;
                 let (provider, model) = yaml_model_section(&text);
                 qualify_model(provider.as_deref(), model.as_deref())
             }),
         "pi" => {
-            let root = std::env::var_os("PI_CODING_AGENT_DIR")
-                .map(PathBuf::from)
-                .unwrap_or_else(|| home.join(".pi/agent"));
-            let value: Value =
-                serde_json::from_str(&fs::read_to_string(root.join("settings.json")).ok()?).ok()?;
+            let settings = fs::read_to_string(pi_agent_root()?.join("settings.json")).ok()?;
+            let value: Value = serde_json::from_str(&settings).ok()?;
             qualify_model(
                 value.get("defaultProvider").and_then(Value::as_str),
                 value.get("defaultModel").and_then(Value::as_str),
             )
         }
         "opencode" => {
-            let path = std::env::var_os("OPENCODE_CONFIG")
-                .map(PathBuf::from)
-                .unwrap_or_else(|| {
-                    let config = std::env::var_os("XDG_CONFIG_HOME")
-                        .map(PathBuf::from)
-                        .unwrap_or_else(|| home.join(".config"));
-                    config.join("opencode/opencode.json")
-                });
+            let path = environment_path("OPENCODE_CONFIG").unwrap_or_else(|| {
+                environment_path("XDG_CONFIG_HOME")
+                    .unwrap_or_else(|| home.join(".config"))
+                    .join("opencode/opencode.json")
+            });
             json_model(&path, "model")
         }
         "omp" => fs::read_to_string(omp_agent_root()?.join("config.yml"))
@@ -168,7 +152,6 @@ pub(super) fn configured_default_model(kind: &str, config_path: Option<&str>) ->
 }
 
 pub(super) fn configured_default_effort(kind: &str, config_path: Option<&str>) -> Option<String> {
-    let home = home_path()?;
     match kind {
         "claude" => json_effort(
             &agent_config_root(kind, config_path)?.join("settings.local.json"),
@@ -188,16 +171,15 @@ pub(super) fn configured_default_effort(kind: &str, config_path: Option<&str>) -
                 .ok()
                 .and_then(|text| toml_effort(&text))
         }
-        "hermes" => fs::read_to_string(home.join(".hermes/config.yaml"))
+        "hermes" => fs::read_to_string(hermes_root()?.join("config.yaml"))
             .ok()
             .and_then(|text| yaml_agent_reasoning_effort(&text))
             .and_then(|value| clean_effort(kind, &value)),
-        "pi" => {
-            let root = std::env::var_os("PI_CODING_AGENT_DIR")
-                .map(PathBuf::from)
-                .unwrap_or_else(|| home.join(".pi/agent"));
-            json_effort(&root.join("settings.json"), "defaultThinkingLevel", kind)
-        }
+        "pi" => json_effort(
+            &pi_agent_root()?.join("settings.json"),
+            "defaultThinkingLevel",
+            kind,
+        ),
         "omp" => fs::read_to_string(omp_agent_root()?.join("config.yml"))
             .ok()
             .and_then(|text| yaml_top_level_scalar(&text, "defaultThinkingLevel"))

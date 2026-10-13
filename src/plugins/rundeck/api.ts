@@ -1,13 +1,9 @@
-import { createPluginBackend, isPluginFailure } from "../../plugin-api/backend";
-import { invalidate } from "../../plugin-api/resources";
+import { createPluginBackend, isPluginFailure, type PluginStreamHandlers } from "../../plugin-api/backend";
 import { RUNDECK_PLUGIN_ID } from "./kinds";
 
-const backend = createPluginBackend(RUNDECK_PLUGIN_ID);
+export { failureMessage } from "../../plugin-api/backend";
 
-export function isAuthFailure(error: unknown): boolean {
-    if (!isPluginFailure(error)) return false;
-    return error.category === "auth" || error.category === "unconfigured" || (error.category === "http" && error.status === 401);
-}
+const backend = createPluginBackend(RUNDECK_PLUGIN_ID, { signInStatus: (kind) => kind === "rnd.status" });
 
 const FORBIDDEN_ACTION: Record<string, string> = {
     projects: "list projects",
@@ -24,23 +20,16 @@ const FORBIDDEN_ACTION: Record<string, string> = {
     plan: "read this job's executions",
 };
 
-/** A lapsed sign-in makes every cached answer stale, so the next read asks again and lands on the login form. */
 async function rndInvoke<T>(method: string, params?: unknown): Promise<T> {
     try {
         return await backend.call<T>(method, params);
     } catch (error) {
-        if (isAuthFailure(error)) invalidate((kind) => kind.startsWith("rnd."));
         if (isPluginFailure(error, "forbidden")) {
             const action = FORBIDDEN_ACTION[method] ?? "do that";
             throw { ...error, message: `You don't have permission to ${action}. ${error.message}`.trim() };
         }
         throw error;
     }
-}
-
-export function errorMessage(error: unknown): string {
-    if (typeof error === "object" && error && "message" in error) return String((error as { message: unknown }).message);
-    return String(error);
 }
 
 export interface RundeckStatus {
@@ -310,12 +299,9 @@ export const rundeckApi = {
     run: (req: RunRequest) => rndInvoke<RunResult>("run", req),
     abort: (executionId: number) => rndInvoke<AbortResult>("abort", { executionId }),
 
-    watchStart: (executionId: number, onUpdate: (u: WatchUpdate) => void) => backend.openStream("watch", { executionId }, onUpdate),
-    watchStop: (id: number) => backend.closeStream(id),
-
-    logsStart: (executionId: number, offset: string | null, backlog: number | null, onChunk: (c: LogTick) => void) =>
-        backend.openStream("logs", { executionId, offset, backlog }, onChunk),
-    logsStop: (id: number) => backend.closeStream(id),
+    watch: (executionId: number, handlers: PluginStreamHandlers<WatchUpdate>) => backend.stream("watch", { executionId }, handlers),
+    logs: (executionId: number, offset: string | null, handlers: PluginStreamHandlers<LogTick>) =>
+        backend.stream("logs", { executionId, offset, backlog: null }, handlers),
 
     plan: (req: PlanRequest) => rndInvoke<PlanResult>("plan", req),
 };

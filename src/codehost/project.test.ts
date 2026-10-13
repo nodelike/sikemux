@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const api = vi.hoisted(() => ({ status: vi.fn(), pulls: vi.fn() }));
 
 import { invalidate } from "../plugin-api/resources";
-import { claimRemote, pickRemote, pullForBranch, pullMerged, pullsByBranch, useBranchPulls } from "./project";
+import { claimRemote, pickRemote, pullForBranch, pullMerged, pullsByBranch, pullState, useBranchPulls } from "./project";
 import type { CodeHost } from "./registry";
 import { registerTestHost, TEST_HOST } from "./testHost";
 import type { Pull } from "./types";
@@ -62,6 +62,14 @@ describe("pullForBranch", () => {
         expect(pullMerged({ state: "closed", mergedAt: "2026-09-30T10:00:00Z" })).toBe(true);
         expect(pullMerged({ state: "closed", mergedAt: null })).toBe(false);
         expect(pullMerged(null)).toBe(false);
+    });
+});
+
+describe("pullState", () => {
+    it("reads a closed draft as closed, as the pull list does", () => {
+        expect(pullState({ state: "closed", draft: true, mergedAt: null })).toBe("closed");
+        expect(pullState({ state: "open", draft: true, mergedAt: null })).toBe("draft");
+        expect(pullState({ state: "closed", draft: false, mergedAt: "2026-10-01T00:00:00Z" })).toBe("merged");
     });
 });
 

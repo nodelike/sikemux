@@ -5,9 +5,9 @@ import { IconCheck, IconClose, IconCommit, IconEye, IconGit, IconMerge, IconPenc
 import { hostApi, type RepoRef, type ReviewEvent, type TimelineItem } from "../api";
 import { useHost, usePictureOf, type ThreadOf } from "../registry";
 import { timelineR } from "../resources";
-import { formatAgo } from "../runStatus";
 import { SectionIcon } from "./ActionsIcon";
 import { Avatar, Initial, Prose } from "./Pictures";
+import { formatAgo } from "../../lib/format";
 
 const REVIEW_WORD: Record<string, string> = {
     APPROVED: "approved these changes",

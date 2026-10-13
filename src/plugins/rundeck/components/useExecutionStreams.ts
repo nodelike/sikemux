@@ -1,4 +1,6 @@
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
+import { failureMessage } from "../../../plugin-api/backend";
+import { useVisibleStream } from "../../../plugin-api/hooks";
 import { swallow } from "../../../plugin-api/host";
 import { rundeckApi, type LogEntry, type LogTick, type RundeckExecution, type RundeckWorkflowState } from "../api";
 
@@ -51,100 +53,42 @@ export function useExecutionStreams(executionId: number, active: boolean) {
     const [logs, setLogs] = useState<LogState>(EMPTY_LOGS);
     const offset = useRef<string | null>(null);
     const seq = useRef(0);
-    const logsDone = useRef(false);
-    const watchDone = useRef(false);
 
-    useEffect(() => {
-        if (!active) return;
-        let watchId: number | undefined;
-        let logsId: number | undefined;
-        let watchStarting = false;
-        let logsStarting = false;
-        let generation = 0;
-        let alive = true;
+    useVisibleStream(
+        active && !terminal
+            ? (life) =>
+                  rundeckApi.watch(executionId, {
+                      onItem: (update) => {
+                          if (update.execution) setExecution(update.execution);
+                          if (update.state) setState(update.state);
+                          setTerminal(update.terminal);
+                          setWatchErr(update.error);
+                          if (update.terminal) life.finish();
+                      },
+                      onError: (error) => setWatchErr(failureMessage(error)),
+                  })
+            : null,
+        [executionId],
+        { pauseWhenHidden: true },
+    );
 
-        const startWatch = () => {
-            if (watchId != null || watchStarting || watchDone.current || document.hidden || !alive) return;
-            const startedIn = generation;
-            watchStarting = true;
-            rundeckApi
-                .watchStart(executionId, (u) => {
-                    if (!alive || startedIn !== generation) return;
-                    if (u.execution) setExecution(u.execution);
-                    if (u.state) setState(u.state);
-                    setTerminal(u.terminal);
-                    if (u.terminal) watchDone.current = true;
-                    setWatchErr(u.error);
-                })
-                .then((id) => {
-                    if (!alive || startedIn !== generation) void rundeckApi.watchStop(id);
-                    else watchId = id;
-                })
-                .catch((e) => {
-                    if (alive && startedIn === generation) setWatchErr(String(e));
-                })
-                .finally(() => {
-                    watchStarting = false;
-                    if (startedIn !== generation) startWatch();
-                });
-        };
-
-        const startLogs = () => {
-            if (logsId != null || logsStarting || logsDone.current || document.hidden || !alive) return;
-            const startedIn = generation;
-            logsStarting = true;
-            rundeckApi
-                .logsStart(executionId, offset.current, null, (tick) => {
-                    if (!alive || startedIn !== generation) return;
-                    const first = seq.current;
-                    seq.current += tick.entries.length;
-                    offset.current = tick.offset;
-                    if (tick.completed) logsDone.current = true;
-                    setLogs((prev) => appendLogTick(prev, tick, first));
-                })
-                .then((id) => {
-                    if (!alive || startedIn !== generation) void rundeckApi.logsStop(id);
-                    else logsId = id;
-                })
-                .catch((error) => {
-                    if (alive && startedIn === generation) swallow("rnd logs start")(error);
-                })
-                .finally(() => {
-                    logsStarting = false;
-                    if (startedIn !== generation) startLogs();
-                });
-        };
-
-        const start = () => {
-            startWatch();
-            startLogs();
-        };
-
-        const stop = () => {
-            generation += 1;
-            if (watchId != null) {
-                void rundeckApi.watchStop(watchId);
-                watchId = undefined;
-            }
-            if (logsId != null) {
-                void rundeckApi.logsStop(logsId);
-                logsId = undefined;
-            }
-        };
-
-        if (!document.hidden) start();
-        const onVisibility = () => {
-            if (document.hidden) stop();
-            else start();
-        };
-        document.addEventListener("visibilitychange", onVisibility);
-
-        return () => {
-            alive = false;
-            document.removeEventListener("visibilitychange", onVisibility);
-            stop();
-        };
-    }, [executionId, active]);
+    useVisibleStream(
+        active && !logs.completed
+            ? (life) =>
+                  rundeckApi.logs(executionId, offset.current, {
+                      onItem: (tick) => {
+                          const first = seq.current;
+                          seq.current += tick.entries.length;
+                          offset.current = tick.offset;
+                          setLogs((prev) => appendLogTick(prev, tick, first));
+                          if (tick.completed) life.finish();
+                      },
+                      onError: swallow("rnd logs start"),
+                  })
+            : null,
+        [executionId],
+        { pauseWhenHidden: true },
+    );
 
     return { execution, state, terminal, watchErr, logs };
 }

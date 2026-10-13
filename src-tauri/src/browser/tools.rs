@@ -195,11 +195,8 @@ async fn run(
                 (None, None) => return Err("url or go is required".into()),
                 (Some(url), None) => url,
             };
-            let url = match super::local_files::local_target(&url) {
-                Some(path) => manager.local_files.url_for(&path)?,
-                None => url,
-            };
-            let wanted = super::normalize_url(&url);
+            let url = manager.page_url(&url).map_err(|error| error.to_string())?;
+            let wanted = url.clone();
             let current = manager
                 .active_view(agent_id)
                 .ok()

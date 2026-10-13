@@ -2,6 +2,7 @@ import { checkForUpdateNow } from "../../api/updater";
 import { invalidate } from "../resources";
 import { projectRootsScanR } from "../resources.defs";
 import { getState, setState } from "../store";
+import type { AccountAgentType } from "../../agents/catalog";
 import type { AgentType } from "../types";
 
 export const setCloudBrowser = (v: string): void => setState({ cloudBrowser: v.trim() });
@@ -20,7 +21,7 @@ export const setUiTextScale = (value: number): void => setState({ uiTextScale: [
 
 export const setRailDensity = (value: import("../types").RailDensity): void => setState({ railDensity: value });
 export const setAgentRailAllAgents = (value: boolean): void => setState({ agentRailAllAgents: value });
-export const setAccountAutoSwitch = (provider: "claude" | "codex", on: boolean): void =>
+export const setAccountAutoSwitch = (provider: AccountAgentType, on: boolean): void =>
     setState((s) => ({ accountAutoSwitch: { ...s.accountAutoSwitch, [provider]: on } }));
 export const setAgentRailScope = (value: import("../types").AgentRailScope): void => setState({ agentRailScope: value });
 export const setDefaultAgentPermissionMode = (value: import("../types").AgentPermissionMode): void =>

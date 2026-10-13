@@ -3,20 +3,11 @@
 # to the R2 bucket and deletes backups older than 30 days. Run nightly by sikemux-backup.service.
 # Citadel holds only the public key, so it can write backups but never read one back.
 set -euo pipefail
+# shellcheck source=lib.sh
+. "$(dirname "$0")/lib.sh"
 
 recipients="${BACKUP_RECIPIENTS:-/etc/sikemux/backup-recipients.txt}"
-: "${R2_BUCKET:?R2_BUCKET is not set}"
-: "${R2_ACCESS_KEY_ID:?R2_ACCESS_KEY_ID is not set}"
-: "${R2_SECRET_ACCESS_KEY:?R2_SECRET_ACCESS_KEY is not set}"
-[ -n "${R2_ENDPOINT:-}" ] || : "${R2_ACCOUNT_ID:?R2_ACCOUNT_ID is not set}"
-
-export RCLONE_CONFIG_R2_TYPE=s3
-export RCLONE_CONFIG_R2_PROVIDER=Cloudflare
-export RCLONE_CONFIG_R2_ENDPOINT="${R2_ENDPOINT:-https://$R2_ACCOUNT_ID.r2.cloudflarestorage.com}"
-export RCLONE_CONFIG_R2_ACCESS_KEY_ID="$R2_ACCESS_KEY_ID"
-export RCLONE_CONFIG_R2_SECRET_ACCESS_KEY="$R2_SECRET_ACCESS_KEY"
-export RCLONE_CONFIG_R2_NO_CHECK_BUCKET=true
-rclone() { command rclone --config "" --use-server-modtime "$@"; }
+use_r2
 
 # Nightly runs start up to 20 minutes apart, so this deletes each backup on its 30th night and
 # none is kept past 30 days.

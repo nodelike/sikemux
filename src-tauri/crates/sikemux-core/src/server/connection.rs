@@ -684,18 +684,10 @@ async fn run_requests(
                 text,
                 paths,
                 context,
-                restore_files,
             } => {
                 tokio::spawn(async move {
                     let result = chat::edit(
-                        &core,
-                        client.id,
-                        &agent_id,
-                        message_id,
-                        text,
-                        paths,
-                        context,
-                        restore_files,
+                        &core, client.id, &agent_id, message_id, text, paths, context,
                     )
                     .await;
                     client.respond(request_id, result.map(|()| Response::Done));

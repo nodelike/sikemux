@@ -4,7 +4,8 @@ import { selectedAgentRuntimeProfiles } from "../agents/agentProfiles";
 import { sendToAgent } from "../agents/sendToAgent";
 import { fetchResource, peekResource } from "../state/resources";
 import { agentCatalogR } from "../state/resources.defs";
-import { getState, type StoreState } from "../state/store";
+import { projectSessionId } from "../state/selectors";
+import { getState } from "../state/store";
 import { notify } from "../state/toast";
 import type { AgentType } from "../state/types";
 import { failureMessage } from "./api";
@@ -17,18 +18,13 @@ export function chatAgentFor(catalog: readonly AgentInfo[], last: AgentType | nu
     return chatting.find((type) => type === last) ?? chatting[0] ?? null;
 }
 
-/** The open project in this folder. */
-export function projectSessionIn(state: Pick<StoreState, "sessions" | "sessionOrder">, cwd: string): string | null {
-    return state.sessionOrder.find((id) => state.sessions[id]?.kind === "project" && state.sessions[id].cwd === cwd) ?? null;
-}
-
 /**
  * Starts a chat in the issue's project with the issue already in its input.
  * The person reads it over, says what they want, and sends it themselves.
  */
 export async function workOnIssue(repo: RepoRef, number: number, cwd: string): Promise<void> {
     const state = getState();
-    const sessionId = projectSessionIn(state, cwd);
+    const sessionId = projectSessionId(state, cwd);
     if (!sessionId) {
         notify("error", "Open the project to start an agent in it");
         return;

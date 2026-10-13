@@ -142,6 +142,10 @@ CLI_EXECUTABLE="$APP_PATH/Contents/MacOS/sikemux-editor"
 [[ -x "$CLI_EXECUTABLE" ]] || fail "bundled CLI sidecar is missing or not executable"
 CLI_ARCHS="$(/usr/bin/lipo -archs "$CLI_EXECUTABLE")"
 [[ "$CLI_ARCHS" == "$ARCHS" ]] || fail "CLI sidecar architecture ($CLI_ARCHS) differs from app ($ARCHS)"
+# Agents run under the core, so macOS only honours the user's privacy grants for
+# them when the core is signed with the app's identifier.
+grep -qx "Identifier=$APP_IDENTIFIER" <<<"$(/usr/bin/codesign -dv "$CLI_EXECUTABLE" 2>&1)" ||
+  fail "CLI sidecar is not signed as $APP_IDENTIFIER"
 [[ -s "$APP_PATH/Contents/Resources/sikemux_pi_tools.ts" ]] || fail "bundled Pi browser extension is missing"
 # The voice helper is published beside the release and downloaded with the
 # speech model, so it must be built and signed but stay out of the app.

@@ -16,8 +16,14 @@ export const schema = {
           type: "string",
           format: "date-time",
         },
+        restorableDays: {
+          description:
+            "How many days a deleted account can still be restored: deletesAt is this long after the deletion.",
+          type: "integer",
+          minimum: 1,
+        },
       },
-      required: ["status"],
+      required: ["status", "restorableDays"],
       additionalProperties: false,
     },
     AccountDeletion: {
@@ -223,6 +229,12 @@ export const schema = {
             "The same as the response's x-request-id header, and how the server's logs find this request.",
           type: "string",
         },
+        reverifyWithinMinutes: {
+          description:
+            "Only with reverify_required: how recently the person must have proved their first factor.",
+          type: "integer",
+          minimum: 1,
+        },
       },
       required: ["code", "message", "requestId"],
       additionalProperties: false,
@@ -339,7 +351,7 @@ export const schema = {
     },
     LiveBye: {
       description:
-        "The server is restarting and closes with 1012 after it. Reconnect no sooner than reconnectAfterMs.",
+        "The server is restarting and closes with LiveCloseCode restarting after it. Reconnect no sooner than reconnectAfterMs.",
       type: "object",
       properties: {
         type: { const: "bye" },
@@ -359,6 +371,67 @@ export const schema = {
       },
       required: ["type", "nonce", "expiresAt"],
       additionalProperties: false,
+    },
+    LiveCloseCode: {
+      description:
+        "Why the server closed a live connection, as the WebSocket close code.",
+      type: "integer",
+      oneOf: [
+        {
+          const: 4400,
+          title: "badMessage",
+          description:
+            "The device sent something the protocol does not allow. Reconnect with backoff.",
+        },
+        {
+          const: 4401,
+          title: "unauthenticated",
+          description:
+            "The hello did not prove who the device is, or the web app's sign-in expired.",
+        },
+        {
+          const: 4403,
+          title: "revoked",
+          description:
+            "The device is no longer on the account, after a revoked message. Do not reconnect.",
+        },
+        {
+          const: 4408,
+          title: "helloTimeout",
+          description:
+            "No hello came within 10 seconds of the challenge. Reconnect with backoff.",
+        },
+        {
+          const: 4409,
+          title: "replaced",
+          description:
+            "A newer connection for the same device took over. Reconnecting at once would push that one off.",
+        },
+        {
+          const: 4429,
+          title: "overLimit",
+          description:
+            "Over a limit: more messages a second than allowed, too many failed hellos from this key or address in a minute, or too many connections for the account. Wait at least 30 seconds, since the limits count over a minute.",
+        },
+        {
+          const: 1011,
+          title: "serverError",
+          description:
+            "Something failed on the server. Reconnect with backoff.",
+        },
+        {
+          const: 1012,
+          title: "restarting",
+          description:
+            "The server is restarting, after a bye message. Reconnect no sooner than its reconnectAfterMs.",
+        },
+        {
+          const: 1013,
+          title: "overloaded",
+          description:
+            "The server has too many connections, or the device stopped reading. Reconnect with backoff.",
+        },
+      ],
     },
     LiveDeviceMessage: {
       description: "What a device or the web app sends on a live connection.",
@@ -520,7 +593,7 @@ export const schema = {
     },
     LiveRevoked: {
       description:
-        "This device is no longer on the account. The server closes with 4403 after it.",
+        "This device is no longer on the account. The server closes with LiveCloseCode revoked after it.",
       type: "object",
       properties: {
         type: { const: "revoked" },

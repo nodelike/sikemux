@@ -1,6 +1,6 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { lsp } from "../api/lsp";
+import { lsp, noteServedLanguages } from "../api/lsp";
 import { DiagnosticsController } from "../workbench/diagnosticsController";
 import { EditorInsights } from "./EditorInsights";
 
@@ -34,7 +34,10 @@ function controllerWithProblem(): DiagnosticsController {
 }
 
 describe("EditorInsights", () => {
-    beforeEach(() => vi.restoreAllMocks());
+    beforeEach(() => {
+        vi.restoreAllMocks();
+        noteServedLanguages(["typescript"]);
+    });
     afterEach(cleanup);
 
     it("keeps diagnostics live while collapsed and navigates from Problems", () => {

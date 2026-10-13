@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { installIpcTransportForTests, MemoryIpcTransport, resetIpcTransportForTests } from "../api/transport";
 import { recordAgentTurns } from "./activityRecorder";
 import { closeAgent, noteAgentActivity } from "./commands";
+import { acceptDialog, useDialogs } from "./dialog";
 import { getState, setState } from "./store";
 import { withAgents } from "../test/agents";
 
@@ -49,6 +50,8 @@ describe("agent turn recording", () => {
     it("closes the turn of an agent closed mid-turn", async () => {
         noteAgentActivity("agent-1", "working");
         closeAgent("agent-1");
+        acceptDialog(useDialogs.getState().dialog!.id);
+        await Promise.resolve();
         await Promise.resolve();
         expect(recorded().map(([command]) => command)).toEqual(["activity_turn_started", "activity_turn_ended"]);
     });

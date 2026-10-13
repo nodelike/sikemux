@@ -569,17 +569,28 @@ export function findKeybindingConflict(overrides: KeybindingOverrides, id: Keybi
     );
 }
 
+export const ENTER_GLYPH = "↵";
+
+const MODIFIER_GLYPHS: Record<KeybindingModifier, string> = { Meta: "⌘", Ctrl: "⌃", Alt: "⌥", Shift: "⇧" };
+
+export type KeybindingModifier = "Meta" | "Ctrl" | "Alt" | "Shift";
+
+/** A modifier as shortcuts show it: the Mac's glyph, or its name elsewhere. */
+export function modifierGlyph(modifier: KeybindingModifier): string {
+    return IS_MACOS ? MODIFIER_GLYPHS[modifier] : modifier;
+}
+
 const CODE_LABELS: Record<string, string> = {
     Backquote: "`",
     Backslash: "\\",
     BracketLeft: "[",
     BracketRight: "]",
     Comma: ",",
-    Enter: "↵",
+    Enter: ENTER_GLYPH,
     Equal: "=",
     Escape: "Esc",
     Minus: "-",
-    NumpadEnter: "Num ↵",
+    NumpadEnter: `Num ${ENTER_GLYPH}`,
     Period: ".",
     Quote: "'",
     Semicolon: ";",
@@ -597,21 +608,20 @@ function codeLabel(code: string): string {
     return code.replace(/([a-z])([A-Z])/g, "$1 $2");
 }
 
-export function keybindingLabel(binding: string | null): string {
-    if (!binding) return "Unassigned";
+/** A binding such as "Alt+Meta+KeyQ" as shortcuts show it: ⌥⌘Q on a Mac, Alt+Meta+Q elsewhere. */
+export function shortcutText(binding: string): string {
     const parts = binding.split("+");
     const code = parts.pop() ?? "";
-    const modifiers = parts
-        .map((part) => {
-            if (part === "Meta") return IS_MACOS ? "⌘" : "Meta+";
-            if (part === "Ctrl") return IS_MACOS ? "⌃" : "Ctrl+";
-            if (part === "Alt") return IS_MACOS ? "⌥" : "Alt+";
-            if (part === "Shift") return IS_MACOS ? "⇧" : "Shift+";
-            return part;
-        })
-        .join("");
-    return `${modifiers}${codeLabel(code)}`;
+    const modifiers = parts.map((part) => (part in MODIFIER_GLYPHS ? modifierGlyph(part as KeybindingModifier) : part));
+    return [...modifiers, codeLabel(code)].join(IS_MACOS ? "" : "+");
 }
+
+export function keybindingLabel(binding: string | null): string {
+    return binding ? shortcutText(binding) : "Unassigned";
+}
+
+/** Quit and Stop Everything is on the app menu, which only the Mac has. */
+export const QUIT_AND_STOP_SHORTCUT = IS_MACOS ? shortcutText("Alt+Meta+KeyQ") : null;
 
 export function keybindingLabelForAction(overrides: KeybindingOverrides, id: KeybindingActionId): string {
     return keybindingLabel(resolvedKeybinding(overrides, id));

@@ -803,15 +803,16 @@ pub(super) fn frontmost_pid(reply: &Value) -> Option<i64> {
 
 /// A path the agent gave, which must name something inside its project.
 pub(super) fn inside_project(project: &str, path: &str) -> Result<PathBuf, String> {
-    let root = std::fs::canonicalize(project).map_err(|error| error.to_string())?;
-    let target = std::fs::canonicalize(root.join(path))
-        .map_err(|_| format!("no app at {}", root.join(path).display()))?;
-    if !target.starts_with(&root) {
-        return Err(
-            "the app must be inside the project; build it into the project's folder, such as with xcodebuild -derivedDataPath build".into(),
-        );
-    }
-    Ok(target)
+    let confined = crate::harness::confine_to_project(project, path).map_err(|error| {
+        if std::fs::metadata(project).is_ok() {
+            format!("no app at {}", Path::new(project).join(path).display())
+        } else {
+            error.to_string()
+        }
+    })?;
+    confined.ok_or_else(|| {
+        "the app must be inside the project; build it into the project's folder, such as with xcodebuild -derivedDataPath build".into()
+    })
 }
 
 async fn logs(manager: &SimulatorManager, agent_id: &str, params: &Value) -> Result<Value, String> {

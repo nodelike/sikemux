@@ -8,6 +8,8 @@ use serde_json::{json, Value};
 
 use crate::acp::account;
 
+use super::super::super::states::{self, Subagent};
+use super::super::json::text_or_empty as text;
 use super::super::session::TurnEnd;
 use super::approvals::{self, Question};
 use super::items::{self, Items};
@@ -69,10 +71,6 @@ pub(super) struct Session {
     questions: u64,
     /// Set once Codex's output closed.
     pub gone: bool,
-}
-
-fn text<'a>(value: &'a Value, key: &str) -> &'a str {
-    value[key].as_str().unwrap_or_default()
 }
 
 fn notice(title: &str, description: Option<&str>) -> Value {
@@ -225,7 +223,7 @@ impl Session {
             return turn.id.clone().map(Effect::Interrupt).into_iter().collect();
         }
         if let Some((number, mut payload)) = self.waiting.take() {
-            let mut effects = self.finish_subagents("cancelled");
+            let mut effects = self.finish_subagents(Subagent::Cancelled);
             payload["stopReason"] = json!("cancelled");
             effects.push(Effect::End(number, TurnEnd::Completed(payload)));
             return effects;
@@ -251,7 +249,7 @@ impl Session {
         if self.unprompted.as_deref() == Some(id) {
             self.stale.insert(id.to_owned());
             self.unprompted = None;
-            let mut effects = self.finish_subagents("cancelled");
+            let mut effects = self.finish_subagents(Subagent::Cancelled);
             effects.push(Effect::WorkEnded("cancelled"));
             return effects;
         }
@@ -268,7 +266,7 @@ impl Session {
         {
             return Vec::new();
         }
-        let mut effects = self.finish_subagents("failed");
+        let mut effects = self.finish_subagents(Subagent::Failed);
         if let Some((number, payload)) = self.waiting.take() {
             effects.push(Effect::End(number, TurnEnd::Completed(payload)));
         }
@@ -280,7 +278,7 @@ impl Session {
         self.message_turns.retain(|_, turn| turn != turn_id);
     }
 
-    fn finish_subagents(&mut self, state: &str) -> Vec<Effect> {
+    fn finish_subagents(&mut self, state: Subagent) -> Vec<Effect> {
         let mut out = Vec::new();
         self.subagents.finish_outstanding(state, &mut out);
         out.into_iter()
@@ -323,14 +321,14 @@ impl Session {
                 }
             }
             "interrupted" => {
-                effects.extend(self.finish_subagents("cancelled"));
+                effects.extend(self.finish_subagents(Subagent::Cancelled));
                 effects.push(Effect::End(
                     turn.number,
                     TurnEnd::Completed(self.payload("cancelled")),
                 ));
             }
             _ => {
-                effects.extend(self.finish_subagents("failed"));
+                effects.extend(self.finish_subagents(Subagent::Failed));
                 let error = error
                     .or_else(|| Some(ended["error"].clone()).filter(|error| !error.is_null()))
                     .unwrap_or_else(|| json!({ "message": "Turn failed", "codexErrorInfo": null }));
@@ -376,12 +374,8 @@ impl Session {
             let status = text(ended, "status");
             let mut effects = Vec::new();
             if status != "completed" {
-                let state = if status == "interrupted" {
-                    "cancelled"
-                } else {
-                    "failed"
-                };
-                effects.extend(self.finish_subagents(state));
+                let ended = states::outcome(status).unwrap_or(states::Outcome::Failed);
+                effects.extend(self.finish_subagents(Subagent::from(ended)));
             }
             if self.turn.as_ref().is_some_and(|turn| turn.id.is_none()) {
                 self.last_ended = Some(ended.clone());

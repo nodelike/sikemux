@@ -111,8 +111,7 @@ impl TrustedKeys {
 /// The dev API's signing key, which it writes on first start.
 #[cfg(debug_assertions)]
 fn dev_key() -> Option<[u8; 32]> {
-    let home = std::env::var_os("HOME").filter(|home| !home.is_empty())?;
-    let path = std::path::Path::new(&home).join(".config/sikemux/dev/join-signing-key.pem");
+    let path = sikemux_process::paths::config_dir()?.join("dev/join-signing-key.pem");
     public_key_from_pem(&std::fs::read_to_string(path).ok()?)
 }
 

@@ -30,7 +30,7 @@ beforeEach(() => {
     useAws.setState({ ecsViews: {}, selection: {}, lambdaLogs: {}, counts: {} });
     profiles.mockReset().mockResolvedValue([prod]);
     identity.mockReset().mockResolvedValue(expired);
-    ssoLogin.mockReset().mockReturnValue({ result: new Promise(() => {}), cancel: vi.fn() });
+    ssoLogin.mockReset().mockReturnValue({ done: new Promise(() => {}), cancel: vi.fn() });
 });
 
 describe("AwsPane", () => {

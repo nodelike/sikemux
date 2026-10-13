@@ -1,3 +1,4 @@
+import { splitSentContext, type SentContext } from "./promptContext";
 import { toolKind, toolTarget } from "./toolLabels";
 import type { AcpAsyncTask, AcpSubagent, ChatMessage, ChatPart } from "./types";
 
@@ -33,6 +34,37 @@ export function decodedFenceName(info: string): string {
     }
 }
 
+function embeddedContext(content: Extract<ChatPart, { kind: "content" }>["content"]): SentContext | null {
+    if (content.type !== "resource" || !content.resource || typeof content.resource !== "object") return null;
+    const resource = content.resource as { uri?: unknown; text?: unknown };
+    if (typeof resource.uri !== "string") return null;
+    const firstLine = typeof resource.text === "string" ? resource.text.split("\n", 1)[0] : "";
+    return { uri: resource.uri, title: firstLine || resource.uri };
+}
+
+/* What a person sent with a message is shown by name: their own text stays
+   prose, and an issue they handed over stays a chip, not its whole text. */
+export function sentParts(message: ChatMessage): { parts: ChatPart[]; context: SentContext[] } {
+    const context = [...(message.context ?? [])];
+    if (message.role !== "user") return { parts: message.parts, context };
+    const parts: ChatPart[] = [];
+    for (const part of message.parts) {
+        const embedded = part.kind === "content" ? embeddedContext(part.content) : null;
+        if (embedded) {
+            context.push(embedded);
+            continue;
+        }
+        if (part.kind !== "text") {
+            parts.push(part);
+            continue;
+        }
+        const split = splitSentContext(part.text);
+        context.push(...split.context);
+        if (split.text) parts.push(split.context.length ? { ...part, text: split.text } : part);
+    }
+    return { parts, context: context.filter((item, index) => context.findIndex((other) => other.uri === item.uri) === index) };
+}
+
 export type PartGroup = { id: string; tools: Extract<ChatPart, { kind: "tool" }>[] } | { id: string; part: ChatPart };
 
 /* Consecutive calls share one group, except a page an agent showed, which is
@@ -58,49 +90,86 @@ export interface WorkFold {
     from: number;
     calls: number;
     took: number | null;
+    /** Everything folded is thinking, so the turn thought rather than worked. */
+    thought: boolean;
 }
 
-const isReply = (part: ChatPart) => part.kind === "text" || part.kind === "content";
+export const isReply = (part: ChatPart) => part.kind === "text" || part.kind === "content";
 
 /* A page the agent showed and a subagent still at work stay in view when the turn around them folds. */
 export const outlivesFold = (part: ChatPart) =>
     (part.kind === "tool" && part.page !== undefined) || (part.kind === "subagent" && part.subagent.state === "running");
 
+/** The parts a message shows: all of them, or once the work before `from` is folded away, the reply and what outlives the fold. */
+export function shownParts(parts: ChatPart[], from: number): ChatPart[] {
+    return from > 0 ? parts.filter((part, index) => (index >= from && isReply(part)) || outlivesFold(part)) : parts;
+}
+
+const replyStart = (parts: ChatPart[], end: number) => {
+    let start = end;
+    while (start > 0 && isReply(parts[start - 1])) start -= 1;
+    return start;
+};
+
+const writtenLength = (parts: ChatPart[], start: number, end: number) => {
+    let length = 0;
+    for (let index = start; index < end; index += 1) {
+        const part = parts[index];
+        if (part.kind === "text") length += part.text.length;
+    }
+    return length;
+};
+
+/* An agent often answers, makes one more call, such as stopping a server, and
+   closes with a line about it. The answer before that call is still the reply. */
+function answerBeforeAside(parts: ChatPart[], from: number): number {
+    let aside = from;
+    while (aside > 0 && !isReply(parts[aside - 1])) aside -= 1;
+    if (aside === from || aside === 0) return from;
+    const answer = replyStart(parts, aside);
+    return writtenLength(parts, answer, aside) > writtenLength(parts, from, parts.length) ? answer : from;
+}
+
 /* Runs while a reply streams in, so it walks the turn's parts in place rather than gathering them. */
 function workFold(messages: ChatMessage[], start: number, end: number): WorkFold | null {
     const parts = messages[end].parts;
-    let from = parts.length;
-    let said = false;
-    while (from > 0 && isReply(parts[from - 1])) {
-        from -= 1;
-        said ||= parts[from].kind === "text";
-    }
-    if (!said) return null;
+    const closing = replyStart(parts, parts.length);
+    if (!parts.slice(closing).some((part) => part.kind === "text")) return null;
+    const from = answerBeforeAside(parts, closing);
     let calls = 0;
     let worked = false;
+    let acted = false;
     for (let index = start; index <= end; index += 1) {
         const work = messages[index].parts;
-        const until = index === end ? from : work.length;
-        for (let at = 0; at < until; at += 1) {
+        for (let at = 0; at < work.length; at += 1) {
+            if (index === end && at >= from && isReply(work[at])) continue;
             if (work[at].kind === "tool") calls += 1;
             worked ||= !isReply(work[at]);
+            acted ||= !isReply(work[at]) && work[at].kind !== "thought";
         }
     }
     if (!worked) return null;
-    return { id: messages[start].id, start, end, from, calls, took: workTime(messages, start, end) };
+    return { id: messages[start].id, start, end, from, calls, took: turnSpan(messages, start, end), thought: !acted };
 }
 
-/* A prompted turn starts with its prompt; one the agent began by itself starts
-   when the core said it did. */
-function workTime(messages: ChatMessage[], start: number, end: number): number | null {
+/** How long the turn of assistant messages `start`..`end` took. A prompted turn starts with its prompt; one the
+    agent began by itself starts when the core said it did. Null when either end is unknown. */
+export function turnSpan(messages: readonly ChatMessage[], start: number, end: number): number | null {
     const before = messages[start - 1];
     const began = (before?.role === "user" ? before.sentAt : undefined) ?? messages[start].opensTurn?.at ?? null;
     const ended = messages[end].endedAt ?? null;
-    return began !== null && ended !== null && ended >= began ? ended - began : null;
+    return began !== null && ended !== null && ended > began ? ended - began : null;
 }
 
 const sameFold = (a: WorkFold | undefined, b: WorkFold) =>
-    a !== undefined && a.id === b.id && a.start === b.start && a.end === b.end && a.from === b.from && a.calls === b.calls && a.took === b.took;
+    a !== undefined &&
+    a.id === b.id &&
+    a.start === b.start &&
+    a.end === b.end &&
+    a.from === b.from &&
+    a.calls === b.calls &&
+    a.took === b.took &&
+    a.thought === b.thought;
 
 /**
  * Every finished turn worth folding, by the index of each message in it. A list redraws its rows when this
@@ -119,6 +188,25 @@ export function workFolds(messages: ChatMessage[], running: boolean, previous?: 
     if (previous && previous.size === folds.size && [...folds].every(([index, fold]) => sameFold(previous.get(index), fold))) return previous;
     return folds;
 }
+
+export const SUBAGENT_WORDS: Readonly<Record<AcpSubagent["state"], string>> = {
+    running: "working",
+    completed: "done",
+    failed: "failed",
+    cancelled: "stopped",
+    disconnected: "lost",
+};
+
+export type SubagentMark = "spinner" | "check" | "warning" | "plug" | "close";
+
+/** The mark beside a subagent's row; each side draws it with its own icon. */
+export const SUBAGENT_MARKS: Readonly<Record<AcpSubagent["state"], SubagentMark>> = {
+    running: "spinner",
+    completed: "check",
+    failed: "warning",
+    cancelled: "close",
+    disconnected: "plug",
+};
 
 /* A subagent is handed a whole prompt as its task, and a prompt is paragraphs.
    The row is one line, so it opens with the first line and the tooltip keeps
@@ -150,7 +238,8 @@ export function runningSubagents(messages: ChatMessage[]): AcpSubagent[] {
 /* A task whose description repeats its name would print the same words twice,
    once in each voice, so the detail takes the first thing that says more. */
 export function taskDetail(task: AcpAsyncTask): string | undefined {
-    return [task.summary, task.description, task.lastToolName, task.taskType].find((text) => text && text !== task.name);
+    const detail = [task.summary, task.description, task.lastToolName, task.taskType].find((text) => text && text !== task.name);
+    return [task.owner && `from ${task.owner}`, detail].filter(Boolean).join(" · ") || undefined;
 }
 
 /* An agent names its own task types — "shell", "monitor" — and they are the

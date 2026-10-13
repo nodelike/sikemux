@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { openUrl, swallow } from "../../../plugin-api/host";
-import { Checkbox, SignInScreen } from "../../../plugin-api/ui";
+import { Checkbox, SignInError, SignInScreen, useSignInAttempt } from "../../../plugin-api/ui";
 import { failureMessage, signozApi, type Inspection, type SignozStatus } from "../api";
 import { SignozIcon } from "./SignozIcon";
 
@@ -34,13 +34,13 @@ export function SignozSignIn({ status, onSignedIn }: Props) {
     const [method, setMethod] = useState<Method>(status.auth === "apiKey" ? "apiKey" : "password");
     const [inspection, setInspection] = useState<Inspection | null>(null);
     const [orgId, setOrgId] = useState("");
-    const [busy, setBusy] = useState(false);
-    const [error, setError] = useState<string | null>(status.authFailed ? status.message : null);
+    const attempt = useSignInAttempt(status);
+    const busy = attempt.busy;
     const [editingUrl, setEditingUrl] = useState(!status.url);
 
     const look = (withEmail: boolean, settle = false) => {
         if (!url.trim()) return;
-        setError(null);
+        attempt.showError(null);
         signozApi
             .inspect(url.trim(), withEmail ? email.trim() || undefined : undefined)
             .then((found) => {
@@ -53,7 +53,7 @@ export function SignozSignIn({ status, onSignedIn }: Props) {
             .catch((failure: unknown) => {
                 setInspection(null);
                 setEditingUrl(true);
-                setError(failureMessage(failure));
+                attempt.showError(failureMessage(failure));
             });
     };
 
@@ -71,28 +71,22 @@ export function SignozSignIn({ status, onSignedIn }: Props) {
         !!url.trim() &&
         (method === "password" ? !!email.trim() && password.length > 0 && !ssoOnly : useKeychain ? !!account.trim() : !!apiKey.trim());
 
-    const submit = async () => {
+    const submit = () => {
         if (!canSubmit) return;
-        setBusy(true);
-        setError(null);
-        try {
+        attempt.run(async () => {
             const result =
                 method === "password"
                     ? await signozApi.signIn(url.trim(), email.trim(), password, orgId || undefined)
                     : await signozApi.useApiKey(url.trim(), useKeychain ? undefined : apiKey.trim(), useKeychain ? account.trim() : undefined);
             setPassword("");
             setApiKey("");
-            if (result.ok) onSignedIn();
-            else setError(result.message ?? "SigNoz did not answer the first query");
-        } catch (failure) {
-            setError(failureMessage(failure));
-        } finally {
-            setBusy(false);
-        }
+            if (!result.ok) return result.message ?? "SigNoz did not answer the first query";
+            onSignedIn();
+        });
     };
 
     const onEnter = (event: React.KeyboardEvent) => {
-        if (event.key === "Enter") void submit();
+        if (event.key === "Enter") submit();
     };
 
     return (
@@ -222,16 +216,12 @@ export function SignozSignIn({ status, onSignedIn }: Props) {
                     </>
                 )}
 
-                <button type="button" className="signin-btn primary" disabled={!canSubmit} aria-busy={busy} onClick={() => void submit()}>
+                <button type="button" className="signin-btn primary" disabled={!canSubmit} aria-busy={busy} onClick={submit}>
                     {busy ? "Connecting…" : method === "password" ? "Sign in" : "Use key"}
                 </button>
             </div>
 
-            {error && (
-                <div className="signin-callout" data-tone="danger">
-                    {error}
-                </div>
-            )}
+            <SignInError error={attempt.error} />
 
             <div className="signin-alt">
                 <button type="button" className="signin-link" onClick={() => setMethod(method === "password" ? "apiKey" : "password")}>

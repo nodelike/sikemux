@@ -22,8 +22,10 @@ vi.mock("../editor/languageServerTrust", () => ({ languageServersAllowed: mocks.
 
 vi.mock("../api/lsp", async (importOriginal) => {
     const actual = await importOriginal<typeof import("../api/lsp")>();
+    actual.noteServedLanguages(["typescript", "javascript", "go", "rust", "python"]);
     return {
         ...actual,
+        loadServedLanguages: () => Promise.resolve(),
         lsp: {
             ...actual.lsp,
             start: mocks.start,

@@ -228,6 +228,10 @@
     --dur-3: 220ms;
     --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
     --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+    /* Something travelling across the window, such as a screen panning or a dragged project landing. */
+    --ease-pan: cubic-bezier(0.22, 1, 0.36, 1);
+    /* Something small coming in, such as a rail peeking out or a project sliding to its new place. */
+    --ease-pop: cubic-bezier(0.2, 0.8, 0.2, 1);
 
     /* ── Ambient backdrop ─────────────────────────────────────────────────
      *

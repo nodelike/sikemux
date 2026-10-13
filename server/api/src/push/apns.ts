@@ -9,6 +9,7 @@ import {
 import type { ApnsEnvironment, PushApp } from "@sikemux/protocol";
 
 import { signAppleToken, type AppleKey } from "../apple-key.ts";
+import { refused, unanswered } from "./delivery.ts";
 import type { Delivery, PushMessage, PushProvider } from "./provider.ts";
 
 /** Each build of the phone app is its own topic: the bundle id it was signed as. */
@@ -114,13 +115,6 @@ export interface ApnsOptions {
   now?: () => number;
 }
 
-/** Retry-After from APNs, in seconds, as milliseconds. */
-function retryAfter(headers: IncomingHttpHeaders): number | undefined {
-  const header = headers["retry-after"];
-  const seconds = typeof header === "string" ? Number(header) : NaN;
-  return Number.isFinite(seconds) && seconds >= 0 ? seconds * 1000 : undefined;
-}
-
 function reasonOf(reply: ApnsReply): string {
   try {
     const parsed = JSON.parse(reply.body) as { reason?: unknown };
@@ -168,27 +162,17 @@ export class ApnsProvider implements PushProvider {
 
   async send(message: PushMessage): Promise<Delivery> {
     let reply = await this.post(message);
-    if (reply instanceof Error)
-      return { outcome: "retry", reason: reply.message };
+    if (reply instanceof Error) return unanswered(reply);
     if (reply.status === 403 && reasonOf(reply) === "ExpiredProviderToken") {
       this.providerToken = null;
       reply = await this.post(message);
-      if (reply instanceof Error)
-        return { outcome: "retry", reason: reply.message };
+      if (reply instanceof Error) return unanswered(reply);
     }
     if (reply.status === 200) return { outcome: "sent" };
     const reason = reasonOf(reply);
     if (reply.status === 410 || DEAD.has(reason))
       return { outcome: "dead", reason };
-    if (reply.status === 429 || reply.status >= 500) {
-      const afterMs = retryAfter(reply.headers);
-      return {
-        outcome: "retry",
-        reason,
-        ...(afterMs === undefined ? {} : { afterMs }),
-      };
-    }
-    return { outcome: "failed", reason: `${reply.status} ${reason}` };
+    return refused(reply.status, reason, reply.headers["retry-after"]);
   }
 
   close() {

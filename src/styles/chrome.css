@@ -456,7 +456,7 @@
         0 0 10px color-mix(in srgb, var(--acc) 52%, transparent);
     pointer-events: none;
     transform-origin: left center;
-    animation: project-drop-line-in 120ms cubic-bezier(0.22, 1, 0.36, 1) both;
+    animation: project-drop-line-in 120ms var(--ease-pan) both;
 }
 .project-row-shell.project-drop-before::before,
 .proj-tree.project-drop-before::before {
@@ -498,7 +498,7 @@
     height: 100% !important;
     min-height: 0 !important;
     margin: 0 !important;
-    animation: project-ghost-lift 110ms cubic-bezier(0.22, 1, 0.36, 1) both !important;
+    animation: project-ghost-lift 110ms var(--ease-pan) both !important;
 }
 @keyframes project-ghost-lift {
     from {
@@ -533,32 +533,6 @@
     .proj-tree.project-drop-after::after {
         animation: none;
     }
-}
-
-.proj-pip {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 20px;
-    height: 20px;
-    flex-shrink: 0;
-    position: relative;
-}
-
-.proj-pip-claude {
-    color: var(--brand-claude);
-}
-.proj-pip-codex {
-    color: var(--brand-codex);
-}
-.proj-pip-hermes {
-    color: var(--brand-hermes);
-}
-.proj-pip-pi {
-    color: var(--brand-pi);
-}
-.proj-pip-opencode {
-    color: var(--brand-opencode);
 }
 
 .window-area {
@@ -636,7 +610,7 @@
 /* Those offsets have to be on screen before the travel starts, or the track
    would animate in from nothing on the first frame. */
 .window-track.sliding {
-    transition: transform var(--window-pan-ms) cubic-bezier(0.22, 1, 0.36, 1);
+    transition: transform var(--window-pan-ms) var(--ease-pan);
 }
 /* A close that carries on the way the hand was going starts at the speed the
    hand had, which is what the curve above opens at. A close that goes back
@@ -725,7 +699,7 @@
 .window-scroll-thumb {
     height: 100%;
     background: var(--ink-faint);
-    transition: transform var(--window-pan-ms) cubic-bezier(0.22, 1, 0.36, 1);
+    transition: transform var(--window-pan-ms) var(--ease-pan);
 }
 @media (prefers-reduced-motion: reduce) {
     .window-scroll-thumb {
@@ -751,7 +725,7 @@
 }
 .doc-sliding.doc-travelling > .doc-snapshot,
 .doc-sliding.doc-travelling > .doc-slide-in {
-    transition: transform var(--window-pan-ms) cubic-bezier(0.22, 1, 0.36, 1);
+    transition: transform var(--window-pan-ms) var(--ease-pan);
 }
 
 .pane-cell {

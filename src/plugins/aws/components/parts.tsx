@@ -1,25 +1,12 @@
 import { Fragment, useEffect, useRef, type KeyboardEvent, type ReactNode } from "react";
-import { copyText, notify, openSignInUrl, reportError } from "../../../plugin-api/host";
+import { copyWithNotice, openSignInUrl, reportError } from "../../../plugin-api/host";
 import { useResource, type ResourceHandle } from "../../../plugin-api/resources";
-import { IconChevron, IconCopy, IconRefresh, IconSearch } from "../../../plugin-api/ui";
+import { IconChevron, IconCopy, IconRefresh } from "../../../plugin-api/ui";
 import { awsProfilesR } from "../resources";
 import { setAwsCount, type AwsService } from "../state";
 import { IconExternal } from "./icons";
 
 export type Health = "ok" | "warn" | "fail" | "off";
-
-export function relative(iso: string | null | undefined): string {
-    if (!iso) return "—";
-    const t = Date.parse(iso);
-    if (Number.isNaN(t)) return "—";
-    const d = Math.max(0, (Date.now() - t) / 1000);
-    if (d < 60) return "just now";
-    if (d < 3600) return `${Math.floor(d / 60)}m ago`;
-    if (d < 86400) return `${Math.floor(d / 3600)}h ago`;
-    if (d < 86400 * 30) return `${Math.floor(d / 86400)}d ago`;
-    if (d < 86400 * 365) return `${Math.floor(d / (86400 * 30))}mo ago`;
-    return `${Math.floor(d / (86400 * 365))}y ago`;
-}
 
 export function useRegion(profile: string): string {
     const profiles = useResource(awsProfilesR).data;
@@ -31,7 +18,7 @@ export function openConsole(url: string): void {
 }
 
 export function copy(value: string, label: string): void {
-    void copyText(value).then(() => notify("success", `copied ${label}`), reportError("copy"));
+    copyWithNotice(value, label);
 }
 
 /** Tells the sidebar how many things this service listed. */
@@ -107,46 +94,6 @@ export function Refresh({ handle }: { handle: ResourceHandle<unknown> }) {
             aria-label="Refresh">
             <IconRefresh size={14} />
         </button>
-    );
-}
-
-export interface SegOption<V extends string> {
-    value: V;
-    label: string;
-    count?: number;
-}
-
-export function Seg<V extends string>({ options, value, onChange }: { options: SegOption<V>[]; value: V; onChange: (value: V) => void }) {
-    return (
-        <div className="aws-seg" role="group">
-            {options.map((o) => (
-                <button key={o.value} className={o.value === value ? "on" : ""} aria-pressed={o.value === value} onClick={() => onChange(o.value)}>
-                    {o.label}
-                    {o.count !== undefined && <span className="aws-seg-count">{o.count}</span>}
-                </button>
-            ))}
-        </div>
-    );
-}
-
-export function Filter({ value, onChange, placeholder }: { value: string; onChange: (value: string) => void; placeholder: string }) {
-    return (
-        <label className="aws-filter">
-            <IconSearch size={14} />
-            <input
-                value={value}
-                placeholder={placeholder}
-                spellCheck={false}
-                onChange={(e) => onChange(e.target.value)}
-                onKeyDown={(e) => {
-                    if (e.key === "Escape" && value) {
-                        e.stopPropagation();
-                        onChange("");
-                    }
-                }}
-            />
-            <kbd>/</kbd>
-        </label>
     );
 }
 

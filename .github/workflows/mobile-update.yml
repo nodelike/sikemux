@@ -26,12 +26,21 @@ on:
       - "mobile/app/scripts/publish-update.mjs"
       - "mobile/app/scripts/rust-sources.js"
       - "src/agents/agentLaunch.ts"
+      - "src/agents/catalog.ts"
+      - "src/agents/generated/**"
+      - "src/agents/catalog.ts"
+      - "src/agents/generated/**"
       - "src/chat/**"
+      - "src/lib/format.ts"
+      - "src/lib/fuzzy.ts"
       - "src/lib/paths.ts"
       - "src/lib/platform.ts"
+      - "src/lib/urls.ts"
+      - "src/state/agentStatus.ts"
       - "src/terminal/interactions.ts"
       - "src/ui/Icons.tsx"
       - "src/assets/agent-logos/**"
+      - "server/protocol/generated/types.ts"
       - .github/workflows/mobile-update.yml
   workflow_dispatch:
     inputs:
