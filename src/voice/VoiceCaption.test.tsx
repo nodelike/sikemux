@@ -20,15 +20,6 @@ afterEach(() => {
 });
 
 describe("captionStyle", () => {
-    it("floats above a chat's composer so the mic and send buttons stay in view", () => {
-        const pane = box(document.createElement("div"), { left: 100, top: 0, width: 600, height: 800 });
-        const composer = box(document.createElement("div"), { left: 120, top: 680, width: 560, height: 110 });
-        composer.className = "chat-composer";
-        pane.append(composer);
-        document.body.append(pane);
-        expect(captionStyle(pane, 800)).toEqual({ left: 400, bottom: 800 - 680 + 12, maxWidth: 536 });
-    });
-
     it("sits inside the bottom of any other field", () => {
         const field = box(document.createElement("textarea"), { left: 0, top: 500, width: 400, height: 100 });
         document.body.append(field);

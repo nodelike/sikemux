@@ -34,17 +34,37 @@ import type { TrackedMatches } from "./TrackedSource";
 import { ContextMark } from "./ContextChip";
 import { contextChip } from "./promptContext";
 
-/** Shows the words still being spoken, dimmed, right after what is already typed in the box. */
-function DictationPreview({ draft, heard, editor }: { draft: string; heard: string; editor: RefObject<HTMLTextAreaElement | null> }) {
+/** Draws the box's text with the words still being spoken dimmed at the caret, where they will be typed. */
+function DictationPreview({
+    draft,
+    caret,
+    heard,
+    editor,
+}: {
+    draft: string;
+    caret: number;
+    heard: string;
+    editor: RefObject<HTMLTextAreaElement | null>;
+}) {
     const preview = useRef<HTMLDivElement>(null);
+    const spoken = useRef<HTMLSpanElement>(null);
     useLayoutEffect(() => {
-        if (preview.current) preview.current.scrollTop = preview.current.scrollHeight;
-        if (editor.current) editor.current.scrollTop = editor.current.scrollHeight;
-    }, [draft, heard, editor]);
+        const box = preview.current;
+        const words = spoken.current;
+        if (!box || !words) return;
+        const bottom = box.getBoundingClientRect().bottom - parseFloat(getComputedStyle(box).paddingBottom);
+        box.scrollTop += words.getBoundingClientRect().bottom - bottom;
+        if (editor.current) editor.current.scrollTop = box.scrollTop;
+    }, [draft, caret, heard, editor]);
+    const before = draft.slice(0, caret);
     return (
-        <div className="chat-dictation-preview" ref={preview} aria-live="polite">
-            <span>{draft && !/\s$/.test(draft) ? `${draft} ` : draft}</span>
-            {heard}
+        <div className="chat-dictation-preview" ref={preview}>
+            {before}
+            <span ref={spoken} aria-live="polite">
+                {before && !/\s$/.test(before) ? " " : ""}
+                {heard}
+            </span>
+            {draft.slice(caret)}
         </div>
     );
 }
@@ -626,7 +646,7 @@ export function ChatComposer({
                         }
                     }}
                 />
-                {heard && <DictationPreview draft={draft} heard={heard} editor={editorRef} />}
+                {heard && <DictationPreview draft={draft} caret={caret} heard={heard} editor={editorRef} />}
             </div>
             {error && <div className="chat-composer-error">{error}</div>}
             <div className="chat-composer-bar">
