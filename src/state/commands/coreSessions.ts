@@ -1,7 +1,7 @@
 import { mutate } from "../store";
 import { collectPanes } from "../layout";
 import type { AgentSessionPlan } from "../coreSessionClaims";
-import { closeAgent } from "./agents";
+import { dropAgents } from "./agents";
 
 /** Records the core terminal a pane shows, so the next launch can take it back. */
 export function setPanePty(paneId: string, ptyId: number): void {
@@ -35,5 +35,5 @@ export function applyAgentSessionPlan(plan: AgentSessionPlan): void {
         }
         for (const id of plan.gone) delete d.agents[id]?.ptyId;
     });
-    for (const id of plan.dropped) closeAgent(id);
+    dropAgents(plan.dropped);
 }

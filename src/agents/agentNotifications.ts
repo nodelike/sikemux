@@ -1,7 +1,8 @@
 import { useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow, UserAttentionType } from "@tauri-apps/api/window";
-import { agentIdsOf } from "../state/selectors";
+import { agentDisplay } from "../state/agentStatus";
+import { openAgents } from "../state/selectors";
 import { swallow } from "../state/toast";
 import { getState, setState, useStore, type StoreState } from "../state/store";
 
@@ -13,23 +14,15 @@ export interface AgentAlert {
     body: string;
 }
 
-function* openAgents(state: AgentView) {
-    for (const sessionId of state.sessionOrder) {
-        const session = state.sessions[sessionId];
-        if (!session) continue;
-        for (const agentId of agentIdsOf(state, sessionId)) {
-            const agent = state.agents[agentId];
-            if (agent) yield { agentId, agent, sessionName: session.name };
-        }
-    }
-}
-
-/** Agents that are waiting on the person: asking for input, or finished while unseen. */
+/**
+ * The Dock badge: agents asking for input plus agents that finished while unseen. The rail's
+ * "Needs input" group counts only the first, since finished agents have their own Done group.
+ */
 export function agentsNeedingYou(state: AgentView): number {
     let count = 0;
     for (const { agentId } of openAgents(state)) {
-        const status = state.agentActivity[agentId]?.state;
-        if (status === "blocked" || status === "done") count += 1;
+        const { group } = agentDisplay(state.agentActivity[agentId]?.state);
+        if (group === "blocked" || group === "done") count += 1;
     }
     return count;
 }
@@ -42,13 +35,13 @@ export function agentsNeedingYou(state: AgentView): number {
  */
 export function newAgentAlerts(previous: AgentView, next: AgentView): AgentAlert[] {
     const alerts: AgentAlert[] = [];
-    for (const { agentId, agent, sessionName } of openAgents(next)) {
+    for (const { agentId, agent, session } of openAgents(next)) {
         const now = next.agentActivity[agentId]?.backendState;
         const before = previous.agentActivity[agentId]?.backendState;
         if (now === before) continue;
-        if (now === "blocked") alerts.push({ agentId, title: `${agent.title} needs your input`, body: sessionName });
+        if (now === "blocked") alerts.push({ agentId, title: `${agent.title} needs your input`, body: session.name });
         else if (now === "idle" && (before === "working" || before === "blocked"))
-            alerts.push({ agentId, title: `${agent.title} finished`, body: sessionName });
+            alerts.push({ agentId, title: `${agent.title} finished`, body: session.name });
     }
     return alerts;
 }

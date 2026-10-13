@@ -180,6 +180,7 @@ export const IPC_COMMANDS = [
     "git_checkout_remote_branch",
     "git_delete_remote_branch",
     "git_set_upstream",
+    "lsp_languages",
     "lsp_install_server",
     "lsp_start",
     "lsp_stop",

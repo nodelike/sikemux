@@ -1,9 +1,10 @@
 import { memo, useMemo } from "react";
 import type { Job, Run } from "../api";
 import { stagesOf } from "../jobGraph";
-import { elapsedMs, formatDuration, jobsSummary, outcomeOf } from "../runStatus";
+import { elapsedMs, jobsSummary, outcomeOf } from "../runStatus";
 import { OutcomeIcon } from "./ActionsIcon";
 import { coarse } from "./hooks";
+import { formatDuration } from "../../lib/format";
 
 interface Props {
     run: Run;

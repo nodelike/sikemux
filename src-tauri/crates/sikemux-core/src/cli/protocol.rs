@@ -141,6 +141,15 @@ pub fn is_plugin_method(method: &str) -> bool {
     PLUGIN_METHODS.contains(&method)
 }
 
+/// An agent id the tools accept: 1 to 128 ASCII letters, digits, `-`, `_` or `:`.
+pub fn is_tool_agent_id(id: &str) -> bool {
+    !id.is_empty()
+        && id.len() <= 128
+        && id
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b':'))
+}
+
 pub fn validate_harness(request: &HarnessRequest) -> Result<(), String> {
     if request.id.is_empty() || request.id.len() > 128 {
         return Err("request ID must contain 1 to 128 bytes".into());

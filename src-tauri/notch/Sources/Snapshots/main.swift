@@ -23,7 +23,13 @@ let fixture = #"""
         {"type": "select", "id": "effort", "name": "Effort", "category": "thought_level", "currentValue": "high", "options": [
           {"value": "low", "name": "Low"}, {"value": "medium", "name": "Medium"}, {"value": "high", "name": "High"}, {"value": "max", "name": "Max"}
         ]}
-      ]},
+      ],
+       "model": {"id": "model", "current": "opus", "choices": [
+         {"value": "opus", "label": "Opus 5.5"}, {"value": "sonnet", "label": "Sonnet 5.5"}, {"value": "haiku", "label": "Haiku 4.5"}
+       ]},
+       "effort": {"id": "effort", "current": "high", "choices": [
+         {"value": "low", "label": "Low"}, {"value": "medium", "label": "Medium"}, {"value": "high", "label": "High"}, {"value": "max", "label": "Max"}
+       ]}},
       {"id": "codex", "provider": "codex", "label": "Codex", "permissionMode": "bypass", "configOptions": null},
       {"id": "opencode", "provider": "opencode", "label": "OpenCode", "permissionMode": "bypass", "configOptions": null},
       {"id": "grok", "provider": "grok", "label": "Grok", "permissionMode": "bypass", "configOptions": null}
@@ -34,24 +40,35 @@ let fixture = #"""
   "sessions": [],
   "chats": [
     {"agentId": "a1", "provider": "claude", "title": "Fix the login flake", "cwd": "/Users/me/sikemux", "sessionId": "s1", "state": "ready",
-     "running": true, "pendingPermissions": ["p1"], "subagents": 0, "tasks": 0, "permissionMode": "default", "asleep": false, "unread": true},
+     "running": true, "pendingPermissions": ["p1"], "subagents": 0, "tasks": 0, "permissionMode": "default", "asleep": false, "unread": true,
+     "group": "blocked", "status": "blocked", "attentionRank": 0},
     {"agentId": "a2", "provider": "codex", "title": "Refactor the auth middleware", "cwd": "/Users/me/server", "sessionId": "s2", "state": "ready",
-     "running": true, "pendingPermissions": [], "subagents": 3, "tasks": 0, "permissionMode": "bypass", "asleep": false, "unread": false},
+     "running": true, "pendingPermissions": [], "subagents": 3, "tasks": 0, "permissionMode": "bypass", "asleep": false, "unread": false,
+     "group": "working", "status": "working", "attentionRank": 1},
     {"agentId": "a3", "provider": "opencode", "title": "Draft the notch spec", "cwd": "/Users/me/sikemux", "sessionId": "s3", "state": "ready",
-     "running": true, "pendingPermissions": [], "subagents": 0, "tasks": 0, "permissionMode": "bypass", "asleep": false, "unread": false},
+     "running": true, "pendingPermissions": [], "subagents": 0, "tasks": 0, "permissionMode": "bypass", "asleep": false, "unread": false,
+     "group": "working", "status": "working", "attentionRank": 2},
     {"agentId": "a5", "provider": "codex", "title": "Read the release notes", "cwd": "/Users/me/sikemux", "sessionId": "s5", "state": "ready",
-     "running": false, "pendingPermissions": [], "subagents": 0, "tasks": 2, "permissionMode": "bypass", "asleep": false, "unread": false},
+     "running": false, "pendingPermissions": [], "subagents": 0, "tasks": 2, "permissionMode": "bypass", "asleep": false, "unread": false,
+     "group": "idle", "status": "idle", "attentionRank": 4},
     {"agentId": "a6", "provider": "claude", "title": "Sikemux bug", "cwd": "/Users/me/sikemux", "sessionId": null, "state": "stopped",
-     "running": false, "pendingPermissions": [], "subagents": 0, "tasks": 0, "permissionMode": "bypass", "asleep": true, "unread": false},
+     "running": false, "pendingPermissions": [], "subagents": 0, "tasks": 0, "permissionMode": "bypass", "asleep": true, "unread": false,
+     "group": "idle", "status": "asleep", "attentionRank": 6},
+    {"agentId": "a8", "provider": "claude", "title": "Ship the release notes", "cwd": "/Users/me/server", "sessionId": null, "state": "stopped",
+     "running": false, "pendingPermissions": [], "subagents": 0, "tasks": 0, "permissionMode": "bypass", "asleep": false, "unread": false,
+     "group": "idle", "status": "stopped", "attentionRank": 7},
     {"agentId": "a7", "provider": "claude", "title": "Tidy the changelog", "cwd": "/Users/me/sikemux", "sessionId": "s7", "state": "ready",
-     "running": false, "pendingPermissions": [], "subagents": 0, "tasks": 0, "permissionMode": "bypass", "asleep": false, "unread": false},
+     "running": false, "pendingPermissions": [], "subagents": 0, "tasks": 0, "permissionMode": "bypass", "asleep": false, "unread": false,
+     "group": "idle", "status": "idle", "attentionRank": 5},
     {"agentId": "a4", "provider": "grok", "title": "Bump Astro to 6", "cwd": "/Users/me/sikemux-front", "sessionId": "s4", "state": "ready",
-     "running": false, "pendingPermissions": [], "subagents": 0, "tasks": 0, "permissionMode": "bypass", "asleep": false, "unread": true}
+     "running": false, "pendingPermissions": [], "subagents": 0, "tasks": 0, "permissionMode": "bypass", "asleep": false, "unread": true,
+     "group": "done", "status": "done", "attentionRank": 3}
   ],
   "attentions": [
     {"id": "p1", "kind": "permission", "agentId": "a1", "provider": "claude", "cwd": "/Users/me/sikemux", "at": NOW,
      "request": {"toolCall": {"title": "Run tests", "rawInput": {"command": "pnpm test --filter core -- --runInBand"}},
-                 "options": [{"optionId": "o1", "kind": "allow_once"}, {"optionId": "o2", "kind": "allow_always"}, {"optionId": "o3", "kind": "reject_once"}]}}
+                 "options": [{"optionId": "o1", "kind": "allow_once"}, {"optionId": "o2", "kind": "allow_always"}, {"optionId": "o3", "kind": "reject_once"}]},
+     "choices": {"allowOnce": "o1", "allowAlways": "o2", "reject": "o3", "command": "pnpm test --filter core -- --runInBand", "title": "Run tests"}}
   ]
 }
 """#
@@ -165,9 +182,9 @@ if arguments.contains("--film") {
 }
 
 render("C1-idle", agents: [])
-render("C2b-only-idle", agents: ["a6", "a7"])
+render("C2b-only-idle", agents: ["a6", "a7", "a8"])
 render("C7-still-running", agents: ["a3", "a5"])
-render("O5-with-idle", agents: ["a2", "a5"], height: 300) { $0.mode = .open }
+render("O5-with-idle", agents: ["a2", "a5", "a6", "a8"], height: 340) { $0.mode = .open }
 render("C2-working", agents: ["a2", "a3"])
 render("C3-needs-you")
 render("C4-done", agents: ["a4"])

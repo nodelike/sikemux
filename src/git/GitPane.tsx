@@ -54,8 +54,8 @@ import { AuthorAvatar } from "./AuthorAvatar";
 import { GitGraph } from "./GitGraph";
 import { GitModalRenderer } from "./GitModalRenderer";
 import { VirtualPanelRows } from "./VirtualPanelRows";
+import { gitStatusDecoration } from "./gitFileStatus";
 import { GitColumns } from "./GitColumns";
-import { FileStatus } from "./FileStatus";
 import { HISTORY_CLEARANCE, HISTORY_MIN, ResizeHandle } from "./ResizeHandle";
 import { SkeletonRows } from "../ui/Skeleton";
 import { EmptyState } from "../ui/Panel";
@@ -988,6 +988,7 @@ function GitWorkbench({
         const { file, side } = entry;
         const selected = panel === "files" && selectedFileIndex === i;
         const dir = dirname(file.path);
+        const status = gitStatusDecoration(side === "staged" ? file.index : file.worktree);
         return (
             <div
                 role="button"
@@ -1020,7 +1021,11 @@ function GitWorkbench({
                         </RowButton>
                     )}
                 </span>
-                <FileStatus code={side === "staged" ? file.index : file.worktree} />
+                {status && (
+                    <span className={`git-status git-${status.cls}`} title={status.label}>
+                        {status.letter}
+                    </span>
+                )}
             </div>
         );
     };

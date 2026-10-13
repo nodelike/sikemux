@@ -15,8 +15,3 @@ export function agentStatusLabel(status: AgentStatus | undefined): string | null
             return null;
     }
 }
-
-/** Whether the agent can be started at all; signed out agents can, and then ask to sign in. */
-export function agentCanStart(status: AgentStatus | undefined): boolean {
-    return status?.state !== "missing" && status?.state !== "broken";
-}

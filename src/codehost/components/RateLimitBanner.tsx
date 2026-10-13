@@ -3,7 +3,7 @@ import { invalidate, useResourceEnabled } from "../../plugin-api/resources";
 import { useAccount, useHost } from "../registry";
 import { rateLimitR } from "../resources";
 import type { RateLimit } from "../types";
-import { useNow } from "./hooks";
+import { useNow } from "../../plugin-api/hooks";
 
 function clock(epochSecs: number): string {
     return new Date(epochSecs * 1000).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });

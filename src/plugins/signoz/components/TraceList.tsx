@@ -5,7 +5,7 @@ import { failureMessage, signozApi, type TraceSummary } from "../api";
 import { signozTracesR } from "../resources";
 import { scopeOf, signozSettings, updateView, useExploreView } from "../state";
 import { logTime } from "./LogRow";
-import { formatMs } from "./TraceView";
+import { formatDuration } from "../../../plugin-api/format";
 
 const PAGE = 100;
 
@@ -57,7 +57,7 @@ export function TraceList({ paneId, active }: { paneId: string; active: boolean 
                         <span className="sgz-trace-name">{trace.name}</span>
                         <span className="sgz-trace-duration">
                             <span className="sgz-trace-bar" style={{ width: `${Math.max(2, (trace.durationMs / slowest) * 100)}%` }} />
-                            <span className="sgz-trace-ms">{formatMs(trace.durationMs)}</span>
+                            <span className="sgz-trace-ms">{formatDuration(trace.durationMs)}</span>
                         </span>
                     </button>
                 ))}

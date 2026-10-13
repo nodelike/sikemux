@@ -157,6 +157,8 @@ export const TOOL_ROWS = {
     jira_comment: { verb: "comment", kind: "edit", icon: "message", target: ["{key}"], detail: ["{site}"], plugin: "sikemux.jira" },
     jira_transition: { verb: "move", kind: "move", icon: "status", target: ["{key} to {to}", "{key}"], detail: ["{site}"], plugin: "sikemux.jira" },
     jira_create: { verb: "create", kind: "edit", icon: "square-plus", target: ["{summary}"], detail: ["{project}"], plugin: "sikemux.jira" },
+    jira_edit: { verb: "edit", kind: "edit", icon: "issue", target: ["{key}"], detail: ["{site}"], plugin: "sikemux.jira" },
+    jira_link: { verb: "link", kind: "edit", icon: "link", target: ["{key} {relation} {other}"], detail: ["{site}"], plugin: "sikemux.jira" },
     jira_worklog: { verb: "log", kind: "edit", icon: "clock", target: ["{key}"], detail: ["{time}"], plugin: "sikemux.jira" },
     signoz_services: {
         verb: "service",
@@ -191,4 +193,8 @@ export const TOOL_ROWS = {
         plugin: "sikemux.signoz",
     },
     signoz_fields: { verb: "fields", kind: "search", icon: "search", target: ["{name}", "“{search}”", "{signal}"], plugin: "sikemux.signoz" },
+    slack_thread: { verb: "read", kind: "read", icon: "message", target: ["{link}", "{channel} {ts}"], plugin: "sikemux.slack" },
+    slack_search: { verb: "search", kind: "search", icon: "search", target: ["{query}"], plugin: "sikemux.slack" },
+    slack_post: { verb: "post", kind: "edit", icon: "message", target: ["reply to {link}", "{channel}"], plugin: "sikemux.slack" },
+    slack_user: { verb: "find", kind: "search", icon: "search", target: ["{who}"], plugin: "sikemux.slack" },
 } satisfies Record<string, ToolRowSpec>;

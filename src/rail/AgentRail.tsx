@@ -3,18 +3,19 @@ import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from "rea
 import type { AgentInfo } from "../api/agents";
 import { usePageVisible } from "../hooks/usePageVisible";
 import { selectedAgentRuntimeProfiles, selectedProviderProfile } from "../agents/agentProfiles";
+import { hasUsage, type UsageAgentType } from "../agents/catalog";
 import * as cmd from "../state/commands";
 import { useShortcutLabel, withShortcut } from "../commands/useShortcutLabel";
 import { useResource, useResourceEnabled } from "../state/resources";
 import { agentCatalogR, agentUsageR } from "../state/resources.defs";
 import { useStore } from "../state/store";
-import { activeAgentId, agentIdsOf, agentsAwaitingInput } from "../state/selectors";
+import { activeAgentId, agentDisplayOf, agentIdsOf, agentsAwaitingInput } from "../state/selectors";
 import { type Agent, type AgentType } from "../state/types";
 import { AgentIcon, IconClose, IconInbox, IconPlus, IconSearch } from "../ui/Icons";
-import { AgentStateIndicator, SubagentCount } from "../agents/AgentStateIndicator";
+import { AgentStateIndicator, BackgroundCounts, showsAgentState } from "../agents/AgentStateIndicator";
 import { AgentTitleInput } from "../agents/AgentTitleInput";
 import { AgentContextMenu } from "../workspace/AgentContextMenu";
-import { sortByAttention } from "../state/agentStatus";
+import { AGENT_LABELS, agentDisplay, sortByAttention } from "../state/agentStatus";
 import { Tooltip } from "../ui/Tooltip";
 import { Panel, PanelHeader } from "../ui/Panel";
 import { animate, type Box, contentBox, EASE_LEAVE, glideSelection, leavingRef } from "../lib/motion";
@@ -29,11 +30,6 @@ import { useRecentChats } from "./useRecentChats";
 import { LEAVES_SETTINGS } from "../settings/leaveSettings";
 
 const USAGE_REFRESH_MS = 5 * 60_000;
-type UsageAgentType = "claude" | "codex";
-
-function isUsageAgent(type: AgentType | null): type is UsageAgentType {
-    return type === "claude" || type === "codex";
-}
 
 const persistedSessionIdOf = (a: Agent) => a.resumeId ?? a.id;
 
@@ -91,7 +87,7 @@ export function AgentRailBody() {
     const pageVisible = usePageVisible();
     const session = useStore((s) => s.sessions[s.activeSessionId]);
     const activityById = useStore((s) => s.agentActivity);
-    const backgroundById = useStore((s) => s.agentBackgroundWork);
+    const tasksById = useStore((s) => s.agentTasks);
     const subagentsById = useStore((s) => s.agentSubagents);
     const windowsBySession = useStore((s) => s.windowsBySession);
     const windowsById = useStore((s) => s.windows);
@@ -269,13 +265,10 @@ export function AgentRailBody() {
     if (!session) return null;
 
     const opens = sortByAttention(
-        (
-            agentIdsOf({ windowsBySession, windows: windowsById }, session.id)
-                .map((id) => agentsById[id])
-                .filter(Boolean) as Agent[]
-        ).filter((a) => availableTypes.has(a.type)),
+        agentIdsOf({ windowsBySession, windows: windowsById }, session.id)
+            .map((id) => agentsById[id])
+            .filter(Boolean) as Agent[],
         activityById,
-        backgroundById,
     );
 
     const menuAgent = menu ? agentsById[menu.agentId] : undefined;
@@ -293,7 +286,7 @@ export function AgentRailBody() {
         windowsBySession,
         agents: agentsById,
         agentActivity,
-    }).filter((entry) => entry.sessionId !== session.id).length;
+    }).filter((entry) => entry.session.id !== session.id).length;
 
     const toggleSearch = () => {
         setQuery("");
@@ -315,13 +308,8 @@ export function AgentRailBody() {
                     allAgents={allAgents}
                 />
                 <div className="agent-empty">agents are project-scoped</div>
-                {!allAgents && isUsageAgent(selectedType) && selectedUsage && (
-                    <AgentAccountsPanel
-                        provider={selectedType}
-                        usage={selectedUsage}
-                        label={selectedProvider?.label}
-                        command={selectedProvider?.command}
-                    />
+                {!allAgents && hasUsage(selectedType) && selectedUsage && (
+                    <AgentAccountsPanel provider={selectedType} usage={selectedUsage} command={selectedProvider?.command} />
                 )}
             </>
         );
@@ -396,6 +384,10 @@ export function AgentRailBody() {
                     <Panel variant="group" className="agent-group">
                         <PanelHeader label="Open" rule />
                         {opens.map((a) => {
+                            const display = agentDisplayOf(
+                                { agentActivity: activityById, agentTasks: tasksById, agentSubagents: subagentsById },
+                                a.id,
+                            );
                             const active = activeAgentId({ windows: windowsById }, session) === a.id;
                             const glyph = (
                                 <span className={`agent-glyph ${a.type}`}>
@@ -425,10 +417,14 @@ export function AgentRailBody() {
                                             }}>
                                             {glyph}
                                             <span className="agent-title">{a.title}</span>
-                                            {(subagentsById[a.id] ?? 0) > 0 && <SubagentCount count={subagentsById[a.id]} />}
+                                            <BackgroundCounts display={display} />
                                         </button>
                                     )}
-                                    <AgentStateMark state={activityById[a.id]?.state} background={(backgroundById[a.id] ?? 0) > 0} />
+                                    {showsAgentState(display) && (
+                                        <span className="row-status">
+                                            <AgentStateIndicator display={display} />
+                                        </span>
+                                    )}
                                     <Tooltip label={`Close ${a.title}`}>
                                         <button type="button" className="row-x" aria-label={`Close ${a.title}`} onClick={() => cmd.closeAgent(a.id)}>
                                             <IconClose size={11} />
@@ -457,13 +453,8 @@ export function AgentRailBody() {
             </div>
             {/* The rail's footer: plan limits sit under the agents they apply
                 to, out of the way of the list you came here to use. */}
-            {!allAgents && isUsageAgent(selectedType) && selectedUsage && (
-                <AgentAccountsPanel
-                    provider={selectedType}
-                    usage={selectedUsage}
-                    label={selectedProvider?.label}
-                    command={selectedProvider?.command}
-                />
+            {!allAgents && hasUsage(selectedType) && selectedUsage && (
+                <AgentAccountsPanel provider={selectedType} usage={selectedUsage} command={selectedProvider?.command} />
             )}
         </>
     );
@@ -489,31 +480,22 @@ function AgentAttentionGroup() {
     if (waiting.length === 0) return null;
     return (
         <Panel variant="group" className="agent-group agent-attention">
-            <PanelHeader label={waiting.length === 1 ? "1 action required" : `${waiting.length} actions required`} rule />
-            {waiting.map((entry) => (
+            <PanelHeader label={`${AGENT_LABELS.blocked} ${waiting.length}`} rule />
+            {waiting.map(({ agentId, agent, session }) => (
                 <button
-                    key={entry.agentId}
+                    key={agentId}
                     className="agent-row attention"
-                    title={`${entry.sessionName} — ${entry.agentTitle} is waiting for you`}
-                    onClick={() => cmd.revealAgent(entry.agentId)}>
-                    <span className={`agent-glyph ${entry.agentType}`}>
-                        <AgentIcon type={entry.agentType} size={20} />
+                    title={`${session.name} — ${agent.title}: ${AGENT_LABELS.blocked}`}
+                    onClick={() => cmd.revealAgent(agentId)}>
+                    <span className={`agent-glyph ${agent.type}`}>
+                        <AgentIcon type={agent.type} size={20} />
                     </span>
-                    <span className="agent-title">{entry.agentTitle}</span>
-                    {entry.sessionId !== activeSessionId && <span className="agent-attention-project">{entry.sessionName}</span>}
-                    <AgentStateIndicator state="blocked" />
+                    <span className="agent-title">{agent.title}</span>
+                    {session.id !== activeSessionId && <span className="agent-attention-project">{session.name}</span>}
+                    <AgentStateIndicator display={agentDisplay("blocked")} />
                 </button>
             ))}
         </Panel>
-    );
-}
-
-function AgentStateMark({ state, background }: { state?: import("../state/types").AgentPresentationState; background: boolean }) {
-    if (!state && !background) return null;
-    return (
-        <span className="row-status">
-            <AgentStateIndicator state={state ?? "idle"} background={background} />
-        </span>
     );
 }
 
@@ -604,7 +586,7 @@ function AgentHeader({
                     <Tooltip
                         key={a.type}
                         label={
-                            isUsageAgent(a.type) && usagePeaks[a.type] != null
+                            hasUsage(a.type) && usagePeaks[a.type] != null
                                 ? `${a.label} — ${Math.round(usagePeaks[a.type]!)}% of the busiest limit used`
                                 : a.label
                         }>

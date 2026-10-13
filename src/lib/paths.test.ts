@@ -27,6 +27,8 @@ describe("path helpers", () => {
     it("pretty-prints and expands home paths", () => {
         expect(prettyPath("/Users/alice/proj", "/Users/alice")).toBe("~/proj");
         expect(prettyPath("/var/tmp", "/Users/alice")).toBe("/var/tmp");
+        expect(prettyPath("/Users/alice2/proj", "/Users/alice")).toBe("/Users/alice2/proj");
+        expect(prettyPath("/Users/alice", "/Users/alice")).toBe("~");
         expect(expandHome("~", "/Users/alice")).toBe("/Users/alice");
         expect(expandHome("~/proj", "/Users/alice")).toBe("/Users/alice/proj");
         expect(expandHome("/tmp", "/Users/alice")).toBe("/tmp");

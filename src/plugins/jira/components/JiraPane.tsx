@@ -6,6 +6,7 @@ import { failureMessage, jiraApi, refreshJira, type JiraIssue, type JiraIssueSum
 import { jiraBoardsR, jiraFiltersR, jiraIssueR, jiraProjectsR, jiraSearchR, jiraStatusR } from "../resources";
 import { copyIssue, issueMenu, openIssue } from "../issueLinks";
 import { jqlOf, mentions, updateJiraView, useJiraView, type JiraList } from "../state";
+import { statusCounts, withStatuses } from "../statusFilter";
 import { JiraBoard } from "./JiraBoard";
 import { JiraSignIn } from "./JiraSignIn";
 import { StatusChip } from "./StatusChip";
@@ -170,6 +171,7 @@ function JiraWorkspace({ paneId, active, sites }: { paneId: string; active: bool
                 />
             ) : (
                 <IssueList
+                    key={jqlOf(view.list)}
                     active={active}
                     empty={EMPTY[view.list.kind] ?? "No issues here."}
                     jql={jqlOf(view.list)}
@@ -205,6 +207,7 @@ function IssueList({
     onSelect: (key: string) => void;
 }) {
     const found = useResourceEnabled(active, jiraSearchR, jql, site);
+    const [picked, setPicked] = useState<ReadonlySet<string>>(new Set());
     if (found.status === "error")
         return (
             <div className="jira-list-pane">
@@ -223,11 +226,37 @@ function IssueList({
                 <EmptyState message={empty} />
             </div>
         );
+    const counts = statusCounts(found.data.issues);
+    const shown = new Set([...picked].filter((status) => counts.some((each) => each.status === status)));
+    const toggle = (status: string) => {
+        const next = new Set(shown);
+        if (!next.delete(status)) next.add(status);
+        setPicked(next);
+    };
     return (
-        <div className="jira-list-pane" role="list">
-            {found.data.issues.map((issue) => (
-                <IssueRow key={issue.key} issue={issue} selected={issue.key === selected} onSelect={() => onSelect(issue.key)} />
-            ))}
+        <div className="jira-list-pane">
+            {counts.length > 1 && (
+                <div className="jira-status-filter" role="group" aria-label="Filter by status">
+                    <button type="button" className="jira-status-pick" aria-pressed={shown.size === 0} onClick={() => setPicked(new Set())}>
+                        All <span className="jira-status-count">{found.data.issues.length}</span>
+                    </button>
+                    {counts.map(({ status, category, count }) => (
+                        <button
+                            key={status}
+                            type="button"
+                            className={`jira-status-pick jira-status-${category || "new"}`}
+                            aria-pressed={shown.has(status)}
+                            onClick={() => toggle(status)}>
+                            {status} <span className="jira-status-count">{count}</span>
+                        </button>
+                    ))}
+                </div>
+            )}
+            <div className="jira-issues" role="list">
+                {withStatuses(found.data.issues, shown).map((issue) => (
+                    <IssueRow key={issue.key} issue={issue} selected={issue.key === selected} onSelect={() => onSelect(issue.key)} />
+                ))}
+            </div>
         </div>
     );
 }

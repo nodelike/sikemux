@@ -10,6 +10,8 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import type { JoinTicket } from "@sikemux/protocol";
 
+import { settingsFrom } from "../env.ts";
+
 export interface JoinSigner {
   keyId: string;
   privateKey: KeyObject;
@@ -95,19 +97,19 @@ export function readJoinSigner(
   problems: string[],
   release: boolean,
 ): JoinSigner | null {
-  const keyId =
-    env.JOIN_SIGNING_KEY_ID?.trim() || (release ? "prod-1" : "dev-1");
+  const { optional, text } = settingsFrom(env, problems);
+  const keyId = text("JOIN_SIGNING_KEY_ID", release ? "prod-1" : "dev-1");
   if (!KEY_ID.test(keyId) || keyId.length > 32)
     problems.push(
       "JOIN_SIGNING_KEY_ID is not lowercase words joined by dashes, like prod-1",
     );
 
-  const configured = env.JOIN_SIGNING_KEY_FILE?.trim();
+  const configured = optional("JOIN_SIGNING_KEY_FILE");
   if (!configured && release) {
     problems.push("JOIN_SIGNING_KEY_FILE is not set");
     return null;
   }
-  const file = configured || devKeyFile(env.HOME?.trim() || homedir());
+  const file = configured ?? devKeyFile(optional("HOME") ?? homedir());
   let created = false;
   try {
     if (!configured) created = createDevKey(file);

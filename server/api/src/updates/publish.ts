@@ -11,6 +11,7 @@ import {
 import { join } from "node:path";
 import type { Kysely, Transaction } from "kysely";
 
+import { audit } from "../audit.ts";
 import type { Tables } from "../db.ts";
 import {
   ASSET_URL,
@@ -329,21 +330,18 @@ export async function publishUpdate(
       .insertInto("update_channels")
       .values({ update_id: update.id, channel: update.channel })
       .execute();
-    await trx
-      .insertInto("audit")
-      .values({
-        user_id: null,
-        actor: "deploy",
-        action: "update.published",
-        subject: update.id,
-        detail: JSON.stringify({
-          platform: update.platform,
-          runtimeVersion: update.runtimeVersion,
-          channel: update.channel,
-          commit: update.commit,
-        }),
-      })
-      .execute();
+    await audit(trx, {
+      userId: null,
+      actor: "deploy",
+      action: "update.published",
+      subject: update.id,
+      detail: {
+        platform: update.platform,
+        runtimeVersion: update.runtimeVersion,
+        channel: update.channel,
+        commit: update.commit,
+      },
+    });
     return true;
   });
 
@@ -440,21 +438,18 @@ export async function promoteUpdate(
       .insertInto("update_channels")
       .values({ update_id: id, channel: "stable" })
       .execute();
-    await trx
-      .insertInto("audit")
-      .values({
-        user_id: null,
-        actor: "deploy",
-        action: "update.promoted",
-        subject: id,
-        detail: JSON.stringify({
-          platform: update.platform,
-          runtimeVersion: update.runtime_version,
-          from: channels.map((row) => row.channel),
-          to: "stable",
-        }),
-      })
-      .execute();
+    await audit(trx, {
+      userId: null,
+      actor: "deploy",
+      action: "update.promoted",
+      subject: id,
+      detail: {
+        platform: update.platform,
+        runtimeVersion: update.runtime_version,
+        from: channels.map((row) => row.channel),
+        to: "stable",
+      },
+    });
     return { ...result, added: true };
   });
 }
@@ -509,20 +504,17 @@ export async function withdrawUpdate(
       channels,
     };
     if (channels.length === 0) return result;
-    await trx
-      .insertInto("audit")
-      .values({
-        user_id: null,
-        actor: "deploy",
-        action: "update.withdrawn",
-        subject: id,
-        detail: JSON.stringify({
-          platform: update.platform,
-          runtimeVersion: update.runtime_version,
-          channels,
-        }),
-      })
-      .execute();
+    await audit(trx, {
+      userId: null,
+      actor: "deploy",
+      action: "update.withdrawn",
+      subject: id,
+      detail: {
+        platform: update.platform,
+        runtimeVersion: update.runtime_version,
+        channels,
+      },
+    });
     return result;
   });
 }
@@ -636,21 +628,18 @@ export async function rollBackUpdate(
         })),
       )
       .execute();
-    await trx
-      .insertInto("audit")
-      .values({
-        user_id: null,
-        actor: "deploy",
-        action: "update.rolled_back",
-        subject: id,
-        detail: JSON.stringify({
-          platform: update.platform,
-          runtimeVersion: update.runtime_version,
-          channels,
-          commitTime: commitTime.toISOString(),
-        }),
-      })
-      .execute();
+    await audit(trx, {
+      userId: null,
+      actor: "deploy",
+      action: "update.rolled_back",
+      subject: id,
+      detail: {
+        platform: update.platform,
+        runtimeVersion: update.runtime_version,
+        channels,
+        commitTime: commitTime.toISOString(),
+      },
+    });
     return {
       id,
       platform: update.platform,

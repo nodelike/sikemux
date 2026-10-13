@@ -208,7 +208,7 @@ describe("DiffEditor", () => {
     it("refuses to edit a file too large to diff inline, and does not keep it cached", async () => {
         mocks.fileAt.mockResolvedValue("x".repeat(33 * 1024 * 1024));
         const first = render(<DiffEditor repo="/repo" path="huge.log" baseRev="HEAD" headRev="abc" editable />);
-        expect(await first.findByText("x huge.log is too large for inline diff (33.0 MB).")).toBeInTheDocument();
+        expect(await first.findByText("x huge.log is too large for inline diff (33 MB).")).toBeInTheDocument();
         first.unmount();
 
         const reads = mocks.fileAt.mock.calls.length;

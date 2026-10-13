@@ -1,4 +1,4 @@
-mod claude;
+pub(crate) mod claude;
 mod codex;
 pub(crate) mod context;
 pub(crate) mod delete;
@@ -23,7 +23,7 @@ use serde_json::Value;
 use tauri::async_runtime::spawn_blocking;
 use tokio::process::Command;
 
-use super::executable::{apply_login_environment, apply_process_config, expand_user_path};
+use super::executable::{apply_login_environment, apply_process_config};
 use super::{AgentKind, AgentSession};
 use claude::claude_sessions;
 use codex::codex_sessions;
@@ -32,6 +32,7 @@ use hermes::hermes_sessions;
 use omp::omp_sessions;
 use opencode::opencode_sessions;
 use pi::pi_sessions;
+use sikemux_process::paths::expand_home;
 
 fn read_agent_sessions(
     agent: AgentKind,
@@ -83,7 +84,7 @@ pub async fn live_agent_sessions(
 ) -> Result<Vec<LiveAgentSession>, String> {
     let executable = executable_path
         .as_deref()
-        .map(expand_user_path)
+        .map(expand_home)
         .or_else(|| crate::system::find_executable("claude"))
         .ok_or_else(|| "claude is not available".to_string())?;
     let mut command = Command::from(sikemux_process::user_environment::command(executable));

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { errMessage } from "../../state/toast";
-import { formatBytes, ViewerBar, ViewerMessage, type ViewProps } from "./ViewerBar";
+import { ViewerBar, ViewerMessage, type ViewProps } from "./ViewerBar";
+import { formatBytes } from "../../lib/format";
 
 const SHOWN_BYTES = 64 * 1024;
 

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { AgentInfo } from "../api/agents";
-import { chatAgentFor, projectSessionIn } from "./workOnIssue";
+import { projectSessionId } from "../state/selectors";
+import { chatAgentFor } from "./workOnIssue";
 
 const info = (type: AgentInfo["type"], available = true): AgentInfo =>
     ({ type, label: type, command: type, available, defaultModel: null }) as AgentInfo;
@@ -20,7 +21,7 @@ describe("chatAgentFor", () => {
     });
 });
 
-describe("projectSessionIn", () => {
+describe("projectSessionId", () => {
     it("finds the project open in the folder and nothing else", () => {
         const state = {
             sessionOrder: ["s1", "s2"],
@@ -28,8 +29,8 @@ describe("projectSessionIn", () => {
                 s1: { id: "s1", kind: "command", cwd: "/repo" },
                 s2: { id: "s2", kind: "project", cwd: "/repo" },
             },
-        } as unknown as Parameters<typeof projectSessionIn>[0];
-        expect(projectSessionIn(state, "/repo")).toBe("s2");
-        expect(projectSessionIn(state, "/other")).toBeNull();
+        } as unknown as Parameters<typeof projectSessionId>[0];
+        expect(projectSessionId(state, "/repo")).toBe("s2");
+        expect(projectSessionId(state, "/other")).toBeNull();
     });
 });

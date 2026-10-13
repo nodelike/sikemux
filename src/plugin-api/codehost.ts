@@ -8,4 +8,5 @@ export {
     type HostCapabilities,
     type ThreadOf,
 } from "../codehost/registry";
+export { createCodeHostClient, type CodeHostClient } from "../codehost/client";
 export { hostCiGlyph } from "../codehost/components/HostCiGlyph";

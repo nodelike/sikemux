@@ -8,7 +8,8 @@ import { getState, mutate, setState, type StoreState } from "../store";
 import { deskEditorId } from "../desks";
 import { notify, reportError } from "../toast";
 import { confirmDialog } from "../dialog";
-import { editorPaneOf } from "../selectors";
+import { editorPaneOf, projectSessionId } from "../selectors";
+import { isAgentBusy } from "../agentStatus";
 import { collectPanes, makePane, newId } from "../layout";
 import type { PaneKind, Session, SessionKind, Window, WindowRole } from "../types";
 import { focusPane } from "./panes";
@@ -121,8 +122,8 @@ export function attachSession(d: StoreState, session: Session, windows: Window[]
 
 /** A project's session, opened behind the one in front if the project is not open yet. Returns its id. */
 export function projectSessionInBackground(d: StoreState, cwd: string): string {
-    const existing = d.sessionOrder.map((id) => d.sessions[id]).find((s) => s.cwd === cwd && s.kind === "project");
-    if (existing) return existing.id;
+    const existing = projectSessionId(d, cwd);
+    if (existing) return existing;
     const window = makeWindow(cwd, "Terminal", { role: "term" });
     const session = makeSession("project", basename(cwd), cwd, window.id);
     d.sessions[session.id] = session;
@@ -146,7 +147,7 @@ export function keepOpenedProjectInView(cwd: string): void {
 }
 
 export function openProjectSession(d: StoreState, cwd: string): string {
-    const existing = d.sessionOrder.map((id) => d.sessions[id]).find((s) => s.cwd === cwd && s.kind === "project");
+    const existing = projectSessionId(d, cwd);
     if (!existing) {
         const windows = [makeWindow(cwd, "Terminal", { role: "term" })];
         attachSession(d, makeSession("project", basename(cwd), cwd, windows[0].id), windows);
@@ -154,8 +155,8 @@ export function openProjectSession(d: StoreState, cwd: string): string {
     }
     d.pickerOpen = false;
     d.zoomedPaneId = null;
-    d.activeSessionId = existing.id;
-    return existing.id;
+    d.activeSessionId = existing;
+    return existing;
 }
 
 export function dirtyPathsForWindow(st: StoreState, win: Window | undefined): string[] {
@@ -196,11 +197,14 @@ export function guardDiscardDirty(paths: string[], action: string, proceed: () =
     });
 }
 
-export function busyAgentIds(state: Pick<StoreState, "agentActivity">, agentIds: readonly string[]): string[] {
-    return agentIds.filter((id) => {
-        const backend = state.agentActivity[id]?.backendState;
-        return backend === "working" || backend === "blocked";
-    });
+/** Closing an agent's tab stops it, so it asks first when the agent is busy. */
+export function guardCloseAgents(agentIds: readonly string[], title: string, proceed: () => void): void {
+    const { agentActivity } = getState();
+    guardStopAgents(
+        agentIds.filter((id) => isAgentBusy(agentActivity[id])),
+        title,
+        proceed,
+    );
 }
 
 /** Closing whatever holds these agents stops them, so it asks first. */
@@ -254,7 +258,7 @@ export function disposePaneState(d: StoreState, paneId: string): void {
     delete d.agents[paneId];
     forgetAgentDeliveries(paneId);
     delete d.agentActivity[paneId];
-    delete d.agentBackgroundWork[paneId];
+    delete d.agentTasks[paneId];
     delete d.agentSubagents[paneId];
 }
 

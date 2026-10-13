@@ -2,10 +2,14 @@ import { createContext, useContext, useEffect, useState } from 'react';
 import { Animated, Easing, Image, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { durationLabel } from '@mac/chat/durationLabel';
+import { basename } from '@mac/lib/paths';
 import { rateLabel, sentLabel, type RowMeta } from '@mac/chat/messageMeta';
-import { cutLongText } from '@mac/chat/longText';
-import { subagentTask } from '@mac/chat/transcript';
-import type { AcpContentBlock, AcpSubagent, AcpTaskNotice, ChatMessage, ChatPart } from '@mac/chat/types';
+import { cutLongText, showRestLabel } from '@mac/chat/longText';
+import { contextChip, type SentContext } from '@mac/chat/promptContext';
+import { groupParts, sentParts, shownParts, SUBAGENT_MARKS, SUBAGENT_WORDS, subagentTask, type SubagentMark } from '@mac/chat/transcript';
+import { callCount, callsLabel, workedLabel } from '@mac/chat/toolView';
+import type { PageRef } from '@mac/api/pages';
+import type { AccountMove, AcpContentBlock, AcpSubagent, AcpTaskNotice, AgentNotice, ChatMessage, ChatPart } from '@mac/chat/types';
 import { CopyButton } from '@/ui/CopyButton';
 import { haptics } from '@/ui/haptics';
 import { AgentIcon, Icon } from '@/ui/Icon';
@@ -17,7 +21,7 @@ import { FoldsContext, useFold } from './folds';
 import { Markdown } from './Markdown';
 import { SentAttachments } from './Attachments';
 import type { Attachment, Held, Unsent } from './session';
-import { ToolGroup, type ToolPart } from './Tools';
+import { ToolGroup } from './Tools';
 
 /** The chat's agent, whose mark its subagents carry. */
 export const ProviderContext = createContext('agent');
@@ -39,27 +43,20 @@ function LongText({ id, text, live, style }: { id: string; text: string; live: b
       <Markdown text={cut ? cut.head : text} style={style} />
       {cut ? (
         <Pressable onPress={() => setWhole(true)} hitSlop={6} style={styles.showRest} accessibilityRole="button">
-          <Text style={styles.showRestText}>Show the rest · {Math.round(cut.hidden / 1000)}k more characters</Text>
+          <Text style={styles.showRestText}>{showRestLabel(cut.hidden)}</Text>
         </Pressable>
       ) : null}
     </>
   );
 }
 
-const SUBAGENT_WORDS: Record<AcpSubagent['state'], string> = {
-  running: 'working',
-  completed: 'done',
-  failed: 'failed',
-  cancelled: 'stopped',
-  disconnected: 'lost',
-};
-
-function SubagentMark({ state }: { state: AcpSubagent['state'] }) {
+function SubagentMarkView({ state }: { state: AcpSubagent['state'] }) {
   const colors = useColors();
-  if (state === 'running') return <Working />;
-  if (state === 'completed') return <Icon name="IconCheck" size={13} color={colors.live} />;
-  if (state === 'failed') return <Icon name="IconWarning" size={12} color={colors.danger} />;
-  if (state === 'disconnected') return <Icon name="IconPlug" size={12} color={colors.danger} />;
+  const mark: SubagentMark = SUBAGENT_MARKS[state];
+  if (mark === 'spinner') return <Working />;
+  if (mark === 'check') return <Icon name="IconCheck" size={13} color={colors.live} />;
+  if (mark === 'warning') return <Icon name="IconWarning" size={12} color={colors.danger} />;
+  if (mark === 'plug') return <Icon name="IconPlug" size={12} color={colors.danger} />;
   return <Icon name="IconClose" size={11} color={colors.inkFaint} />;
 }
 
@@ -78,7 +75,7 @@ function Subagent({ subagent, untimed }: { subagent: AcpSubagent; untimed: boole
         onPress={() => setOpen(!open)}
         style={({ pressed }) => [styles.subagentHead, pressed && { backgroundColor: colors.active }]}
         accessibilityRole="button"
-        accessibilityLabel={`Subagent ${subagent.name}, ${SUBAGENT_WORDS[subagent.state]}${calls ? `, ${calls} calls` : ''}`}
+        accessibilityLabel={`Subagent ${subagent.name}, ${SUBAGENT_WORDS[subagent.state]}${calls ? `, ${callCount(calls)}` : ''}`}
         accessibilityState={{ expanded: open }}>
         <View style={[styles.chevron, open && { transform: [{ rotate: '90deg' }] }]}>
           <Icon name="IconChevron" size={10} color={colors.inkDim} />
@@ -96,13 +93,9 @@ function Subagent({ subagent, untimed }: { subagent: AcpSubagent; untimed: boole
             {subagentTask(subagent.task)}
           </Text>
         )}
-        {calls ? (
-          <Text style={styles.subagentCalls}>
-            {calls} {calls === 1 ? 'call' : 'calls'}
-          </Text>
-        ) : null}
+        {calls ? <Text style={styles.subagentCalls}>{callCount(calls)}</Text> : null}
         <View style={styles.subagentMark}>
-          <SubagentMark state={subagent.state} />
+          <SubagentMarkView state={subagent.state} />
         </View>
       </Pressable>
       {open ? (
@@ -148,26 +141,99 @@ function Notice({ id, notice }: { id: string; notice: AcpTaskNotice }) {
   );
 }
 
-function userText(message: ChatMessage): string {
-  return message.parts.flatMap((part) => (part.kind === 'text' ? [part.text] : [])).join('\n');
+function AgentNoticeLine({ notice }: { notice: AgentNotice }) {
+  const colors = useColors();
+  const styles = useStyles(makeStyles);
+  const tint = notice.severity === 'error' ? colors.danger : notice.severity === 'warning' ? colors.warn : colors.inkFaint;
+  return (
+    <View style={styles.notice} accessible accessibilityLabel={`${notice.title}${notice.description ? `. ${notice.description}` : ''}`}>
+      <View style={styles.noticeHead}>
+        <Icon name={notice.severity === 'info' ? 'IconInfo' : 'IconWarning'} size={12} color={tint} />
+        <Text style={[styles.noticeState, notice.severity !== 'info' && { color: tint }]}>{notice.title}</Text>
+      </View>
+      {notice.description ? (
+        <Text style={styles.noticeSummary} selectable>
+          {notice.description}
+        </Text>
+      ) : null}
+    </View>
+  );
+}
+
+function AccountLine({ move }: { move: AccountMove }) {
+  const colors = useColors();
+  const styles = useStyles(makeStyles);
+  const why = move.reason === 'limit' && move.from ? `${move.from} reached its usage limit` : null;
+  return (
+    <View style={styles.notice} accessible accessibilityLabel={`Moved to ${move.label}${why ? `. ${why}` : ''}`}>
+      <View style={styles.noticeHead}>
+        <Icon name="IconUser" size={12} color={colors.inkFaint} />
+        <Text style={styles.noticeState}>Moved to</Text>
+        <Text style={styles.noticeName} numberOfLines={1}>
+          {move.label}
+        </Text>
+      </View>
+      {why ? <Text style={styles.noticeSummary}>{why}</Text> : null}
+    </View>
+  );
+}
+
+/** A page the agent showed. The phone has no web view to draw it in, so it names the page and where it is. */
+function PageCard({ page }: { page: PageRef }) {
+  const colors = useColors();
+  const styles = useStyles(makeStyles);
+  return (
+    <View style={styles.resource} accessible accessibilityLabel={`Page ${page.title}, open on the computer`}>
+      <Icon name="IconWindow" size={14} color={colors.inkDim} />
+      <Text style={styles.pageTitle} numberOfLines={1}>
+        {page.title}
+      </Text>
+      <Text style={styles.pageWhere}>on the computer</Text>
+    </View>
+  );
+}
+
+/** An issue, pull request or other item handed over with a message, by its number and title rather than its whole text. */
+function ContextChips({ items }: { items: SentContext[] }) {
+  const colors = useColors();
+  const styles = useStyles(makeStyles);
+  return (
+    <View style={styles.contextChips}>
+      {items.map((item) => {
+        const chip = contextChip(item);
+        return (
+          <View
+            key={item.uri}
+            style={styles.contextChip}
+            accessible
+            accessibilityLabel={`${chip.kind === 'issue' ? 'Issue' : chip.kind === 'pull' ? 'Pull request' : 'Context'} ${chip.number ? `#${chip.number} ` : ''}${chip.title}`}>
+            <Icon
+              name={chip.kind === 'issue' ? 'IconIssue' : chip.kind === 'pull' ? 'IconPullRequest' : 'IconFile'}
+              size={14}
+              color={chip.kind ? colors.live : colors.inkFaint}
+            />
+            {chip.number ? <Text style={styles.contextNumber}>#{chip.number}</Text> : null}
+            <Text style={styles.contextTitle} numberOfLines={1}>
+              {chip.title}
+            </Text>
+          </View>
+        );
+      })}
+    </View>
+  );
 }
 
 /** A message's parts in order, with each run of tool calls drawn as one group. */
 function Parts({ id, parts, untimed, live }: { id: string; parts: ChatPart[]; untimed: boolean; live: boolean }) {
   const styles = useStyles(makeStyles);
-  const runs: (ChatPart | ToolPart[])[] = [];
-  for (const part of parts) {
-    const previous = runs[runs.length - 1];
-    if (part.kind === 'tool') {
-      if (Array.isArray(previous)) previous.push(part);
-      else runs.push([part]);
-    } else runs.push(part);
-  }
+  const groups = groupParts(parts);
   return (
     <>
-      {runs.map((run, index) => {
-        const last = live && index === runs.length - 1;
-        if (Array.isArray(run)) return <ToolGroup key={run[0].id} id={`${id}/${run[0].id}`} parts={run} untimed={untimed} live={last} />;
+      {groups.map((group, index) => {
+        const last = live && index === groups.length - 1;
+        if ('tools' in group)
+          return <ToolGroup key={group.id} id={`${id}/${group.id}`} parts={group.tools} untimed={untimed} live={last} />;
+        const run = group.part;
         switch (run.kind) {
           case 'text':
             return run.text.trim() ? <LongText key={run.id} id={run.id} text={run.text} live={last} style={styles.prose} /> : null;
@@ -183,6 +249,12 @@ function Parts({ id, parts, untimed, live }: { id: string; parts: ChatPart[]; un
             return <Notice key={run.id} id={run.id} notice={run.notice} />;
           case 'content':
             return <Content key={run.id} block={run.content} />;
+          case 'agent_notice':
+            return <AgentNoticeLine key={run.id} notice={run.notice} />;
+          case 'account':
+            return <AccountLine key={run.id} move={run.move} />;
+          case 'tool':
+            return run.page ? <PageCard key={run.id} page={run.page} /> : null;
           default:
             return <View key={index} />;
         }
@@ -209,7 +281,7 @@ function Content({ block }: { block: AcpContentBlock }) {
   }
   const resource = typeof block.resource === 'object' && block.resource !== null ? (block.resource as { uri?: unknown }) : null;
   const uri = block.uri ?? (typeof resource?.uri === 'string' ? resource.uri : undefined);
-  const name = block.title ?? block.name ?? uri?.split('/').pop();
+  const name = block.title ?? block.name ?? (uri ? basename(uri) : undefined);
   if (!name) return null;
   return (
     <View style={styles.resource} accessible accessibilityLabel={`File ${name}`}>
@@ -274,11 +346,13 @@ export function Message({
     : undefined;
   if (message.role === 'user') {
     const failed = unsent?.state === 'failed';
-    const text = userText(message);
+    const { parts, context } = sentParts(message);
+    const text = parts.flatMap((part) => (part.kind === 'text' ? [part.text] : [])).join('\n\n');
     return (
       <View style={styles.userRow}>
         {message.attachments?.length ? <SentAttachments paths={message.attachments} sentFiles={sentFiles} /> : null}
-        {text || !message.attachments?.length ? (
+        {context.length ? <ContextChips items={context} /> : null}
+        {text || (!message.attachments?.length && !context.length) ? (
           <Pressable
             onPress={tap}
             onLongPress={keepLongPress}
@@ -311,18 +385,30 @@ export function Message({
   }
   return (
     <Pressable onPress={tap} onLongPress={keepLongPress} accessibilityHint={tap ? 'Tap for copy and how long it took' : undefined}>
-      <Parts id={message.id} parts={from > 0 ? message.parts.slice(from) : message.parts} untimed={untimed} live={live} />
+      <Parts id={message.id} parts={shownParts(message.parts, from)} untimed={untimed} live={live} />
       {strip ? <Strip meta={strip} mine={false} /> : null}
     </Pressable>
   );
 }
 
 /** A finished answer's work, folded above the reply it closed with, as on the Mac. */
-export function WorkSummary({ took, calls, open, onToggle }: { took: number | null; calls: number; open: boolean; onToggle: () => void }) {
+export function WorkSummary({
+  took,
+  calls,
+  thought,
+  open,
+  onToggle,
+}: {
+  took: number | null;
+  calls: number;
+  thought: boolean;
+  open: boolean;
+  onToggle: () => void;
+}) {
   const colors = useColors();
   const styles = useStyles(makeStyles);
-  const worked = took === null ? 'Worked' : `Worked for ${durationLabel(took)}`;
-  const counted = `${calls} tool call${calls === 1 ? '' : 's'}`;
+  const worked = workedLabel(took, thought);
+  const counted = callsLabel(calls);
   return (
     <View style={styles.work}>
       <Pressable
@@ -462,7 +548,24 @@ const makeStyles = (colors: Palette) => {
       borderColor: colors.border,
       backgroundColor: colors.raised,
     },
+    contextChips: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'flex-end', gap: 6, maxWidth: '84%', marginBottom: 6 },
+    contextChip: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+      maxWidth: 240,
+      paddingVertical: 7,
+      paddingHorizontal: 10,
+      borderRadius: 9,
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.raised,
+    },
+    contextNumber: { fontFamily: fonts.uiMedium, fontSize: 12, color: colors.ink },
+    contextTitle: { flexShrink: 1, fontFamily: fonts.ui, fontSize: 12, color: colors.inkDim },
     resourceText: { flexShrink: 1, fontFamily: fonts.mono, fontSize: 12, color: colors.ink },
+    pageTitle: { flexShrink: 1, fontFamily: fonts.uiMedium, fontSize: 13, color: colors.ink },
+    pageWhere: { fontFamily: fonts.ui, fontSize: 12, color: colors.inkFaint },
     retry: { color: colors.ink, fontFamily: fonts.uiMedium },
     queued: { alignItems: 'flex-end', alignSelf: 'stretch', opacity: 0.55, marginBottom: 6 },
     queuedLabel: { fontFamily: fonts.ui, fontSize: 11, color: colors.inkFaint, marginTop: 4 },

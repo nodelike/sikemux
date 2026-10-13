@@ -3,6 +3,8 @@
 
 use serde_json::{json, Value};
 
+use super::super::json::text;
+
 pub(crate) const DEFAULT: &str = "default";
 
 /// The permission mode Claude Code runs in for each of the app's modes.
@@ -25,13 +27,6 @@ pub(crate) fn modes(current: &str) -> Value {
             { "id": "bypassPermissions", "name": "Bypass permissions", "description": "Accepts all permissions" },
         ],
     })
-}
-
-fn text<'a>(model: &'a Value, key: &str) -> Option<&'a str> {
-    model
-        .get(key)
-        .and_then(Value::as_str)
-        .filter(|value| !value.is_empty())
 }
 
 fn find<'a>(models: &'a [Value], value: &str) -> Option<&'a Value> {

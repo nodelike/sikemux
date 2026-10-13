@@ -106,6 +106,53 @@
     border-right: 1px solid var(--border);
 }
 
+.jira-issues {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.jira-status-filter {
+    position: sticky;
+    top: -8px;
+    z-index: 1;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin: -8px -8px 4px;
+    padding: 8px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+}
+
+.jira-status-pick {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 2px 8px;
+    border: 1px solid transparent;
+    border-radius: var(--radius-2);
+    font-size: var(--text-xs);
+    font-weight: 600;
+    color: var(--text-secondary);
+    background: var(--surface-hover);
+    cursor: pointer;
+}
+
+.jira-status-pick:hover {
+    color: var(--text-primary);
+}
+
+.jira-status-pick[aria-pressed="true"] {
+    border-color: var(--acc);
+    color: var(--text-primary);
+}
+
+.jira-status-count {
+    font-weight: 400;
+    opacity: 0.7;
+}
+
 .jira-row {
     display: flex;
     flex-direction: column;

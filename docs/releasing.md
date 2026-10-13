@@ -156,7 +156,7 @@ A bad update is taken back the same way, with one of two actions. Each channel s
 - `withdraw` stops offering the update on every channel, so phones that have not taken it never do; the channel goes back to what it offered before. Phones that already run it keep it.
 - `roll-back` also withdraws it, and sends phones that run it a signed order to go back to the code in their build. Only updates prepared after the roll-back reach those phones again, so fix forward with a new push to `main`.
 
-Both need `server/deploy/receive-release` on citadel to be the current one; it is installed by `setup-citadel.sh`, not by a server deploy.
+Both need `server/deploy/receive-release` and the `lib.sh` beside it on citadel to be the current ones; they are installed by `setup-citadel.sh`, not by a server deploy.
 
 Locally, `node scripts/publish-update.mjs android nightly --dry-run` in `mobile/app` builds and signs an update without sending it, with the key from `UPDATES_SIGNING_KEY`. The key lives at `~/.config/sikemux/release/updates-signing-key.pem`.
 

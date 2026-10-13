@@ -1,7 +1,7 @@
 import { useRef, useState } from "react";
 import { invalidate } from "../../../plugin-api/resources";
 import { Checkbox, IconChevron } from "../../../plugin-api/ui";
-import { errorMessage, rundeckApi, type RundeckStatus } from "../api";
+import { failureMessage, rundeckApi, type RundeckStatus } from "../api";
 import * as cmd from "../state";
 import { DEFAULT_BRANCH_OPTIONS, DEFAULT_PROD_ENVS, splitList } from "../shape";
 import { useMenuKeys } from "./hooks";
@@ -65,7 +65,7 @@ function SettingsForm({ onSignedOut }: { onSignedOut: () => void }) {
             invalidate((kind) => kind.startsWith("rnd."));
             onSignedOut();
         } catch (e) {
-            setError(errorMessage(e));
+            setError(failureMessage(e));
         } finally {
             setSigningOut(false);
         }

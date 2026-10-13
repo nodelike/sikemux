@@ -3,18 +3,7 @@ import { fsapi, type FilePreview } from "../../api/fs";
 import { reportError } from "../../state/toast";
 import { FileIcon } from "../../ui/FileIcon";
 import { basename } from "../../lib/paths";
-
-export function formatBytes(n: number): string {
-    if (n < 1024) return `${n} B`;
-    const units = ["KB", "MB", "GB"];
-    let v = n / 1024;
-    let i = 0;
-    while (v >= 1024 && i < units.length - 1) {
-        v /= 1024;
-        i += 1;
-    }
-    return `${v >= 10 ? v.toFixed(1) : v.toFixed(2)} ${units[i]}`;
-}
+import { formatBytes } from "../../lib/format";
 
 export function ViewerBar({
     path,

@@ -4,7 +4,7 @@ import { invalidate, useResourceEnabled } from "../../../plugin-api/resources";
 import { EmptyState, SkeletonRows } from "../../../plugin-api/ui";
 import { databaseApi, type DatabaseProfile, type HistoryEntry } from "../api";
 import { databaseHistoryR } from "../resources";
-import { ago, duration } from "../results";
+import { formatAgo, formatDuration } from "../../../plugin-api/format";
 
 export function HistoryPanel({
     profile,
@@ -75,9 +75,9 @@ function HistoryRow({ entry, now, onOpen }: { entry: HistoryEntry; now: number; 
             <pre className="db-history-sql">{entry.sql}</pre>
             <div className="db-history-meta">
                 <span className="db-meta" title={new Date(entry.at).toLocaleString()}>
-                    {ago(entry.at, now)}
+                    {formatAgo(entry.at, now)}
                 </span>
-                <span className="db-meta">{duration(entry.millis)}</span>
+                <span className="db-meta">{formatDuration(entry.millis)}</span>
                 {entry.ok ? (
                     entry.rows !== null && <span className="db-meta">{entry.rows.toLocaleString("en-US")} rows</span>
                 ) : (

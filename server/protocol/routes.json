@@ -39,7 +39,7 @@
       "path": "/v1/devices/challenge",
       "operationId": "createChallenge",
       "summary": "A one-time value for a device to sign before it registers",
-      "auth": "session",
+      "auth": "signedIn",
       "responses": {
         "200": {
           "description": "The challenge, valid for two minutes.",
@@ -52,7 +52,7 @@
       "path": "/v1/devices",
       "operationId": "registerDevice",
       "summary": "Add a device to your account, or update it",
-      "auth": "session",
+      "auth": "signedIn",
       "request": "DeviceRegistration",
       "responses": {
         "201": {
@@ -70,7 +70,7 @@
       "path": "/v1/devices",
       "operationId": "listDevices",
       "summary": "Your devices",
-      "auth": "session",
+      "auth": "signedIn",
       "query": {
         "role": "DeviceRole"
       },
@@ -86,7 +86,7 @@
       "path": "/v1/devices/{key}",
       "operationId": "removeDevice",
       "summary": "Take one of your devices off your account",
-      "auth": "session",
+      "auth": "signedIn",
       "responses": {
         "204": {
           "description": "The device is no longer on your account."
@@ -106,7 +106,7 @@
           "body": "PushTokenState"
         },
         "400": {
-          "description": "The challenge is unknown, used or expired; the device is a host; or this server does not deliver to that app or APNs environment.",
+          "description": "The challenge is unknown, used or expired, or this server does not deliver to that app or APNs environment.",
           "body": "ApiError"
         },
         "403": {
@@ -114,7 +114,7 @@
           "body": "ApiError"
         },
         "404": {
-          "description": "None of your devices has that key.",
+          "description": "None of your phones has that key.",
           "body": "ApiError"
         }
       }
@@ -130,7 +130,7 @@
           "description": "The phone has no push token, whether or not it had one."
         },
         "404": {
-          "description": "None of your devices has that key.",
+          "description": "None of your phones has that key.",
           "body": "ApiError"
         }
       }
@@ -146,10 +146,6 @@
         "200": {
           "description": "The ticket, good for ten minutes. The host still asks its owner before letting the phone in.",
           "body": "JoinTicket"
-        },
-        "403": {
-          "description": "Only the phone and web app's sign-ins may ask; a host's sign-in cannot.",
-          "body": "ApiError"
         },
         "404": {
           "description": "None of your phones has that key, or none of your hosts has the host's.",
@@ -174,7 +170,7 @@
       },
       "responses": {
         "101": {
-          "description": "The connection is open. The server sends a challenge; the device answers with hello within 10 seconds. Close codes: 4400 bad message, 4401 not signed in, 4403 revoked, 4408 no hello in time, 4409 replaced by a newer connection for the same device, 4429 too many messages, 1012 restarting, 1013 overloaded."
+          "description": "The connection is open. The server sends a challenge; the device answers with hello within 10 seconds. Its close codes are LiveCloseCode."
         },
         "429": {
           "description": "Too many connections from this address.",
@@ -213,7 +209,7 @@
           "body": "ApiError"
         },
         "403": {
-          "description": "Only the phone and web app may delete an account, after verifying the sign-in again in the last 10 minutes (message reverify).",
+          "description": "The sign-in was not verified again within the error's reverifyWithinMinutes (message reverify).",
           "body": "ApiError"
         }
       }

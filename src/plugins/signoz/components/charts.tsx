@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { Series, VolumeBucket } from "../api";
+import { formatBytes, formatDuration } from "../../../plugin-api/format";
 
 /** Eight series at most get their own colour; the rest fold into "Other". */
 export const SERIES_SLOTS = 8;
@@ -36,42 +37,22 @@ function compact(value: number): string {
     return String(Number(value.toPrecision(magnitude >= 1 ? 3 : 2)));
 }
 
-function duration(value: number, perSecond: number): string {
-    const ms = value * perSecond;
-    if (ms === 0) return "0";
-    if (ms >= 60_000) return `${(ms / 60_000).toFixed(1)}m`;
-    if (ms >= 1_000) return `${(ms / 1_000).toFixed(ms >= 10_000 ? 0 : 1)}s`;
-    if (ms >= 1) return `${ms.toFixed(ms >= 100 ? 0 : 1)}ms`;
-    return `${Math.round(ms * 1_000)}µs`;
-}
-
-function bytes(value: number): string {
-    const units = ["B", "KB", "MB", "GB", "TB"];
-    let scaled = value;
-    let unit = 0;
-    while (Math.abs(scaled) >= 1024 && unit < units.length - 1) {
-        scaled /= 1024;
-        unit += 1;
-    }
-    return `${scaled.toFixed(scaled >= 100 || unit === 0 ? 0 : 1)} ${units[unit]}`;
-}
-
 /** Values in the unit a SigNoz panel declares; anything unknown is a plain number. */
 export function formatValue(value: number | null | undefined, unit = ""): string {
     if (value === null || value === undefined || !Number.isFinite(value)) return "–";
     switch (unit) {
         case "ns":
-            return duration(value, 1e-6);
+            return formatDuration(value * 1e-6);
         case "µs":
         case "us":
-            return duration(value, 1e-3);
+            return formatDuration(value * 1e-3);
         case "ms":
-            return duration(value, 1);
+            return formatDuration(value);
         case "s":
-            return duration(value, 1_000);
+            return formatDuration(value * 1_000);
         case "bytes":
         case "decbytes":
-            return bytes(value);
+            return formatBytes(value);
         case "percent":
             return `${compact(value)}%`;
         case "percentunit":

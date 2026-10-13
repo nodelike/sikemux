@@ -13,6 +13,7 @@ use std::path::{Path, PathBuf};
 
 use crate::error::{AppError, AppResult};
 use serde::{Deserialize, Serialize};
+use sikemux_process::paths::expand_home;
 
 const MAX_PROJECT_ROOTS: usize = 32;
 const MAX_PROJECT_DEPTH: i64 = 8;
@@ -40,20 +41,6 @@ pub struct ProjectRoot {
 
 fn default_depth() -> i64 {
     1
-}
-
-fn expand(path: &str) -> PathBuf {
-    if let Some(rest) = path.strip_prefix("~/") {
-        if let Ok(home) = std::env::var("HOME") {
-            return PathBuf::from(home).join(rest);
-        }
-    }
-    if path == "~" {
-        if let Ok(home) = std::env::var("HOME") {
-            return PathBuf::from(home);
-        }
-    }
-    PathBuf::from(path)
 }
 
 fn name_of(p: &Path) -> String {
@@ -85,12 +72,12 @@ fn is_repo(dir: &Path) -> bool {
 
 #[tauri::command]
 pub async fn expand_path(path: String) -> String {
-    expand(&path).to_string_lossy().into_owned()
+    expand_home(&path).to_string_lossy().into_owned()
 }
 
 #[tauri::command]
 pub async fn is_directory(path: String) -> bool {
-    tauri::async_runtime::spawn_blocking(move || expand(&path).is_dir())
+    tauri::async_runtime::spawn_blocking(move || expand_home(&path).is_dir())
         .await
         .unwrap_or(false)
 }
@@ -177,7 +164,7 @@ fn scan_project_roots_sync(roots: Vec<ProjectRoot>) -> AppResult<Vec<ProjectEntr
     let mut visited: HashSet<PathBuf> = HashSet::new();
 
     for r in roots {
-        let root = expand(&r.path);
+        let root = expand_home(&r.path);
         if !root.is_dir() {
             continue;
         }

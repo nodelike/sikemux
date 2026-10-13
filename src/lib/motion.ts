@@ -9,6 +9,9 @@ export const EASE_IN = "cubic-bezier(0.4, 0, 1, 1)";
 export const EASE_SWAP = "cubic-bezier(0.65, 0, 0.35, 1)";
 /** For something leaving on a click: most of the movement happens straight away. */
 export const EASE_LEAVE = "cubic-bezier(0.25, 0.8, 0.25, 1)";
+/** The --ease-pan and --ease-pop tokens, for motion started from script. */
+export const EASE_PAN = "cubic-bezier(0.22, 1, 0.36, 1)";
+export const EASE_POP = "cubic-bezier(0.2, 0.8, 0.2, 1)";
 
 /** Whether this element may animate now. Also false under jsdom, which has no Web Animations. */
 export function canAnimate(el: Element | null | undefined): el is HTMLElement {

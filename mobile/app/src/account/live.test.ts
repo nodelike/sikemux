@@ -275,7 +275,7 @@ describe('reconnecting', () => {
     const live = new LiveAccount(deps);
     live.start();
     latest().serverCloses(4429);
-    await vi.advanceTimersByTimeAsync(23_999);
+    await vi.advanceTimersByTimeAsync(29_999);
     expect(sockets).toHaveLength(1);
     await vi.advanceTimersByTimeAsync(1);
     expect(sockets).toHaveLength(2);

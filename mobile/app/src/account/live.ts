@@ -1,5 +1,12 @@
 import * as SecureStore from 'expo-secure-store';
-import type { AccountEvent, LiveApp, LiveDeviceMessage, LiveServerMessage, RevokeReason } from '@protocol';
+import {
+  LiveCloseCode,
+  type AccountEvent,
+  type LiveApp,
+  type LiveDeviceMessage,
+  type LiveServerMessage,
+  type RevokeReason,
+} from '@protocol';
 
 /** The parts of React Native's WebSocket the live connection uses. */
 export type SocketLike = {
@@ -34,10 +41,8 @@ const BASE_MS = 1000;
 const MAX_MS = 60_000;
 /** Until the server says how often it pings, assume its usual interval. */
 const HEARTBEAT_MS = 25_000;
-/** An account over the server's limits waits at least this attempt's delay. */
-const OVER_LIMIT_ATTEMPT = 5;
-
-const CLOSE = { revoked: 4403, replaced: 4409, overLimit: 4429 } as const;
+/** The server's limits count over a minute, so a phone over one waits at least this long. */
+const OVER_LIMIT_WAIT_MS = 30_000;
 
 /** Exponential backoff with half of it random, so phones that lost the server together do not return together. */
 export function reconnectDelay(attempt: number, random: number): number {
@@ -230,8 +235,8 @@ export class LiveAccount {
   private closed(code: number) {
     clearTimeout(this.silence);
     if (!this.running) return;
-    if (code === CLOSE.revoked) return this.end('removed');
-    if (code === CLOSE.replaced) {
+    if (code === LiveCloseCode.revoked) return this.end('removed');
+    if (code === LiveCloseCode.replaced) {
       this.running = false;
       return;
     }
@@ -241,8 +246,8 @@ export class LiveAccount {
       this.scheduleReconnect(wait);
       return;
     }
-    if (code === CLOSE.overLimit) this.attempt = Math.max(this.attempt, OVER_LIMIT_ATTEMPT);
-    this.scheduleReconnect(reconnectDelay(this.attempt, this.random()));
+    const wait = reconnectDelay(this.attempt, this.random());
+    this.scheduleReconnect(code === LiveCloseCode.overLimit ? Math.max(wait, OVER_LIMIT_WAIT_MS) : wait);
     this.attempt += 1;
   }
 

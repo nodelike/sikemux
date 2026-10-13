@@ -136,9 +136,14 @@ function BatteryChip() {
     const batt = useBattery();
     if (!batt || batt.percent == null) return null;
     const pct = batt.percent;
-    const tone = pct <= 10 ? "danger" : pct <= 20 ? "warn" : "ok";
+    const tone = batt.charging ? "ok" : pct <= 10 ? "danger" : pct <= 20 ? "warn" : "ok";
+    const detail = batt.charging
+        ? batt.time_remaining
+            ? `charging · ${batt.time_remaining} until full`
+            : "charging"
+        : batt.time_remaining && `${batt.time_remaining} remaining`;
     return (
-        <Tooltip label={batt.time_remaining ? `${pct}% · ${batt.time_remaining} remaining` : `${pct}%${batt.charging ? " · charging" : ""}`}>
+        <Tooltip label={detail ? `${pct}% · ${detail}` : `${pct}%`}>
             <span className={`tb-batt tb-batt-${tone}${batt.charging ? " charging" : ""}`}>
                 <IconBattery size={11} percent={pct} charging={batt.charging} />
                 <span className="tb-batt-pct">{pct}%</span>

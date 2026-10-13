@@ -88,6 +88,30 @@ beforeEach(() => {
 });
 
 describe("JiraPane", () => {
+    it("narrows the list to the statuses picked, and shows them all again from All", async () => {
+        api.search.mockResolvedValue({
+            issues: [
+                summary,
+                { ...summary, key: "ABC-13", summary: "Ship the docs", status: "Deployed", statusCategory: "done" },
+                { ...summary, key: "ABC-14", summary: "Plan the beta", status: "To Do", statusCategory: "new" },
+            ],
+            next: null,
+        });
+        render(<JiraPane paneId="p" active />);
+        const filter = await screen.findByRole("group", { name: "Filter by status" });
+        expect(filter.textContent).toBe("All 3In Progress 1To Do 1Deployed 1");
+
+        fireEvent.click(screen.getByRole("button", { name: "Deployed 1" }));
+        expect(screen.getAllByRole("listitem").map((row) => row.textContent)).toEqual([expect.stringContaining("Ship the docs")]);
+
+        fireEvent.click(screen.getByRole("button", { name: "To Do 1" }));
+        expect(screen.getAllByRole("listitem")).toHaveLength(2);
+        expect(screen.getByRole("button", { name: "All 3" })).toHaveAttribute("aria-pressed", "false");
+
+        fireEvent.click(screen.getByRole("button", { name: "All 3" }));
+        expect(screen.getAllByRole("listitem")).toHaveLength(3);
+    });
+
     it("ticks a task in the description in Jira, and says so when Jira refuses", async () => {
         api.issue.mockResolvedValue({ ...detail, description: "Acceptance:\n\n- [ ] Sends when **long**\n- [x] Keeps the 400" });
         api.setTask.mockResolvedValue(undefined);

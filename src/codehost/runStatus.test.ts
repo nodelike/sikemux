@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { elapsedMs, formatAgo, formatDuration, checksSummary, isUnfinished, outcomeOf, watchIsNewer } from "./runStatus";
+import { elapsedMs, checksSummary, isUnfinished, outcomeOf, watchIsNewer } from "./runStatus";
 
 const NOW = Date.parse("2026-01-01T12:00:00Z");
 
@@ -65,30 +65,6 @@ describe("elapsedMs", () => {
 
     it("never reports a negative span from a clock that disagrees", () => {
         expect(elapsedMs("2026-01-01T12:05:00Z", null, NOW)).toBe(0);
-    });
-});
-
-describe("formatDuration", () => {
-    it("writes a span in the units a build log uses", () => {
-        expect(formatDuration(4_000)).toBe("4s");
-        expect(formatDuration(72_000)).toBe("1m 12s");
-        expect(formatDuration(3_780_000)).toBe("1h 3m");
-        expect(formatDuration(null)).toBe("—");
-    });
-});
-
-describe("formatAgo", () => {
-    it("picks the one unit that fits", () => {
-        expect(formatAgo("2026-01-01T11:59:30Z", NOW)).toBe("30s ago");
-        expect(formatAgo("2026-01-01T11:30:00Z", NOW)).toBe("30m ago");
-        expect(formatAgo("2026-01-01T06:00:00Z", NOW)).toBe("6h ago");
-        expect(formatAgo("2025-12-29T12:00:00Z", NOW)).toBe("3d ago");
-        expect(formatAgo("2025-10-01T12:00:00Z", NOW)).toBe("3mo ago");
-    });
-
-    it("says nothing about a time it does not have", () => {
-        expect(formatAgo(null, NOW)).toBe("—");
-        expect(formatAgo("whenever", NOW)).toBe("—");
     });
 });
 

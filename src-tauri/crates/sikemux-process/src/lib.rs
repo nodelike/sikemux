@@ -7,6 +7,8 @@ use std::sync::{
 };
 use std::time::{Duration, Instant};
 
+pub mod files;
+pub mod paths;
 pub mod user_environment;
 
 #[derive(Debug)]

@@ -1,12 +1,13 @@
 import { useState } from "react";
-import { errorMessage, rundeckApi } from "../api";
-import { Checkbox, IconRundeck, SignInScreen } from "../../../plugin-api/ui";
+import { rundeckApi } from "../api";
+import { Checkbox, IconRundeck, SignInError, SignInScreen, useSignInAttempt, type SignInStatus } from "../../../plugin-api/ui";
 
 interface Props {
     initialUrl?: string;
     initialUser?: string;
     initialAllowInsecurePrivateHttp?: boolean;
-    notice?: string;
+    /** The sign-in the form opens over, when Rundeck stopped taking it. */
+    status?: SignInStatus;
     onDone: () => void;
 }
 
@@ -14,14 +15,14 @@ type Mode = "password" | "token";
 
 const textProps = { spellCheck: false, autoCapitalize: "off", autoCorrect: "off" } as const;
 
-export function RundeckLogin({ initialUrl = "", initialUser = "", initialAllowInsecurePrivateHttp = false, notice, onDone }: Props) {
+export function RundeckLogin({ initialUrl = "", initialUser = "", initialAllowInsecurePrivateHttp = false, status, onDone }: Props) {
     const [mode, setMode] = useState<Mode>("password");
     const [url, setUrl] = useState(initialUrl);
     const [user, setUser] = useState(initialUser);
     const [password, setPassword] = useState("");
     const [token, setToken] = useState("");
-    const [busy, setBusy] = useState(false);
-    const [error, setError] = useState<string | null>(notice ?? null);
+    const attempt = useSignInAttempt(status);
+    const busy = attempt.busy;
     const [allowInsecurePrivateHttp, setAllowInsecurePrivateHttp] = useState(initialAllowInsecurePrivateHttp);
 
     const trimmedUrl = url.trim();
@@ -29,12 +30,10 @@ export function RundeckLogin({ initialUrl = "", initialUser = "", initialAllowIn
     const secretReady = mode === "password" ? !!user.trim() && password.length > 0 : !!token.trim();
     const canSubmit = !!trimmedUrl && secretReady && (!insecureHttp || allowInsecurePrivateHttp) && !busy;
 
-    const submit = async () => {
+    const submit = () => {
         if (!canSubmit) return;
-        setBusy(true);
-        setError(null);
         const allow_insecure_private_http = insecureHttp && allowInsecurePrivateHttp;
-        try {
+        attempt.run(async () => {
             if (mode === "password") {
                 await rundeckApi.login({ url: trimmedUrl, user: user.trim(), password, allow_insecure_private_http });
                 setPassword("");
@@ -43,11 +42,7 @@ export function RundeckLogin({ initialUrl = "", initialUser = "", initialAllowIn
                 setToken("");
             }
             onDone();
-        } catch (e) {
-            setError(errorMessage(e));
-        } finally {
-            setBusy(false);
-        }
+        });
     };
 
     return (
@@ -75,7 +70,7 @@ export function RundeckLogin({ initialUrl = "", initialUser = "", initialAllowIn
                     className="signin-form"
                     onSubmit={(e) => {
                         e.preventDefault();
-                        void submit();
+                        submit();
                     }}>
                     <label className="signin-field">
                         <span>Rundeck URL</span>
@@ -143,11 +138,7 @@ export function RundeckLogin({ initialUrl = "", initialUser = "", initialAllowIn
                     </button>
                 </form>
 
-                {error && (
-                    <div className="signin-callout" data-tone="danger">
-                        {error}
-                    </div>
-                )}
+                <SignInError error={attempt.error} />
             </SignInScreen>
         </div>
     );

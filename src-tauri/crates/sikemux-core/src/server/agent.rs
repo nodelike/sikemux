@@ -12,6 +12,7 @@ use sikemux_pty::agent_detection::{
 
 use crate::protocol::{AgentStateEvent, Event};
 
+use super::activity::Activity;
 use super::session::Session;
 use super::{now_ms, Core, CoreResult};
 
@@ -191,11 +192,16 @@ impl AgentActivity {
             return;
         }
         let previous = self.state.swap(next, Ordering::AcqRel);
-        match next {
-            WORKING => core.seen.working(&self.agent_id),
-            BLOCKED => core.seen.wants_a_look(&self.agent_id),
-            IDLE if matches!(previous, WORKING | BLOCKED) => core.seen.wants_a_look(&self.agent_id),
-            _ => {}
+        let busy = matches!(previous, WORKING | BLOCKED);
+        let activity = match next {
+            WORKING if busy => Some(Activity::Working),
+            WORKING => Some(Activity::Started),
+            BLOCKED => Some(Activity::NeedsYou),
+            IDLE if busy => Some(Activity::Finished { cancelled: false }),
+            _ => None,
+        };
+        if let Some(activity) = activity {
+            core.note_activity(&self.agent_id, activity);
         }
         core.broadcast_event(&Event::AgentState(AgentStateEvent {
             agent_id: self.agent_id.clone(),

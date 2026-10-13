@@ -11,7 +11,7 @@ import {
 } from "../api/activity";
 import { calendarColumns, dayDate, levelOf, levelThresholds, localDay, streaks } from "../lib/activityCalendar";
 import { basename, prettyPath } from "../lib/paths";
-import { AGENT_NAMES } from "../agents/agentLaunch";
+import { agentLabel } from "../agents/catalog";
 import { useStore } from "../state/store";
 import type { AgentType } from "../state/types";
 import { AgentIcon, IconFolder } from "../ui/Icons";
@@ -296,7 +296,7 @@ function ShareList({ shares, kind, metric }: { shares?: ActivityShare[]; kind: "
                             {agent ? <AgentIcon type={agent} size={20} /> : <IconFolder size={16} />}
                         </span>
                         <span className="activity-share-name">
-                            <span className="activity-share-title">{agent ? (AGENT_NAMES[agent] ?? share.name) : basename(share.name)}</span>
+                            <span className="activity-share-title">{agent ? agentLabel(agent) : basename(share.name)}</span>
                             {!agent && <span className="activity-share-path">{prettyPath(share.name, home)}</span>}
                         </span>
                         <span className="activity-share-details">{details.join(" · ")}</span>

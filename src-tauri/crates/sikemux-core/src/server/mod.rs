@@ -1,9 +1,11 @@
 mod access;
+mod activity;
 mod agent;
 mod attachments;
 mod calls;
 mod chat;
 mod connection;
+mod display;
 mod entry;
 mod handover;
 mod harness;
@@ -515,7 +517,7 @@ impl Core {
         match event {
             Event::Attention { attention } => {
                 self.notify
-                    .send(notify::Signal::Attention(attention.clone()));
+                    .send(notify::Signal::Attention(Box::new(attention.clone())));
             }
             Event::AttentionCleared { id, agent_id } => self.notify.send(notify::Signal::Cleared {
                 id: id.clone(),
@@ -542,6 +544,7 @@ impl Core {
                 info.unread = self.seen.unread(agent_id);
                 info.active_at = self.seen.active_at(agent_id);
             }
+            display::show_session(info);
         }
         sessions
     }
@@ -554,14 +557,18 @@ impl Core {
             chat.pending_permissions.sort();
             chat.unread = self.seen.unread(&chat.agent_id);
             chat.active_at = self.seen.active_at(&chat.agent_id);
+            display::show_chat(chat);
         }
         chats.sort_by_key(|chat| std::cmp::Reverse(chat.active_at));
         chats
     }
 
     fn device_view_frame(&self) -> Option<Vec<u8>> {
-        let sessions = self.session_infos();
-        let chats = self.chat_infos();
+        let mut sessions = self.session_infos();
+        let mut chats = self.chat_infos();
+        display::rank(&mut chats, &mut sessions, |agent_id| {
+            self.seen.started_at(agent_id)
+        });
         let mut attentions = self.chats.attentions();
         attentions.sort_by(|a, b| (a.at, &a.id).cmp(&(b.at, &b.id)));
         let recent = self.workspaces.recent(&chats);

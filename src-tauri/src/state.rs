@@ -63,13 +63,7 @@ struct WriteDelta {
 /// Debug and release remain isolated so development cannot overwrite installed
 /// application state.
 pub fn state_path() -> Option<PathBuf> {
-    let home = std::env::var("HOME").ok()?;
-    let filename = if cfg!(debug_assertions) {
-        "state.dev.json"
-    } else {
-        "state.json"
-    };
-    Some(PathBuf::from(home).join(".config/sikemux").join(filename))
+    sikemux_process::paths::config_file("state", "json")
 }
 
 fn database_path() -> Option<PathBuf> {

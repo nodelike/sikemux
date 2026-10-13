@@ -82,12 +82,15 @@ pub async fn send(
     let status = response.status();
     let bytes = read_limited(response).await?;
     let parsed: Value = serde_json::from_slice(&bytes).unwrap_or(Value::Null);
-    if matches!(status.as_u16(), 401 | 403) && matches!(credentials.auth, Auth::ApiKey(_)) {
-        auth::forget_api_key();
-    }
     if !status.is_success() {
         let message = error_message(&parsed)
             .unwrap_or_else(|| String::from_utf8_lossy(&bytes).chars().take(400).collect());
+        if matches!(status.as_u16(), 401 | 403) && matches!(credentials.auth, Auth::ApiKey(_)) {
+            auth::forget_api_key();
+            return Err(SignozError::Auth(format!(
+                "SigNoz turned down the API key: {message}"
+            )));
+        }
         return Err(SignozError::Http {
             status: status.as_u16(),
             message,

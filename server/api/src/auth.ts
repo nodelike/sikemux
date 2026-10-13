@@ -132,6 +132,16 @@ export async function checkStanding(
 
 export type AuthEnv = Env & { Variables: { identity: Identity } };
 
+/** Whether the sign-in is the phone's or the web app's, rather than the Mac app's OAuth token. */
+export function isSession(identity: Identity): boolean {
+  return identity.via === "session";
+}
+
+/** Whether the sign-in is the web app's: the verifier lets a session token name only its origin. */
+export function isWeb(identity: Identity): boolean {
+  return isSession(identity) && identity.origin !== undefined;
+}
+
 /** Requires `Authorization: Bearer <token>` and puts who signed in on the context. */
 export function requireIdentity(
   verifier: Verifier,
@@ -147,6 +157,19 @@ export function requireIdentity(
     await checkStanding(db, identity, standing);
     c.set("identity", identity);
     c.set("log", c.get("log").child({ userId: identity.userId }));
+    await next();
+  };
+}
+
+/** After requireIdentity: refuses the Mac app's sign-in, for what only the phone and the web app may do. */
+export function requireSession(): MiddlewareHandler<AuthEnv> {
+  return async (c, next) => {
+    if (!isSession(c.get("identity")))
+      throw new ApiFailure(
+        403,
+        "forbidden",
+        "Only the phone app and app.sikemux.com may do this, not the Mac app.",
+      );
     await next();
   };
 }

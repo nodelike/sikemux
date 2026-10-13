@@ -1,4 +1,4 @@
-import { basename, copyText, files, notify, relativePath, reportError } from "../../plugin-api/host";
+import { basename, copyWithNotice, files, relativePath, reportError } from "../../plugin-api/host";
 import type { PluginDocuments } from "../../plugin-api";
 import { currentShortcutLabel, FILE_MANAGER_NAME } from "../../plugin-api/ui";
 import { findRequest } from "./lib/resolve";
@@ -6,7 +6,7 @@ import { useBrunoRuntime } from "./runtime";
 import { brunoCloseTab, brunoReorderTab, brunoSelectRequest, brunoSettings, useBruno, viewOf } from "./state";
 import "./method.css";
 
-const copy = (text: string, label: string) => void copyText(text).then(() => notify("success", `copied ${label}`), reportError("copy"));
+const copy = (text: string, label: string) => copyWithNotice(text, label);
 
 /** Each open request is a tab in the workspace strip, named and badged from the collection. */
 export const brunoDocuments: PluginDocuments = {

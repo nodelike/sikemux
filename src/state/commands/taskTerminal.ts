@@ -2,6 +2,7 @@ import { isPathWithin } from "../../lib/paths";
 import type { TaskTerminalPresentationRequest } from "../../tasks/nativeRuntime";
 import { mutate } from "../store";
 import { collectPanes } from "../layout";
+import { projectSessionId } from "../selectors";
 import { makeWindow } from "./shared";
 
 function taskTerminalContainsControl(value: string): boolean {
@@ -39,7 +40,8 @@ export function openTaskTerminal(request: TaskTerminalPresentationRequest): stri
 
     let paneId: string | null = null;
     mutate((d) => {
-        const owner = d.sessionOrder.map((id) => d.sessions[id]).find((session) => session?.kind === "project" && session.cwd === project);
+        const ownerId = projectSessionId(d, project);
+        const owner = ownerId ? d.sessions[ownerId] : undefined;
         if (!owner) return;
         const windowIds = d.windowsBySession[owner.id] ?? [];
         for (const windowId of windowIds) {

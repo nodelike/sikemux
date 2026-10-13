@@ -4,6 +4,7 @@
 
 pub mod accounts;
 pub mod acp;
+pub mod agent_catalog;
 pub mod cli;
 #[cfg(unix)]
 pub mod client;
@@ -28,11 +29,5 @@ pub fn default_socket_path() -> Option<PathBuf> {
     if let Some(path) = std::env::var_os(SOCKET_ENV).filter(|path| !path.is_empty()) {
         return Some(PathBuf::from(path));
     }
-    let home = std::env::var_os("HOME").filter(|home| !home.is_empty())?;
-    let filename = if cfg!(debug_assertions) {
-        "core.dev.sock"
-    } else {
-        "core.sock"
-    };
-    Some(PathBuf::from(home).join(".config/sikemux").join(filename))
+    sikemux_process::paths::config_file("core", "sock")
 }

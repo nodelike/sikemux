@@ -51,6 +51,39 @@ describe("WorkbenchRuntime", () => {
         expect(runtime.getSnapshot()).toEqual({ sessions: 0, items: 0, reconciliations: 3, started: false });
     });
 
+    it("moves a pane into a project listed before the one it left", () => {
+        const pane = { type: "pane", id: "pane-moving", cwd: "/from", kind: "terminal", title: "shell" } as const;
+        const window: Window = { id: "window-moving", name: "term", role: "term", root: pane, activePaneId: pane.id };
+        const project = (id: string, cwd: string, activeWindowId: string): Session => ({
+            id,
+            name: id,
+            kind: "project",
+            cwd,
+            pinned: false,
+            activeWindowId,
+        });
+        const runtime = new WorkbenchRuntime();
+        setState({
+            sessions: { to: project("to", "/to", ""), from: project("from", "/from", window.id) },
+            sessionOrder: ["to", "from"],
+            activeSessionId: "from",
+            windows: { [window.id]: window },
+            windowsBySession: { to: [], from: [window.id] },
+        });
+        runtime.start();
+
+        expect(() =>
+            setState({
+                sessions: { to: project("to", "/to", window.id), from: project("from", "/from", "") },
+                activeSessionId: "to",
+                windowsBySession: { to: [window.id], from: [] },
+            }),
+        ).not.toThrow();
+        expect(runtime.getSession("to")?.getSnapshot().activeItemId).toBe(pane.id);
+        expect(runtime.getSession("from")?.getSnapshot().itemCount).toBe(0);
+        runtime.stop();
+    });
+
     it("starts with a plugin's pane open, whether or not the plugin is in this build", () => {
         const pane = { type: "pane", id: "pane-plugin", cwd: "", kind: "sikemux.rundeck:deploy", title: "Rundeck" } as const;
         const window: Window = {

@@ -1,37 +1,29 @@
 import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { GitColumns } from "../../git/GitColumns";
 import { FoldPanel } from "../../git/FoldPanel";
+import { useVisibleStream } from "../../plugin-api/hooks";
 import { confirmDialog, copyText, notify, openUrl, reportError, swallow } from "../../plugin-api/host";
 import { invalidate, useResourceEnabled } from "../../plugin-api/resources";
 import { EmptyState, IconChevron, IconExternal, IconRefresh, SkeletonRows, Tooltip } from "../../plugin-api/ui";
 import { hostApi, failureMessage, type Job, type RepoRef, type Run } from "../api";
 import { useHost } from "../registry";
 import { artifactsR, runAttemptR, runR, timingR } from "../resources";
-import {
-    elapsedMs,
-    eventLabel,
-    failedStep,
-    formatAgo,
-    formatDuration,
-    isUnfinished,
-    outcomeOf,
-    OUTCOME_LABEL,
-    summaryJobs,
-    watchIsNewer,
-} from "../runStatus";
+import { elapsedMs, eventLabel, failedStep, isUnfinished, outcomeOf, OUTCOME_LABEL, summaryJobs, watchIsNewer } from "../runStatus";
 import { closeRun, leaveRun, showJob, updateView, useHostView, type RunTab } from "../state";
 import { OutcomeIcon } from "./ActionsIcon";
 import { Annotations } from "./Annotations";
 import { Approvals } from "./Approvals";
 import { Artifacts } from "./Artifacts";
 import { Branch, Who } from "./Bits";
-import { coarse, useBusy, useNow } from "./hooks";
+import { coarse, useBusy } from "./hooks";
+import { useNow } from "../../plugin-api/hooks";
 import { JobGraph } from "./JobGraph";
 import { JobLogView } from "./JobLogView";
 import { JobSummary } from "./JobSummary";
 import { RunMenu } from "./RunMenu";
 import { billedMinutes } from "./RunUsage";
 import { WorkflowFile } from "./WorkflowFile";
+import { formatAgo, formatDuration } from "../../lib/format";
 
 const WATCH_RETRY_MS = 30_000;
 const WATCH_RETRY_MAX_MS = 5 * 60_000;
@@ -78,72 +70,25 @@ function useOpenRun(repo: RepoRef, runId: string, active: boolean): OpenRun {
     const latestRun = useRef(run);
     latestRun.current = run;
 
-    useEffect(() => {
-        if (!active || !moving) return;
-        let alive = true;
-        let generation = 0;
-        let streamId: number | null = null;
-        let starting = false;
-        let retry: number | undefined;
-        let giveUps = 0;
-        let hopeless = false;
-
-        const stop = () => {
-            generation += 1;
-            window.clearTimeout(retry);
-            retry = undefined;
-            if (streamId !== null) void hostApi(repo.provider).watchStop(streamId).catch(swallow("stop watching the run"));
-            streamId = null;
-        };
-
-        const start = () => {
-            if (!alive || hopeless || document.hidden || starting || streamId !== null) return;
-            const startedIn = generation;
-            let ended = false;
-            starting = true;
-            hostApi(repo.provider)
-                .watchStart(repo, runId, (tick) => {
-                    if (!alive || startedIn !== generation) return;
-                    if (tick.run) setLive({ run: tick.run, jobs: tick.jobs });
-                    setWatchError(tick.error);
-                    if (!tick.finished) {
-                        giveUps = 0;
-                        return;
-                    }
-                    ended = true;
-                    streamId = null;
-                    refreshRuns();
-                    hopeless = tick.fatal;
-                    const last = tick.run ?? latestRun.current;
-                    if (hopeless || !last || !isUnfinished(last)) return;
-                    retry = window.setTimeout(start, Math.min(WATCH_RETRY_MS * 2 ** giveUps, WATCH_RETRY_MAX_MS));
-                    giveUps += 1;
-                })
-                .then((id) => {
-                    if (!alive || startedIn !== generation) void hostApi(repo.provider).watchStop(id).catch(swallow("stop watching the run"));
-                    else if (!ended) streamId = id;
-                })
-                .catch((error: unknown) => {
-                    if (alive && startedIn === generation) setWatchError(failureMessage(error));
-                })
-                .finally(() => {
-                    starting = false;
-                    if (startedIn !== generation) start();
-                });
-        };
-
-        const onVisibility = () => {
-            if (document.hidden) stop();
-            else start();
-        };
-        start();
-        document.addEventListener("visibilitychange", onVisibility);
-        return () => {
-            alive = false;
-            document.removeEventListener("visibilitychange", onVisibility);
-            stop();
-        };
-    }, [active, moving, repo, runId]);
+    useVisibleStream(
+        active && moving
+            ? (life) =>
+                  hostApi(repo.provider).watch(repo, runId, {
+                      onItem: (tick) => {
+                          if (tick.run) setLive({ run: tick.run, jobs: tick.jobs });
+                          setWatchError(tick.error);
+                          if (!tick.finished) return;
+                          refreshRuns();
+                          const last = tick.run ?? latestRun.current;
+                          if (tick.fatal || !last || !isUnfinished(last)) life.finish();
+                      },
+                      onEnd: life.ended,
+                      onError: (error) => setWatchError(failureMessage(error)),
+                  })
+            : null,
+        [repo, runId],
+        { pauseWhenHidden: true, retry: (tries) => Math.min(WATCH_RETRY_MS * 2 ** tries, WATCH_RETRY_MAX_MS) },
+    );
 
     return {
         run,

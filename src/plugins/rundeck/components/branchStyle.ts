@@ -1,3 +1,5 @@
+import { isLiveStatus } from "../shape";
+
 export type BranchKind = "main" | "feature" | "fix" | "release" | "other" | "na";
 
 export function branchKind(branch: string | null | undefined): BranchKind {
@@ -16,7 +18,7 @@ export function statusKind(status: string | null | undefined): "succeeded" | "fa
     const s = status.toLowerCase();
     if (s === "succeeded") return "succeeded";
     if (s === "failed" || s === "failed-with-retry" || s === "timedout" || s === "other-failed" || s === "error") return "failed";
-    if (s === "running" || s === "scheduled" || s === "queued") return "running";
+    if (isLiveStatus(s)) return "running";
     if (s === "aborted") return "aborted";
     return "unknown";
 }

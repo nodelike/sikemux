@@ -45,42 +45,70 @@ export function acknowledgeAgentState(value: AgentRuntimeState): AgentRuntimeSta
     return { ...value, state: value.state === "done" ? "idle" : value.state, unread: false };
 }
 
-const PRIORITY: Record<AgentPresentationState, number> = { blocked: 6, working: 5, done: 4, stopped: 3, unknown: 2, idle: 1 };
+export type AgentGroup = "blocked" | "working" | "done" | "idle";
 
-export function rollupAgentStates(values: Array<AgentRuntimeState | undefined>): AgentPresentationState | undefined {
-    let best: AgentPresentationState | undefined;
-    for (const value of values) if (value && (!best || PRIORITY[value.state] > PRIORITY[best])) best = value.state;
-    return best;
+/** The groups in the order they want attention, and the one word each surface uses for them. */
+export const AGENT_GROUPS: readonly AgentGroup[] = ["blocked", "working", "done", "idle"];
+
+export const AGENT_LABELS: Record<AgentGroup, string> = {
+    blocked: "Needs input",
+    working: "Working",
+    done: "Done",
+    idle: "Idle",
+};
+
+const RANK: Record<AgentGroup, number> = { blocked: 3, working: 2, done: 1, idle: 0 };
+
+export interface AgentBackground {
+    subagents?: number;
+    tasks?: number;
 }
+
+export interface AgentDisplay {
+    state: AgentPresentationState;
+    group: AgentGroup;
+    subagents: number;
+    tasks: number;
+    label: string;
+    rank: number;
+}
+
+/**
+ * How an agent is shown everywhere. Only a running turn is Working: subagents
+ * and shells left running keep the agent in its own group and show as counts.
+ */
+export function agentDisplay(state: AgentPresentationState | undefined, background: AgentBackground = {}): AgentDisplay {
+    const shown = state ?? "idle";
+    const group: AgentGroup = shown === "blocked" || shown === "working" || shown === "done" ? shown : "idle";
+    return { state: shown, group, subagents: background.subagents ?? 0, tasks: background.tasks ?? 0, label: AGENT_LABELS[group], rank: RANK[group] };
+}
+
+/** A group of agents shown as the one that wants attention most, counting everything they still have going. */
+export function rollupAgentDisplays(displays: readonly AgentDisplay[]): AgentDisplay | undefined {
+    let best: AgentDisplay | undefined;
+    let subagents = 0;
+    let tasks = 0;
+    for (const display of displays) {
+        if (!best || display.rank > best.rank) best = display;
+        subagents += display.subagents;
+        tasks += display.tasks;
+    }
+    return best && { ...best, subagents, tasks };
+}
+
+/** Mid-turn or waiting on an answer: stopping it now loses work, so closing it asks first. */
+export const isAgentBusy = (activity: AgentRuntimeState | undefined): boolean =>
+    activity?.backendState === "working" || activity?.backendState === "blocked";
+
+export const lastWorkedAt = (activity: AgentRuntimeState | undefined): number => activity?.lastWorkedAt ?? 0;
 
 /**
  * Open agents in the order they want attention: waiting on you, running,
  * finished unseen, then the rest by how recently they last ran.
  */
-export function sortByAttention<T extends { id: string }>(
-    agents: T[],
-    activityById: Record<string, AgentRuntimeState | undefined>,
-    backgroundById: Record<string, number | undefined>,
-): T[] {
-    const tier = (a: T) => {
-        const state = activityById[a.id]?.state;
-        if (state === "blocked") return 3;
-        if (state === "working" || (backgroundById[a.id] ?? 0) > 0) return 2;
-        if (state === "done") return 1;
-        return 0;
-    };
-    const lastWorked = (a: T) => activityById[a.id]?.lastWorkedAt ?? 0;
+export function sortByAttention<T extends { id: string }>(agents: readonly T[], activityById: Record<string, AgentRuntimeState | undefined>): T[] {
     return agents
-        .map((agent) => ({ agent, tier: tier(agent), lastWorked: lastWorked(agent) }))
-        .sort((x, y) => y.tier - x.tier || (x.tier >= 2 ? 0 : y.lastWorked - x.lastWorked))
+        .map((agent) => ({ agent, rank: agentDisplay(activityById[agent.id]?.state).rank, lastWorked: lastWorkedAt(activityById[agent.id]) }))
+        .sort((x, y) => y.rank - x.rank || (x.rank >= RANK.working ? 0 : y.lastWorked - x.lastWorked))
         .map(({ agent }) => agent);
 }
-
-export const AGENT_STATE_META: Record<AgentPresentationState, { label: string }> = {
-    working: { label: "Working" },
-    blocked: { label: "Needs input" },
-    done: { label: "Done — unseen" },
-    idle: { label: "Ready" },
-    stopped: { label: "Stopped" },
-    unknown: { label: "Unknown" },
-};

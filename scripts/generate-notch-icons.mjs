@@ -44,13 +44,11 @@ const MARK_FILES = { codex: "codex.svg", omp: "omp.svg" };
 const BRAND_MARK = resolve(root, "brand/mark/mark-white.svg");
 
 /** The colour each mark takes where the app paints it with its brand colour. */
-const BRAND = {
-  claude: "#d97757",
-  pi: "#7dd3fc",
-  opencode: "#a78bfa",
-  grok: "#fcfcfc",
-  hermes: "#e0a050",
-};
+const BRAND = Object.fromEntries(
+  JSON.parse(
+    await readFile(resolve(root, "src/agents/catalog.json"), "utf8"),
+  ).agents.map((agent) => [agent.type, agent.brand]),
+);
 
 function attributes(text) {
   const found = {};

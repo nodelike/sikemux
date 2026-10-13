@@ -29,7 +29,7 @@ export const SCENES = [
     name: "hero",
     settle: 1500,
     setup: async (page) => {
-      await openWindow(page, "s-front", "w-agent-hero");
+      await openWindow(page, "s-mood", "w-agent-hero");
       await run(page, () =>
         showcase.cmd.openDesk("agent-hero", { focus: false }),
       );
@@ -303,6 +303,58 @@ export const SCENES = [
         region: { left: 0.1736, top: 0.0390, width: 0.8250, height: 0.3567 },
       },
     },
+  },
+  {
+    name: "visual-diagram",
+    settle: 1800,
+    setup: (page) => openWindow(page, "s-billing", "w-agent-flow"),
+    crops: { stage: ".stage" },
+  },
+  {
+    name: "visual-chart",
+    settle: 1800,
+    setup: (page) => openWindow(page, "s-billing", "w-agent-latency"),
+    crops: { stage: ".stage" },
+  },
+  {
+    name: "visual-mockup",
+    settle: 1800,
+    setup: (page) => openWindow(page, "s-front", "w-agent-empty"),
+    crops: { stage: ".stage" },
+  },
+  {
+    name: "simulator",
+    settle: 2500,
+    setup: async (page) => {
+      await openWindow(page, "s-sikemux", "w-agent-phone");
+      await run(page, () =>
+        showcase.cmd.openDeskSimulator("agent-phone", {
+          focus: false,
+          device: { udid: "5C1A0E77-8D2F-4B1E-9F63-2A7D41C0B9E8", name: "iPhone 18 Pro" },
+        }),
+      );
+    },
+    crops: { stage: ".stage" },
+  },
+  {
+    name: "database",
+    settle: 1800,
+    setup: async (page) => {
+      await openWindow(page, "s-database", "w-database");
+      await page.waitForTimeout(600);
+      await run(page, async () => {
+        const state = await import("/src/plugins/database/state.ts");
+        const tabs = await import("/src/plugins/database/tabs.ts");
+        const queries = await import("/src/plugins/database/queryState.ts");
+        const { DATABASE_QUERY } = await import("/showcase/world/database.ts");
+        const console = tabs.consoleTab("db-shop", 1);
+        state.expandNodes("p-database", ["c:db-shop", "s:db-shop:public", "g:db-shop:public:tables"]);
+        state.showTab("p-database", console);
+        queries.loadQuery(console.id, DATABASE_QUERY);
+        await queries.runQuery(console.id, "db-shop", DATABASE_QUERY);
+      });
+    },
+    crops: { stage: ".stage" },
   },
   {
     name: "agent-tools",

@@ -1,4 +1,6 @@
-# 0.1.0-nightly.14
+# 0.1.0-nightly.15
 
-• A deleted account can come back: deleting now waits 30 days, and signing in during that time offers to restore it.
-• The welcome screen draws your computer's agents as its list does.
+• Chats draw tables, quotes, task lists, notices and pages an agent shows, and attached issues as chips.
+• A device's agents are grouped the way the computer's rail groups them.
+• Slash commands queue and merge as they do on the computer, and YOLO switches for OMP and Grok.
+• The device list fades out into the home bar.

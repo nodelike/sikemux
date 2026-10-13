@@ -17,6 +17,7 @@ use crate::protocol::{
 use super::super::access::Peer;
 use super::super::connection::{ClientConn, ClientId};
 use super::history::{History, Page, MAX_HISTORY_BYTES};
+use super::states::{Subagent, Task};
 
 /// One frame's worth of streamed updates travels as a single event. Each
 /// notification on its own costs a script eval in the webview, and an adapter
@@ -96,8 +97,7 @@ pub(crate) struct Replay {
     /// the last of each standing update, and the background tasks and
     /// subagents still going.
     standing: Vec<(Holds, u64, ChatEvent)>,
-    /// Every subagent's session, whose own updates never stand for the chat.
-    subagent_sessions: HashSet<String>,
+    work: Work,
 }
 
 /// A streamed piece of a message that can be joined to the piece before it.
@@ -112,85 +112,168 @@ fn only_keys(object: &serde_json::Map<String, Value>, allowed: &[&str]) -> bool 
     object.keys().all(|key| allowed.contains(&key.as_str()))
 }
 
-fn session_title(payload: &Value) -> Option<&str> {
+/// The most of a chat's title that is kept.
+const MAX_TITLE_CHARS: usize = 256;
+
+/// A title as the chat shows it: one line of bounded length, or none when
+/// blank.
+pub(crate) fn title(text: &str) -> Option<String> {
+    let title: String = text
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .chars()
+        .take(MAX_TITLE_CHARS)
+        .collect();
+    (!title.is_empty()).then_some(title)
+}
+
+fn session_title(payload: &Value) -> Option<String> {
     let update = payload.get("update")?;
     if update.get("sessionUpdate")?.as_str()? != "session_info_update" {
         return None;
     }
-    update
-        .get("title")?
-        .as_str()
-        .map(str::trim)
-        .filter(|title| !title.is_empty())
+    title(update.get("title")?.as_str()?)
 }
 
-/// Subagents outlive the turn that started them, but not one that was cancelled.
-/// The agent says so itself; this covers one that does not, as clients do.
-fn cancels_subagents(kind: ChatEventKind, payload: &Value) -> bool {
-    kind == ChatEventKind::TurnCompleted
-        && payload.get("stopReason").and_then(Value::as_str) == Some("cancelled")
+/// A subagent or background task the agent has going.
+struct Going {
+    id: String,
+    /// The session whose transcript shows it.
+    session: String,
+    /// Started inside a subagent rather than by the chat's own agent.
+    nested: bool,
+    /// Running rather than paused.
+    running: bool,
 }
 
-/// Keeps `running` to the subagents the parent session has going. A subagent's
-/// own updates arrive under its session id and never change the count.
-fn track_subagent(running: &mut HashSet<String>, payload: &Value) {
-    let in_subagent = payload
-        .get("sessionId")
-        .and_then(Value::as_str)
-        .is_some_and(|session| running.contains(session));
-    let Some(update) = payload.get("update") else {
-        return;
-    };
-    let Some(id) = update.get("subagentSessionId").and_then(Value::as_str) else {
-        return;
-    };
-    match update.get("sessionUpdate").and_then(Value::as_str) {
-        Some("subagent_spawned") if !in_subagent => {
-            running.insert(id.to_owned());
-        }
-        Some("subagent_state_update")
-            if update.get("state").and_then(Value::as_str) != Some("running") =>
-        {
-            running.remove(id);
-        }
-        _ => {}
+/// The subagents and background tasks the agent has going, which end with
+/// it when its process goes.
+#[derive(Default)]
+struct Work {
+    subagents: Vec<Going>,
+    tasks: Vec<Going>,
+    /// Every subagent's session, whose own updates are not the chat's.
+    subagent_sessions: HashSet<String>,
+}
+
+impl Work {
+    fn in_subagent(&self, payload: &Value) -> bool {
+        payload
+            .get("sessionId")
+            .and_then(Value::as_str)
+            .is_some_and(|session| self.subagent_sessions.contains(session))
     }
-}
 
-/// Keeps `tasks` to the parent session's background tasks, each marked with
-/// whether it is running now rather than paused. One that ends is dropped.
-fn track_task(tasks: &mut HashMap<String, bool>, subagents: &HashSet<String>, payload: &Value) {
-    let in_subagent = payload
-        .get("sessionId")
-        .and_then(Value::as_str)
-        .is_some_and(|session| subagents.contains(session));
-    if in_subagent {
-        return;
-    }
-    let Some(update) = payload.get("update") else {
-        return;
-    };
-    let Some(id) = update.get("asyncTaskId").and_then(Value::as_str) else {
-        return;
-    };
-    let state = update.get("state").and_then(Value::as_str);
-    match update.get("sessionUpdate").and_then(Value::as_str) {
-        Some("async_task_spawned") => {
-            tasks.entry(id.to_owned()).or_insert(true);
-        }
-        Some("async_task_progress" | "async_task_state_update") => match state {
-            Some("completed" | "failed" | "stopped") => {
-                tasks.remove(id);
-            }
-            Some(state) => {
-                if let Some(running) = tasks.get_mut(id) {
-                    *running = state == "running";
+    /// Notes what `payload` starts or ends.
+    fn note(&mut self, payload: &Value) {
+        let Some(update) = payload.get("update") else {
+            return;
+        };
+        let session = payload
+            .get("sessionId")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        let nested = self.in_subagent(payload);
+        let text = |key: &str| update.get(key).and_then(Value::as_str);
+        match update.get("sessionUpdate").and_then(Value::as_str) {
+            Some("subagent_spawned") => {
+                let Some(id) = text("subagentSessionId") else {
+                    return;
+                };
+                self.subagent_sessions.insert(id.to_owned());
+                if !self.subagents.iter().any(|going| going.id == id) {
+                    self.subagents.push(Going {
+                        id: id.to_owned(),
+                        session: session.to_owned(),
+                        nested,
+                        running: true,
+                    });
                 }
             }
-            None => {}
-        },
-        _ => {}
+            Some("subagent_state_update") => {
+                let Some(id) = text("subagentSessionId") else {
+                    return;
+                };
+                if subagent_ended(update) {
+                    self.subagents.retain(|going| going.id != id);
+                } else if !self.subagents.iter().any(|going| going.id == id) {
+                    self.subagents.push(Going {
+                        id: id.to_owned(),
+                        session: session.to_owned(),
+                        nested,
+                        running: true,
+                    });
+                }
+            }
+            Some("async_task_spawned") => {
+                let Some(id) = text("asyncTaskId") else {
+                    return;
+                };
+                if !self.tasks.iter().any(|going| going.id == id) {
+                    self.tasks.push(Going {
+                        id: id.to_owned(),
+                        session: session.to_owned(),
+                        nested,
+                        running: true,
+                    });
+                }
+            }
+            Some("async_task_progress" | "async_task_state_update") => {
+                let Some(id) = text("asyncTaskId") else {
+                    return;
+                };
+                match text("state").and_then(Task::parse) {
+                    Some(state) if state.ended() => self.tasks.retain(|going| going.id != id),
+                    Some(state) => {
+                        if let Some(going) = self.tasks.iter_mut().find(|going| going.id == id) {
+                            going.running = state == Task::Running;
+                        }
+                    }
+                    None => {}
+                }
+            }
+            _ => {}
+        }
     }
+
+    fn running_subagents(&self) -> usize {
+        self.subagents.iter().filter(|going| !going.nested).count()
+    }
+
+    fn running_tasks(&self) -> usize {
+        self.tasks
+            .iter()
+            .filter(|going| !going.nested && going.running)
+            .count()
+    }
+
+    /// The updates that end everything still going, the newest first.
+    fn endings(&self) -> Vec<Value> {
+        let tasks = self.tasks.iter().rev().map(|going| {
+            json!({ "sessionId": going.session, "update": Task::Stopped.update(&going.id) })
+        });
+        let subagents = self.subagents.iter().rev().map(|going| {
+            json!({ "sessionId": going.session, "update": Subagent::Disconnected.update(&going.id) })
+        });
+        tasks.chain(subagents).collect()
+    }
+}
+
+fn subagent_ended(update: &Value) -> bool {
+    update
+        .get("state")
+        .and_then(Value::as_str)
+        .and_then(Subagent::parse)
+        .is_some_and(Subagent::ended)
+}
+
+fn task_ended(update: &Value) -> bool {
+    update
+        .get("state")
+        .and_then(Value::as_str)
+        .and_then(Task::parse)
+        .is_some_and(Task::ended)
 }
 
 fn chunk(payload: &Value) -> Option<Chunk<'_>> {
@@ -268,7 +351,7 @@ impl Replay {
             last_from_user: false,
             since_point: 0,
             standing: Vec::new(),
-            subagent_sessions: HashSet::new(),
+            work: Work::default(),
         }
     }
 
@@ -370,6 +453,9 @@ impl Replay {
             payload: payload.clone(),
         };
         self.note_standing(kind, index, &event);
+        if kind == ChatEventKind::SessionUpdate {
+            self.work.note(payload);
+        }
         match kind {
             ChatEventKind::TurnStarted => self.in_turn = true,
             ChatEventKind::TurnCompleted | ChatEventKind::Error => self.in_turn = false,
@@ -395,16 +481,7 @@ impl Replay {
         self.standing.push((holds, index, event.clone()));
     }
 
-    fn forget_subagents(&mut self) {
-        self.standing
-            .retain(|(held, ..)| !matches!(held, Holds::Subagent(_)));
-    }
-
     fn note_standing(&mut self, kind: ChatEventKind, index: u64, event: &ChatEvent) {
-        if cancels_subagents(kind, &event.payload) {
-            self.forget_subagents();
-            return;
-        }
         if kind != ChatEventKind::SessionUpdate {
             return;
         }
@@ -415,17 +492,7 @@ impl Replay {
             return;
         };
         let text = |key: &str| update.get(key).and_then(Value::as_str).map(str::to_owned);
-        let in_subagent = event
-            .payload
-            .get("sessionId")
-            .and_then(Value::as_str)
-            .is_some_and(|session| self.subagent_sessions.contains(session));
-        if update_kind == "subagent_spawned" {
-            if let Some(id) = text("subagentSessionId") {
-                self.subagent_sessions.insert(id);
-            }
-        }
-        if in_subagent {
+        if self.work.in_subagent(&event.payload) {
             return;
         }
         match update_kind {
@@ -437,7 +504,7 @@ impl Replay {
                     self.hold(Holds::Subagent(id), index, event);
                 }
             }
-            "subagent_state_update" if text("state").as_deref() != Some("running") => {
+            "subagent_state_update" if subagent_ended(update) => {
                 if let Some(id) = text("subagentSessionId") {
                     self.standing
                         .retain(|(held, ..)| *held != Holds::Subagent(id.clone()));
@@ -452,11 +519,7 @@ impl Replay {
                 let Some(id) = text("asyncTaskId") else {
                     return;
                 };
-                let ended = matches!(
-                    text("state").as_deref(),
-                    Some("completed" | "failed" | "stopped")
-                );
-                if ended {
+                if task_ended(update) {
                     self.standing.retain(|(held, ..)| {
                         *held != Holds::TaskSpawned(id.clone())
                             && *held != Holds::TaskLatest(id.clone())
@@ -696,8 +759,6 @@ struct Inner {
     start: Option<ChatStart>,
     permission_mode: String,
     title: Option<String>,
-    subagents: HashSet<String>,
-    tasks: HashMap<String, bool>,
     /// The session ended, so nobody new is let in to wait for events that
     /// will not come.
     closed: bool,
@@ -736,8 +797,6 @@ impl Feed {
                 start: None,
                 permission_mode,
                 title: None,
-                subagents: HashSet::new(),
-                tasks: HashMap::new(),
                 closed: false,
             }),
         })
@@ -828,13 +887,8 @@ impl Feed {
         let bytes = inner.replay.push(kind, &payload);
         if kind == ChatEventKind::SessionUpdate {
             if let Some(title) = session_title(&payload) {
-                inner.title = Some(title.to_owned());
+                inner.title = Some(title);
             }
-            let Inner {
-                tasks, subagents, ..
-            } = &mut *inner;
-            track_task(tasks, subagents, &payload);
-            track_subagent(&mut inner.subagents, &payload);
             inner.pending.push(payload);
             inner.pending_bytes += bytes;
             // A loaded chat replays its history all at once, and in one batch
@@ -852,21 +906,6 @@ impl Feed {
                 });
             }
             return;
-        }
-        // An agent starting again knows nothing of the old one's subagents.
-        if kind == ChatEventKind::Status {
-            inner.replay.forget_subagents();
-        }
-        if kind == ChatEventKind::Status || cancels_subagents(kind, &payload) {
-            inner.subagents.clear();
-        }
-        if kind == ChatEventKind::Status
-            && matches!(
-                payload.get("state").and_then(Value::as_str),
-                Some("stopped" | "error")
-            )
-        {
-            inner.tasks.clear();
         }
         self.flush_locked(&mut inner);
         self.broadcast(&mut inner, kind, payload);
@@ -1041,15 +1080,29 @@ impl Feed {
     pub(crate) fn running_subagents(&self) -> u32 {
         self.inner
             .lock()
-            .map(|inner| inner.subagents.len() as u32)
+            .map(|inner| inner.replay.work.running_subagents() as u32)
             .unwrap_or_default()
     }
 
     pub(crate) fn running_tasks(&self) -> u32 {
         self.inner
             .lock()
-            .map(|inner| inner.tasks.values().filter(|running| **running).count() as u32)
+            .map(|inner| inner.replay.work.running_tasks() as u32)
             .unwrap_or_default()
+    }
+
+    /// The agent's process went away, and every subagent and background task
+    /// it had going went with it. The chat is told each one ended.
+    pub(crate) fn agent_gone(&self) {
+        let Ok(mut inner) = self.inner.lock() else {
+            return;
+        };
+        for payload in inner.replay.work.endings() {
+            let bytes = inner.replay.push(ChatEventKind::SessionUpdate, &payload);
+            inner.pending.push(payload);
+            inner.pending_bytes += bytes;
+        }
+        self.flush_locked(&mut inner);
     }
 
     pub(crate) fn start(&self) -> Option<ChatStart> {
@@ -1147,14 +1200,14 @@ mod tests {
         let spawned =
             |id: &str| json!({ "sessionUpdate": "subagent_spawned", "subagentSessionId": id });
         let state = |id: &str, state: &str| json!({ "sessionUpdate": "subagent_state_update", "subagentSessionId": id, "state": state });
-        let mut running = HashSet::new();
-        track_subagent(&mut running, &update("s", spawned("a")));
-        track_subagent(&mut running, &update("s", spawned("b")));
-        track_subagent(&mut running, &update("a", spawned("nested")));
-        track_subagent(&mut running, &update("s", state("a", "running")));
-        assert_eq!(running.len(), 2);
-        track_subagent(&mut running, &update("s", state("a", "completed")));
-        assert_eq!(running, HashSet::from(["b".to_owned()]));
+        let mut work = Work::default();
+        work.note(&update("s", spawned("a")));
+        work.note(&update("s", spawned("b")));
+        work.note(&update("a", spawned("nested")));
+        work.note(&update("s", state("a", "running")));
+        assert_eq!(work.running_subagents(), 2);
+        work.note(&update("s", state("a", "completed")));
+        assert_eq!(work.running_subagents(), 1);
     }
 
     #[test]
@@ -1166,7 +1219,7 @@ mod tests {
             })
         };
         assert_eq!(
-            session_title(&info("Fix the flaky test")),
+            session_title(&info("Fix the flaky test")).as_deref(),
             Some("Fix the flaky test")
         );
         assert_eq!(session_title(&info("  ")), None);
@@ -1535,7 +1588,7 @@ mod tests {
     }
 
     #[test]
-    fn a_running_subagent_stands_until_it_stops_or_its_turn_is_cancelled() {
+    fn a_running_subagent_stands_until_it_stops() {
         let mut replay = Replay::new(MAX_REPLAY_BYTES, MAX_REPLAY_EVENTS, None);
         let spawned = |id: &str| {
             update(
@@ -1571,7 +1624,7 @@ mod tests {
             ChatEventKind::TurnCompleted,
             &json!({ "stopReason": "cancelled" }),
         );
-        assert!(held(&replay).is_empty());
+        assert_eq!(held(&replay), ["b"]);
     }
 
     #[tokio::test]
@@ -1584,18 +1637,29 @@ mod tests {
             ChatEventKind::TurnCompleted,
             json!({ "stopReason": "end_turn" }),
         );
-        assert_eq!(feed.running_subagents(), 1);
+        feed.emit(
+            ChatEventKind::SessionUpdate,
+            json!({ "sessionId": "s", "update": { "sessionUpdate": "async_task_spawned", "asyncTaskId": "shell" } }),
+        );
+        assert_eq!((feed.running_subagents(), feed.running_tasks()), (1, 1));
 
-        feed.emit(ChatEventKind::Status, json!({ "state": "starting" }));
-        assert_eq!(feed.running_subagents(), 0);
-        assert!(feed.inner.lock().unwrap().replay.standing.is_empty());
+        feed.agent_gone();
+        assert_eq!((feed.running_subagents(), feed.running_tasks()), (0, 0));
+        let inner = feed.inner.lock().unwrap();
+        assert!(inner.replay.standing.is_empty());
+        let ended: Vec<Value> = inner.replay.events()[4..]
+            .iter()
+            .map(|event| event.payload["update"]["state"].clone())
+            .collect();
+        assert_eq!(ended, [json!("stopped"), json!("disconnected")]);
+        drop(inner);
 
         feed.emit(ChatEventKind::SessionUpdate, spawned);
         feed.emit(
             ChatEventKind::TurnCompleted,
             json!({ "stopReason": "cancelled" }),
         );
-        assert_eq!(feed.running_subagents(), 0);
+        assert_eq!(feed.running_subagents(), 1);
     }
 
     #[tokio::test]

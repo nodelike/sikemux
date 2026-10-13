@@ -1,13 +1,14 @@
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { SignInCancelled } from "../../../plugin-api/backend";
 import type { BitbucketStatus } from "../api";
 
-const fake = vi.hoisted(() => ({ signInWithToken: vi.fn(), signInWithBrowser: vi.fn(), openUrl: vi.fn() }));
+const fake = vi.hoisted(() => ({ signInWithToken: vi.fn(), signInWithBrowser: vi.fn(), openSignInUrl: vi.fn() }));
 vi.mock("../api", async (importOriginal) => ({
     ...(await importOriginal<object>()),
     bitbucketApi: { signInWithToken: fake.signInWithToken, signInWithBrowser: fake.signInWithBrowser },
 }));
-vi.mock("../../../plugin-api/host", async (importOriginal) => ({ ...(await importOriginal<object>()), openUrl: fake.openUrl }));
+vi.mock("../../../plugin-api/host", async (importOriginal) => ({ ...(await importOriginal<object>()), openSignInUrl: fake.openSignInUrl }));
 
 import { SignInForm } from "./BitbucketSignIn";
 
@@ -30,8 +31,8 @@ const signedIn: BitbucketStatus = { ...status, account: "ada-id", configured: tr
 afterEach(cleanup);
 
 describe("SignInForm", () => {
-    it("opens Bitbucket's page in the browser and signs in once it comes back", async () => {
-        fake.openUrl.mockReset().mockResolvedValue(undefined);
+    it("opens Bitbucket's page in the single sign-on browser and signs in once it comes back", async () => {
+        fake.openSignInUrl.mockReset().mockResolvedValue(undefined);
         let finish: (status: BitbucketStatus) => void = () => {};
         fake.signInWithBrowser.mockReset().mockImplementation((openPage: (url: string) => void) => {
             openPage("https://bitbucket.org/site/oauth2/authorize?client_id=x");
@@ -40,7 +41,7 @@ describe("SignInForm", () => {
         const onSignedIn = vi.fn();
         render(<SignInForm status={status} onSignedIn={onSignedIn} />);
         fireEvent.click(screen.getByRole("button", { name: "Continue with Bitbucket" }));
-        expect(fake.openUrl).toHaveBeenCalledWith("https://bitbucket.org/site/oauth2/authorize?client_id=x");
+        expect(fake.openSignInUrl).toHaveBeenCalledWith("https://bitbucket.org/site/oauth2/authorize?client_id=x");
         expect(screen.getByText(/Finish signing in in your browser/)).toBeTruthy();
         await act(async () => finish(signedIn));
         expect(onSignedIn).toHaveBeenCalledWith("ada-id");
@@ -101,7 +102,7 @@ describe("when signing in goes wrong", () => {
 
         const called = browserAttempt();
         fireEvent.click(screen.getByRole("button", { name: "Continue with Bitbucket" }));
-        await act(async () => called.settle().reject(new Error("cancelled")));
+        await act(async () => called.settle().reject(new SignInCancelled()));
         expect(document.querySelector(".signin-callout")).toBeNull();
         expect(screen.getByRole("button", { name: "Continue with Bitbucket" })).toBeTruthy();
     });

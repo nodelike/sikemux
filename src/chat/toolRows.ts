@@ -1,3 +1,4 @@
+import { recordOf } from "./acpEvents";
 import { basename } from "../lib/paths";
 import { durationLabel } from "./durationLabel";
 import { TOOL_ROWS } from "./generated/toolRows";
@@ -91,15 +92,11 @@ function rowSpec(title: string): ToolRowSpec | null {
     return Object.hasOwn(TOOL_ROWS, name) ? TOOL_ROWS[name as keyof typeof TOOL_ROWS] : null;
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-    return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
 // Some agents hand over the server and tool beside the arguments rather than the arguments alone.
 export function toolArguments(tool: AcpToolCall): Record<string, unknown> {
-    const input = tool.rawInput;
-    if (!isRecord(input)) return {};
-    return isRecord(input.arguments) ? input.arguments : input;
+    const input = recordOf(tool.rawInput);
+    if (!input) return {};
+    return recordOf(input.arguments) ?? input;
 }
 
 function valueText(key: string, value: unknown): string | null {

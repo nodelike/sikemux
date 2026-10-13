@@ -1,8 +1,7 @@
-import { useEffect, useRef, useState } from "react";
 import { focusSignInBrowser, openSignInUrl, swallow } from "../../../plugin-api/host";
 import { invalidate, useResource, useResourceEnabled } from "../../../plugin-api/resources";
-import { IconAws, SignInScreen, SignInWaiting } from "../../../plugin-api/ui";
-import { awsApi, type AwsProfile, type SsoLogin } from "../api";
+import { IconAws, SignInScreen, SignInWaiting, useSignInAttempt } from "../../../plugin-api/ui";
+import { awsApi, type AwsProfile } from "../api";
 import { deriveAuthState } from "../auth";
 import { awsIdentityR, awsProfilesR } from "../resources";
 import { setAwsProfile } from "../state";
@@ -56,46 +55,23 @@ export function AwsAuthEmpty({ mode, profile }: { mode: "no-profile" | "unauthed
 function SignedOut({ profile, profiles }: { profile: string; profiles: AwsProfile[] | null }) {
     const identity = useResourceEnabled(!!profile, awsIdentityR, profile, false);
     const auth = deriveAuthState(profile, identity);
-    const [waiting, setWaiting] = useState<SsoLogin | null>(null);
-    const [failure, setFailure] = useState<string | null>(null);
-    const loginRef = useRef<SsoLogin | null>(null);
-
-    useEffect(() => () => loginRef.current?.cancel(), []);
+    const attempt = useSignInAttempt();
+    const waiting = attempt.waiting;
 
     const signIn = async () => {
-        setFailure(null);
         await focusSignInBrowser().catch(swallow("bring the sign-in browser forward"));
-        const login = awsApi.ssoLogin(profile);
-        loginRef.current = login;
-        setWaiting(login);
-        try {
-            const result = await login.result;
-            if (loginRef.current !== login) return;
-            if (result.success) {
-                await awsApi.identity(profile, true).catch(swallow("refresh AWS identity"));
-                invalidate((kind, args) => kind === awsIdentityR.kind && args[0] === profile);
-            } else {
-                setFailure(result.stderr.trim() || "AWS turned the sign-in down");
-            }
-        } catch (e) {
-            if (loginRef.current === login) setFailure(String(e));
-        } finally {
-            if (loginRef.current === login) {
-                loginRef.current = null;
-                setWaiting(null);
-            }
-        }
-    };
-
-    const cancel = () => {
-        loginRef.current?.cancel();
-        loginRef.current = null;
-        setWaiting(null);
+        attempt.follow(awsApi.ssoLogin(profile), (result) => {
+            if (!result.success) return result.stderr.trim() || "AWS turned the sign-in down";
+            void awsApi
+                .identity(profile, true)
+                .catch(swallow("refresh AWS identity"))
+                .then(() => invalidate((kind, args) => kind.startsWith("aws.") && args[0] === profile));
+        });
     };
 
     const ssoUrl = profiles?.find((p) => p.name === profile)?.sso_start_url ?? null;
     const message =
-        failure ??
+        attempt.error ??
         (auth.kind === "error"
             ? auth.message
             : auth.kind === "no-profile"
@@ -130,7 +106,7 @@ function SignedOut({ profile, profiles }: { profile: string; profiles: AwsProfil
                 </>
             }>
             {waiting ? (
-                <SignInWaiting onCancel={cancel}>Approve the request in your browser</SignInWaiting>
+                <SignInWaiting onCancel={attempt.cancel}>Approve the request in your browser</SignInWaiting>
             ) : (
                 <button type="button" className="signin-btn primary" disabled={auth.kind === "cli-missing"} onClick={() => void signIn()}>
                     <IconAws size={14} />
@@ -145,7 +121,7 @@ function SignedOut({ profile, profiles }: { profile: string; profiles: AwsProfil
             )}
 
             <div className="signin-alt">
-                <button type="button" className="signin-link" disabled={!!waiting} onClick={() => void identity.refresh()}>
+                <button type="button" className="signin-link" disabled={waiting} onClick={() => void identity.refresh()}>
                     Retry
                 </button>
                 {ssoUrl && (

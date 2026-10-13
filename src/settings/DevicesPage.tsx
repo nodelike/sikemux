@@ -3,6 +3,7 @@ import { accountApi, type AccountStatus } from "../api/account";
 import { portsApi } from "../api/ports";
 import { AccountAvatar } from "../account/AccountAvatar";
 import { loadAccount, offerAccountPhones, setAccount, useAccount } from "../account/account";
+import { formatAgo } from "../lib/format";
 import { remoteApi, type AccountLink, type DeviceAccess, type NotificationState, type PairedDevice, type RemoteStatus } from "../api/remote";
 import { ACCESS_OPTIONS, platformName } from "../remote/access";
 import * as cmd from "../state/commands";
@@ -37,13 +38,7 @@ function notificationNote(state: NotificationState | undefined): string | null {
 }
 
 export function seenLabel(at: number | null, now: number): string {
-    if (at === null) return "never connected";
-    const minutes = Math.floor((now - at) / 60_000);
-    if (minutes < 1) return "seen just now";
-    if (minutes < 60) return `seen ${minutes} min ago`;
-    const hours = Math.floor(minutes / 60);
-    if (hours < 24) return `seen ${hours} h ago`;
-    return `seen ${new Date(at).toLocaleDateString()}`;
+    return at === null ? "never connected" : `seen ${formatAgo(at, now)}`;
 }
 
 /** How the live connection to the account reads under the account's email. */

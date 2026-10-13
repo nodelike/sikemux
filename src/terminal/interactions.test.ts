@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isTerminalFindShortcut, safeWebUrl, sanitizeTerminalTitle, terminalBufferText } from "./interactions";
+import { isTerminalFindShortcut, sanitizeTerminalTitle, terminalBufferText } from "./interactions";
 
 describe("terminal interactions", () => {
     it("sanitizes and bounds process-controlled titles without splitting Unicode", () => {
@@ -7,14 +7,6 @@ describe("terminal interactions", () => {
         expect(sanitizeTerminalTitle("\u0000\n")).toBeNull();
         expect(Array.from(sanitizeTerminalTitle("🧪".repeat(140)) ?? "")).toHaveLength(120);
         expect(sanitizeTerminalTitle("🧪".repeat(140))).toMatch(/…$/);
-    });
-
-    it("accepts only credential-free http(s) links", () => {
-        expect(safeWebUrl("https://example.com/a?q=1")).toBe("https://example.com/a?q=1");
-        expect(safeWebUrl("http://example.com")).toBe("http://example.com/");
-        expect(safeWebUrl("file:///etc/passwd")).toBeNull();
-        expect(safeWebUrl("javascript:alert(1)")).toBeNull();
-        expect(safeWebUrl("https://user:secret@example.com")).toBeNull();
     });
 
     it("copies buffer text without adding newlines inside wrapped output", () => {

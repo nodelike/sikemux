@@ -1,12 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { performanceTelemetry } from "../lib/performance";
+import { documentLanguageOf } from "../languages";
 
 import {
     LSP_DIAGNOSTICS_EVENT,
     LSP_PAYLOAD_LIMITS,
-    documentLanguageIdFromPath,
     languageFromPath,
     lsp,
+    noteServedLanguages,
     parseLspDiagnosticsPayload,
     parseLspDocumentSymbols,
     uriToPath,
@@ -65,10 +66,17 @@ afterEach(() => {
 });
 
 describe("existing LSP API", () => {
-    it("preserves language detection and URI conversion", () => {
+    it("opens a file with any language server the native side can start", () => {
+        noteServedLanguages(["typescript", "python", "lua"]);
         expect(languageFromPath("/project/file.tsx")).toBe("typescript");
-        expect(documentLanguageIdFromPath("/project/file.tsx")).toBe("typescriptreact");
+        expect(documentLanguageOf("/project/file.tsx")).toBe("typescriptreact");
+        expect(languageFromPath("/project/stubs.pyi")).toBe("python");
+        expect(languageFromPath("/project/init.lua")).toBe("lua");
+        expect(languageFromPath("/project/main.go")).toBeNull();
         expect(languageFromPath("/project/file.unknown")).toBeNull();
+    });
+
+    it("converts file URIs to paths", () => {
         expect(uriToPath("file:///project/a%20file.ts")).toBe("/project/a file.ts");
         expect(uriToPath("https://example.test/file.ts")).toBe("https://example.test/file.ts");
     });

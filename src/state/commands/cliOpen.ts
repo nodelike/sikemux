@@ -1,6 +1,7 @@
 import { isPathWithin } from "../../lib/paths";
 import { getState, mutate } from "../store";
 import { collectPanes } from "../layout";
+import { projectSessionId } from "../selectors";
 import type { CliOpenRequest, CliOpenResult, CliOpenTarget, Session } from "../types";
 import { createProjectSession } from "./sessions";
 import { makeWindow } from "./shared";
@@ -15,9 +16,8 @@ function cliProjectOwner(target: CliOpenTarget): Session | undefined {
 
 function cliProjectRootOwner(projectRoot: string): Session | undefined {
     const st = getState();
-    return st.sessionOrder
-        .map((id) => st.sessions[id])
-        .find((session): session is Session => !!session && session.kind === "project" && session.cwd === projectRoot);
+    const id = projectSessionId(st, projectRoot);
+    return id ? st.sessions[id] : undefined;
 }
 
 /**

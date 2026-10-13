@@ -1,5 +1,6 @@
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { PluginStreamHandlers } from "../../plugin-api/backend";
 import type { Job, Run, RunTick } from "../api";
 
 const api = vi.hoisted(() => ({
@@ -8,8 +9,7 @@ const api = vi.hoisted(() => ({
     pendingApprovals: vi.fn(() => Promise.resolve([])),
     runTiming: vi.fn(),
     artifacts: vi.fn(),
-    watchStart: vi.fn(),
-    watchStop: vi.fn(() => Promise.resolve()),
+    watch: vi.fn(),
     rerun: vi.fn(),
     rerunJob: vi.fn(),
     cancel: vi.fn(() => Promise.resolve()),
@@ -60,6 +60,14 @@ const makeRun = (overrides: Partial<Run> = {}): Run => ({
 
 const waiting = makeRun({ status: "waiting", conclusion: null });
 
+interface Watch {
+    handlers: PluginStreamHandlers<RunTick>;
+    stop: ReturnType<typeof vi.fn>;
+}
+
+/** Each watch opened so far, first one first. */
+const watches = (): Watch[] => api.watch.mock.results.map((result) => result.value as Watch);
+
 function setHidden(hidden: boolean) {
     Object.defineProperty(document, "hidden", { configurable: true, get: () => hidden });
     document.dispatchEvent(new Event("visibilitychange"));
@@ -101,7 +109,7 @@ beforeEach(() => {
     api.workflowFile.mockReset().mockResolvedValue({ path: ".github/workflows/ci.yml", text: "on: push" });
     api.deleteRun.mockReset().mockResolvedValue(undefined);
     api.deleteRunLogs.mockReset().mockResolvedValue(undefined);
-    api.watchStart.mockReset().mockResolvedValue(1);
+    api.watch.mockReset().mockImplementation((_repo, _runId, handlers: PluginStreamHandlers<RunTick>) => ({ handlers, stop: vi.fn() }));
     api.runAttempt
         .mockReset()
         .mockImplementation((_repo, runId: string, attempt: number) => Promise.resolve({ run: makeRun({ id: runId, attempt }), jobs: [] }));
@@ -139,7 +147,7 @@ describe("a run waiting for approval", () => {
 
     it("is watched live", async () => {
         await renderRun(waiting);
-        expect(api.watchStart).toHaveBeenCalledTimes(1);
+        expect(api.watch).toHaveBeenCalledTimes(1);
     });
 });
 
@@ -169,19 +177,22 @@ describe("RunView", () => {
     it("starts the watch again, and says why, when it gives up on a run still going", async () => {
         vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
         await renderRun(makeRun({ status: "in_progress", conclusion: null }));
-        const onTick = api.watchStart.mock.calls[0][2] as (tick: RunTick) => void;
-        act(() => onTick({ run: null, jobs: [], error: "GitHub is rate limiting this token", finished: true, fatal: false, signedOut: false }));
+        const onTick = watches()[0].handlers.onItem;
+        act(() => {
+            onTick({ run: null, jobs: [], error: "GitHub is rate limiting this token", finished: true, fatal: false, signedOut: false });
+            watches()[0].handlers.onEnd?.();
+        });
         expect(screen.getByText("GitHub is rate limiting this token")).toBeTruthy();
         await act(async () => {
             vi.advanceTimersByTime(60_000);
         });
-        expect(api.watchStart).toHaveBeenCalledTimes(2);
+        expect(api.watch).toHaveBeenCalledTimes(2);
     });
 
     it("stops for good, still saying why, when watching again cannot help", async () => {
         vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
         await renderRun(makeRun({ status: "in_progress", conclusion: null }));
-        const onTick = api.watchStart.mock.calls[0][2] as (tick: RunTick) => void;
+        const onTick = watches()[0].handlers.onItem;
         act(() => onTick({ run: null, jobs: [], error: "github: not signed in", finished: true, fatal: true, signedOut: true }));
         expect(screen.getByText("github: not signed in")).toBeTruthy();
         await act(async () => {
@@ -189,16 +200,16 @@ describe("RunView", () => {
         });
         await act(async () => setHidden(true));
         await act(async () => setHidden(false));
-        expect(api.watchStart).toHaveBeenCalledTimes(1);
+        expect(api.watch).toHaveBeenCalledTimes(1);
     });
 
     it("stops watching while the window is hidden and picks up again when it is shown", async () => {
         await renderRun(makeRun({ status: "in_progress", conclusion: null }));
-        expect(api.watchStart).toHaveBeenCalledTimes(1);
+        expect(api.watch).toHaveBeenCalledTimes(1);
         await act(async () => setHidden(true));
-        expect(api.watchStop).toHaveBeenCalledWith(1);
+        expect(watches()[0].stop).toHaveBeenCalled();
         await act(async () => setHidden(false));
-        expect(api.watchStart).toHaveBeenCalledTimes(2);
+        expect(api.watch).toHaveBeenCalledTimes(2);
     });
 });
 
@@ -313,7 +324,7 @@ describe("watching a run", () => {
 
     it("shows what the watch sees once it is newer than the last read, and keeps the jobs it read until the watch has some", async () => {
         await renderPane(going(), [makeJob({ status: "in_progress", conclusion: null, completedAt: null })]);
-        const onTick = api.watchStart.mock.calls[0][2] as (tick: RunTick) => void;
+        const onTick = watches()[0].handlers.onItem;
         const newer = makeRun({ status: "in_progress", conclusion: null, updatedAt: "2026-01-01T12:02:00Z", title: "Ship it now" });
         act(() => onTick({ run: newer, jobs: [], error: null, finished: false, fatal: false, signedOut: false }));
         expect(screen.getByRole("heading").textContent).toBe("Ship it now #12");
@@ -326,45 +337,22 @@ describe("watching a run", () => {
     it("stops once the run it watches has finished, and reads the list again", async () => {
         vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
         await renderPane(going());
-        const onTick = api.watchStart.mock.calls[0][2] as (tick: RunTick) => void;
+        const onTick = watches()[0].handlers.onItem;
         api.run.mockClear();
         const done = makeRun({ updatedAt: "2026-01-01T12:09:00Z", conclusion: "success" });
         act(() => onTick({ run: done, jobs: [], error: null, finished: true, fatal: false, signedOut: false }));
         await act(async () => {
             vi.advanceTimersByTime(10 * 60_000);
         });
-        expect(api.watchStart).toHaveBeenCalledTimes(1);
+        expect(api.watch).toHaveBeenCalledTimes(1);
         expect(api.run).toHaveBeenCalled();
         expect(within(card()).getByText("Passed")).toBeTruthy();
     });
 
-    it("stops a watch that only started after the run was closed", async () => {
-        let started: (id: number) => void = () => {};
-        api.watchStart.mockReturnValue(new Promise((resolve) => (started = resolve)));
+    it("stops the watch when the run is closed", async () => {
         const view = await renderPane(going());
         view.unmount();
-        await act(async () => started(5));
-        expect(api.watchStop).toHaveBeenCalledWith(5);
-    });
-
-    it("stops a watch that started after the window was hidden, and starts one once it is shown", async () => {
-        let started: (id: number) => void = () => {};
-        api.watchStart.mockReturnValueOnce(new Promise((resolve) => (started = resolve))).mockResolvedValue(6);
-        await renderPane(going());
-        await act(async () => setHidden(true));
-        await act(async () => started(5));
-        expect(api.watchStop).toHaveBeenCalledWith(5);
-        expect(api.watchStart).toHaveBeenCalledTimes(1);
-        await act(async () => setHidden(false));
-        expect(api.watchStart).toHaveBeenCalledTimes(2);
-    });
-
-    it("ignores ticks from a watch that was stopped", async () => {
-        await renderPane(going());
-        const onTick = api.watchStart.mock.calls[0][2] as (tick: RunTick) => void;
-        await act(async () => setHidden(true));
-        act(() => onTick({ run: null, jobs: [], error: "stale", finished: false, fatal: false, signedOut: false }));
-        expect(screen.queryByText("stale")).toBeNull();
+        expect(watches()[0].stop).toHaveBeenCalled();
     });
 });
 

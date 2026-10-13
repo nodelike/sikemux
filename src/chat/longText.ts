@@ -17,6 +17,8 @@ function openFence(text: string): string | null {
 }
 
 /** Prefers a paragraph break, then a line break, and cuts mid-line only when neither is near the limit. */
+export const showRestLabel = (hidden: number): string => `Show the rest · ${Math.round(hidden / 1000)}k more characters`;
+
 export function cutLongText(text: string, limit = LONG_TEXT_LIMIT): TextCut | null {
     if (text.length <= limit) return null;
 

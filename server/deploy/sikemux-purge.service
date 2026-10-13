@@ -1,5 +1,5 @@
 [Unit]
-Description=Sikemux API: erase deleted accounts after 30 days and prune old history
+Description=Sikemux API: erase deleted accounts that can no longer be restored, and prune old history
 After=network-online.target postgresql.service
 
 [Service]

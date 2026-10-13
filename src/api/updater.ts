@@ -4,6 +4,7 @@ import { invokeCommand as invoke } from "./invoke";
 import type { ReleaseCredits } from "./releases";
 import { getState, setState, type PendingUpdate, type UpdateCheckOutcome, type UpdateOperationState } from "../state/store";
 import { errMessage, notify, reportError, swallow } from "../state/toast";
+import { formatBytes } from "../lib/format";
 
 interface UpdateInfo {
     version: string;
@@ -47,12 +48,6 @@ export function parseUpdateInstallProgress(value: unknown): UpdateInstallProgres
 export function updateDownloadPercent(pending: Pick<PendingUpdate, "downloadedBytes" | "totalBytes">): number | null {
     if (!pending.totalBytes || pending.totalBytes <= 0) return null;
     return Math.min(100, Math.max(0, Math.floor((pending.downloadedBytes / pending.totalBytes) * 100)));
-}
-
-function formatBytes(bytes: number): string {
-    if (bytes < 1024) return `${bytes} B`;
-    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 export function updateStatusLabel(pending: PendingUpdate): string {

@@ -26,6 +26,19 @@ impl PluginError {
         self
     }
 
+    /// Signed in, but this account may not do that. The frontend keeps the
+    /// person signed in, unlike category `auth` or `http` with status 401.
+    pub fn forbidden(message: impl Into<String>) -> Self {
+        Self::new("forbidden", message).with_status(403)
+    }
+
+    pub fn http(status: u16, message: impl Into<String>) -> Self {
+        if status == 403 {
+            return Self::forbidden(message);
+        }
+        Self::new("http", message).with_status(status)
+    }
+
     pub fn unknown_method(method: &str) -> Self {
         Self::new("unknown-method", format!("no method named `{method}`"))
     }

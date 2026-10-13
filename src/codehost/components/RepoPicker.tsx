@@ -4,9 +4,9 @@ import { useResource } from "../../plugin-api/resources";
 import { IconPin, IconSearch, rankBy, useMouseActive } from "../../plugin-api/ui";
 import type { RepoListing, RepoRef } from "../api";
 import { myReposR } from "../resources";
-import { formatAgo } from "../runStatus";
 import { useAccount, useHost } from "../registry";
 import { hostSettings, refOf, slugOf, togglePinned } from "../state";
+import { formatAgo } from "../../lib/format";
 
 interface Entry {
     slug: string;

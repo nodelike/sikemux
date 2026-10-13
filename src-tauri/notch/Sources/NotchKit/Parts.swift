@@ -40,6 +40,20 @@ struct SubagentCount: View {
     }
 }
 
+struct ShellCount: View {
+    let count: Int
+
+    var body: some View {
+        HStack(spacing: 3) {
+            IconView(icon: Icons.command, size: 11).foregroundStyle(Theme.warn.opacity(0.75))
+            Text("\(count)").font(Theme.ui(11, .medium)).monospacedDigit().foregroundStyle(Theme.inkFaint)
+        }
+        .fixedSize()
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(count) \(count == 1 ? "shell or monitor" : "shells or monitors") running")
+    }
+}
+
 private struct Dot: View {
     let colour: Color
 

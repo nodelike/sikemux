@@ -4,7 +4,7 @@ import { invokeCommand as invoke } from "../api/invoke";
 import * as cmd from "../state/commands";
 import { swallow } from "../state/toast";
 import type { Agent } from "../state/types";
-import { safeWebUrl } from "../terminal/interactions";
+import { safeWebUrl } from "../lib/urls";
 import { localPath } from "./imagePreview";
 
 export const ChatAgentContext = createContext<{ id: string; type: Agent["type"] }>({ id: "", type: "claude" });

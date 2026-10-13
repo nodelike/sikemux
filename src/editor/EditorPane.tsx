@@ -51,7 +51,7 @@ import { EditorInsights } from "./EditorInsights";
 import { PaneField } from "../ui/ShaderField";
 import { basename, dirname, isPathWithin, joinPath, normalizePath } from "../lib/paths";
 import { localPath } from "../chat/imagePreview";
-import { safeWebUrl } from "../terminal/interactions";
+import { safeWebUrl } from "../lib/urls";
 import { keybindingLabelForAction } from "../commands/keybindings";
 
 const FileViewer = lazy(() => import("./viewers/FileViewer"));
@@ -491,10 +491,6 @@ export function EditorPane({
         if (active && !viewer && !previewingMarkdown) viewRef.current?.focus();
     }, [active, activePath, viewer, previewingMarkdown]);
 
-    useEffect(() => {
-        setMarkdownPreview(null);
-    }, [activePath]);
-
     /** Asks the backend about the file again; the revision only moves when the file did. */
     const loadPreview = async (path: string, force = false): Promise<Previewed> => {
         const preview = await fsapi.previewFile(path);
@@ -550,9 +546,21 @@ export function EditorPane({
         refreshViewTheme(view);
         currentRef.current = path;
         bindLspContext(view, path);
-        void openDoc(path, view.state.doc.toString());
+        const content = view.state.doc.toString();
+        void openDoc(path, content);
         cmd.setEditorView(paneId, { activePath: path });
-        view.focus();
+        if (isMarkdownPath(path)) {
+            setFindState((state) => ({ ...state, open: false }));
+            setMarkdownPreview({ path, content });
+        } else {
+            setMarkdownPreview(null);
+            view.focus();
+        }
+    };
+
+    const showSourceLine = (view: EditorView, line: number, character: number) => {
+        setMarkdownPreview(null);
+        scrollToLine(view, line, character);
     };
 
     const openPathRef = useRef<(path: string, preview?: boolean) => Promise<void>>(async () => {});
@@ -619,7 +627,7 @@ export function EditorPane({
                 if (currentRef.current !== target.path) switchTo(target.path);
                 if (target.line != null && viewRef.current && !showsViewer(target.path)) {
                     if (currentRef.current === target.path) {
-                        scrollToLine(viewRef.current, target.line, target.column ?? 0);
+                        showSourceLine(viewRef.current, target.line, target.column ?? 0);
                     }
                 }
             } catch (cause) {
@@ -912,7 +920,7 @@ export function EditorPane({
             await openPath(reveal.path);
             hydratedRef.current = true;
             if (reveal.line != null && viewRef.current && !showsViewer(reveal.path))
-                scrollToLine(viewRef.current, reveal.line, reveal.character ?? 0);
+                showSourceLine(viewRef.current, reveal.line, reveal.character ?? 0);
         })()
             .catch(reportError("open file"))
             .finally(() => onRevealed?.(reveal.seq));
@@ -935,7 +943,7 @@ export function EditorPane({
             void (async () => {
                 await openPathRef.current(e.path);
                 if (e.line != null && viewRef.current && !showsViewer(e.path)) {
-                    scrollToLine(viewRef.current, e.line, e.character ?? 0);
+                    showSourceLine(viewRef.current, e.line, e.character ?? 0);
                 }
             })().catch(reportError("open file"));
         });

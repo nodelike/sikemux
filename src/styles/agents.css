@@ -21,40 +21,12 @@
     position: relative;
 }
 :root {
-    --brand-claude: #d97757;
-    --brand-codex: #7a9dff;
-    --brand-hermes: #e0a050;
-    --brand-pi: #7dd3fc;
-    --brand-opencode: #a78bfa;
-    --brand-omp: #f97316;
-    --brand-grok: #fcfcfc;
     --brand-aws: #ff9900;
     --brand-bitbucket: #2684ff;
     --brand-gitlab: #fc6d26;
 }
 .agent-glyph {
     display: flex;
-}
-.agent-glyph.claude {
-    color: var(--brand-claude);
-}
-.agent-glyph.codex {
-    color: var(--brand-codex);
-}
-.agent-glyph.hermes {
-    color: var(--brand-hermes);
-}
-.agent-glyph.pi {
-    color: var(--brand-pi);
-}
-.agent-glyph.opencode {
-    color: var(--brand-opencode);
-}
-.agent-glyph.omp {
-    color: var(--brand-omp);
-}
-.agent-glyph.grok {
-    color: var(--brand-grok);
 }
 .agent-glyph.term,
 .sess-icon.ssh {
@@ -93,9 +65,6 @@
     display: inline-grid;
     place-items: center;
     color: var(--text-tertiary);
-}
-.agent-state-icon {
-    display: block;
 }
 .agent-state-loader {
     display: grid;
@@ -177,8 +146,7 @@
 .agent-activity.state-done {
     color: var(--acc);
 }
-.agent-activity.state-blocked,
-.agent-activity.state-background {
+.agent-activity.state-blocked {
     color: var(--warn);
 }
 .agent-activity.state-working {
@@ -193,7 +161,13 @@
 .agent-activity.state-stopped {
     color: var(--text-tertiary);
 }
-.subagent-count {
+.work-counts {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    flex: 0 0 auto;
+}
+.work-count {
     display: inline-flex;
     align-items: center;
     gap: 3px;
@@ -208,8 +182,11 @@
     stroke: none;
     color: color-mix(in srgb, var(--live) 70%, var(--text-tertiary));
 }
-.tab-wrap.active .subagent-count,
-.agent-row.active .subagent-count {
+.shell-count svg {
+    color: color-mix(in srgb, var(--warn) 70%, var(--text-tertiary));
+}
+.tab-wrap.active .work-count,
+.agent-row.active .work-count {
     color: var(--text-secondary);
 }
 @keyframes agent-activity-spin {
@@ -236,27 +213,6 @@
     grid-row: 1 / span 5;
     background: var(--acc);
 }
-.agent-dormant-notch.claude {
-    background: var(--brand-claude);
-}
-.agent-dormant-notch.codex {
-    background: var(--brand-codex);
-}
-.agent-dormant-notch.hermes {
-    background: var(--brand-hermes);
-}
-.agent-dormant-notch.pi {
-    background: var(--brand-pi);
-}
-.agent-dormant-notch.opencode {
-    background: var(--brand-opencode);
-}
-.agent-dormant-notch.omp {
-    background: var(--brand-omp);
-}
-.agent-dormant-notch.grok {
-    background: var(--brand-grok);
-}
 .agent-dormant-kicker {
     color: var(--live);
     font-size: 10px;
@@ -277,24 +233,6 @@
     background: var(--surface-selected);
 }
 
-.proj-pip.is-working::after,
-.proj-pip.has-unread::after {
-    content: "";
-    position: absolute;
-    right: -1px;
-    top: -1px;
-    width: 6px;
-    height: 6px;
-    border-radius: 999px;
-    background: var(--acc);
-    box-shadow: 0 0 0 2px var(--surface);
-}
-.proj-pip.is-working::after {
-    background: transparent;
-    border: 1.5px solid color-mix(in srgb, var(--live) 30%, transparent);
-    border-top-color: var(--live);
-    animation: agent-activity-spin 0.72s linear infinite;
-}
 .env-dd {
     position: relative;
     flex: 0 1 auto;
@@ -437,30 +375,6 @@
     color: var(--acc);
     background: var(--surface-selected);
 }
-.agent-header-btn.claude {
-    --agent-provider: var(--brand-claude);
-}
-.agent-header-btn.codex {
-    --agent-provider: var(--brand-codex);
-}
-
-.agent-header-btn.hermes {
-    --agent-provider: var(--brand-hermes);
-}
-
-.agent-header-btn.pi {
-    --agent-provider: var(--brand-pi);
-}
-
-.agent-header-btn.opencode {
-    --agent-provider: var(--brand-opencode);
-}
-.agent-header-btn.omp {
-    --agent-provider: var(--brand-omp);
-}
-.agent-header-btn.grok {
-    --agent-provider: var(--brand-grok);
-}
 /* The all-agents tab leads the provider row, standing a little apart from it. */
 .agent-header-types > .all-agents {
     margin-right: 6px;
@@ -545,12 +459,6 @@
     /* Divides from the list above it now, not from the header above it. */
     border-top: 1px solid var(--border);
     background: color-mix(in srgb, var(--surface-raised) 52%, transparent);
-}
-.agent-usage.claude {
-    --usage-fill: var(--brand-claude);
-}
-.agent-usage.codex {
-    --usage-fill: var(--brand-codex);
 }
 .agent-usage-head {
     display: flex;
@@ -927,8 +835,7 @@
 
 @media (prefers-reduced-motion: reduce) {
     .agent-state-loader i,
-    .loading-ring,
-    .proj-pip.is-working::after {
+    .loading-ring {
         animation: none;
     }
 }

@@ -2,7 +2,6 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type { LogLine } from "../api";
 import { LogRow, severityTone } from "./LogRow";
-import { formatMs } from "./TraceView";
 
 const line: LogLine = {
     id: "a",
@@ -37,12 +36,5 @@ describe("LogRow", () => {
         expect(severityTone("WARN")).toBe("warn");
         expect(severityTone("INFO")).toBe("quiet");
         expect(severityTone(null)).toBe("quiet");
-    });
-
-    it("writes durations at a sensible unit", () => {
-        expect(formatMs(0.25)).toBe("250µs");
-        expect(formatMs(12.34)).toBe("12.3ms");
-        expect(formatMs(1_530)).toBe("1.5s");
-        expect(formatMs(42_000)).toBe("42s");
     });
 });

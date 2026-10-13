@@ -4,15 +4,10 @@ import { EmptyState, IconChevron, SkeletonRows } from "../../../plugin-api/ui";
 import { failureMessage } from "../api";
 import { signozTraceLogsR, signozTraceR } from "../resources";
 import { LogRow } from "./LogRow";
+import { formatDuration } from "../../../plugin-api/format";
 
 const MAX_INDENT = 16;
 const TRACE_LOG_LOOKBACK_MINUTES = 24 * 60;
-
-export function formatMs(ms: number): string {
-    if (ms >= 1_000) return `${(ms / 1_000).toFixed(ms >= 10_000 ? 0 : 1)}s`;
-    if (ms >= 1) return `${ms.toFixed(ms >= 100 ? 0 : 1)}ms`;
-    return `${Math.round(ms * 1_000)}µs`;
-}
 
 export function TraceView({ traceId, onBack }: { traceId: string; onBack: () => void }) {
     const trace = useResource(signozTraceR, traceId);
@@ -46,7 +41,7 @@ export function TraceView({ traceId, onBack }: { traceId: string; onBack: () => 
                             </span>
                         )}
                         <span className="sgz-trace-meta">
-                            {formatMs(data.durationMs)} · {data.spans.length} spans · {data.services.join(", ")}
+                            {formatDuration(data.durationMs)} · {data.spans.length} spans · {data.services.join(", ")}
                         </span>
                     </>
                 )}
@@ -71,7 +66,7 @@ export function TraceView({ traceId, onBack }: { traceId: string; onBack: () => 
                                     style={{ left: `${(span.offsetMs / total) * 100}%`, width: `max(1px, ${(span.durationMs / total) * 100}%)` }}
                                 />
                             </span>
-                            <span className="sgz-span-time">{formatMs(span.durationMs)}</span>
+                            <span className="sgz-span-time">{formatDuration(span.durationMs)}</span>
                         </div>
                     ))}
                 </section>

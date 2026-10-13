@@ -7,8 +7,8 @@ import { acpAccount, fallbackAccounts } from "../agents/accounts";
 import { noteSignedOut } from "../agents/statusRefresh";
 import { swallow } from "../state/toast";
 import type { FoldMemory } from "./longText";
-import { eventMessage, failureOf, permissionRequest, promptAction, recordOf, statusFromEvent } from "./acpEvents";
-import { permissionModeOf } from "./chatStatus";
+import { chatActions } from "./acpEvents";
+import { effectiveMode as permissionModeOf } from "../agents/agentLaunch";
 import { afterSessionEnd, sessionEndOf, type Recovery } from "./sessionRecovery";
 import { claimChat } from "./chatClaims";
 import type { ChatAction, ChatState } from "./types";
@@ -146,54 +146,35 @@ export function useAcpSession({
         const handleEvent = (event: AcpEvent) => {
             if (!mounted || event.agentId !== agent.id) return;
             if (event.kind !== "session_update") flushUpdates();
-            if (event.kind === "status") {
-                dispatch({ type: "status", state: statusFromEvent(event) });
-                noteEnd(event);
-            } else if (event.kind === "ready") {
-                /* The core starts the agent again under a running chat after a
-                   sign-in or on another account, sometimes on a new session. */
-                if (typeof event.payload.sessionId === "string" && sessionIdRef.current) sessionIdRef.current = event.payload.sessionId;
-                dispatch({
-                    type: "ready",
-                    capabilities: recordOf(event.payload.capabilities) ?? {},
-                    setup: recordOf(event.payload.setup) ?? {},
-                });
-            } else if (event.kind === "session_update") {
-                const batch = Array.isArray(event.payload.updates) ? event.payload.updates : [];
-                for (const entry of batch) {
-                    const row = recordOf(entry);
-                    if (!row) continue;
-                    const update = recordOf(row.update);
-                    const sessionId = typeof row.sessionId === "string" ? row.sessionId : null;
-                    if (update?.sessionUpdate === "account_switched" && typeof update.account === "string") noteAccount(update.account);
-                    if (update && sessionId) queueUpdate(sessionId, update);
-                }
-            } else if (event.kind === "prompt") {
-                const prompted = promptAction(event.payload);
-                if (prompted) dispatch(prompted);
-            } else if (event.kind === "turn_started") {
-                if (sessionIdRef.current && agentRef.current.resumeId !== sessionIdRef.current) {
-                    cmd.attachAgentSession(agent.id, sessionIdRef.current);
-                }
-                dispatch({ type: "turn_started", at: typeof event.payload.at === "number" ? event.payload.at : undefined });
-            } else if (event.kind === "turn_completed") {
-                dispatch({
-                    type: "turn_completed",
-                    stopReason: typeof event.payload.stopReason === "string" ? event.payload.stopReason : undefined,
-                    at: typeof event.payload.at === "number" ? event.payload.at : undefined,
-                });
-            } else if (event.kind === "permission_request") {
-                const request = permissionRequest(event.payload);
-                if (request) dispatch({ type: "permission_requested", request });
-            } else if (event.kind === "error") {
-                const failure = failureOf(event);
-                dispatch({ type: "error", message: eventMessage(event), failure });
-                if (failure?.kind === "signIn")
-                    void noteSignedOut(agentRef.current.type, profile?.configPath).catch(swallow("mark agent signed out"));
-            } else if (event.kind === "reattach") {
+            if (event.kind === "reattach") {
                 reattachingRef.current = true;
                 setRestartKey((value) => value + 1);
+                return;
             }
+            /* The core starts the agent again under a running chat after a
+               sign-in or on another account, sometimes on a new session. */
+            if (event.kind === "ready" && typeof event.payload.sessionId === "string" && sessionIdRef.current)
+                sessionIdRef.current = event.payload.sessionId;
+            if (event.kind === "turn_started" && sessionIdRef.current && agentRef.current.resumeId !== sessionIdRef.current)
+                cmd.attachAgentSession(agent.id, sessionIdRef.current);
+            for (const action of chatActions(event)) {
+                if (action.type === "session_update") {
+                    const { update } = action;
+                    if (update.sessionUpdate === "account_switched" && typeof update.account === "string") noteAccount(update.account);
+                    queueUpdate(action.sessionId, update);
+                    /* The saved history is all in while the agent is still starting,
+                       so the transcript shows now rather than when the agent answers. */
+                    if (update.sessionUpdate === "history_loaded" && !reattaching) {
+                        flushUpdates();
+                        setReplaying(false);
+                    }
+                    continue;
+                }
+                dispatch(action);
+                if (action.type === "error" && action.failure?.kind === "signIn")
+                    void noteSignedOut(agentRef.current.type, profile?.configPath).catch(swallow("mark agent signed out"));
+            }
+            if (event.kind === "status") noteEnd(event);
         };
 
         const lifecycle = lifecycleRef.current

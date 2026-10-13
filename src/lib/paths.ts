@@ -38,12 +38,30 @@ export function isPathWithin(path: string, root: string): boolean {
 }
 
 export function prettyPath(path: string, home: string | null | undefined): string {
-    return home && path.startsWith(home) ? `~${path.slice(home.length)}` : path;
+    if (!home) return path;
+    const rest = relativePath(path, home);
+    if (rest === null) return path;
+    return rest ? `~${path.slice(path.length - rest.length - 1)}` : "~";
 }
 
 export function expandHome(path: string, home: string | null | undefined): string {
     if (!home) return path;
     if (path === "~") return home;
-    if (path.startsWith("~/")) return `${home}${path.slice(1)}`;
+    if (path.startsWith("~/") || path.startsWith("~\\")) return `${home}${path.slice(1)}`;
     return path;
+}
+
+/** The path a `file:` URI names, or null when it is not one. A Windows drive loses the slash in front of it. */
+export function fileUriToPath(uri: string): string | null {
+    if (!/^file:/i.test(uri)) return null;
+    let url: URL;
+    let pathname: string;
+    try {
+        url = new URL(uri);
+        pathname = decodeURIComponent(url.pathname);
+    } catch {
+        return null;
+    }
+    if (url.hostname && url.hostname.toLowerCase() !== "localhost") return `//${url.hostname}${pathname}`;
+    return /^\/[A-Za-z]:/.test(pathname) ? pathname.slice(1) : pathname;
 }

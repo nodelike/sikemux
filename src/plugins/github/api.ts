@@ -1,5 +1,4 @@
-import { createPluginBackend, isPluginFailure } from "../../plugin-api/backend";
-import { invalidate } from "../../plugin-api/resources";
+import { createPluginBackend, type PluginStreamHandlers } from "../../plugin-api/backend";
 import type {
     Annotation,
     Artifact,
@@ -39,11 +38,14 @@ import type {
     HostAccount,
     HostAccountEntry,
 } from "../../plugin-api/codehost";
+import { createCodeHostClient } from "../../plugin-api/codehost";
 import { GITHUB_PLUGIN_ID } from "./kinds";
 
 export type * from "../../plugin-api/codehost";
+export { failureMessage } from "../../plugin-api/backend";
 
-const backend = createPluginBackend(GITHUB_PLUGIN_ID);
+const backend = createPluginBackend(GITHUB_PLUGIN_ID, { signInStatus: (kind) => kind === "host.status" || kind === "host.githubStatus" });
+const { call, image, watch } = createCodeHostClient(backend);
 
 export type TokenSource = "keychain" | "environment" | "ghCli";
 
@@ -61,20 +63,6 @@ export interface ActionsStatus {
     ok: boolean;
     authFailed: boolean;
     message: string | null;
-}
-
-export function failureMessage(error: unknown): string {
-    return isPluginFailure(error) ? error.message : String(error);
-}
-
-function isSignedOut(error: unknown): boolean {
-    if (!isPluginFailure(error)) return false;
-    return error.category === "auth" || error.category === "unconfigured" || (error.category === "http" && error.status === 401);
-}
-
-/** A token GitHub has stopped accepting makes every cached answer stale, whichever call found out, so the next read lands on the sign-in form. */
-function forgetSignedOut(): void {
-    invalidate((kind) => kind.startsWith("host."));
 }
 
 /** GitHub numbers its runs, jobs, workflows and artifacts, and the Git pane names them by text, as every host can. */
@@ -107,36 +95,6 @@ const fromJob = (job: GithubJob): Job => ({ ...job, id: String(job.id), checkRun
 const fromDetail = (detail: GithubRunDetail): RunDetail => ({ run: fromRun(detail.run), jobs: detail.jobs.map(fromJob) });
 const withTextId = <T extends { id: number }>(item: T): Omit<T, "id"> & { id: string } => ({ ...item, id: String(item.id) });
 
-async function call<T>(method: string, params?: unknown): Promise<T> {
-    try {
-        return await backend.call<T>(method, params);
-    } catch (error) {
-        if (isSignedOut(error)) forgetSignedOut();
-        if (isPluginFailure(error, "rate-limited")) invalidate((kind) => kind === "host.rateLimit");
-        throw error;
-    }
-}
-
-const IMAGES_KEPT = 400;
-const images = new Map<string, Promise<string>>();
-
-/**
- * An avatar or a picture from GitHub as a `data:` address, since the window cannot load GitHub's images itself. Each
- * address is fetched once; one that failed is tried again next time.
- */
-function image(url: string): Promise<string> {
-    const known = images.get(url);
-    if (known) return known;
-    const fetched = call<string>("image", { url });
-    images.set(url, fetched);
-    fetched.catch(() => images.delete(url));
-    if (images.size > IMAGES_KEPT) {
-        const oldest = images.keys().next().value;
-        if (oldest !== undefined) images.delete(oldest);
-    }
-    return fetched;
-}
-
 interface DownloadTick extends DownloadProgress {
     saved: SavedArtifact | null;
 }
@@ -151,10 +109,7 @@ function download(method: string, params: unknown, onProgress?: (progress: Downl
                 else onProgress?.(tick);
             },
             onEnd: () => (saved ? resolve(saved) : reject(new Error("the download ended without saving anything"))),
-            onError: (error) => {
-                if (isSignedOut(error)) forgetSignedOut();
-                reject(error);
-            },
+            onError: reject,
         });
     });
 }
@@ -227,17 +182,11 @@ export const actionsApi = {
     reviewDeployment: (repo: RepoRef, runId: string, environmentIds: number[], state: "approved" | "rejected", comment = "") =>
         call<void>("reviewDeployment", { ...repo, runId: Number(runId), environmentIds, state, comment }),
 
-    watchStart: (repo: RepoRef, runId: string, onTick: (tick: RunTick) => void) =>
-        backend
-            .openStream<GithubRunTick>("watchRun", { ...repo, runId: Number(runId) }, (tick) => {
-                if (tick.signedOut) forgetSignedOut();
-                onTick({ ...tick, run: tick.run && fromRun(tick.run), jobs: tick.jobs.map(fromJob) });
-            })
-            .catch((error: unknown) => {
-                if (isSignedOut(error)) forgetSignedOut();
-                throw error;
-            }),
-    watchStop: (streamId: number) => backend.closeStream(streamId),
+    watch: (repo: RepoRef, runId: string, handlers: PluginStreamHandlers<RunTick>) =>
+        watch<GithubRunTick>(
+            { ...repo, runId: Number(runId) },
+            { ...handlers, onItem: (tick) => handlers.onItem({ ...tick, run: tick.run && fromRun(tick.run), jobs: tick.jobs.map(fromJob) }) },
+        ),
 };
 
 /** GitHub serves every avatar from one place, and a company's own GitHub serves its users' from itself. */

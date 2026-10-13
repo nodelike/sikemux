@@ -1,4 +1,5 @@
 import { convertFileSrc } from "@tauri-apps/api/core";
+import { extensionOf } from "../../languages";
 
 export type ViewerKind = "image" | "video" | "audio" | "pdf" | "font" | "document" | "binary";
 
@@ -32,11 +33,7 @@ const DOCUMENT_MIMES = new Set([
 /* WebKit has no decoder for these containers. */
 const UNPLAYABLE_VIDEO = new Set(["video/x-matroska", "video/x-msvideo"]);
 
-export function extname(path: string): string {
-    const file = path.split("/").pop()?.toLowerCase() ?? "";
-    const i = file.lastIndexOf(".");
-    return i > 0 ? file.slice(i + 1) : "";
-}
+export const extname = extensionOf;
 
 export function isImagePath(path: string | null | undefined): boolean {
     return !!path && IMAGE_EXTS.includes(extname(path));

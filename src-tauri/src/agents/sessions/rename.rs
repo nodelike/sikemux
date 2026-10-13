@@ -8,8 +8,8 @@ use tauri::async_runtime::spawn_blocking;
 use super::context::session_transcript_path;
 use super::{condense, MAX_TITLE_CHARS};
 use crate::agents::config::{grok_root, omp_session_dirs};
-use crate::agents::executable::expand_user_path;
 use crate::agents::AgentKind;
+use sikemux_process::paths::expand_home;
 
 // ---- rename a saved session ----------------------------------------------
 /// Names a session the way the provider's own rename does, so the new name
@@ -52,7 +52,7 @@ pub(super) fn agent_executable(
     configured: Option<&str>,
 ) -> Result<PathBuf, String> {
     configured
-        .map(expand_user_path)
+        .map(expand_home)
         .or_else(|| crate::system::find_executable(agent.as_str()))
         .ok_or_else(|| format!("{} is not available", agent.as_str()))
 }

@@ -89,33 +89,6 @@ export function elapsedMs(started: string | null, finished: string | null, now: 
     return Math.max(0, to - from);
 }
 
-export function formatDuration(ms: number | null): string {
-    if (ms === null) return "—";
-    const seconds = Math.round(ms / 1000);
-    if (seconds < 60) return `${seconds}s`;
-    const minutes = Math.floor(seconds / 60);
-    if (minutes < 60) return `${minutes}m ${seconds % 60}s`;
-    return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
-}
-
-const AGO: [limit: number, unit: string, per: number][] = [
-    [60, "s", 1],
-    [3600, "m", 60],
-    [86_400, "h", 3600],
-    [2_592_000, "d", 86_400],
-];
-
-export function formatAgo(timestamp: string | null, now: number): string {
-    if (!timestamp) return "—";
-    const at = Date.parse(timestamp);
-    if (Number.isNaN(at)) return "—";
-    const seconds = Math.max(0, Math.round((now - at) / 1000));
-    for (const [limit, unit, per] of AGO) {
-        if (seconds < limit) return `${Math.floor(seconds / per)}${unit} ago`;
-    }
-    return `${Math.floor(seconds / 2_592_000)}mo ago`;
-}
-
 export function failedStep(job: Job): Step | undefined {
     return job.steps.find((step) => outcomeOf(step) === "failure");
 }

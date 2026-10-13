@@ -1,5 +1,5 @@
-import { create } from "zustand";
-import { onPaneClosed, openSurface } from "../../plugin-api/host";
+import { openSurface } from "../../plugin-api/host";
+import { definePaneViews } from "../../plugin-api/paneViews";
 import { DATABASE_BROWSER } from "./kinds";
 import { forgetQuery } from "./queryState";
 import { closeOtherTabs, closeProfileTabs, closeTab, openTab, type DatabaseTab, type TabStrip } from "./tabs";
@@ -13,29 +13,16 @@ export interface DatabaseView extends TabStrip {
 
 const FIRST_VIEW: DatabaseView = { tabs: [], active: null, expanded: [], editing: null };
 
-const useViews = create<{ views: Record<string, DatabaseView> }>(() => ({ views: {} }));
-
-export const readDatabaseView = (paneId: string): DatabaseView => useViews.getState().views[paneId] ?? FIRST_VIEW;
-
 function forgetClosedConsoles(before: TabStrip, after: TabStrip): void {
     const kept = new Set(after.tabs.map((tab) => tab.id));
     for (const tab of before.tabs) if (tab.kind === "console" && !kept.has(tab.id)) forgetQuery(tab.id);
 }
 
-onPaneClosed((paneId) => {
-    forgetClosedConsoles(readDatabaseView(paneId), FIRST_VIEW);
-    useViews.setState((state) => {
-        const views = { ...state.views };
-        delete views[paneId];
-        return { views };
-    });
-});
+const views = definePaneViews(FIRST_VIEW, (_paneId, last) => forgetClosedConsoles(last, FIRST_VIEW));
 
-export const useDatabaseView = (paneId: string): DatabaseView => useViews((state) => state.views[paneId] ?? FIRST_VIEW);
-
-export function updateDatabaseView(paneId: string, change: Partial<DatabaseView>): void {
-    useViews.setState((state) => ({ views: { ...state.views, [paneId]: { ...(state.views[paneId] ?? FIRST_VIEW), ...change } } }));
-}
+export const readDatabaseView = views.get;
+export const useDatabaseView = views.use;
+export const updateDatabaseView = views.update;
 
 function changeTabs(paneId: string, change: (strip: TabStrip) => TabStrip): void {
     const view = readDatabaseView(paneId);

@@ -2,7 +2,8 @@ import { useMemo, useState } from "react";
 import { agentApi } from "../api/agents";
 import { AccountSignIn } from "../agents/AccountSignIn";
 import { accountsOf, signIn, signOut, useSignIn, type AccountProvider } from "../agents/accounts";
-import { selectedProviderProfile } from "../agents/agentProfiles";
+import { providerAccent, selectedProviderProfile } from "../agents/agentProfiles";
+import { ACCOUNT_AGENT_TYPES, agentLabel } from "../agents/catalog";
 import * as cmd from "../state/commands";
 import { useResource } from "../state/resources";
 import { agentAccountR } from "../state/resources.defs";
@@ -15,10 +16,7 @@ import { Tooltip } from "../ui/Tooltip";
 import { planLabel } from "../rail/usageFormat";
 import { SettingsRow, SettingsRows, SettingsSection } from "./SettingsLayout";
 
-const PROVIDERS: { id: AccountProvider; label: string; accent: string }[] = [
-    { id: "claude", label: "Claude", accent: "#d97757" },
-    { id: "codex", label: "Codex", accent: "#7a9dff" },
-];
+const PROVIDERS = ACCOUNT_AGENT_TYPES.map((id) => ({ id, label: agentLabel(id), accent: providerAccent(id) }));
 
 /** Where the person keeps their Claude and Codex accounts: who each is signed in as, and everything done to them. */
 export function AccountsSections() {
@@ -32,7 +30,7 @@ export function AccountsSections() {
 }
 
 export function accountsSectionTitle(provider: AccountProvider): string {
-    return `${provider === "claude" ? "Claude" : "Codex"} accounts`;
+    return `${agentLabel(provider)} accounts`;
 }
 
 function ProviderAccounts({ provider, label, accent }: { provider: AccountProvider; label: string; accent: string }) {

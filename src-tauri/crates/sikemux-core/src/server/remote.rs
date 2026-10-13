@@ -3,10 +3,7 @@
 //! the dev and release cores keep separate ones.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
-use std::fs::{DirBuilder, OpenOptions};
 use std::future::Future;
-use std::io::Write;
-use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::sync::{Arc, Mutex, MutexGuard, Weak};
@@ -185,24 +182,7 @@ fn read_stored(path: &Path) -> CoreResult<Stored> {
 }
 
 fn write_stored(path: &Path, stored: &Stored) -> CoreResult<()> {
-    if let Some(parent) = path.parent().filter(|parent| !parent.exists()) {
-        DirBuilder::new()
-            .recursive(true)
-            .mode(0o700)
-            .create(parent)?;
-    }
-    let mut partial = path.as_os_str().to_owned();
-    partial.push(".partial");
-    let partial = PathBuf::from(partial);
-    let mut file = OpenOptions::new()
-        .write(true)
-        .create(true)
-        .truncate(true)
-        .mode(0o600)
-        .open(&partial)?;
-    file.write_all(&serde_json::to_vec_pretty(stored)?)?;
-    file.sync_all()?;
-    std::fs::rename(&partial, path)?;
+    sikemux_process::files::write_atomic(path, &serde_json::to_vec_pretty(stored)?, true)?;
     Ok(())
 }
 

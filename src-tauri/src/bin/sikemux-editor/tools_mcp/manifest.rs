@@ -101,7 +101,9 @@ impl Manifest {
              The browser tools used most are browser_navigate, browser_state, browser_find, browser_click, browser_type, browser_wait and browser_screenshot; load them together. \
              Your replies can hold a page you build: when a chart, diagram, mockup or side-by-side comparison would show the answer better than prose or a markdown table, such as a trend over time, how parts connect, or what UI options look like, \
              build one and show it above your text. Load {} with page_preview and page_show, and read its topic pages before your first page. \
-             An HTML page you wrote yourself, including charts and mockups the person asks to see, goes in your reply with page_show; never serve it or open it in a tab with browser_navigate.",
+             An HTML page you wrote yourself, including charts and mockups the person asks to see, goes in your reply with page_show; never serve it or open it in a tab with browser_navigate. \
+             Plugin tools such as jira_*, github_*, slack_* and signoz_* act as the person through the sign-in they made in Sikemux; \
+             for those services use them, not another MCP server's tools for the same service.",
             self.guide.name, self.guide.name
         );
         if self.offers_simulator() {

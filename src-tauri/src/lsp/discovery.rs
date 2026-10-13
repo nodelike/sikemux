@@ -81,9 +81,32 @@ const BUILTIN_LSP: &[(&str, &str, &[&str])] = &[
     ("python", "pyright-langserver", &["--stdio"]),
 ];
 
+const OVERRIDE_PREFIX: &str = "SIKEMUX_LSP_";
+
+/// Every language a server can start for: the built-in ones and any that a
+/// `SIKEMUX_LSP_<LANG>` variable names.
+pub(super) fn server_languages() -> Vec<String> {
+    let shell = sikemux_pty::user_shell::login_shell_environment()
+        .keys()
+        .cloned();
+    let mut languages: Vec<String> = BUILTIN_LSP
+        .iter()
+        .map(|(language, _, _)| (*language).to_owned())
+        .chain(
+            shell
+                .chain(std::env::vars().map(|(key, _)| key))
+                .filter_map(|key| Some(key.strip_prefix(OVERRIDE_PREFIX)?.to_lowercase()))
+                .filter(|language| server_command(language).is_some()),
+        )
+        .collect();
+    languages.sort();
+    languages.dedup();
+    languages
+}
+
 pub(super) fn server_command(language: &str) -> Option<(String, Vec<String>)> {
-    let env_key = format!("SIKEMUX_LSP_{}", language.to_uppercase());
-    if let Ok(spec) = std::env::var(&env_key) {
+    let env_key = format!("{OVERRIDE_PREFIX}{}", language.to_uppercase());
+    if let Some(spec) = sikemux_pty::user_shell::user_variable(&env_key) {
         // Naive split — sufficient for "bin arg1 arg2". Quoted args aren't
         // supported; users that need them can wrap in a shell script.
         let mut parts = spec.split_whitespace();

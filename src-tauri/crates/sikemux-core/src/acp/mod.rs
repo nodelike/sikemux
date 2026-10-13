@@ -5,6 +5,8 @@
 pub mod account;
 pub mod air;
 pub mod native;
+pub mod permission;
+pub mod pickers;
 
 use std::path::PathBuf;
 

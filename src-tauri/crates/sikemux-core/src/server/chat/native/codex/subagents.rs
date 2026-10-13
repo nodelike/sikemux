@@ -2,12 +2,11 @@
 //! thread of its own over the same connection; the chat is told when one
 //! appears and when it ends, and its updates go to its own session.
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::HashMap;
 
-use serde_json::{json, Value};
+use serde_json::Value;
 
-/// How many of a not yet announced subagent's notifications are held.
-const HELD: usize = 256;
+use super::super::super::states::{self, Held, Subagent};
 
 fn normalized(path: &str) -> &str {
     let path = path.trim().trim_end_matches('/');
@@ -20,15 +19,6 @@ fn normalized(path: &str) -> &str {
 
 fn is_root_path(path: &str) -> bool {
     matches!(normalized(path), "/root" | "root")
-}
-
-pub(super) fn fallback_name(thread_id: &str) -> String {
-    let start = thread_id
-        .char_indices()
-        .rev()
-        .nth(7)
-        .map_or(0, |(index, _)| index);
-    format!("Agent {}", &thread_id[start..])
 }
 
 /// A subagent's name from its path, such as `/root/code_reviewer` read as
@@ -48,45 +38,22 @@ pub(super) fn name_from_path(path: &str, fallback: String) -> String {
     }
 }
 
-pub(super) fn spawned(session: &str, name: &str, task: &str) -> Value {
-    json!({
-        "sessionUpdate": "subagent_spawned",
-        "subagentSessionId": session,
-        "name": name,
-        "task": task,
-        "capabilities": {},
-    })
+fn ended_state(status: &str) -> Option<Subagent> {
+    states::outcome(status).map(Subagent::from)
 }
 
-pub(super) fn state_update(session: &str, state: &str) -> Value {
-    json!({ "sessionUpdate": "subagent_state_update", "subagentSessionId": session, "state": state })
-}
-
-fn ended_state(status: &str) -> Option<&'static str> {
-    match status {
-        "completed" => Some("completed"),
-        "interrupted" => Some("cancelled"),
-        "errored" | "shutdown" | "notFound" | "failed" => Some("failed"),
-        _ => None,
-    }
-}
-
+/// A subagent with a card in the chat. Its session is its thread's id, so
+/// work sent to it again reopens the same card.
 struct Child {
-    parent_thread: String,
     parent_session: String,
-    session: String,
-    name: String,
-    task: String,
     path: String,
-    generation: u32,
     ended: bool,
 }
 
 struct Pending {
-    parent_thread: String,
     parent_session: String,
     task: String,
-    held: VecDeque<(String, Value)>,
+    held: Held<(String, Value)>,
 }
 
 /// Where a notification goes.
@@ -129,9 +96,11 @@ impl Subagents {
 
     /// The session a thread's requests are asked in.
     pub fn session_of(&self, thread: &str) -> String {
-        self.children
-            .get(thread)
-            .map_or_else(|| self.root.clone(), |child| child.session.clone())
+        if self.children.contains_key(thread) {
+            thread.to_owned()
+        } else {
+            self.root.clone()
+        }
     }
 
     /// Whether a subagent is still at work, or about to be.
@@ -165,10 +134,7 @@ impl Subagents {
             _ => {}
         }
         if let Some(pending) = self.pending.get_mut(&thread) {
-            if pending.held.len() == HELD {
-                pending.held.pop_front();
-            }
-            pending.held.push_back((method.to_owned(), params.clone()));
+            pending.held.push((method.to_owned(), params.clone()));
             return Route::Taken;
         }
         if matches!(method, "item/started" | "item/completed")
@@ -204,7 +170,7 @@ impl Subagents {
                     self.materialize(child, path, out, replay);
                 }
                 if item["kind"] == "interrupted" {
-                    self.finish(child, "cancelled", out);
+                    self.finish(child, Subagent::Cancelled, out);
                 }
                 true
             }
@@ -236,15 +202,12 @@ impl Subagents {
         let mut represented = false;
         if tool == "spawnAgent" {
             let sender = item["senderThreadId"].as_str().unwrap_or_default();
-            let (parent_thread, parent_session) = match self.children.get(sender) {
-                Some(parent) => (sender.to_owned(), parent.session.clone()),
-                None => (self.root.clone(), self.root.clone()),
-            };
+            let parent_session = self.session_of(sender);
             let task = item["prompt"]
                 .as_str()
                 .map(str::trim)
                 .filter(|prompt| !prompt.is_empty())
-                .unwrap_or("Delegated task")
+                .unwrap_or(states::UNNAMED_TASK)
                 .to_owned();
             for child in &receivers {
                 if child.trim().is_empty() || *child == parent_session || *child == self.root {
@@ -257,10 +220,9 @@ impl Subagents {
                 self.pending.insert(
                     child.clone(),
                     Pending {
-                        parent_thread: parent_thread.clone(),
                         parent_session: parent_session.clone(),
                         task: task.clone(),
-                        held: VecDeque::new(),
+                        held: Held::default(),
                     },
                 );
             }
@@ -283,18 +245,15 @@ impl Subagents {
         tool == "spawnAgent" && represented
     }
 
-    fn parent_for_path(&self, path: &str) -> (String, String) {
+    fn parent_for_path(&self, path: &str) -> String {
         let path = normalized(path);
         let Some(parent_path) = path.rfind('/').filter(|at| *at > 0).map(|at| &path[..at]) else {
-            return (self.root.clone(), self.root.clone());
+            return self.root.clone();
         };
         self.children
             .iter()
             .find(|(_, child)| child.path == parent_path)
-            .map_or_else(
-                || (self.root.clone(), self.root.clone()),
-                |(thread, child)| (thread.clone(), child.session.clone()),
-            )
+            .map_or_else(|| self.root.clone(), |(thread, _)| thread.clone())
     }
 
     fn materialize(
@@ -305,35 +264,21 @@ impl Subagents {
         replay: &mut Vec<(String, Value)>,
     ) {
         let pending = self.pending.remove(child);
-        let name = name_from_path(path, fallback_name(child));
-        let (parent_thread, parent_session, task, held) = match pending {
-            Some(pending) => (
-                pending.parent_thread,
-                pending.parent_session,
-                pending.task,
-                pending.held,
+        let name = name_from_path(path, states::unnamed(child));
+        let (parent_session, task, held) = match pending {
+            Some(pending) => (pending.parent_session, pending.task, pending.held),
+            None => (
+                self.parent_for_path(path),
+                states::UNNAMED_TASK.to_owned(),
+                Held::default(),
             ),
-            None => {
-                let (thread, session) = self.parent_for_path(path);
-                (
-                    thread,
-                    session,
-                    format!("Delegated task for {name}"),
-                    VecDeque::new(),
-                )
-            }
         };
-        out.push((parent_session.clone(), spawned(child, &name, &task)));
+        out.push((parent_session.clone(), states::spawned(child, &name, &task)));
         self.children.insert(
             child.to_owned(),
             Child {
-                parent_thread,
                 parent_session,
-                session: child.to_owned(),
-                name,
-                task,
                 path: normalized(path).to_owned(),
-                generation: 1,
                 ended: false,
             },
         );
@@ -347,67 +292,46 @@ impl Subagents {
         }
     }
 
-    fn finish(&mut self, child: &str, state: &str, out: &mut Vec<Addressed>) {
-        if let Some(child) = self.children.get_mut(child).filter(|child| !child.ended) {
+    fn finish(&mut self, thread: &str, state: Subagent, out: &mut Vec<Addressed>) {
+        if let Some(child) = self.children.get_mut(thread).filter(|child| !child.ended) {
             child.ended = true;
-            out.push((
-                child.parent_session.clone(),
-                state_update(&child.session, state),
-            ));
+            out.push((child.parent_session.clone(), state.update(thread)));
         }
     }
 
+    /// Work sent to a subagent that ended sets its card running again.
     fn reopen(&mut self, thread: &str, out: &mut Vec<Addressed>) {
-        if !self.children.contains_key(thread) {
-            let Some(pending) = self.ended_pending.remove(thread) else {
-                return;
-            };
-            let parent_session = self
-                .children
-                .get(&pending.parent_thread)
-                .map_or_else(|| self.root.clone(), |parent| parent.session.clone());
-            let session = format!("{thread}:generation:2");
-            let name = fallback_name(thread);
-            out.push((
-                parent_session.clone(),
-                spawned(&session, &name, &pending.task),
-            ));
-            self.children.insert(
-                thread.to_owned(),
-                Child {
-                    parent_thread: pending.parent_thread,
-                    parent_session,
-                    session,
-                    name,
-                    task: pending.task,
-                    path: String::new(),
-                    generation: 2,
-                    ended: false,
-                },
-            );
-            self.order.push(thread.to_owned());
+        if let Some(child) = self.children.get_mut(thread) {
+            if child.ended {
+                child.ended = false;
+                out.push((
+                    child.parent_session.clone(),
+                    Subagent::Running.update(thread),
+                ));
+            }
             return;
         }
-        let parent_session = self
-            .children
-            .get(thread)
-            .and_then(|child| self.children.get(&child.parent_thread))
-            .map_or_else(|| self.root.clone(), |parent| parent.session.clone());
-        let Some(child) = self.children.get_mut(thread).filter(|child| child.ended) else {
+        let Some(pending) = self.ended_pending.remove(thread) else {
             return;
         };
-        child.parent_session = parent_session;
-        child.generation += 1;
-        child.session = format!("{thread}:generation:{}", child.generation);
-        child.ended = false;
+        let name = states::unnamed(thread);
         out.push((
-            child.parent_session.clone(),
-            spawned(&child.session, &child.name, &child.task),
+            pending.parent_session.clone(),
+            states::spawned(thread, &name, &pending.task),
         ));
+        self.children.insert(
+            thread.to_owned(),
+            Child {
+                parent_session: pending.parent_session,
+                path: String::new(),
+                ended: false,
+            },
+        );
+        self.order.push(thread.to_owned());
     }
 
     /// Ends every subagent still at work, as the turn that started them ended.
-    pub fn finish_outstanding(&mut self, state: &str, out: &mut Vec<Addressed>) {
+    pub fn finish_outstanding(&mut self, state: Subagent, out: &mut Vec<Addressed>) {
         let pending: Vec<String> = self.pending.keys().cloned().collect();
         for child in pending {
             self.end_pending(&child);
@@ -421,6 +345,7 @@ impl Subagents {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
 
     fn send(
         subagents: &mut Subagents,
@@ -470,7 +395,7 @@ mod tests {
             out,
             vec![(
                 "root".to_owned(),
-                spawned("kid", "Code reviewer", "Review the diff")
+                states::spawned("kid", "Code reviewer", "Review the diff")
             )]
         );
         assert_eq!(
@@ -486,7 +411,7 @@ mod tests {
         assert_eq!(route, Route::Taken);
         assert_eq!(
             out,
-            vec![("root".to_owned(), state_update("kid", "completed"))]
+            vec![("root".to_owned(), Subagent::Completed.update("kid"))]
         );
         assert!(!subagents.outstanding());
 
@@ -498,7 +423,7 @@ mod tests {
     }
 
     #[test]
-    fn a_subagent_given_more_work_comes_back_as_a_new_generation() {
+    fn a_subagent_given_more_work_reopens_its_card() {
         let mut subagents = Subagents::new("root".into());
         send(&mut subagents, "item/started", spawn("root", "kid"));
         send(
@@ -518,8 +443,11 @@ mod tests {
         } });
         let (route, out, _) = send(&mut subagents, "item/started", resend);
         assert_eq!(route, Route::Session("root".into()));
-        assert_eq!(out[0].1["subagentSessionId"], "kid:generation:2");
-        assert_eq!(subagents.session_of("kid"), "kid:generation:2");
+        assert_eq!(
+            out,
+            vec![("root".to_owned(), Subagent::Running.update("kid"))]
+        );
+        assert_eq!(subagents.session_of("kid"), "kid");
     }
 
     #[test]
@@ -533,10 +461,10 @@ mod tests {
         );
         send(&mut subagents, "item/started", spawn("root", "b"));
         let mut out = Vec::new();
-        subagents.finish_outstanding("cancelled", &mut out);
+        subagents.finish_outstanding(Subagent::Cancelled, &mut out);
         assert_eq!(
             out,
-            vec![("root".to_owned(), state_update("a", "cancelled"))]
+            vec![("root".to_owned(), Subagent::Cancelled.update("a"))]
         );
         assert!(!subagents.outstanding());
     }
@@ -571,7 +499,5 @@ mod tests {
         );
         assert_eq!(name_from_path("/root/a-b  c", "x".into()), "A b c");
         assert_eq!(name_from_path("/root/", "x".into()), "Root");
-        assert_eq!(fallback_name("0123456789abcdef"), "Agent 89abcdef");
-        assert_eq!(fallback_name("abc"), "Agent abc");
     }
 }

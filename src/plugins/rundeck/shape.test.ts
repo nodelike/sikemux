@@ -11,7 +11,6 @@ import {
     isProdTarget,
     localDateTimeToIso,
     qualifiedName,
-    relativeTime,
     topFolder,
 } from "./shape";
 
@@ -96,14 +95,6 @@ describe("status", () => {
 });
 
 describe("time", () => {
-    it("calls anything under five seconds, or in the future, just now", () => {
-        const now = Date.parse("2026-09-25T12:00:00Z");
-        expect(relativeTime("2026-09-25T12:00:03Z", now)).toBe("just now");
-        expect(relativeTime("2026-09-25T11:59:57Z", now)).toBe("just now");
-        expect(relativeTime("2026-09-25T11:59:30Z", now)).toBe("30s ago");
-        expect(relativeTime("2026-09-25T11:00:00Z", now)).toBe("1h ago");
-    });
-
     it("turns a datetime-local value into ISO with the local offset", () => {
         const iso = localDateTimeToIso("2026-09-25T14:30");
         expect(iso).toMatch(/^2026-09-25T14:30:00[+-]\d{2}:\d{2}$/);

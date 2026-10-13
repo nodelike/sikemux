@@ -53,9 +53,9 @@ export const AGENTS = {
   hero: {
     id: "agent-hero",
     type: "claude",
-    title: "Fix the download button on phones",
+    title: "Fix the cover buttons",
     resumeId: "91d2e7b4-hero",
-    cwd: FRONT,
+    cwd: MOODBOARD,
   },
   palette: {
     id: "agent-palette",
@@ -70,6 +70,34 @@ export const AGENTS = {
     title: "Write up the colour results",
     resumeId: "hermes-notes-3310",
     cwd: MOODBOARD,
+  },
+  flow: {
+    id: "agent-flow",
+    type: "claude",
+    title: "Map the checkout flow",
+    resumeId: "c41f2b90-flow",
+    cwd: `${DEMO_HOME}/work/billing-service`,
+  },
+  latency: {
+    id: "agent-latency",
+    type: "codex",
+    title: "Check checkout latency after the fix",
+    resumeId: "codex-latency-5521",
+    cwd: `${DEMO_HOME}/work/billing-service`,
+  },
+  empty: {
+    id: "agent-empty",
+    type: "claude",
+    title: "Empty state options",
+    resumeId: "91d2e7b4-empty",
+    cwd: FRONT,
+  },
+  phone: {
+    id: "agent-phone",
+    type: "claude",
+    title: "Check the permission card on iPhone",
+    resumeId: "5f0c8a1e-phone",
+    cwd: SIKEMUX,
   },
   incident: {
     id: "agent-incident",
@@ -207,6 +235,14 @@ export function demoSnapshot(): PersistedSnapshot {
         pinned: false,
         activeWindowId: "w-signoz",
       },
+      {
+        id: "s-database",
+        name: "Database",
+        kind: "sikemux.database:browser",
+        cwd: "",
+        pinned: false,
+        activeWindowId: "w-database",
+      },
     ],
     windowsBySession: {
       "s-sikemux": [
@@ -246,6 +282,7 @@ export function demoSnapshot(): PersistedSnapshot {
           activePaneId: "p-git",
         },
         agentWindow(AGENTS.rail),
+        agentWindow(AGENTS.phone),
         agentWindow(AGENTS.replay),
       ],
       "s-front": [
@@ -254,7 +291,7 @@ export function demoSnapshot(): PersistedSnapshot {
           pane("t-front", FRONT, "terminal", "dev"),
           "t-front",
         ),
-        agentWindow(AGENTS.hero),
+        agentWindow(AGENTS.empty),
       ],
       "s-mood": [
         terminalWindow(
@@ -262,6 +299,7 @@ export function demoSnapshot(): PersistedSnapshot {
           pane("t-mood", MOODBOARD, "terminal", "bench"),
           "t-mood",
         ),
+        agentWindow(AGENTS.hero),
         agentWindow(AGENTS.palette),
         agentWindow(AGENTS.notes),
       ],
@@ -272,6 +310,8 @@ export function demoSnapshot(): PersistedSnapshot {
           "t-billing-service",
         ),
         agentWindow(AGENTS.incident),
+        agentWindow(AGENTS.flow),
+        agentWindow(AGENTS.latency),
       ],
       "s-portal": [
         terminalWindow(
@@ -380,6 +420,22 @@ export function demoSnapshot(): PersistedSnapshot {
           activePaneId: "p-rundeck",
         },
       ],
+      "s-database": [
+        {
+          id: "w-database",
+          name: "Database",
+          role: "sikemux.database:browser",
+          fixed: true,
+          root: {
+            type: "pane",
+            id: "p-database",
+            cwd: "",
+            kind: "sikemux.database:browser",
+            title: "Database",
+          },
+          activePaneId: "p-database",
+        },
+      ],
       "s-signoz": [
         {
           id: "w-signoz",
@@ -410,6 +466,7 @@ export function demoSnapshot(): PersistedSnapshot {
       "s-shell",
       "s-rundeck",
       "s-signoz",
+      "s-database",
     ],
     activeSessionId: "s-sikemux",
     recent: [],

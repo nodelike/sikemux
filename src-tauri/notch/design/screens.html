@@ -19,8 +19,8 @@
     --ink-dim: #8b8898;
     --ink-faint: #736f80;
     --acc: #a277ff;
-    --acc-soft: rgba(162, 119, 255, 0.16);
-    --acc-line: rgba(162, 119, 255, 0.42);
+    --acc-soft: rgba(162, 119, 255, 0.13);
+    --acc-line: rgba(162, 119, 255, 0.32);
     --on-accent: #100e16;
     --live: #61ffca;
     --warn: #ffca85;
@@ -162,6 +162,9 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: def
 .proj svg { flex: 0 0 auto; color: var(--ink-faint); }
 .subagents { display: inline-flex; align-items: center; gap: 3px; flex: 0 0 auto; font-size: 11px; font-weight: 500; color: var(--ink-faint); font-variant-numeric: tabular-nums; }
 .subagents svg { fill: currentColor; stroke: none; color: color-mix(in srgb, var(--live) 75%, transparent); }
+.shells { display: inline-flex; align-items: center; gap: 3px; flex: 0 0 auto; font-size: 11px; font-weight: 500; color: var(--ink-faint); font-variant-numeric: tabular-nums; }
+.shells svg { width: 11px; height: 11px; color: color-mix(in srgb, var(--warn) 75%, transparent); }
+.word { font-size: 11.5px; color: var(--ink-faint); }
 .time { min-width: 44px; text-align: right; }
 .row:hover { background: rgba(255, 255, 255, 0.07); }
 .mark { width: 20px; height: 20px; flex: 0 0 auto; }
@@ -525,7 +528,10 @@ function freshAgents() {
         { id: "a2", type: "codex", title: "Refactor the auth middleware", project: "server", state: "working", time: "4:12", subagents: 3 },
         { id: "a3", type: "opencode", title: "Draft the notch spec", project: "sikemux", state: "working", time: "0:48" },
         { id: "a4", type: "grok", title: "Bump Astro to 6", project: "sikemux-front", state: "done", unread: true, time: "1m ago" },
-        { id: "a5", type: "codex", title: "Read the release notes", project: "sikemux", state: "idle", background: true },
+        { id: "a5", type: "codex", title: "Read the release notes", project: "sikemux", state: "idle", tasks: 2 },
+        { id: "a7", type: "claude", title: "Tidy the changelog", project: "sikemux", state: "idle" },
+        { id: "a6", type: "claude", title: "Sikemux bug", project: "sikemux", state: "idle", word: "Sleeping" },
+        { id: "a8", type: "claude", title: "Ship the release notes", project: "server", state: "idle", word: "Stopped" },
     ];
 }
 
@@ -553,7 +559,7 @@ function rollups(agents) {
     const counts = {
         blocked: (a) => a.state === "blocked",
         working: (a) => a.state === "working",
-        still: (a) => a.state === "idle" && a.background,
+        still: (a) => a.state === "idle" && (a.tasks || a.subagents),
         done: (a) => a.state === "done" && a.unread,
     };
     return Object.entries(counts)
@@ -802,8 +808,8 @@ class Island {
                         </div>` : `
                         <div class="row">
                             <span class="mark">${ICON[a.type]}</span>
-                            <span class="title">${a.title}</span>${a.subagents ? `<span class="subagents">${GLYPH.agent}${a.subagents}</span>` : ""}<span class="proj">${GLYPH.folderSmall}${a.project}</span>
-                            ${a.state === "idle" ? stateMark(a.background ? "still" : "idle") : `<span class="time">${a.time}</span>${stateMark(a.state)}`}
+                            <span class="title">${a.title}</span>${a.subagents ? `<span class="subagents">${GLYPH.agent}${a.subagents}</span>` : ""}${a.tasks ? `<span class="shells">${GLYPH.command}${a.tasks}</span>` : ""}<span class="proj">${GLYPH.folderSmall}${a.project}</span>
+                            ${a.state === "idle" ? (a.word ? `<span class="word">${a.word}</span>` : "") : `<span class="time">${a.time}</span>${stateMark(a.state)}`}
                         </div>`).join("")}`).join("");
             }
         } else {
@@ -1050,7 +1056,7 @@ const SECTIONS = [
             { id: "C6", name: "Pointer resting", when: "The pointer is on the island, for the 0.3 s before it opens.",
               shows: "The shadow comes on and the trackpad ticks once. The island keeps its size until it opens.", opts: { agents: () => only(["a2", "a3"]), hover: true } },
             { id: "C7", name: "Shells still running", when: "An agent is idle but left shells or monitors running.",
-              shows: "The amber terminal glyph the Mac's tabs use, beside working since the agent is still at something, with a count past one.", opts: { agents: () => only(["a3", "a5"]) } },
+              shows: "The amber terminal glyph the Mac's tabs use, after working and before done, with a count past one. The agent itself stays idle: only a running turn is working.", opts: { agents: () => only(["a3", "a5"]) } },
         ],
     },
     {
@@ -1085,9 +1091,9 @@ const SECTIONS = [
               leaves: "Picking a model or pressing Esc closes it. Picking another agent swaps the list.",
               opts: { agents: () => freshAgents(), mode: "open", tab: "new", menu: "model", draft: "Turn the notch mockup into a SwiftUI spec" } },
             { id: "O4", name: "Empty", when: "Opened with nothing running.", shows: "One New agent button.", opts: { agents: [], mode: "open" } },
-            { id: "O5", name: "With an idle agent", when: "Opened while an agent is idle but left shells or monitors running.",
-              shows: "Idle agents come last, with no time. One with shells or monitors still going ends in the amber terminal glyph the Mac's tabs use, so it does not read as the dot that waits on you.",
-              opts: { agents: () => only(["a2", "a5"]), mode: "open" } },
+            { id: "O5", name: "With idle agents", when: "Opened while agents are idle, asleep or stopped, one with shells or monitors still running.",
+              shows: "Idle agents come last, with no time, most recently active first. Every row counts what its agent still has going: ✦ subagents in green, >_ shells and monitors in amber. An agent that is not running says why instead: Sleeping, Stopped or Starting. Rows keep their places while their agents work.",
+              opts: { agents: () => only(["a2", "a5", "a6", "a8"]), mode: "open" } },
         ],
     },
     {

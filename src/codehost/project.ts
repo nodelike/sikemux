@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { git, gitOverviewR } from "../plugin-api/host";
+import { currentBranch, git, gitOverviewR } from "../plugin-api/host";
 import { resource, useResourceEnabled } from "../plugin-api/resources";
 import { isOwnBranch } from "./checkout";
 import { enabledCodeHosts, type CodeHost } from "./registry";
@@ -65,7 +65,7 @@ export function useHostRepo(cwd: string | null, enabled: boolean): HostRepo {
     return {
         repo,
         remote,
-        branch: overview.data?.status.branch ?? null,
+        branch: currentBranch(overview.data?.status),
         loading: (!!cwd && fromRemote.status === "loading" && !fromRemote.data) || findingAccount,
     };
 }
@@ -97,6 +97,14 @@ export function pullForBranch(pulls: readonly Pull[], repo: RepoRef, branch: str
 export function pullMerged(pull: Pick<Pull, "state" | "mergedAt"> | null): boolean {
     return !!pull && (pull.state === "merged" || !!pull.mergedAt);
 }
+
+/** A draft that is still open reads as its own state, the way GitHub shows it; a closed draft reads closed. */
+export function pullState(pull: Pick<Pull, "state" | "draft" | "mergedAt">): string {
+    if (pullMerged(pull)) return "merged";
+    return pull.draft && pull.state === "open" ? "draft" : pull.state;
+}
+
+export const PULL_STATE_LABEL: Readonly<Record<string, string>> = { open: "Open", closed: "Closed", merged: "Merged", draft: "Draft" };
 
 /** One branch's pull request in any state, once someone is signed in to its host. */
 export function useBranchPull(repo: RepoRef | null, branch: string, enabled: boolean): Pull | null {

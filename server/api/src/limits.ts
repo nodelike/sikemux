@@ -66,6 +66,14 @@ export function limit<E extends Env>(
 }
 
 /** The caller's address as Caddy saw it, so one phone's requests count together. */
+export function addressOf(
+  forwardedFor: string | string[] | undefined,
+  socketAddress?: string,
+): string {
+  const header = Array.isArray(forwardedFor) ? forwardedFor[0] : forwardedFor;
+  return header?.split(",")[0]?.trim() || socketAddress || "local";
+}
+
 export function clientAddress(c: Context): string {
-  return c.req.header("x-forwarded-for")?.split(",")[0]?.trim() || "local";
+  return addressOf(c.req.header("x-forwarded-for"));
 }

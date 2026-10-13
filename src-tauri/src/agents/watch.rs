@@ -9,10 +9,11 @@ use serde::Serialize;
 use tauri::async_runtime::spawn_blocking;
 use tauri::{AppHandle, Emitter};
 
-use super::config::{agent_config_root, grok_root, omp_session_dirs};
+use super::config::{agent_config_root, grok_root, hermes_root, omp_session_dirs};
+use super::sessions::claude::claude_project_dir;
 use super::sessions::opencode::opencode_data_dirs;
 use super::sessions::pi::pi_session_dir;
-use super::{home_path, AgentKind};
+use super::AgentKind;
 
 #[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
@@ -83,7 +84,7 @@ fn agent_watch_dirs(
         AgentKind::Claude => {
             if let Some(root) = agent_config_root("claude", config_path) {
                 let projects = root.join("projects");
-                let project = projects.join(cwd.replace('/', "-"));
+                let project = claude_project_dir(&root, cwd);
                 if project.is_dir() {
                     push_watch_target(&mut out, project, RecursiveMode::Recursive);
                 } else {
@@ -99,8 +100,8 @@ fn agent_watch_dirs(
             }
         }
         AgentKind::Hermes => {
-            if let Some(home) = home_path() {
-                push_watch_target(&mut out, home.join(".hermes"), RecursiveMode::NonRecursive);
+            if let Some(root) = hermes_root() {
+                push_watch_target(&mut out, root, RecursiveMode::NonRecursive);
             }
         }
         AgentKind::Pi => {

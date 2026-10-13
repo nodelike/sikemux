@@ -4,13 +4,15 @@ use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
 
+use sikemux_core::agent_catalog::{AgentEntry, AGENTS};
+use sikemux_process::paths::expand_home;
 use sikemux_pty::user_shell::login_shell_environment;
 use tokio::process::Command;
 
 use super::config::{agent_config_root, configured_default_effort, configured_default_model};
 use super::models::model_catalog_error_detail;
 use super::status::{signed_in_status, AgentStatus};
-use super::{AgentDef, AgentInfo, AgentKind, AgentProfileRequest, AGENT_DEFS};
+use super::{AgentInfo, AgentKind, AgentProfileRequest};
 
 /* Two seconds is what a person waits for an agent binary to name its version
 before the probe gives up. A test spawns the same real process while hundreds
@@ -27,19 +29,6 @@ const AGENT_UPDATE_SETTLE_DELAY: Duration = Duration::from_millis(350);
 fn healthy_agent_executables() -> &'static Mutex<HashMap<String, PathBuf>> {
     static CACHE: OnceLock<Mutex<HashMap<String, PathBuf>>> = OnceLock::new();
     CACHE.get_or_init(|| Mutex::new(HashMap::new()))
-}
-
-pub(super) fn expand_user_path(value: &str) -> PathBuf {
-    if value == "~" {
-        return crate::system::user_home();
-    }
-    if let Some(rest) = value
-        .strip_prefix("~/")
-        .or_else(|| value.strip_prefix("~\\"))
-    {
-        return crate::system::user_home().join(rest);
-    }
-    PathBuf::from(value)
 }
 
 pub(super) fn apply_process_config(command: &mut Command, agent: &str, config_path: Option<&str>) {
@@ -72,7 +61,7 @@ fn push_agent_candidate(candidates: &mut Vec<PathBuf>, candidate: PathBuf) {
     }
 }
 
-fn automatic_agent_candidates(def: &AgentDef) -> Vec<PathBuf> {
+fn automatic_agent_candidates(def: &AgentEntry) -> Vec<PathBuf> {
     let mut candidates = crate::system::find_executables(def.command);
     let home = crate::system::user_home();
     for candidate in [
@@ -109,7 +98,7 @@ fn explicit_agent_candidates(value: &str) -> Vec<PathBuf> {
         return Vec::new();
     }
     if value.contains('/') || value.contains('\\') || value.starts_with('~') {
-        return vec![expand_user_path(value)];
+        return vec![expand_home(value)];
     }
     crate::system::find_executables(value)
 }
@@ -279,7 +268,7 @@ pub(crate) async fn resolve_agent_executable(
     agent: &str,
     explicit: Option<&str>,
 ) -> Result<PathBuf, String> {
-    let def = AGENT_DEFS
+    let def = AGENTS
         .iter()
         .find(|def| def.kind == agent)
         .ok_or("Unknown agent provider")?;
@@ -300,7 +289,7 @@ pub(crate) async fn resolve_agent_executable(
 /// from the login shell during boot, so this matches what spawned PTYs can run.
 #[tauri::command]
 pub async fn available_agents(profiles: Vec<AgentProfileRequest>) -> Vec<AgentInfo> {
-    let available = futures::future::join_all(AGENT_DEFS.iter().map(|def| async {
+    let available = futures::future::join_all(AGENTS.iter().map(|def| async {
         let profile = profiles
             .iter()
             .find(|profile| profile.kind.as_str() == def.kind);

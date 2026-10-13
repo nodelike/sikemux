@@ -1,6 +1,6 @@
 import type { ListeningPort } from "../api/ports";
 import { collectPanes } from "../state/layout";
-import { agentIdsOf, activeAgentId } from "../state/selectors";
+import { agentIdsOf, activeAgentId, terminalLabel } from "../state/selectors";
 import type { StoreState } from "../state/store";
 import { taskPtyBindings } from "../tasks/nativeRuntime";
 
@@ -86,7 +86,7 @@ function ownerIn(state: PortsState, sessionId: string, project: string, port: Li
     if (owner.paneId) {
         const shown = sessionPanes(state, sessionId).find(({ pane }) => pane.id === owner.paneId);
         if (shown) {
-            const label = state.terminalTitles[shown.pane.id] || shown.pane.title || "terminal";
+            const label = terminalLabel(state.windows[shown.windowId], shown.pane, state.terminalTitles);
             return { kind: "terminal", label, reveal: { kind: "pane", sessionId, windowId: shown.windowId, paneId: shown.pane.id } };
         }
     }

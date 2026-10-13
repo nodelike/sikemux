@@ -54,26 +54,18 @@ impl From<reqwest::Error> for RundeckError {
 
 impl From<RundeckError> for PluginError {
     fn from(error: RundeckError) -> Self {
-        let category = match &error {
-            RundeckError::Api(_) => "rundeck",
-            RundeckError::Unconfigured => "unconfigured",
-            RundeckError::Auth(_) => "auth",
-            RundeckError::Forbidden(_) => "forbidden",
-            RundeckError::Transport(_) => "rundeck",
-            RundeckError::Http { .. } => "http",
-            RundeckError::BadArg(_) => "bad-params",
-            RundeckError::Io(_) => "io",
-            RundeckError::Json(_) => "json",
-        };
-        let status = match &error {
-            RundeckError::Http { status, .. } => Some(*status),
-            RundeckError::Forbidden(_) => Some(403),
-            _ => None,
-        };
-        let plugin_error = PluginError::new(category, error.to_string());
-        match status {
-            Some(status) => plugin_error.with_status(status),
-            None => plugin_error,
+        let message = error.to_string();
+        match error {
+            RundeckError::Api(_) | RundeckError::Transport(_) => {
+                PluginError::new("rundeck", message)
+            }
+            RundeckError::Unconfigured => PluginError::new("unconfigured", message),
+            RundeckError::Auth(_) => PluginError::new("auth", message),
+            RundeckError::Forbidden(_) => PluginError::forbidden(message),
+            RundeckError::Http { status, .. } => PluginError::http(status, message),
+            RundeckError::BadArg(_) => PluginError::new("bad-params", message),
+            RundeckError::Io(_) => PluginError::new("io", message),
+            RundeckError::Json(_) => PluginError::new("json", message),
         }
     }
 }

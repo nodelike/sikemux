@@ -1,4 +1,5 @@
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { IS_MACOS } from "../lib/platform";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { portsApi } from "../api/ports";
 import { getState, setState } from "../state/store";
@@ -84,15 +85,16 @@ describe("PortsChip", () => {
     });
 
     it("copies with ⌘C and opens in the browser with ⌘↵ from the focused row", async () => {
+        const primary = IS_MACOS ? { metaKey: true } : { ctrlKey: true };
         seedProjects();
         listening.mockResolvedValue([terminalPort(5173, { paneId: "pane-1", project: "/code" })]);
         await renderChip();
         await openMenu("1 listening port");
-        fireEvent.keyDown(screen.getByRole("menuitem", { name: /^Open localhost:5173/ }), { key: "c", metaKey: true });
+        fireEvent.keyDown(screen.getByRole("menuitem", { name: /^Open localhost:5173/ }), { key: "c", ...primary });
         expect(copyPortUrl).toHaveBeenCalledWith("http://localhost:5173/");
 
         await openMenu("1 listening port");
-        fireEvent.keyDown(screen.getByRole("menuitem", { name: /^Open localhost:5173/ }), { key: "Enter", metaKey: true });
+        fireEvent.keyDown(screen.getByRole("menuitem", { name: /^Open localhost:5173/ }), { key: "Enter", ...primary });
         expect(openPortExternally).toHaveBeenCalledWith("http://localhost:5173/");
         expect(openPortOnDesk).not.toHaveBeenCalled();
     });

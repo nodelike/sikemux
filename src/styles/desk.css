@@ -30,34 +30,6 @@
     min-height: 0;
 }
 
-.desk.claude {
-    --desk-agent: var(--brand-claude);
-}
-
-.desk.codex {
-    --desk-agent: var(--brand-codex);
-}
-
-.desk.hermes {
-    --desk-agent: var(--brand-hermes);
-}
-
-.desk.pi {
-    --desk-agent: var(--brand-pi);
-}
-
-.desk.opencode {
-    --desk-agent: var(--brand-opencode);
-}
-
-.desk.omp {
-    --desk-agent: var(--brand-omp);
-}
-
-.desk.grok {
-    --desk-agent: var(--brand-grok);
-}
-
 /* The desk draws its own edge (`.desk-outline`), so its pane gives up the
    border but keeps the inset, and clips at its outer corner, where the
    switcher's own corner sits. */

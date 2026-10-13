@@ -1,8 +1,9 @@
 import { useAuth } from "@clerk/react";
-import type {
-  AccountEvent,
-  LiveDeviceMessage,
-  LiveServerMessage,
+import {
+  LiveCloseCode,
+  type AccountEvent,
+  type LiveDeviceMessage,
+  type LiveServerMessage,
 } from "@sikemux/protocol";
 import { useEffect, useEffectEvent } from "react";
 
@@ -18,8 +19,7 @@ export type LiveHandlers = {
 
 type TokenSource = (fresh: boolean) => Promise<string | null>;
 
-const REVOKED = 4403;
-const OVER_LIMIT = 4429;
+const OVER_LIMIT_WAIT_MS = 30_000;
 const REFRESH_AHEAD_MS = 15_000;
 const MAX_BACKOFF_MS = 60_000;
 
@@ -113,8 +113,12 @@ class LiveConnection {
       if (this.socket !== socket) return;
       this.socket = undefined;
       this.clearTimers();
-      if (this.stopped || closed.code === REVOKED) return;
-      this.reconnect(closed.code === OVER_LIMIT ? 30_000 : undefined);
+      if (this.stopped || closed.code === LiveCloseCode.revoked) return;
+      this.reconnect(
+        closed.code === LiveCloseCode.overLimit
+          ? OVER_LIMIT_WAIT_MS
+          : undefined,
+      );
     };
   }
 

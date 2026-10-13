@@ -1,9 +1,8 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { reportError } from "../../../plugin-api/host";
-import { VirtualLogList } from "../../../plugin-api/ui";
+import { Filter, Seg, VirtualLogList } from "../../../plugin-api/ui";
 import { awsApi } from "../api";
 import { highlightLog } from "./logHighlight";
-import { Filter, Seg } from "./parts";
 
 const MAX_LINES = 5000;
 const FLUSH_MS = 50;
@@ -111,6 +110,7 @@ export function AwsLogTailView({ profile, logGroup, logStream, active, lead }: P
                 {lead}
                 <div className="aws-subbar-tools">
                     <Seg
+                        label="Log level"
                         options={[
                             { value: "all", label: "All" },
                             { value: "warn", label: "Warnings", count: warnings + errors },

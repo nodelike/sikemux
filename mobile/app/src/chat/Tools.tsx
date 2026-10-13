@@ -2,10 +2,18 @@ import { memo, useEffect, useState, type ReactNode } from 'react';
 import { Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { collapseDiff } from '@mac/chat/diff';
-import { durationLabel, elapsedLabel } from '@mac/chat/durationLabel';
-import { toolDescription } from '@mac/chat/toolOutput';
-import { toolDetail, toolKind, toolLabel, toolRunning, toolTarget } from '@mac/chat/toolLabels';
-import { sikemuxToolRow, type ToolRowIcon } from '@mac/chat/toolRows';
+import { durationLabel } from '@mac/chat/durationLabel';
+import { toolDetail, toolKind, toolRunning, toolTarget } from '@mac/chat/toolLabels';
+import {
+  callCount,
+  callsLabel,
+  secondsSince,
+  toolElapsed,
+  toolGroupSummary,
+  toolIconName,
+  toolRowKind,
+  type ToolIconName,
+} from '@mac/chat/toolView';
 import type { AcpToolCall, ChatPart } from '@mac/chat/types';
 import { CopyButton } from '@/ui/CopyButton';
 import { Icon } from '@/ui/Icon';
@@ -23,17 +31,20 @@ const OUTPUT_FOLD_LINES = 12;
 /** JetBrains Mono's advance at the rows' 11.5px, for lining the verbs up in one column. */
 const KIND_CHAR = 6.9;
 
-const ROW_ICONS: Record<ToolRowIcon, IconName> = {
+const TOOL_ICONS: Record<ToolIconName, IconName> = {
   activity: 'IconActivity',
+  agent: 'IconAgent',
   book: 'IconBook',
   camera: 'IconCamera',
   click: 'IconClick',
   clock: 'IconClock',
   close: 'IconClose',
   code: 'IconCode',
+  command: 'IconCommand',
   dashboard: 'IconDashboard',
   download: 'IconDownload',
   eye: 'IconEye',
+  file: 'IconFile',
   folder: 'IconFolder',
   globe: 'IconGlobe',
   highlighter: 'IconHighlighter',
@@ -45,10 +56,13 @@ const ROW_ICONS: Record<ToolRowIcon, IconName> = {
   'log-lines': 'IconLogLines',
   message: 'IconMessage',
   mouse: 'IconMouse',
+  move: 'IconMove',
   network: 'IconNetwork',
   panel: 'IconPanel',
+  pencil: 'IconPencil',
   phone: 'IconPhone',
   pinch: 'IconPinch',
+  plug: 'IconPlug',
   pointer: 'IconPointer',
   'pull-request': 'IconPullRequest',
   record: 'IconRecord',
@@ -68,23 +82,21 @@ const ROW_ICONS: Record<ToolRowIcon, IconName> = {
   terminal: 'IconTerminal',
   text: 'IconText',
   'touch-path': 'IconTouchPath',
+  trash: 'IconTrash',
   unlink: 'IconUnlink',
   upload: 'IconUpload',
+  warning: 'IconWarning',
   waterfall: 'IconWaterfall',
   window: 'IconWindow',
   workflow: 'IconWorkflow',
+  wrench: 'IconWrench',
 };
-
-/** Our own tools take the kind they declare; another server's call is named for the server it went to. */
-function rowKind(tool: AcpToolCall): string | undefined {
-  return sikemuxToolRow(tool)?.kind ?? (toolLabel(tool.title).scope !== undefined ? 'mcp' : tool.kind);
-}
 
 /** The icon and colour of a call, as the Mac's tool rows draw them. */
 function look(tool: AcpToolCall, colors: Palette): { icon: IconName; color: string } {
-  if (tool.status === 'failed') return { icon: 'IconWarning', color: colors.danger };
-  const row = sikemuxToolRow(tool);
-  const kind = rowKind(tool);
+  const icon = TOOL_ICONS[toolIconName(tool)];
+  if (tool.status === 'failed') return { icon, color: colors.danger };
+  const kind = toolRowKind(tool);
   const color =
     kind === 'read' || kind === 'search' || kind === 'fetch'
       ? colors.toolRead
@@ -97,25 +109,7 @@ function look(tool: AcpToolCall, colors: Palette): { icon: IconName; color: stri
             : kind === 'mcp'
               ? colors.toolMcp
               : colors.inkDim;
-  if (row) return { icon: ROW_ICONS[row.icon], color };
-  switch (kind) {
-    case 'mcp':
-      return { icon: 'IconPlug', color };
-    case 'read':
-      return { icon: 'IconFile', color };
-    case 'search':
-      return { icon: 'IconSearch', color };
-    case 'edit':
-    case 'move':
-    case 'delete':
-      return { icon: 'IconPencil', color };
-    case 'execute':
-      return { icon: 'IconCommand', color };
-    case 'fetch':
-      return { icon: 'IconGlobe', color };
-    default:
-      return { icon: 'IconAgent', color };
-  }
+  return { icon, color };
 }
 
 /** Counts up in whole seconds on a clock of its own, so the tick redraws this label and nothing around it. */
@@ -126,7 +120,7 @@ export function LiveSeconds({ since, spent = 0, style }: { since?: number; spent
     const timer = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(timer);
   }, []);
-  return <Text style={style}>{elapsedLabel(Math.max(0, Math.floor((spent + now - started) / 1000)))}</Text>;
+  return <Text style={style}>{secondsSince(started, now, spent)}</Text>;
 }
 
 /** Scrolls sideways inside the transcript, so long lines keep to the width of the screen. */
@@ -279,9 +273,7 @@ const ToolRow = memo(function ToolRow({
   const command = tool.kind === 'execute' ? tool.title.trim() : null;
   const opens = Boolean(part.diff || part.output || part.failure) || (command !== null && !running && command !== target);
   const [open, setOpen] = useFold(`${group}/${part.id}`, false);
-  const measured = !untimed && part.startedAt !== undefined && part.endedAt !== undefined ? part.endedAt - part.startedAt : null;
-  // A call the turn cut off has a duration, but printing it would read as a call that ran that long and then finished.
-  const elapsed = status === 'cancelled' ? 'stopped' : measured !== null ? durationLabel(measured) : null;
+  const elapsed = toolElapsed(part, !untimed);
   return (
     <View style={status === 'cancelled' && styles.cancelled}>
       <Pressable
@@ -345,15 +337,11 @@ export const ToolGroup = memo(
   function ToolGroup({ id, parts, untimed, live }: { id: string; parts: ToolPart[]; untimed: boolean; live: boolean }) {
     const colors = useColors();
     const styles = useStyles(makeStyles);
-    const current = parts.find((part) => toolRunning(part.tool));
+    const summary = toolGroupSummary(parts);
+    const { current, said, spent } = summary;
     const [open, setOpen] = useFold(id, live || current !== undefined);
-    const spent = parts.reduce(
-      (total, part) => total + (part.startedAt !== undefined && part.endedAt !== undefined ? part.endedAt - part.startedAt : 0),
-      0,
-    );
-    const said = current ? toolDescription(current.tool) : null;
-    const calls = `${parts.length} tool call${parts.length === 1 ? '' : 's'}`;
-    const kindWidth = Math.min(16, Math.max(4, ...parts.map((part) => toolKind(part.tool).length))) * KIND_CHAR + 1;
+    const calls = callsLabel(parts.length);
+    const kindWidth = summary.kindWidth * KIND_CHAR + 1;
     return (
       <View style={styles.group}>
         <Pressable
@@ -372,7 +360,7 @@ export const ToolGroup = memo(
               {calls}
             </Text>
           )}
-          {said !== null && parts.length > 1 ? <Text style={styles.summaryTime}>{parts.length} calls</Text> : null}
+          {said !== null && parts.length > 1 ? <Text style={styles.summaryTime}>{callCount(parts.length)}</Text> : null}
           {current ? (
             <LiveSeconds key={current.id} since={current.startedAt} spent={spent} style={styles.summaryTime} />
           ) : !untimed && spent > 0 ? (

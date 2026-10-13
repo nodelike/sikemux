@@ -89,18 +89,6 @@
     font-size: var(--text-2xs);
     font-weight: var(--weight-semibold);
 }
-.git-status.modified {
-    color: var(--git-modified);
-}
-.git-status.added {
-    color: var(--git-added);
-}
-.git-status.deleted {
-    color: var(--git-deleted);
-}
-.git-status.renamed {
-    color: var(--git-renamed);
-}
 .git-dot {
     width: 7px;
     height: 7px;

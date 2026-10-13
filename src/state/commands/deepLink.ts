@@ -1,4 +1,4 @@
-import { isAgentType } from "../../agents/agentLaunch";
+import { isAgentType } from "../../agents/catalog";
 import type { Agent, Session } from "../types";
 import { addAgent } from "./agents";
 import { createProjectSession } from "./sessions";

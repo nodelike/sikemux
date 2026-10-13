@@ -7,6 +7,7 @@ import { getState, useStore } from "../state/store";
 import { activeAgentId, agentIdsOf } from "../state/selectors";
 import type { AgentType } from "../state/types";
 import * as cmd from "../state/commands";
+import { profileOf } from "../state/commands/agentLaunchCommand";
 import { swallow } from "../state/toast";
 
 interface AgentSyncGroup {
@@ -64,9 +65,7 @@ function collectAgentSyncGroups(): Map<string, DesiredGroup> {
             const agent = st.agents[agentId];
             if (!agent || agent.launchState === "dormant") continue;
             const cwd = agent.cwd || session.cwd;
-            const configPath = agent.profileId
-                ? st.providerProfiles.find((profile) => profile.id === agent.profileId && profile.provider === agent.type)?.configPath
-                : undefined;
+            const configPath = profileOf(st, agent)?.configPath;
             const key = groupKey(agent.type, cwd, configPath);
             const existing = groups.get(key);
             const member = `${agent.id}:${agent.resumeId ?? ""}:${agent.createdAt ?? 0}`;
@@ -91,9 +90,7 @@ function groupNeedsMetadata({ type, cwd, configPath }: AgentSyncGroup): boolean 
         if (session?.kind !== "project") return false;
         return agentIdsOf(state, sessionId).some((agentId) => {
             const agent = state.agents[agentId];
-            const agentConfigPath = agent?.profileId
-                ? state.providerProfiles.find((profile) => profile.id === agent.profileId && profile.provider === agent.type)?.configPath
-                : undefined;
+            const agentConfigPath = agent ? profileOf(state, agent)?.configPath : undefined;
             /* Once a turn starts, ACP says which conversation the agent
                adopted, and the watcher brings the title over when the CLI
                writes it. Only an agent that has not said yet is worth asking
@@ -112,9 +109,7 @@ function useAgentSyncKey(): string {
             for (const agentId of agentIdsOf(s, sessionId)) {
                 const agent = s.agents[agentId];
                 if (!agent || agent.launchState === "dormant") continue;
-                const configPath = agent.profileId
-                    ? s.providerProfiles.find((profile) => profile.id === agent.profileId && profile.provider === agent.type)?.configPath
-                    : undefined;
+                const configPath = profileOf(s, agent)?.configPath;
                 parts.push(
                     `${agent.id}:${agent.type}:${agent.cwd || session.cwd}:${configPath ?? ""}:${agent.resumeId ?? ""}:${agent.createdAt ?? 0}`,
                 );

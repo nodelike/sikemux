@@ -94,7 +94,6 @@ export function EditorFindBar({ getView, documentKey, open, replaceOpenOnMount, 
         }
         const q = getSearchQuery(view.state);
         if (q.search) setCounts(computeCounts(view, q));
-        view.focus();
     };
 
     const onFindKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {

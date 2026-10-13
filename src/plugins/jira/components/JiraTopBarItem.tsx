@@ -1,5 +1,5 @@
 import type { PluginTopBarProps } from "../../../plugin-api";
-import { gitOverviewR } from "../../../plugin-api/host";
+import { currentBranch, gitOverviewR } from "../../../plugin-api/host";
 import { useResourceEnabled } from "../../../plugin-api/resources";
 import { jiraKeysR, jiraSearchR, jiraStatusR } from "../resources";
 import { openJiraIssue } from "../state";
@@ -11,8 +11,8 @@ export function JiraTopBarItem({ projectCwd }: PluginTopBarProps) {
     const status = useResourceEnabled(true, jiraStatusR);
     const signedIn = !!status.data?.configured && !status.data.authFailed;
     const repo = useResourceEnabled(signedIn && !!projectCwd, gitOverviewR, projectCwd ?? "");
-    const branch = repo.data?.status.branch.trim() ?? "";
-    const keys = useResourceEnabled(signedIn && !!branch && branch !== "HEAD", jiraKeysR, branch);
+    const branch = currentBranch(repo.data?.status);
+    const keys = useResourceEnabled(signedIn && !!branch, jiraKeysR, branch ?? "");
     const key = keys.data?.[0] ?? "";
     const issue = useResourceEnabled(!!key, jiraSearchR, `key = ${key}`, "");
     const found = issue.data?.issues[0];

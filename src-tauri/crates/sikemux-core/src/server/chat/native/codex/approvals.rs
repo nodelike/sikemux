@@ -9,6 +9,13 @@ fn option(id: &str, name: &str, kind: &str) -> Value {
     json!({ "optionId": id, "name": name, "kind": kind })
 }
 
+/// Marks an allow that lasts only for the session, so a client offering one
+/// "Always allow" picks a lasting allow when there is one.
+fn for_session(mut option: Value) -> Value {
+    option["_meta"]["scope"] = json!("session");
+    option
+}
+
 fn request(
     session_id: &str,
     tool_call: Value,
@@ -275,7 +282,7 @@ fn command_options(params: &Value) -> Option<Vec<(Value, Value)>> {
                 },
                 "allow_once",
             ),
-            Some("acceptForSession") => option(
+            Some("acceptForSession") => for_session(option(
                 "allow_for_session",
                 if network {
                     "Yes, and allow this host for this conversation"
@@ -285,7 +292,7 @@ fn command_options(params: &Value) -> Option<Vec<(Value, Value)>> {
                     "Yes, and don't ask again for this command in this session"
                 },
                 "allow_always",
-            ),
+            )),
             Some("decline") => option("decline", "No, continue without running it", "reject_once"),
             Some("cancel") => option(
                 "cancel",
@@ -474,11 +481,11 @@ pub(super) fn command(session_id: &str, params: &Value) -> Option<Question> {
 pub(super) fn file_change(session_id: &str, params: &Value, item: Option<&Value>) -> Question {
     let options = [
         option("allow_once", "Yes, proceed", "allow_once"),
-        option(
+        for_session(option(
             "allow_for_session",
             "Yes, and don't ask again for these files",
             "allow_always",
-        ),
+        )),
         option(
             "cancel",
             "No, and tell Codex what to do differently",
@@ -531,11 +538,11 @@ pub(super) fn permissions(session_id: &str, params: &Value) -> Question {
             "Yes, grant for this turn with strict auto review",
             "allow_once",
         ),
-        option(
+        for_session(option(
             "allow_permissions_session",
             "Yes, grant these permissions for this session",
             "allow_always",
-        ),
+        )),
         option(
             "reject_permissions",
             "No, continue without permissions",
@@ -636,7 +643,7 @@ pub(super) fn elicitation(
         )
     }];
     if session {
-        options.push(described(
+        options.push(for_session(described(
             "allow_session",
             "Allow for this session",
             "allow_always",
@@ -645,7 +652,7 @@ pub(super) fn elicitation(
             } else {
                 "Allow this request and remember this choice for this session."
             },
-        ));
+        )));
     }
     if always {
         options.push(described(
@@ -728,11 +735,11 @@ pub(super) fn legacy_command(session_id: &str, params: &Value) -> Question {
         .collect();
     let options = [
         option("allow_once", "Yes, proceed", "allow_once"),
-        option(
+        for_session(option(
             "allow_for_session",
             "Yes, and don't ask again for this command in this session",
             "allow_always",
-        ),
+        )),
         option(
             "cancel",
             "No, and tell Codex what to do differently",
@@ -770,11 +777,11 @@ pub(super) fn legacy_command(session_id: &str, params: &Value) -> Question {
 pub(super) fn legacy_patch(session_id: &str, params: &Value) -> Question {
     let options = [
         option("allow_once", "Yes, proceed", "allow_once"),
-        option(
+        for_session(option(
             "allow_for_session",
             "Yes, and don't ask again for these files",
             "allow_always",
-        ),
+        )),
         option(
             "cancel",
             "No, and tell Codex what to do differently",

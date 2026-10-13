@@ -59,15 +59,3 @@ export const LIVE_OPTIONS: LiveOptions = {
   reconnectSpreadMs: 15_000,
   pushesInFlight: 32,
 };
-
-/** Close codes a device acts on. */
-export const CLOSE = {
-  badMessage: 4400,
-  unauthenticated: 4401,
-  revoked: 4403,
-  helloTimeout: 4408,
-  replaced: 4409,
-  overLimit: 4429,
-  restarting: 1012,
-  overloaded: 1013,
-} as const;

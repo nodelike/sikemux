@@ -1,5 +1,4 @@
-import { create } from "zustand";
-import { onPaneClosed } from "../plugin-api/host";
+import { definePaneViews } from "../plugin-api/paneViews";
 import { definePluginSettings, type PluginSettings } from "../plugin-api/settings";
 import { setGitView } from "../state/commands";
 import type { RepoRef } from "./types";
@@ -132,30 +131,11 @@ const FRESH: HostView = {
     runTab: "summary",
 };
 
-export const useHostViews = create<{ views: Record<string, HostView> }>()(() => ({
-    views: {},
-}));
+const views = definePaneViews(FRESH);
 
-onPaneClosed((paneId) => {
-    if (!(paneId in useHostViews.getState().views)) return;
-    useHostViews.setState((state) => {
-        const views = { ...state.views };
-        delete views[paneId];
-        return { views };
-    });
-});
-
-export function useHostView(paneId: string): HostView {
-    return useHostViews((state) => state.views[paneId] ?? FRESH);
-}
-
-export function viewOf(paneId: string): HostView {
-    return useHostViews.getState().views[paneId] ?? FRESH;
-}
-
-export function updateView(paneId: string, patch: Partial<HostView>): void {
-    useHostViews.setState((state) => ({ views: { ...state.views, [paneId]: { ...(state.views[paneId] ?? FRESH), ...patch } } }));
-}
+export const useHostView = views.use;
+export const viewOf = views.get;
+export const updateView = views.update;
 
 /** Everything a pane had open belongs to the repository it was showing, so a different one starts clean. */
 export function resetView(paneId: string): void {

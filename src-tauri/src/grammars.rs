@@ -3,7 +3,7 @@
 //! kept on disk so each is downloaded once.
 
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
@@ -113,12 +113,7 @@ async fn fetch(url: &str) -> AppResult<Vec<u8>> {
 
 /// Written beside its final name and renamed, so a reader never sees half a file.
 fn keep(path: &Path, source: &[u8]) -> AppResult<()> {
-    if let Some(dir) = path.parent() {
-        std::fs::create_dir_all(dir)?;
-    }
-    let partial = PathBuf::from(format!("{}.{}.partial", path.display(), std::process::id()));
-    std::fs::write(&partial, source)?;
-    std::fs::rename(&partial, path)?;
+    sikemux_process::files::write_atomic(path, source, false)?;
     Ok(())
 }
 

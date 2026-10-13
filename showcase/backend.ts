@@ -1,3 +1,5 @@
+import { DATABASE } from "./world/database";
+import { SIKEMUX as SIKEMUX_PATH } from "./world/projects";
 import type {
   IpcEventListener,
   IpcTransport,
@@ -86,6 +88,20 @@ function recentPage(request: RecentRequest) {
   };
 }
 
+const SIM_DEVICE = {
+  udid: "5C1A0E77-8D2F-4B1E-9F63-2A7D41C0B9E8",
+  name: "iPhone 18 Pro",
+  state: "booted",
+  runtime: "iOS 27.0",
+  model: "iPhone 18 Pro",
+};
+const SIM_ATTACHED = {
+  agentId: "agent-phone",
+  udid: SIM_DEVICE.udid,
+  name: SIM_DEVICE.name,
+  project: SIKEMUX_PATH,
+};
+
 const OTHER_ACCOUNTS: Record<string, { email: string; used: number }> = {
   ".claude-personal": { email: "edon@hey.com", used: 82 },
   ".claude-client": { email: "edon@northwind.io", used: 9 },
@@ -164,6 +180,7 @@ export class ShowcaseBackend implements IpcTransport {
           ["aws", "AWS"],
           ["bruno", "Bruno"],
           ["github", "GitHub"],
+          ["database", "Database"],
         ].map(([id, name]) => ({
           id: `sikemux.${id}`,
           name,
@@ -183,6 +200,36 @@ export class ShowcaseBackend implements IpcTransport {
     this.on("agent_sessions_watch_start", constant(1));
     this.on("lsp_locations", constant([]));
     this.on("lsp_document_symbols", constant([]));
+    this.on("simulator_attachments", constant([SIM_ATTACHED]));
+    this.on(
+      "sim_status",
+      constant({ supported: true, installed: true, reason: null }),
+    );
+    this.on("simulator_orientation", constant("portrait"));
+    this.on("sim_call", async ({ request }) => {
+      const { type } = request as { type: string };
+      if (type === "devices") return { devices: [SIM_DEVICE] };
+      if (type === "screen")
+        return { width: 402, height: 874, scale: 3, orientation: "portrait" };
+      if (type === "chrome" || type === "mask") {
+        const art = (await (
+          await fetch("/__showcase/simulator/chrome")
+        ).json()) as Record<string, unknown>;
+        return { [type]: art[type] ?? null };
+      }
+      return null;
+    });
+    this.on("sim_watch", async ({ format, onFrame }) => {
+      if (format !== "mjpeg")
+        throw { category: "unavailable", message: "streamUnavailable" };
+      const frame = await (
+        await fetch("/__showcase/simulator/frame")
+      ).arrayBuffer();
+      const channel = onFrame as { onmessage: (frame: ArrayBuffer) => void };
+      for (const delay of [50, 400, 1200])
+        setTimeout(() => channel.onmessage(frame.slice(0)), delay);
+      return 1;
+    });
     this.on("activity_summary", demoActivity);
     for (const quiet of [
       "observability_ui_heartbeat",
@@ -206,6 +253,10 @@ export class ShowcaseBackend implements IpcTransport {
       "pty_write",
       "pty_ack",
       "pty_unsubscribe",
+      "sim_watch_read",
+      "sim_unwatch",
+      "sim_prepare",
+      "simulator_set_enabled",
     ]) {
       this.on(quiet, constant(null));
     }
@@ -401,6 +452,7 @@ export class ShowcaseBackend implements IpcTransport {
       "sikemux.aws": AWS,
       "sikemux.bruno": { send: () => CHECKOUT_RESPONSE },
       "sikemux.github": GITHUB,
+      "sikemux.database": DATABASE,
     };
     this.on("plugin_call", ({ plugin, method, params }) => {
       const answer = plugins[plugin as string]?.[method as string];

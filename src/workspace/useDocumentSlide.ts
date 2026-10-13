@@ -1,10 +1,7 @@
 import { useLayoutEffect, useRef } from "react";
 import type { RefObject } from "react";
 import { prefersReducedMotion } from "../lib/motion";
-import { PAN_MS } from "./useWindowPan";
-
-/** Falls back to this when no `transitionend` arrives, so a slide can never get stuck. */
-const SETTLE_GUARD_MS = PAN_MS + 120;
+import { SETTLE_GUARD_MS } from "./useWindowPan";
 
 /**
  * The element inside a pane that holds the document and nothing around it: the

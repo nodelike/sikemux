@@ -98,9 +98,7 @@ fn rotate(path: &Path) -> std::io::Result<u64> {
         Some(newline) if start > 0 => bytes.get(newline + 1..).unwrap_or_default(),
         _ => &bytes[..],
     };
-    let staging = path.with_extension("jsonl.rotating");
-    std::fs::write(&staging, kept)?;
-    std::fs::rename(&staging, path)?;
+    sikemux_process::files::write_atomic(path, kept, true)?;
     Ok(kept.len() as u64)
 }
 

@@ -1,0 +1,81 @@
+.plugin-seg {
+    display: inline-flex;
+    gap: var(--space-1);
+    flex: 0 0 auto;
+}
+.plugin-seg button {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-1h);
+    height: 28px;
+    padding: 0 10px;
+    border: 1px solid var(--border);
+    background: transparent;
+    color: var(--text-secondary);
+    font: inherit;
+    font-size: var(--text-xs);
+    white-space: nowrap;
+    cursor: pointer;
+}
+.plugin-seg button:hover {
+    background: var(--surface-hover);
+    color: var(--text-primary);
+}
+.plugin-seg button.on {
+    background: var(--surface-selected);
+    border-color: var(--border-selected);
+    color: var(--text-primary);
+}
+.plugin-seg-count {
+    font-size: var(--text-2xs);
+    font-variant-numeric: tabular-nums;
+    color: var(--text-tertiary);
+}
+
+.plugin-filter {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    width: 200px;
+    min-width: 110px;
+    height: 28px;
+    flex: 0 1 auto;
+    padding: 0 var(--space-1h) 0 10px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-2);
+    color: var(--text-tertiary);
+    cursor: text;
+}
+.plugin-filter:focus-within {
+    border-color: var(--border-strong);
+    box-shadow: var(--focus-ring);
+}
+.plugin-filter svg {
+    flex: 0 0 auto;
+}
+.plugin-filter input {
+    flex: 1 1 auto;
+    min-width: 0;
+    height: 100%;
+    padding: 0;
+    border: 0;
+    outline: 0;
+    background: transparent;
+    color: var(--text-primary);
+    font: inherit;
+    font-size: var(--text-xs);
+}
+.plugin-filter input::placeholder {
+    color: var(--text-tertiary);
+}
+.plugin-filter kbd {
+    flex: 0 0 auto;
+    padding: 0 5px;
+    border: 1px solid var(--border);
+    font-family: var(--ui);
+    font-size: var(--text-2xs);
+    color: var(--text-tertiary);
+}
+.plugin-filter:focus-within kbd {
+    display: none;
+}

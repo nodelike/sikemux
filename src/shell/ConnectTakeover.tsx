@@ -5,6 +5,7 @@ import { useAccount } from "../account/account";
 import type { DeviceAccess, PendingDevice } from "../api/remote";
 import { ACCESS_OPTIONS } from "../remote/access";
 import { IconCommand, IconEye, IconLaptop, IconPhone } from "../ui/Icons";
+import { ENTER_GLYPH } from "../commands/keybindings";
 import "../styles/connect-takeover.css";
 
 const ACCESS_ICONS: Record<DeviceAccess, typeof IconCommand> = { full: IconCommand, watch: IconEye };
@@ -174,7 +175,7 @@ export default function ConnectTakeover({
                         <kbd>↑↓</kbd>Choose access
                     </span>
                     <span>
-                        <kbd>↩</kbd>Allow
+                        <kbd>{ENTER_GLYPH}</kbd>Allow
                     </span>
                 </div>
             </div>

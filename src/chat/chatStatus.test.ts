@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { activityText, backendState, permissionModeOf } from "./chatStatus";
+import { effectiveMode as permissionModeOf } from "../agents/agentLaunch";
+import { activityText, backendState } from "./chatStatus";
 import type { Agent } from "../state/types";
 import type { AcpPermissionRequest, ChatMessage, ChatState } from "./types";
 

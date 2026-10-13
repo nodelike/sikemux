@@ -1,79 +1,16 @@
 import { Fragment, memo, useMemo, type ReactNode } from 'react';
-import { Linking, ScrollView, StyleSheet, Text, View, type TextStyle } from 'react-native';
+import { Linking, ScrollView, StyleSheet, Text, View, type StyleProp, type TextStyle } from 'react-native';
 
+import { safeWebUrl } from '@mac/lib/urls';
 import { CopyButton } from '@/ui/CopyButton';
-import { fonts, type Palette, useStyles } from '@/ui/theme';
+import { Icon } from '@/ui/Icon';
+import { fonts, italic, type Palette, useStyles } from '@/ui/theme';
+import { blocks, inlines, settledLength, type Block, type Inline } from './markdownBlocks';
 
-type Block =
-  | { kind: 'paragraph'; text: string }
-  | { kind: 'heading'; text: string }
-  | { kind: 'item'; marker: string; text: string }
-  | { kind: 'code'; text: string };
+/** A link the phone opens: the web links the Mac would open, and mail. */
+const openable = (url: string) => safeWebUrl(url) ?? (/^mailto:/i.test(url) ? url : null);
 
-const FENCE = /^\s*```/;
-
-function blocks(source: string): Block[] {
-  const out: Block[] = [];
-  const lines = source.split('\n');
-  let paragraph: string[] = [];
-  const flush = () => {
-    if (paragraph.length) out.push({ kind: 'paragraph', text: paragraph.join(' ') });
-    paragraph = [];
-  };
-  for (let index = 0; index < lines.length; index += 1) {
-    const line = lines[index];
-    if (FENCE.test(line)) {
-      flush();
-      const code: string[] = [];
-      for (index += 1; index < lines.length && !FENCE.test(lines[index]); index += 1) code.push(lines[index]);
-      out.push({ kind: 'code', text: code.join('\n') });
-      continue;
-    }
-    const heading = line.match(/^#{1,6}\s+(.*)$/);
-    const bullet = line.match(/^\s*[-*+]\s+(.*)$/);
-    const numbered = line.match(/^\s*(\d+)[.)]\s+(.*)$/);
-    if (heading) {
-      flush();
-      out.push({ kind: 'heading', text: heading[1] });
-    } else if (bullet) {
-      flush();
-      out.push({ kind: 'item', marker: '•', text: bullet[1] });
-    } else if (numbered) {
-      flush();
-      out.push({ kind: 'item', marker: `${numbered[1]}.`, text: numbered[2] });
-    } else if (!line.trim()) {
-      flush();
-    } else {
-      paragraph.push(line.trim());
-    }
-  }
-  flush();
-  return out;
-}
-
-/**
- * How much of a message can no longer change as it streams in: everything up to its last
- * blank line or closed code fence. Blocks before that point parse the same whatever follows.
- */
-function settledLength(source: string): number {
-  let settled = 0;
-  let fenced = false;
-  for (let start = 0, end = source.indexOf('\n'); end !== -1; start = end + 1, end = source.indexOf('\n', start)) {
-    const line = source.slice(start, end);
-    if (FENCE.test(line)) {
-      fenced = !fenced;
-      if (!fenced) settled = end + 1;
-    } else if (!fenced && !line.trim()) {
-      settled = end + 1;
-    }
-  }
-  return settled;
-}
-
-const LINK = /^\[([^\]]+)\]\(([^)\s]+)\)$/;
-const OPENABLE = /^(https?:|mailto:)/i;
-
-function Link({ url, children, styles }: { url: string; children: string; styles: Styles }) {
+function Link({ url, children, styles }: { url: string; children: ReactNode; styles: Styles }) {
   return (
     <Text style={styles.link} onPress={() => Linking.openURL(url).catch(() => {})} accessibilityRole="link">
       {children}
@@ -82,50 +19,143 @@ function Link({ url, children, styles }: { url: string; children: string; styles
 }
 
 /** `code` as the Mac's purple chip, **bold** as semibold, links in the accent; everything else as written. */
-function inline(text: string, styles: Styles): ReactNode[] {
-  return text.split(/(`[^`]+`|\*\*[^*]+\*\*|\[[^\]]+\]\([^)\s]+\)|https?:\/\/[^\s<>()]+)/g).map((piece, index) => {
-    if (piece.startsWith('`') && piece.endsWith('`') && piece.length > 1) {
-      return (
-        <Text key={index} style={styles.chip}>
-          {piece.slice(1, -1)}
-        </Text>
-      );
-    }
-    if (piece.startsWith('**') && piece.endsWith('**') && piece.length > 4) {
-      return (
-        <Text key={index} style={styles.bold}>
-          {piece.slice(2, -2)}
-        </Text>
-      );
-    }
-    const link = piece.match(LINK);
-    if (link) {
-      return OPENABLE.test(link[2]) ? (
-        <Link key={index} url={link[2]} styles={styles}>
-          {link[1]}
-        </Link>
-      ) : (
-        <Fragment key={index}>{link[1]}</Fragment>
-      );
-    }
-    if (/^https?:\/\//.test(piece)) {
-      const url = piece.replace(/[.,;:!?'"]+$/, '');
-      return (
-        <Fragment key={index}>
-          <Link url={url} styles={styles}>
-            {url}
+function renderInline(nodes: Inline[], styles: Styles): ReactNode[] {
+  return nodes.map((node, index) => {
+    if (typeof node === 'string') return <Fragment key={index}>{node}</Fragment>;
+    switch (node.kind) {
+      case 'code':
+        return (
+          <Text key={index} style={styles.chip}>
+            {node.text}
+          </Text>
+        );
+      case 'bold':
+        return (
+          <Text key={index} style={styles.bold}>
+            {renderInline(node.children, styles)}
+          </Text>
+        );
+      case 'italic':
+        return (
+          <Text key={index} style={italic}>
+            {renderInline(node.children, styles)}
+          </Text>
+        );
+      case 'strike':
+        return (
+          <Text key={index} style={styles.strike}>
+            {renderInline(node.children, styles)}
+          </Text>
+        );
+      case 'link': {
+        const url = openable(node.url);
+        return url ? (
+          <Link key={index} url={url} styles={styles}>
+            {renderInline(node.children, styles)}
           </Link>
-          {piece.slice(url.length)}
-        </Fragment>
-      );
+        ) : (
+          <Fragment key={index}>{renderInline(node.children, styles)}</Fragment>
+        );
+      }
     }
-    return <Fragment key={index}>{piece}</Fragment>;
   });
+}
+
+const inline = (text: string, styles: Styles) => renderInline(inlines(text), styles);
+
+const HEADING_SIZES = [20, 18, 16.5];
+
+/* A table cell is sized from its text up front, so a wide table lays out in one pass
+   and scrolls sideways in its own box instead of measuring every cell. */
+const CELL_CHAR = 7.4;
+const CELL_PAD = 20;
+const CELL_MIN = 56;
+const CELL_MAX = 240;
+
+const COPY_ROOM = 28;
+
+function columnWidths(block: Extract<Block, { kind: 'table' }>): number[] {
+  return block.head.map((head, column) => {
+    let chars = head.length;
+    for (const row of block.rows) chars = Math.max(chars, row[column].replace(/[`*_~]/g, '').length);
+    const room = column === block.head.length - 1 ? COPY_ROOM : 0;
+    return Math.min(CELL_MAX, Math.max(CELL_MIN, Math.ceil(chars * CELL_CHAR) + CELL_PAD)) + room;
+  });
+}
+
+const escapeCell = (cell: string) => cell.replace(/\|/g, '\\|');
+
+function tableSource(block: Extract<Block, { kind: 'table' }>): string {
+  const row = (cells: string[]) => `| ${cells.map(escapeCell).join(' | ')} |`;
+  const rule = block.align.map((align) => (align === 'center' ? ':---:' : align === 'right' ? '---:' : align === 'left' ? ':---' : '---'));
+  return [row(block.head), `| ${rule.join(' | ')} |`, ...block.rows.map(row)].join('\n');
+}
+
+function Table({ block, style, styles }: { block: Extract<Block, { kind: 'table' }>; style: StyleProp<TextStyle>; styles: Styles }) {
+  const widths = useMemo(() => columnWidths(block), [block]);
+  const source = useMemo(() => tableSource(block), [block]);
+  const cell = (text: string, column: number, head: boolean) => (
+    <View
+      key={column}
+      style={[
+        styles.cell,
+        { width: widths[column] },
+        column === widths.length - 1 && styles.lastCell,
+        head && column === widths.length - 1 && { paddingRight: 10 + COPY_ROOM },
+      ]}>
+      <Text
+        style={[
+          style,
+          styles.cellText,
+          head && styles.headText,
+          block.align[column] !== null && { textAlign: block.align[column] ?? undefined },
+        ]}
+        selectable>
+        {inline(text, styles)}
+      </Text>
+    </View>
+  );
+  return (
+    <View style={styles.table}>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+        <View>
+          <View style={[styles.row, styles.headRow]}>{block.head.map((text, column) => cell(text, column, true))}</View>
+          {block.rows.map((row, index) => (
+            <View key={index} style={[styles.row, index === block.rows.length - 1 && styles.lastRow]}>
+              {row.map((text, column) => cell(text, column, false))}
+            </View>
+          ))}
+        </View>
+      </ScrollView>
+      <CopyButton value={source} label="table" size={12} style={styles.tableCopy} />
+    </View>
+  );
+}
+
+function sameBlock(before: Block, after: Block): boolean {
+  if (before === after) return true;
+  if (before.kind !== after.kind) return false;
+  switch (before.kind) {
+    case 'rule':
+      return true;
+    case 'table':
+      return JSON.stringify(before) === JSON.stringify(after);
+    case 'item': {
+      const item = after as typeof before;
+      return before.text === item.text && before.marker === item.marker && before.depth === item.depth && before.checked === item.checked;
+    }
+    case 'heading':
+      return before.text === (after as typeof before).text && before.level === (after as typeof before).level;
+    case 'code':
+      return before.text === (after as typeof before).text && before.lang === (after as typeof before).lang;
+    default:
+      return before.text === (after as typeof before).text;
+  }
 }
 
 /** One block, drawn again only when its own text changes, so a streaming message redraws just its tail. */
 const BlockView = memo(
-  function BlockView({ block, style, styles }: { block: Block; style: TextStyle; styles: Styles }) {
+  function BlockView({ block, style, styles }: { block: Block; style: StyleProp<TextStyle>; styles: Styles }) {
     switch (block.kind) {
       case 'code':
         return (
@@ -140,19 +170,45 @@ const BlockView = memo(
         );
       case 'heading':
         return (
-          <Text style={[style, styles.bold]} accessibilityRole="header" selectable>
+          <Text
+            style={[
+              style,
+              styles.bold,
+              block.level <= HEADING_SIZES.length && {
+                fontSize: HEADING_SIZES[block.level - 1],
+                lineHeight: HEADING_SIZES[block.level - 1] * 1.35,
+              },
+            ]}
+            accessibilityRole="header"
+            selectable>
             {inline(block.text, styles)}
           </Text>
         );
       case 'item':
         return (
-          <View style={styles.item}>
-            <Text style={[style, styles.marker]}>{block.marker}</Text>
-            <Text style={[style, { flex: 1 }]} selectable>
+          <View style={[styles.item, { paddingLeft: 2 + block.depth * 18 }]}>
+            {block.checked === null ? (
+              <Text style={[style, styles.marker]}>{block.marker}</Text>
+            ) : (
+              <View style={[styles.box, block.checked && styles.boxOn]} accessibilityLabel={block.checked ? 'done' : 'not done'}>
+                {block.checked ? <Icon name="IconCheck" size={11} color={styles.boxTick.color} /> : null}
+              </View>
+            )}
+            <Text style={[style, { flex: 1 }, block.checked === true && styles.done]} selectable>
               {inline(block.text, styles)}
             </Text>
           </View>
         );
+      case 'quote':
+        return (
+          <View style={styles.quote}>
+            <Markdown text={block.text} style={[style, styles.quoteText]} />
+          </View>
+        );
+      case 'rule':
+        return <View style={styles.rule} />;
+      case 'table':
+        return <Table block={block} style={style} styles={styles} />;
       default:
         return (
           <Text style={style} selectable>
@@ -161,21 +217,16 @@ const BlockView = memo(
         );
     }
   },
-  (before, after) =>
-    before.style === after.style &&
-    before.styles === after.styles &&
-    before.block.kind === after.block.kind &&
-    before.block.text === after.block.text &&
-    (before.block.kind !== 'item' || after.block.kind !== 'item' || before.block.marker === after.block.marker),
+  (before, after) => before.style === after.style && before.styles === after.styles && sameBlock(before.block, after.block),
 );
 
-export function Markdown({ text, style }: { text: string; style: TextStyle }) {
+export function Markdown({ text, style }: { text: string; style: StyleProp<TextStyle> }) {
   const source = text.replace(/\r\n/g, '\n');
   const cut = settledLength(source);
   return <Parsed settled={source.slice(0, cut)} tail={source.slice(cut)} style={style} />;
 }
 
-function Parsed({ settled, tail, style }: { settled: string; tail: string; style: TextStyle }) {
+function Parsed({ settled, tail, style }: { settled: string; tail: string; style: StyleProp<TextStyle> }) {
   const styles = useStyles(makeStyles);
   const done = useMemo(() => blocks(settled), [settled]);
   return (
@@ -199,6 +250,33 @@ const makeStyles = (colors: Palette) =>
     codePad: { padding: 10, paddingRight: 34 },
     codeCopy: { position: 'absolute', top: 3, right: 3, backgroundColor: colors.sunken },
     codeText: { fontFamily: fonts.mono, fontSize: 11.5, lineHeight: 17, color: colors.ink },
+    strike: { textDecorationLine: 'line-through', color: colors.tertiary },
+    box: {
+      width: 15,
+      height: 15,
+      marginTop: 4,
+      marginRight: 1,
+      borderRadius: 4,
+      borderWidth: 1,
+      borderColor: colors.borderStrong,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    boxOn: { borderColor: colors.borderSelected, backgroundColor: colors.selected },
+    boxTick: { color: colors.accent },
+    done: { color: colors.tertiary },
+    quote: { paddingLeft: 12, borderLeftWidth: 2, borderLeftColor: colors.borderStrong },
+    quoteText: { color: colors.secondary },
+    rule: { height: StyleSheet.hairlineWidth, marginVertical: 4, backgroundColor: colors.borderStrong },
+    table: { borderRadius: 8, borderWidth: 1, borderColor: colors.border, overflow: 'hidden' },
+    row: { flexDirection: 'row', borderBottomWidth: 1, borderBottomColor: colors.border },
+    headRow: { backgroundColor: colors.active, borderBottomColor: colors.borderStrong },
+    lastRow: { borderBottomWidth: 0 },
+    cell: { paddingHorizontal: 10, paddingVertical: 6, borderRightWidth: 1, borderRightColor: colors.border },
+    lastCell: { borderRightWidth: 0 },
+    cellText: { fontSize: 13.5, lineHeight: 19 },
+    headText: { fontFamily: fonts.uiSemibold, fontSize: 12, letterSpacing: 0.6, textTransform: 'uppercase', color: colors.secondary },
+    tableCopy: { position: 'absolute', top: 3, right: 3, backgroundColor: colors.raised },
   });
 
 type Styles = ReturnType<typeof makeStyles>;

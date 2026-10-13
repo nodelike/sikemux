@@ -1,3 +1,4 @@
+import { recordOf } from "./acpEvents";
 import { agentSupportsChat, type ChatAgentType } from "../agents/agentLaunch";
 import type { Agent } from "../state/types";
 
@@ -14,10 +15,6 @@ export interface SessionConfig {
     category?: string;
     currentValue: string;
     options: ConfigChoice[];
-}
-
-function record(value: unknown): Record<string, unknown> | null {
-    return value !== null && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
 }
 
 const LEGACY_EFFORT_ID: Partial<Record<ChatAgentType, string>> = { claude: "effort", codex: "reasoning_effort" };
@@ -44,7 +41,7 @@ function versioned(label: string, description?: string): string {
 function choices(value: unknown, group?: string): ConfigChoice[] {
     if (!Array.isArray(value)) return [];
     return value.flatMap((item): ConfigChoice[] => {
-        const row = record(item);
+        const row = recordOf(item);
         if (!row) return [];
         if (Array.isArray(row.options)) return choices(row.options, typeof row.name === "string" ? row.name : undefined);
         if (typeof row.value !== "string" || typeof row.name !== "string") return [];
@@ -53,10 +50,15 @@ function choices(value: unknown, group?: string): ConfigChoice[] {
     });
 }
 
+/** The name of the value an option holds, or the value itself when its choices do not list it. */
+export function currentLabel(config: SessionConfig | undefined): string | undefined {
+    return config && (config.options.find((option) => option.value === config.currentValue)?.label ?? config.currentValue);
+}
+
 export function sessionConfigs(setup: Record<string, unknown>): SessionConfig[] {
     if (!Array.isArray(setup.configOptions)) return [];
     return setup.configOptions.flatMap((value): SessionConfig[] => {
-        const row = record(value);
+        const row = recordOf(value);
         if (!row || row.type !== "select" || typeof row.id !== "string" || typeof row.currentValue !== "string") return [];
         return [
             {

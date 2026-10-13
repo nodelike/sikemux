@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { combineQueued, nextBatch, queuedLabel, type QueuedMessage } from "./queuedMessages";
+import { combine, combineQueued, nextBatch, queuedLabel, type QueuedMessage } from "./queuedMessages";
 
 const queued = (id: string, text: string, paths: string[] = [], context: QueuedMessage["context"] = []): QueuedMessage => ({
     id,
@@ -44,5 +44,15 @@ describe("combineQueued", () => {
     it("merges context items without repeating one", () => {
         const combined = combineQueued([queued("1", "a", [], [item("u1")]), queued("2", "b", [], [item("u1"), item("u2")])]);
         expect(combined.context.map((entry) => entry.uri)).toEqual(["u1", "u2"]);
+    });
+});
+
+describe("combine", () => {
+    it("sends a file two held messages share once", () => {
+        const held = [
+            { text: "a", attachments: [{ path: "/x" }] },
+            { text: "b", attachments: [{ path: "/x" }, { path: "/y" }] },
+        ];
+        expect(combine(held, (file) => file.path)).toEqual({ text: "a\n\nb", attachments: [{ path: "/x" }, { path: "/y" }] });
     });
 });

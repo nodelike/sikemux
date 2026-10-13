@@ -49,10 +49,10 @@ This page is what to know before your first call. Call `guide` again with a
   rather than with sleeps or screenshots.
 - Every state says whether the tab is `visible` to the person; never tell
   them a hidden page is on their screen.
-- Plugin tools (`github_*`, `bitbucket_*`, `gitlab_*`, `jira_*`, `signoz_*`)
-  are listed only when they can work here: signed in, and for a code host a
-  remote of this project on it. If one is missing, ask the person to sign in
-  from its pane in Sikemux and restart you.
+- Plugin tools (`github_*`, `bitbucket_*`, `gitlab_*`, `jira_*`, `signoz_*`,
+  `slack_*`) are listed only when they can work here: signed in, and for a code
+  host a remote of this project on it. If one is missing, ask the person to
+  sign in from its pane and restart you.
 
 ## Topics
 

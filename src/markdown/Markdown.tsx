@@ -11,7 +11,7 @@ export interface MarkdownComponents {
     readonly code?: ComponentType<{ text: string }>;
     /** A run of text outside a link. */
     readonly text?: ComponentType<{ text: string }>;
-    readonly table?: ComponentType<{ children: ReactNode }>;
+    readonly table?: ComponentType<{ children: ReactNode; table: Extract<MdElement, { t: "table" }> }>;
     readonly heading?: ComponentType<{ level: number; children: ReactNode }>;
     /** `inLink` is set when the picture is itself the content of a link. */
     readonly img?: ComponentType<{ src: string; alt: string; title?: string; inLink: boolean }>;
@@ -97,7 +97,13 @@ function renderTable(node: Extract<MdElement, { t: "table" }>, components: Markd
         ),
     ];
     const Table = components.table;
-    return Table ? <Table key={key}>{inner}</Table> : <table key={key}>{inner}</table>;
+    return Table ? (
+        <Table key={key} table={node}>
+            {inner}
+        </Table>
+    ) : (
+        <table key={key}>{inner}</table>
+    );
 }
 
 function renderNode(node: MdNode, components: MarkdownComponents, inLink: boolean, key: number): ReactNode {

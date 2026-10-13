@@ -5,6 +5,8 @@
 # --keep leaves the restored database in place, for recovering from it instead of drilling.
 set -euo pipefail
 export LC_ALL=C
+# shellcheck source=lib.sh
+. "$(dirname "$0")/lib.sh"
 
 backup_env="${BACKUP_ENV:-/etc/sikemux/backup.env}"
 recipients="${BACKUP_RECIPIENTS:-/etc/sikemux/backup-recipients.txt}"
@@ -32,18 +34,7 @@ if [ -f "$backup_env" ]; then
   . "$backup_env"
   set +a
 fi
-: "${R2_BUCKET:?R2_BUCKET is not set}"
-: "${R2_ACCESS_KEY_ID:?R2_ACCESS_KEY_ID is not set}"
-: "${R2_SECRET_ACCESS_KEY:?R2_SECRET_ACCESS_KEY is not set}"
-[ -n "${R2_ENDPOINT:-}" ] || : "${R2_ACCOUNT_ID:?R2_ACCOUNT_ID is not set}"
-
-export RCLONE_CONFIG_R2_TYPE=s3
-export RCLONE_CONFIG_R2_PROVIDER=Cloudflare
-export RCLONE_CONFIG_R2_ENDPOINT="${R2_ENDPOINT:-https://$R2_ACCOUNT_ID.r2.cloudflarestorage.com}"
-export RCLONE_CONFIG_R2_ACCESS_KEY_ID="$R2_ACCESS_KEY_ID"
-export RCLONE_CONFIG_R2_SECRET_ACCESS_KEY="$R2_SECRET_ACCESS_KEY"
-export RCLONE_CONFIG_R2_NO_CHECK_BUCKET=true
-rclone() { command rclone --config "" --use-server-modtime "$@"; }
+use_r2
 
 admin_psql() { PGOPTIONS="-c client_min_messages=warning" psql --no-psqlrc --no-password -v ON_ERROR_STOP=1 --quiet -U "$pg_admin" "$@"; }
 live_psql() {

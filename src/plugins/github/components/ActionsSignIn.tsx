@@ -1,8 +1,8 @@
-import { useRef, useState } from "react";
+import { useState } from "react";
 import { openUrl, swallow } from "../../../plugin-api/host";
 import { resource, useResource } from "../../../plugin-api/resources";
-import { SignInScreen, SkeletonRows } from "../../../plugin-api/ui";
-import { actionsApi, failureMessage, type ActionsStatus } from "../api";
+import { SignInError, SignInScreen, SkeletonRows, useSignInAttempt } from "../../../plugin-api/ui";
+import { actionsApi, type ActionsStatus } from "../api";
 import { GithubMark } from "./GithubMark";
 
 /** The sign-in form wants to know where a borrowed token came from, which only GitHub's own status says. */
@@ -40,30 +40,18 @@ export function ActionsSignIn({ status, onSignedIn }: Props) {
     const [host, setHost] = useState(status.host);
     const [editingHost, setEditingHost] = useState(status.host !== "github.com");
     const [token, setToken] = useState("");
-    const [busy, setBusy] = useState(false);
-    const [error, setError] = useState<string | null>(status.authFailed ? status.message : null);
+    const attempt = useSignInAttempt(status);
+    const busy = attempt.busy;
 
     const borrowed = status.tokenSource === "environment" || status.tokenSource === "ghCli";
     const canSubmit = !busy && !!token.trim();
 
-    const checking = useRef(false);
-
-    const submit = async (withToken: string | undefined) => {
-        if (checking.current) return;
-        checking.current = true;
-        setBusy(true);
-        setError(null);
-        try {
+    const submit = (withToken: string | undefined) =>
+        attempt.run(async () => {
             const result = await actionsApi.signIn(host.trim(), withToken);
-            if (result.ok) onSignedIn(result.account);
-            else setError(result.message ?? "GitHub turned that token down");
-        } catch (failure) {
-            setError(failureMessage(failure));
-        } finally {
-            checking.current = false;
-            setBusy(false);
-        }
-    };
+            if (!result.ok) return result.message ?? "GitHub turned that token down";
+            onSignedIn(result.account);
+        });
 
     return (
         <SignInScreen
@@ -73,7 +61,7 @@ export function ActionsSignIn({ status, onSignedIn }: Props) {
             foot="Sikemux keeps your sign-in in the macOS Keychain.">
             {borrowed && (
                 <>
-                    <button type="button" className="signin-btn primary" disabled={busy} onClick={() => void submit(undefined)}>
+                    <button type="button" className="signin-btn primary" disabled={busy} onClick={() => submit(undefined)}>
                         <GithubMark size={14} />
                         {busy
                             ? "Checking…"
@@ -109,7 +97,7 @@ export function ActionsSignIn({ status, onSignedIn }: Props) {
                         value={token}
                         onChange={(event) => setToken(event.target.value)}
                         onKeyDown={(event) => {
-                            if (event.key === "Enter" && canSubmit) void submit(token.trim());
+                            if (event.key === "Enter" && canSubmit) submit(token.trim());
                         }}
                         placeholder="ghp_… or github_pat_…"
                         autoFocus={!borrowed}
@@ -123,16 +111,12 @@ export function ActionsSignIn({ status, onSignedIn }: Props) {
                     type="button"
                     className={`signin-btn${borrowed ? "" : " primary"}`}
                     disabled={!canSubmit}
-                    onClick={() => void submit(token.trim())}>
+                    onClick={() => submit(token.trim())}>
                     {busy ? "Checking…" : "Sign in with token"}
                 </button>
             </div>
 
-            {error && (
-                <div className="signin-callout" data-tone="danger">
-                    {error}
-                </div>
-            )}
+            <SignInError error={attempt.error} />
 
             <div className="signin-alt">
                 <button

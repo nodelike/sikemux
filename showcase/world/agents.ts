@@ -1,5 +1,5 @@
 import { AGENTS } from "./workspace";
-import { FRONT, SIKEMUX } from "./projects";
+import { MOODBOARD, SIKEMUX } from "./projects";
 
 type Update = Record<string, unknown>;
 
@@ -173,41 +173,79 @@ export const AGENT_SCRIPTS: Record<string, AgentScript> = {
       ),
       tool(
         "execute",
-        'git commit -m "fix(terminal): stop showing the same output twice after reconnecting"',
+        "git commit -m \"fix(terminal): stop showing the same output twice after reconnecting\"",
         {},
         "in_progress",
       ),
+    ],
+  },
+  [AGENTS.phone.id]: {
+    usage: { used: 52_000, size: 200_000 },
+    history: [
+      user(
+        "On the phone, the permission card should make Allow the obvious choice. Build it for the simulator and check it.",
+      ),
+      say(
+        "Allow is now the filled button, with Deny and Always allow beside it as outlines. Building the app, then I'll check the card on an iPhone.",
+      ),
+    ],
+    live: [
+      tool("execute", "pnpm ios:build --simulator", {
+        rawOutput: "› Build succeeded · SikemuxDev.app",
+        durationMs: 41_000,
+      }),
+      tool("move", "mcp__sikemux-tools__sim_attach", {
+        rawInput: { device: "iPhone 18 Pro" },
+        durationMs: 2_100,
+      }),
+      tool("execute", "mcp__sikemux-tools__sim_install", {
+        rawInput: { path: "build/SikemuxDev.app" },
+        durationMs: 3_400,
+      }),
+      tool("execute", "mcp__sikemux-tools__sim_launch", {
+        rawInput: { bundleId: "com.nodelike.sikemux.dev" },
+        durationMs: 1_800,
+      }),
+      tool("edit", "mcp__sikemux-tools__sim_tap", {
+        rawInput: { label: "Add dark mode to settings" },
+        durationMs: 400,
+      }),
+      tool("edit", "mcp__sikemux-tools__sim_swipe", {
+        rawInput: { fromX: 201, fromY: 640, toX: 201, toY: 320 },
+        durationMs: 600,
+      }),
+      tool("read", "mcp__sikemux-tools__sim_screenshot", {}, "in_progress"),
     ],
   },
   [AGENTS.hero.id]: {
     usage: { used: 44_000, size: 200_000 },
     history: [
       user(
-        "On phones the Download button on the home page is cut off. Fix it, then check the page at phone size.",
+        "The Read the issue button runs off the edge of the cover when the window is narrow. Fix it, then check the home page.",
       ),
-      tool("read", "src/components/Hero.astro", {
-        locations: [{ path: `${FRONT}/src/components/Hero.astro` }],
+      tool("read", "src/sections/Cover.svelte", {
+        locations: [{ path: `${MOODBOARD}/src/sections/Cover.svelte` }],
       }),
       say(
-        "The two buttons sit side by side with a fixed width, so on a narrow screen the second one runs off the edge. I'll let them stack when there isn't room.",
+        "Shop the drop and Read the issue sit side by side at a fixed width, so in a narrow window the second one runs off the edge. I'll let them share the row and wrap when there isn't room.",
       ),
       edit(
-        `${FRONT}/src/components/Hero.astro`,
-        ".actions {\n    display: flex;\n}",
-        ".actions {\n    display: flex;\n    flex-wrap: wrap;\n    justify-content: center;\n}",
+        `${MOODBOARD}/src/sections/Cover.svelte`,
+        ".actions {\n    display: flex;\n}\n.btn {\n    width: 180px;\n}",
+        ".actions {\n    display: flex;\n    flex-wrap: wrap;\n    gap: 8px;\n}\n.btn {\n    flex: 1 1 auto;\n    min-width: 120px;\n}",
       ),
       tool("execute", "pnpm build", {
-        rawOutput: "✓ Completed in 682ms.\n3 page(s) built",
+        rawOutput: "✓ built in 1.48s",
       }),
       say(
-        "The buttons now wrap onto two lines on small screens and stay side by side on wider ones. The site builds cleanly.",
+        "Both buttons now share the row and wrap when the window gets narrow. The site builds cleanly.",
       ),
-      user("Show me the page at phone size."),
+      user("Show me the cover."),
     ],
     live: [
-      think("Opening the home page in my tab at phone width."),
+      think("Opening the home page in my tab."),
       tool("fetch", "mcp__sikemux-tools__browser_navigate", {
-        rawInput: { url: "http://localhost:4321/" },
+        rawInput: { url: "http://localhost:5173/" },
         durationMs: 1_400,
       }),
       tool(
@@ -265,6 +303,60 @@ export const AGENT_SCRIPTS: Record<string, AgentScript> = {
         { rawInput: { key: "ACME-412", to: "In review" } },
         "in_progress",
       ),
+    ],
+  },
+  [AGENTS.flow.id]: {
+    usage: { used: 38_000, size: 200_000 },
+    history: [
+      user(
+        "Draw how a checkout request moves through our services, and mark where the 500s start.",
+      ),
+      say(
+        "Checkout goes through the gateway to billing-service, which calls payments, orders and the email worker. The 500s start at payments: it now takes 3.4 s at p95, past billing's 3 s timeout.",
+      ),
+      tool("other", "mcp__sikemux-tools__page_show", {
+        rawInput: { title: "How a checkout request flows" },
+        rawOutput: JSON.stringify({
+          page: { id: "a1c4e7f20b9d4c3e8f5a6b7c8d9e0f11", title: "How a checkout request flows", height: 330 },
+        }),
+        durationMs: 300,
+      }),
+    ],
+  },
+  [AGENTS.latency.id]: {
+    usage: { used: 38_000, size: 200_000 },
+    history: [
+      user(
+        "Did the fix bring checkout latency back down? Show me the last 24 hours.",
+      ),
+      say(
+        "Yes. p95 dropped from 3.1 s to 390 ms right after the 17:05 deploy, and no checkout has failed since.",
+      ),
+      tool("other", "mcp__sikemux-tools__page_show", {
+        rawInput: { title: "checkout p95 latency, last 24 hours" },
+        rawOutput: JSON.stringify({
+          page: { id: "b2d5f8a31c0e4d5f9a6b7c8d9e0f1a22", title: "checkout p95 latency, last 24 hours", height: 360 },
+        }),
+        durationMs: 300,
+      }),
+    ],
+  },
+  [AGENTS.empty.id]: {
+    usage: { used: 38_000, size: 200_000 },
+    history: [
+      user(
+        "Sketch three options for the empty projects page before I pick one.",
+      ),
+      say(
+        "Here are three, drawn with the site's colours. I'd go with B.",
+      ),
+      tool("other", "mcp__sikemux-tools__page_show", {
+        rawInput: { title: "Empty projects page, three ways" },
+        rawOutput: JSON.stringify({
+          page: { id: "c3e6a9b42d1f4e6a8b7c9d0e1f2a3b33", title: "Empty projects page, three ways", height: 330 },
+        }),
+        durationMs: 300,
+      }),
     ],
   },
   [AGENTS.palette.id]: {

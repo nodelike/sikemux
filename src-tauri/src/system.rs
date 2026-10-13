@@ -67,11 +67,6 @@ fn user_path() -> Option<String> {
     ))
 }
 
-/// The folders macOS keeps its own tools in. Claude Code reads its sign-in
-/// with `/usr/bin/security`, so a PATH without these signs every agent out.
-#[cfg(unix)]
-const SYSTEM_PATH: [&str; 4] = ["/usr/bin", "/bin", "/usr/sbin", "/sbin"];
-
 /// The login shell's PATH when it could be read, then the common user-local
 /// folders, which can live in rc files a login shell does not source, then
 /// whatever the app was started with and the system folders. Reading the
@@ -111,7 +106,7 @@ fn join_user_path(cli: Option<&str>, shell_path: &str, home: &str, inherited: &s
         .chain(extra.iter().map(String::as_str))
         .chain(nvm.as_deref())
         .chain(inherited.split(':'))
-        .chain(SYSTEM_PATH);
+        .chain(sikemux_process::paths::SYSTEM_PATH);
     for part in candidates.filter(|part| !part.is_empty()) {
         if !parts.contains(&part) {
             parts.push(part);
@@ -163,10 +158,7 @@ pub fn child_path() -> Option<String> {
 }
 
 pub fn user_home() -> PathBuf {
-    std::env::var_os("HOME")
-        .or_else(|| std::env::var_os("USERPROFILE"))
-        .map(PathBuf::from)
-        .unwrap_or_default()
+    sikemux_process::paths::home().unwrap_or_default()
 }
 
 pub fn find_executable(name: &str) -> Option<PathBuf> {

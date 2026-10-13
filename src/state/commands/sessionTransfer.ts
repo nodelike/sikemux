@@ -1,6 +1,6 @@
 import { getState, mutate, type StoreState } from "../store";
 import { notify } from "../toast";
-import { agentDirectCommand, agentStartup } from "./agentLaunchCommand";
+import { relaunchSpec } from "./agentLaunchCommand";
 import { parseSessionBundle } from "../sessionBundle";
 import { agentIdsOf } from "../selectors";
 import { agentWindow } from "../agentWindow";
@@ -71,8 +71,7 @@ export async function importSessionFromClipboard(): Promise<void> {
                 type: row.type,
                 title: row.title,
                 resumeId: row.resumeId,
-                startup: agentStartup(row.type, row.resumeId),
-                directCommand: agentDirectCommand(row.type, row.resumeId),
+                ...relaunchSpec(d, { type: row.type, resumeId: row.resumeId }),
                 launchState: "dormant",
             };
             const win = agentWindow(d.agents[id], sourceCwd);

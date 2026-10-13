@@ -3,17 +3,13 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const fake = vi.hoisted(() => ({
     call: vi.fn(),
     stream: vi.fn(),
-    openStream: vi.fn(),
-    closeStream: vi.fn(),
     invalidate: vi.fn(),
 }));
 
-vi.mock("../../plugin-api/backend", async (importOriginal) => ({
-    ...(await importOriginal<object>()),
-    createPluginBackend: () => fake,
-}));
-vi.mock("../../plugin-api/resources", () => ({ invalidate: fake.invalidate }));
+vi.mock("../../api/plugins", async () => (await import("../../plugin-api/fakeTransport")).fakeTransport(fake));
+vi.mock("../../state/resources", async (importOriginal) => ({ ...(await importOriginal<object>()), invalidate: fake.invalidate }));
 
+import type { PluginStreamHandlers } from "../../plugin-api/backend";
 import type { RunTick } from "../../plugin-api/codehost";
 import { accountOf, entryOf, gitlabHostApi, type GitlabStatus } from "./api";
 
@@ -61,23 +57,22 @@ describe("the GitLab host API", () => {
         ]);
     });
 
-    it("clears every host view when GitLab turns the token down", async () => {
+    it("has only the sign-in status read again when GitLab turns the token down", async () => {
         const refused = { category: "auth", message: "gitlab: sign-in failed" };
         fake.call.mockRejectedValue(refused);
         await expect(gitlabHostApi.pulls(repo, "open")).rejects.toBe(refused);
         const [matches] = fake.invalidate.mock.calls[0] as [(kind: string) => boolean];
-        expect(matches("host.pulls") && !matches("jira.search")).toBe(true);
+        expect(matches("host.status") && !matches("host.pulls")).toBe(true);
     });
 
-    it("forgets the sign-in when a watched pipeline finds it gone", async () => {
-        fake.openStream.mockImplementation(async (_method: string, _params: unknown, onTick: (tick: RunTick) => void) => {
-            onTick({ run: null, jobs: [], error: "signed out", finished: true, fatal: true, signedOut: true });
-            return 9;
+    it("has it read again when a watched pipeline finds the sign-in gone", async () => {
+        fake.stream.mockImplementation((_method: string, _params: unknown, handlers: PluginStreamHandlers<RunTick>) => {
+            handlers.onItem({ run: null, jobs: [], error: "signed out", finished: true, fatal: true, signedOut: true });
         });
         const ticks: RunTick[] = [];
-        expect(await gitlabHostApi.watchStart(repo, "1834", (tick) => ticks.push(tick))).toBe(9);
-        expect(fake.openStream).toHaveBeenCalledWith("watchRun", { ...repo, runId: "1834" }, expect.any(Function));
-        expect(ticks).toHaveLength(1);
+        gitlabHostApi.watch(repo, "1834", { onItem: (tick) => ticks.push(tick) });
+        await vi.waitFor(() => expect(ticks).toHaveLength(1));
+        expect(fake.stream).toHaveBeenCalledWith("watchRun", { ...repo, runId: "1834" }, expect.anything());
         expect(fake.invalidate).toHaveBeenCalled();
     });
 });

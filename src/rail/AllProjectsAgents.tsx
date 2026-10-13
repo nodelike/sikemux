@@ -1,26 +1,17 @@
 import { useMemo } from "react";
-import { AgentStateIndicator, SubagentCount } from "../agents/AgentStateIndicator";
+import { AgentStateIndicator, BackgroundCounts, showsAgentState } from "../agents/AgentStateIndicator";
 import * as cmd from "../state/commands";
 import { useStore } from "../state/store";
-import { activeAgentId, agentIdsOf } from "../state/selectors";
-import type { Agent, AgentPresentationState } from "../state/types";
+import { AGENT_GROUPS, AGENT_LABELS, lastWorkedAt, type AgentDisplay } from "../state/agentStatus";
+import { activeAgentId, agentDisplayOf, openAgents } from "../state/selectors";
+import type { Agent } from "../state/types";
 import { AgentIcon, IconClose } from "../ui/Icons";
 import { Panel, PanelHeader } from "../ui/Panel";
 import { Tooltip } from "../ui/Tooltip";
 
-type Bucket = "blocked" | "working" | "done" | "idle";
-
-const BUCKETS: { id: Bucket; label: string }[] = [
-    { id: "blocked", label: "Needs you" },
-    { id: "working", label: "Working" },
-    { id: "done", label: "Done" },
-    { id: "idle", label: "Idle" },
-];
-
-interface OpenAgent {
+interface OpenAgentRow {
     agent: Agent;
-    state: AgentPresentationState;
-    bucket: Bucket;
+    display: AgentDisplay;
     sessionName: string;
 }
 
@@ -31,39 +22,31 @@ export function AllProjectsAgents() {
     const windows = useStore((s) => s.windows);
     const windowsBySession = useStore((s) => s.windowsBySession);
     const agents = useStore((s) => s.agents);
-    const activity = useStore((s) => s.agentActivity);
-    const background = useStore((s) => s.agentBackgroundWork);
-    const subagents = useStore((s) => s.agentSubagents);
+    const agentActivity = useStore((s) => s.agentActivity);
+    const agentTasks = useStore((s) => s.agentTasks);
+    const agentSubagents = useStore((s) => s.agentSubagents);
     const shownAgentId = useStore((s) => activeAgentId(s, s.sessions[s.activeSessionId]));
 
     const open = useMemo(() => {
-        const rows: OpenAgent[] = [];
-        for (const sessionId of sessionOrder) {
-            const session = sessions[sessionId];
-            if (session?.kind !== "project") continue;
-            for (const id of agentIdsOf({ windows, windowsBySession }, sessionId)) {
-                const agent = agents[id];
-                if (!agent) continue;
-                const state = activity[id]?.state ?? "idle";
-                const working = state === "working" || (background[id] ?? 0) > 0;
-                const bucket: Bucket = state === "blocked" ? "blocked" : working ? "working" : state === "done" ? "done" : "idle";
-                rows.push({ agent, state: working && state !== "blocked" ? "working" : state, bucket, sessionName: session.name });
-            }
-        }
+        const rows: OpenAgentRow[] = [];
+        for (const { agentId, agent, session } of openAgents({ sessionOrder, sessions, windows, windowsBySession, agents }))
+            rows.push({ agent, display: agentDisplayOf({ agentActivity, agentTasks, agentSubagents }, agentId), sessionName: session.name });
         return rows;
-    }, [sessionOrder, sessions, windows, windowsBySession, agents, activity, background]);
+    }, [sessionOrder, sessions, windows, windowsBySession, agents, agentActivity, agentTasks, agentSubagents]);
 
     if (open.length === 0) return <div className="agent-empty">no agents open in any project</div>;
 
     return (
         <>
-            {BUCKETS.map(({ id, label }) => {
-                const rows = open.filter((row) => row.bucket === id);
+            {AGENT_GROUPS.map((id) => {
+                const rows = open.filter((row) => row.display.group === id);
+                if (id === "done" || id === "idle")
+                    rows.sort((x, y) => lastWorkedAt(agentActivity[y.agent.id]) - lastWorkedAt(agentActivity[x.agent.id]));
                 if (rows.length === 0) return null;
                 return (
                     <Panel key={id} variant="group" className={`agent-group${id === "blocked" ? " agent-attention" : ""}`}>
-                        <PanelHeader label={`${label} ${rows.length}`} rule />
-                        {rows.map(({ agent, state, bucket, sessionName }) => (
+                        <PanelHeader label={`${AGENT_LABELS[id]} ${rows.length}`} rule />
+                        {rows.map(({ agent, display, sessionName }) => (
                             <div key={agent.id} className="agent-row-wrap">
                                 <button
                                     className={`agent-row${agent.id === shownAgentId ? " active" : ""}`}
@@ -73,11 +56,11 @@ export function AllProjectsAgents() {
                                         <AgentIcon type={agent.type} size={20} />
                                     </span>
                                     <span className="agent-title">{agent.title}</span>
-                                    {(subagents[agent.id] ?? 0) > 0 && <SubagentCount count={subagents[agent.id]} />}
+                                    <BackgroundCounts display={display} />
                                 </button>
-                                {bucket !== "idle" && (
+                                {showsAgentState(display) && (
                                     <span className="row-status">
-                                        <AgentStateIndicator state={state} />
+                                        <AgentStateIndicator display={display} />
                                     </span>
                                 )}
                                 <Tooltip label={`Close ${agent.title}`}>

@@ -2,7 +2,8 @@ import type { ReactNode } from "react";
 import { prettyPath } from "../lib/paths";
 import * as cmd from "../state/commands";
 import { useStore } from "../state/store";
-import type { KeyModifier, SessionKind } from "../state/types";
+import type { SessionKind } from "../state/types";
+import { modifierGlyph } from "../commands/keybindings";
 import { pluginSurface } from "../plugins/registry";
 import { IconCommand, IconFolder } from "../ui/Icons";
 
@@ -13,13 +14,6 @@ function kindIcon(kind: SessionKind): ReactNode {
     return <IconCommand size={16} />;
 }
 
-function modifierLabel(modifier: KeyModifier): string {
-    if (modifier === "Alt") return "⌥";
-    if (modifier === "Meta") return "⌘";
-    if (modifier === "Control") return "⌃";
-    return "⇧";
-}
-
 export function SessionSwitcher() {
     const switcher = useStore((s) => s.sessionSwitcher);
     const sessionsById = useStore((s) => s.sessions);
@@ -27,7 +21,7 @@ export function SessionSwitcher() {
     if (!switcher) return null;
 
     const sessions = switcher.sessionIds.map((id) => sessionsById[id]).filter(Boolean);
-    const modifier = modifierLabel(switcher.releaseModifier);
+    const modifier = modifierGlyph(switcher.releaseModifier === "Control" ? "Ctrl" : switcher.releaseModifier);
 
     return (
         <div className="session-switcher-backdrop">

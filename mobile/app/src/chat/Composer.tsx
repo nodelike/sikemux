@@ -5,10 +5,13 @@ import MaskedView from '@react-native-masked-view/masked-view';
 import Svg, { Circle, Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
 
 import { toolDiff } from '@mac/chat/diff';
-import { pickerSlots, sessionConfigs, type SessionConfig } from '@mac/chat/sessionConfig';
+import { unknownCommand } from '@mac/chat/composerInput';
+import { contextShare, contextTone, money, tokenCount } from '@mac/chat/contextUsage';
+import { currentLabel, pickerSlots, sessionConfigs, type SessionConfig } from '@mac/chat/sessionConfig';
 import { toolKind, toolLabel, toolPath } from '@mac/chat/toolLabels';
 import type { AcpAvailableCommand, AcpPermissionRequest, AcpToolCall, ChatState, ContextUsage } from '@mac/chat/types';
-import { providerName } from '@/devices/words';
+import { canSwitchMode, isYolo } from '@mac/agents/agentLaunch';
+import { agentLabel } from '@mac/agents/catalog';
 import { haptics } from '@/ui/haptics';
 import { AgentIcon, Icon } from '@/ui/Icon';
 import { Track } from '@/ui/controls';
@@ -21,11 +24,6 @@ import { pickFiles, pickPhotos } from './pick';
 import { MAX_ATTACHMENTS, type Attachment, type ChatSession } from './session';
 import { useDraft } from './useChat';
 import { matchingCommands } from './commands';
-
-function current(config?: SessionConfig): string | undefined {
-  if (!config) return undefined;
-  return config.options.find((option) => option.value === config.currentValue)?.label ?? config.currentValue;
-}
 
 export function askTitle(request: AcpPermissionRequest): string {
   const kind = toolKind(request.toolCall);
@@ -77,12 +75,12 @@ function PermissionDock({
     <View
       style={styles.dock}
       accessibilityRole="alert"
-      accessibilityLabel={`${title} ${providerName(provider)} needs permission to continue`}>
+      accessibilityLabel={`${title} ${agentLabel(provider)} needs permission to continue`}>
       <View style={styles.dockHead}>
         <Icon name="IconShieldBolt" size={16} color={colors.ink} />
         <View style={{ flex: 1 }}>
           <Text style={styles.dockTitle}>{title}</Text>
-          <Text style={styles.dockDetail}>{providerName(provider)} needs permission to continue</Text>
+          <Text style={styles.dockDetail}>{agentLabel(provider)} needs permission to continue</Text>
         </View>
         {requests.length > 1 ? (
           <View style={styles.pages}>
@@ -172,26 +170,11 @@ function Commands({ matches, onPick }: { matches: AcpAvailableCommand[]; onPick:
   );
 }
 
-const tokens = new Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: 1 });
-
-/** An adapter names its own currency, and Intl throws on a code it does not know. */
-function money({ amount, currency }: NonNullable<ContextUsage['cost']>): string {
-  try {
-    return new Intl.NumberFormat('en', { style: 'currency', currency, maximumFractionDigits: 2 }).format(amount);
-  } catch {
-    return `${amount.toFixed(2)} ${currency}`;
-  }
-}
-
-function usedShare(usage: ContextUsage): number {
-  return Math.min(1, Math.max(0, usage.used / usage.size));
-}
-
 /** The Mac's colour for how full the context is: the agent's own, then warm, then hot. */
 function usageColor(usage: ContextUsage, provider: string, colors: Palette): string {
-  const share = usedShare(usage);
-  if (share >= 0.9) return colors.danger;
-  if (share >= 0.7) return colors.warn;
+  const tone = contextTone(usage);
+  if (tone === 'hot') return colors.danger;
+  if (tone === 'warm') return colors.warn;
   return provider === 'claude' || provider === 'codex' ? brand[provider] : colors.accent;
 }
 
@@ -204,7 +187,7 @@ function ContextRing({ usage, provider, onPress }: { usage: ContextUsage; provid
   const styles = useStyles(makeStyles);
   const radius = (RING - RING_STROKE) / 2;
   const around = 2 * Math.PI * radius;
-  const share = usedShare(usage);
+  const share = contextShare(usage);
   return (
     <Pressable
       onPress={onPress}
@@ -226,13 +209,6 @@ function ContextRing({ usage, provider, onPress }: { usage: ContextUsage; provid
       </Svg>
     </Pressable>
   );
-}
-
-/** Agents whose host can switch between asking first and running without asking mid-chat. */
-const SWITCHES_MODE = new Set(['claude', 'codex', 'hermes']);
-
-export function runsWithoutAsking(mode: string): boolean {
-  return mode === 'bypass' || mode === 'bypassPermissions' || mode === 'full-access';
 }
 
 /** YOLO or safe, as the Mac's toggle says it; a tap switches it where the host can. */
@@ -275,8 +251,8 @@ export function YoloToggle({
 }) {
   const colors = useColors();
   const styles = useStyles(makeStyles);
-  const on = runsWithoutAsking(mode);
-  const switches = SWITCHES_MODE.has(provider);
+  const on = isYolo(mode);
+  const switches = canSwitchMode(provider);
   const look = (
     <>
       <Icon name={on ? 'IconShieldBolt' : 'IconShield'} size={13} color={on ? colors.accent : colors.inkFaint} />
@@ -331,7 +307,7 @@ function ConfigSheet({
     <Sheet visible={visible} onClose={onClose}>
       <View style={styles.sheetHead}>
         <AgentIcon provider={provider} size={20} />
-        <Text style={styles.sheetTitle}>{providerName(provider)}</Text>
+        <Text style={styles.sheetTitle}>{agentLabel(provider)}</Text>
       </View>
       {model ? (
         <>
@@ -370,12 +346,12 @@ function ConfigSheet({
           <View style={styles.contextTop}>
             <Text style={styles.contextLabel}>Context</Text>
             <Text style={styles.contextValue}>
-              {Math.round(usedShare(usage) * 100)}% · {tokens.format(usage.used)} of {tokens.format(usage.size)}
+              {Math.round(contextShare(usage) * 100)}% · {tokenCount(usage.used)} of {tokenCount(usage.size)}
             </Text>
           </View>
           <View style={styles.contextBar}>
             <View
-              style={[styles.contextFill, { width: `${usedShare(usage) * 100}%`, backgroundColor: usageColor(usage, provider, colors) }]}
+              style={[styles.contextFill, { width: `${contextShare(usage) * 100}%`, backgroundColor: usageColor(usage, provider, colors) }]}
             />
           </View>
           {usage.cost ? <Text style={styles.cost}>Session cost {money(usage.cost)}</Text> : null}
@@ -484,8 +460,8 @@ export const Composer = memo(function Composer({
   const typing = useKeyboardShown();
   const configs = sessionConfigs(setup);
   const slots = pickerSlots(configs, provider as never);
-  const model = current(slots[0]?.config);
-  const effort = current(slots[1]?.config);
+  const model = currentLabel(slots[0]?.config);
+  const effort = currentLabel(slots[1]?.config);
   const pulls = !draft && onRecent !== undefined;
   const pullUp = useMemo(
     () =>
@@ -521,6 +497,11 @@ export const Composer = memo(function Composer({
   const send = () => {
     const text = draft.trim();
     if (!sendable || offline || uploading) return;
+    const unknown = unknownCommand(text, commands);
+    if (unknown) {
+      session.report(`/${unknown} is not available in this session`);
+      return;
+    }
     haptics.tap();
     void session.send(text).then((sent) => {
       if (!sent) return;

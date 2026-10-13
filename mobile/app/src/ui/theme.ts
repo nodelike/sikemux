@@ -1,4 +1,5 @@
 import { createContext, useContext } from 'react';
+import { AGENT_BRANDS, type AgentType } from '@mac/agents/catalog';
 import { Platform, type TextStyle } from 'react-native';
 
 /** Aura Noir, the Mac app's default theme, with its neutral ramp mixed the same way (DESIGN.md §3). */
@@ -101,17 +102,9 @@ export function useStyles<T>(make: (colors: Palette) => T): T {
   return built.get(make) as T;
 }
 
-export const brand = {
-  claude: '#d97757',
-  codex: '#7a9dff',
-  hermes: '#e0a050',
-  opencode: '#a78bfa',
-  pi: '#7dd3fc',
-  omp: '#f97316',
-  grok: '#fcfcfc',
-} as const;
+export const brand = AGENT_BRANDS;
 
-export type Provider = keyof typeof brand;
+export type Provider = AgentType;
 
 /* The fonts are built into the app (the expo-font plugin in app.json), where iOS names each by its PostScript name
    and Android by its file name. A browser loads them at launch under the file name. */

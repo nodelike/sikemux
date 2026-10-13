@@ -4,23 +4,19 @@
 
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
-use std::time::Duration;
 
 use serde_json::{json, Value};
 use tokio::sync::{mpsc, oneshot};
 use uuid::Uuid;
 
 use crate::acp::account::{self, Failure, FailureKind};
-use crate::acp::SessionEnd;
+use crate::acp::{permission, SessionEnd};
 use crate::protocol::{ChatContext, ChatEventKind, ChatLaunch, ChatStart};
 
 use super::super::rebind::{
     error_message, next_account, on_account, switch_notice, Carried, Outcome, Rebind, Replay,
 };
 use super::super::{Chat, ChatCommand};
-
-/// How long a stopped turn may keep running before the agent is killed.
-const CANCEL_GRACE: Duration = Duration::from_secs(10);
 
 /// What the person sent, for the agent to read in its own form.
 #[derive(Clone)]
@@ -127,21 +123,12 @@ impl Sink {
     /// The agent began work nobody here asked for, such as answering a
     /// background task that finished.
     pub fn work_started(&self) {
-        if !self.chat.running.load(Ordering::Acquire)
-            && !self.chat.unprompted.swap(true, Ordering::AcqRel)
-        {
-            self.chat.emit(ChatEventKind::TurnStarted, json!({}));
-        }
+        self.chat.work_started();
     }
 
     /// The work nobody here asked for is over.
     pub fn work_ended(&self, stop_reason: &str) {
-        if self.chat.unprompted.swap(false, Ordering::AcqRel) {
-            self.chat.emit(
-                ChatEventKind::TurnCompleted,
-                json!({ "stopReason": stop_reason }),
-            );
-        }
+        self.chat.work_ended(stop_reason);
     }
 
     /// Settles turn `turn`, or hands a failure another account may fix to
@@ -182,39 +169,26 @@ impl Sink {
     /// permission request: the session, the tool call and its `options`.
     /// Answers with the chosen option's id, or none when it was cancelled.
     pub async fn ask(&self, mut request: Value) -> Option<String> {
-        let options: Vec<(String, String)> = request
-            .get("options")
-            .and_then(Value::as_array)
-            .map(|options| {
-                options
-                    .iter()
-                    .filter_map(|option| {
-                        Some((
-                            option.get("optionId")?.as_str()?.to_owned(),
-                            option.get("kind")?.as_str()?.to_owned(),
-                        ))
-                    })
-                    .collect()
-            })
-            .unwrap_or_default();
         if self.chat.approves() {
-            let allowed = options
-                .iter()
-                .find(|(_, kind)| kind == "allow_once")
-                .or_else(|| options.iter().find(|(_, kind)| kind == "allow_always"));
-            if let Some((id, _)) = allowed {
-                return Some(id.clone());
+            if let Some(option_id) = permission::approval(&request) {
+                return Some(option_id);
             }
         }
+        let option_ids = request
+            .get("options")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(|option| Some(option.get("optionId")?.as_str()?.to_owned()))
+            .collect();
         let request_id = Uuid::new_v4().to_string();
         if let Some(object) = request.as_object_mut() {
             object.insert("requestId".into(), Value::String(request_id.clone()));
         }
         let (answer, answered) = oneshot::channel();
-        let ids = options.into_iter().map(|(id, _)| id).collect();
         if self
             .chat
-            .hold_permission(request_id, ids, answer, request.clone())
+            .hold_permission(request_id, option_ids, answer, request.clone())
         {
             self.chat.emit(ChatEventKind::PermissionRequest, request);
         }
@@ -274,14 +248,11 @@ pub(crate) trait Backend: Sized + Send {
         task_id: &str,
     ) -> impl std::future::Future<Output = Result<(), String>> + Send;
 
-    /// Takes the conversation back to before the person's message
-    /// `message_id`, and the files too when `restore_files`. Answers with the
-    /// session's new id when the agent had to start a new one to do it.
+    /// Takes the conversation back to before the person's message `message_id`.
     fn rewind(
         &mut self,
         message_id: &str,
-        restore_files: bool,
-    ) -> impl std::future::Future<Output = Result<Option<String>, String>> + Send;
+    ) -> impl std::future::Future<Output = Result<(), String>> + Send;
 
     /// Resolves once the agent is gone, with why.
     fn closed(&self) -> impl std::future::Future<Output = String> + Send;
@@ -316,7 +287,7 @@ pub(crate) async fn run<B: Backend>(
     let (mut backend, opened) = B::start(&launch, sink.clone()).await?;
     quiet.store(false, Ordering::Release);
 
-    let mut session_id = opened.session_id.clone();
+    let session_id = opened.session_id.clone();
     let mut setup = opened.setup;
     let start = ChatStart {
         session_id: session_id.clone(),
@@ -484,7 +455,6 @@ pub(crate) async fn run<B: Backend>(
                 text,
                 paths,
                 context,
-                restore_files,
                 reply,
             } => {
                 if chat.running.load(Ordering::Acquire) {
@@ -492,27 +462,11 @@ pub(crate) async fn run<B: Backend>(
                         reply.send(Err("Stop the current turn before editing a message".into()));
                     continue;
                 }
-                match backend.rewind(&message_id, restore_files).await {
-                    Ok(Some(renamed)) => {
-                        chat.feed.rewound(from, &session_id, &message_id);
-                        session_id = renamed;
-                        let start = ChatStart {
-                            session_id: session_id.clone(),
-                            capabilities: start.capabilities.clone(),
-                            setup: setup.clone(),
-                        };
-                        chat.mark_ready(start.clone());
-                        chat.emit(
-                            ChatEventKind::Ready,
-                            serde_json::to_value(&start).unwrap_or_else(|_| json!({})),
-                        );
-                    }
-                    Ok(None) => chat.feed.rewound(from, &session_id, &message_id),
-                    Err(error) => {
-                        let _ = reply.send(Err(error));
-                        continue;
-                    }
+                if let Err(error) = backend.rewind(&message_id).await {
+                    let _ = reply.send(Err(error));
+                    continue;
                 }
+                chat.feed.rewound(from, &session_id, &message_id);
                 let _ = reply.send(Ok(()));
                 exhausted.clear();
                 signed_in_again = false;
@@ -619,19 +573,8 @@ pub(crate) async fn run<B: Backend>(
                 }
             }
             ChatCommand::Cancel => {
-                if let Err(error) = backend.cancel().await {
-                    chat.emit(ChatEventKind::Error, error_message(error));
-                }
-                if chat.running.load(Ordering::Acquire) {
-                    let cancelled = turn;
-                    let stalled = stalled_tx.clone();
-                    tokio::spawn(async move {
-                        tokio::time::sleep(CANCEL_GRACE).await;
-                        let _ = stalled.send(cancelled);
-                    });
-                } else {
-                    sink.work_ended("cancelled");
-                }
+                let sent = backend.cancel().await;
+                chat.cancel_sent(sent, turn, &stalled_tx);
             }
         }
     };

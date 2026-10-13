@@ -5,6 +5,7 @@ use serde_json::json;
 
 use super::*;
 use crate::accounts::protocol::PushResult;
+use crate::acp::permission;
 use crate::protocol::{
     AttentionKind, DeviceAccess, DeviceInfo, NotificationState, NotifyMute, NotifyPrefs,
 };
@@ -114,20 +115,22 @@ impl Host {
 }
 
 fn attention(id: &str) -> Attention {
+    let request = json!({
+        "toolCall": { "title": "pnpm test src/settings\nand more" },
+        "options": [
+            { "optionId": "always", "name": "Always allow", "kind": "allow_always" },
+            { "optionId": "once", "name": "Allow", "kind": "allow_once" },
+            { "optionId": "no", "name": "Reject", "kind": "reject_once" },
+        ],
+    });
     Attention {
         id: id.into(),
         kind: AttentionKind::Permission,
         agent_id: "chat-1".into(),
         provider: "claude".into(),
         cwd: "/work/sikemux".into(),
-        request: json!({
-            "toolCall": { "title": "pnpm test src/settings\nand more" },
-            "options": [
-                { "optionId": "always", "name": "Always allow", "kind": "allow_always" },
-                { "optionId": "once", "name": "Allow", "kind": "allow_once" },
-                { "optionId": "no", "name": "Reject", "kind": "reject_once" },
-            ],
-        }),
+        choices: permission::choices(&request),
+        request,
         at: T,
     }
 }
@@ -135,7 +138,7 @@ fn attention(id: &str) -> Attention {
 #[tokio::test]
 async fn a_permission_request_reaches_the_phone_sealed_with_what_it_needs_to_answer() {
     let host = host(NotifyWhen::Always);
-    host.signal(Signal::Attention(attention("r1")), T);
+    host.signal(Signal::Attention(Box::new(attention("r1"))), T);
     let sent = host.sent();
     assert_eq!(sent.len(), 1);
     let (push, notification) = &sent[0];
@@ -152,7 +155,7 @@ async fn a_permission_request_reaches_the_phone_sealed_with_what_it_needs_to_ans
         Some(NotificationCategory::Permission)
     );
     assert_eq!(notification.collapse_id, push.collapse_id);
-    assert_eq!(notification.title, "Claude Code needs permission");
+    assert_eq!(notification.title, "Claude needs permission");
     assert_eq!(notification.body, "sikemux on MacBook Pro");
     assert_eq!(
         notification.detail.as_deref(),
@@ -167,7 +170,7 @@ async fn a_permission_request_reaches_the_phone_sealed_with_what_it_needs_to_ans
     );
     assert_eq!(notification.thread, format!("{}/chat-1", host.host));
 
-    host.signal(Signal::Attention(attention("r1")), T + 1);
+    host.signal(Signal::Attention(Box::new(attention("r1"))), T + 1);
     assert!(host.sent().is_empty(), "a request is announced once");
 }
 
@@ -176,7 +179,8 @@ async fn a_request_without_both_answers_shows_no_buttons() {
     let host = host(NotifyWhen::Always);
     let mut asked = attention("r1");
     asked.request = json!({ "options": [{ "optionId": "ok", "kind": "allow_once" }] });
-    host.signal(Signal::Attention(asked), T);
+    asked.choices = permission::choices(&asked.request);
+    host.signal(Signal::Attention(Box::new(asked)), T);
     let (_, notification) = host.sent().remove(0);
     assert_eq!(notification.category, Some(NotificationCategory::NeedsYou));
     assert_eq!(notification.reject_option_id, None);
@@ -187,8 +191,8 @@ async fn a_request_without_both_answers_shows_no_buttons() {
 async fn while_the_person_is_here_a_request_waits_until_they_leave() {
     let host = host(NotifyWhen::Away);
     look_around(&host.core, T);
-    host.signal(Signal::Attention(attention("r1")), T);
-    host.signal(Signal::Attention(attention("r2")), T);
+    host.signal(Signal::Attention(Box::new(attention("r1"))), T);
+    host.signal(Signal::Attention(Box::new(attention("r2"))), T);
     host.signal(
         Signal::Cleared {
             id: "r2".into(),
@@ -215,7 +219,7 @@ async fn while_the_person_is_here_a_request_waits_until_they_leave() {
 async fn a_phone_that_turned_this_host_off_hears_nothing() {
     let host = host(NotifyWhen::Off);
     host.leave();
-    host.signal(Signal::Attention(attention("r1")), T);
+    host.signal(Signal::Attention(Box::new(attention("r1"))), T);
     assert!(host.sent().is_empty());
     let status = host.core.remote.status();
     assert_eq!(status.notifications[0].state, NotificationState::Off);
@@ -229,14 +233,14 @@ async fn an_answered_request_takes_its_card_off_the_phone() {
         agent_id: "chat-1".into(),
     };
 
-    host.signal(Signal::Attention(attention("r1")), T);
+    host.signal(Signal::Attention(Box::new(attention("r1"))), T);
     host.signal(cleared("r1"), T + 1);
     assert!(
         host.sent().is_empty(),
         "a card that never went out is withdrawn"
     );
 
-    host.signal(Signal::Attention(attention("r2")), T + 2);
+    host.signal(Signal::Attention(Box::new(attention("r2"))), T + 2);
     let (alert, _) = host.sent().remove(0);
     host.signal(cleared("r2"), T + 3);
     let sent = host.sent();
@@ -278,7 +282,7 @@ async fn a_long_turn_finishing_notifies_at_most_every_five_minutes() {
     let sent = turn(T, 31_000, false);
     assert_eq!(sent.len(), 1);
     assert_eq!(sent[0].1.kind, NotificationKind::Finished);
-    assert_eq!(sent[0].1.title, "Claude Code finished");
+    assert_eq!(sent[0].1.title, "Claude finished");
     assert_eq!(sent[0].0.expires_at, T + 31_000 + FINISHED_LIFE_MS);
     assert!(turn(T + 60_000, 40_000, false).is_empty());
     assert!(
@@ -293,7 +297,7 @@ async fn a_problem_says_what_went_wrong_once_a_minute() {
     let host = host(NotifyWhen::Always);
     let error = |at: u64| {
         host.signal(
-            Signal::ChatError {
+            Signal::Problem {
                 agent_id: "chat-1".into(),
                 message: "the agent's process ended\nstack".into(),
             },
@@ -330,7 +334,7 @@ async fn waiting_for_input_notifies_and_clears_when_the_agent_moves_on() {
     };
     let sent = state("blocked", T);
     assert_eq!(sent[0].1.kind, NotificationKind::Input);
-    assert_eq!(sent[0].1.title, "Claude Code needs your input");
+    assert_eq!(sent[0].1.title, "Claude needs your input");
     assert!(state("blocked", T + 1).is_empty());
     let sent = state("working", T + 2);
     assert_eq!(sent[0].0.kind, PushKind::Clear);
@@ -344,7 +348,7 @@ async fn the_phone_s_choices_and_mutes_hold() {
         needs_you: false,
         ..prefs(NotifyWhen::Always)
     });
-    host.signal(Signal::Attention(attention("r1")), T);
+    host.signal(Signal::Attention(Box::new(attention("r1"))), T);
     assert!(host.sent().is_empty());
 
     host.set_prefs(NotifyPrefs {
@@ -354,9 +358,9 @@ async fn the_phone_s_choices_and_mutes_hold() {
         }],
         ..prefs(NotifyWhen::Always)
     });
-    host.signal(Signal::Attention(attention("r2")), T);
+    host.signal(Signal::Attention(Box::new(attention("r2"))), T);
     assert!(host.sent().is_empty());
-    host.signal(Signal::Attention(attention("r3")), T + 1000);
+    host.signal(Signal::Attention(Box::new(attention("r3"))), T + 1000);
     assert_eq!(host.sent().len(), 1, "the mute ran out");
 
     host.set_prefs(NotifyPrefs {
@@ -366,7 +370,7 @@ async fn the_phone_s_choices_and_mutes_hold() {
         }],
         ..prefs(NotifyWhen::Always)
     });
-    host.signal(Signal::Attention(attention("r4")), T + 2000);
+    host.signal(Signal::Attention(Box::new(attention("r4"))), T + 2000);
     assert!(host.sent().is_empty());
 }
 
@@ -388,11 +392,11 @@ async fn nothing_reaches_a_phone_showing_the_chat() {
     let chat = host.core.chats.get("chat-1").unwrap();
     chat.feed.subscribe(&client);
     chat.feed.subscribe(&other);
-    host.signal(Signal::Attention(attention("r1")), T);
+    host.signal(Signal::Attention(Box::new(attention("r1"))), T);
     assert!(host.sent().is_empty());
 
     client.set_foreground(false);
-    host.signal(Signal::Attention(attention("r2")), T);
+    host.signal(Signal::Attention(Box::new(attention("r2"))), T);
     assert_eq!(host.sent().len(), 1, "the app went to the background");
 }
 
@@ -403,7 +407,7 @@ async fn a_host_signed_out_sends_nothing() {
     host.core
         .remote
         .stand_in(SecretKey::generate(), None, phones);
-    host.signal(Signal::Attention(attention("r1")), T);
+    host.signal(Signal::Attention(Box::new(attention("r1"))), T);
     assert!(host.sent().is_empty());
     let status = host.core.remote.status();
     assert_eq!(status.notifications[0].state, NotificationState::SignedOut);
@@ -435,11 +439,11 @@ async fn what_the_server_answers_shows_in_settings_and_a_refusal_stops_pushing()
 
     assert!(push(PushResult::NotAllowed));
     assert_eq!(state(), NotificationState::OtherAccount);
-    host.signal(Signal::Attention(attention("r1")), T);
+    host.signal(Signal::Attention(Box::new(attention("r1"))), T);
     assert!(host.sent().is_empty());
 
     host.set_prefs(prefs(NotifyWhen::Always));
-    host.signal(Signal::Attention(attention("r2")), T);
+    host.signal(Signal::Attention(Box::new(attention("r2"))), T);
     assert_eq!(host.sent().len(), 1, "sending its key again tries again");
 }
 
@@ -485,7 +489,7 @@ async fn revoking_a_phone_forgets_its_key() {
 async fn clearing_stops_notifications() {
     let host = host(NotifyWhen::Always);
     host.core.remote.clear_notifications(&host.phone).unwrap();
-    host.signal(Signal::Attention(attention("r1")), T);
+    host.signal(Signal::Attention(Box::new(attention("r1"))), T);
     assert!(host.sent().is_empty());
     assert!(host.core.remote.status().notifications.is_empty());
 }
@@ -523,7 +527,7 @@ async fn a_push_reaches_the_server_and_its_answer_comes_back() {
 
     let mut asked = attention("r1");
     asked.at = unix_ms();
-    host.signal(Signal::Attention(asked), unix_ms());
+    host.signal(Signal::Attention(Box::new(asked)), unix_ms());
     let push = read(socket.next().await.unwrap().unwrap());
     assert_eq!(push["type"], "push");
     assert_eq!(push["to"], host.phone);

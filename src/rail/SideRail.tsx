@@ -14,10 +14,10 @@ import {
 } from "react";
 import { createPortal, flushSync } from "react-dom";
 import { keybindingLabelForAction, type KeybindingActionId } from "../commands/keybindings";
-import type { Agent, AgentRuntimeState, Session, SessionKind, Window, WindowRole } from "../state/types";
+import type { Agent, Session, SessionKind, Window, WindowRole } from "../state/types";
 import * as cmd from "../state/commands";
-import { animate, EASE_IN, EASE_SWAP, foldedFrames, leavingRef, prefersReducedMotion } from "../lib/motion";
-import { rollupAgentStates } from "../state/agentStatus";
+import { animate, EASE_IN, EASE_PAN, EASE_POP, EASE_SWAP, foldedFrames, leavingRef, prefersReducedMotion } from "../lib/motion";
+import { rollupAgentDisplays, type AgentDisplay } from "../state/agentStatus";
 import { getState, useStore } from "../state/store";
 import { AgentIcon, IconClose, IconCommand, IconFolder, IconPencil, IconPlus, WindowIcon } from "../ui/Icons";
 import { Tooltip } from "../ui/Tooltip";
@@ -25,7 +25,8 @@ import { EmptyState, Panel, PanelHeader } from "../ui/Panel";
 import { RailMasthead } from "./RailMasthead";
 import { UpdateChip } from "./UpdateChip";
 import { AgentStateIndicator, showsAgentState } from "../agents/AgentStateIndicator";
-import { agentIdsOf } from "../state/selectors";
+import { agentDisplayOf, agentIdsOf } from "../state/selectors";
+import { PROJECT_SURFACE_ORDER, PROJECT_SURFACES } from "../workbench/surfaces";
 import { pluginSurface, type FrontendPlugin } from "../plugins/registry";
 import { useInstalledPlugins } from "../plugins/installed";
 import { railGroupOf, type RailGroup } from "../state/railGroups";
@@ -113,8 +114,7 @@ interface RailContextValue {
     windowsById: Record<string, Window>;
     windowsBySession: Record<string, string[]>;
     agentsById: Record<string, Agent>;
-    activityById: Record<string, AgentRuntimeState>;
-    backgroundById: Record<string, number>;
+    displayOf: (agentId: string) => AgentDisplay;
     draggingProjectId: string | null;
     projectDragClass: (id: string) => string;
     onProjectPointerDown: (event: ReactPointerEvent<HTMLButtonElement>, sourceId: string) => void;
@@ -212,7 +212,7 @@ function useProjectUnfold(tree: RefObject<HTMLDivElement | null>, active: boolea
 
 function ProjectBlock({ s }: { s: Session }) {
     const rail = useRail();
-    const { activeSessionId, agentsById, activityById, backgroundById, windowsById, windowsBySession, draggingProjectId, kb } = rail;
+    const { activeSessionId, agentsById, displayOf, windowsById, windowsBySession, draggingProjectId, kb } = rail;
     const active = s.id === activeSessionId;
     // Active or not, a project is one tree root holding its row, so the row survives the switch and its tint cross-fades.
     const treeRef = useRef<HTMLDivElement>(null);
@@ -222,8 +222,7 @@ function ProjectBlock({ s }: { s: Session }) {
     const agents = agentIdsOf({ windowsBySession, windows: windowsById }, s.id)
         .map((id) => agentsById[id])
         .filter(Boolean);
-    const rollup = rollupAgentStates(agents.map((agent) => activityById[agent.id]));
-    const rollupBackground = agents.some((agent) => (backgroundById[agent.id] ?? 0) > 0);
+    const rollup = rollupAgentDisplays(agents.map((agent) => displayOf(agent.id)));
 
     const visibleAgents = agents.slice(0, MAX_BADGE_ICONS);
     const agentOverflow = agents.length - visibleAgents.length;
@@ -232,16 +231,16 @@ function ProjectBlock({ s }: { s: Session }) {
             {visibleAgents.length > 0 && (
                 <span className="proj-child-icons">
                     {visibleAgents.map((a) => (
-                        <span key={a.id} className={`proj-pip proj-pip-${a.type}${activityById[a.id] ? ` state-${activityById[a.id].state}` : ""}`}>
+                        <span key={a.id} className={`proj-pip proj-pip-${a.type}`}>
                             <AgentIcon type={a.type} size={20} />
                         </span>
                     ))}
                     {agentOverflow > 0 && <span className="proj-child-icons-more">+{agentOverflow}</span>}
                 </span>
             )}
-            {showsAgentState(rollup ?? "idle", rollupBackground) && (
+            {rollup && showsAgentState(rollup) && (
                 <span className="proj-row-status">
-                    <AgentStateIndicator state={rollup ?? "idle"} background={rollupBackground} />
+                    <AgentStateIndicator display={rollup} />
                 </span>
             )}
         </>
@@ -274,23 +273,10 @@ function ProjectBlock({ s }: { s: Session }) {
     const activeRole = sessionWindows.find((w) => w.id === s.activeWindowId)?.role;
     const isSubActive = (role: WindowRole): boolean => activeRole === role;
 
-    const onSubClick = (role: WindowRole) => {
-        if (role === "files") {
-            cmd.openEditorPane();
-            return;
-        }
-        if (role === "git") {
-            cmd.openGitWorkbench();
-            return;
-        }
-        if (role === "search") cmd.focusGlobalSearch();
-    };
-
-    const children: SubRow[] = [
-        { role: "files", label: "Files", kbd: kb("window.files"), title: `Files — ${kb("window.files")}` },
-        { role: "git", label: "Git", kbd: kb("window.git"), title: `Git — ${kb("window.git")}` },
-        { role: "search", label: "Search", kbd: kb("window.search"), title: `Search — ${kb("window.search")}` },
-    ];
+    const children: SubRow[] = PROJECT_SURFACE_ORDER.map((role) => {
+        const { label, shortcut, open } = PROJECT_SURFACES[role];
+        return { role, label, kbd: kb(shortcut), title: `${label} — ${kb(shortcut)}`, open };
+    });
     return (
         <div ref={treeRef} className={`proj-tree active${rail.projectDragClass(s.id)}`} data-project-id={s.id}>
             <div className="session-row-shell project-row-shell" onContextMenu={(event) => rail.openSpaceMenu(event, s)}>
@@ -322,7 +308,7 @@ function ProjectBlock({ s }: { s: Session }) {
                                 aria-current={subActive ? "page" : undefined}
                                 onClick={(e) => {
                                     e.stopPropagation();
-                                    onSubClick(c.role);
+                                    c.open();
                                 }}>
                                 <span className="proj-child-tick" />
                                 <span className="proj-child-ic">
@@ -344,6 +330,7 @@ interface SubRow {
     label: string;
     kbd?: string;
     title: string;
+    open: () => void;
 }
 
 function renderSession(s: Session) {
@@ -455,7 +442,8 @@ export const SideRail = memo(function SideRail() {
     const windowsBySession = useStore((s) => s.windowsBySession);
     const agentsById = useStore((s) => s.agents);
     const activityById = useStore((s) => s.agentActivity);
-    const backgroundById = useStore((s) => s.agentBackgroundWork);
+    const tasksById = useStore((s) => s.agentTasks);
+    const subagentsById = useStore((s) => s.agentSubagents);
     const rawActiveSessionId = useStore((s) => s.activeSessionId);
     const settingsOpen = useStore((s) => s.settingsOpen);
     const keybindingOverrides = useStore((s) => s.keybindingOverrides);
@@ -537,7 +525,7 @@ export const SideRail = memo(function SideRail() {
                 if (Math.abs(shift) < 1) continue;
                 element.animate([{ transform: `translate3d(0, ${shift}px, 0)` }, { transform: "translate3d(0, 0, 0)" }], {
                     duration: 220,
-                    easing: "cubic-bezier(0.2, 0.8, 0.2, 1)",
+                    easing: EASE_POP,
                 });
             }
         });
@@ -575,7 +563,7 @@ export const SideRail = memo(function SideRail() {
                 { transform: ghost.style.transform, opacity: 1 },
                 { transform: `translate3d(${bounds.left}px, ${bounds.top}px, 0)`, opacity: 0 },
             ],
-            { duration: 180, easing: "cubic-bezier(0.22, 1, 0.36, 1)", fill: "forwards" },
+            { duration: 180, easing: EASE_PAN, fill: "forwards" },
         );
         void animation.finished
             .catch(() => undefined)
@@ -687,8 +675,7 @@ export const SideRail = memo(function SideRail() {
         windowsById,
         windowsBySession,
         agentsById,
-        activityById,
-        backgroundById,
+        displayOf: (agentId) => agentDisplayOf({ agentActivity: activityById, agentTasks: tasksById, agentSubagents: subagentsById }, agentId),
         draggingProjectId,
         projectDragClass,
         onProjectPointerDown,

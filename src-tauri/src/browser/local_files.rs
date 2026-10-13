@@ -27,18 +27,6 @@ struct Share {
     token: String,
 }
 
-/// The local path a navigate target names: a `file://` URL, an absolute path or a `~/` path.
-pub fn local_target(target: &str) -> Option<PathBuf> {
-    let target = target.trim();
-    if target.len() >= 5 && target[..5].eq_ignore_ascii_case("file:") {
-        return Url::parse(target).ok()?.to_file_path().ok();
-    }
-    if let Some(rest) = target.strip_prefix("~/") {
-        return Some(PathBuf::from(std::env::var("HOME").ok()?).join(rest));
-    }
-    target.starts_with('/').then(|| PathBuf::from(target))
-}
-
 impl LocalFiles {
     /// A loopback address that shows `path`, serving the folder it is in.
     pub fn url_for(&self, path: &Path) -> Result<String, String> {
@@ -456,20 +444,6 @@ mod tests {
         folder.answer(&Request::parse(&format!(
             "GET {target} HTTP/1.1\r\nHost: 127.0.0.1:4000\r\n\r\n"
         )))
-    }
-
-    #[test]
-    fn navigate_targets_that_name_local_paths() {
-        assert_eq!(
-            local_target("file:///tmp/a%20b.html"),
-            Some(PathBuf::from("/tmp/a b.html"))
-        );
-        assert_eq!(local_target("FILE:///tmp/x"), Some(PathBuf::from("/tmp/x")));
-        assert_eq!(local_target(" /tmp/x "), Some(PathBuf::from("/tmp/x")));
-        assert!(local_target("~/x").is_some_and(|path| path.ends_with("x") && path.is_absolute()));
-        assert_eq!(local_target("https://example.com/"), None);
-        assert_eq!(local_target("localhost:3000"), None);
-        assert_eq!(local_target("relative/path.html"), None);
     }
 
     #[test]

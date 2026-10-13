@@ -1,0 +1,78 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>MAISON VERRE — Issue 07</title>
+<style>
+  * { box-sizing: border-box; }
+  html { background: #0e0d0c; color: #e9e2d6; font: 14px/1.4 "Helvetica Neue", Helvetica, Arial, sans-serif; -webkit-font-smoothing: antialiased; }
+  body { margin: 0; overflow: hidden;
+    background-image: radial-gradient(rgba(233,226,214,.05) 1px, transparent 1.2px); background-size: 4px 4px; }
+  .serif { font-family: Didot, "Bodoni 72", "Bodoni Moda", "Playfair Display", Georgia, serif; }
+  .mono { font-family: "Courier New", Courier, monospace; }
+  header { display: flex; justify-content: space-between; align-items: baseline; padding: 14px 18px 10px; border-bottom: 1.5px solid #e9e2d6; }
+  .mark { font-size: 21px; letter-spacing: .32em; font-weight: 700; }
+  .menu { font-size: 11px; letter-spacing: .18em; text-transform: uppercase; }
+  .issue { display: flex; justify-content: space-between; padding: 7px 18px; font-size: 10px; letter-spacing: .2em; text-transform: uppercase; border-bottom: 1px solid rgba(233,226,214,.5); }
+  .cover { position: relative; height: 470px; margin: 14px 14px 0; }
+  .tile { position: absolute; overflow: hidden; }
+  .tile::after { content: ""; position: absolute; inset: 0; background-image: radial-gradient(rgba(0,0,0,.32) 1px, transparent 1.4px); background-size: 3px 3px; mix-blend-mode: multiply; }
+  .a { left: 0; top: 0; width: 62%; height: 300px; background: radial-gradient(60% 45% at 52% 34%, #e8c9b0 0 22%, transparent 23%), radial-gradient(70% 55% at 50% 78%, #151311 0 46%, transparent 47%), linear-gradient(170deg, #b8432f, #6e1f1a 70%, #2a0f0c); filter: grayscale(.15) contrast(1.1); }
+  .b { right: 0; top: 54px; width: 44%; height: 210px; background: radial-gradient(50% 40% at 50% 30%, #d9cbb8 0 26%, transparent 27%), linear-gradient(185deg, #8d8a84, #3a3834); filter: grayscale(1) contrast(1.2); transform: rotate(3deg); }
+  .c { left: 18%; top: 276px; width: 52%; height: 180px; background: linear-gradient(120deg, #d9b44a, #a26b1f 55%, #3a220c); transform: rotate(-4deg); }
+  .d { right: 4%; top: 290px; width: 30%; height: 150px; background: radial-gradient(45% 40% at 50% 45%, #141210 0 30%, transparent 31%), #c9b9a3; }
+  h1 { position: absolute; left: -2px; top: 196px; margin: 0; font-size: 92px; line-height: .82; font-weight: 400; letter-spacing: -.04em; color: #f3ece0; -webkit-text-stroke: 1.5px #0e0d0c; paint-order: stroke fill; }
+  h1 em { display: block; font-style: italic; padding-left: 60px; }
+  .tape { position: absolute; width: 74px; height: 20px; background: rgba(233,226,214,.55); box-shadow: 0 1px 2px rgba(0,0,0,.15); }
+  .t1 { right: 26%; top: 44px; transform: rotate(-12deg); }
+  .t2 { left: 12%; top: 268px; transform: rotate(8deg); }
+  .stamp { position: absolute; right: 2px; top: 6px; width: 76px; height: 76px; border-radius: 50%; border: 1.5px solid #e0664d; color: #e0664d; display: grid; place-items: center; text-align: center; font-size: 9px; letter-spacing: .14em; line-height: 1.25; transform: rotate(14deg); text-transform: uppercase; }
+  .note { position: absolute; left: 4px; bottom: 0; font-size: 11px; transform: rotate(-2deg); background: #e9e2d6; color: #0e0d0c; padding: 3px 7px; letter-spacing: .06em; }
+  .copy { padding: 18px 18px 0; }
+  .kicker { font-size: 10px; letter-spacing: .24em; text-transform: uppercase; }
+  .copy p { margin: 8px 0 0; font-size: 19px; line-height: 1.22; letter-spacing: -.01em; }
+  .actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 16px 18px 0; }
+  .btn { flex: 1 1 auto; min-width: 128px; padding: 12px 14px; border: 1.5px solid #e9e2d6; text-align: center; font-size: 11px; letter-spacing: .22em; text-transform: uppercase; font-weight: 700; }
+  .btn.primary { background: #e9e2d6; color: #0e0d0c; }
+  .ticker { margin-top: 18px; border-block: 1.5px solid #e9e2d6; padding: 7px 0; white-space: nowrap; font-size: 11px; letter-spacing: .2em; text-transform: uppercase; }
+  @media (min-width: 600px) {
+    header { padding: 18px 28px 12px; }
+    .mark { font-size: 26px; }
+    .issue { padding: 8px 28px; }
+    .cover { height: 520px; margin: 20px 28px 0; }
+    .a { width: 46%; height: 340px; }
+    .b { width: 34%; height: 250px; right: 6%; }
+    .c { left: 30%; top: 300px; width: 38%; height: 200px; }
+    .d { right: 0; top: 330px; width: 24%; height: 170px; }
+    h1 { top: 210px; font-size: 128px; }
+    h1 em { padding-left: 120px; }
+    .layout { display: grid; grid-template-columns: 1.3fr 1fr; gap: 24px; align-items: end; padding: 0 28px; }
+    .copy { padding: 22px 0 0; }
+    .actions { margin: 0; }
+  }
+</style>
+</head>
+<body>
+  <header><span class="mark serif">MAISON VERRE</span><span class="menu">Menu</span></header>
+  <div class="issue mono"><span>Issue 07</span><span>AW26 — Salt &amp; Rust</span><span>p. 01</span></div>
+  <div class="cover">
+    <div class="tile a"></div>
+    <div class="tile b"></div>
+    <div class="tile c"></div>
+    <div class="tile d"></div>
+    <span class="tape t1"></span><span class="tape t2"></span>
+    <span class="stamp mono">Made<br/>by hand<br/>Lisboa</span>
+    <h1 class="serif">Salt<em>&amp; Rust</em></h1>
+    <span class="note mono">look 14 / wool coat, oxide</span>
+  </div>
+  <div class="layout">
+  <div class="copy">
+    <div class="kicker mono">The autumn edit</div>
+    <p class="serif">Coats dyed with iron and sea water, cut long and worn loose.</p>
+  </div>
+  <div class="actions"><span class="btn primary">Shop the drop</span><span class="btn">Read the issue</span></div>
+  </div>
+  <div class="ticker mono">✶ free shipping over €200 ✶ new lookbook out now ✶ studio sale 18 Oct ✶ free shipping</div>
+</body>
+</html>

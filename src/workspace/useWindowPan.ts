@@ -7,8 +7,8 @@ import { performanceTelemetry } from "../lib/performance";
 export const PAN_MS = 280;
 /** Any shorter and a settle reads as a cut rather than a move. */
 const SETTLE_MIN_MS = 120;
-/** Falls back to this when no `transitionend` arrives, so a pan can never get stuck. */
-const SETTLE_GUARD_MS = PAN_MS + 120;
+/** Falls back to this when no `transitionend` arrives, so a pan or a slide can never get stuck. */
+export const SETTLE_GUARD_MS = PAN_MS + 120;
 
 /**
  * How long a swipe put back where it came from takes. One time for all of them,

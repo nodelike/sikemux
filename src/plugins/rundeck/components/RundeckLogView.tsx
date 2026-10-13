@@ -1,9 +1,8 @@
 import { useMemo, useState } from "react";
 import { openUrl, swallow } from "../../../plugin-api/host";
-import { Switch, VirtualLogList } from "../../../plugin-api/ui";
+import { Seg, Switch, VirtualLogList } from "../../../plugin-api/ui";
 import { AnsiText } from "./AnsiText";
 import type { LogRow, LogState } from "./useExecutionStreams";
-import { Seg } from "./parts";
 
 type LevelFilter = "all" | "no-debug" | "errors";
 

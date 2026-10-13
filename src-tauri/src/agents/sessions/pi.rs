@@ -13,19 +13,13 @@ use super::{
 };
 
 const PI_TAIL_BYTES: u64 = 128 * 1024;
+use crate::agents::config::{environment_path, pi_agent_root};
 use crate::agents::AgentSession;
 
 // ---- pi — ~/.pi/agent/sessions/**/<session>.jsonl ----------------------
 pub(in crate::agents) fn pi_session_dir() -> Option<PathBuf> {
-    if let Ok(dir) = std::env::var("PI_CODING_AGENT_SESSION_DIR") {
-        return Some(PathBuf::from(dir));
-    }
-    if let Ok(dir) = std::env::var("PI_CODING_AGENT_DIR") {
-        return Some(PathBuf::from(dir).join("sessions"));
-    }
-    std::env::var("HOME")
-        .ok()
-        .map(|home| PathBuf::from(home).join(".pi/agent/sessions"))
+    environment_path("PI_CODING_AGENT_SESSION_DIR")
+        .or_else(|| Some(pi_agent_root()?.join("sessions")))
 }
 
 pub(super) fn pi_sessions(cwd: &str) -> Vec<AgentSession> {

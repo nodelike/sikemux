@@ -13,6 +13,7 @@ use super::remote::unix_ms;
 struct State {
     unread: HashSet<String>,
     active_at: HashMap<String, u64>,
+    started_at: HashMap<String, u64>,
     on_screen: HashSet<String>,
     /// The app connection that said what is on screen; nothing is once it goes.
     shown_by: Option<ClientId>,
@@ -56,7 +57,17 @@ impl Seen {
         state.active_at.insert(agent_id.to_owned(), unix_ms());
     }
 
-    pub(crate) fn opened(&self, agent_id: &str) {
+    /// The agent began a turn of work.
+    pub(crate) fn started(&self, agent_id: &str) {
+        let mut state = self.lock();
+        let now = unix_ms();
+        state.unread.remove(agent_id);
+        state.active_at.insert(agent_id.to_owned(), now);
+        state.started_at.insert(agent_id.to_owned(), now);
+    }
+
+    /// The agent did something that leaves nothing new to look at.
+    pub(crate) fn active(&self, agent_id: &str) {
         self.lock().active_at.insert(agent_id.to_owned(), unix_ms());
     }
 
@@ -113,6 +124,11 @@ impl Seen {
     pub(crate) fn active_at(&self, agent_id: &str) -> Option<u64> {
         self.lock().active_at.get(agent_id).copied()
     }
+
+    /// When the agent began the turn it is on or last ran.
+    pub(crate) fn started_at(&self, agent_id: &str) -> Option<u64> {
+        self.lock().started_at.get(agent_id).copied()
+    }
 }
 
 #[cfg(test)]
@@ -135,7 +151,7 @@ mod tests {
     fn an_agent_is_active_when_it_opens_works_or_wants_a_look() {
         let seen = Seen::default();
         assert_eq!(seen.active_at("a"), None);
-        seen.opened("a");
+        seen.active("a");
         let opened = seen.active_at("a").unwrap();
         seen.working("a");
         let worked = seen.active_at("a").unwrap();

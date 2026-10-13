@@ -2,9 +2,7 @@
 //! differently, so the choices here are read from what the session offers
 //! rather than assumed.
 
-use agent_client_protocol::schema::v1::{
-    LoadSessionRequest, NewSessionRequest, PermissionOption, PermissionOptionKind,
-};
+use agent_client_protocol::schema::v1::{LoadSessionRequest, NewSessionRequest};
 use agent_client_protocol::{JsonRpcRequest, JsonRpcResponse};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -19,18 +17,6 @@ pub fn arguments(provider: &str) -> Option<&'static [&'static str]> {
         "grok" => Some(&["agent", "--no-leader", "stdio"]),
         _ => None,
     }
-}
-
-/// Picks the answer that lets one tool call through without granting more.
-pub fn approval(options: &[PermissionOption]) -> Option<&PermissionOption> {
-    options
-        .iter()
-        .find(|option| option.kind == PermissionOptionKind::AllowOnce)
-        .or_else(|| {
-            options
-                .iter()
-                .find(|option| option.kind == PermissionOptionKind::AllowAlways)
-        })
 }
 
 /// `session/new` answered as raw JSON. The typed answer drops the model list
@@ -236,20 +222,5 @@ mod tests {
             { "name": "OpenAI", "options": [{ "value": "openai/gpt" }] },
         ] }] });
         assert!(offers(&setup, "model", "openai/gpt"));
-    }
-
-    #[test]
-    fn approval_lets_one_call_through() {
-        let options = vec![
-            PermissionOption::new("always", "Always", PermissionOptionKind::AllowAlways),
-            PermissionOption::new("once", "Once", PermissionOptionKind::AllowOnce),
-            PermissionOption::new("reject", "Reject", PermissionOptionKind::RejectOnce),
-        ];
-        assert_eq!(approval(&options).unwrap().option_id.to_string(), "once");
-        assert_eq!(
-            approval(&options[..1]).unwrap().option_id.to_string(),
-            "always"
-        );
-        assert!(approval(&options[2..]).is_none());
     }
 }

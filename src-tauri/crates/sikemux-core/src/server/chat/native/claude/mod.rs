@@ -8,8 +8,8 @@ mod reader;
 mod replay;
 mod tools;
 
-use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::collections::{HashMap, HashSet};
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use serde_json::{json, Value};
@@ -23,11 +23,10 @@ use super::session::{Backend, Opened, Prompt, Sink};
 use control::Control;
 use reader::{Reader, Shared, Turn};
 
-/// Where a session starts: a new one under a chosen id, or a saved one,
-/// cut back to a message when it is resumed to edit what came after.
+/// Where a session starts: a new one under a chosen id, or a saved one.
 enum Start<'a> {
     New(&'a str),
-    Resume { id: &'a str, at: Option<&'a str> },
+    Resume(&'a str),
 }
 
 /// One run of the `claude` process. Dropping it stops the process.
@@ -46,7 +45,6 @@ impl Drop for Running {
 
 pub(crate) struct Claude {
     launch: ChatLaunch,
-    sink: Sink,
     running: Running,
     shared: Arc<Mutex<Shared>>,
     session_id: String,
@@ -109,13 +107,7 @@ fn content(prompt: &Prompt) -> Result<Vec<Value>, String> {
         prompt.context.clone(),
         true,
     )?;
-    let link = |uri: &str| match uri
-        .strip_prefix("file://")
-        .and_then(|path| Path::new(path).file_name()?.to_str().map(str::to_owned))
-    {
-        Some(name) => format!("[@{name}]({uri})"),
-        None => uri.to_owned(),
-    };
+    let link = |uri: &str| super::file_link(None, uri);
     let mut content = Vec::new();
     let mut handed = Vec::new();
     for block in blocks {
@@ -202,17 +194,11 @@ impl Claude {
         }
         match start {
             Start::New(id) => args.push(format!("--session-id={id}")),
-            Start::Resume { id, at } => {
-                args.push(format!("--resume={id}"));
-                if let Some(at) = at {
-                    args.push(format!("--resume-session-at={at}"));
-                }
-            }
+            Start::Resume(id) => args.push(format!("--resume={id}")),
         }
         let env = [
             ("CLAUDE_CODE_ENTRYPOINT", "sdk-ts"),
             ("CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS", "1"),
-            ("CLAUDE_CODE_ENABLE_SDK_FILE_CHECKPOINTING", "true"),
         ]
         .map(|(key, value)| (key.to_owned(), value.to_owned()));
         let (process, writer, mut lines) = Process::spawn(launch, args, env)?;
@@ -311,13 +297,6 @@ impl Claude {
         self.aliases.insert(message_id.to_owned(), uuid.clone());
         uuid
     }
-
-    fn mode(&self) -> String {
-        self.shared
-            .lock()
-            .map(|shared| shared.mode.clone())
-            .unwrap_or_default()
-    }
 }
 
 impl Backend for Claude {
@@ -342,18 +321,21 @@ impl Backend for Claude {
                 sink.clone(),
             );
             tokio::task::spawn_blocking(move || -> Result<Option<String>, String> {
+                let loaded = || sink.update(&id, json!({ "sessionUpdate": "history_loaded" }));
                 let Some(path) = replay::transcript_path(&dir, &id) else {
+                    loaded();
                     return Ok(None);
                 };
                 let records = replay::with_subagents(&path, replay::read_chain(&path)?);
                 for (session, update) in replay::replay(&records, &id, &cwd) {
                     sink.update(&session, update);
                 }
+                loaded();
                 Ok(replay::resumed_model(&records))
             })
         });
         let start = match launch.resume_id.as_deref() {
-            Some(id) => Start::Resume { id, at: None },
+            Some(id) => Start::Resume(id),
             None => Start::New(&session_id),
         };
         let wanted = launch
@@ -420,7 +402,6 @@ impl Backend for Claude {
             .unwrap_or_else(|| config::DEFAULT.to_owned());
         let claude = Self {
             launch: launch.clone(),
-            sink: sink.clone(),
             running,
             shared,
             session_id: session_id.clone(),
@@ -450,7 +431,6 @@ impl Backend for Claude {
             "loadSession": true,
             "steering": true,
             "editing": true,
-            "restoreFiles": true,
             "promptCapabilities": { "image": true, "embeddedContext": true },
         });
         Ok((
@@ -473,7 +453,8 @@ impl Backend for Claude {
             shared.sent.insert(uuid.clone());
             shared.turn = Some(Turn {
                 number: turn,
-                latest: uuid.clone(),
+                messages: HashSet::from([uuid.clone()]),
+                waiting: HashSet::new(),
                 cancelled: false,
                 failure: None,
             });
@@ -499,11 +480,13 @@ impl Backend for Claude {
             }
             shared.sent.insert(uuid.clone());
             if let Some(turn) = shared.turn.as_mut() {
-                turn.latest = uuid.clone();
+                turn.messages.insert(uuid.clone());
+                turn.waiting.insert(uuid.clone());
             }
         }
+        // Claude Code takes it in after the turn's next tool call, or once the turn ends.
         self.writer()
-            .send(&user_message(&uuid, content, Some("now")))?;
+            .send(&user_message(&uuid, content, Some("next")))?;
         Ok("injected".into())
     }
 
@@ -523,7 +506,7 @@ impl Backend for Claude {
         }
         self.running
             .control
-            .request(json!({ "subtype": "interrupt" }))
+            .request(json!({ "subtype": "interrupt", "cancel_queued": true }))
             .await
             .map(drop)
     }
@@ -579,69 +562,47 @@ impl Backend for Claude {
         Ok(())
     }
 
-    async fn rewind(
-        &mut self,
-        message_id: &str,
-        restore_files: bool,
-    ) -> Result<Option<String>, String> {
+    async fn rewind(&mut self, message_id: &str) -> Result<(), String> {
         let uuid = self
             .aliases
             .get(message_id)
             .cloned()
             .unwrap_or_else(|| message_id.to_owned());
-        if restore_files {
-            let rewound = self
-                .running
-                .control
-                .request(
-                    json!({ "subtype": "rewind_files", "user_message_id": uuid, "dry_run": false }),
-                )
-                .await?;
-            if rewound.get("canRewind").and_then(Value::as_bool) == Some(false) {
-                let reason = rewound
-                    .get("error")
-                    .and_then(Value::as_str)
-                    .unwrap_or("Claude has no record of the files before that message");
-                return Err(format!("The files could not be put back: {reason}"));
-            }
-        }
         let path = replay::transcript_path(&config_dir(&self.launch), &self.session_id)
             .ok_or("Claude has not saved this chat yet")?;
-        let records = replay::read_chain(&path)?;
-        if !records
+        // Claude Code refuses to drop turns it thinks the person has not seen.
+        let newest = replay::read_chain(&path)?
             .iter()
-            .any(|record| record.get("uuid").and_then(Value::as_str) == Some(uuid.as_str()))
-        {
-            return Err("That message is no longer part of this chat".into());
+            .rev()
+            .filter(|record| record.get("type").and_then(Value::as_str) == Some("user"))
+            .find_map(|record| {
+                record
+                    .get("uuid")
+                    .and_then(Value::as_str)
+                    .map(str::to_owned)
+            });
+        let mut request = json!({
+            "subtype": "rewind_conversation",
+            "target_message_uuid": uuid,
+            "interrupt_if_running": true,
+        });
+        if let Some(newest) = newest {
+            request["last_seen_user_message_uuid"] = json!(newest);
         }
-        let at = replay::rewind_point(&records, &uuid);
-        let renamed = at.is_none().then(|| Uuid::new_v4().to_string());
-        let session_id = renamed.clone().unwrap_or_else(|| self.session_id.clone());
-        let start = match at.as_deref() {
-            Some(at) => Start::Resume {
-                id: &self.session_id,
-                at: Some(at),
-            },
-            None => Start::New(&session_id),
-        };
-        let mode = self.mode();
-        let model = (self.model != config::DEFAULT).then(|| self.model.clone());
-        let (running, _) = Self::spawn(
-            &self.launch,
-            &self.sink,
-            &self.shared,
-            &session_id,
-            start,
-            &mode,
-            model.as_deref(),
-        )
-        .await?;
-        self.running = running;
-        self.session_id = session_id;
-        if self.effort != config::DEFAULT {
-            self.apply_effort().await?;
+        let rewound = self.running.control.request(request).await?;
+        if rewound.get("rewound").and_then(Value::as_bool) == Some(true) {
+            return Ok(());
         }
-        Ok(renamed)
+        Err(match rewound.get("reason").and_then(Value::as_str) {
+            Some("target_not_found") => "That message is no longer part of this chat".into(),
+            _ => format!(
+                "Claude could not go back to that message: {}",
+                rewound
+                    .get("error")
+                    .and_then(Value::as_str)
+                    .unwrap_or("it gave no reason")
+            ),
+        })
     }
 
     async fn closed(&self) -> String {

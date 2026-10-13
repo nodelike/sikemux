@@ -1,6 +1,7 @@
 import { acpApi, type AcpChat } from "../api/acp";
 import { coreSessionsApi, type CoreSession } from "../api/coreSessions";
 import { chatClaimed } from "../chat/chatClaims";
+import { QUIT_AND_STOP_SHORTCUT } from "../commands/keybindings";
 import * as cmd from "../state/commands";
 import { agentSessionPlan, claimedSessionIds, unclaimedTerminals } from "../state/coreSessionClaims";
 import { getState, setState } from "../state/store";
@@ -14,8 +15,9 @@ import { relaunchTuiAgent } from "../agents/tuiResume";
 /** Long enough for every pane of a restored layout to have taken its terminal back. */
 export const UNCLAIMED_GRACE_MS = 30_000;
 
-export const KEPT_RUNNING_NOTICE =
-    "Your terminals and agents kept running while Sikemux was closed. Use Quit and Stop Everything (⌥⌘Q) to stop them.";
+export const KEPT_RUNNING_NOTICE = `Your terminals and agents kept running while Sikemux was closed. Use Quit and Stop Everything${
+    QUIT_AND_STOP_SHORTCUT ? ` (${QUIT_AND_STOP_SHORTCUT})` : ""
+} to stop them.`;
 
 /** Call right after the saved layout is applied, before any pane mounts. */
 export function offerSavedSessions(): void {

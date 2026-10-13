@@ -5,6 +5,8 @@
 set -euo pipefail
 
 here="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=lib.sh
+. "$here/lib.sh"
 deploy_key="${1:?usage: setup-citadel.sh <deploy-public-key-file>}"
 [ "$(id -u)" = 0 ] || { echo "run as root" >&2; exit 1; }
 
@@ -27,6 +29,7 @@ printf 'restrict,command="/usr/local/lib/sikemux/receive-release" %s\n' "$(tr -d
   >/var/lib/sikemux-deploy/.ssh/authorized_keys
 chown sikemux-deploy:sikemux-deploy /var/lib/sikemux-deploy/.ssh/authorized_keys
 chmod 600 /var/lib/sikemux-deploy/.ssh/authorized_keys
+install -D -m 644 -o root -g root "$here/lib.sh" /usr/local/lib/sikemux/lib.sh
 install -D -m 755 -o root -g root "$here/receive-release" /usr/local/lib/sikemux/receive-release
 
 cat >/etc/sudoers.d/sikemux-deploy <<'EOF'
@@ -41,10 +44,10 @@ install -d -m 755 -o sikemux-deploy -g sikemux-deploy /srv/sikemux /srv/sikemux/
 install -d -m 755 -o sikemux-deploy -g sikemux-deploy /srv/sikemux/updates /srv/sikemux/updates/assets
 install -d -m 750 -o root -g sikemux /etc/sikemux
 if [ ! -f /etc/sikemux/api.env ]; then
-  cat >/etc/sikemux/api.env <<'EOF'
+  cat >/etc/sikemux/api.env <<EOF
 HOST=127.0.0.1
 PORT=4000
-DATABASE_URL=postgresql://sikemux@%2Fvar%2Frun%2Fpostgresql/sikemux
+DATABASE_URL=$SIKEMUX_DATABASE_URL
 APP_ORIGIN=https://app.sikemux.com
 CLERK_ISSUER=https://clerk.sikemux.com
 CLERK_MAC_CLIENT_ID=I4QXaIf3c7zntZR8
@@ -82,7 +85,7 @@ if ! grep -q '^sikemux ' "$PG_CONF/pg_ident.conf"; then
   printf 'sikemux         sikemux                 sikemux\nsikemux         sikemux-deploy          sikemux\n' >>"$PG_CONF/pg_ident.conf"
 fi
 systemctl reload "postgresql@$PG_VERSION-main"
-sudo -u sikemux-deploy psql 'postgresql://sikemux@%2Fvar%2Frun%2Fpostgresql/sikemux' -Atc 'select current_user' |
+sudo -u sikemux-deploy psql "$SIKEMUX_DATABASE_URL" -Atc 'select current_user' |
   grep -qx sikemux
 if psql -U "$PG_ADMIN" -d sikemux -c 'select 1' >/dev/null 2>&1; then
   echo "other roles can still reach the sikemux database" >&2

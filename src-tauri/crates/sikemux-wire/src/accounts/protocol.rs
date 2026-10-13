@@ -11,6 +11,8 @@ pub struct Account {
     /// Only while deleting: when the account is deleted for good unless restored first.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub deletes_at: Option<String>,
+    /// How many days a deleted account can still be restored: deletesAt is this long after the deletion.
+    pub restorable_days: i64,
 }
 
 /// Every device is revoked and every token refused from the moment this is answered, except to read or restore the account. Signing in again before deletesAt can restore it.
@@ -224,6 +226,9 @@ pub struct ErrorDetail {
     pub message: String,
     /// The same as the response's x-request-id header, and how the server's logs find this request.
     pub request_id: String,
+    /// Only with reverify_required: how recently the person must have proved their first factor.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reverify_within_minutes: Option<i64>,
 }
 
 /// An account event's place in the log. Later events have larger ids.
@@ -298,7 +303,7 @@ pub struct LiveAuth {
     pub token: String,
 }
 
-/// The server is restarting and closes with 1012 after it. Reconnect no sooner than reconnectAfterMs.
+/// The server is restarting and closes with LiveCloseCode restarting after it. Reconnect no sooner than reconnectAfterMs.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LiveBye {
@@ -311,6 +316,74 @@ pub struct LiveBye {
 pub struct LiveChallenge {
     pub nonce: String,
     pub expires_at: String,
+}
+
+/// Why the server closed a live connection, as the WebSocket close code.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum LiveCloseCode {
+    /// The device sent something the protocol does not allow. Reconnect with backoff.
+    BadMessage,
+    /// The hello did not prove who the device is, or the web app's sign-in expired.
+    Unauthenticated,
+    /// The device is no longer on the account, after a revoked message. Do not reconnect.
+    Revoked,
+    /// No hello came within 10 seconds of the challenge. Reconnect with backoff.
+    HelloTimeout,
+    /// A newer connection for the same device took over. Reconnecting at once would push that one off.
+    Replaced,
+    /// Over a limit: more messages a second than allowed, too many failed hellos from this key or address in a minute, or too many connections for the account. Wait at least 30 seconds, since the limits count over a minute.
+    OverLimit,
+    /// Something failed on the server. Reconnect with backoff.
+    ServerError,
+    /// The server is restarting, after a bye message. Reconnect no sooner than its reconnectAfterMs.
+    Restarting,
+    /// The server has too many connections, or the device stopped reading. Reconnect with backoff.
+    Overloaded,
+}
+
+impl LiveCloseCode {
+    pub const fn code(self) -> i64 {
+        match self {
+            Self::BadMessage => 4400,
+            Self::Unauthenticated => 4401,
+            Self::Revoked => 4403,
+            Self::HelloTimeout => 4408,
+            Self::Replaced => 4409,
+            Self::OverLimit => 4429,
+            Self::ServerError => 1011,
+            Self::Restarting => 1012,
+            Self::Overloaded => 1013,
+        }
+    }
+
+    pub const fn from_code(code: i64) -> Option<Self> {
+        match code {
+            4400 => Some(Self::BadMessage),
+            4401 => Some(Self::Unauthenticated),
+            4403 => Some(Self::Revoked),
+            4408 => Some(Self::HelloTimeout),
+            4409 => Some(Self::Replaced),
+            4429 => Some(Self::OverLimit),
+            1011 => Some(Self::ServerError),
+            1012 => Some(Self::Restarting),
+            1013 => Some(Self::Overloaded),
+            _ => None,
+        }
+    }
+}
+
+impl Serialize for LiveCloseCode {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_i64(self.code())
+    }
+}
+
+impl<'de> Deserialize<'de> for LiveCloseCode {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let code = i64::deserialize(deserializer)?;
+        Self::from_code(code)
+            .ok_or_else(|| serde::de::Error::custom(format!("{code} is not a LiveCloseCode")))
+    }
 }
 
 /// What a device or the web app sends on a live connection.
@@ -415,7 +488,7 @@ pub struct LiveReset {
     pub latest: EventId,
 }
 
-/// This device is no longer on the account. The server closes with 4403 after it.
+/// This device is no longer on the account. The server closes with LiveCloseCode revoked after it.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LiveRevoked {
@@ -636,6 +709,7 @@ pub(crate) fn round_trip(name: &str, json: &str) -> Option<super::RoundTrip> {
         "LiveAuth" => through::<LiveDeviceMessage>(json),
         "LiveBye" => through::<LiveServerMessage>(json),
         "LiveChallenge" => through::<LiveServerMessage>(json),
+        "LiveCloseCode" => through::<LiveCloseCode>(json),
         "LiveDeviceMessage" => through::<LiveDeviceMessage>(json),
         "LiveEvents" => through::<LiveServerMessage>(json),
         "LiveHello" => through::<LiveDeviceMessage>(json),

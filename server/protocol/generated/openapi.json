@@ -192,6 +192,7 @@
       "put": {
         "operationId": "setPushToken",
         "summary": "Deliver this phone's notifications to a push token",
+        "description": "Only the phone's and the web app's sign-ins; the Mac app's OAuth token is refused with 403.",
         "parameters": [
           {
             "name": "key",
@@ -218,7 +219,7 @@
             }
           },
           "400": {
-            "description": "The challenge is unknown, used or expired; the device is a host; or this server does not deliver to that app or APNs environment.",
+            "description": "The challenge is unknown, used or expired, or this server does not deliver to that app or APNs environment.",
             "content": {
               "application/json": {
                 "schema": { "$ref": "#/components/schemas/ApiError" }
@@ -234,7 +235,7 @@
             }
           },
           "404": {
-            "description": "None of your devices has that key.",
+            "description": "None of your phones has that key.",
             "content": {
               "application/json": {
                 "schema": { "$ref": "#/components/schemas/ApiError" }
@@ -254,6 +255,7 @@
       "delete": {
         "operationId": "clearPushToken",
         "summary": "Stop delivering notifications to this phone",
+        "description": "Only the phone's and the web app's sign-ins; the Mac app's OAuth token is refused with 403.",
         "parameters": [
           {
             "name": "key",
@@ -267,7 +269,7 @@
             "description": "The phone has no push token, whether or not it had one."
           },
           "404": {
-            "description": "None of your devices has that key.",
+            "description": "None of your phones has that key.",
             "content": {
               "application/json": {
                 "schema": { "$ref": "#/components/schemas/ApiError" }
@@ -289,6 +291,7 @@
       "post": {
         "operationId": "createJoinTicket",
         "summary": "A ticket for this phone to join one of your hosts without a code",
+        "description": "Only the phone's and the web app's sign-ins; the Mac app's OAuth token is refused with 403.",
         "parameters": [
           {
             "name": "key",
@@ -311,14 +314,6 @@
             "content": {
               "application/json": {
                 "schema": { "$ref": "#/components/schemas/JoinTicket" }
-              }
-            }
-          },
-          "403": {
-            "description": "Only the phone and web app's sign-ins may ask; a host's sign-in cannot.",
-            "content": {
-              "application/json": {
-                "schema": { "$ref": "#/components/schemas/ApiError" }
               }
             }
           },
@@ -361,7 +356,7 @@
         },
         "responses": {
           "101": {
-            "description": "The connection is open. The server sends a challenge; the device answers with hello within 10 seconds. Close codes: 4400 bad message, 4401 not signed in, 4403 revoked, 4408 no hello in time, 4409 replaced by a newer connection for the same device, 4429 too many messages, 1012 restarting, 1013 overloaded."
+            "description": "The connection is open. The server sends a challenge; the device answers with hello within 10 seconds. Its close codes are LiveCloseCode."
           },
           "429": {
             "description": "Too many connections from this address.",
@@ -386,6 +381,7 @@
       "get": {
         "operationId": "getAccount",
         "summary": "Whether your account is in use or waiting to be deleted",
+        "description": "Only the phone's and the web app's sign-ins; the Mac app's OAuth token is refused with 403.",
         "responses": {
           "200": {
             "description": "The account's status. A deleted account still answers, so an app can offer to restore it.",
@@ -408,6 +404,7 @@
       "delete": {
         "operationId": "deleteAccount",
         "summary": "Delete your account and take every device off it",
+        "description": "Only the phone's and the web app's sign-ins; the Mac app's OAuth token is refused with 403.",
         "requestBody": {
           "required": false,
           "content": {
@@ -436,7 +433,7 @@
             }
           },
           "403": {
-            "description": "Only the phone and web app may delete an account, after verifying the sign-in again in the last 10 minutes (message reverify).",
+            "description": "The sign-in was not verified again within the error's reverifyWithinMinutes (message reverify).",
             "content": {
               "application/json": {
                 "schema": { "$ref": "#/components/schemas/ApiError" }
@@ -458,6 +455,7 @@
       "post": {
         "operationId": "restoreAccount",
         "summary": "Take back a deletion before it is final",
+        "description": "Only the phone's and the web app's sign-ins; the Mac app's OAuth token is refused with 403.",
         "responses": {
           "200": {
             "description": "The account is in use again, with no devices on it; each signs in again. Restoring an account in use changes nothing.",
@@ -533,9 +531,14 @@
             "description": "Only while deleting: when the account is deleted for good unless restored first.",
             "type": "string",
             "format": "date-time"
+          },
+          "restorableDays": {
+            "description": "How many days a deleted account can still be restored: deletesAt is this long after the deletion.",
+            "type": "integer",
+            "minimum": 1
           }
         },
-        "required": ["status"],
+        "required": ["status", "restorableDays"],
         "additionalProperties": false
       },
       "AccountDeletion": {
@@ -735,6 +738,11 @@
           "requestId": {
             "description": "The same as the response's x-request-id header, and how the server's logs find this request.",
             "type": "string"
+          },
+          "reverifyWithinMinutes": {
+            "description": "Only with reverify_required: how recently the person must have proved their first factor.",
+            "type": "integer",
+            "minimum": 1
           }
         },
         "required": ["code", "message", "requestId"],
@@ -846,7 +854,7 @@
         "additionalProperties": false
       },
       "LiveBye": {
-        "description": "The server is restarting and closes with 1012 after it. Reconnect no sooner than reconnectAfterMs.",
+        "description": "The server is restarting and closes with LiveCloseCode restarting after it. Reconnect no sooner than reconnectAfterMs.",
         "type": "object",
         "properties": {
           "type": { "const": "bye" },
@@ -865,6 +873,57 @@
         },
         "required": ["type", "nonce", "expiresAt"],
         "additionalProperties": false
+      },
+      "LiveCloseCode": {
+        "description": "Why the server closed a live connection, as the WebSocket close code.",
+        "type": "integer",
+        "oneOf": [
+          {
+            "const": 4400,
+            "title": "badMessage",
+            "description": "The device sent something the protocol does not allow. Reconnect with backoff."
+          },
+          {
+            "const": 4401,
+            "title": "unauthenticated",
+            "description": "The hello did not prove who the device is, or the web app's sign-in expired."
+          },
+          {
+            "const": 4403,
+            "title": "revoked",
+            "description": "The device is no longer on the account, after a revoked message. Do not reconnect."
+          },
+          {
+            "const": 4408,
+            "title": "helloTimeout",
+            "description": "No hello came within 10 seconds of the challenge. Reconnect with backoff."
+          },
+          {
+            "const": 4409,
+            "title": "replaced",
+            "description": "A newer connection for the same device took over. Reconnecting at once would push that one off."
+          },
+          {
+            "const": 4429,
+            "title": "overLimit",
+            "description": "Over a limit: more messages a second than allowed, too many failed hellos from this key or address in a minute, or too many connections for the account. Wait at least 30 seconds, since the limits count over a minute."
+          },
+          {
+            "const": 1011,
+            "title": "serverError",
+            "description": "Something failed on the server. Reconnect with backoff."
+          },
+          {
+            "const": 1012,
+            "title": "restarting",
+            "description": "The server is restarting, after a bye message. Reconnect no sooner than its reconnectAfterMs."
+          },
+          {
+            "const": 1013,
+            "title": "overloaded",
+            "description": "The server has too many connections, or the device stopped reading. Reconnect with backoff."
+          }
+        ]
       },
       "LiveDeviceMessage": {
         "description": "What a device or the web app sends on a live connection.",
@@ -1015,7 +1074,7 @@
         "additionalProperties": false
       },
       "LiveRevoked": {
-        "description": "This device is no longer on the account. The server closes with 4403 after it.",
+        "description": "This device is no longer on the account. The server closes with LiveCloseCode revoked after it.",
         "type": "object",
         "properties": {
           "type": { "const": "revoked" },
@@ -1171,7 +1230,7 @@
       "session": {
         "type": "http",
         "scheme": "bearer",
-        "description": "A Clerk session token."
+        "description": "A Clerk sign-in: a session token from the phone or the web app, or the Mac app's OAuth access token."
       }
     }
   },

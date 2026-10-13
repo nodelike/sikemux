@@ -69,23 +69,21 @@ impl From<serde_json::Error> for GitlabError {
 
 impl From<GitlabError> for PluginError {
     fn from(error: GitlabError) -> Self {
-        let (category, status) = match &error {
-            GitlabError::Unconfigured => ("unconfigured", None),
-            GitlabError::Auth(_) => ("auth", None),
-            GitlabError::Forbidden(_) => ("forbidden", Some(403)),
-            GitlabError::RateLimited { .. } => ("rate-limited", Some(429)),
-            GitlabError::Http { status, .. } => ("http", Some(*status)),
-            GitlabError::BadArg(_) => ("bad-params", None),
-            GitlabError::NotFound(_) => ("not-found", Some(404)),
-            GitlabError::Unsupported(_) => ("unsupported", None),
-            GitlabError::Keychain(_) => ("keychain", None),
-            GitlabError::Transport(_) => ("gitlab", None),
-            GitlabError::Response(_) => ("response", None),
-        };
-        let plugin_error = PluginError::new(category, error.to_string());
-        match status {
-            Some(status) => plugin_error.with_status(status),
-            None => plugin_error,
+        let message = error.to_string();
+        match error {
+            GitlabError::Unconfigured => PluginError::new("unconfigured", message),
+            GitlabError::Auth(_) => PluginError::new("auth", message),
+            GitlabError::Forbidden(_) => PluginError::forbidden(message),
+            GitlabError::RateLimited { .. } => {
+                PluginError::new("rate-limited", message).with_status(429)
+            }
+            GitlabError::Http { status, .. } => PluginError::http(status, message),
+            GitlabError::BadArg(_) => PluginError::new("bad-params", message),
+            GitlabError::NotFound(_) => PluginError::new("not-found", message).with_status(404),
+            GitlabError::Unsupported(_) => PluginError::new("unsupported", message),
+            GitlabError::Keychain(_) => PluginError::new("keychain", message),
+            GitlabError::Transport(_) => PluginError::new("gitlab", message),
+            GitlabError::Response(_) => PluginError::new("response", message),
         }
     }
 }

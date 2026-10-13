@@ -14,7 +14,7 @@ import { ChatWelcome } from "./ChatWelcome";
 import { FoldMemoryContext, newFoldMemory } from "./longText";
 import { sentPrompts } from "./promptHistory";
 import { activeToolLabel } from "./toolLabels";
-import { formatDetail, runningSubagents, workFolds } from "./transcript";
+import { formatDetail, outlivesFold, runningSubagents, workFolds } from "./transcript";
 import { WorkSummary } from "./WorkSummary";
 import { activityText, backendState, composerPlaceholder as placeholderFor, connectingLabel, knownEffort } from "./chatStatus";
 import { ChatAgentContext, ReaderScrollContext } from "./chatAgent";
@@ -195,6 +195,7 @@ export function AgentChatPane({
         cwd,
         connection: state.connection,
         running: state.running,
+        replaying,
         commands: state.commands,
         steerable,
         dispatch,
@@ -237,14 +238,14 @@ export function AgentChatPane({
 
     const editable = state.capabilities.editing === true && state.connection === "ready" && !state.running;
     const editMessage = useCallback(
-        (message: ChatMessage, text: string, restoreFiles: boolean) => {
+        (message: ChatMessage, text: string) => {
             const messageId = message.promptId;
             if (!messageId) return;
             const paths = message.attachments ?? [];
             setComposerError(null);
             dispatch({ type: "rewind", messageId });
             dispatch({ type: "local_prompt", text, paths, messageId });
-            acpApi.edit(agentRef.current.id, messageId, text, paths, [], restoreFiles).catch((error: unknown) => {
+            acpApi.edit(agentRef.current.id, messageId, text, paths, []).catch((error: unknown) => {
                 dispatch({ type: "error", message: error instanceof Error ? error.message : String(error) });
             });
         },
@@ -307,7 +308,7 @@ export function AgentChatPane({
     const disconnected = displayState.connection === "error" || displayState.connection === "stopped";
     const resuming = recovery?.phase === "resuming";
     const failure = recovery?.phase === "failed" ? recovery : null;
-    const welcoming = displayState.messages.length === 0 && displayState.connection === "ready";
+    const welcoming = displayState.messages.length === 0 && (displayState.connection === "ready" || (!agent.resumeId && !disconnected));
     const startNewChat = () =>
         cmd.addAgent(agent.type, undefined, undefined, {
             permissionMode: agent.permissionMode,
@@ -316,7 +317,11 @@ export function AgentChatPane({
             cwd,
         });
     const chatAgent = useMemo(() => ({ id: agent.id, type: agent.type }), [agent.id, agent.type]);
-    const composerPlaceholder = placeholderFor(state, { resuming, disconnected });
+    const composerPlaceholder = placeholderFor(state, {
+        resuming,
+        disconnected,
+        commands: state.connection !== "ready" || state.commands.length > 0,
+    });
     const sessionActions = (
         <div className="chat-connection-actions">
             <button type="button" onClick={retry}>
@@ -383,9 +388,15 @@ export function AgentChatPane({
                                         const workId = fold ? fold.id : "";
                                         const folded = fold !== undefined && findRequest === 0 && !openWork.has(workId);
                                         const summary = fold && index === Math.max(fold.start, firstRow) && (
-                                            <WorkSummary took={fold.took} calls={fold.calls} open={!folded} onToggle={() => toggleWork(workId)} />
+                                            <WorkSummary
+                                                took={fold.took}
+                                                calls={fold.calls}
+                                                thought={fold.thought}
+                                                open={!folded}
+                                                onToggle={() => toggleWork(workId)}
+                                            />
                                         );
-                                        if (fold && folded && index < fold.end)
+                                        if (fold && folded && index < fold.end && !message.parts.some(outlivesFold))
                                             return (
                                                 <div key={message.id} data-index={index} className="chat-row">
                                                     {summary}
@@ -395,7 +406,7 @@ export function AgentChatPane({
                                             <div key={message.id} data-index={index} className="chat-row">
                                                 {summary}
                                                 <ChatMessageRow
-                                                    from={fold && folded ? fold.from : 0}
+                                                    from={fold && folded ? (index < fold.end ? message.parts.length : fold.from) : 0}
                                                     message={message}
                                                     live={displayState.running && index === displayState.messages.length - 1}
                                                     copyable={meta.text}
@@ -403,7 +414,6 @@ export function AgentChatPane({
                                                     at={meta.at}
                                                     took={meta.took}
                                                     onEdit={editable && message.role === "user" && message.promptId ? editMessage : undefined}
-                                                    canRestoreFiles={state.capabilities.restoreFiles === true}
                                                 />
                                             </div>
                                         );

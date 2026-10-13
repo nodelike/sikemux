@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { acknowledgeAgentState, reduceAgentState, rollupAgentStates, sortByAttention, type AgentStateEvent } from "./agentStatus";
+import { acknowledgeAgentState, agentDisplay, reduceAgentState, rollupAgentDisplays, sortByAttention, type AgentStateEvent } from "./agentStatus";
 
 const event = (state: AgentStateEvent["state"], sequence: number): AgentStateEvent => ({
     agentId: "a",
@@ -27,14 +27,20 @@ describe("semantic agent presentation", () => {
     it("rolls up by attention priority", () => {
         const idle = reduceAgentState(undefined, event("idle", 1), true)!;
         const blocked = reduceAgentState(undefined, event("blocked", 2), false)!;
-        expect(rollupAgentStates([idle, blocked])).toBe("blocked");
+        expect(rollupAgentDisplays([agentDisplay(idle.state), agentDisplay(blocked.state)])?.group).toBe("blocked");
     });
 
     it("keeps process exit distinct from ready and completion", () => {
         const ready = reduceAgentState(undefined, event("idle", 1), true)!;
         const stopped = reduceAgentState(ready, event("stopped", 2), false)!;
         expect(stopped).toMatchObject({ state: "stopped", backendState: "stopped", unread: false });
-        expect(rollupAgentStates([ready, stopped])).toBe("stopped");
+        expect(agentDisplay(stopped.state)).toMatchObject({ group: "idle", label: "Idle" });
+    });
+
+    it("keeps an agent with only leftover shells or subagents in its own group", () => {
+        expect(agentDisplay("idle", { tasks: 2, subagents: 1 })).toMatchObject({ group: "idle", tasks: 2, subagents: 1 });
+        expect(agentDisplay("done", { tasks: 1 }).group).toBe("done");
+        expect(agentDisplay(undefined).group).toBe("idle");
     });
 
     it("orders open agents by what needs attention, then by when they last ran", () => {
@@ -56,23 +62,7 @@ describe("semantic agent presentation", () => {
             stale: acknowledgeAgentState(activity.stale),
         };
         const ids = ["never", "stale", "finished", "fresh", "running", "asking", "shell"].map((id) => ({ id }));
-        expect(sortByAttention(ids, activity, { shell: 1 }).map((a) => a.id)).toEqual([
-            "asking",
-            "running",
-            "shell",
-            "fresh",
-            "stale",
-            "finished",
-            "never",
-        ]);
-        expect(sortByAttention(ids, acknowledged, {}).map((a) => a.id)).toEqual([
-            "asking",
-            "running",
-            "fresh",
-            "stale",
-            "finished",
-            "never",
-            "shell",
-        ]);
+        expect(sortByAttention(ids, activity).map((a) => a.id)).toEqual(["asking", "running", "fresh", "stale", "finished", "never", "shell"]);
+        expect(sortByAttention(ids, acknowledged).map((a) => a.id)).toEqual(["asking", "running", "fresh", "stale", "finished", "never", "shell"]);
     });
 });

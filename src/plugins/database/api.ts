@@ -1,6 +1,8 @@
-import { createPluginBackend, isPluginFailure } from "../../plugin-api/backend";
+import { createPluginBackend } from "../../plugin-api/backend";
 import { invalidate } from "../../plugin-api/resources";
 import { DATABASE_PLUGIN_ID } from "./kinds";
+
+export { failureMessage } from "../../plugin-api/backend";
 
 const backend = createPluginBackend(DATABASE_PLUGIN_ID);
 
@@ -126,10 +128,6 @@ export interface HistoryEntry {
     rows: number | null;
     error: string | null;
     source: "person" | "agent";
-}
-
-export function failureMessage(error: unknown): string {
-    return isPluginFailure(error) ? error.message : String(error);
 }
 
 export const refreshDatabase = () => invalidate((kind) => kind.startsWith("database."));

@@ -7,3 +7,4 @@ import "./gitlab";
 import "./jira";
 import "./rundeck";
 import "./signoz";
+import "./slack";

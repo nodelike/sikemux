@@ -1,17 +1,17 @@
-import { randomBytes } from "node:crypto";
-import type {
-  Challenge,
-  Channel,
-  Device,
-  DeviceList,
-  DeviceRole,
-  Platform,
+import {
+  deviceRoleValues,
+  type Channel,
+  type Device,
+  type DeviceList,
+  type DeviceRole,
+  type Platform,
 } from "@sikemux/protocol";
 import { Hono } from "hono";
 import { sql, type Selectable } from "kysely";
 
 import type { ClerkBackend } from "../account/clerk.ts";
 import { revokeRemovedSession } from "../account/deletion.ts";
+import { audit } from "../audit.ts";
 import { requireIdentity, type AuthEnv, type Verifier } from "../auth.ts";
 import type { Database, Tables } from "../db.ts";
 import { appendEvent } from "../events/log.ts";
@@ -21,11 +21,10 @@ import type { JoinSigner } from "../join/signer.ts";
 import { limit, type RateLimiter } from "../limits.ts";
 import { pushTokenRoutes } from "../push/routes.ts";
 import type { PushSettings } from "../push/settings.ts";
+import { consumeChallenge, issueChallenge } from "./challenge.ts";
+import { ownedDevice } from "./owned.ts";
 import { removeDevice } from "./removal.ts";
 import { registrationMessage, signedBy } from "./signature.ts";
-
-const CHALLENGE_MS = 2 * 60_000;
-const ROLES: readonly DeviceRole[] = ["host", "client"];
 
 function toDevice(row: Selectable<Tables["devices"]>): Device {
   const device: Device = {
@@ -56,21 +55,9 @@ export function deviceRoutes(
     .use(requireIdentity(verifier, db))
     .route("/", pushTokenRoutes(database, limiter, push))
     .route("/", joinRoutes(database, limiter, join))
-    .post("/challenge", perUser("challenge", 30), async (c) => {
-      const { userId } = c.get("identity");
-      const nonce = randomBytes(32).toString("hex");
-      const expiresAt = new Date(Date.now() + CHALLENGE_MS);
-      await db
-        .deleteFrom("challenges")
-        .where("expires_at", "<", sql<Date>`now() - interval '1 hour'`)
-        .execute();
-      await db
-        .insertInto("challenges")
-        .values({ nonce, user_id: userId, expires_at: expiresAt })
-        .execute();
-      const body: Challenge = { nonce, expiresAt: expiresAt.toISOString() };
-      return c.json(body);
-    })
+    .post("/challenge", perUser("challenge", 30), async (c) =>
+      c.json(await issueChallenge(db, c.get("identity").userId)),
+    )
     .post("/", perUser("register", 20), async (c) => {
       const { userId } = c.get("identity");
       const registration = await readBody(c, "DeviceRegistration");
@@ -88,20 +75,7 @@ export function deviceRoutes(
       if (!name)
         throw new ApiFailure(400, "bad_request", "The device needs a name.");
 
-      const challenge = await db
-        .deleteFrom("challenges")
-        .where("nonce", "=", registration.nonce)
-        .where("user_id", "=", userId)
-        .where("expires_at", ">", sql<Date>`now()`)
-        .returning("nonce")
-        .executeTakeFirst();
-      if (!challenge) {
-        throw new ApiFailure(
-          400,
-          "bad_request",
-          "The challenge is unknown, already used, or expired.",
-        );
-      }
+      await consumeChallenge(db, userId, registration.nonce);
       const message = registrationMessage(
         registration.nonce,
         userId,
@@ -192,21 +166,18 @@ export function deviceRoutes(
             .deleteFrom("removed_devices")
             .where("key", "=", registration.key)
             .execute();
-        await trx
-          .insertInto("audit")
-          .values({
-            user_id: userId,
-            actor: `user:${userId}`,
-            action: existing ? "device.updated" : "device.registered",
-            subject: registration.key,
-            detail: JSON.stringify({
-              role: row.role,
-              name: row.name,
-              platform: row.platform,
-              via: identity.via,
-            }),
-          })
-          .execute();
+        await audit(trx, {
+          userId,
+          actor: `user:${userId}`,
+          action: existing ? "device.updated" : "device.registered",
+          subject: registration.key,
+          detail: {
+            role: row.role,
+            name: row.name,
+            platform: row.platform,
+            via: identity.via,
+          },
+        });
         return { row, added: !existing };
       });
       c.get("log").info(
@@ -218,42 +189,23 @@ export function deviceRoutes(
     .delete("/:key", perUser("remove", 30), async (c) => {
       const { userId, via, sessionId } = c.get("identity");
       const key = c.req.param("key");
-      const { removed, reason } = await db
-        .transaction()
-        .execute(async (trx) => {
-          const device = await trx
-            .selectFrom("devices")
-            .select("clerk_session_id")
-            .where("key", "=", key)
-            .where("user_id", "=", userId)
-            .forUpdate()
-            .executeTakeFirst();
-          const reason =
-            sessionId !== undefined && device?.clerk_session_id === sessionId
-              ? ("signed_out" as const)
-              : ("removed" as const);
-          const removed = device
-            ? await removeDevice(trx, {
-                userId,
-                key,
-                reason,
-                actor: `user:${userId}`,
-                detail: { via },
-              })
-            : undefined;
-          return { removed, reason };
+      const { device, reason } = await db.transaction().execute(async (trx) => {
+        const device = await ownedDevice(trx, userId, key, { lock: true });
+        const reason =
+          sessionId !== undefined && device.clerk_session_id === sessionId
+            ? ("signed_out" as const)
+            : ("removed" as const);
+        await removeDevice(trx, {
+          userId,
+          key,
+          reason,
+          actor: `user:${userId}`,
+          detail: { via },
         });
-      if (!removed)
-        throw new ApiFailure(
-          404,
-          "not_found",
-          "None of your devices has that key.",
-        );
-      c.get("log").info(
-        { key, role: removed.role, reason },
-        "removed a device",
-      );
-      if (reason === "removed" && removed.clerkSessionId)
+        return { device, reason };
+      });
+      c.get("log").info({ key, role: device.role, reason }, "removed a device");
+      if (reason === "removed" && device.clerk_session_id)
         await revokeRemovedSession(db, clerk, c.get("log"), key).catch(
           (error: unknown) =>
             c.get("log").warn({ err: error }, "could not revoke the session"),
@@ -263,11 +215,14 @@ export function deviceRoutes(
     .get("/", perUser("list", 120), async (c) => {
       const { userId } = c.get("identity");
       const role = c.req.query("role");
-      if (role !== undefined && !ROLES.includes(role as DeviceRole)) {
+      if (
+        role !== undefined &&
+        !deviceRoleValues.includes(role as DeviceRole)
+      ) {
         throw new ApiFailure(
           400,
           "bad_request",
-          `role is one of ${ROLES.join(", ")}.`,
+          `role is one of ${deviceRoleValues.join(", ")}.`,
         );
       }
       let query = db

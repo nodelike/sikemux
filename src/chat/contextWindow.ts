@@ -1,4 +1,4 @@
-import { sessionConfigs } from "./sessionConfig";
+import { currentLabel, sessionConfigs } from "./sessionConfig";
 
 const DEFAULT_WINDOW = 200_000;
 const LONG_WINDOW = 1_000_000;
@@ -8,7 +8,7 @@ const LONG_WINDOW = 1_000_000;
    named for a 1M window has one, and so does a session already past 200K. */
 export function guessClaudeWindow(setup: Record<string, unknown>, fallbackModel?: string, used = 0): number {
     const model = sessionConfigs(setup).find((config) => config.id === "model");
-    const names = [model?.currentValue, model?.options.find((option) => option.value === model.currentValue)?.label, fallbackModel];
+    const names = [model?.currentValue, currentLabel(model), fallbackModel];
     const namedLong = names.some((name) => name && /\b1m\b/i.test(name));
     return namedLong || used > DEFAULT_WINDOW ? LONG_WINDOW : DEFAULT_WINDOW;
 }

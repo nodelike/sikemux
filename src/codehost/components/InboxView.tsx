@@ -6,10 +6,11 @@ import { Checkbox, EmptyState, IconCheck, SkeletonRows } from "../../plugin-api/
 import { failureMessage, type Notification, type RepoRef } from "../api";
 import { inboxR } from "../resources";
 import { useAccount, useHost } from "../registry";
-import { formatAgo } from "../runStatus";
-import { useBusy, useNow } from "./hooks";
+import { useBusy } from "./hooks";
+import { useNow } from "../../plugin-api/hooks";
 import { IssueDetail } from "./IssuesView";
 import { PullRight, type PullTab } from "./PullsView";
+import { formatAgo } from "../../lib/format";
 
 const REASON: Record<string, string> = {
     review_requested: "Review requested",

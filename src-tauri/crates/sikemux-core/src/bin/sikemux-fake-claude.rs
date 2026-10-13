@@ -147,8 +147,31 @@ impl Claude {
         self.send(json!({ "type": "system", "subtype": "session_state_changed", "state": "idle" }));
     }
 
+    /// Goes back to before the message `target`, as Claude Code does in place.
+    fn rewind(&self, target: Option<&str>) -> Value {
+        let found = self.records().into_iter().find(|record| {
+            record["uuid"]
+                .as_str()
+                .is_some_and(|uuid| Some(uuid) == target)
+        });
+        let Some(found) = found else {
+            return json!({ "rewound": false, "error": "target not found", "reason": "target_not_found" });
+        };
+        let parent = found["parentUuid"].as_str().map(str::to_owned);
+        if let Ok(mut leaf) = self.leaf.lock() {
+            *leaf = parent.clone();
+        }
+        json!({
+            "rewound": true,
+            "targetMessageUuid": found["uuid"],
+            "prefillText": found["message"]["content"][0]["text"],
+            "precedingAssistantUuid": parent,
+        })
+    }
+
     fn turn(&self, uuid: &str, text: &str) {
         self.interrupted.store(false, Ordering::Release);
+        self.send(json!({ "type": "command_lifecycle", "command_uuid": uuid, "state": "started" }));
         let message_id = format!("msg-{uuid}");
         let mut words = text.split_whitespace();
         match words.next().unwrap_or_default() {
@@ -245,7 +268,7 @@ impl Claude {
                 self.interrupted.store(true, Ordering::Release);
                 json!({ "still_queued": [] })
             }
-            Some("rewind_files") => json!({ "canRewind": true, "filesChanged": [] }),
+            Some("rewind_conversation") => self.rewind(request["target_message_uuid"].as_str()),
             Some("set_model") => {
                 let model = request["model"].as_str().unwrap_or("default");
                 self.send(json!({
@@ -297,12 +320,10 @@ fn main() {
             eprintln!("No conversation found with session ID");
             std::process::exit(1);
         }
-        let leaf = flag(&args, "resume-session-at").or_else(|| {
-            records
-                .iter()
-                .rev()
-                .find_map(|record| record["uuid"].as_str().map(str::to_owned))
-        });
+        let leaf = records
+            .iter()
+            .rev()
+            .find_map(|record| record["uuid"].as_str().map(str::to_owned));
         if let Ok(mut current) = claude.leaf.lock() {
             *current = leaf;
         }
@@ -362,9 +383,6 @@ fn main() {
                 let mut echo = message.clone();
                 echo["isReplay"] = json!(true);
                 claude.send(echo);
-                if message.get("priority").and_then(Value::as_str) == Some("now") {
-                    claude.interrupted.store(true, Ordering::Release);
-                }
                 let _ = turns.send((uuid, text));
             }
             _ => {}

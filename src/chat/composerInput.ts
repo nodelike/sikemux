@@ -1,5 +1,6 @@
 import { rankBy } from "../lib/fuzzy";
 import { basename } from "../lib/paths";
+import type { AcpAvailableCommand } from "./types";
 
 export const MAX_ATTACHMENTS = 32;
 
@@ -11,6 +12,20 @@ export function mergePaths(current: string[], incoming: readonly string[]): stri
         merged.push(path);
     }
     return merged;
+}
+
+const MAX_COMMANDS = 8;
+
+/** The agent's slash commands with `needle` anywhere in their name. */
+export function commandMatches(commands: readonly AcpAvailableCommand[], needle: string): AcpAvailableCommand[] {
+    const lower = needle.toLowerCase();
+    return commands.filter((command) => command.name.toLowerCase().includes(lower)).slice(0, MAX_COMMANDS);
+}
+
+/** The command a message opens with that the session does not offer. A session that lists none is taken at its word. */
+export function unknownCommand(text: string, commands: readonly AcpAvailableCommand[]): string | null {
+    const name = /^\/(\S+)/.exec(text)?.[1];
+    return name && commands.length > 0 && !commands.some((command) => command.name === name) ? name : null;
 }
 
 /** `/` runs a command, `@` names something in the project, `#` names an issue or pull request. */

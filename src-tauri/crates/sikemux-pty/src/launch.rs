@@ -88,25 +88,26 @@ fn quote_shell_word(value: &str, kind: Option<ShellKind>) -> String {
     }
 }
 
-fn agent_profile_config_root(path: &str, home: &Path) -> PathBuf {
-    let trimmed = path.trim();
-    let expanded = if trimmed == "~" {
-        home.to_path_buf()
-    } else if let Some(rest) = trimmed
-        .strip_prefix("~/")
-        .or_else(|| trimmed.strip_prefix("~\\"))
-    {
-        home.join(rest)
-    } else {
-        PathBuf::from(trimmed)
-    };
-    if matches!(
-        expanded.file_name().and_then(|value| value.to_str()),
-        Some("config.toml" | "settings.json" | "settings.local.json")
-    ) {
-        expanded.parent().map(Path::to_path_buf).unwrap_or(expanded)
-    } else {
-        expanded
+/// The variable each agent reads its account folder from.
+pub fn account_variable(agent: &str) -> Option<&'static str> {
+    match agent {
+        "claude" => Some("CLAUDE_CONFIG_DIR"),
+        "codex" => Some("CODEX_HOME"),
+        _ => None,
+    }
+}
+
+/// The account folder a profile's config path names: the path itself, or the
+/// folder of the config file it points at.
+pub fn account_dir(config_path: &str) -> PathBuf {
+    let path = sikemux_process::paths::expand_home(config_path.trim());
+    let names_config_file = matches!(
+        path.file_name().and_then(|name| name.to_str()),
+        Some("config.toml" | "config.yml" | "settings.json" | "settings.local.json")
+    );
+    match path.parent() {
+        Some(parent) if names_config_file => parent.to_path_buf(),
+        _ => path,
     }
 }
 
@@ -114,20 +115,20 @@ pub fn apply_agent_profile(
     command: &mut CommandBuilder,
     context: Option<&PtyContext>,
     profile: Option<&PtyAgentProfile>,
-    home: &Path,
 ) {
     let Some(root) = profile
         .and_then(|profile| profile.config_path.as_deref())
         .map(str::trim)
         .filter(|path| !path.is_empty())
-        .map(|path| agent_profile_config_root(path, home))
+        .map(account_dir)
     else {
         return;
     };
-    match context.and_then(|context| context.agent_type.as_deref()) {
-        Some("codex") => command.env("CODEX_HOME", root),
-        Some("claude") => command.env("CLAUDE_CONFIG_DIR", root),
-        _ => {}
+    if let Some(variable) = context
+        .and_then(|context| context.agent_type.as_deref())
+        .and_then(account_variable)
+    {
+        command.env(variable, root);
     }
 }
 
@@ -323,22 +324,12 @@ mod tests {
         let mut context = local_shell_context();
         context.agent_id = Some("agent-1".into());
         context.agent_type = Some("codex".into());
-        apply_agent_profile(
-            &mut codex,
-            Some(&context),
-            Some(&profile),
-            Path::new("/home"),
-        );
+        apply_agent_profile(&mut codex, Some(&context), Some(&profile));
         assert_eq!(env(&codex, "CODEX_HOME"), Some("/profiles/work".into()));
 
         let mut claude = CommandBuilder::new("claude");
         context.agent_type = Some("claude".into());
-        apply_agent_profile(
-            &mut claude,
-            Some(&context),
-            Some(&profile),
-            Path::new("/home"),
-        );
+        apply_agent_profile(&mut claude, Some(&context), Some(&profile));
         assert_eq!(
             env(&claude, "CLAUDE_CONFIG_DIR"),
             Some("/profiles/work".into())

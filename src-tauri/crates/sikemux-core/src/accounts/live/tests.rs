@@ -313,6 +313,30 @@ async fn a_key_the_server_has_forgotten_signs_the_host_out() {
 }
 
 #[tokio::test]
+async fn a_host_over_the_servers_limits_waits_out_the_minute() {
+    let server = Server::new().await;
+    let account = Fake::new(Want::Stay);
+    let (_changed, mut watching) = watch::channel(());
+    let app = LiveApp {
+        platform: crate::accounts::protocol::Platform::Macos,
+        version: "0.0.0-test".into(),
+    };
+    let url = url(&server.base());
+    let outbox = Outbox::default();
+    let ended = session(&*account, &url, &app, &outbox, &mut watching);
+    let refused = async {
+        let mut peer = server.greet(&account).await;
+        peer.ready(0).await;
+        peer.close(4429).await;
+    };
+    let (ended, ()) = tokio::join!(ended, refused);
+    let Ended::Retry { hint, .. } = ended else {
+        panic!("the host gives up instead of retrying");
+    };
+    assert!(hint.is_some_and(|wait| wait >= OVER_LIMIT_WAIT));
+}
+
+#[tokio::test]
 async fn signing_out_sends_leave_once_the_server_is_ready() {
     let server = Server::new().await;
     let account = Fake::new(Want::Stay);

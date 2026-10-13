@@ -20,8 +20,8 @@ import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
 import { activityText, composerPlaceholder } from '@mac/chat/chatStatus';
 import { sentPrompts } from '@mac/chat/promptHistory';
 import { activeToolLabel } from '@mac/chat/toolLabels';
-import { workFolds, type WorkFold } from '@mac/chat/transcript';
-import type { ChatMessage, ChatState } from '@mac/chat/types';
+import { outlivesFold, workFolds, type WorkFold } from '@mac/chat/transcript';
+import type { ChatMessage } from '@mac/chat/types';
 import { ChatMenu } from '@/chat/ChatMenu';
 import { askTitle, Composer, RecentSheet } from '@/chat/Composer';
 import { FoldsContext } from '@/chat/folds';
@@ -34,7 +34,8 @@ import { useChat } from '@/chat/useChat';
 import { retry as reconnect, useDevices, useLive, type Live } from '@/devices/hub';
 import { dismissCardsFor } from '@/notify/cards';
 import { deviceName } from '@/devices/paired';
-import { chatTitle, providerName } from '@/devices/words';
+import { agentLabel } from '@mac/agents/catalog';
+import { chatTitle } from '@/devices/words';
 import { haptics } from '@/ui/haptics';
 import { AgentIcon, Icon } from '@/ui/Icon';
 import { Button } from '@/ui/controls';
@@ -49,13 +50,6 @@ const FOLLOW = 0.1;
 
 function capitalised(text: string): string {
   return text.charAt(0).toUpperCase() + text.slice(1) + (text.endsWith('.') ? '' : '.');
-}
-
-function placeholderFor(state: ChatState, disconnected: boolean): string {
-  if (disconnected) return 'Reconnect to continue this conversation';
-  if (state.connection !== 'ready') return composerPlaceholder(state, { resuming: false, disconnected });
-  if (state.running) return 'Send to queue behind the running turn';
-  return state.commands.length ? 'Ask about this project, or type / for commands' : 'Ask about this project';
 }
 
 /** Above the composer while the host is out of reach: the chat stays, and what is sent waits. */
@@ -207,8 +201,8 @@ function ChatScreen({ core, agentId }: { core: string; agentId: string }) {
   const openRecent = () => setRecent(true);
   useEffect(() => dismissCardsFor(core, agentId), [core, agentId]);
   useArrivals(state.running, request?.requestId, {
-    done: `${providerName(provider)} finished`,
-    asks: request ? `${providerName(provider)} asks: ${askTitle(request)}` : '',
+    done: `${agentLabel(provider)} finished`,
+    asks: request ? `${agentLabel(provider)} asks: ${askTitle(request)}` : '',
   });
   const list = useRef<FlashListRef<ChatMessage>>(null);
   const [away, setAway] = useState(false);
@@ -248,7 +242,7 @@ function ChatScreen({ core, agentId }: { core: string; agentId: string }) {
   }, []);
   const toEnd = () => requestAnimationFrame(() => list.current?.scrollToEnd({ animated: true }));
   const activity = activityText({ ...state, permissions: chat.permissions }, activeToolLabel(state.messages));
-  const title = state.title ?? (info ? chatTitle(info) : providerName(provider));
+  const title = state.title ?? (info ? chatTitle(info) : agentLabel(provider));
   const watchOnly = access === 'watch';
   const steerable = state.capabilities.steering === true && state.running && !watchOnly;
   const liveShown = hasLiveWork(fresh) && chat.attached === 'live';
@@ -312,7 +306,9 @@ function ChatScreen({ core, agentId }: { core: string; agentId: string }) {
                       getItemType={(message, index) => {
                         const fold = folds.get(index);
                         // Folded work draws nothing, so it is never recycled into a whole answer.
-                        return fold && index < fold.end && !openWork.has(fold.id) ? 'folded' : message.role;
+                        return fold && index < fold.end && !openWork.has(fold.id) && !message.parts.some(outlivesFold)
+                          ? 'folded'
+                          : message.role;
                       }}
                       extraData={marks}
                       renderItem={({ item, index }) => {
@@ -321,9 +317,15 @@ function ChatScreen({ core, agentId }: { core: string; agentId: string }) {
                         const folded = fold !== undefined && !openWork.has(workId);
                         const summary =
                           fold && index === fold.start ? (
-                            <WorkSummary took={fold.took} calls={fold.calls} open={!folded} onToggle={() => toggleWork(workId)} />
+                            <WorkSummary
+                              took={fold.took}
+                              calls={fold.calls}
+                              thought={fold.thought}
+                              open={!folded}
+                              onToggle={() => toggleWork(workId)}
+                            />
                           ) : null;
-                        if (fold && folded && index < fold.end) return summary ?? <View />;
+                        if (fold && folded && index < fold.end && !item.parts.some(outlivesFold)) return summary ?? <View />;
                         return (
                           <>
                             {summary}
@@ -336,7 +338,7 @@ function ChatScreen({ core, agentId }: { core: string; agentId: string }) {
                               onTap={onTap}
                               strip={item.id === open ? openStrip : undefined}
                               sentFiles={chat.sentFiles}
-                              from={fold && folded ? fold.from : 0}
+                              from={fold && folded ? (index < fold.end ? item.parts.length : fold.from) : 0}
                             />
                           </>
                         );
@@ -393,7 +395,11 @@ function ChatScreen({ core, agentId }: { core: string; agentId: string }) {
               commands={state.commands}
               requests={chat.permissions}
               answering={chat.answering}
-              placeholder={placeholderFor(state, live.status !== 'open')}
+              placeholder={composerPlaceholder(state, {
+                resuming: false,
+                disconnected: live.status !== 'open',
+                commands: state.commands.length > 0,
+              })}
               permissionMode={chat.permissionMode ?? info?.permissionMode ?? ''}
               modeLocked={
                 state.running || chat.permissions.length > 0 || chat.changingMode || state.connection !== 'ready' || live.status !== 'open'
@@ -440,7 +446,7 @@ function ChatScreen({ core, agentId }: { core: string; agentId: string }) {
         onClose={() => setMenu(false)}
         core={core}
         agentId={agentId}
-        agentName={providerName(provider)}
+        agentName={agentLabel(provider)}
         hostName={hostName}
         onRecent={recalls ? openRecent : undefined}
         onStop={

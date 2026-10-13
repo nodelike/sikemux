@@ -1,7 +1,8 @@
+import { recordOf } from "./acpEvents";
 import { toolDiff, toolFailure } from "./diff";
 import { toolPage } from "./pages";
 import { toolOutput } from "./toolOutput";
-import { toolRowArguments } from "./toolLabels";
+import { toolRowArguments, toolRunning } from "./toolLabels";
 import type {
     AccountMove,
     AcpAsyncTask,
@@ -46,8 +47,6 @@ export const initialChatState: ChatState = {
 type Transcript = { messages: ChatMessage[]; nextId: number };
 
 const textOf = (value: unknown): string | undefined => (typeof value === "string" ? value : undefined);
-const recordOf = (value: unknown): Record<string, unknown> | undefined =>
-    typeof value === "object" && value !== null && !Array.isArray(value) ? (value as Record<string, unknown>) : undefined;
 
 /* The agent echoes the notifications its harness writes to itself, and those
    are one block of tags with no prose around them. Markdown drops such a block
@@ -158,9 +157,12 @@ function appendChunk(
     } else {
         const message = messages[existingIndex];
         const parts = [...message.parts];
-        const last = parts.at(-1);
+        /* A task can end while the reply streams; its notice must not cut the reply's markdown in two. */
+        let open = parts.length - 1;
+        while (open > 0 && (parts[open].kind === "notice" || parts[open].kind === "agent_notice")) open -= 1;
+        const last = parts[open];
         if (contentText !== undefined && last?.kind === partKind) {
-            parts[parts.length - 1] = { ...last, text: last.text + contentText };
+            parts[open] = { ...last, text: last.text + contentText };
         } else if (contentText !== undefined) {
             parts.push({ id: `${messageId}-${partKind}-${parts.length}`, kind: partKind, text: contentText });
         } else {
@@ -227,11 +229,10 @@ function upsertTool(transcript: Transcript, update: AcpToolCall, merge: boolean,
         if (current.kind !== "tool") continue;
         const patch = Object.fromEntries(Object.entries(update).filter(([key, value]) => value !== undefined && !(key === "title" && value === "")));
         const tool = merge ? { ...current.tool, ...patch } : update;
-        const ended = tool.status === "completed" || tool.status === "failed";
         parts[partIndex] =
             current.endedAt !== undefined
                 ? { ...current, tool: withoutPayload(tool) }
-                : ended
+                : !toolRunning(tool)
                   ? settleTool({ ...current, tool, endedAt: Date.now() })
                   : { ...current, tool };
         messages[messageIndex] = { ...message, parts };
@@ -243,7 +244,7 @@ function upsertTool(transcript: Transcript, update: AcpToolCall, merge: boolean,
        With nothing to merge into and no title to show, a new row would be a
        blank line that spins forever, so let it pass. */
     if (!update.title) return null;
-    const ended = update.status === "completed" || update.status === "failed";
+    const ended = !toolRunning(update);
     /* Reloading a session replays its whole history at once, so a call that is
        already finished the first time this side sees it never ran here. Stamping
        both ends now would time the replay rather than the call. */
@@ -303,15 +304,13 @@ function recordedTime(transcript: Transcript, update: Record<string, unknown>, t
     return { ...transcript, messages: [...transcript.messages.slice(0, -1), stamped] };
 }
 
-const TOOL_ENDED = ["completed", "failed", "cancelled"];
-
 /* The agent sends no last word for work it was cut off in, so it would spin
    forever. A subagent can outlive its turn, so only `endSubagents` stops it. */
 function settleParts(parts: ChatPart[], at: number, endSubagents: boolean): ChatPart[] | null {
     let changed = false;
     const settled = parts.map((part) => {
         if (part.kind === "tool") {
-            if (TOOL_ENDED.includes(part.tool.status ?? "pending")) return part;
+            if (!toolRunning(part.tool)) return part;
             changed = true;
             return settleTool({ ...part, tool: { ...part.tool, status: "cancelled" }, endedAt: part.endedAt ?? at });
         }
@@ -361,33 +360,43 @@ function stopSubagents(state: ChatState): ChatState {
     return changed ? { ...state, messages, revision: state.revision + 1 } : state;
 }
 
-function findSubagent(messages: ChatMessage[], sessionId: string): { messageIndex: number; partIndex: number } | null {
+/* A subagent can spawn subagents of its own, so its card holds theirs. */
+function patchSubagentIn(messages: ChatMessage[], sessionId: string, patch: (subagent: AcpSubagent) => AcpSubagent): ChatMessage[] | null {
     for (let messageIndex = messages.length - 1; messageIndex >= 0; messageIndex -= 1) {
-        const partIndex = messages[messageIndex].parts.findIndex((part) => part.kind === "subagent" && part.subagent.sessionId === sessionId);
-        if (partIndex >= 0) return { messageIndex, partIndex };
+        const message = messages[messageIndex];
+        for (let partIndex = message.parts.length - 1; partIndex >= 0; partIndex -= 1) {
+            const part = message.parts[partIndex];
+            if (part.kind !== "subagent") continue;
+            let subagent: AcpSubagent | null = null;
+            if (part.subagent.sessionId === sessionId) subagent = patch(part.subagent);
+            else {
+                const nested = patchSubagentIn(part.subagent.messages, sessionId, patch);
+                if (nested) subagent = { ...part.subagent, messages: nested };
+            }
+            if (!subagent) continue;
+            const parts = [...message.parts];
+            parts[partIndex] = { ...part, subagent };
+            const patched = [...messages];
+            patched[messageIndex] = { ...message, parts };
+            return patched;
+        }
     }
     return null;
 }
 
 function patchSubagent(state: ChatState, sessionId: string, patch: (subagent: AcpSubagent) => AcpSubagent): ChatState | null {
-    const found = findSubagent(state.messages, sessionId);
-    if (!found) return null;
-    const message = state.messages[found.messageIndex];
-    const current = message.parts[found.partIndex];
-    if (current.kind !== "subagent") return null;
-    const parts = [...message.parts];
-    parts[found.partIndex] = { ...current, subagent: patch(current.subagent) };
-    const messages = [...state.messages];
-    messages[found.messageIndex] = { ...message, parts };
-    return { ...state, messages, revision: state.revision + 1 };
+    const messages = patchSubagentIn(state.messages, sessionId, patch);
+    return messages ? { ...state, messages, revision: state.revision + 1 } : null;
 }
+
+const hasSubagent = (messages: ChatMessage[], sessionId: string) => patchSubagentIn(messages, sessionId, (subagent) => subagent) !== null;
 
 const SUBAGENT_STATES: AcpSubagent["state"][] = ["running", "completed", "failed", "cancelled", "disconnected"];
 const TASK_STATES: AcpAsyncTask["state"][] = ["running", "paused", "completed", "failed", "stopped"];
 
-function spawnSubagent(state: ChatState, update: Record<string, unknown>): ChatState {
+function withSubagent<T extends Transcript>(transcript: T, update: Record<string, unknown>, everywhere: ChatMessage[]): T | null {
     const sessionId = textOf(update.subagentSessionId);
-    if (!sessionId || findSubagent(state.messages, sessionId)) return state;
+    if (!sessionId || hasSubagent(everywhere, sessionId)) return null;
     const subagent: AcpSubagent = {
         sessionId,
         name: textOf(update.name) ?? "Subagent",
@@ -396,12 +405,19 @@ function spawnSubagent(state: ChatState, update: Record<string, unknown>): ChatS
         messages: [],
         nextId: 1,
     };
-    return {
-        ...state,
-        ...appendPart(state, { id: `subagent-${sessionId}`, kind: "subagent", subagent }),
-        suppressUserEcho: false,
-        revision: state.revision + 1,
-    };
+    return { ...transcript, ...appendPart(transcript, { id: `subagent-${sessionId}`, kind: "subagent", subagent }) };
+}
+
+function setSubagentState(state: ChatState, update: Record<string, unknown>): ChatState {
+    const subagentSessionId = textOf(update.subagentSessionId);
+    const subagentState = SUBAGENT_STATES.find((candidate) => candidate === update.state);
+    if (!subagentSessionId || !subagentState) return state;
+    return (
+        patchSubagent(state, subagentSessionId, (subagent) => {
+            const messages = subagentState === "running" ? null : settleMessages(subagent.messages, Date.now(), true);
+            return { ...subagent, state: subagentState, ...(messages ? { messages } : {}) };
+        }) ?? state
+    );
 }
 
 function spawnTask(state: ChatState, update: Record<string, unknown>): ChatState {
@@ -415,8 +431,50 @@ function spawnTask(state: ChatState, update: Record<string, unknown>): ChatState
         state: "running",
         canStop: update.canStop === true,
         outputFilePath: textOf(update.outputFilePath),
+        owner: textOf(update.owner),
     };
     return { ...state, tasks: [...state.tasks, task], revision: state.revision + 1 };
+}
+
+const stampedAt = (update: Record<string, unknown>): number | null => {
+    const at = recordOf(recordOf(update._meta)?.sikemux)?.at;
+    return typeof at === "number" ? at : null;
+};
+
+/* Work that ends while the agent is idle is what wakes it, so its notice stands
+   between the turns, saying why the next one began, rather than at the end of
+   the last one. */
+function addNotice(state: ChatState, taskId: string, notice: AcpTaskNotice, at: number | null, betweenTurns = !state.running): ChatState {
+    const id = `notice-${taskId}`;
+    if (state.messages.some((message) => message.parts.some((part) => part.id === id))) return state;
+    const part: ChatPart = { id, kind: "notice", notice };
+    if (!betweenTurns) return { ...state, ...appendPart(state, part), revision: state.revision + 1 };
+    const message: ChatMessage = { id: `agent-part-${state.nextId}`, role: "assistant", parts: [part], opensTurn: { at } };
+    return { ...state, messages: [...state.messages, message], nextId: state.nextId + 1, revision: state.revision + 1 };
+}
+
+const NOTICE_STATES: Record<string, AcpTaskNotice["state"]> = {
+    completed: "completed",
+    failed: "failed",
+    stopped: "stopped",
+    killed: "stopped",
+    cancelled: "stopped",
+};
+
+/* Claude Code tells itself a background task ended in a tag the person never
+   sees. History keeps it, and it is the only record of why the next turn began. */
+function harnessNotice(state: ChatState, update: Record<string, unknown>): ChatState | null {
+    const text = textOf(recordOf(update.content)?.text);
+    if (!text?.includes("<task-notification>")) return null;
+    const tag = (name: string) => new RegExp(`<${name}>([\\s\\S]*?)</${name}>`).exec(text)?.[1]?.trim();
+    const taskId = tag("task-id");
+    const noticeState = NOTICE_STATES[tag("status") ?? ""];
+    if (!taskId || !noticeState) return state;
+    const summary = tag("summary");
+    const name = /"([^"]+)"/.exec(summary ?? "")?.[1] ?? summary ?? "Background task";
+    // History marks the notice that woke the agent; one that came mid-turn belongs to that turn.
+    const woke = !state.running && replayedTurnStart(update) !== null;
+    return addNotice(state, taskId, { name, state: noticeState }, stampedAt(update), woke);
 }
 
 function patchTask(state: ChatState, update: Record<string, unknown>): ChatState {
@@ -431,12 +489,8 @@ function patchTask(state: ChatState, update: Record<string, unknown>): ChatState
         const ended = state.tasks[index];
         const summary = textOf(update.summary) ?? ended.summary;
         const notice: AcpTaskNotice = { name: ended.name, state: taskState, ...(summary ? { summary } : {}) };
-        return {
-            ...state,
-            ...appendPart(state, { id: `notice-${ended.asyncTaskId}`, kind: "notice", notice }),
-            tasks: state.tasks.filter((_, position) => position !== index),
-            revision: state.revision + 1,
-        };
+        const noted = addNotice(state, ended.asyncTaskId, notice, stampedAt(update));
+        return { ...noted, tasks: state.tasks.filter((_, position) => position !== index), revision: state.revision + 1 };
     }
 
     const current = state.tasks[index];
@@ -484,10 +538,10 @@ function contextUsage(update: Record<string, unknown>): ContextUsage | null {
         : { used, size };
 }
 
-/* A cancelled turn takes its subagents with it, and the agent says so itself;
-   settling them here as well covers one that does not. */
+/* A cancelled turn stops only the subagents it was waiting on, and the agent
+   says which. Background ones run on and report their own end. */
 function endTurn(state: ChatState, stopReason: string | null, at = Date.now()): ChatState {
-    const settled = settleState(state, stopReason === "cancelled");
+    const settled = settleState(state, false);
     const last = settled.messages.at(-1);
     // Only a turn this side watched run has a finish worth stamping.
     const messages = state.running && last?.role === "assistant" ? [...settled.messages.slice(0, -1), { ...last, endedAt: at }] : settled.messages;
@@ -504,12 +558,20 @@ function endTurn(state: ChatState, stopReason: string | null, at = Date.now()): 
 }
 
 function sessionUpdate(state: ChatState, sessionId: string, update: Record<string, unknown>): ChatState {
+    if (update.sessionUpdate === "subagent_state_update") return setSubagentState(state, update);
     const inSubagent = patchSubagent(state, sessionId, (subagent) => {
-        const next = transcriptUpdate(subagent, update, state.running);
+        const next =
+            update.sessionUpdate === "subagent_spawned"
+                ? withSubagent(subagent, update, state.messages)
+                : transcriptUpdate(subagent, update, state.running);
         return next ? { ...subagent, ...next } : subagent;
     });
     if (inSubagent) return inSubagent;
 
+    if (update.sessionUpdate === "user_message_chunk") {
+        const noticed = harnessNotice(state, update);
+        if (noticed) return noticed;
+    }
     if (update.sessionUpdate === "user_message_chunk" && state.suppressUserEcho) return state;
     const opening = state.turnOpening ?? replayedTurnStart(update);
     const streamed = transcriptUpdate(state, update, state.running, opening !== null);
@@ -527,24 +589,23 @@ function sessionUpdate(state: ChatState, sessionId: string, update: Record<strin
     }
 
     switch (update.sessionUpdate) {
-        case "subagent_spawned":
-            return spawnSubagent(state, update);
-        case "subagent_state_update": {
-            const subagentSessionId = textOf(update.subagentSessionId);
-            const subagentState = SUBAGENT_STATES.find((candidate) => candidate === update.state);
-            if (!subagentSessionId || !subagentState) return state;
-            return (
-                patchSubagent(state, subagentSessionId, (subagent) => {
-                    const messages = subagentState === "running" ? null : settleMessages(subagent.messages, Date.now(), true);
-                    return { ...subagent, state: subagentState, ...(messages ? { messages } : {}) };
-                }) ?? state
-            );
+        case "subagent_spawned": {
+            const spawned = withSubagent(state, update, state.messages);
+            return spawned ? { ...spawned, suppressUserEcho: false, revision: state.revision + 1 } : state;
         }
         case "async_task_spawned":
             return spawnTask(state, update);
         case "async_task_progress":
         case "async_task_state_update":
             return patchTask(state, update);
+        case "task_notice": {
+            const taskId = textOf(update.taskId);
+            const noticeState = NOTICE_STATES[textOf(update.state) ?? ""];
+            if (!taskId || !noticeState) return state;
+            const summary = textOf(update.summary);
+            const notice: AcpTaskNotice = { name: textOf(update.name) ?? "Background task", state: noticeState, ...(summary ? { summary } : {}) };
+            return addNotice(state, taskId, notice, stampedAt(update));
+        }
         case "notice":
             return agentNotice(state, update);
         case "plan":

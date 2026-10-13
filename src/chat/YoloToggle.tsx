@@ -1,10 +1,11 @@
+import { effectiveMode as permissionModeOf, isYolo } from "../agents/agentLaunch";
 import type { Agent } from "../state/types";
 import { IconShield, IconShieldBolt } from "../ui/Icons";
 import * as cmd from "../state/commands";
 import { useShortcutLabel } from "../commands/useShortcutLabel";
 
 export function YoloToggle({ agent, relaunches, disabled = false }: { agent: Agent; relaunches: boolean; disabled?: boolean }) {
-    const on = agent.permissionMode === "bypass";
+    const on = isYolo(permissionModeOf(agent));
     const restart = relaunches ? ", which restarts the CLI" : "";
     const shortcut = useShortcutLabel("agent.permissions");
     const press = shortcut ? `${shortcut} ` : "Click ";

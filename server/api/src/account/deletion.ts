@@ -1,5 +1,6 @@
 import { sql, type Kysely } from "kysely";
 
+import { audit, type Actor } from "../audit.ts";
 import type { Tables } from "../db.ts";
 import { removeDevice } from "../devices/removal.ts";
 import { appendEvent } from "../events/log.ts";
@@ -19,8 +20,7 @@ export const ALERT_AFTER_ATTEMPTS = 6;
 
 export interface DeletionRequest {
   userId: string;
-  /** `user:<id>` when the person asked, `clerk` when Clerk's webhook said so. */
-  actor: string;
+  actor: Actor;
   via: string;
   /** Whether the user is already gone from Clerk, as when Clerk's webhook reports it. */
   deletedInClerk: boolean;
@@ -34,6 +34,29 @@ export interface Deletion {
 
 export function retryDelayMs(attempts: number): number {
   return Math.min(RETRY_MAX_MS, RETRY_BASE_MS * 2 ** Math.max(0, attempts - 1));
+}
+
+/**
+ * After a call to Clerk failed for the attempts-th time: logs it, as an error once it keeps
+ * failing, and returns what to record on the row so the sweeper tries again later.
+ */
+function clerkFailed(
+  log: Logger,
+  what: string,
+  {
+    error,
+    attempts,
+    ...fields
+  }: Record<string, unknown> & { error: unknown; attempts: number },
+) {
+  const logged = { err: error, ...fields, attempts };
+  if (attempts >= ALERT_AFTER_ATTEMPTS)
+    log.error(logged, `Clerk still cannot ${what}`);
+  else log.warn(logged, `Clerk could not ${what}; retrying later`);
+  return {
+    clerk_attempts: attempts,
+    clerk_retry_at: new Date(Date.now() + retryDelayMs(attempts)),
+  };
 }
 
 /**
@@ -97,16 +120,12 @@ export async function markDeleted(
         actor,
       });
     await appendEvent(trx, { userId, type: "account.deleted" });
-    await trx
-      .insertInto("audit")
-      .values({
-        user_id: userId,
-        actor,
-        action: "account.deletion_requested",
-        subject: null,
-        detail: JSON.stringify({ via, devices: devices.length }),
-      })
-      .execute();
+    await audit(trx, {
+      userId,
+      actor,
+      action: "account.deletion_requested",
+      detail: { via, devices: devices.length },
+    });
     if (deletedInClerk) await auditClerkDeletion(trx, userId, actor);
     return {
       requestedAt: marked.deleted_at ?? new Date(),
@@ -143,15 +162,11 @@ export async function restoreAccount(
       })
       .where("id", "=", userId)
       .execute();
-    await trx
-      .insertInto("audit")
-      .values({
-        user_id: userId,
-        actor: `user:${userId}`,
-        action: "account.restored",
-        subject: null,
-      })
-      .execute();
+    await audit(trx, {
+      userId,
+      actor: `user:${userId}`,
+      action: "account.restored",
+    });
     return true;
   });
 }
@@ -159,23 +174,19 @@ export async function restoreAccount(
 async function auditClerkDeletion(
   trx: Kysely<Tables>,
   userId: string,
-  actor: string,
+  actor: Actor,
 ) {
-  await trx
-    .insertInto("audit")
-    .values({
-      user_id: userId,
-      actor,
-      action: "account.deleted_in_clerk",
-      subject: null,
-    })
-    .execute();
+  await audit(trx, {
+    userId,
+    actor,
+    action: "account.deleted_in_clerk",
+  });
 }
 
 async function recordClerkDeletion(
   trx: Kysely<Tables>,
   userId: string,
-  actor: string,
+  actor: Actor,
 ) {
   await trx
     .updateTable("users")
@@ -216,23 +227,17 @@ export async function deleteInClerk(
     try {
       await clerk.deleteUser(userId);
     } catch (error) {
-      const attempts = user.clerk_attempts + 1;
       await trx
         .updateTable("users")
-        .set({
-          clerk_attempts: attempts,
-          clerk_retry_at: new Date(Date.now() + retryDelayMs(attempts)),
-        })
+        .set(
+          clerkFailed(log, "delete a deleted account", {
+            error,
+            userId,
+            attempts: user.clerk_attempts + 1,
+          }),
+        )
         .where("id", "=", userId)
         .execute();
-      const fields = { err: error, userId, attempts };
-      if (attempts >= ALERT_AFTER_ATTEMPTS)
-        log.error(fields, "Clerk has still not deleted a deleted account");
-      else
-        log.warn(
-          fields,
-          "Clerk did not delete a deleted account; retrying later",
-        );
       return false;
     }
     await recordClerkDeletion(trx, userId, "system");
@@ -272,26 +277,17 @@ export async function revokeRemovedSession(
     try {
       await clerk.revokeSession(tombstone.clerk_session_id);
     } catch (error) {
-      const attempts = tombstone.clerk_attempts + 1;
       await trx
         .updateTable("removed_devices")
-        .set({
-          clerk_attempts: attempts,
-          clerk_retry_at: new Date(Date.now() + retryDelayMs(attempts)),
-        })
+        .set(
+          clerkFailed(log, "revoke a removed phone's session", {
+            error,
+            key: key.slice(0, 8),
+            attempts: tombstone.clerk_attempts + 1,
+          }),
+        )
         .where("key", "=", key)
         .execute();
-      const fields = { err: error, key: key.slice(0, 8), attempts };
-      if (attempts >= ALERT_AFTER_ATTEMPTS)
-        log.error(
-          fields,
-          "Clerk has still not revoked a removed phone's session",
-        );
-      else
-        log.warn(
-          fields,
-          "Clerk did not revoke a removed phone's session; retrying later",
-        );
       return;
     }
     await trx

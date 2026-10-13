@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::path::PathBuf;
 
 use portable_pty::CommandBuilder;
 use serde::{Deserialize, Serialize};
@@ -62,12 +61,6 @@ pub(crate) struct PreparedLaunch {
     pub continues: Option<Continuation>,
 }
 
-fn user_home() -> PathBuf {
-    std::env::var_os("HOME")
-        .map(PathBuf::from)
-        .unwrap_or_default()
-}
-
 /// The command the app's `pty_spawn` builds, minus the parts only the app can
 /// do: it applies the browser integration to `direct_command` and passes its
 /// environment in `env`.
@@ -111,12 +104,7 @@ pub(crate) fn prepare_terminal(
         launch.cli_endpoint.as_deref(),
         &HashMap::new(),
     );
-    apply_agent_profile(
-        &mut cmd,
-        context.as_ref(),
-        direct_profile.as_ref(),
-        &user_home(),
-    );
+    apply_agent_profile(&mut cmd, context.as_ref(), direct_profile.as_ref());
     for (key, value) in env {
         cmd.env(key, value);
     }
@@ -129,7 +117,12 @@ pub(crate) fn prepare_terminal(
     } else {
         None
     };
-    let cwd = cwd.unwrap_or_else(|| user_home().to_string_lossy().into_owned());
+    let cwd = cwd.unwrap_or_else(|| {
+        sikemux_process::paths::home()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .into_owned()
+    });
     cmd.cwd(cwd);
     let login_shell = shell_wants_login_flag(&shell);
     if login_shell && startup.is_none() && direct_command.is_none() {

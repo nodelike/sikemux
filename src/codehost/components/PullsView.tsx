@@ -21,6 +21,7 @@ import { GitColumns } from "../../git/GitColumns";
 import { AuthorPicturesProvider, type AuthorPictures } from "../../git/AuthorAvatar";
 import { GitGraph } from "../../git/GitGraph";
 import { FoldPanel } from "../../git/FoldPanel";
+import { hostFileStatus } from "../../git/gitFileStatus";
 import { FileIcon } from "../../ui/FileIcon";
 import { basename, dirname } from "../../lib/paths";
 import { requestOpenFile, setGitView } from "../../state/commands";
@@ -28,16 +29,19 @@ import { useStore } from "../../state/store";
 import { DEFAULT_GIT_VIEW } from "../../state/types";
 import { hostApi, failureMessage, type MergeMethod, type Pull, type RepoRef, type Run } from "../api";
 import { pullCommitsR, pullFilesR, pullR, pullReviewsR, pullsR, runsR, timelineR } from "../resources";
-import { checksSummary, formatAgo, isUnfinished, OUTCOME_LABEL, overallOutcome, type Outcome } from "../runStatus";
+import { checksSummary, isUnfinished, OUTCOME_LABEL, overallOutcome, type Outcome } from "../runStatus";
 import { needsPull } from "../compose";
 import { compose, openRunFrom, setListState, showItem } from "../state";
 import { CommentThread, Face } from "./CommentThread";
 import { OutcomeIcon } from "./ActionsIcon";
-import { Branch, Comments, Labels, StateMark, stateLabel, stateOf, Who } from "./Bits";
-import { useBusy, useEvery, useNow } from "./hooks";
+import { pullState } from "../project";
+import { Branch, Comments, Labels, StateMark, stateLabel, Who } from "./Bits";
+import { useBusy } from "./hooks";
+import { useEvery, useNow } from "../../plugin-api/hooks";
 import { NewPullForm } from "./NewPullForm";
 import { PullFiles } from "./PullFiles";
 import { PullChecks } from "./PullChecks";
+import { formatAgo } from "../../lib/format";
 
 const LIST_STATES = ["open", "closed", "all"];
 const LIVE_REFRESH_MS = 10_000;
@@ -69,7 +73,7 @@ function PullHeadline({
     trailing?: ReactNode;
     labels?: boolean;
 }) {
-    const state = stateOf(pull.state, pull.draft);
+    const state = pullState(pull);
     return (
         <>
             <span className="pr-face">
@@ -77,7 +81,7 @@ function PullHeadline({
             </span>
             <span className="pr-headline-top">
                 <span className="gha-state-word pr-state" data-kind="pull" data-state={state}>
-                    {stateLabel("pull", pull.state, pull.draft)}
+                    {stateLabel("pull", state)}
                 </span>
                 {title}
                 {trailing}
@@ -416,13 +420,6 @@ function PullCard({
     );
 }
 
-const FILE_STATUS: Record<string, { letter: string; cls: string }> = {
-    added: { letter: "A", cls: "added" },
-    removed: { letter: "D", cls: "deleted" },
-    renamed: { letter: "R", cls: "renamed" },
-    copied: { letter: "C", cls: "renamed" },
-};
-
 /** The pull request's changed files as rows, like Changes lists staged and unstaged ones. */
 function PullFileRows({
     repo,
@@ -455,7 +452,7 @@ function PullFileRows({
             </div>
             {files.status === "loading" && !files.data && <SkeletonRows rows={3} label="Loading files" />}
             {list.map((file) => {
-                const badge = FILE_STATUS[file.status] ?? { letter: "M", cls: "modified" };
+                const badge = hostFileStatus(file.status);
                 const dir = dirname(file.path);
                 return (
                     <button
@@ -469,7 +466,9 @@ function PullFileRows({
                             {basename(file.path)}
                             {dir && <span className="git-row-dir">{dir}</span>}
                         </span>
-                        <span className={`git-status ${badge.cls}`}>{badge.letter}</span>
+                        <span className={`git-status git-${badge.cls}`} title={badge.label}>
+                            {badge.letter}
+                        </span>
                     </button>
                 );
             })}

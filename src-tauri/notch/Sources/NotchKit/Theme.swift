@@ -2,19 +2,8 @@ import AppKit
 import CoreText
 import SwiftUI
 
-/// The app's colours and type, as `src/styles/base.css` defines them.
+/// The app's colours and type. The colours `src/styles/base.css` names are in Theme.generated.swift.
 enum Theme {
-    static let ink = Color(hex: "#e7e5ef")
-    static let inkDim = Color(hex: "#8b8898")
-    static let inkFaint = Color(hex: "#736f80")
-    static let accent = Color(hex: "#a277ff")
-    static let accentSoft = Color(hex: "#a277ff").opacity(0.16)
-    static let accentLine = Color(hex: "#a277ff").opacity(0.42)
-    static let onAccent = Color(hex: "#100e16")
-    static let live = Color(hex: "#61ffca")
-    static let warn = Color(hex: "#ffca85")
-    static let command = Color(hex: "#ff6ac1")
-    static let danger = Color(hex: "#ff6767")
     static let raised = Color.white.opacity(0.06)
     static let hover = Color.white.opacity(0.07)
     static let hairline = Color.white.opacity(0.09)

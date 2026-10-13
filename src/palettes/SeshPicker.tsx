@@ -2,7 +2,8 @@ import { useModalFocus } from "../hooks/useModalFocus";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { SessionKind } from "../state/types";
 import { fuzzyScore, isSubstringMatch } from "../lib/fuzzy";
-import { basename, expandHome, normalizePath, prettyPath, relativePath } from "../lib/paths";
+import { prettyPath } from "../lib/paths";
+import { projectChoices, projectLabel } from "../projects/projectChoices";
 import { useShortcutLabel } from "../commands/useShortcutLabel";
 import { settingsApi } from "../api/settings";
 import * as cmd from "../state/commands";
@@ -79,39 +80,22 @@ export function SeshPicker() {
 
     const items = useMemo<Item[]>(() => {
         const pretty = (p: string) => prettyPath(p, home);
-        const projectLabel = (cwd: string, fallback: string) => {
-            const roots = projectRoots
-                .map((r) => normalizePath(expandHome(r.path, home)))
-                .filter(Boolean)
-                .sort((a, b) => b.length - a.length);
-            for (const root of roots) {
-                if (relativePath(cwd, root) === "") return fallback;
-                if (relativePath(cwd, root) !== null) return basename(cwd);
-            }
-            return fallback;
-        };
         const wantKind = (k: SessionKind) => mode === "all" || (mode === "projects" && k === "project") || (mode === "ssh" && k === "ssh");
         const sessionItems: Item[] = sessions
             .filter((s) => wantKind(s.kind))
             .map((s) => ({
                 kind: "session",
                 id: s.id,
-                name: s.kind === "project" ? projectLabel(s.cwd, s.name) : s.name,
+                name: s.kind === "project" ? projectLabel(s.cwd, s.name, projectRoots, home) : s.name,
                 sub: s.kind === "project" ? pretty(s.cwd) : s.kind === "ssh" ? "ssh" : isPluginKind(s.kind) ? "plugin" : "command",
                 sk: s.kind,
                 cwd: s.kind === "project" ? s.cwd : null,
             }));
 
-        const openCwds = new Set(sessions.map((s) => s.cwd).filter(Boolean));
         const dirItems: Item[] = showProjects
-            ? projects
-                  .filter((p) => !openCwds.has(p.path))
-                  .map<Item>((p) => ({
-                      kind: "dir",
-                      path: p.path,
-                      name: basename(p.path),
-                      sub: pretty(p.path),
-                  }))
+            ? projectChoices(sessions, projects, projectRoots, home)
+                  .filter((choice) => choice.sessionId === null)
+                  .map<Item>(({ path, name, sub }) => ({ kind: "dir", path, name, sub }))
             : [];
 
         const pluginGroups: Item[][] = showPlugins

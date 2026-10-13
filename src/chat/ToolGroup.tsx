@@ -1,12 +1,11 @@
 import { useLayoutEffect, useRef, useState, type CSSProperties, type RefObject } from "react";
 import { animate, EASE_IN, foldedFrames, leavingRef } from "../lib/motion";
 import { IconChevron } from "../ui/Icons";
-import { toolDescription } from "./toolOutput";
 import { LiveSeconds } from "./LiveSeconds";
 import { Shimmer } from "./Shimmer";
 import { ToolRow } from "./ToolRow";
 import { durationLabel } from "./durationLabel";
-import { toolKind, toolRunning } from "./toolLabels";
+import { callCount, callsLabel, toolGroupSummary } from "./toolView";
 import type { ChatPart } from "./types";
 
 /* A run of tool calls is worth watching while the agent is still adding to it
@@ -70,21 +69,11 @@ function useToolGroupUnfold(group: RefObject<HTMLDivElement | null>, open: boole
 
 export function ToolGroup({ tools, live }: { tools: Extract<ChatPart, { kind: "tool" }>[]; live: boolean }) {
     const [reader, setReader] = useState<boolean | null>(null);
-    const current = tools.find((part) => toolRunning(part.tool));
+    const { current, said, spent, kindWidth } = toolGroupSummary(tools);
     const open = reader ?? (live || current !== undefined);
     const groupRef = useRef<HTMLDivElement>(null);
     useToolGroupUnfold(groupRef, open);
-    const spent = tools.reduce(
-        (total, part) => total + (part.startedAt !== undefined && part.endedAt !== undefined ? part.endedAt - part.startedAt : 0),
-        0,
-    );
-    /* One column for every call in the run, as wide as the longest name in it:
-       a run of reads stays tight, one that called an MCP server gets the room.
-       The extra pixel is for layout rounding, which otherwise cuts an exact fit. */
-    const kindWidth = Math.min(16, Math.max(4, ...tools.map((part) => toolKind(part.tool).length)));
-    // While a call runs, the header says what Claude said it is for; a finished run counts its calls.
-    const said = current ? toolDescription(current.tool) : null;
-    const callCount = `${tools.length} tool ${tools.length === 1 ? "call" : "calls"}`;
+    const calls = callsLabel(tools.length);
     return (
         <div className="chat-tools" ref={groupRef}>
             <button type="button" className={`chat-tools-sum${current ? " live" : ""}`} aria-expanded={open} onClick={() => setReader(!open)}>
@@ -93,12 +82,10 @@ export function ToolGroup({ tools, live }: { tools: Extract<ChatPart, { kind: "t
                         <span className="chat-tools-label said chat-shimmer">
                             <Shimmer>{said}</Shimmer>
                         </span>
-                        {tools.length > 1 && <span className="chat-tools-calls">{tools.length} calls</span>}
+                        {tools.length > 1 && <span className="chat-tools-calls">{callCount(tools.length)}</span>}
                     </>
                 ) : (
-                    <span className={`chat-tools-label${current ? " chat-shimmer" : ""}`}>
-                        {current ? <Shimmer>{callCount}</Shimmer> : callCount}
-                    </span>
+                    <span className={`chat-tools-label${current ? " chat-shimmer" : ""}`}>{current ? <Shimmer>{calls}</Shimmer> : calls}</span>
                 )}
                 {current ? (
                     <LiveSeconds key={current.id} since={current.startedAt} spent={spent} />
@@ -107,6 +94,7 @@ export function ToolGroup({ tools, live }: { tools: Extract<ChatPart, { kind: "t
                 )}
                 <IconChevron size={10} className="chat-tools-chevron" />
             </button>
+            {/* The extra pixel is for layout rounding, which otherwise cuts an exact fit. */}
             {open && (
                 <div className="chat-tools-body" ref={foldToolBody} style={{ "--chat-kind": `calc(${kindWidth}ch + 1px)` } as CSSProperties}>
                     {tools.map((part) => (

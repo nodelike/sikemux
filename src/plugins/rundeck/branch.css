@@ -2,7 +2,7 @@
     color: var(--live);
 }
 .rnd-branch-feature {
-    color: #7aa0d6;
+    color: var(--git-renamed);
 }
 .rnd-branch-fix {
     color: var(--danger);

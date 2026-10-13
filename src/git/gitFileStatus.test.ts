@@ -12,7 +12,7 @@ describe("git file status decorations", () => {
             { letter: "U", cls: "u", label: "untracked", source: "untracked" },
         ]);
         expect(gitFileBadges({ path: "file.ts", index: "U", worktree: "U" })).toEqual([
-            { letter: "U", cls: "u", label: "unmerged", source: "unmerged" },
+            { letter: "U", cls: "c", label: "unmerged", source: "unmerged" },
         ]);
     });
 

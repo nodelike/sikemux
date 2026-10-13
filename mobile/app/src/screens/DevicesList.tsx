@@ -4,6 +4,7 @@ import { router, useIsFocused } from 'expo-router';
 import { useUser } from '@clerk/expo';
 import * as Clipboard from 'expo-clipboard';
 import type { Device } from '@protocol';
+import { AGENT_LABELS } from '@mac/state/agentStatus';
 
 import { AccountSheet } from '@/account/AccountSheet';
 import { Avatar } from '@/account/Avatar';
@@ -13,7 +14,7 @@ import { reloadDevices, retry, useHostStatus, useLive } from '@/devices/hub';
 import { channelLabel, deviceKind, deviceName, type PairedDevice } from '@/devices/paired';
 import { asking as askingOf } from '@/devices/asking';
 import { summary } from '@/devices/status';
-import { chatTitle } from '@/devices/words';
+import { chatDisplay, chatTitle } from '@/devices/words';
 import { haptics } from '@/ui/haptics';
 import { AgentIcon, DeviceIcon, Icon } from '@/ui/Icon';
 import { Wants } from './Wants';
@@ -34,7 +35,13 @@ function DeviceCard({ device }: { device: PairedDevice }) {
   const snapshot = status.online ? live.snapshot : undefined;
   const asking = snapshot?.attentions[0];
   const askingChat = asking ? snapshot?.chats.find((chat) => chat.agentId === asking.agentId) : undefined;
-  const working = snapshot ? snapshot.chats.filter((chat) => chat.running) : [];
+  const displays = (snapshot?.chats ?? []).map((chat) => ({ chat, display: chatDisplay(chat) }));
+  const working = displays.filter(({ display }) => display.group === 'working').map(({ chat }) => chat);
+  const background = displays.reduce((sum, { display }) => sum + display.subagents + display.tasks, 0);
+  const busy = working.length ? working : displays.filter(({ display }) => display.subagents + display.tasks).map(({ chat }) => chat);
+  const work = [working.length ? `${working.length} working` : null, background ? `${background} in the background` : null]
+    .filter(Boolean)
+    .join(' · ');
   const channel = channelLabel(device.channel);
   const meta = snapshot ? summary(snapshot) : status.online ? 'Connecting…' : status.line;
 
@@ -66,23 +73,23 @@ function DeviceCard({ device }: { device: PairedDevice }) {
               {askingChat ? chatTitle(askingChat) : asking.provider}
             </Text>
             <Text style={styles.askDetail} numberOfLines={1}>
-              {askingOf(asking) ? <Wants attention={asking} /> : 'Needs input'}
+              {askingOf(asking) ? <Wants attention={asking} /> : AGENT_LABELS.blocked}
             </Text>
           </View>
           <NeedsYou />
         </View>
       ) : null}
-      {working.length ? (
+      {busy.length ? (
         <View style={styles.work}>
           <View style={styles.faces}>
-            {working.slice(0, 4).map((chat, index) => (
+            {busy.slice(0, 4).map((chat, index) => (
               <View key={chat.agentId} style={[styles.face, index > 0 && styles.faceAfter]}>
                 <AgentIcon provider={chat.provider} size={18} />
               </View>
             ))}
           </View>
-          <Text style={styles.workText}>{working.length} working</Text>
-          <Working />
+          <Text style={styles.workText}>{work}</Text>
+          {working.length ? <Working /> : null}
         </View>
       ) : null}
     </Pressable>

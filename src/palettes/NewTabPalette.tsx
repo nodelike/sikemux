@@ -5,7 +5,8 @@ import { nearestAgentId } from "../state/selectors";
 import { useShortcutLabel } from "../commands/useShortcutLabel";
 import { useModalFocus } from "../hooks/useModalFocus";
 import { useMouseActive } from "../hooks/useMouseActive";
-import { IconAgent, IconCommand, IconCommit, IconEditor, IconGlobe, IconPhone, IconSearch } from "../ui/Icons";
+import { IconAgent, IconCommand, IconGlobe, IconPhone, WindowIcon } from "../ui/Icons";
+import { PROJECT_SURFACES } from "../workbench/surfaces";
 import { simUsable, useSimStatus } from "../sim/simStatus";
 import { leavingOverlay } from "../lib/motion";
 
@@ -32,8 +33,8 @@ export function NewTabPalette() {
         agent: useShortcutLabel("agent.choose"),
         browser: useShortcutLabel("browser.tabNew"),
         file: useShortcutLabel("palette.files"),
-        git: useShortcutLabel("window.git"),
-        search: useShortcutLabel("search.global"),
+        git: useShortcutLabel(PROJECT_SURFACES.git.shortcut),
+        search: useShortcutLabel(PROJECT_SURFACES.search.shortcut),
     };
     const [selected, setSelected] = useState(0);
     const selectedRef = useRef(0);
@@ -81,29 +82,29 @@ export function NewTabPalette() {
             : []),
         {
             id: "editor",
-            label: "File",
+            label: PROJECT_SURFACES.files.label,
             detail: project ? "Open a project file" : "Open a project first",
-            icon: <IconEditor size={14} />,
+            icon: <WindowIcon role="files" size={14} />,
             shortcut: shortcuts.file,
             open: cmd.openFilePalette,
             disabled: !project,
         },
         {
             id: "git",
-            label: "Git",
+            label: PROJECT_SURFACES.git.label,
             detail: project ? "Changes, branches, remotes and stashes" : "Open a project first",
-            icon: <IconCommit size={14} />,
+            icon: <WindowIcon role="git" size={14} />,
             shortcut: shortcuts.git,
-            open: cmd.openGitWorkbench,
+            open: PROJECT_SURFACES.git.open,
             disabled: !project,
         },
         {
             id: "search",
-            label: "Search",
+            label: PROJECT_SURFACES.search.label,
             detail: project ? "Search across the project" : "Open a project first",
-            icon: <IconSearch size={14} />,
+            icon: <WindowIcon role="search" size={14} />,
             shortcut: shortcuts.search,
-            open: cmd.focusGlobalSearch,
+            open: PROJECT_SURFACES.search.open,
             disabled: !project,
         },
     ];

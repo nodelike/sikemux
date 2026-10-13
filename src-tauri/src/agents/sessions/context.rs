@@ -5,6 +5,7 @@ use serde::Serialize;
 use serde_json::Value;
 use tauri::async_runtime::spawn_blocking;
 
+use super::claude::claude_transcript;
 use super::{collect_jsonl, read_suffix};
 use crate::agents::config::agent_config_root;
 use crate::agents::AgentKind;
@@ -65,11 +66,7 @@ pub(crate) fn session_transcript_path(
     match agent {
         AgentKind::Claude => {
             let root = agent_config_root("claude", config_path)?;
-            Some(
-                root.join("projects")
-                    .join(cwd.replace('/', "-"))
-                    .join(format!("{session_id}.jsonl")),
-            )
+            Some(claude_transcript(&root, cwd, session_id))
         }
         AgentKind::Codex => {
             let root = agent_config_root("codex", config_path)?;

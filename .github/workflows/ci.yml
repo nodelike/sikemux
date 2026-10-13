@@ -74,6 +74,9 @@ jobs:
       - name: Check the generated agent tool list matches its source
         run: pnpm agent-tools:check
 
+      - name: Check the generated agent catalog matches its source
+        run: pnpm agent-catalog:check
+
       - name: Check the file icons match the installed icon theme
         run: pnpm file-icons:check
 

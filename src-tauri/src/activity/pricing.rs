@@ -276,10 +276,7 @@ fn write_cache(fetched_at_ms: i64, document: Value) {
         document,
     };
     if let Ok(bytes) = serde_json::to_vec(&file) {
-        let partial = path.with_extension("json.partial");
-        if fs::write(&partial, bytes).is_ok() {
-            let _ = fs::rename(partial, path);
-        }
+        let _ = sikemux_process::files::write_atomic(&path, &bytes, false);
     }
 }
 

@@ -1,6 +1,6 @@
 // Reading and changing issues: JQL search, one issue with its comments and the
-// transitions it can take, comments, workflow transitions, assignment, new
-// issues, time logged, and the person's saved filters.
+// transitions it can take, comments, workflow transitions, assignment, new and edited
+// issues, links between them, time logged, and the person's saved filters.
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -8,7 +8,7 @@ use std::sync::Mutex;
 
 use reqwest::Method;
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::{json, Map, Value};
 
 use crate::adf;
 use crate::auth;
@@ -603,55 +603,383 @@ pub async fn assignable(data_dir: &Path, request: AssignableRequest) -> JiraResu
         .unwrap_or_default())
 }
 
+/// Fields an agent can set when creating or editing an issue. Only those given are sent.
+#[derive(Deserialize, Default)]
+pub struct Changes {
+    #[serde(default)]
+    pub summary: Option<String>,
+    #[serde(default)]
+    pub description: Option<String>,
+    #[serde(default)]
+    pub parent: Option<String>,
+    #[serde(default)]
+    pub priority: Option<String>,
+    #[serde(default)]
+    pub assignee: Option<String>,
+    #[serde(default)]
+    pub labels: Option<Vec<String>>,
+    #[serde(default)]
+    pub fields: Map<String, Value>,
+}
+
+/// The changes in the shape Jira's `fields` takes. An empty parent or assignee clears it;
+/// `me` assigns whoever signed in.
+pub fn fields_of(changes: Changes, me: &str) -> JiraResult<Map<String, Value>> {
+    let mut fields = Map::new();
+    if let Some(summary) = changes.summary {
+        if summary.trim().is_empty() {
+            return Err(JiraError::BadArg("the summary cannot be empty".into()));
+        }
+        fields.insert("summary".into(), json!(summary.trim()));
+    }
+    if let Some(description) = changes.description {
+        let document = if description.trim().is_empty() {
+            Value::Null
+        } else {
+            adf::from_markdown(&description)
+        };
+        fields.insert("description".into(), document);
+    }
+    if let Some(parent) = changes.parent {
+        let parent = parent.trim();
+        let value = if parent.is_empty() {
+            Value::Null
+        } else {
+            issue_path(parent)?;
+            json!({ "key": parent.to_ascii_uppercase() })
+        };
+        fields.insert("parent".into(), value);
+    }
+    if let Some(priority) = changes.priority.filter(|name| !name.trim().is_empty()) {
+        fields.insert("priority".into(), json!({ "name": priority.trim() }));
+    }
+    if let Some(assignee) = changes.assignee {
+        let account = match assignee.trim() {
+            "" => Value::Null,
+            id if id.eq_ignore_ascii_case("me") => json!({ "accountId": me }),
+            id => json!({ "accountId": id }),
+        };
+        fields.insert("assignee".into(), account);
+    }
+    if let Some(labels) = changes.labels {
+        fields.insert("labels".into(), json!(labels));
+    }
+    fields.extend(changes.fields);
+    Ok(fields)
+}
+
 #[derive(Deserialize)]
 pub struct CreateRequest {
     pub project: String,
-    pub summary: String,
     #[serde(default, rename = "type")]
     pub issue_type: Option<String>,
-    #[serde(default)]
-    pub description: Option<String>,
+    #[serde(flatten)]
+    pub changes: Changes,
     #[serde(default)]
     pub site: Option<String>,
 }
 
 #[derive(Serialize)]
-pub struct Created {
+pub struct Saved {
     pub key: String,
     pub url: String,
 }
 
-pub async fn create(data_dir: &Path, request: CreateRequest) -> JiraResult<Created> {
-    if request.summary.trim().is_empty() || request.project.trim().is_empty() {
+fn project_path(project: &str) -> JiraResult<String> {
+    let valid = !project.is_empty()
+        && project
+            .chars()
+            .all(|character| character.is_ascii_alphanumeric() || character == '_');
+    if !valid {
+        return Err(JiraError::BadArg(format!(
+            "{project:?} is not a project key like ABC"
+        )));
+    }
+    Ok(format!("/rest/api/3/project/{project}"))
+}
+
+/// The issue types a project can create, by name.
+async fn issue_types(credentials: &Credentials, project: &str) -> JiraResult<Vec<String>> {
+    let found = client::send(credentials, Method::GET, &project_path(project)?, &[], None).await?;
+    Ok(found
+        .get("issueTypes")
+        .and_then(Value::as_array)
+        .map(|types| {
+            types
+                .iter()
+                .filter_map(|kind| text(kind.get("name")))
+                .collect()
+        })
+        .unwrap_or_default())
+}
+
+pub async fn create(data_dir: &Path, request: CreateRequest) -> JiraResult<Saved> {
+    let project = request.project.trim().to_ascii_uppercase();
+    let has_summary = request
+        .changes
+        .summary
+        .as_deref()
+        .is_some_and(|summary| !summary.trim().is_empty());
+    if !has_summary || project.is_empty() {
         return Err(JiraError::BadArg(
             "a project key and a summary are both needed".into(),
         ));
     }
     let (site, credentials) = auth::credentials(data_dir, request.site.as_deref()).await?;
-    let mut fields = json!({
-        "project": { "key": request.project.trim().to_ascii_uppercase() },
-        "summary": request.summary.trim(),
-        "issuetype": { "name": request.issue_type.unwrap_or_else(|| "Task".into()) },
-    });
-    if let (Some(description), Some(object)) = (
-        request.description.filter(|text| !text.trim().is_empty()),
-        fields.as_object_mut(),
-    ) {
-        object.insert("description".into(), adf::from_markdown(&description));
-    }
-    let created = client::send(
+    let issue_type = request.issue_type.unwrap_or_else(|| "Task".into());
+    let mut fields = fields_of(request.changes, &site.account_id)?;
+    fields.insert("project".into(), json!({ "key": project }));
+    fields.insert("issuetype".into(), json!({ "name": issue_type }));
+    let created = match client::send(
         &credentials,
         Method::POST,
         "/rest/api/3/issue",
         &[],
         Some(&json!({ "fields": fields })),
     )
-    .await?;
+    .await
+    {
+        Err(JiraError::Http {
+            status: 400,
+            message,
+        }) if message.to_ascii_lowercase().contains("issuetype") => {
+            let types = issue_types(&credentials, &project)
+                .await
+                .unwrap_or_default();
+            return Err(JiraError::BadArg(format!(
+                "{message}; {project} has these issue types: {}",
+                types.join(", ")
+            )));
+        }
+        outcome => outcome?,
+    };
     let key = text(created.get("key"))
         .ok_or_else(|| JiraError::Response("Jira did not say which issue it made".into()))?;
-    Ok(Created {
+    Ok(Saved {
         url: format!("https://{}/browse/{key}", site.host),
         key,
+    })
+}
+
+#[derive(Deserialize)]
+pub struct EditRequest {
+    pub key: String,
+    #[serde(flatten)]
+    pub changes: Changes,
+    #[serde(default)]
+    pub site: Option<String>,
+}
+
+pub async fn edit(data_dir: &Path, request: EditRequest) -> JiraResult<Saved> {
+    let (site, credentials) = auth::credentials(data_dir, request.site.as_deref()).await?;
+    let path = issue_path(&request.key)?;
+    let fields = fields_of(request.changes, &site.account_id)?;
+    if fields.is_empty() {
+        return Err(JiraError::BadArg("say which fields to change".into()));
+    }
+    client::send(
+        &credentials,
+        Method::PUT,
+        &path,
+        &[],
+        Some(&json!({ "fields": fields })),
+    )
+    .await?;
+    let key = request.key.trim().to_ascii_uppercase();
+    Ok(Saved {
+        url: format!("https://{}/browse/{key}", site.host),
+        key,
+    })
+}
+
+#[derive(Debug, PartialEq)]
+pub struct LinkType {
+    pub name: String,
+    /// How the issue at the start of the link reads, e.g. "blocks".
+    pub outward: String,
+    /// How the issue at its end reads, e.g. "is blocked by".
+    pub inward: String,
+}
+
+pub fn link_types(body: &Value) -> Vec<LinkType> {
+    body.get("issueLinkTypes")
+        .and_then(Value::as_array)
+        .map(|types| {
+            types
+                .iter()
+                .filter_map(|kind| {
+                    Some(LinkType {
+                        name: text(kind.get("name"))?,
+                        outward: text(kind.get("outward"))?,
+                        inward: text(kind.get("inward"))?,
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// The link type `relation` names, and whether the issue it describes starts the link. A type's
+/// own name, such as "Blocks", reads as its outward wording.
+pub fn relation<'a>(types: &'a [LinkType], relation: &str) -> Option<(&'a LinkType, bool)> {
+    let wanted = relation.trim();
+    let same = |a: &str| a.eq_ignore_ascii_case(wanted);
+    types
+        .iter()
+        .find(|kind| same(&kind.outward))
+        .map(|kind| (kind, true))
+        .or_else(|| {
+            types
+                .iter()
+                .find(|kind| same(&kind.inward))
+                .map(|kind| (kind, false))
+        })
+        .or_else(|| {
+            types
+                .iter()
+                .find(|kind| same(&kind.name))
+                .map(|kind| (kind, true))
+        })
+}
+
+/// One of an issue's links, seen from that issue.
+struct IssueLink {
+    id: String,
+    kind: String,
+    other: String,
+    /// Whether the issue it was read from starts the link, as ABC-1 does in "ABC-1 blocks ABC-2".
+    starts: bool,
+}
+
+fn links_of(issue: &Value) -> Vec<IssueLink> {
+    issue
+        .pointer("/fields/issuelinks")
+        .and_then(Value::as_array)
+        .map(|links| {
+            links
+                .iter()
+                .filter_map(|link| {
+                    let outward = text(link.pointer("/outwardIssue/key"));
+                    Some(IssueLink {
+                        id: text(link.get("id"))?,
+                        kind: text(link.pointer("/type/name"))?,
+                        starts: outward.is_some(),
+                        other: outward.or_else(|| text(link.pointer("/inwardIssue/key")))?,
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+async fn links(credentials: &Credentials, path: &str) -> JiraResult<Vec<IssueLink>> {
+    let issue = client::send(
+        credentials,
+        Method::GET,
+        path,
+        &[("fields", "issuelinks".into())],
+        None,
+    )
+    .await?;
+    Ok(links_of(&issue))
+}
+
+#[derive(Deserialize)]
+pub struct LinkRequest {
+    pub key: String,
+    pub relation: String,
+    pub other: String,
+    #[serde(default)]
+    pub site: Option<String>,
+}
+
+#[derive(Serialize)]
+pub struct Linked {
+    /// The link as Jira now reads it from `key`, e.g. "ABC-1 blocks ABC-2".
+    pub link: String,
+}
+
+/// Links two issues so the sentence reads true. Jira's create call is easy to get backwards, so
+/// the link is read back from `key` and made again the other way round if it came out reversed.
+pub async fn link(data_dir: &Path, request: LinkRequest) -> JiraResult<Linked> {
+    let (_, credentials) = auth::credentials(data_dir, request.site.as_deref()).await?;
+    let path = issue_path(&request.key)?;
+    issue_path(&request.other)?;
+    let key = request.key.trim().to_ascii_uppercase();
+    let other = request.other.trim().to_ascii_uppercase();
+    let types = link_types(
+        &client::send(
+            &credentials,
+            Method::GET,
+            "/rest/api/3/issueLinkType",
+            &[],
+            None,
+        )
+        .await?,
+    );
+    let Some((kind, starts)) = relation(&types, &request.relation) else {
+        let wordings = types
+            .iter()
+            .map(|kind| format!("{} / {}", kind.outward, kind.inward))
+            .collect::<Vec<_>>()
+            .join(", ");
+        return Err(JiraError::BadArg(format!(
+            "{:?} is not a link this site has; it has: {wordings}",
+            request.relation
+        )));
+    };
+    let (start, end) = if starts {
+        (&key, &other)
+    } else {
+        (&other, &key)
+    };
+    let before: Vec<String> = links(&credentials, &path)
+        .await?
+        .into_iter()
+        .map(|link| link.id)
+        .collect();
+    let post = |inward: &str, outward: &str| {
+        json!({
+            "type": { "name": kind.name },
+            "inwardIssue": { "key": inward },
+            "outwardIssue": { "key": outward },
+        })
+    };
+    client::send(
+        &credentials,
+        Method::POST,
+        "/rest/api/3/issueLink",
+        &[],
+        Some(&post(start, end)),
+    )
+    .await?;
+    let reversed = links(&credentials, &path).await?.into_iter().find(|link| {
+        !before.contains(&link.id)
+            && link.kind == kind.name
+            && link.other == other
+            && link.starts != starts
+    });
+    if let Some(reversed) = reversed {
+        client::send(
+            &credentials,
+            Method::DELETE,
+            &format!("/rest/api/3/issueLink/{}", reversed.id),
+            &[],
+            None,
+        )
+        .await?;
+        client::send(
+            &credentials,
+            Method::POST,
+            "/rest/api/3/issueLink",
+            &[],
+            Some(&post(end, start)),
+        )
+        .await?;
+    }
+    let wording = if starts { &kind.outward } else { &kind.inward };
+    Ok(Linked {
+        link: format!("{key} {wording} {other}"),
     })
 }
 

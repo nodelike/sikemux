@@ -633,7 +633,6 @@ impl CoreClient {
         .await
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub async fn acp_edit(
         &self,
         agent_id: String,
@@ -641,7 +640,6 @@ impl CoreClient {
         text: String,
         paths: Vec<String>,
         context: Vec<ChatContext>,
-        restore_files: bool,
     ) -> Result<(), ClientError> {
         self.request_done(Request::AcpEdit {
             agent_id,
@@ -649,7 +647,6 @@ impl CoreClient {
             text,
             paths,
             context,
-            restore_files,
         })
         .await
     }

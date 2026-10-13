@@ -7,11 +7,17 @@ import type {
   LiveServerMessage,
   RevokeReason,
 } from "@sikemux/protocol";
-import { validator } from "@sikemux/protocol";
+import { LiveCloseCode, validator } from "@sikemux/protocol";
 import { sql, type Kysely } from "kysely";
 import type { RawData, WebSocket } from "ws";
 
-import { checkStanding, type Identity, type Verifier } from "../auth.ts";
+import {
+  checkStanding,
+  isSession,
+  isWeb,
+  type Identity,
+  type Verifier,
+} from "../auth.ts";
 import type { Tables } from "../db.ts";
 import { removeDevice } from "../devices/removal.ts";
 import { liveMessage, signedBy } from "../devices/signature.ts";
@@ -22,7 +28,7 @@ import type { RateLimiter } from "../limits.ts";
 import type { Logger } from "../log.ts";
 import type { Pusher } from "../push/send.ts";
 import type { Hub, Member } from "./hub.ts";
-import { CLOSE, type LiveOptions } from "./options.ts";
+import type { LiveOptions } from "./options.ts";
 
 export interface LiveContext {
   db: Kysely<Tables>;
@@ -31,7 +37,6 @@ export interface LiveContext {
   limiter: RateLimiter;
   log: Logger;
   options: LiveOptions;
-  appOrigin: string;
   pusher: Pusher;
 }
 
@@ -123,7 +128,7 @@ export class LiveSocket implements Member {
     this.timers.push(
       setTimeout(() => {
         if (this.phase === "hello")
-          this.close(CLOSE.helloTimeout, "no hello in time");
+          this.close(LiveCloseCode.helloTimeout, "no hello in time");
       }, options.helloTimeoutMs),
       setInterval(() => {
         if (Date.now() - this.lastHeard > options.silenceMs) {
@@ -148,13 +153,13 @@ export class LiveSocket implements Member {
   }
 
   replaced() {
-    this.close(CLOSE.replaced, "a newer connection for this device");
+    this.close(LiveCloseCode.replaced, "a newer connection for this device");
   }
 
   async bye(reconnectAfterMs: number) {
     if (this.phase === "closing") return this.finished;
     this.send({ type: "bye", reconnectAfterMs });
-    this.close(CLOSE.restarting, "restarting");
+    this.close(LiveCloseCode.restarting, "restarting");
     return this.finished;
   }
 
@@ -163,7 +168,7 @@ export class LiveSocket implements Member {
       this.ws.send(JSON.stringify(message));
   }
 
-  private close(code: number, reason: string) {
+  private close(code: LiveCloseCode, reason: string) {
     if (this.phase === "closing") return;
     this.phase = "closing";
     this.ws.close(code, reason);
@@ -172,7 +177,7 @@ export class LiveSocket implements Member {
   private serially(task: () => Promise<void>) {
     this.queue = this.queue.then(task).catch((error: unknown) => {
       this.log.error({ err: error }, "a live connection's work failed");
-      this.close(1011, "server error");
+      this.close(LiveCloseCode.serverError, "server error");
     });
   }
 
@@ -184,7 +189,7 @@ export class LiveSocket implements Member {
       this.messageWindow = { started: now, count: 0 };
     this.messageWindow.count += 1;
     if (this.messageWindow.count > options.messagesPerSecond) {
-      this.close(CLOSE.overLimit, "too many messages");
+      this.close(LiveCloseCode.overLimit, "too many messages");
       return;
     }
     if (this.phase === "closing") return;
@@ -197,7 +202,7 @@ export class LiveSocket implements Member {
     }
     const result = protocol.validate("LiveDeviceMessage", value);
     if (!result.ok) {
-      this.close(CLOSE.badMessage, "not a live message");
+      this.close(LiveCloseCode.badMessage, "not a live message");
       return;
     }
     this.handle(result.value);
@@ -206,7 +211,7 @@ export class LiveSocket implements Member {
   private handle(message: LiveDeviceMessage) {
     if (message.type === "hello") {
       if (this.phase !== "hello") {
-        this.close(CLOSE.badMessage, "one hello per connection");
+        this.close(LiveCloseCode.badMessage, "one hello per connection");
         return;
       }
       this.phase = "proving";
@@ -214,7 +219,7 @@ export class LiveSocket implements Member {
       return;
     }
     if (this.phase !== "live") {
-      this.close(CLOSE.badMessage, "hello first");
+      this.close(LiveCloseCode.badMessage, "hello first");
       return;
     }
     switch (message.type) {
@@ -225,21 +230,21 @@ export class LiveSocket implements Member {
         return;
       case "auth":
         if (this.role !== "web") {
-          this.close(CLOSE.badMessage, "only the web app sends auth");
+          this.close(LiveCloseCode.badMessage, "only the web app sends auth");
           return;
         }
         this.serially(() => this.reauthenticate(message.token));
         return;
       case "leave":
         if (this.role === "web") {
-          this.close(CLOSE.badMessage, "the web app is not a device");
+          this.close(LiveCloseCode.badMessage, "the web app is not a device");
           return;
         }
         this.serially(() => this.leave());
         return;
       case "push":
         if (this.role !== "host") {
-          this.close(CLOSE.badMessage, "only hosts push");
+          this.close(LiveCloseCode.badMessage, "only hosts push");
           return;
         }
         this.push(message);
@@ -284,8 +289,8 @@ export class LiveSocket implements Member {
         "refused a live hello",
       );
       if (error instanceof HelloLimited)
-        this.close(CLOSE.overLimit, "too many failed hellos");
-      else this.close(CLOSE.unauthenticated, "not signed in");
+        this.close(LiveCloseCode.overLimit, "too many failed hellos");
+      else this.close(LiveCloseCode.unauthenticated, "not signed in");
       return;
     }
     if (this.phase === "closing") return;
@@ -307,7 +312,10 @@ export class LiveSocket implements Member {
       this.storedThrough = proven.cursor;
     }
     if (!hub.admit(this)) {
-      this.close(CLOSE.overLimit, "too many connections for this account");
+      this.close(
+        LiveCloseCode.overLimit,
+        "too many connections for this account",
+      );
       return;
     }
     this.phase = "live";
@@ -385,7 +393,7 @@ export class LiveSocket implements Member {
     if (hello.role === "client") {
       if (!hello.token) throw new HelloRefused("a client sends its session");
       identity = await verifier.verify(hello.token);
-      if (identity.via !== "session")
+      if (!isSession(identity))
         throw new HelloRefused("a client signs in with a session token");
     }
 
@@ -432,9 +440,7 @@ export class LiveSocket implements Member {
   }
 
   private checkWebIdentity(identity: Identity) {
-    if (identity.via !== "session")
-      throw new HelloRefused("the web app signs in with a session token");
-    if (identity.origin !== this.context.appOrigin)
+    if (!isWeb(identity))
       throw new HelloRefused("the token was not issued to the web app");
   }
 
@@ -443,7 +449,7 @@ export class LiveSocket implements Member {
     const delay =
       expiresAt.getTime() - Date.now() + this.context.options.authGraceMs;
     this.authTimer = setTimeout(
-      () => this.close(CLOSE.unauthenticated, "the sign-in expired"),
+      () => this.close(LiveCloseCode.unauthenticated, "the sign-in expired"),
       Math.max(0, delay),
     );
   }
@@ -460,7 +466,7 @@ export class LiveSocket implements Member {
     } catch (error) {
       if (!(error instanceof HelloRefused || error instanceof ApiFailure))
         throw error;
-      this.close(CLOSE.unauthenticated, "not signed in");
+      this.close(LiveCloseCode.unauthenticated, "not signed in");
     }
   }
 
@@ -503,7 +509,7 @@ export class LiveSocket implements Member {
       this.inFlight.length < options.framesAhead
     ) {
       if (this.ws.bufferedAmount > options.dropBytes) {
-        this.close(CLOSE.overloaded, "not reading");
+        this.close(LiveCloseCode.overloaded, "not reading");
         return;
       }
       if (this.ws.bufferedAmount > options.pauseBytes) {
@@ -547,7 +553,7 @@ export class LiveSocket implements Member {
       { role: this.role, key: this.deviceKey?.slice(0, 8), reason },
       "told a live connection it was revoked",
     );
-    this.close(CLOSE.revoked, "revoked");
+    this.close(LiveCloseCode.revoked, "revoked");
   }
 
   private onAck(id: number) {

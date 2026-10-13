@@ -3,6 +3,7 @@
 //! answered in Rust, and the rest wait in a queue the page claims and answers.
 
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::{mpsc, Mutex};
 use std::time::Duration;
 
@@ -275,12 +276,18 @@ pub async fn harness_resolve_path(project: String, path: String) -> Result<Strin
 }
 
 fn resolve_project_path(project: String, path: String) -> Result<String, String> {
-    let root = std::fs::canonicalize(project).map_err(|error| error.to_string())?;
-    let target = std::fs::canonicalize(root.join(path)).map_err(|error| error.to_string())?;
-    if !target.starts_with(&root) || !target.is_file() {
-        return Err("File must be inside the project".into());
+    match confine_to_project(&project, &path).map_err(|error| error.to_string())? {
+        Some(target) if target.is_file() => Ok(target.to_string_lossy().into_owned()),
+        _ => Err("File must be inside the project".into()),
     }
-    Ok(target.to_string_lossy().into_owned())
+}
+
+/// `path`, taken from `project` with links followed, or `None` when that leads
+/// outside the project.
+pub(crate) fn confine_to_project(project: &str, path: &str) -> std::io::Result<Option<PathBuf>> {
+    let root = std::fs::canonicalize(project)?;
+    let target = std::fs::canonicalize(root.join(path))?;
+    Ok(target.starts_with(&root).then_some(target))
 }
 
 #[cfg(test)]

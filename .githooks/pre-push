@@ -1,2 +1,17 @@
 #!/usr/bin/env bash
-exec "$(git rev-parse --show-toplevel)/scripts/pre-push.sh" "$@"
+ZERO='0000000000000000000000000000000000000000'
+root="$(git rev-parse --show-toplevel)"
+refs="$(cat)"
+
+ranges=()
+while read -r _ local_sha _ remote_sha; do
+  [ -n "$local_sha" ] && [ "$local_sha" != "$ZERO" ] || continue
+  if [ "$remote_sha" != "$ZERO" ] && git cat-file -e "$remote_sha^{commit}" 2>/dev/null; then
+    ranges+=("$remote_sha..$local_sha")
+  else
+    ranges+=("origin/main..$local_sha")
+  fi
+done <<<"$refs"
+"$root/scripts/commit-credits.sh" "${ranges[@]}" || exit 1
+
+printf '%s\n' "$refs" | exec "$root/scripts/pre-push.sh" "$@"

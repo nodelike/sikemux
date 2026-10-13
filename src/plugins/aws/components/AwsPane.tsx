@@ -59,13 +59,6 @@ export function AwsPane({ active }: { active: boolean }) {
         if (index >= 0 && event.key.length === 1) {
             event.preventDefault();
             setAwsService(AWS_SERVICES[index]);
-        } else if (event.key === "/") {
-            const filter = event.currentTarget.querySelector<HTMLInputElement>(".aws-filter input");
-            if (filter) {
-                event.preventDefault();
-                filter.focus();
-                filter.select();
-            }
         }
     };
 

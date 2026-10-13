@@ -4,7 +4,7 @@ import { useResourceEnabled } from "../../../plugin-api/resources";
 import { Checkbox, Dropdown } from "../../../plugin-api/ui";
 import type { JobOption, OptionValue } from "../api";
 import { rndOptionValuesR } from "../resources";
-import { useDebounced } from "./hooks";
+import { useDebounced } from "../../../plugin-api/hooks";
 import { optionDelimiter, splitMulti, substituteOptionRefs, type OptionValues } from "./options";
 
 interface Props {

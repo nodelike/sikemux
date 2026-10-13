@@ -1,18 +1,15 @@
 //! A resumed thread's history told to the chat as the updates it would have
 //! seen live, the way Codex's adapter replays it on `session/load`.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 use serde_json::{json, Value};
 
+use super::super::super::states::Subagent;
 use super::items;
-use super::subagents::{fallback_name, name_from_path, spawned, state_update, Addressed};
+use super::subagents::{Addressed, Route, Subagents};
 
-/// A title as the chat shows it: one line, or none when blank.
-pub(super) fn title(text: &str) -> Option<String> {
-    let title = text.split_whitespace().collect::<Vec<_>>().join(" ");
-    (!title.is_empty()).then_some(title)
-}
+pub(super) use super::super::super::feed::title;
 
 fn user_messages(turns: &[Value]) -> impl Iterator<Item = (&Value, &Value)> {
     turns.iter().flat_map(|turn| {
@@ -74,38 +71,54 @@ pub(super) fn subagent_threads(turns: &[Value]) -> Vec<String> {
     threads
 }
 
-struct Announced {
-    child: String,
-    generation: usize,
-    session: String,
-    ended: bool,
-}
-
-/// The updates replaying `turns` into session `session`. A user message is
-/// told under the id of the turn it began, which is what taking the chat back
-/// to before it names; a subagent's history is told into its own session
-/// from `children`, its thread's turns.
+/// The updates replaying `turns` of the thread `root`. A user message is told
+/// under the id of the turn it began, which is what taking the chat back to
+/// before it names. Subagents go through the same [`Subagents`] the live chat
+/// uses, so a card reloads as it ran: each time one is opened, the next turn
+/// of its own thread in `children` is told into it, and that turn's status
+/// ends it. One still open at the end lost its agent.
 pub(super) fn replay(
-    session: &str,
+    root: &str,
     turns: &[Value],
     children: &HashMap<String, Vec<Value>>,
-    ancestry: &mut HashSet<String>,
     read: &impl Fn(&str) -> Option<String>,
     out: &mut Vec<Addressed>,
 ) {
-    let mut announced: Vec<Announced> = Vec::new();
-    for turn in turns {
-        let mut first_message = true;
-        let seconds = |field: &str| turn[field].as_u64().map(|at| at * 1000);
-        let (started, completed) = (seconds("startedAt"), seconds("completedAt"));
-        for item in turn["items"].as_array().into_iter().flatten() {
-            let from = out.len();
-            match item["type"].as_str() {
-                Some("subAgentActivity") => {
-                    replay_activity(session, item, children, ancestry, read, &mut announced, out);
-                }
-                Some("collabAgentToolCall") => {}
-                Some("userMessage") => {
+    let mut replaying = Replaying {
+        subagents: Subagents::new(root.to_owned()),
+        children,
+        read,
+        told: HashMap::new(),
+        out,
+    };
+    replaying.thread(root, turns);
+    let mut lost = Vec::new();
+    replaying
+        .subagents
+        .finish_outstanding(Subagent::Disconnected, &mut lost);
+    replaying.out.extend(lost);
+}
+
+struct Replaying<'a, R> {
+    subagents: Subagents,
+    children: &'a HashMap<String, Vec<Value>>,
+    read: &'a R,
+    /// How many of each subagent thread's turns have been told.
+    told: HashMap<String, usize>,
+    out: &'a mut Vec<Addressed>,
+}
+
+impl<R: Fn(&str) -> Option<String>> Replaying<'_, R> {
+    fn thread(&mut self, thread: &str, turns: &[Value]) {
+        let session = self.subagents.session_of(thread);
+        for turn in turns {
+            let mut first_message = true;
+            let seconds = |field: &str| turn[field].as_u64().map(|at| at * 1000);
+            let (started, completed) = (seconds("startedAt"), seconds("completedAt"));
+            for item in turn["items"].as_array().into_iter().flatten() {
+                let from = self.out.len();
+                let mut opened = Vec::new();
+                if item["type"] == "userMessage" {
                     let id = if first_message {
                         &turn["id"]
                     } else {
@@ -113,125 +126,86 @@ pub(super) fn replay(
                     };
                     first_message = false;
                     for block in items::user_blocks(item) {
-                        out.push((
-                            session.to_owned(),
+                        self.out.push((
+                            session.clone(),
                             json!({ "sessionUpdate": "user_message_chunk", "messageId": id, "content": block }),
                         ));
                     }
+                } else {
+                    opened = self.item(thread, item);
                 }
-                _ => out.extend(
-                    items::replayed(item, read)
-                        .into_iter()
-                        .map(|update| (session.to_owned(), update)),
-                ),
-            }
-            let at = if item["type"] == "userMessage" {
-                started
-            } else {
-                completed
-            };
-            if let Some(at) = at {
-                for (target, update) in &mut out[from..] {
-                    if target == session {
-                        super::super::stamp_replayed(update, Some(at), false);
+                let at = if item["type"] == "userMessage" {
+                    started
+                } else {
+                    completed
+                };
+                if let Some(at) = at {
+                    for (target, update) in &mut self.out[from..] {
+                        if *target == session {
+                            super::super::stamp_replayed(update, Some(at), false);
+                        }
                     }
                 }
+                for child in opened {
+                    self.next_turn(&child);
+                }
             }
         }
     }
-    for child in announced.iter().filter(|child| !child.ended) {
-        out.push((
-            session.to_owned(),
-            state_update(&child.session, "disconnected"),
-        ));
-    }
-}
 
-fn replay_activity(
-    session: &str,
-    item: &Value,
-    children: &HashMap<String, Vec<Value>>,
-    ancestry: &mut HashSet<String>,
-    read: &impl Fn(&str) -> Option<String>,
-    announced: &mut Vec<Announced>,
-    out: &mut Vec<Addressed>,
-) {
-    let Some(child) = item["agentThreadId"].as_str() else {
-        return;
-    };
-    let name = name_from_path(
-        item["agentPath"].as_str().unwrap_or_default(),
-        fallback_name(child),
-    );
-    let task = format!("Delegated task for {name}");
-    let previous = announced.iter().position(|known| known.child == child);
-    match item["kind"].as_str() {
-        Some("started") => {
-            if previous.is_some_and(|at| !announced[at].ended) {
-                return;
-            }
-            let generation = previous.map_or(1, |at| announced[at].generation + 1);
-            let child_session = if generation == 1 {
-                child.to_owned()
-            } else {
-                format!("{child}:generation:{generation}")
-            };
-            out.push((session.to_owned(), spawned(&child_session, &name, &task)));
-            let entry = Announced {
-                child: child.to_owned(),
-                generation,
-                session: child_session.clone(),
-                ended: false,
-            };
-            match previous {
-                Some(at) => announced[at] = entry,
-                None => announced.push(entry),
-            }
-            if ancestry.contains(child) {
-                return;
-            }
-            if let Some(turn) = children
-                .get(child)
-                .and_then(|turns| turns.get(generation - 1))
+    /// Tells one finished item of `thread`, answering with the subagents it
+    /// opened.
+    fn item(&mut self, thread: &str, item: &Value) -> Vec<String> {
+        let params = json!({ "threadId": thread, "item": item });
+        let mut said = Vec::new();
+        if let Route::Session(target) =
+            self.subagents
+                .route("item/completed", &params, &mut said, &mut Vec::new())
+        {
+            self.out.extend(
+                items::replayed(item, self.read)
+                    .into_iter()
+                    .map(|update| (target.clone(), update)),
+            );
+        }
+        let opened = said
+            .iter()
+            .filter(|(_, update)| {
+                update["sessionUpdate"] == "subagent_spawned"
+                    || update["state"] == Subagent::Running.as_str()
+            })
+            .filter_map(|(_, update)| update["subagentSessionId"].as_str().map(str::to_owned))
+            .collect();
+        self.out.extend(said);
+        if item["type"] == "subAgentActivity" {
+            if let (Some(child), Some(kind)) =
+                (item["agentThreadId"].as_str(), item["kind"].as_str())
             {
-                ancestry.insert(child.to_owned());
-                replay(
-                    &child_session,
-                    std::slice::from_ref(turn),
-                    children,
-                    ancestry,
-                    read,
-                    out,
-                );
-                ancestry.remove(child);
+                self.settle(child, kind);
             }
         }
-        Some(kind @ ("completed" | "interrupted")) => {
-            let Some(at) = previous else {
-                out.push((session.to_owned(), spawned(child, &name, &task)));
-                announced.push(Announced {
-                    child: child.to_owned(),
-                    generation: 1,
-                    session: child.to_owned(),
-                    ended: false,
-                });
-                return;
-            };
-            if announced[at].ended {
-                return;
-            }
-            let state = if kind == "completed" {
-                "completed"
-            } else {
-                "cancelled"
-            };
-            out.push((
-                session.to_owned(),
-                state_update(&announced[at].session, state),
-            ));
-            announced[at].ended = true;
+        opened
+    }
+
+    fn next_turn(&mut self, child: &str) {
+        let told = self.told.entry(child.to_owned()).or_default();
+        let Some(turn) = self.children.get(child).and_then(|turns| turns.get(*told)) else {
+            return;
+        };
+        *told += 1;
+        self.thread(child, std::slice::from_ref(turn));
+        if let Some(status) = turn["status"].as_str() {
+            self.settle(child, status);
         }
-        _ => {}
+    }
+
+    /// Ends subagent `child` as `status` says, when it says it ended.
+    fn settle(&mut self, child: &str, status: &str) {
+        let params = json!({ "threadId": child, "turn": { "status": status } });
+        let mut said = Vec::new();
+        self.subagents
+            .route("turn/completed", &params, &mut said, &mut Vec::new());
+        self.out.extend(said);
     }
 }
 
@@ -267,14 +241,7 @@ mod tests {
     #[test]
     fn history_replays_as_live_updates_with_turn_ids_on_user_messages() {
         let mut out = Vec::new();
-        replay(
-            "thread",
-            &turns(),
-            &HashMap::new(),
-            &mut HashSet::new(),
-            &no_files,
-            &mut out,
-        );
+        replay("thread", &turns(), &HashMap::new(), &no_files, &mut out);
         let kinds: Vec<_> = out
             .iter()
             .map(|(session, update)| {
@@ -329,9 +296,14 @@ mod tests {
     fn a_subagents_history_goes_to_its_own_session() {
         let root = vec![json!({ "id": "turn-1", "items": [
             { "type": "userMessage", "id": "u1", "content": [{ "type": "text", "text": "go" }] },
-            { "type": "collabAgentToolCall", "id": "c1", "tool": "spawnAgent" },
+            { "type": "collabAgentToolCall", "id": "c1", "tool": "spawnAgent", "status": "completed",
+              "senderThreadId": "root", "receiverThreadIds": ["kid"], "prompt": "Check the tests",
+              "agentsStates": { "kid": { "status": "pendingInit" } } },
             { "type": "subAgentActivity", "id": "a1", "kind": "started",
               "agentThreadId": "kid", "agentPath": "/root/helper" },
+            { "type": "collabAgentToolCall", "id": "c2", "tool": "wait", "status": "completed",
+              "senderThreadId": "root", "receiverThreadIds": ["kid"],
+              "agentsStates": { "kid": { "status": "completed" } } },
             { "type": "subAgentActivity", "id": "a2", "kind": "completed",
               "agentThreadId": "kid", "agentPath": "/root/helper" },
             { "type": "subAgentActivity", "id": "a3", "kind": "started",
@@ -339,20 +311,13 @@ mod tests {
         ] })];
         let children = HashMap::from([(
             "kid".to_owned(),
-            vec![json!({ "id": "kid-turn", "items": [
+            vec![json!({ "id": "kid-turn", "status": "failed", "items": [
                 { "type": "agentMessage", "id": "msg_k", "text": "child says", "phase": null },
             ] })],
         )]);
         assert_eq!(subagent_threads(&root), ["kid", "lost"]);
         let mut out = Vec::new();
-        replay(
-            "root",
-            &root,
-            &children,
-            &mut HashSet::new(),
-            &no_files,
-            &mut out,
-        );
+        replay("root", &root, &children, &no_files, &mut out);
         let said: Vec<(String, String)> = out
             .iter()
             .map(|(session, update)| {
@@ -369,12 +334,14 @@ mod tests {
                 ("root".to_owned(), "subagent_spawned".to_owned()),
                 ("kid".to_owned(), "agent_message_chunk".to_owned()),
                 ("root".to_owned(), "subagent_state_update".to_owned()),
+                ("root".to_owned(), "tool_call".to_owned()),
                 ("root".to_owned(), "subagent_spawned".to_owned()),
                 ("root".to_owned(), "subagent_state_update".to_owned()),
             ]
         );
         assert_eq!(out[1].1["name"], "Helper");
-        assert_eq!(out[3].1["state"], "completed");
-        assert_eq!(out[5].1, state_update("lost", "disconnected"));
+        assert_eq!(out[1].1["task"], "Check the tests");
+        assert_eq!(out[3].1["state"], "failed");
+        assert_eq!(out[6].1, Subagent::Disconnected.update("lost"));
     }
 }

@@ -71,23 +71,26 @@ import { DiffBody } from "./DiffView";
 import { LiveSeconds } from "./LiveSeconds";
 import { Shimmer } from "./Shimmer";
 import { useCutOff } from "./useCutOff";
-import { durationLabel } from "./durationLabel";
-import { toolDetail, toolKind, toolLabel, toolPath, toolRunning, toolTarget, toolUrl } from "./toolLabels";
-import { sikemuxToolRow, type ToolRowIcon } from "./toolRows";
+import { toolDetail, toolKind, toolPath, toolRunning, toolTarget, toolUrl } from "./toolLabels";
+import { sikemuxToolRow } from "./toolRows";
+import { toolElapsed, toolIconName, toolRowKind, type ToolIconName } from "./toolView";
 import { attachmentName } from "./transcript";
 import type { AcpToolCall, ChatPart } from "./types";
 
-const ROW_ICONS: Record<ToolRowIcon, ComponentType<{ size?: number }>> = {
+const TOOL_ICONS: Record<ToolIconName, ComponentType<{ size?: number }>> = {
     activity: IconActivity,
+    agent: IconAgent,
     book: IconBook,
     camera: IconCamera,
     click: IconClick,
     clock: IconClock,
     close: IconClose,
     code: IconCode,
+    command: IconCommand,
     dashboard: IconDashboard,
     download: IconDownload,
     eye: IconEye,
+    file: IconFile,
     folder: IconFolder,
     globe: IconGlobe,
     highlighter: IconHighlighter,
@@ -99,10 +102,13 @@ const ROW_ICONS: Record<ToolRowIcon, ComponentType<{ size?: number }>> = {
     "log-lines": IconLogLines,
     message: IconMessage,
     mouse: IconMouse,
+    move: IconMove,
     network: IconNetwork,
     panel: IconPanel,
+    pencil: IconPencil,
     phone: IconPhone,
     pinch: IconPinch,
+    plug: IconPlug,
     pointer: IconPointer,
     "pull-request": IconPullRequest,
     record: IconRecord,
@@ -122,42 +128,22 @@ const ROW_ICONS: Record<ToolRowIcon, ComponentType<{ size?: number }>> = {
     terminal: IconTerminal,
     text: IconText,
     "touch-path": IconTouchPath,
+    trash: IconTrash,
     unlink: IconUnlink,
     upload: IconUpload,
+    warning: IconWarning,
     waterfall: IconWaterfall,
     window: IconWindow,
     workflow: IconWorkflow,
+    wrench: IconWrench,
 };
 
-function ToolKindIcon({ tool, kind }: { tool: AcpToolCall; kind?: string }) {
-    if (tool.status === "failed") return <IconWarning size={11} />;
-    const row = sikemuxToolRow(tool);
-    if (row) {
-        const mark = row.plugin ? frontendPlugin(row.plugin)?.mark : undefined;
-        if (mark) return mark(11);
-        const RowIcon = ROW_ICONS[row.icon];
-        return <RowIcon size={11} />;
-    }
-    switch (kind) {
-        case "mcp":
-            return <IconPlug size={11} />;
-        case "read":
-            return <IconFile size={11} />;
-        case "search":
-            return <IconSearch size={11} />;
-        case "edit":
-            return <IconPencil size={11} />;
-        case "move":
-            return <IconMove size={11} />;
-        case "delete":
-            return <IconTrash size={11} />;
-        case "execute":
-            return <IconCommand size={11} />;
-        case "fetch":
-            return <IconGlobe size={11} />;
-        default:
-            return toolKind(tool) === "toolsearch" ? <IconWrench size={11} /> : <IconAgent size={11} />;
-    }
+function ToolKindIcon({ tool }: { tool: AcpToolCall }) {
+    const plugin = tool.status === "failed" ? null : sikemuxToolRow(tool)?.plugin;
+    const mark = plugin ? frontendPlugin(plugin)?.mark : undefined;
+    if (mark) return mark(11);
+    const Icon = TOOL_ICONS[toolIconName(tool)];
+    return <Icon size={11} />;
 }
 
 function ToolTarget({ text }: { text: string }) {
@@ -229,9 +215,7 @@ export const ToolRow = memo(function ToolRow({ part }: { part: Extract<ChatPart,
     const [open, setOpen] = useState(false);
     const targetRef = useRef<HTMLSpanElement>(null);
     const tool = part.tool;
-    /* Our own tools are coloured by the kind they declare, like the built-in
-       ones; another MCP call is named for the server it went to. */
-    const rowKind = sikemuxToolRow(tool)?.kind ?? (toolLabel(tool.title).scope !== undefined ? "mcp" : tool.kind);
+    const rowKind = toolRowKind(tool);
     const { diff, output, failure } = part;
     const status = tool.status ?? "pending";
     const running = toolRunning(tool);
@@ -245,10 +229,7 @@ export const ToolRow = memo(function ToolRow({ part }: { part: Extract<ChatPart,
     const overflowing = useCutOff(targetRef, command !== null && !running);
     const cutOff = command !== null && !running && (overflowing || command !== target);
     const opens = Boolean(diff || output || failure) || cutOff;
-    /* A call the turn cut off has a duration, but printing it would read as a
-       call that ran that long and then finished. It says why it stopped. */
-    const measured = part.startedAt !== undefined && part.endedAt !== undefined ? part.endedAt - part.startedAt : null;
-    const elapsed = status === "cancelled" ? "stopped" : measured !== null ? durationLabel(measured) : null;
+    const elapsed = toolElapsed(part);
     const toggle = () => setOpen((current) => !current);
     const targetText =
         target || detail ? (
@@ -261,7 +242,7 @@ export const ToolRow = memo(function ToolRow({ part }: { part: Extract<ChatPart,
         <>
             <span className="chat-tool-tick" aria-hidden="true" />
             <span className="chat-tool-icon">
-                <ToolKindIcon tool={tool} kind={rowKind} />
+                <ToolKindIcon tool={tool} />
             </span>
             <span className="chat-tool-kind">{toolKind(tool)}</span>
             <span className={`chat-tool-target${running && targetText ? " chat-shimmer" : ""}`} ref={targetRef}>

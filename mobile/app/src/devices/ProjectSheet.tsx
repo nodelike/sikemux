@@ -2,7 +2,7 @@ import { useState, type ReactNode } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import type { ProjectInfo } from '@/core/protocol';
-import { providerName } from '@/devices/words';
+import { agentLabel } from '@mac/agents/catalog';
 import { AgentIcon, DrawnIcon, Icon } from '@/ui/Icon';
 import { Sheet } from '@/ui/Sheet';
 import { fonts, keyboardFor, type Palette, radius, typeFor, useColors, useStyles, useType } from '@/ui/theme';
@@ -41,7 +41,7 @@ function ProviderTiles({ offered, chosen, onChoose }: NonNullable<Props['provide
             onPress={() => onChoose(provider)}
             style={[styles.tile, on && styles.tileOn]}
             accessibilityRole="button"
-            accessibilityLabel={provider === 'all' ? 'All agents' : providerName(provider)}
+            accessibilityLabel={provider === 'all' ? 'All agents' : agentLabel(provider)}
             accessibilityState={{ selected: on }}>
             {provider === 'all' ? (
               <Text style={[styles.tileText, on && { color: colors.ink }]}>All</Text>

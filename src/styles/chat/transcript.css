@@ -163,12 +163,6 @@
     opacity: 0.45;
 }
 
-.chat-message-editor-restore.on {
-    border-color: var(--acc-line);
-    background: color-mix(in srgb, var(--acc) 14%, transparent);
-    color: var(--ink);
-}
-
 .chat-message-time {
     font-size: calc(10.5px * var(--chat-text-em, 1));
     font-variant-numeric: tabular-nums;
@@ -314,9 +308,27 @@
  * A bordered card, like the diff and the code block beside it, with a ruled
  * grid inside. It scrolls in its own box so a wide one cannot stretch the turn.
  */
+.chat-table-frame {
+    position: relative;
+    margin: 10px 0;
+}
+
+.chat-table-copy {
+    position: absolute;
+    top: 4px;
+    right: 4px;
+    background: var(--surface-raised, var(--bg));
+    opacity: 0;
+}
+
+.chat-table-frame:hover .chat-table-copy,
+.chat-table-copy:focus-visible,
+.chat-table-copy.copied {
+    opacity: 1;
+}
+
 .chat-table {
     overflow-x: auto;
-    margin: 10px 0;
     border: 1px solid var(--border, var(--line));
     border-radius: var(--radius-2);
 }

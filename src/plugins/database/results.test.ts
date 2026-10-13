@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ResultSet } from "./api";
-import { ago, cellText, resultMessage, toCsv, duration, mainResult, summary, toMarkdown, toTsv } from "./results";
+import { cellText, resultMessage, toCsv, mainResult, summary, toMarkdown, toTsv } from "./results";
 
 const customers: ResultSet = {
     columns: [
@@ -33,28 +33,11 @@ describe("results", () => {
         expect(summary({ ...customers, truncated: true })).toBe("First 2 rows; more were left out");
     });
 
-    it("writes durations the way people read them", () => {
-        expect(duration(12)).toBe("12 ms");
-        expect(duration(1530)).toBe("1.53 s");
-        expect(duration(42_000)).toBe("42.0 s");
-        expect(duration(125_000)).toBe("2 min 5 s");
-    });
-
     it("shows the last result that returned rows", () => {
         expect(mainResult({ results: [customers, changed], millis: 1 })).toBe(0);
         expect(mainResult({ results: [changed, customers], millis: 1 })).toBe(1);
         expect(mainResult({ results: [changed, changed], millis: 1 })).toBe(1);
         expect(mainResult({ results: [], millis: 1 })).toBe(0);
-    });
-
-    it("says how long ago a run was", () => {
-        const now = Date.UTC(2026, 9, 4, 12, 0, 0);
-        expect(ago(now - 20_000, now)).toBe("just now");
-        expect(ago(now - 5 * 60_000, now)).toBe("5 min ago");
-        expect(ago(now - 3 * 3_600_000, now)).toBe("3 h ago");
-        expect(ago(now - 26 * 3_600_000, now)).toBe("yesterday");
-        expect(ago(now - 3 * 86_400_000, now)).toBe("3 days ago");
-        expect(ago(now - 30 * 86_400_000, now)).toBe("Sep 4");
     });
 
     it("copies as tab-separated text with empty cells for null", () => {

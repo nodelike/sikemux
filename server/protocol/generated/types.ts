@@ -6,6 +6,8 @@ export interface Account {
   status: AccountStatus;
   /** Only while deleting: when the account is deleted for good unless restored first. */
   deletesAt?: string;
+  /** How many days a deleted account can still be restored: deletesAt is this long after the deletion. */
+  restorableDays: number;
 }
 
 /** Every device is revoked and every token refused from the moment this is answered, except to read or restore the account. Signing in again before deletesAt can restore it. */
@@ -24,6 +26,10 @@ export interface AccountDeletionRequest {
 
 /** Deleting while the account can still be restored, until the server deletes the sign-in in Clerk at deletesAt; deleted once Clerk has. */
 export type AccountDeletionStatus = "deleting" | "deleted";
+export const accountDeletionStatusValues: readonly AccountDeletionStatus[] = [
+  "deleting",
+  "deleted",
+];
 
 /** Something changed on the account. Events carry keys, never names: a device rereads the lists it shows over HTTP. */
 export interface AccountEvent {
@@ -40,9 +46,19 @@ export interface AccountEvent {
 
 export type AccountEventType =
   "device.added" | "device.changed" | "device.revoked" | "account.deleted";
+export const accountEventTypeValues: readonly AccountEventType[] = [
+  "device.added",
+  "device.changed",
+  "device.revoked",
+  "account.deleted",
+];
 
 /** Active, or deleting: deleted on request and still restorable until deletesAt. */
 export type AccountStatus = "active" | "deleting";
+export const accountStatusValues: readonly AccountStatus[] = [
+  "active",
+  "deleting",
+];
 
 /** The body of every response that is not a success. */
 export interface ApiError {
@@ -51,6 +67,10 @@ export interface ApiError {
 
 /** Which of Apple's push servers issued an iOS token: sandbox for builds run from Xcode, production for TestFlight and the App Store. */
 export type ApnsEnvironment = "sandbox" | "production";
+export const apnsEnvironmentValues: readonly ApnsEnvironment[] = [
+  "sandbox",
+  "production",
+];
 
 /** A semantic version, such as 0.5.0 or 0.6.0-nightly.3. */
 export type AppVersion = string;
@@ -63,6 +83,7 @@ export interface Challenge {
 
 /** Which build a host runs. Dev, nightly and stable cores are separate hosts. */
 export type Channel = "dev" | "nightly" | "stable";
+export const channelValues: readonly Channel[] = ["dev", "nightly", "stable"];
 
 /** An app older than its channel's version, compared as semantic versions, must update before it connects. */
 export interface ChannelVersions {
@@ -100,6 +121,7 @@ export interface DeviceRegistration {
 
 /** A host is a core people connect to, such as a Mac. A client connects to hosts, such as a phone. */
 export type DeviceRole = "host" | "client";
+export const deviceRoleValues: readonly DeviceRole[] = ["host", "client"];
 
 export type ErrorCode =
   | "bad_request"
@@ -112,6 +134,18 @@ export type ErrorCode =
   | "internal"
   | "unavailable"
   | "reverify_required";
+export const errorCodeValues: readonly ErrorCode[] = [
+  "bad_request",
+  "unauthorized",
+  "forbidden",
+  "not_found",
+  "conflict",
+  "payload_too_large",
+  "rate_limited",
+  "internal",
+  "unavailable",
+  "reverify_required",
+];
 
 export interface ErrorDetail {
   code: ErrorCode;
@@ -119,6 +153,8 @@ export interface ErrorDetail {
   message: string;
   /** The same as the response's x-request-id header, and how the server's logs find this request. */
   requestId: string;
+  /** Only with reverify_required: how recently the person must have proved their first factor. */
+  reverifyWithinMinutes?: number;
 }
 
 /** An account event's place in the log. Later events have larger ids. */
@@ -133,6 +169,10 @@ export interface Health {
 }
 
 export type HealthStatus = "ok" | "unavailable";
+export const healthStatusValues: readonly HealthStatus[] = [
+  "ok",
+  "unavailable",
+];
 
 /** Which host on the account the phone wants to join. */
 export interface JoinRequest {
@@ -174,7 +214,7 @@ export interface LiveAuth {
   token: string;
 }
 
-/** The server is restarting and closes with 1012 after it. Reconnect no sooner than reconnectAfterMs. */
+/** The server is restarting and closes with LiveCloseCode restarting after it. Reconnect no sooner than reconnectAfterMs. */
 export interface LiveBye {
   type: "bye";
   reconnectAfterMs: number;
@@ -186,6 +226,29 @@ export interface LiveChallenge {
   nonce: string;
   expiresAt: string;
 }
+
+/** Why the server closed a live connection, as the WebSocket close code. */
+export const LiveCloseCode = {
+  /** The device sent something the protocol does not allow. Reconnect with backoff. */
+  badMessage: 4400,
+  /** The hello did not prove who the device is, or the web app's sign-in expired. */
+  unauthenticated: 4401,
+  /** The device is no longer on the account, after a revoked message. Do not reconnect. */
+  revoked: 4403,
+  /** No hello came within 10 seconds of the challenge. Reconnect with backoff. */
+  helloTimeout: 4408,
+  /** A newer connection for the same device took over. Reconnecting at once would push that one off. */
+  replaced: 4409,
+  /** Over a limit: more messages a second than allowed, too many failed hellos from this key or address in a minute, or too many connections for the account. Wait at least 30 seconds, since the limits count over a minute. */
+  overLimit: 4429,
+  /** Something failed on the server. Reconnect with backoff. */
+  serverError: 1011,
+  /** The server is restarting, after a bye message. Reconnect no sooner than its reconnectAfterMs. */
+  restarting: 1012,
+  /** The server has too many connections, or the device stopped reading. Reconnect with backoff. */
+  overloaded: 1013,
+} as const;
+export type LiveCloseCode = (typeof LiveCloseCode)[keyof typeof LiveCloseCode];
 
 /** What a device or the web app sends on a live connection. */
 export type LiveDeviceMessage =
@@ -261,7 +324,7 @@ export interface LiveReset {
   latest: EventId;
 }
 
-/** This device is no longer on the account. The server closes with 4403 after it. */
+/** This device is no longer on the account. The server closes with LiveCloseCode revoked after it. */
 export interface LiveRevoked {
   type: "revoked";
   reason: RevokeReason;
@@ -269,6 +332,7 @@ export interface LiveRevoked {
 
 /** Who opens a live connection. A host or a client proves its device key; the web app is not a device and shows only its sign-in. */
 export type LiveRole = "host" | "client" | "web";
+export const liveRoleValues: readonly LiveRole[] = ["host", "client", "web"];
 
 /** What the server sends on a live connection. */
 export type LiveServerMessage =
@@ -296,15 +360,19 @@ export interface Network {
 }
 
 export type Platform = "macos" | "ios" | "android";
+export const platformValues: readonly Platform[] = ["macos", "ios", "android"];
 
 /** Which build of the phone app the token belongs to. Each has its own Firebase project and bundle id, and an API serves only one of them. */
 export type PushApp = "production" | "dev";
+export const pushAppValues: readonly PushApp[] = ["production", "dev"];
 
 /** alert shows a notification. clear removes one shown before with the same collapseId, and is delivered at a lower priority. */
 export type PushKind = "alert" | "clear";
+export const pushKindValues: readonly PushKind[] = ["alert", "clear"];
 
 /** Which service delivers to the phone: Apple's push service, or Firebase Cloud Messaging. */
 export type PushPlatform = "apns" | "fcm";
+export const pushPlatformValues: readonly PushPlatform[] = ["apns", "fcm"];
 
 /** A number the host picks for each push, so it can match the server's answer to it. */
 export type PushRef = number;
@@ -318,6 +386,15 @@ export type PushResult =
   | "expired"
   | "not_set_up"
   | "failed";
+export const pushResultValues: readonly PushResult[] = [
+  "sent",
+  "no_token",
+  "not_allowed",
+  "throttled",
+  "expired",
+  "not_set_up",
+  "failed",
+];
 
 /** Where the phone wants its notifications delivered. The signature is the phone's device key's Ed25519 signature over the UTF-8 text `sikemux-push|<nonce>|<key>|<sha256 of the token, lowercase hex>`, so no other sign-in on the account can redirect the phone's notifications. */
 export interface PushTokenRegistration {
@@ -348,6 +425,11 @@ export interface Relay {
 
 /** Why a device left its account: removed from another device or the web, signed out on the device itself, or the account was deleted. */
 export type RevokeReason = "removed" | "signed_out" | "account_deleted";
+export const revokeReasonValues: readonly RevokeReason[] = [
+  "removed",
+  "signed_out",
+  "account_deleted",
+];
 
 /** Every definition by name, so code can look a type up from the name it validates against. */
 export interface Definitions {
@@ -381,6 +463,7 @@ export interface Definitions {
   LiveAuth: LiveAuth;
   LiveBye: LiveBye;
   LiveChallenge: LiveChallenge;
+  LiveCloseCode: LiveCloseCode;
   LiveDeviceMessage: LiveDeviceMessage;
   LiveEvents: LiveEvents;
   LiveHello: LiveHello;

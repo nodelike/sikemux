@@ -34,7 +34,7 @@ describe("new tab palette", () => {
     it("numbers the destinations a project can open", () => {
         render(<NewTabPalette />);
 
-        expect(labels()).toEqual(["Terminal", "Agent", "Browser", "File", "Git", "Search"]);
+        expect(labels()).toEqual(["Terminal", "Agent", "Browser", "Files", "Git", "Search"]);
         expect(screen.getAllByRole("button").map((row) => row.querySelector("kbd")?.textContent)).toEqual(["1", "2", "3", "4", "5", "6"]);
     });
 

@@ -63,22 +63,20 @@ impl From<serde_json::Error> for GithubError {
 
 impl From<GithubError> for PluginError {
     fn from(error: GithubError) -> Self {
-        let (category, status) = match &error {
-            GithubError::Unconfigured => ("unconfigured", None),
-            GithubError::Auth(_) => ("auth", None),
-            GithubError::Forbidden(_) => ("forbidden", Some(403)),
-            GithubError::RateLimited { .. } => ("rate-limited", Some(429)),
-            GithubError::Http { status, .. } => ("http", Some(*status)),
-            GithubError::BadArg(_) => ("bad-params", None),
-            GithubError::NotFound(_) => ("not-found", Some(404)),
-            GithubError::Keychain(_) => ("keychain", None),
-            GithubError::Transport(_) => ("github", None),
-            GithubError::Response(_) => ("response", None),
-        };
-        let plugin_error = PluginError::new(category, error.to_string());
-        match status {
-            Some(status) => plugin_error.with_status(status),
-            None => plugin_error,
+        let message = error.to_string();
+        match error {
+            GithubError::Unconfigured => PluginError::new("unconfigured", message),
+            GithubError::Auth(_) => PluginError::new("auth", message),
+            GithubError::Forbidden(_) => PluginError::forbidden(message),
+            GithubError::RateLimited { .. } => {
+                PluginError::new("rate-limited", message).with_status(429)
+            }
+            GithubError::Http { status, .. } => PluginError::http(status, message),
+            GithubError::BadArg(_) => PluginError::new("bad-params", message),
+            GithubError::NotFound(_) => PluginError::new("not-found", message).with_status(404),
+            GithubError::Keychain(_) => PluginError::new("keychain", message),
+            GithubError::Transport(_) => PluginError::new("github", message),
+            GithubError::Response(_) => PluginError::new("response", message),
         }
     }
 }

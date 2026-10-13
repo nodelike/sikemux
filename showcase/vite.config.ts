@@ -1,5 +1,5 @@
 import { execFileSync, spawn } from "node:child_process";
-import { existsSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { createInterface } from "node:readline";
@@ -210,6 +210,37 @@ function parseMarkdown(requests: unknown[]): Promise<unknown[]> {
   );
 }
 
+// Xcode's bezel for the demo iPhone comes from the installed simulator helper, which only
+// draws it for a booted device, so the first answer is kept in showcase/out for later runs.
+const SIM_CHROME = join(import.meta.dirname, "out/simulator-chrome.json");
+const SIM_HELPER = join(homedir(), "Library/Application Support/com.nodelike.sikemux/sim/sikemux-sim");
+
+async function simulatorChrome(): Promise<unknown> {
+  if (existsSync(SIM_CHROME)) return JSON.parse(readFileSync(SIM_CHROME, "utf8"));
+  if (!existsSync(SIM_HELPER)) return {};
+  const listed = JSON.parse(execFileSync("xcrun", ["simctl", "list", "devices", "booted", "-j"], { encoding: "utf8" })) as {
+    devices: Record<string, { udid: string; name: string }[]>;
+  };
+  const phone = Object.values(listed.devices).flat().find((device) => device.name.startsWith("iPhone"));
+  if (!phone) return {};
+  const helper = spawn(SIM_HELPER, [], { stdio: ["pipe", "pipe", "ignore"] });
+  const answers = new Map<number, Record<string, unknown>>();
+  await new Promise<void>((settle) => {
+    createInterface({ input: helper.stdout }).on("line", (line) => {
+      const answer = JSON.parse(line) as Record<string, unknown>;
+      answers.set(answer.id as number, answer);
+      if (answers.size === 2) settle();
+    });
+    helper.stdin.write(`${JSON.stringify({ id: 1, type: "chrome", udid: phone.udid })}\n`);
+    helper.stdin.write(`${JSON.stringify({ id: 2, type: "mask", udid: phone.udid })}\n`);
+    setTimeout(settle, 15_000);
+  });
+  helper.kill();
+  const found = { chrome: answers.get(1)?.chrome ?? null, mask: answers.get(2)?.mask ?? null };
+  if (found.chrome) writeFileSync(SIM_CHROME, JSON.stringify(found));
+  return found;
+}
+
 function commitFiles(name: string, rev: string): string[] {
   if (!LOCAL_ROOTS[name] || !existsSync(LOCAL_ROOTS[name])) return [];
   try {
@@ -306,6 +337,23 @@ function demoFileSystem(): PluginOption {
         if (request.url === `/preview/${encodeURIComponent(PANE_IMAGE)}`) {
           response.setHeader("Content-Type", "image/jpeg");
           return response.end(readFileSync(PANE_IMAGE_FILE));
+        }
+        if (request.url === "/simulator/chrome") {
+          response.setHeader("Content-Type", "application/json");
+          return response.end(JSON.stringify(await simulatorChrome()));
+        }
+        if (request.url === "/simulator/frame") {
+          const frame = join(import.meta.dirname, "../mobile/showcase/out/asking.png");
+          if (!existsSync(frame)) return response.writeHead(404).end();
+          response.setHeader("Content-Type", "image/png");
+          return response.end(readFileSync(frame));
+        }
+        const shownPage = request.url?.match(/^\/page\/([0-9a-f]{32})$/);
+        if (shownPage) {
+          response.setHeader("Content-Type", "text/html");
+          return response.end(
+            readFileSync(join(import.meta.dirname, "pages", `${shownPage[1]}.html`)),
+          );
         }
         if (request.url?.split("?")[0] === "/wallpaper") {
           if (request.method === "POST") {

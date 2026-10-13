@@ -270,9 +270,8 @@ pub(super) fn rename_grok_session(
         summary["session_summary"] = Value::from(name);
     }
     let text = serde_json::to_string_pretty(&summary).map_err(|error| error.to_string())?;
-    let staged = session_dir.join("summary.json.tmp");
-    fs::write(&staged, text).map_err(|error| error.to_string())?;
-    fs::rename(&staged, &summary_path).map_err(|error| error.to_string())
+    sikemux_process::files::write_atomic(&summary_path, text.as_bytes(), false)
+        .map_err(|error| error.to_string())
 }
 
 /// Grok takes this lock around every change to a session's summary; it is released when the file closes.

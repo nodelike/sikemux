@@ -2,6 +2,10 @@ use std::path::{Component, Path, PathBuf};
 
 use serde_json::{json, Map, Value};
 
+use super::super::json::{
+    is_js_whitespace, js_join_item, js_number, js_str, non_nullish, texts, truthy,
+};
+
 pub struct ToolInfo {
     pub title: String,
     pub kind: &'static str,
@@ -1105,18 +1109,6 @@ fn parse_json_output(content: &Value, accept: &dyn Fn(&Value) -> bool) -> Option
     }
 }
 
-fn output_texts(content: &Value) -> Vec<&str> {
-    match content {
-        Value::String(text) => vec![text.as_str()],
-        Value::Array(blocks) => blocks
-            .iter()
-            .filter(|block| block.get("type").and_then(Value::as_str) == Some("text"))
-            .filter_map(|block| block.get("text").and_then(Value::as_str))
-            .collect(),
-        _ => Vec::new(),
-    }
-}
-
 fn parse_task_create(content: &Value) -> Option<String> {
     let accept = |value: &Value| {
         value
@@ -1127,7 +1119,7 @@ fn parse_task_create(content: &Value) -> Option<String> {
     if let Some(parsed) = parse_json_output(content, &accept) {
         return parsed["task"]["id"].as_str().map(str::to_string);
     }
-    output_texts(content).into_iter().find_map(|text| {
+    texts(content).into_iter().find_map(|text| {
         let rest = text.trim_matches(is_js_whitespace).strip_prefix("Task #")?;
         let id_end = rest.find(is_js_whitespace)?;
         let subject = rest[id_end..].strip_prefix(" created successfully: ")?;
@@ -1151,7 +1143,7 @@ fn parse_task_update(content: &Value, expected: Option<&str>) -> Option<(bool, S
             parsed["taskId"].as_str().unwrap_or_default().to_string(),
         ));
     }
-    output_texts(content).into_iter().find_map(|text| {
+    texts(content).into_iter().find_map(|text| {
         let trimmed = text.trim_matches(is_js_whitespace);
         let not_found = trimmed
             .strip_prefix("Task #")
@@ -1196,7 +1188,7 @@ fn parse_task_list(content: &Value) -> Option<Vec<(String, String, String)>> {
                 .collect(),
         );
     }
-    for text in output_texts(content) {
+    for text in texts(content) {
         let trimmed = text.trim_matches(is_js_whitespace);
         if trimmed == "No tasks found" {
             return Some(Vec::new());
@@ -1435,58 +1427,6 @@ fn normalize(base: &Path, path: &Path) -> PathBuf {
     out
 }
 
-pub(crate) fn truthy(value: Option<&Value>) -> bool {
-    match value {
-        None | Some(Value::Null) | Some(Value::Bool(false)) => false,
-        Some(Value::String(text)) => !text.is_empty(),
-        Some(Value::Number(number)) => number.as_f64().is_some_and(|n| n != 0.0 && !n.is_nan()),
-        Some(_) => true,
-    }
-}
-
-pub(crate) fn non_nullish(value: Option<&Value>) -> Option<&Value> {
-    value.filter(|v| !v.is_null())
-}
-
-/// How a JavaScript template literal prints a value (`undefined` when absent).
-pub(crate) fn js_str(value: Option<&Value>) -> String {
-    match value {
-        None => "undefined".to_string(),
-        Some(Value::Null) => "null".to_string(),
-        Some(Value::Bool(flag)) => flag.to_string(),
-        Some(Value::String(text)) => text.clone(),
-        Some(Value::Number(number)) => match (number.as_i64(), number.as_u64()) {
-            (Some(n), _) => n.to_string(),
-            (_, Some(n)) => n.to_string(),
-            _ => js_number(number.as_f64().unwrap_or(f64::NAN)),
-        },
-        Some(Value::Array(items)) => items
-            .iter()
-            .map(|item| js_join_item(Some(item)))
-            .collect::<Vec<_>>()
-            .join(","),
-        Some(Value::Object(_)) => "[object Object]".to_string(),
-    }
-}
-
-/// How `Array.prototype.join` prints an element: null and undefined become empty.
-fn js_join_item(value: Option<&Value>) -> String {
-    match value {
-        None | Some(Value::Null) => String::new(),
-        other => js_str(other),
-    }
-}
-
-fn js_number(number: f64) -> String {
-    if number.is_finite() && number.fract() == 0.0 && number.abs() < 1e21 {
-        format!("{number:.0}")
-    } else if number.is_nan() {
-        "NaN".to_string()
-    } else {
-        number.to_string()
-    }
-}
-
 fn js_length(value: &Value) -> usize {
     match value {
         Value::String(text) => js_length_of_str(text),
@@ -1501,11 +1441,6 @@ fn js_length_of_str(text: &str) -> usize {
 
 fn is_line_terminator(ch: char) -> bool {
     matches!(ch, '\n' | '\r' | '\u{2028}' | '\u{2029}')
-}
-
-/// The characters JavaScript's `trim` and `\s` treat as whitespace.
-pub(crate) fn is_js_whitespace(ch: char) -> bool {
-    ch.is_whitespace() || ch == '\u{feff}'
 }
 
 #[cfg(test)]

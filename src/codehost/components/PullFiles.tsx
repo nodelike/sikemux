@@ -13,19 +13,13 @@ import { reportError } from "../../state/toast";
 import { useResourceEnabled } from "../../plugin-api/resources";
 import { EmptyState, SkeletonRows } from "../../plugin-api/ui";
 import { FileReviewList } from "../../git/FileReviewList";
+import { hostFileStatus } from "../../git/gitFileStatus";
 import { failureMessage, type ChangedFile, type RepoRef } from "../api";
 import { patchToRows } from "../patchRows";
 import { pullFilesR } from "../resources";
 
 const LINE_HEIGHT = 19;
 const DIFF_PADDING = 16;
-
-const STATUS: Record<string, { letter: string; cls: string; label: string }> = {
-    added: { letter: "A", cls: "a", label: "added" },
-    removed: { letter: "D", cls: "d", label: "deleted" },
-    renamed: { letter: "R", cls: "r", label: "renamed" },
-    copied: { letter: "C", cls: "r", label: "copied" },
-};
 
 function useDarkTheme(): boolean {
     const [dark, setDark] = useState(() => currentTheme().dark);
@@ -124,7 +118,7 @@ export function PullFiles({ repo, pull, cwd, active, focusPath }: Props) {
                 status={(path) => {
                     const file = byPath.get(path);
                     if (!file) return null;
-                    const badge = STATUS[file.status] ?? { letter: "M", cls: "m", label: "modified" };
+                    const badge = hostFileStatus(file.status);
                     return (
                         <>
                             <span className="gha-diffstat">

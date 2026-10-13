@@ -76,88 +76,6 @@
     display: inline-flex;
 }
 
-.rnd-seg {
-    display: inline-flex;
-    gap: var(--space-1);
-    flex: 0 0 auto;
-}
-.rnd-seg button {
-    display: inline-flex;
-    align-items: center;
-    gap: var(--space-1h);
-    height: 28px;
-    padding: 0 10px;
-    border: 1px solid var(--border);
-    background: transparent;
-    color: var(--text-secondary);
-    font: inherit;
-    font-size: var(--text-xs);
-    white-space: nowrap;
-    cursor: pointer;
-}
-.rnd-seg button:hover {
-    background: var(--surface-hover);
-    color: var(--text-primary);
-}
-.rnd-seg button.on {
-    background: var(--surface-selected);
-    border-color: var(--border-selected);
-    color: var(--text-primary);
-}
-.rnd-seg-count {
-    font-size: var(--text-2xs);
-    font-variant-numeric: tabular-nums;
-    color: var(--text-tertiary);
-}
-
-.rnd-filter {
-    display: inline-flex;
-    align-items: center;
-    gap: var(--space-2);
-    width: 200px;
-    min-width: 110px;
-    height: 28px;
-    flex: 0 1 auto;
-    padding: 0 var(--space-1h) 0 10px;
-    border: 1px solid var(--border);
-    border-radius: var(--radius-2);
-    color: var(--text-tertiary);
-    cursor: text;
-}
-.rnd-filter:focus-within {
-    border-color: var(--border-strong);
-    box-shadow: var(--focus-ring);
-}
-.rnd-filter svg {
-    flex: 0 0 auto;
-}
-.rnd-filter input {
-    flex: 1 1 auto;
-    min-width: 0;
-    height: 100%;
-    padding: 0;
-    border: 0;
-    outline: 0;
-    background: transparent;
-    color: var(--text-primary);
-    font: inherit;
-    font-size: var(--text-xs);
-}
-.rnd-filter input::placeholder {
-    color: var(--text-tertiary);
-}
-.rnd-filter kbd {
-    flex: 0 0 auto;
-    padding: 0 5px;
-    border: 1px solid var(--border);
-    font-family: var(--ui);
-    font-size: var(--text-2xs);
-    color: var(--text-tertiary);
-}
-.rnd-filter:focus-within kbd {
-    display: none;
-}
-
 /* ---- Marks -------------------------------------------------------------- */
 
 .rnd-status {
@@ -198,10 +116,9 @@
     max-width: 100%;
     height: 22px;
     padding: 0 var(--space-2);
-    border: 1px solid var(--border);
+    border: 1px solid color-mix(in oklab, currentColor 32%, transparent);
     border-radius: var(--radius-1);
     font-size: var(--text-xs);
-    color: var(--text-secondary);
     vertical-align: middle;
 }
 .rnd-branch svg {
@@ -212,14 +129,6 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-}
-.rnd-branch.feat {
-    border-color: color-mix(in oklab, var(--git-renamed) 32%, transparent);
-    color: var(--git-renamed);
-}
-.rnd-branch.rel {
-    border-color: color-mix(in oklab, var(--acc) 32%, transparent);
-    color: color-mix(in oklab, var(--acc) 70%, var(--ink));
 }
 
 .rnd-folder,

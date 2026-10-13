@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { copyText, notify, reportError } from "../../../plugin-api/host";
+import { copyWithNotice, reportError } from "../../../plugin-api/host";
 import { useResourceEnabled } from "../../../plugin-api/resources";
 import { EmptyState, IconMinus, IconPlus, IconRefresh, SkeletonRows } from "../../../plugin-api/ui";
 import { databaseApi, refreshDatabase, type DatabaseProfile } from "../api";
@@ -62,7 +62,7 @@ export function DatabasePane({ paneId, active }: { paneId: string; active: boole
         openTable: (profile, schema, table) => showTab(paneId, tableTab(profile.id, schema, table)),
         queryTable: (profile, schema, table, run) =>
             putInConsole(profile, previewSql(profile.engine, profile.engine === "sqlite" && schema === "main" ? "" : schema, table), run),
-        copy: (text, what) => void copyText(text).then(() => notify("success", `copied the ${what}`), reportError("copy")),
+        copy: (text, what) => copyWithNotice(text, `the ${what}`),
     };
 
     if (list.length === 0 && view.editing !== "new") {

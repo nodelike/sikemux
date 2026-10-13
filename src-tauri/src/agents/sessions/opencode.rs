@@ -6,18 +6,19 @@ use std::time::Duration;
 use rusqlite::{Connection, OpenFlags};
 
 use super::recent::{Found, Hit, Listed, PageScan};
+use crate::agents::config::environment_path;
 use crate::agents::AgentSession;
 
 // ---- opencode — SQLite in the user's opencode data dir ------------------
 pub(in crate::agents) fn opencode_data_dirs() -> Vec<PathBuf> {
     let mut dirs = Vec::new();
-    if let Ok(dir) = std::env::var("OPENCODE_DATA_DIR") {
-        dirs.push(PathBuf::from(dir));
+    if let Some(dir) = environment_path("OPENCODE_DATA_DIR") {
+        dirs.push(dir);
     }
-    if let Ok(home) = std::env::var("HOME") {
-        dirs.push(PathBuf::from(&home).join(".local/share/opencode"));
-        dirs.push(PathBuf::from(&home).join("Library/Application Support/opencode"));
-        dirs.push(PathBuf::from(&home).join(".opencode/data"));
+    if let Some(home) = sikemux_process::paths::home() {
+        dirs.push(home.join(".local/share/opencode"));
+        dirs.push(home.join("Library/Application Support/opencode"));
+        dirs.push(home.join(".opencode/data"));
     }
     dirs
 }

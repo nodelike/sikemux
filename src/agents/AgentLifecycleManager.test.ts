@@ -158,7 +158,7 @@ describe("agent sleep policy", () => {
 
     it("keeps an agent that still has a shell, monitor or subagent running", () => {
         arrangeAgents(1);
-        setState({ agentBackgroundWork: { "agent-0": 1 } });
+        setState({ agentTasks: { "agent-0": 1 } });
         const hiddenSince: HiddenAgentTimes = new Map([["agent-0", 0]]);
         expect(agentIdsToAutoSleep(getState(), hiddenSince, AGENT_IDLE_SLEEP_MS * 2)).toEqual([]);
     });

@@ -1,0 +1,27 @@
+name: Credits
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, edited]
+
+permissions:
+  contents: read
+
+jobs:
+  credits:
+    name: Credits only people
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Commits
+        run: scripts/commit-credits.sh "${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }}"
+      - name: Description
+        env:
+          BODY: ${{ github.event.pull_request.body }}
+        run: |
+          if printf '%s\n' "$BODY" | grep -iqE '^co-authored-by:.*(claude|anthropic\.com)|generated with \[?claude code'; then
+            echo "::error::The pull request's description credits Claude; remove the Co-Authored-By / Generated with Claude Code lines."
+            exit 1
+          fi

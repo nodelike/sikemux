@@ -1,4 +1,6 @@
 import { useEffect, useRef, type RefObject } from "react";
+import { ENTER_GLYPH } from "../commands/keybindings";
+import { hasPrimaryModifier, PRIMARY_SHORTCUT } from "../lib/platform";
 import { useStore } from "../state/store";
 import { AgentIcon, IconAgent, IconCommand, IconCopy, IconExternal, IconGlobe, IconRun, IconWindow } from "../ui/Icons";
 import { ThemeIcon } from "../ui/FileIcon";
@@ -62,7 +64,7 @@ function PortRow({ port, deskAgent, deskTitle, close }: { port: ProjectPort; des
                 role="menuitem"
                 onClick={open}
                 onKeyDown={(event) => {
-                    if (!event.metaKey) return;
+                    if (!hasPrimaryModifier(event)) return;
                     if (event.key === "c") {
                         event.preventDefault();
                         act(() => copyPortUrl(port.url))();
@@ -151,14 +153,14 @@ export function PortsMenu({ sessionId, ports, close }: { sessionId: string; port
                 </div>
                 <div className="tb-ports-keys" aria-hidden="true">
                     <span>
-                        <kbd>↵</kbd> open
+                        <kbd>{ENTER_GLYPH}</kbd> open
                     </span>
                     <span>
-                        <kbd>⌘C</kbd> copy
+                        <kbd>{PRIMARY_SHORTCUT}C</kbd> copy
                     </span>
                     {deskAgent && (
                         <span>
-                            <kbd>⌘↵</kbd> browser
+                            <kbd>{`${PRIMARY_SHORTCUT}${ENTER_GLYPH}`}</kbd> browser
                         </span>
                     )}
                 </div>

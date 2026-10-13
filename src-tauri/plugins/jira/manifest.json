@@ -55,15 +55,51 @@
       "name": "jira_create",
       "row": {"verb": "create", "kind": "edit", "icon": "square-plus", "target": ["{summary}"], "detail": ["{project}"]},
       "method": "create",
-      "description": "Create a Jira issue. The description is markdown.",
+      "description": "Create a Jira issue; parent puts it under an epic. The description is markdown. A wrong type is answered with the project's types.",
       "properties": {
         "project": { "type": "string", "description": "Project key, e.g. ABC." },
         "summary": { "type": "string" },
-        "type": { "type": "string", "description": "Issue type name. Default Task." },
+        "type": { "type": "string", "description": "Issue type name, e.g. Epic, Bug, Story. Default Task." },
         "description": { "type": "string" },
+        "parent": { "type": "string", "description": "Epic or issue key." },
+        "priority": { "type": "string", "description": "Priority name, e.g. High." },
+        "assignee": { "type": "string", "description": "An account id, or 'me'." },
+        "labels": { "type": "array", "items": { "type": "string" } },
+        "fields": { "type": "object", "description": "Other fields by id, as Jira's REST API takes them." },
         "site": { "type": "string" }
       },
       "required": ["project", "summary"]
+    },
+    {
+      "name": "jira_edit",
+      "row": {"verb": "edit", "kind": "edit", "icon": "issue", "target": ["{key}"], "detail": ["{site}"]},
+      "method": "edit",
+      "description": "Change a Jira issue's fields; only those given change. The description is markdown and replaces the old one.",
+      "properties": {
+        "key": { "type": "string" },
+        "summary": { "type": "string" },
+        "description": { "type": "string" },
+        "parent": { "type": "string", "description": "Epic or issue key; empty takes it out." },
+        "priority": { "type": "string" },
+        "assignee": { "type": "string", "description": "An account id, or 'me'; empty unassigns." },
+        "labels": { "type": "array", "items": { "type": "string" }, "description": "Replaces the labels." },
+        "fields": { "type": "object", "description": "Other fields by id, as Jira's REST API takes them." },
+        "site": { "type": "string" }
+      },
+      "required": ["key"]
+    },
+    {
+      "name": "jira_link",
+      "row": {"verb": "link", "kind": "edit", "icon": "link", "target": ["{key} {relation} {other}"], "detail": ["{site}"]},
+      "method": "link",
+      "description": "Link two issues so 'key relation other' reads true, e.g. ABC-1 blocks ABC-2. A wrong relation is answered with the site's link types.",
+      "properties": {
+        "key": { "type": "string" },
+        "relation": { "type": "string", "description": "As Jira words it, or a link type's name." },
+        "other": { "type": "string" },
+        "site": { "type": "string" }
+      },
+      "required": ["key", "relation", "other"]
     },
     {
       "name": "jira_worklog",
