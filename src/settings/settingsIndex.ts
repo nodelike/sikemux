@@ -105,11 +105,13 @@ export const SETTINGS_INDEX: SettingsEntry[] = [
     row("agents", "Provider profiles", "Profile directory", "config account home"),
     row("agents", "Provider profiles", "Claude default", "profile"),
     row("agents", "Provider profiles", "Codex default", "profile"),
+    section("agents", "Coding plans", "zai glm minimax kimi code opencode go synthetic ollama subscription plan key claude codex"),
     section(
         "agents",
         "Model providers",
         "openrouter baseten together fireworks groq cerebras deepseek moonshot kimi mistral vercel api key hosted open models opencode pi omp",
     ),
+    section("agents", "Local models", "ollama lm studio lmstudio local offline runner claude codex"),
     section("agents", "Skills", "skill SKILL.md library claude codex opencode pi omp hermes grok global own move"),
     row("agents", "Skills", "Add a skill", "new create install git folder"),
     section("agents", "Sessions"),
