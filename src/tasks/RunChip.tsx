@@ -24,7 +24,7 @@ import {
 import { taskTerminalKey } from "./runtime";
 import { TestResultsCard, useFinishedTestRun, type FinishedTestRun } from "./TestResultsCard";
 import { rerunFailedCommand } from "./testResults";
-import type { TaskControllerSnapshot } from "./taskRegistry";
+import type { ResolvedTaskDefinition, TaskControllerSnapshot } from "./taskRegistry";
 
 function useSecondsSince(runId: number | null): number {
     const [startedAt, setStartedAt] = useState(() => Date.now());
@@ -44,6 +44,48 @@ function exitSummary(snapshot: TaskControllerSnapshot): string {
     const message = snapshot.failures.at(-1)?.message ?? "";
     const code = /exited with code (\d+)/.exec(message)?.[1];
     return code ? `exited ${code}` : "failed";
+}
+
+const BUILD_TOOL_LABELS: Readonly<Record<string, string>> = {
+    "./mvnw": "Maven wrapper",
+    mvn: "Maven",
+    "./gradlew": "Gradle wrapper",
+    gradle: "Gradle",
+    go: "Go",
+};
+
+interface TaskGroup {
+    readonly key: string;
+    readonly title: string;
+    readonly meta: string | null;
+    readonly tasks: readonly ResolvedTaskDefinition[];
+    /** The label without the folder, since the group's heading names it. */
+    readonly shortLabel: (task: ResolvedTaskDefinition) => string;
+}
+
+/** sikemux.json's tasks, then one group per folder the build-file tasks came from. */
+function taskGroups(tasks: readonly ResolvedTaskDefinition[], project: string): TaskGroup[] {
+    const groups: TaskGroup[] = [];
+    const configured = tasks.filter((task) => task.source !== "built-in");
+    if (configured.length) groups.push({ key: "config", title: "sikemux.json", meta: null, tasks: configured, shortLabel: (task) => task.label });
+    const byFolder = new Map<string, ResolvedTaskDefinition[]>();
+    for (const task of tasks.filter((candidate) => candidate.source === "built-in"))
+        byFolder.set(task.cwd, [...(byFolder.get(task.cwd) ?? []), task]);
+    for (const [cwd, folderTasks] of byFolder) {
+        const folder = cwd === project ? (project.split("/").pop() ?? project) : cwd.slice(project.length + 1);
+        const tool = BUILD_TOOL_LABELS[folderTasks[0].command.split(" ")[0]];
+        const java = javaChoiceOf(project, folderTasks[0].id);
+        const javaText = java ? (java.runtime ? `Java ${java.runtime.major}` : `needs Java ${java.required}`) : null;
+        const suffix = cwd === project ? "" : ` (${folder})`;
+        groups.push({
+            key: cwd,
+            title: folder,
+            meta: [tool, javaText].filter(Boolean).join(" · ") || null,
+            tasks: folderTasks,
+            shortLabel: (task) => (suffix && task.label.endsWith(suffix) ? task.label.slice(0, -suffix.length) : task.label),
+        });
+    }
+    return groups;
 }
 
 function CheckCard({ check }: { check: PendingCheck }) {
@@ -116,6 +158,7 @@ export function RunChip({ sessionId, project }: { sessionId: string; project: st
     const failed = !running && runtime?.status === "failed" && runtime.task?.id === selected.id ? exitSummary(runtime) : null;
     const java = javaChoiceOf(project, selected.id);
     const url = port ? `http://localhost:${port.port}` : null;
+    const otherRuns = ports.filter((candidate) => candidate.owner.kind !== "terminal" && candidate !== port);
     const tests = !running && testRun?.task.id === selected.id ? testRun.results : null;
     const testsCardOpen =
         testRun !== null && tests !== null && tests.failed > 0 && dismissedTests !== testRun.key && !open && pendingCheck?.project !== project;
@@ -207,29 +250,35 @@ export function RunChip({ sessionId, project }: { sessionId: string; project: st
                             onKeyDown={(event) => {
                                 if (event.key === "Escape") close();
                             }}>
-                            {url && (
-                                <button
-                                    className="env-dd-item"
-                                    role="menuitem"
-                                    onClick={() => {
-                                        close();
-                                        openPortExternally(url);
-                                    }}>
-                                    <IconExternal size={12} />
-                                    <span>Open localhost:{port!.port}</span>
-                                </button>
-                            )}
                             {running && (
-                                <button
-                                    className="env-dd-item"
-                                    role="menuitem"
-                                    onClick={() => {
-                                        close();
-                                        restartProjectTask(project, config, running);
-                                    }}>
-                                    <IconRefresh size={12} />
-                                    <span>Restart {running.label}</span>
-                                </button>
+                                <>
+                                    <div className="tb-run-menu-head">
+                                        <span>{running.label}</span>
+                                        <span className="tb-run-menu-head-meta">{port ? `up · :${port.port}` : `running · ${elapsed}s`}</span>
+                                    </div>
+                                    {url && (
+                                        <button
+                                            className="env-dd-item"
+                                            role="menuitem"
+                                            onClick={() => {
+                                                close();
+                                                openPortExternally(url);
+                                            }}>
+                                            <IconExternal size={12} />
+                                            <span>Open localhost:{port!.port}</span>
+                                        </button>
+                                    )}
+                                    <button
+                                        className="env-dd-item"
+                                        role="menuitem"
+                                        onClick={() => {
+                                            close();
+                                            restartProjectTask(project, config, running);
+                                        }}>
+                                        <IconRefresh size={12} />
+                                        <span>Restart</span>
+                                    </button>
+                                </>
                             )}
                             {(running || failed) && (
                                 <button
@@ -243,28 +292,52 @@ export function RunChip({ sessionId, project }: { sessionId: string; project: st
                                     <span>Show output</span>
                                 </button>
                             )}
-                            {tasks.map((task) => {
-                                const taskJava = javaChoiceOf(project, task.id);
-                                return (
-                                    <button
-                                        key={task.id}
-                                        className={`env-dd-item${task.id === selected.id ? " active" : ""}${task.source === "built-in" ? " detected" : ""}`}
-                                        role="menuitemradio"
-                                        aria-checked={task.id === selected.id}
-                                        onClick={() => {
-                                            close();
-                                            setPicked((current) => ({ ...current, [project]: task.id }));
-                                        }}>
-                                        <IconRun size={11} />
-                                        <span className="tb-run-label">{task.label}</span>
-                                        {taskJava && (
-                                            <span className={`tb-run-menu-meta${taskJava.runtime ? "" : " warn"}`}>
-                                                {taskJava.runtime ? `Java ${taskJava.runtime.major}` : `needs Java ${taskJava.required}`}
+                            {taskGroups(tasks, project).map((group) => (
+                                <div key={group.key} role="group" aria-label={group.title}>
+                                    <div className="tb-run-menu-head">
+                                        <span>{group.title}</span>
+                                        {group.meta && <span className="tb-run-menu-head-meta">{group.meta}</span>}
+                                    </div>
+                                    {group.tasks.map((task) => (
+                                        <button
+                                            key={task.id}
+                                            className={`env-dd-item${task.id === selected.id ? " active" : ""}`}
+                                            role="menuitemradio"
+                                            aria-checked={task.id === selected.id}
+                                            onClick={() => {
+                                                close();
+                                                setPicked((current) => ({ ...current, [project]: task.id }));
+                                            }}>
+                                            <IconRun size={11} />
+                                            <span className="tb-run-label">{group.shortLabel(task)}</span>
+                                        </button>
+                                    ))}
+                                </div>
+                            ))}
+                            {otherRuns.length > 0 && (
+                                <>
+                                    <div className="tb-run-menu-head">
+                                        <span>Running now</span>
+                                    </div>
+                                    {otherRuns.map((run) => (
+                                        <button
+                                            key={run.port}
+                                            className="env-dd-item"
+                                            role="menuitem"
+                                            onClick={() => {
+                                                close();
+                                                if (run.owner.reveal) revealPortOwner(run.owner.reveal);
+                                            }}>
+                                            <span className="tb-run-state up" />
+                                            <span className="tb-run-label">{run.process || "process"}</span>
+                                            <span className="tb-run-menu-meta">:{run.port}</span>
+                                            <span className={`tb-run-owner ${run.owner.kind}`}>
+                                                {run.owner.kind === "agent" ? run.owner.label : "You"}
                                             </span>
-                                        )}
-                                    </button>
-                                );
-                            })}
+                                        </button>
+                                    ))}
+                                </>
+                            )}
                         </div>
                     </>
                 )}

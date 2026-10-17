@@ -7,6 +7,7 @@ import { activeProjectTaskInventoryMatches, appTaskRuntime, javaChoiceOf, refres
 import { isDetectedRunTask } from "./detectedTasks";
 import { checkTask, type CheckItem } from "./environmentCheck";
 import { taskTerminalKey } from "./runtime";
+import { isTestTask } from "./testResults";
 import type { ResolvedTaskDefinition, TaskRegistrySnapshot } from "./taskRegistry";
 
 /** The project's sikemux.json tasks, then the ones found from its build files. */
@@ -20,7 +21,8 @@ export function projectTasksFor(
             ? snapshot.tasks.filter((task) => task.project === project && task.source === "project")
             : [];
     const detected = snapshot.tasks.filter((task) => task.project === project && task.source === "built-in");
-    detected.sort((left, right) => Number(isDetectedRunTask(right.id)) - Number(isDetectedRunTask(left.id)));
+    const rank = (task: ResolvedTaskDefinition) => (isDetectedRunTask(task.id) ? 0 : isTestTask(task.id) ? 1 : 2);
+    detected.sort((left, right) => rank(left) - rank(right));
     return [...configured, ...detected];
 }
 
