@@ -140,6 +140,10 @@ does anything you start while the person runs you in YOLO mode.
   first. Starting a task already running through the harness just returns that
   execution.
 
+If a task you started stops with an error while you are doing something else,
+such as a dev server crashing, Sikemux sends you a notice with its
+`executionId`. Read its output with `task_read` before starting it again.
+
 `task_start` always answers within about 30 seconds. If the task is still
 launching it returns `status: "starting"`; call again with the same key.
 `readyWhen` makes it wait, within those 30 seconds, until that text appears

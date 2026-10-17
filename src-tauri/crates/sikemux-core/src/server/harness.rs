@@ -215,24 +215,40 @@ impl Harness {
     }
 
     /// A missing `code` means the status could not be read, which counts as a
-    /// failure.
-    pub(crate) fn session_exited(&self, id: SessionId, code: Option<u32>, signal: Option<String>) {
+    /// failure. Returns the run when it failed on its own and an agent started it.
+    pub(crate) fn session_exited(
+        &self,
+        id: SessionId,
+        code: Option<u32>,
+        signal: Option<String>,
+    ) -> Option<FailedRun> {
         self.change(|state| {
-            let Some(run) = state.runs.by_pty_mut(id) else {
-                return;
-            };
+            let run = state.runs.by_pty_mut(id)?;
             let code = code.unwrap_or(1);
             run.exit_code = Some(code);
-            run.signal = signal;
+            run.signal = signal.clone();
             let next = match run.status {
-                RunStatus::Stopped => return,
+                RunStatus::Stopped => return None,
                 RunStatus::Stopping => RunStatus::Stopped,
                 _ if code == 0 => RunStatus::Completed,
                 _ => RunStatus::Failed,
             };
+            let failed = (next == RunStatus::Failed)
+                .then(|| run.agent_id.clone())
+                .flatten()
+                .map(|agent_id| FailedRun {
+                    agent_id,
+                    execution_id: run.execution_id.clone(),
+                    label: run.label.clone().unwrap_or_else(|| run.task_id.clone()),
+                    reason: match &signal {
+                        Some(signal) => format!("it stopped from signal {signal}"),
+                        None => format!("it exited with code {code}"),
+                    },
+                });
             let execution_id = run.execution_id.clone();
             state.set_status(&execution_id, next);
-        });
+            failed
+        })
     }
 
     pub(crate) fn record(&self) -> HarnessRecord {
@@ -1209,6 +1225,29 @@ fn add_tool_call(path: &Path, tool: &str, succeeded: bool) -> std::io::Result<()
         std::fs::create_dir_all(dir)?;
     }
     std::fs::write(path, serde_json::to_vec_pretty(&tallies)?)
+}
+
+/// A run an agent started that ended with an error nobody asked for.
+pub(crate) struct FailedRun {
+    agent_id: String,
+    execution_id: String,
+    label: String,
+    reason: String,
+}
+
+/// Tells the agent its run died, so a crashed dev server does not go unnoticed
+/// while the agent works on something else.
+pub(crate) fn tell_agent_run_failed(core: &Core, run: FailedRun) {
+    let (Some(core), Ok(runtime)) = (core.arc(), tokio::runtime::Handle::try_current()) else {
+        return;
+    };
+    let text = format!(
+        "Your task \"{}\" (executionId {}) stopped: {}. Read its output with task_read, fix the cause, and start it again with task_start.",
+        run.label, run.execution_id, run.reason
+    );
+    runtime.spawn(async move {
+        let _ = super::messages::from_sikemux(&core, run.agent_id, text).await;
+    });
 }
 
 #[cfg(test)]

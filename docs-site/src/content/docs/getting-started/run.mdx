@@ -21,7 +21,7 @@ Spring Boot tasks appear only when the build uses Spring Boot. A project's own `
 
 Before a task starts, Sikemux checks that its build tool is installed, that a new enough Java exists, and that a Spring Boot app's port is free. If something is missing, a card opens under the run button with what it found; **Install and run** installs the missing pieces with Homebrew and starts the task, and **Run anyway** skips the check.
 
-Agents get the same tasks and the same check: `workspace_inspect` lists the tasks found in the build files, and `task_start` runs them, or says what is missing.
+Agents get the same tasks and the same check: `workspace_inspect` lists the tasks found in the build files, and `task_start` runs them, or says what is missing. When a task an agent started stops with an error, such as a dev server crashing, Sikemux tells that agent so it can look at the output.
 
 ## The right Java for each project
 

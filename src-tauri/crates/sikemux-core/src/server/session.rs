@@ -763,7 +763,9 @@ pub(crate) fn report_exit(core: &Core, session: &Session, status: Option<&ExitSt
         _ => None,
     };
     if session.is_task() {
-        core.harness.session_exited(session.id, code, signal);
+        if let Some(failed) = core.harness.session_exited(session.id, code, signal) {
+            super::harness::tell_agent_run_failed(core, failed);
+        }
     }
     if let Some(agent) = session.agent.as_ref() {
         let mid_turn = agent.busy();
