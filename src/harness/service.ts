@@ -227,7 +227,7 @@ async function detectedLaunch(request: HarnessRequest, taskId: string): Promise<
             label: task.label,
             command: task.command,
             cwd: task.cwd,
-            env: moved?.kind === "port" && movedTo ? { ...task.env, [moved.envVar]: String(movedTo) } : (task.env ?? {}),
+            env: moved?.kind === "port" && moved.envVar && movedTo ? { ...task.env, [moved.envVar]: String(movedTo) } : (task.env ?? {}),
             cols: 120,
             rows: 30,
         },

@@ -1,6 +1,6 @@
 import { fsapi } from "../api/fs";
 import { joinPath } from "../lib/paths";
-import { JEST_REPORT, VITEST_REPORT } from "./detectedTasks";
+import { JEST_REPORT, PYTEST_REPORT, VITEST_REPORT } from "./detectedTasks";
 
 export interface TestFailure {
     readonly className: string;
@@ -75,13 +75,14 @@ async function existingFile(path: string): Promise<string | null> {
 
 async function reportFiles(cwd: string): Promise<string[]> {
     const listings = await Promise.all(REPORT_DIRS.map((dir) => fsapi.readDir(joinPath(cwd, dir)).catch(() => [])));
-    const vitest = await existingFile(joinPath(cwd, VITEST_REPORT));
+    const [vitest, pytest] = await Promise.all([existingFile(joinPath(cwd, VITEST_REPORT)), existingFile(joinPath(cwd, PYTEST_REPORT))]);
     return [
         ...listings
             .flat()
             .filter((entry) => !entry.is_dir && /^TEST-.*\.xml$/.test(entry.name))
             .map((entry) => entry.path),
         ...(vitest ? [vitest] : []),
+        ...(pytest ? [pytest] : []),
     ];
 }
 
@@ -164,6 +165,10 @@ export async function readTestResults(cwd: string): Promise<TestResults | null> 
                 const file = await existingFile(joinPath(cwd, className));
                 return { className, name, message, file, line: lineIn(stack, className) };
             }
+            if (/\.py:\d+/.test(stack)) {
+                const file = await existingFile(joinPath(cwd, `${className.replace(/\./g, "/")}.py`));
+                return { className, name, message, file, line: file ? lineIn(stack, file) : null };
+            }
             const frame = failingFrame(stack, className);
             const file = frame ? await sourceFile(cwd, className, frame.fileName) : null;
             return { className, name, message, file, line: frame?.line ?? null };
@@ -174,6 +179,7 @@ export async function readTestResults(cwd: string): Promise<TestResults | null> 
 
 /** The same test command narrowed to the tests that failed, or null for a build tool it does not know. */
 export function rerunFailedCommand(command: string, failures: readonly TestFailure[]): string | null {
+    if (command.includes(PYTEST_REPORT)) return `${command} --lf`;
     if (command.includes(VITEST_REPORT) || command.includes(JEST_REPORT)) {
         const files = [...new Set(failures.map((failure) => failure.className))].map((file) => `'${file}'`);
         return `${command} ${files.join(" ")}`;

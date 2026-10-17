@@ -197,6 +197,9 @@ const BUILD_TOOLS: &[(&str, &str)] = &[
     ("pnpm", "pnpm"),
     ("yarn", "yarn"),
     ("bun", "bun"),
+    ("python3", "python"),
+    ("uv", "uv"),
+    ("poetry", "poetry"),
 ];
 
 fn build_tool_formula(program: &str) -> AppResult<&'static str> {

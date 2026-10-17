@@ -186,6 +186,53 @@ async function nodeTasks(root: string, files: ReadonlySet<string>, read: ReadTex
     }));
 }
 
+/** pytest keeps its own cache folder out of Git, so its report can live there. */
+export const PYTEST_REPORT = ".pytest_cache/sikemux-junit.xml";
+const PYTHON_APP_FILES = ["main.py", "app.py", "app/main.py", "src/main.py"];
+
+/** The project's own virtual environment first, then the tools that make one, then the system Python. */
+function pythonRunner(files: ReadonlySet<string>): string {
+    if (files.has(".venv/")) return ".venv/bin/python";
+    if (files.has("venv/")) return "venv/bin/python";
+    if (files.has("uv.lock")) return "uv run python";
+    if (files.has("poetry.lock")) return "poetry run python";
+    return "python3";
+}
+
+async function pythonTasks(root: string, files: ReadonlySet<string>, read: ReadText): Promise<DetectedTask[]> {
+    const manifests = ["pyproject.toml", "requirements.txt", "setup.py", "manage.py"].filter((name) => files.has(name));
+    if (!manifests.length) return [];
+    const declared = (await Promise.all(manifests.map((name) => readOrEmpty(read, joinPath(root, name))))).join("\n").toLowerCase();
+    const python = pythonRunner(files);
+    const tasks: DetectedTask[] = [];
+    if (files.has("manage.py")) {
+        tasks.push({ id: "detected.python.run", label: "Django: runserver", command: `${python} manage.py runserver` });
+        tasks.push({ id: "detected.python.test", label: "Django: test", command: `${python} manage.py test` });
+        return tasks;
+    }
+    if (/\bfastapi\b/.test(declared) || /\bflask\b/.test(declared)) {
+        for (const file of PYTHON_APP_FILES) {
+            const source = await readOrEmpty(read, joinPath(root, file));
+            const app = /^(\w+)\s*=\s*(FastAPI|Flask)\(/m.exec(source);
+            if (!app) continue;
+            const module = file.replace(/\.py$/, "").replace(/\//g, ".");
+            tasks.push(
+                app[2] === "FastAPI"
+                    ? {
+                          id: "detected.python.run",
+                          label: `uvicorn ${module}:${app[1]}`,
+                          command: `${python} -m uvicorn ${module}:${app[1]} --reload`,
+                      }
+                    : { id: "detected.python.run", label: "flask run", command: `${python} -m flask --app ${module}:${app[1]} run --debug` },
+            );
+            break;
+        }
+    }
+    if (/\bpytest\b/.test(declared) || files.has("tests/") || files.has("conftest.py") || files.has("pytest.ini"))
+        tasks.push({ id: "detected.python.test", label: "pytest", command: `${python} -m pytest --junitxml=${PYTEST_REPORT}` });
+    return tasks;
+}
+
 const SKIPPED_FOLDERS = new Set(["node_modules", "target", "build", "dist", "out", "vendor"]);
 const FOLDER_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 
@@ -193,7 +240,13 @@ async function tasksIn(dir: string, readDir: ReadDir, read: ReadText): Promise<D
     const entries = await readDir(dir).catch(() => []);
     const files = new Set(entries.map((entry) => (entry.is_dir ? `${entry.name}/` : entry.name)));
     return (
-        await Promise.all([mavenTasks(dir, files, read), gradleTasks(dir, files, read), goTasks(dir, files, readDir), nodeTasks(dir, files, read)])
+        await Promise.all([
+            mavenTasks(dir, files, read),
+            gradleTasks(dir, files, read),
+            goTasks(dir, files, readDir),
+            nodeTasks(dir, files, read),
+            pythonTasks(dir, files, read),
+        ])
     ).flat();
 }
 
@@ -238,6 +291,9 @@ const BUILD_TOOL_NAMES: Readonly<Record<string, string>> = {
     pnpm: "pnpm",
     yarn: "Yarn",
     bun: "Bun",
+    python3: "Python",
+    uv: "uv",
+    poetry: "Poetry",
 };
 
 /** The installed program a detected task's command starts with; a project's own `./mvnw` or `./gradlew` needs none. */

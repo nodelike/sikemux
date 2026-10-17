@@ -106,7 +106,8 @@ inventing new ones. Inspect again after writing to see `configErrors`.
 `command` to run. `workspace_inspect` lists the task ids: those from
 `sikemux.json`, then those Sikemux found in the project's build files
 (`foundIn: "build files"`), such as Maven, Gradle and Go run, test and build
-tasks and a `package.json`'s scripts. A found task runs on the Java its build asks for (`java.runsOn`), so
+tasks, a `package.json`'s scripts, and a Python project's FastAPI, Flask or
+Django app and pytest. A found task runs on the Java its build asks for (`java.runsOn`), so
 prefer it to running `mvn` or `gradle` yourself. A `command` runs in the same kind of
 managed terminal as a configured task, in the project root or in `cwd`, a
 directory inside the project given relative to it, and `label` names its tab.
@@ -135,14 +136,14 @@ does anything you start while the person runs you in YOLO mode.
 - A task found in the build files is checked first: its build tool must be
   installed, a new enough Java must exist, and a Node.js project's dependencies
   must be installed. If not, `task_start` fails and
-  says what is missing and how to install it. When a Spring Boot or Next.js app's
-  port is taken, it runs on the next free one instead, and the result's `previewUrl`
+  says what is missing and how to install it. When a Spring Boot, Next.js, FastAPI or
+  Flask app's port is taken, it runs on the next free one instead, and the result's `previewUrl`
   says where.
 - If the same task is already running from the command deck, stop it there
   first. Starting a task already running through the harness just returns that
   execution.
 
-After a Maven, Gradle, Vitest or Jest test task, `workspace_inspect` has
+After a Maven, Gradle, Vitest, Jest or pytest test task, `workspace_inspect` has
 `testResults`: per module, the counts and each failing test with its message,
 file and line, read from the reports the runner writes. Read those instead of the whole build log.
 

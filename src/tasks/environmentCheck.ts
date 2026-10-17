@@ -31,17 +31,17 @@ export type CheckItem =
           readonly heldBy: string | null;
           /** The next port nothing listens on, to move the app to. */
           readonly freePort: number | null;
-          /** The environment variable that moves the app to another port. */
-          readonly envVar: string;
+          /** The environment variable that moves the app to another port, when there is one. */
+          readonly envVar: string | null;
       };
 
-const HOMEBREW_FORMULA: Readonly<Record<string, string>> = { mvn: "maven", npm: "node" };
+const HOMEBREW_FORMULA: Readonly<Record<string, string>> = { mvn: "maven", npm: "node", python3: "python" };
 const NODE_MANAGERS = ["npm", "pnpm", "yarn", "bun"];
 const SPRING_PROPERTIES = ["src/main/resources/application.properties", "src/main/resources/application.yml", "src/main/resources/application.yaml"];
 
 interface AppPort {
     readonly port: number;
-    readonly envVar: string;
+    readonly envVar: string | null;
 }
 
 /** Spring Boot listens on `server.port`, then `SERVER_PORT`, then 8080. */
@@ -75,6 +75,20 @@ async function nodePort(task: CheckedTask): Promise<AppPort | null> {
     const flag = /(?:-p|--port)[\s=](\d+)/.exec(body);
     const port = flag ? Number(flag[1]) : Number(task.env?.PORT) || 3000;
     return { port, envVar: "PORT" };
+}
+
+/** uvicorn reads `--port` or `UVICORN_PORT`, Flask `--port` or `FLASK_RUN_PORT`; Django's runserver takes the port as an argument only. */
+function pythonPort(task: CheckedTask): AppPort | null {
+    const flag = /--port[\s=](\d+)/.exec(task.command);
+    if (/-m uvicorn\b/.test(task.command))
+        return { port: flag ? Number(flag[1]) : Number(task.env?.UVICORN_PORT) || 8000, envVar: flag ? null : "UVICORN_PORT" };
+    if (/-m flask\b.*\brun\b/.test(task.command))
+        return { port: flag ? Number(flag[1]) : Number(task.env?.FLASK_RUN_PORT) || 5000, envVar: flag ? null : "FLASK_RUN_PORT" };
+    if (/manage\.py runserver\b/.test(task.command)) {
+        const address = /runserver\s+(?:[\w.]+:)?(\d+)/.exec(task.command);
+        return { port: address ? Number(address[1]) : 8000, envVar: null };
+    }
+    return null;
 }
 
 function holder(port: ListeningPort, ownKeys: readonly string[]): string | null {
@@ -120,7 +134,7 @@ export async function checkTask(task: CheckedTask, java: JavaChoice | null, ownK
         });
     const deps = await dependencies(task);
     if (deps) items.push(deps);
-    const app = (await springPort(task)) ?? (await nodePort(task));
+    const app = (await springPort(task)) ?? (await nodePort(task)) ?? pythonPort(task);
     if (app) {
         const listening = await portsApi.listening().catch(() => []);
         const taken = listening.find((candidate) => candidate.port === app.port);
@@ -132,7 +146,7 @@ export async function checkTask(task: CheckedTask, java: JavaChoice | null, ownK
             ok: !busy,
             port: app.port,
             heldBy,
-            freePort: busy ? await nextFreePort(app.port, listening) : null,
+            freePort: busy && app.envVar ? await nextFreePort(app.port, listening) : null,
             envVar: app.envVar,
         });
     }

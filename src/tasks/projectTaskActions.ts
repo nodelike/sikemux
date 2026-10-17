@@ -80,7 +80,7 @@ export async function fixAndRun(check: PendingCheck): Promise<void> {
                 check.task.cwd,
                 true,
             );
-        } else if (item.freePort !== null) {
+        } else if (item.freePort !== null && item.envVar) {
             setPortOverride(check.project, check.task.id, item.envVar, item.freePort);
         }
     }
