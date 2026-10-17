@@ -15,7 +15,7 @@ import * as commands from "../state/commands";
 import { appTaskRuntime, detectTasksWithJava } from "../tasks/application";
 import { DETECTED_TASK_PREFIX } from "../tasks/detectedTasks";
 import { checkProblems, checkTask } from "../tasks/environmentCheck";
-import { isTestTask, readTestResults } from "../tasks/testResults";
+import { isFilePath, isTestTask, readTestResults } from "../tasks/testResults";
 import { NativeTaskExecutionBackend, WorkbenchTaskTerminalSurface, taskPtyBindings } from "../tasks/nativeRuntime";
 import type { TaskExecutionRequest } from "../tasks/runtime";
 import { openTerminalWorker } from "../agents/terminalWorker";
@@ -227,7 +227,7 @@ async function detectedLaunch(request: HarnessRequest, taskId: string): Promise<
             label: task.label,
             command: task.command,
             cwd: task.cwd,
-            env: movedTo ? { ...task.env, SERVER_PORT: String(movedTo) } : (task.env ?? {}),
+            env: moved?.kind === "port" && movedTo ? { ...task.env, [moved.envVar]: String(movedTo) } : (task.env ?? {}),
             cols: 120,
             rows: 30,
         },
@@ -248,7 +248,7 @@ async function latestTestResults(project: string, tasks: readonly { id: string; 
                       failed: results.failed,
                       skipped: results.skipped,
                       failures: results.failures.map((failure) => ({
-                          test: `${failure.className}.${failure.name}`,
+                          test: isFilePath(failure.className) ? `${failure.className} › ${failure.name}` : `${failure.className}.${failure.name}`,
                           message: failure.message,
                           ...(failure.file ? { file: relativeTo(project, failure.file), line: failure.line } : {}),
                       })),

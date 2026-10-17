@@ -87,20 +87,20 @@ export async function detectTasksWithJava(project: string): Promise<DetectedTask
 let shownProject: string | null = null;
 let shownTasks: readonly TaskDefinitionInput[] = [];
 const rerunTasks = new Map<string, TaskDefinitionInput>();
-const portOverrides = new Map<string, number>();
+const portOverrides = new Map<string, { readonly envVar: string; readonly port: number }>();
 
 function publishDetectedTasks(): void {
     const tasks = [...shownTasks, ...rerunTasks.values()].map((task) => {
-        const port = portOverrides.get(task.id);
-        return port ? { ...task, env: { ...task.env, SERVER_PORT: String(port) } } : task;
+        const moved = portOverrides.get(task.id);
+        return moved ? { ...task, env: { ...task.env, [moved.envVar]: String(moved.port) } } : task;
     });
     appTaskRegistry.replaceSource("built-in", tasks);
 }
 
 /** Runs a detected task's app on another port from now on, for when its usual one is taken. */
-export function setPortOverride(project: string, taskId: string, port: number): void {
+export function setPortOverride(project: string, taskId: string, envVar: string, port: number): void {
     if (project !== shownProject) return;
-    portOverrides.set(taskId, port);
+    portOverrides.set(taskId, { envVar, port });
     publishDetectedTasks();
 }
 

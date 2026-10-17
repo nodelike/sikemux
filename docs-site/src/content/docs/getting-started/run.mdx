@@ -3,7 +3,7 @@ title: Run, test and build
 description: "The run button, the tasks Sikemux finds in your build files, and the Java it picks for them."
 ---
 
-The run button sits in the top bar of a project. Press ▶ to run the task beside it, ■ to stop it, and click the task's name to pick another one. Its menu groups the tasks by the folder they come from, and lists under **Running now** everything else in the project that listens on a port, with who started it: you or an agent.
+The run button sits in the top bar of a project. Press ▶ to run the task beside it, ■ to stop it, and click the task's name to pick another one. Its menu groups the tasks by the folder they come from, and lists under **Running now** everything else in the project that listens on a port, with who started it, you or an agent, and a ■ to stop it.
 
 ## Tasks Sikemux finds for you
 
@@ -13,13 +13,14 @@ Sikemux reads the build files at the project's root and in the folders just insi
 | --- | --- |
 | `pom.xml` | Spring Boot: run, Maven: test, Maven: package |
 | `build.gradle` or `build.gradle.kts` | Spring Boot: bootRun, Gradle: run, Gradle: test, Gradle: build |
+| `package.json` | Its scripts, `dev` and `start` first, run with the package manager its lockfile names: npm, pnpm, Yarn or Bun |
 | `go.mod` | Go: run (and one per folder in `cmd/`), Go: test, Go: build |
 
 Spring Boot tasks appear only when the build uses Spring Boot. A project's own `./mvnw` or `./gradlew` is used when it has one. Tasks from a [`sikemux.json`](/getting-started/projects/#project-config) come first in the list.
 
 ## Checked before it runs
 
-Before a task starts, Sikemux checks that its build tool is installed, that a new enough Java exists, and that a Spring Boot app's port is free. If something is missing, a card opens under the run button with what it found; **Install and run** installs the missing pieces with Homebrew and starts the task, **Fix and run** moves the app to the next free port when its own is taken, and **Run anyway** skips the check.
+Before a task starts, Sikemux checks that its build tool is installed, that a new enough Java exists, that a Node.js project's dependencies are installed, and that the port a Spring Boot or Next.js app listens on is free, whichever program holds it. If something is missing, a card opens under the run button with what it found; **Install and run** installs the missing pieces, with Homebrew or the project's package manager, and starts the task, **Fix and run** moves the app to the next free port when its own is taken, and **Run anyway** skips the check.
 
 Agents get the same tasks and the same check: `workspace_inspect` lists the tasks found in the build files, and `task_start` runs them, or says what is missing. When a task an agent started stops with an error, such as a dev server crashing, Sikemux tells that agent so it can look at the output.
 
@@ -39,11 +40,11 @@ The run button shows how the task is doing:
 
 ## Test results
 
-When a Maven or Gradle test task finishes, the run button shows how many tests failed or passed, read from the JUnit reports the build writes. If any failed, a card lists them with the message and a link to the line that failed; **Rerun failed** runs only those tests again. Agents read the same results from `workspace_inspect`.
+When a Maven, Gradle, Vitest or Jest test task finishes, the run button shows how many tests failed or passed, read from the reports the test runner writes. If any failed, a card lists them with the message and a link to the line that failed; **Rerun failed** runs only those tests again. Agents read the same results from `workspace_inspect`.
 
 ## Agents in their own worktrees
 
-A new agent worktree gets the files a fresh checkout is missing but needs to run: the `.env` files at its root and one folder down, or the files a `.worktreeinclude` at the project's root lists, one path or pattern per line. When an agent starts a Spring Boot app and its port is taken, often by another agent's copy, Sikemux runs it on the next free port and tells the agent where.
+A new agent worktree gets the files a fresh checkout is missing but needs to run: the `.env` files at its root and one folder down, or the files a `.worktreeinclude` at the project's root lists, one path or pattern per line. When an agent starts a Spring Boot or Next.js app and its port is taken, often by another agent's copy, Sikemux runs it on the next free port and tells the agent where.
 
 ## Review an agent's work
 

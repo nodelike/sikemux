@@ -10,7 +10,7 @@ import { useStore } from "../state/store";
 import { swallow } from "../state/toast";
 import type { AgentWorktree } from "../state/types";
 import { detectTasksWithJava } from "../tasks/application";
-import { isTestTask, readTestResults, type TestResults } from "../tasks/testResults";
+import { isFilePath, isTestTask, readTestResults, type TestResults } from "../tasks/testResults";
 import { IconCheck, IconClose, IconExternal } from "../ui/Icons";
 import { useInbox } from "./useInbox";
 
@@ -50,7 +50,8 @@ async function gatherEvidence(agentId: string, worktree: AgentWorktree): Promise
 function failureReport(tests: readonly ModuleTests[]): string {
     const lines = tests.flatMap(({ results }) =>
         results.failures.map(
-            (failure) => `- ${failure.className}.${failure.name}: ${failure.message}${failure.line ? ` (line ${failure.line})` : ""}`,
+            (failure) =>
+                `- ${isFilePath(failure.className) ? `${failure.className} › ` : `${failure.className}.`}${failure.name}: ${failure.message}${failure.line ? ` (line ${failure.line})` : ""}`,
         ),
     );
     return `These tests fail in your worktree:\n${lines.join("\n")}\nFix them and run the tests again.`;

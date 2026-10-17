@@ -1,4 +1,5 @@
 import { buildTools } from "../api/buildTools";
+import { runBackgroundCommand } from "../state/commands/customCommands";
 import { toolchains } from "../api/toolchains";
 import type { ProjectConfigLoadResult } from "../projects/projectConfig";
 import { whenTrusted } from "../projects/projectTrust";
@@ -73,8 +74,14 @@ export async function fixAndRun(check: PendingCheck): Promise<void> {
             const runtime = await toolchains.installJava(item.required);
             await refreshDetectedTasks(check.project);
             notify("success", `Installed Java ${runtime.major}`);
+        } else if (item.kind === "deps") {
+            await runBackgroundCommand(
+                { id: "task.install-dependencies", title: item.install, detail: "", command: item.install, contexts: [], placement: "background" },
+                check.task.cwd,
+                true,
+            );
         } else if (item.freePort !== null) {
-            setPortOverride(check.project, check.task.id, item.freePort);
+            setPortOverride(check.project, check.task.id, item.envVar, item.freePort);
         }
     }
     setPendingCheck(null);

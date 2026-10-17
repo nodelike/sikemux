@@ -34,7 +34,9 @@ export function useFinishedTestRun(runtime: TaskControllerSnapshot | null): Fini
     return found && found.key === key ? found : null;
 }
 
+/** `FooTest` for a Java class, `price.test.ts` for a file a JavaScript runner names. */
 function shortClass(className: string): string {
+    if (className.includes("/") || /\.[cm]?[jt]sx?$/.test(className)) return className.split("/").pop() ?? className;
     return className.split(".").pop() ?? className;
 }
 

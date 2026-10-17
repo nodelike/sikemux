@@ -128,13 +128,73 @@ async function goTasks(root: string, files: ReadonlySet<string>, readDir: ReadDi
     ];
 }
 
+type PackageManager = "npm" | "pnpm" | "yarn" | "bun";
+
+const RUN_SCRIPTS = ["dev", "start", "serve", "preview"];
+const MAX_SCRIPTS = 15;
+/** Inside node_modules, so Git never sees them; the test results card reads them back. */
+export const VITEST_REPORT = "node_modules/.sikemux-junit.xml";
+export const JEST_REPORT = "node_modules/.sikemux-jest.json";
+
+function packageManager(files: ReadonlySet<string>, declared: unknown): PackageManager {
+    const named = typeof declared === "string" ? declared.split("@")[0] : "";
+    if (named === "pnpm" || named === "yarn" || named === "bun" || named === "npm") return named;
+    if (files.has("pnpm-lock.yaml")) return "pnpm";
+    if (files.has("yarn.lock")) return "yarn";
+    if (files.has("bun.lock") || files.has("bun.lockb")) return "bun";
+    return "npm";
+}
+
+/** `npm run` needs `--` before arguments meant for the script; the others pass them straight through. */
+export function scriptCommand(manager: PackageManager, script: string, args = ""): string {
+    const base = `${manager} run ${script}`;
+    if (!args) return base;
+    return manager === "npm" ? `${base} -- ${args}` : `${base} ${args}`;
+}
+
+function scriptRank(name: string): number {
+    if (RUN_SCRIPTS.includes(name)) return RUN_SCRIPTS.indexOf(name);
+    if (/^test\b/.test(name)) return 10;
+    if (/^build\b/.test(name)) return 20;
+    return 30;
+}
+
+/** Test scripts also write a report Sikemux can read; Vitest runs once instead of watching. */
+function reportingArgs(body: string): string {
+    if (/\bvitest\b/.test(body)) return `--run --reporter=default --reporter=junit --outputFile.junit=${VITEST_REPORT}`;
+    if (/\bjest\b/.test(body)) return `--json --outputFile=${JEST_REPORT}`;
+    return "";
+}
+
+async function nodeTasks(root: string, files: ReadonlySet<string>, read: ReadText): Promise<DetectedTask[]> {
+    if (!files.has("package.json")) return [];
+    let manifest: { scripts?: Record<string, unknown>; packageManager?: unknown };
+    try {
+        manifest = JSON.parse(await readOrEmpty(read, joinPath(root, "package.json"))) as typeof manifest;
+    } catch {
+        return [];
+    }
+    const manager = packageManager(files, manifest.packageManager);
+    const scripts = Object.entries(manifest.scripts ?? {})
+        .filter((entry): entry is [string, string] => typeof entry[1] === "string" && FOLDER_NAME.test(entry[0].replace(/:/g, "-")))
+        .sort(([left], [right]) => scriptRank(left) - scriptRank(right))
+        .slice(0, MAX_SCRIPTS);
+    return scripts.map(([name, body]) => ({
+        id: `detected.node.${name.replace(/[^A-Za-z0-9_-]/g, "-")}`,
+        label: manager === "npm" ? `npm run ${name}` : `${manager} ${name}`,
+        command: scriptCommand(manager, name, /^test\b/.test(name) ? reportingArgs(body) : ""),
+    }));
+}
+
 const SKIPPED_FOLDERS = new Set(["node_modules", "target", "build", "dist", "out", "vendor"]);
 const FOLDER_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 
 async function tasksIn(dir: string, readDir: ReadDir, read: ReadText): Promise<DetectedTask[]> {
     const entries = await readDir(dir).catch(() => []);
     const files = new Set(entries.map((entry) => (entry.is_dir ? `${entry.name}/` : entry.name)));
-    return (await Promise.all([mavenTasks(dir, files, read), gradleTasks(dir, files, read), goTasks(dir, files, readDir)])).flat();
+    return (
+        await Promise.all([mavenTasks(dir, files, read), gradleTasks(dir, files, read), goTasks(dir, files, readDir), nodeTasks(dir, files, read)])
+    ).flat();
 }
 
 /** Run, test and build tasks suggested by the build files at the project root and in the folders just inside it. */
@@ -166,10 +226,19 @@ export async function detectProjectTasks(
 }
 
 export function isDetectedRunTask(taskId: string): boolean {
-    return /\brun\b/.test(taskId.split(":")[0]);
+    const base = taskId.split(":")[0];
+    return /\brun\b/.test(base) || /^detected\.node\.(dev|start|serve|preview)$/.test(base);
 }
 
-const BUILD_TOOL_NAMES: Readonly<Record<string, string>> = { mvn: "Maven", gradle: "Gradle", go: "Go" };
+const BUILD_TOOL_NAMES: Readonly<Record<string, string>> = {
+    mvn: "Maven",
+    gradle: "Gradle",
+    go: "Go",
+    npm: "Node.js",
+    pnpm: "pnpm",
+    yarn: "Yarn",
+    bun: "Bun",
+};
 
 /** The installed program a detected task's command starts with; a project's own `./mvnw` or `./gradlew` needs none. */
 export function buildToolOf(command: string): { program: string; name: string } | null {

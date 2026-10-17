@@ -189,7 +189,15 @@ fn read_integration_health() -> IntegrationHealth {
 }
 
 /// Build tools a detected project task can need, with the Homebrew formula that installs each.
-const BUILD_TOOLS: &[(&str, &str)] = &[("mvn", "maven"), ("gradle", "gradle"), ("go", "go")];
+const BUILD_TOOLS: &[(&str, &str)] = &[
+    ("mvn", "maven"),
+    ("gradle", "gradle"),
+    ("go", "go"),
+    ("npm", "node"),
+    ("pnpm", "pnpm"),
+    ("yarn", "yarn"),
+    ("bun", "bun"),
+];
 
 fn build_tool_formula(program: &str) -> AppResult<&'static str> {
     BUILD_TOOLS

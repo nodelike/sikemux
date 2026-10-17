@@ -1,5 +1,6 @@
 import { fsapi } from "../api/fs";
 import { joinPath } from "../lib/paths";
+import { JEST_REPORT, VITEST_REPORT } from "./detectedTasks";
 
 export interface TestFailure {
     readonly className: string;
@@ -22,6 +23,8 @@ export interface TestResults {
 const REPORT_DIRS = ["target/surefire-reports", "build/test-results/test"];
 const TEST_SOURCES = ["src/test/java", "src/test/kotlin"];
 const MAX_FAILURES = 50;
+/** Jest colours its failure messages for a terminal. */
+const TERMINAL_COLOURS = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, "g");
 
 export function isTestTask(taskId: string): boolean {
     return /\.test\b/.test(taskId.split(":")[0]);
@@ -53,18 +56,88 @@ async function sourceFile(cwd: string, className: string, fileName: string): Pro
     return candidates.find((_, index) => kinds[index] === "file") ?? null;
 }
 
+/** Vitest names a test case by its file, such as `lib/price.test.ts`, where Java names a class. */
+export function isFilePath(className: string): boolean {
+    return className.includes("/") || /\.[cm]?[jt]sx?$/.test(className);
+}
+
+/** The first `file:line` in a stack trace that points into the test's own file. */
+function lineIn(stack: string, file: string): number | null {
+    const name = file.split("/").pop() ?? file;
+    const match = new RegExp(`${escapeRegExp(name)}:(\\d+)`).exec(stack);
+    return match ? Number(match[1]) : null;
+}
+
+async function existingFile(path: string): Promise<string | null> {
+    const [kind] = await fsapi.pathKinds([path]).catch(() => [null]);
+    return kind === "file" ? path : null;
+}
+
 async function reportFiles(cwd: string): Promise<string[]> {
     const listings = await Promise.all(REPORT_DIRS.map((dir) => fsapi.readDir(joinPath(cwd, dir)).catch(() => [])));
-    return listings
-        .flat()
-        .filter((entry) => !entry.is_dir && /^TEST-.*\.xml$/.test(entry.name))
-        .map((entry) => entry.path);
+    const vitest = await existingFile(joinPath(cwd, VITEST_REPORT));
+    return [
+        ...listings
+            .flat()
+            .filter((entry) => !entry.is_dir && /^TEST-.*\.xml$/.test(entry.name))
+            .map((entry) => entry.path),
+        ...(vitest ? [vitest] : []),
+    ];
+}
+
+interface JestReport {
+    testResults?: {
+        name?: string;
+        assertionResults?: { status?: string; fullName?: string; title?: string; failureMessages?: string[] }[];
+    }[];
+}
+
+/** Jest's first line names the matcher; the values it compared come a few lines later. */
+function jestMessage(text: string): string {
+    const values = text
+        .split("\n")
+        .map((line) => line.trim())
+        .filter((line) => /^(Expected|Received)\b/.test(line));
+    return [firstLine(text), ...values].join(" · ");
+}
+
+/** Jest's `--json` report, which the detected test task asks it to write. */
+async function readJestResults(cwd: string): Promise<TestResults | null> {
+    const text = await fsapi.readTextFileLimited(joinPath(cwd, JEST_REPORT)).catch(() => null);
+    if (!text) return null;
+    let report: JestReport;
+    try {
+        report = JSON.parse(text) as JestReport;
+    } catch {
+        return null;
+    }
+    let passed = 0;
+    let skipped = 0;
+    const failures: TestFailure[] = [];
+    for (const suite of report.testResults ?? []) {
+        const file = suite.name ?? "";
+        const className = file.startsWith(`${cwd}/`) ? file.slice(cwd.length + 1) : file;
+        for (const test of suite.assertionResults ?? []) {
+            if (test.status === "passed") passed += 1;
+            else if (test.status === "failed") {
+                const stack = (test.failureMessages ?? []).join("\n");
+                failures.push({
+                    className,
+                    name: test.fullName || test.title || "",
+                    message: jestMessage(stack.replace(TERMINAL_COLOURS, "")),
+                    file: file || null,
+                    line: lineIn(stack, file),
+                });
+            } else skipped += 1;
+        }
+    }
+    return { passed, failed: failures.length, skipped, failures: failures.slice(0, MAX_FAILURES) };
 }
 
 /** The latest JUnit XML results in a Maven or Gradle module, or null when it has none. */
 export async function readTestResults(cwd: string): Promise<TestResults | null> {
-    const files = await reportFiles(cwd);
-    if (!files.length) return null;
+    const [files, jest] = await Promise.all([reportFiles(cwd), readJestResults(cwd)]);
+    if (!files.length) return jest;
     const parser = new DOMParser();
     let passed = 0;
     let skipped = 0;
@@ -87,6 +160,10 @@ export async function readTestResults(cwd: string): Promise<TestResults | null> 
     }
     const failures = await Promise.all(
         failing.slice(0, MAX_FAILURES).map(async ({ className, name, message, stack }): Promise<TestFailure> => {
+            if (isFilePath(className)) {
+                const file = await existingFile(joinPath(cwd, className));
+                return { className, name, message, file, line: lineIn(stack, className) };
+            }
             const frame = failingFrame(stack, className);
             const file = frame ? await sourceFile(cwd, className, frame.fileName) : null;
             return { className, name, message, file, line: frame?.line ?? null };
@@ -97,6 +174,10 @@ export async function readTestResults(cwd: string): Promise<TestResults | null> 
 
 /** The same test command narrowed to the tests that failed, or null for a build tool it does not know. */
 export function rerunFailedCommand(command: string, failures: readonly TestFailure[]): string | null {
+    if (command.includes(VITEST_REPORT) || command.includes(JEST_REPORT)) {
+        const files = [...new Set(failures.map((failure) => failure.className))].map((file) => `'${file}'`);
+        return `${command} ${files.join(" ")}`;
+    }
     const [tool] = command.split(" ");
     const methodName = (name: string) => name.replace(/\(.*$/, "");
     if (/mvnw?$/.test(tool)) {
