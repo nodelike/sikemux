@@ -1,3 +1,4 @@
+import { RunChip } from "../tasks/RunChip";
 import { memo, useState, type MouseEvent as ReactMouseEvent } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useBattery } from "../hooks/useBattery";
@@ -186,6 +187,7 @@ export const TopBar = memo(function TopBar() {
             <div className="tb-right" onPointerEnter={() => setStripHovered(true)}>
                 <VoicePill />
                 {isProject && session.cwd && <GitChip repo={session.cwd} />}
+                {isProject && session.cwd && <RunChip sessionId={session.id} project={session.cwd} />}
                 {isProject && session.cwd && <PortsChip sessionId={session.id} />}
                 {plugins.map(({ id, TopBarItem }) =>
                     TopBarItem ? <TopBarItem key={id} projectCwd={isProject ? session.cwd || null : null} stripHovered={stripHovered} /> : null,

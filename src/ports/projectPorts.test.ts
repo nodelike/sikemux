@@ -40,7 +40,7 @@ describe("projectPorts", () => {
             [3000, false],
         ]);
         expect(ports[0].url).toBe("http://localhost:8080/app");
-        expect(ports[0].owner).toEqual({ kind: "task", label: "task", reveal: null });
+        expect(ports[0].owner).toEqual({ kind: "task", label: "task", reveal: null, executionId: "run-1" });
     });
 
     it("reads the port out of a local preview URL only", () => {

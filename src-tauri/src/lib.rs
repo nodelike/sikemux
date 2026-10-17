@@ -49,6 +49,7 @@ mod skills;
 mod ssh;
 mod state;
 mod system;
+mod toolchains;
 mod transparency;
 mod updates;
 mod usage;
@@ -290,6 +291,7 @@ pub fn run() {
             pty::commands::pty_shell_at_prompt,
             pty::commands::pty_kill,
             ports::listening_ports,
+            ports::ports_in_use,
             pty::commands::pty_sessions,
             remote::remote_status,
             remote::remote_pairing,
@@ -341,6 +343,10 @@ pub fn run() {
             system::battery_status,
             system::runtime_diagnostics,
             system::integration_health,
+            system::build_tool_installed,
+            system::install_build_tool,
+            toolchains::java_runtimes,
+            toolchains::install_java,
             observability::observability_ui_heartbeat,
             observability::observability_ui_activity,
             updates::update_check,

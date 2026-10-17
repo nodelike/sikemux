@@ -10,6 +10,7 @@ const MAX_INCREMENTAL_BATCH = 80;
 
 const INSTALLABLE_LSP: Record<string, { bin: string; label: string }> = {
     go: { bin: "gopls", label: "Go LSP" },
+    java: { bin: "jdtls", label: "Java LSP" },
 };
 
 function openKey(lang: string, path: string) {

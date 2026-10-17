@@ -90,7 +90,6 @@ import { applyChatTextScale } from "./chat/textScale";
 import { applyEditorTextScale } from "./editor/textScale";
 import { dirname } from "./lib/paths";
 import type { StandaloneCommand } from "./commands/registry";
-import type { ProjectConfigLoadResult } from "./projects/projectConfig";
 import { agentDetectionApi } from "./api/agentDetection";
 import { lsp } from "./api/lsp";
 import { projectActionCommand, trustProjectConfig } from "./projects/projectConfigRuntime";
@@ -98,13 +97,15 @@ import { worktreeHasLiveOwners } from "./git/worktreeLifecycle";
 import { performanceTelemetry } from "./lib/performance";
 import { workbenchRuntime } from "./workbench/runtime";
 import {
-    activeProjectTaskInventoryMatches,
     appTaskRuntime,
     clearActiveProjectTasks,
     getAppTaskSnapshot,
     replaceActiveProjectTasks,
+    refreshDetectedTasks,
     subscribeAppTasks,
 } from "./tasks/application";
+import { projectTasksFor, restartProjectTask, runProjectTask, stopProjectTask } from "./tasks/projectTaskActions";
+import { activeProjectConfigMatches, whenTrusted } from "./projects/projectTrust";
 import type { ResolvedTaskDefinition, TaskControllerSnapshot } from "./tasks/taskRegistry";
 import {
     applicationActionContext,
@@ -200,37 +201,6 @@ interface TreeDropTarget {
     targetDir: string;
     highlightPath: string | null;
     dropEl: HTMLElement;
-}
-
-type ValidProjectConfig = Extract<ProjectConfigLoadResult, { readonly status: "valid" }>;
-
-function activeProjectConfigMatches(project: string, expected: ValidProjectConfig, requireTaskInventory = false): boolean {
-    const active = projectControllerBridge.getActiveSnapshot();
-    const current = active?.config;
-    return (
-        active?.cwd === project &&
-        current?.status === "valid" &&
-        current.path === expected.path &&
-        current.fingerprint === expected.fingerprint &&
-        (!requireTaskInventory || activeProjectTaskInventoryMatches(project, expected.fingerprint))
-    );
-}
-
-/**
- * Re-checks the on-disk config after approval: the user can take arbitrarily
- * long in the dialog, and the project must still be the one they approved.
- */
-async function trustCurrentProjectConfig(project: string, expected: ValidProjectConfig, requireTaskInventory = false): Promise<boolean> {
-    if (!activeProjectConfigMatches(project, expected, requireTaskInventory)) return false;
-    if (!(await trustProjectConfig(expected))) return false;
-    return activeProjectConfigMatches(project, expected, requireTaskInventory);
-}
-
-/** `if (!trusted) return;` in promise form, for command bodies that must stay void. */
-function whenTrusted(project: string, expected: ValidProjectConfig, requireTaskInventory: boolean, run: () => void): void {
-    void trustCurrentProjectConfig(project, expected, requireTaskInventory).then((ok) => {
-        if (ok) run();
-    });
 }
 
 /**
@@ -341,6 +311,13 @@ function ProjectBridge() {
         }
         return clearActiveProjectTasks;
     }, [activeProjectCwd, projectConfig]);
+
+    useEffect(() => {
+        void refreshDetectedTasks(activeProjectCwd || null).catch(reportError("detect project tasks"));
+        return () => {
+            void refreshDetectedTasks(null);
+        };
+    }, [activeProjectCwd]);
 
     useEffect(() => {
         let cancelled = false;
@@ -489,47 +466,24 @@ function ApplicationCommandPalette() {
             ),
         });
     }
-    const currentProjectTasks =
-        projectConfig?.status === "valid" && activeProjectTaskInventoryMatches(activeProjectCwd, projectConfig.fingerprint)
-            ? taskRegistrySnapshot.tasks.filter((task) => task.project === activeProjectCwd && task.source === "project")
-            : [];
-    const taskCommands: StandaloneCommand[] =
-        projectConfig?.status === "valid"
-            ? currentProjectTasks.map((task) => ({
-                  id: `task.run.${task.id}`,
-                  title: task.label,
-                  detail: `Run task from ${task.cwd}`,
-                  category: "Tasks",
-                  execute: runStandalone(`task.run.${task.id}`, () => {
-                      whenTrusted(activeProjectCwd, projectConfig, true, () => {
-                          const snapshot = appTaskRuntime.getSnapshot(activeProjectCwd);
-                          const operation =
-                              snapshot?.status === "running" || snapshot?.status === "stopping"
-                                  ? appTaskRuntime.restart(activeProjectCwd, task.id)
-                                  : appTaskRuntime.run(activeProjectCwd, task.id);
-                          void operation.then(() => notify("success", `Started task: ${task.label}`)).catch(reportError(`start task ${task.label}`));
-                      });
-                  }),
-              }))
-            : [];
+    const currentProjectTasks = projectTasksFor(taskRegistrySnapshot, activeProjectCwd, projectConfig);
+    const taskCommands: StandaloneCommand[] = currentProjectTasks.map((task) => ({
+        id: `task.run.${task.id}`,
+        title: task.label,
+        detail: `Run task from ${task.cwd}`,
+        category: "Tasks",
+        execute: runStandalone(`task.run.${task.id}`, () => runProjectTask(activeProjectCwd, projectConfig, task)),
+    }));
     const taskRuntimeSnapshot = activeProjectCwd ? appTaskRuntime.getSnapshot(activeProjectCwd) : null;
     const taskControls = activeTaskControls(taskRuntimeSnapshot, currentProjectTasks);
-    if (activeProjectCwd && taskControls.restartTaskId) {
-        const restartTaskId = taskControls.restartTaskId;
+    const restartTask = currentProjectTasks.find((task) => task.id === taskControls.restartTaskId);
+    if (activeProjectCwd && restartTask) {
         taskCommands.push({
             id: "task.restart-active",
             title: "Restart active task",
             detail: "Stop the current project task and start its current trusted definition",
             category: "Tasks",
-            execute: runStandalone("task.restart-active", () => {
-                if (projectConfig?.status !== "valid") return;
-                whenTrusted(activeProjectCwd, projectConfig, true, () => {
-                    void appTaskRuntime
-                        .restart(activeProjectCwd, restartTaskId)
-                        .then(() => notify("success", "Restarted active task"))
-                        .catch(reportError("restart active task"));
-                });
-            }),
+            execute: runStandalone("task.restart-active", () => restartProjectTask(activeProjectCwd, projectConfig, restartTask)),
         });
     }
     if (activeProjectCwd && taskControls.canStop) {
@@ -538,12 +492,7 @@ function ApplicationCommandPalette() {
             title: "Stop active task",
             detail: "Stop only the exact PTY owned by the current project task",
             category: "Tasks",
-            execute: runStandalone("task.stop-active", () => {
-                void appTaskRuntime
-                    .stop(activeProjectCwd)
-                    .then(() => notify("success", "Stopped active task"))
-                    .catch(reportError("stop active task"));
-            }),
+            execute: runStandalone("task.stop-active", () => stopProjectTask(activeProjectCwd)),
         });
     }
     const worktreeCommands: StandaloneCommand[] = activeWorktrees

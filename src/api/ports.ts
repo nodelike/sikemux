@@ -21,5 +21,7 @@ export interface ListeningPort {
 
 export const portsApi = {
     listening: () => invoke<ListeningPort[]>("listening_ports"),
+    /** The ports any program on this Mac already listens on, out of those given. */
+    inUse: (ports: number[]) => invoke<number[]>("ports_in_use", { ports }),
     openExternal: (url: string) => invoke<void>("open_url", { url, app: null, shortcut: null }),
 };

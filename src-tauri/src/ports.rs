@@ -153,6 +153,27 @@ fn scan(_app_pid: u32, _core_pid: Option<u32>, _ptys: Vec<PtyProcess>) -> Vec<Li
     Vec::new()
 }
 
+/// Whether something on this Mac, not only what Sikemux started, already
+/// listens on `port`. Binding and dropping a socket is the one test that sees
+/// every program; an address the Mac does not have counts as free.
+fn in_use(port: u16) -> bool {
+    ["0.0.0.0", "127.0.0.1", "::1"].iter().any(|host| {
+        matches!(
+            std::net::TcpListener::bind((*host, port)),
+            Err(error) if error.kind() != std::io::ErrorKind::AddrNotAvailable
+        )
+    })
+}
+
+#[tauri::command]
+pub async fn ports_in_use(ports: Vec<u16>) -> AppResult<Vec<u16>> {
+    tauri::async_runtime::spawn_blocking(move || {
+        ports.into_iter().filter(|&port| in_use(port)).collect()
+    })
+    .await
+    .map_err(|error| AppError::Pty(format!("ports_in_use join: {error}")))
+}
+
 /// TCP ports that terminals, tasks and chat agents (or anything they started)
 /// are listening on. Chat agents are the app's children; terminals and tasks
 /// are the terminal core's.

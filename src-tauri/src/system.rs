@@ -49,6 +49,72 @@ fn read_integration_health() -> IntegrationHealth {
     }
 }
 
+/// Build tools a detected project task can need, with the Homebrew formula that installs each.
+const BUILD_TOOLS: &[(&str, &str)] = &[
+    ("mvn", "maven"),
+    ("gradle", "gradle"),
+    ("go", "go"),
+    ("npm", "node"),
+    ("pnpm", "pnpm"),
+    ("yarn", "yarn"),
+    ("bun", "bun"),
+    ("python3", "python"),
+    ("uv", "uv"),
+    ("poetry", "poetry"),
+];
+
+fn build_tool_formula(program: &str) -> AppResult<&'static str> {
+    BUILD_TOOLS
+        .iter()
+        .find(|(tool, _)| *tool == program)
+        .map(|(_, formula)| *formula)
+        .ok_or(AppError::BadArg("unknown build tool"))
+}
+
+#[tauri::command]
+pub async fn build_tool_installed(program: String) -> AppResult<bool> {
+    build_tool_formula(&program)?;
+    spawn_blocking(move || sikemux_process::user_environment::find_executable(&program).is_some())
+        .await
+        .map_err(|e| AppError::Other(format!("join: {e}")))
+}
+
+#[tauri::command]
+pub async fn install_build_tool(program: String) -> AppResult<String> {
+    let formula = build_tool_formula(&program)?;
+    spawn_blocking(move || {
+        let output = sikemux_process::user_environment::command("brew")
+            .args(["install", formula])
+            .output()
+            .map_err(|e| {
+                if e.kind() == std::io::ErrorKind::NotFound {
+                    AppError::Other(
+                        "Homebrew not found on PATH. Install Homebrew first: https://brew.sh"
+                            .into(),
+                    )
+                } else {
+                    AppError::Other(format!("run brew install {formula}: {e}"))
+                }
+            })?;
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(AppError::Other(format!(
+                "brew install {formula} failed: {}",
+                stderr.trim()
+            )));
+        }
+        sikemux_process::user_environment::find_executable(&program)
+            .map(|path| path.to_string_lossy().into_owned())
+            .ok_or_else(|| {
+                AppError::Other(format!(
+                    "{formula} installed, but Sikemux could not find {program} on PATH"
+                ))
+            })
+    })
+    .await
+    .map_err(|e| AppError::Other(format!("join: {e}")))?
+}
+
 /// Existing modules use HOME for established ~/.config, ~/.ssh and ~/.aws
 /// locations. Windows normally exposes USERPROFILE instead, so normalize it
 /// once before Tauri creates worker threads rather than branching every

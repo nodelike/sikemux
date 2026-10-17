@@ -102,16 +102,23 @@ inventing new ones. Inspect again after writing to see `configErrors`.
 
 ## tasks: Running and stopping tasks
 
-`task_start` takes an `idempotencyKey` you choose and either a `taskId` from
-`sikemux.json` or a `command` to run. A `command` runs in the same kind of
-managed terminal as a configured task, in the project root or in `cwd`, a
-directory inside the project given relative to it, and `label` names its tab.
-The result's `taskId` looks like `sh:pnpm-dev-3fa2c1`; use it with
+`task_start` takes an `idempotencyKey` you choose and either a `taskId` or a
+`command` to run. `workspace_inspect` lists the task ids: those from
+`sikemux.json`, then those Sikemux found in the project's build files
+(`foundIn: "build files"`), and those the person added for themselves
+(`foundIn: "added by the person"`). The found ones include Maven, Gradle and
+Go run, test and build tasks, Cargo run, test and build tasks, a
+`package.json`'s scripts, and a Python project's FastAPI, Flask or Django app
+and pytest. A found task runs on the Java its build asks for (`java.runsOn`),
+so prefer it to running `mvn` or `gradle` yourself. A `command` runs in the
+same kind of managed terminal as a configured task, in the project root or in
+`cwd`, a directory inside the project given relative to it, and `label` names
+its tab. The result's `taskId` looks like `sh:pnpm-dev-3fa2c1`; use it with
 `task_read`, `task_stop` and `task_restart`, or pass it back to `task_start`
-to run the same command again. Starting the same command in the same
-directory while it still runs returns that run. Use this for dev servers and
-watchers rather than background shell jobs: you can read their output, see
-when they exit, and they stop with the project.
+to run the same command again. Starting the same command in the same directory
+while it still runs returns that run. Use this for dev servers and watchers
+rather than background shell jobs: you can read their output, see when they
+exit, and they stop with the project.
 
 The key is what makes a retry safe. Reusing a key returns the original
 execution rather than starting a second one, and it keeps doing so after that
@@ -128,9 +135,23 @@ Two things can stop a launch:
   `events_wait` with that `executionId`, to see it start. If the person
   refuses, the run ends as `failed`. A `command` needs no trust, and neither
 does anything you start while the person runs you in YOLO mode.
+- A task found in the build files is checked first: its build tool must be
+  installed, a new enough Java must exist, and a Node.js project's dependencies
+  must be installed. If not, `task_start` fails and
+  says what is missing and how to install it. When a Spring Boot, Next.js, FastAPI or
+  Flask app's port is taken, it runs on the next free one instead, and the result's `previewUrl`
+  says where.
 - If the same task is already running from the command deck, stop it there
   first. Starting a task already running through the harness just returns that
   execution.
+
+After a Maven, Gradle, Vitest, Jest, pytest, Go or Cargo test task, `workspace_inspect` has
+`testResults`: per module, the counts and each failing test with its message,
+file and line, read from the reports the runner writes. Read those instead of the whole build log.
+
+If a task you started stops with an error while you are doing something else,
+such as a dev server crashing, Sikemux sends you a notice with its
+`executionId`. Read its output with `task_read` before starting it again.
 
 `task_start` always answers within about 30 seconds. If the task is still
 launching it returns `status: "starting"`; call again with the same key.
