@@ -505,3 +505,19 @@
     align-items: center;
     gap: var(--space-1);
 }
+.tb-run-stop {
+    flex: 0 0 auto;
+    width: 18px;
+    height: 18px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-1);
+    color: var(--text-tertiary);
+}
+.tb-run-stop:hover,
+.tb-run-stop:focus-visible {
+    border-color: color-mix(in srgb, var(--danger) 45%, transparent);
+    color: var(--danger);
+}

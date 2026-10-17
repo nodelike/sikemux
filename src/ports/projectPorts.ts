@@ -18,7 +18,14 @@ export interface ProjectPort {
     process: string;
     url: string;
     preview: boolean;
-    owner: { kind: "terminal" | "task" | "agent"; label: string; reveal: PortReveal | null; terminalKey?: string };
+    owner: {
+        kind: "terminal" | "task" | "agent";
+        label: string;
+        reveal: PortReveal | null;
+        terminalKey?: string;
+        /** Set when a task run listens here, so it can be stopped. */
+        executionId?: string;
+    };
 }
 
 const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "0.0.0.0", "[::1]", "[::]"]);
@@ -58,8 +65,14 @@ export function deskAgentFor(state: PortsState, sessionId: string): string | nul
     return live.sort((left, right) => lastWorked(right) - lastWorked(left))[0] ?? null;
 }
 
-function agentOwner(state: PortsState, agentId: string): ProjectPort["owner"] {
-    return { kind: "agent", label: state.agents[agentId]?.title || "agent", reveal: { kind: "agent", agentId } };
+function agentOwner(state: PortsState, agentId: string, executionId?: string): ProjectPort["owner"] {
+    const terminalKey = executionId ? (terminalKeyOfExecution(executionId) ?? undefined) : undefined;
+    return {
+        kind: "agent",
+        label: state.agents[agentId]?.title || "agent",
+        reveal: { kind: "agent", agentId },
+        ...(executionId ? { executionId, terminalKey } : {}),
+    };
 }
 
 function taskTerminal(
@@ -87,14 +100,15 @@ export function taskTerminalReveal(state: PortsState, sessionId: string, termina
 function taskOwner(state: PortsState, sessionId: string, executionId: string): ProjectPort["owner"] {
     const terminalKey = terminalKeyOfExecution(executionId) ?? undefined;
     const shown = taskTerminal(state, sessionId, (binding) => binding.executionId === executionId);
-    return { kind: "task", label: shown?.label ?? "task", reveal: shown?.reveal ?? null, terminalKey };
+    return { kind: "task", label: shown?.label ?? "task", reveal: shown?.reveal ?? null, ...(terminalKey ? { terminalKey } : {}), executionId };
 }
 
 function ownerIn(state: PortsState, sessionId: string, project: string, port: ListeningPort): ProjectPort["owner"] | null {
     const owner = port.owner;
     if (owner.kind === "agent" || owner.agentId) {
         const agentId = owner.agentId!;
-        return agentIdsOf(state, sessionId).includes(agentId) ? agentOwner(state, agentId) : null;
+        const executionId = owner.kind === "pty" ? (owner.taskExecutionId ?? undefined) : undefined;
+        return agentIdsOf(state, sessionId).includes(agentId) ? agentOwner(state, agentId, executionId) : null;
     }
     if (owner.taskExecutionId) return owner.project === project ? taskOwner(state, sessionId, owner.taskExecutionId) : null;
     if (owner.paneId) {

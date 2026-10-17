@@ -25,6 +25,7 @@ pub const IPC_COMMANDS: &[&str] = &[
     "pty_shell_at_prompt",
     "pty_kill",
     "listening_ports",
+    "ports_in_use",
     "pty_sessions",
     "remote_status",
     "remote_pairing",

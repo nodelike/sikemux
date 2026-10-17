@@ -311,6 +311,7 @@ pub fn run() {
             pty::commands::pty_shell_at_prompt,
             pty::commands::pty_kill,
             ports::listening_ports,
+            ports::ports_in_use,
             pty::commands::pty_sessions,
             remote::remote_status,
             remote::remote_pairing,

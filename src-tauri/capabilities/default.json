@@ -44,6 +44,7 @@
     "allow-pty-shell-at-prompt",
     "allow-pty-kill",
     "allow-listening-ports",
+    "allow-ports-in-use",
     "allow-pty-sessions",
     "allow-remote-status",
     "allow-remote-pairing",

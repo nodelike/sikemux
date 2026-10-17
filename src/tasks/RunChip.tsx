@@ -3,6 +3,7 @@ import { openPortExternally, revealPortOwner } from "../ports/portActions";
 import { taskTerminalReveal } from "../ports/projectPorts";
 import { useProjectPorts } from "../ports/useProjectPorts";
 import { projectControllerBridge } from "../projects/controllerBridge";
+import { invokeCommand } from "../api/invoke";
 import { getState } from "../state/store";
 import { reportError } from "../state/toast";
 import { IconCheck, IconChevron, IconClose, IconExternal, IconRefresh, IconRun, IconStop, IconTerminal } from "../ui/Icons";
@@ -86,6 +87,21 @@ function taskGroups(tasks: readonly ResolvedTaskDefinition[], project: string): 
         });
     }
     return groups;
+}
+
+/** Stops a run from the menu's Running now list: the person's own task through the runtime, an agent's through the harness. */
+function stopRun(terminalKey: string | undefined, executionId: string): void {
+    let key: unknown[] = [];
+    try {
+        key = terminalKey ? (JSON.parse(terminalKey) as unknown[]) : [];
+    } catch {
+        key = [];
+    }
+    if (key[0] === "task" && typeof key[1] === "string") {
+        stopProjectTask(key[1]);
+        return;
+    }
+    void invokeCommand("harness_stop_runs", { executionId }).catch(reportError("stop run"));
 }
 
 function CheckCard({ check }: { check: PendingCheck }) {
@@ -334,6 +350,25 @@ export function RunChip({ sessionId, project }: { sessionId: string; project: st
                                             <span className={`tb-run-owner ${run.owner.kind}`}>
                                                 {run.owner.kind === "agent" ? run.owner.label : "You"}
                                             </span>
+                                            {run.owner.executionId && (
+                                                <span
+                                                    className="tb-run-stop"
+                                                    role="button"
+                                                    tabIndex={0}
+                                                    aria-label={`Stop what listens on ${run.port}`}
+                                                    onClick={(event) => {
+                                                        event.stopPropagation();
+                                                        stopRun(run.owner.terminalKey, run.owner.executionId!);
+                                                    }}
+                                                    onKeyDown={(event) => {
+                                                        if (event.key !== "Enter" && event.key !== " ") return;
+                                                        event.preventDefault();
+                                                        event.stopPropagation();
+                                                        stopRun(run.owner.terminalKey, run.owner.executionId!);
+                                                    }}>
+                                                    <IconStop size={9} />
+                                                </span>
+                                            )}
                                         </button>
                                     ))}
                                 </>
