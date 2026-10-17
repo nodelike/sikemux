@@ -4,10 +4,23 @@ import { taskTerminalReveal } from "../ports/projectPorts";
 import { useProjectPorts } from "../ports/useProjectPorts";
 import { projectControllerBridge } from "../projects/controllerBridge";
 import { getState } from "../state/store";
-import { IconChevron, IconExternal, IconRefresh, IconRun, IconStop, IconTerminal } from "../ui/Icons";
+import { reportError } from "../state/toast";
+import { IconCheck, IconChevron, IconClose, IconExternal, IconRefresh, IconRun, IconStop, IconTerminal } from "../ui/Icons";
 import { Tooltip } from "../ui/Tooltip";
 import { appTaskRuntime, getAppTaskSnapshot, javaChoiceOf, subscribeAppTasks, subscribeTaskRuntime } from "./application";
-import { projectTasksFor, restartProjectTask, runProjectTask, stopProjectTask } from "./projectTaskActions";
+import { checkItemText } from "./environmentCheck";
+import {
+    dismissPendingCheck,
+    fixAndRun,
+    getPendingCheck,
+    projectTasksFor,
+    restartProjectTask,
+    runPendingCheckAnyway,
+    runProjectTask,
+    stopProjectTask,
+    subscribePendingCheck,
+    type PendingCheck,
+} from "./projectTaskActions";
 import { taskTerminalKey } from "./runtime";
 import type { TaskControllerSnapshot } from "./taskRegistry";
 
@@ -31,6 +44,53 @@ function exitSummary(snapshot: TaskControllerSnapshot): string {
     return code ? `exited ${code}` : "failed";
 }
 
+function CheckCard({ check }: { check: PendingCheck }) {
+    const [fixing, setFixing] = useState(false);
+    const fixable = check.items.some((item) => !item.ok && item.kind !== "port");
+    const blockedByPort = check.items.some((item) => !item.ok && item.kind === "port");
+    const fix = () => {
+        setFixing(true);
+        void fixAndRun(check)
+            .catch(reportError(`fix ${check.task.label}`))
+            .finally(() => setFixing(false));
+    };
+    return (
+        <>
+            <div className="env-dd-scrim" onClick={dismissPendingCheck} />
+            <div className="env-dd-menu tb-run-check" role="dialog" aria-label={`Before running ${check.task.label}`} data-overlay>
+                <div className="tb-run-check-head">
+                    <span>{check.task.label} can't start yet</span>
+                    <button className="tb-run-check-close" onClick={dismissPendingCheck} aria-label="Close">
+                        <IconClose size={11} />
+                    </button>
+                </div>
+                {check.items.map((item) => {
+                    const { title, detail } = checkItemText(item);
+                    return (
+                        <div key={item.kind} className={`tb-run-check-item${item.ok ? "" : " bad"}`}>
+                            <span className="tb-run-check-mark">{item.ok ? <IconCheck size={11} /> : <IconClose size={11} />}</span>
+                            <span className="tb-run-check-text">
+                                <span>{title}</span>
+                                <span className="tb-run-check-detail">{detail}</span>
+                            </span>
+                        </div>
+                    );
+                })}
+                <div className="tb-run-check-actions">
+                    <button className="tb-run-check-btn" onClick={() => runPendingCheckAnyway(check)} disabled={fixing}>
+                        Run anyway
+                    </button>
+                    {fixable && (
+                        <button className="tb-run-check-btn primary" onClick={fix} disabled={fixing}>
+                            {fixing ? "Installing…" : blockedByPort ? "Install" : "Install and run"}
+                        </button>
+                    )}
+                </div>
+            </div>
+        </>
+    );
+}
+
 export function RunChip({ sessionId, project }: { sessionId: string; project: string }) {
     const registry = useSyncExternalStore(subscribeAppTasks, getAppTaskSnapshot);
     const controller = useSyncExternalStore(projectControllerBridge.subscribe, projectControllerBridge.getActiveSnapshot);
@@ -39,6 +99,7 @@ export function RunChip({ sessionId, project }: { sessionId: string; project: st
     const [picked, setPicked] = useState<Readonly<Record<string, string>>>({});
     const [open, setOpen] = useState(false);
     const elapsed = useSecondsSince(runtime?.activeRunId ?? null);
+    const pendingCheck = useSyncExternalStore(subscribePendingCheck, getPendingCheck);
 
     const config = controller?.cwd === project ? (controller.config ?? null) : null;
     const tasks = projectTasksFor(registry, project, config);
@@ -95,6 +156,7 @@ export function RunChip({ sessionId, project }: { sessionId: string; project: st
                         </button>
                     </Tooltip>
                 )}
+                {pendingCheck?.project === project && !open && <CheckCard check={pendingCheck} />}
                 {open && (
                     <>
                         <div className="env-dd-scrim" onClick={close} />

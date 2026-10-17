@@ -64,21 +64,34 @@ export function javaChoiceOf(project: string, taskId: string): JavaChoice | null
     return javaChoices.get(`${project}\0${taskId}`) ?? null;
 }
 
-/** Finds the project's build-file tasks and the Java each should run on; a newer call wins over one still reading. */
-export async function refreshDetectedTasks(project: string | null): Promise<void> {
-    const token = ++detection;
-    const detected = project ? await detectProjectTasks(project) : [];
+export interface DetectedTasks {
+    readonly tasks: readonly TaskDefinitionInput[];
+    readonly java: ReadonlyMap<string, JavaChoice>;
+}
+
+/** A project's build-file tasks, each pointed at the Java it should run on; java is keyed by task id. */
+export async function detectTasksWithJava(project: string): Promise<DetectedTasks> {
+    const detected = await detectProjectTasks(project);
     const runtimes = detected.some((task) => task.java) ? await toolchains.javaRuntimes().catch(() => null) : null;
-    if (token !== detection) return;
-    javaChoices.clear();
-    const tasks = detected.map(({ java, ...task }): TaskDefinitionInput => {
-        if (!java || !runtimes) return task;
-        const choice = chooseJava(java, runtimes);
-        javaChoices.set(`${task.project}\0${task.id}`, choice);
+    const java = new Map<string, JavaChoice>();
+    const tasks = detected.map(({ java: required, ...task }): TaskDefinitionInput => {
+        if (!required || !runtimes) return task;
+        const choice = chooseJava(required, runtimes);
+        java.set(task.id, choice);
         if (!choice.runtime || choice.runtime.home === choice.current?.home) return task;
         return { ...task, env: { ...task.env, JAVA_HOME: choice.runtime.home } };
     });
-    appTaskRegistry.replaceSource("built-in", tasks);
+    return { tasks, java };
+}
+
+/** Shows the active project's build-file tasks; a newer call wins over one still reading. */
+export async function refreshDetectedTasks(project: string | null): Promise<void> {
+    const token = ++detection;
+    const detected = project ? await detectTasksWithJava(project) : { tasks: [], java: new Map<string, JavaChoice>() };
+    if (token !== detection) return;
+    javaChoices.clear();
+    for (const [taskId, choice] of detected.java) javaChoices.set(`${project}\0${taskId}`, choice);
+    appTaskRegistry.replaceSource("built-in", detected.tasks);
 }
 
 export function activeProjectTaskInventoryMatches(project: string, configFingerprint: string): boolean {

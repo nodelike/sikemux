@@ -17,13 +17,17 @@ Sikemux reads the build files at the project's root and in the folders just insi
 
 Spring Boot tasks appear only when the build uses Spring Boot. A project's own `./mvnw` or `./gradlew` is used when it has one. Tasks from a [`sikemux.json`](/getting-started/projects/#project-config) come first in the list.
 
-When a task needs Maven, Gradle or Go and it isn't installed, Sikemux says so and offers to install it with Homebrew, then runs the task.
+## Checked before it runs
+
+Before a task starts, Sikemux checks that its build tool is installed, that a new enough Java exists, and that a Spring Boot app's port is free. If something is missing, a card opens under the run button with what it found; **Install and run** installs the missing pieces with Homebrew and starts the task, and **Run anyway** skips the check.
+
+Agents get the same tasks and the same check: `workspace_inspect` lists the tasks found in the build files, and `task_start` runs them, or says what is missing.
 
 ## The right Java for each project
 
 Sikemux reads the Java version a project asks for, from `.java-version`, `.sdkmanrc` or `.tool-versions`, or else from `pom.xml` or the Gradle build. It runs the task on that version if you have it, on your own Java if that is new enough, or on the closest newer one it finds: Homebrew, `/Library/Java`, SDKMAN, mise, asdf and Gradle's downloads all count. Only the task gets that Java; your terminals keep your `JAVA_HOME`.
 
-The run button shows the Java it picked. If nothing installed is new enough, Sikemux offers to install the version the project needs.
+The run button shows the Java it picked. If nothing installed is new enough, the check offers to install the version the project needs.
 
 ## While it runs
 

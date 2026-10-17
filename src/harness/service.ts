@@ -12,7 +12,9 @@ import { collectPanes } from "../state/layout";
 import { agentIdsOf, projectSessionId } from "../state/selectors";
 import { useStore, setState } from "../state/store";
 import * as commands from "../state/commands";
-import { appTaskRuntime } from "../tasks/application";
+import { appTaskRuntime, detectTasksWithJava } from "../tasks/application";
+import { DETECTED_TASK_PREFIX } from "../tasks/detectedTasks";
+import { checkProblems, checkTask } from "../tasks/environmentCheck";
 import { NativeTaskExecutionBackend, WorkbenchTaskTerminalSurface, taskPtyBindings } from "../tasks/nativeRuntime";
 import type { TaskExecutionRequest } from "../tasks/runtime";
 import { openTerminalWorker } from "../agents/terminalWorker";
@@ -162,7 +164,8 @@ async function startTask(request: HarnessRequest): Promise<{ previewUrl?: string
                 rows: 30,
             },
         };
-    } else prepared = await configuredLaunch(request, executionId, taskId);
+    } else if (taskId.startsWith(DETECTED_TASK_PREFIX)) prepared = await detectedLaunch(request, taskId);
+    else prepared = await configuredLaunch(request, executionId, taskId);
     const { launch, previewUrl } = prepared;
     const previous = text(params, "previousExecutionId", false);
     if (previous) await invokeCommand("harness_stop_runs", { executionId: previous });
@@ -202,6 +205,34 @@ async function showPage(request: HarnessRequest) {
     };
 }
 
+/** A task Sikemux found in the project's build files: no trust prompt, but the same check the run button makes. */
+async function detectedLaunch(request: HarnessRequest, taskId: string): Promise<{ launch: Launch }> {
+    const { project } = request;
+    const { tasks, java } = await detectTasksWithJava(project);
+    const task = tasks.find((candidate) => candidate.id === taskId);
+    if (!task) throw new Error("No task with this id in the project's build files; call workspace_inspect for the current list");
+    const problems = checkProblems(await checkTask(task, java.get(taskId) ?? null, [harnessTerminalKey(project, taskId)]));
+    if (problems) throw new Error(`${task.label} can't start yet:\n${problems}`);
+    projectSession(request);
+    return {
+        launch: {
+            taskId,
+            project,
+            source: "built-in",
+            label: task.label,
+            command: task.command,
+            cwd: task.cwd,
+            env: task.env ?? {},
+            cols: 120,
+            rows: 30,
+        },
+    };
+}
+
+function relativeTo(project: string, path: string): string {
+    return path === project ? "." : path.startsWith(`${project}/`) ? path.slice(project.length + 1) : path;
+}
+
 export async function handleHarnessRequest(request: HarnessRequest, signal?: AbortSignal): Promise<unknown> {
     if (signal?.aborted) throw signal.reason;
     if (request.method === "agent.terminal") return openTerminalWorker(request.params);
@@ -209,7 +240,11 @@ export async function handleHarnessRequest(request: HarnessRequest, signal?: Abo
     const { params, project } = request;
     switch (request.method) {
         case "workspace.inspect": {
-            const [config, listening] = await Promise.all([loadProjectConfig(project), portsApi.listening().catch(() => [])]);
+            const [config, listening, detected] = await Promise.all([
+                loadProjectConfig(project),
+                portsApi.listening().catch(() => []),
+                detectTasksWithJava(project).catch(() => null),
+            ]);
             const state = useStore.getState();
             const previewUrl = config.status === "valid" ? config.config.preview?.url : undefined;
             return {
@@ -233,7 +268,20 @@ export async function handleHarnessRequest(request: HarnessRequest, signal?: Abo
                             openTabs: state.editorViews[pane.id]?.openTabs,
                         })),
                     })),
-                tasks: config.status === "valid" ? config.config.tasks.map(({ id, label, command, cwd }) => ({ id, label, command, cwd })) : [],
+                tasks: [
+                    ...(config.status === "valid" ? config.config.tasks.map(({ id, label, command, cwd }) => ({ id, label, command, cwd })) : []),
+                    ...(detected?.tasks ?? []).map(({ id, label, command, cwd }) => {
+                        const java = detected?.java.get(id);
+                        return {
+                            id,
+                            label,
+                            command,
+                            cwd: relativeTo(project, cwd),
+                            foundIn: "build files",
+                            ...(java ? { java: { required: java.required, runsOn: java.runtime?.major ?? null } } : {}),
+                        };
+                    }),
+                ],
                 configStatus: config.status,
                 configErrors: config.status === "invalid" ? config.errors : undefined,
                 userTask: (() => {

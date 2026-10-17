@@ -10,6 +10,8 @@ interface DetectedTask {
     readonly java?: number;
 }
 
+export const DETECTED_TASK_PREFIX = "detected.";
+
 export interface DetectedTaskDefinition extends TaskDefinitionInput {
     readonly java?: number;
 }

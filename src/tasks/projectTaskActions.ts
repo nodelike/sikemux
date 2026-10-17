@@ -4,7 +4,9 @@ import type { ProjectConfigLoadResult } from "../projects/projectConfig";
 import { whenTrusted } from "../projects/projectTrust";
 import { notify, reportError } from "../state/toast";
 import { activeProjectTaskInventoryMatches, appTaskRuntime, javaChoiceOf, refreshDetectedTasks } from "./application";
-import { buildToolOf, isDetectedRunTask } from "./detectedTasks";
+import { isDetectedRunTask } from "./detectedTasks";
+import { checkTask, type CheckItem } from "./environmentCheck";
+import { taskTerminalKey } from "./runtime";
 import type { ResolvedTaskDefinition, TaskRegistrySnapshot } from "./taskRegistry";
 
 /** The project's sikemux.json tasks, then the ones found from its build files. */
@@ -22,73 +24,72 @@ export function projectTasksFor(
     return [...configured, ...detected];
 }
 
-const installing = new Set<string>();
+/** A run held back by a failed check, waiting for the person to fix it or run anyway. */
+export interface PendingCheck {
+    readonly project: string;
+    readonly task: ResolvedTaskDefinition;
+    readonly items: readonly CheckItem[];
+    readonly run: () => void;
+}
 
-function installThenRun(name: string, install: () => Promise<string>, run: () => void): void {
-    if (installing.has(name)) {
-        notify("info", `${name} is already being installed`);
-        return;
+let pendingCheck: PendingCheck | null = null;
+const checkListeners = new Set<() => void>();
+
+function setPendingCheck(next: PendingCheck | null): void {
+    pendingCheck = next;
+    for (const listener of [...checkListeners]) listener();
+}
+
+export function subscribePendingCheck(listener: () => void): () => void {
+    checkListeners.add(listener);
+    return () => {
+        checkListeners.delete(listener);
+    };
+}
+
+export function getPendingCheck(): PendingCheck | null {
+    return pendingCheck;
+}
+
+export function dismissPendingCheck(): void {
+    setPendingCheck(null);
+}
+
+export function runPendingCheckAnyway(check: PendingCheck): void {
+    setPendingCheck(null);
+    check.run();
+}
+
+/** Installs whatever the check found missing, then starts the task. */
+export async function fixAndRun(check: PendingCheck): Promise<void> {
+    for (const item of check.items) {
+        if (item.ok) continue;
+        if (item.kind === "build-tool") {
+            const path = await buildTools.install(item.program);
+            notify("success", `Installed ${item.name} at ${path}`);
+        } else if (item.kind === "java") {
+            const runtime = await toolchains.installJava(item.required);
+            await refreshDetectedTasks(check.project);
+            notify("success", `Installed Java ${runtime.major}`);
+        }
     }
-    installing.add(name);
-    notify("info", `Installing ${name}…`);
-    void install()
-        .then((path) => {
-            notify("success", `Installed ${name} at ${path}`);
-            run();
-        })
-        .catch(reportError(`install ${name}`))
-        .finally(() => installing.delete(name));
+    setPendingCheck(null);
+    check.run();
 }
 
-/** Offers to install the build tool a detected task needs instead of letting the shell fail with "command not found". */
-function whenToolInstalled(task: ResolvedTaskDefinition, run: () => void): void {
-    const tool = buildToolOf(task.command);
-    if (!tool) return run();
-    void buildTools
-        .installed(tool.program)
-        .then((installed) => {
-            if (installed) return run();
-            notify("error", `${task.label} needs ${tool.name}, which isn't installed.`, {
-                action: {
-                    label: `Install ${tool.name}`,
-                    dismissOnClick: true,
-                    run: () => installThenRun(tool.name, () => buildTools.install(tool.program), run),
-                },
-                timeoutMs: null,
-            });
+function whenEnvironmentReady(task: ResolvedTaskDefinition, run: () => void): void {
+    void checkTask(task, javaChoiceOf(task.project, task.id), [taskTerminalKey(task.project, task.id)])
+        .then((items) => {
+            if (items.every((item) => item.ok)) return run();
+            setPendingCheck({ project: task.project, task, items, run });
         })
-        .catch(reportError(`check ${tool.name}`));
-}
-
-/** Detection already points the task at a new-enough Java; this covers the case where none is installed. */
-function whenJavaInstalled(task: ResolvedTaskDefinition, run: () => void): void {
-    const choice = javaChoiceOf(task.project, task.id);
-    if (!choice || choice.runtime) return run();
-    const name = `Java ${choice.required}`;
-    const current = choice.current ? ` Your Java is ${choice.current.major}.` : "";
-    notify("error", `${task.label} needs ${name} or newer.${current}`, {
-        action: {
-            label: `Install ${name}`,
-            dismissOnClick: true,
-            run: () =>
-                installThenRun(
-                    name,
-                    async () => {
-                        const runtime = await toolchains.installJava(choice.required);
-                        await refreshDetectedTasks(task.project);
-                        return runtime.home;
-                    },
-                    run,
-                ),
-        },
-        timeoutMs: null,
-    });
+        .catch(reportError(`check ${task.label}`));
 }
 
 // Detected tasks run fixed commands Sikemux wrote, so only sikemux.json tasks need the trust prompt.
 function whenTaskAllowed(project: string, config: ProjectConfigLoadResult | null, task: ResolvedTaskDefinition, run: () => void): void {
-    if (task.source === "built-in") whenToolInstalled(task, () => whenJavaInstalled(task, run));
-    else if (config?.status === "valid") whenTrusted(project, config, true, run);
+    if (task.source === "built-in") whenEnvironmentReady(task, run);
+    else if (config?.status === "valid") whenTrusted(project, config, true, () => whenEnvironmentReady(task, run));
 }
 
 /** Starts the task, replacing whichever task the project is running. */
