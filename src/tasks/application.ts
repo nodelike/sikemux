@@ -1,6 +1,9 @@
+import { toolchains } from "../api/toolchains";
 import { joinPath } from "../lib/paths";
 import type { ProjectTask } from "../projects/projectConfig";
 import { openTaskTerminal } from "../state/commands";
+import { detectProjectTasks } from "./detectedTasks";
+import { chooseJava, type JavaChoice } from "./javaToolchain";
 import { TaskRegistry, type TaskDefinitionInput, type TaskRegistrySnapshot } from "./taskRegistry";
 import { TaskRuntime } from "./runtime";
 import { NativeTaskExecutionBackend, WorkbenchTaskTerminalSurface, taskPtyBindings } from "./nativeRuntime";
@@ -54,12 +57,40 @@ export function clearActiveProjectTasks(): void {
     updateActiveProjectTasks(null, []);
 }
 
+const javaChoices = new Map<string, JavaChoice>();
+let detection = 0;
+
+export function javaChoiceOf(project: string, taskId: string): JavaChoice | null {
+    return javaChoices.get(`${project}\0${taskId}`) ?? null;
+}
+
+/** Finds the project's build-file tasks and the Java each should run on; a newer call wins over one still reading. */
+export async function refreshDetectedTasks(project: string | null): Promise<void> {
+    const token = ++detection;
+    const detected = project ? await detectProjectTasks(project) : [];
+    const runtimes = detected.some((task) => task.java) ? await toolchains.javaRuntimes().catch(() => null) : null;
+    if (token !== detection) return;
+    javaChoices.clear();
+    const tasks = detected.map(({ java, ...task }): TaskDefinitionInput => {
+        if (!java || !runtimes) return task;
+        const choice = chooseJava(java, runtimes);
+        javaChoices.set(`${task.project}\0${task.id}`, choice);
+        if (!choice.runtime || choice.runtime.home === choice.current?.home) return task;
+        return { ...task, env: { ...task.env, JAVA_HOME: choice.runtime.home } };
+    });
+    appTaskRegistry.replaceSource("built-in", tasks);
+}
+
 export function activeProjectTaskInventoryMatches(project: string, configFingerprint: string): boolean {
     return activeProjectTaskInventory?.[0] === project && activeProjectTaskInventory[1] === configFingerprint;
 }
 
 export function subscribeAppTasks(listener: () => void): () => void {
     return appTaskRegistry.subscribe(listener);
+}
+
+export function subscribeTaskRuntime(listener: () => void): () => void {
+    return appTaskRuntime.subscribe(listener);
 }
 
 export function getAppTaskSnapshot(): TaskRegistrySnapshot {

@@ -54,6 +54,7 @@ mod skills;
 mod ssh;
 mod state;
 mod system;
+mod toolchains;
 mod transparency;
 mod updates;
 mod usage;
@@ -361,6 +362,10 @@ pub fn run() {
             system::battery_status,
             system::runtime_diagnostics,
             system::integration_health,
+            system::build_tool_installed,
+            system::install_build_tool,
+            toolchains::java_runtimes,
+            toolchains::install_java,
             observability::observability_ui_heartbeat,
             observability::observability_ui_activity,
             updates::update_check,

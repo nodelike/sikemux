@@ -1,0 +1,38 @@
+---
+title: Run, test and build
+description: "The run button, the tasks Sikemux finds in your build files, and the Java it picks for them."
+---
+
+The run button sits in the top bar of a project. Press ▶ to run the task beside it, ■ to stop it, and click the task's name to pick another one.
+
+## Tasks Sikemux finds for you
+
+Sikemux reads the build files at the project's root and in the folders just inside it, so a project needs no setup to run:
+
+| Build file | Tasks |
+| --- | --- |
+| `pom.xml` | Spring Boot: run, Maven: test, Maven: package |
+| `build.gradle` or `build.gradle.kts` | Spring Boot: bootRun, Gradle: run, Gradle: test, Gradle: build |
+| `go.mod` | Go: run (and one per folder in `cmd/`), Go: test, Go: build |
+
+Spring Boot tasks appear only when the build uses Spring Boot. A project's own `./mvnw` or `./gradlew` is used when it has one. Tasks from a [`sikemux.json`](/getting-started/projects/#project-config) come first in the list.
+
+When a task needs Maven, Gradle or Go and it isn't installed, Sikemux says so and offers to install it with Homebrew, then runs the task.
+
+## The right Java for each project
+
+Sikemux reads the Java version a project asks for, from `.java-version`, `.sdkmanrc` or `.tool-versions`, or else from `pom.xml` or the Gradle build. It runs the task on that version if you have it, on your own Java if that is new enough, or on the closest newer one it finds: Homebrew, `/Library/Java`, SDKMAN, mise, asdf and Gradle's downloads all count. Only the task gets that Java; your terminals keep your `JAVA_HOME`.
+
+The run button shows the Java it picked. If nothing installed is new enough, Sikemux offers to install the version the project needs.
+
+## While it runs
+
+The run button shows how the task is doing:
+
+- a spinner and a timer while it starts,
+- a green dot and the port once it is listening, with **Open localhost** in its menu,
+- a red dot and its exit code if it stops with an error, with **Why?** to open its output.
+
+## Java code navigation
+
+Opening a `.java` file starts the Java language server, `jdtls`, for go-to-definition, references and errors. If it isn't installed, Sikemux offers to install it with Homebrew. It needs Java 21 or newer to run, and Sikemux starts it on one even when your `JAVA_HOME` is older.
