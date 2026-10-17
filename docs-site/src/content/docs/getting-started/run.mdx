@@ -19,7 +19,7 @@ Spring Boot tasks appear only when the build uses Spring Boot. A project's own `
 
 ## Checked before it runs
 
-Before a task starts, Sikemux checks that its build tool is installed, that a new enough Java exists, and that a Spring Boot app's port is free. If something is missing, a card opens under the run button with what it found; **Install and run** installs the missing pieces with Homebrew and starts the task, and **Run anyway** skips the check.
+Before a task starts, Sikemux checks that its build tool is installed, that a new enough Java exists, and that a Spring Boot app's port is free. If something is missing, a card opens under the run button with what it found; **Install and run** installs the missing pieces with Homebrew and starts the task, **Fix and run** moves the app to the next free port when its own is taken, and **Run anyway** skips the check.
 
 Agents get the same tasks and the same check: `workspace_inspect` lists the tasks found in the build files, and `task_start` runs them, or says what is missing. When a task an agent started stops with an error, such as a dev server crashing, Sikemux tells that agent so it can look at the output.
 
@@ -40,6 +40,10 @@ The run button shows how the task is doing:
 ## Test results
 
 When a Maven or Gradle test task finishes, the run button shows how many tests failed or passed, read from the JUnit reports the build writes. If any failed, a card lists them with the message and a link to the line that failed; **Rerun failed** runs only those tests again. Agents read the same results from `workspace_inspect`.
+
+## Agents in their own worktrees
+
+A new agent worktree gets the files a fresh checkout is missing but needs to run: the `.env` files at its root and one folder down, or the files a `.worktreeinclude` at the project's root lists, one path or pattern per line. When an agent starts a Spring Boot app and its port is taken, often by another agent's copy, Sikemux runs it on the next free port and tells the agent where.
 
 ## Review an agent's work
 

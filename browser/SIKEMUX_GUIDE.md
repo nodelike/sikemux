@@ -133,9 +133,10 @@ Two things can stop a launch:
   refuses, the run ends as `failed`. A `command` needs no trust, and neither
 does anything you start while the person runs you in YOLO mode.
 - A task found in the build files is checked first: its build tool must be
-  installed, a new enough Java must exist, and a Spring Boot app's port must be
-  free. If not, `task_start` fails and says what is missing and how to install
-  it.
+  installed and a new enough Java must exist. If not, `task_start` fails and
+  says what is missing and how to install it. When a Spring Boot app's port is
+  taken, it runs on the next free one instead, and the result's `previewUrl`
+  says where.
 - If the same task is already running from the command deck, stop it there
   first. Starting a task already running through the harness just returns that
   execution.

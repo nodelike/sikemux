@@ -3,7 +3,7 @@ import { toolchains } from "../api/toolchains";
 import type { ProjectConfigLoadResult } from "../projects/projectConfig";
 import { whenTrusted } from "../projects/projectTrust";
 import { notify, reportError } from "../state/toast";
-import { activeProjectTaskInventoryMatches, appTaskRuntime, javaChoiceOf, refreshDetectedTasks } from "./application";
+import { activeProjectTaskInventoryMatches, appTaskRuntime, javaChoiceOf, refreshDetectedTasks, setPortOverride } from "./application";
 import { isDetectedRunTask } from "./detectedTasks";
 import { checkTask, type CheckItem } from "./environmentCheck";
 import { taskTerminalKey } from "./runtime";
@@ -60,7 +60,7 @@ export function runPendingCheckAnyway(check: PendingCheck): void {
     check.run();
 }
 
-/** Installs whatever the check found missing, then starts the task. */
+/** Installs whatever the check found missing, moves the app off a taken port, then starts the task. */
 export async function fixAndRun(check: PendingCheck): Promise<void> {
     for (const item of check.items) {
         if (item.ok) continue;
@@ -71,6 +71,8 @@ export async function fixAndRun(check: PendingCheck): Promise<void> {
             const runtime = await toolchains.installJava(item.required);
             await refreshDetectedTasks(check.project);
             notify("success", `Installed Java ${runtime.major}`);
+        } else if (item.freePort !== null) {
+            setPortOverride(check.project, check.task.id, item.freePort);
         }
     }
     setPendingCheck(null);

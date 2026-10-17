@@ -48,8 +48,8 @@ function exitSummary(snapshot: TaskControllerSnapshot): string {
 
 function CheckCard({ check }: { check: PendingCheck }) {
     const [fixing, setFixing] = useState(false);
-    const fixable = check.items.some((item) => !item.ok && item.kind !== "port");
-    const blockedByPort = check.items.some((item) => !item.ok && item.kind === "port");
+    const installs = check.items.some((item) => !item.ok && item.kind !== "port");
+    const fixable = installs || check.items.some((item) => !item.ok && item.kind === "port" && item.freePort !== null);
     const fix = () => {
         setFixing(true);
         void fixAndRun(check)
@@ -84,7 +84,7 @@ function CheckCard({ check }: { check: PendingCheck }) {
                     </button>
                     {fixable && (
                         <button className="tb-run-check-btn primary" onClick={fix} disabled={fixing}>
-                            {fixing ? "Installing…" : blockedByPort ? "Install" : "Install and run"}
+                            {fixing ? "Fixing…" : installs ? "Install and run" : "Fix and run"}
                         </button>
                     )}
                 </div>

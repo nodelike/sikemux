@@ -23,7 +23,14 @@ export type CheckItem =
           readonly using: number | null;
           readonly current: number | null;
       }
-    | { readonly kind: "port"; readonly ok: boolean; readonly port: number; readonly heldBy: string | null };
+    | {
+          readonly kind: "port";
+          readonly ok: boolean;
+          readonly port: number;
+          readonly heldBy: string | null;
+          /** The next port nothing listens on, to move the app to. */
+          readonly freePort: number | null;
+      };
 
 const SPRING_PROPERTIES = ["src/main/resources/application.properties", "src/main/resources/application.yml", "src/main/resources/application.yaml"];
 
@@ -68,7 +75,9 @@ export async function checkTask(task: CheckedTask, java: JavaChoice | null, ownK
         const listening = await portsApi.listening().catch(() => []);
         const taken = listening.find((candidate) => candidate.port === port);
         const heldBy = taken ? holder(taken, ownKeys) : null;
-        items.push({ kind: "port", ok: heldBy === null, port, heldBy });
+        const used = new Set(listening.map((candidate) => candidate.port));
+        const freePort = heldBy ? (Array.from({ length: 100 }, (_, step) => port + step + 1).find((next) => !used.has(next)) ?? null) : null;
+        items.push({ kind: "port", ok: heldBy === null, port, heldBy, freePort });
     }
     return items;
 }
@@ -95,7 +104,12 @@ export function checkItemText(item: CheckItem): { title: string; detail: string 
         case "port":
             return item.ok
                 ? { title: `Port ${item.port} is free`, detail: "Where the app will listen" }
-                : { title: `Port ${item.port} is in use`, detail: `Held by ${item.heldBy}; the app can't start until it's free` };
+                : {
+                      title: `Port ${item.port} is in use`,
+                      detail: item.freePort
+                          ? `Held by ${item.heldBy}; Fix runs the app on ${item.freePort}`
+                          : `Held by ${item.heldBy}; the app can't start until it's free`,
+                  };
     }
 }
 

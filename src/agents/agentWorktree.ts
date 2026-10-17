@@ -14,6 +14,7 @@ import { agentWindowId, ownerSessionId } from "../state/selectors";
 import { getState } from "../state/store";
 import { errMessage, notify } from "../state/toast";
 import type { AgentWorktree } from "../state/types";
+import { copyWorktreeIncludes } from "./worktreeInclude";
 import { branchSlug, cwdInWorktree, cwdOutsideWorktree, pickWorktreeTarget, worktreeCandidates } from "./worktreePlan";
 
 export interface PreparedWorktree {
@@ -59,6 +60,7 @@ export async function createAgentWorktree({
     const worktree: AgentWorktree = { repo: main.path, path: created.path, branch: target.branch, base: current.branch, startSha: current.head };
     refreshWorktrees(main.path);
     const cwd = cwdInWorktree(created.path, projectCwd, current.path);
+    await copyWorktreeIncludes(main.path, created.path).catch((failure: unknown) => notify("error", `Copy .env files: ${errMessage(failure)}`));
     const setupError = await runWorktreeSetup(agentId, projectCwd, cwd, onStep);
     return { worktree, cwd, setupError };
 }

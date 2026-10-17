@@ -87,9 +87,21 @@ export async function detectTasksWithJava(project: string): Promise<DetectedTask
 let shownProject: string | null = null;
 let shownTasks: readonly TaskDefinitionInput[] = [];
 const rerunTasks = new Map<string, TaskDefinitionInput>();
+const portOverrides = new Map<string, number>();
 
 function publishDetectedTasks(): void {
-    appTaskRegistry.replaceSource("built-in", [...shownTasks, ...rerunTasks.values()]);
+    const tasks = [...shownTasks, ...rerunTasks.values()].map((task) => {
+        const port = portOverrides.get(task.id);
+        return port ? { ...task, env: { ...task.env, SERVER_PORT: String(port) } } : task;
+    });
+    appTaskRegistry.replaceSource("built-in", tasks);
+}
+
+/** Runs a detected task's app on another port from now on, for when its usual one is taken. */
+export function setPortOverride(project: string, taskId: string, port: number): void {
+    if (project !== shownProject) return;
+    portOverrides.set(taskId, port);
+    publishDetectedTasks();
 }
 
 /** Shows the active project's build-file tasks; a newer call wins over one still reading. */
@@ -97,7 +109,10 @@ export async function refreshDetectedTasks(project: string | null): Promise<void
     const token = ++detection;
     const detected = project ? await detectTasksWithJava(project) : { tasks: [], java: new Map<string, JavaChoice>() };
     if (token !== detection) return;
-    if (project !== shownProject) rerunTasks.clear();
+    if (project !== shownProject) {
+        rerunTasks.clear();
+        portOverrides.clear();
+    }
     shownProject = project;
     shownTasks = detected.tasks;
     javaChoices.clear();

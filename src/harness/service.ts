@@ -207,12 +207,16 @@ async function showPage(request: HarnessRequest) {
 }
 
 /** A task Sikemux found in the project's build files: no trust prompt, but the same check the run button makes. */
-async function detectedLaunch(request: HarnessRequest, taskId: string): Promise<{ launch: Launch }> {
+async function detectedLaunch(request: HarnessRequest, taskId: string): Promise<{ launch: Launch; previewUrl?: string }> {
     const { project } = request;
     const { tasks, java } = await detectTasksWithJava(project);
     const task = tasks.find((candidate) => candidate.id === taskId);
     if (!task) throw new Error("No task with this id in the project's build files; call workspace_inspect for the current list");
-    const problems = checkProblems(await checkTask(task, java.get(taskId) ?? null, [harnessTerminalKey(project, taskId)]));
+    const items = await checkTask(task, java.get(taskId) ?? null, [harnessTerminalKey(project, taskId)]);
+    // Another agent's server on the port is the usual case with worktrees, so this one moves to a free port instead of failing.
+    const moved = items.find((item) => item.kind === "port" && !item.ok && item.freePort !== null);
+    const movedTo = moved?.kind === "port" ? moved.freePort : null;
+    const problems = checkProblems(items.filter((item) => item !== moved));
     if (problems) throw new Error(`${task.label} can't start yet:\n${problems}`);
     projectSession(request);
     return {
@@ -223,10 +227,11 @@ async function detectedLaunch(request: HarnessRequest, taskId: string): Promise<
             label: task.label,
             command: task.command,
             cwd: task.cwd,
-            env: task.env ?? {},
+            env: movedTo ? { ...task.env, SERVER_PORT: String(movedTo) } : (task.env ?? {}),
             cols: 120,
             rows: 30,
         },
+        ...(movedTo ? { previewUrl: `http://localhost:${movedTo}` } : {}),
     };
 }
 
