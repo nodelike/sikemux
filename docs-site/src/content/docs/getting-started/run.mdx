@@ -37,6 +37,10 @@ The run button shows how the task is doing:
 - a green dot and the port once it is listening, with **Open localhost** in its menu,
 - a red dot and its exit code if it stops with an error, with **Why?** to open its output.
 
+## Test results
+
+When a Maven or Gradle test task finishes, the run button shows how many tests failed or passed, read from the JUnit reports the build writes. If any failed, a card lists them with the message and a link to the line that failed; **Rerun failed** runs only those tests again. Agents read the same results from `workspace_inspect`.
+
 ## Java code navigation
 
 Opening a `.java` file starts the Java language server, `jdtls`, for go-to-definition, references and errors. If it isn't installed, Sikemux offers to install it with Homebrew. It needs Java 21 or newer to run, and Sikemux starts it on one even when your `JAVA_HOME` is older.

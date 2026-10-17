@@ -410,3 +410,46 @@
     opacity: 0.6;
     cursor: wait;
 }
+.tb-run-meta.passed {
+    color: var(--live);
+}
+.tb-run-tests {
+    width: 420px;
+}
+.tb-run-tests-failed {
+    color: var(--danger);
+}
+.tb-run-tests-rest {
+    font-weight: var(--weight-normal);
+    color: var(--text-tertiary);
+}
+.tb-run-tests-list {
+    max-height: 320px;
+    overflow-y: auto;
+}
+.tb-run-tests-message {
+    font-family: var(--mono);
+    font-size: var(--text-2xs);
+    color: var(--text-secondary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.tb-run-tests-link {
+    align-self: flex-start;
+    height: auto;
+    padding: 0;
+    background: transparent;
+    border: 0;
+    color: var(--acc);
+    font-family: var(--mono);
+    font-size: var(--text-2xs);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+    cursor: pointer;
+}
+.tb-run-check-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-1);
+}

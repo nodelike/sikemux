@@ -84,14 +84,34 @@ export async function detectTasksWithJava(project: string): Promise<DetectedTask
     return { tasks, java };
 }
 
+let shownProject: string | null = null;
+let shownTasks: readonly TaskDefinitionInput[] = [];
+const rerunTasks = new Map<string, TaskDefinitionInput>();
+
+function publishDetectedTasks(): void {
+    appTaskRegistry.replaceSource("built-in", [...shownTasks, ...rerunTasks.values()]);
+}
+
 /** Shows the active project's build-file tasks; a newer call wins over one still reading. */
 export async function refreshDetectedTasks(project: string | null): Promise<void> {
     const token = ++detection;
     const detected = project ? await detectTasksWithJava(project) : { tasks: [], java: new Map<string, JavaChoice>() };
     if (token !== detection) return;
+    if (project !== shownProject) rerunTasks.clear();
+    shownProject = project;
+    shownTasks = detected.tasks;
     javaChoices.clear();
     for (const [taskId, choice] of detected.java) javaChoices.set(`${project}\0${taskId}`, choice);
-    appTaskRegistry.replaceSource("built-in", detected.tasks);
+    publishDetectedTasks();
+}
+
+/** Adds a one-off task, such as a test run narrowed to the tests that failed, beside the detected ones. */
+export function addRerunTask(task: TaskDefinitionInput, javaFrom: string): void {
+    if (task.project !== shownProject) return;
+    const java = javaChoices.get(`${task.project}\0${javaFrom}`);
+    if (java) javaChoices.set(`${task.project}\0${task.id}`, java);
+    rerunTasks.set(task.id, task);
+    publishDetectedTasks();
 }
 
 export function activeProjectTaskInventoryMatches(project: string, configFingerprint: string): boolean {

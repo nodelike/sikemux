@@ -15,6 +15,7 @@ import * as commands from "../state/commands";
 import { appTaskRuntime, detectTasksWithJava } from "../tasks/application";
 import { DETECTED_TASK_PREFIX } from "../tasks/detectedTasks";
 import { checkProblems, checkTask } from "../tasks/environmentCheck";
+import { isTestTask, readTestResults } from "../tasks/testResults";
 import { NativeTaskExecutionBackend, WorkbenchTaskTerminalSurface, taskPtyBindings } from "../tasks/nativeRuntime";
 import type { TaskExecutionRequest } from "../tasks/runtime";
 import { openTerminalWorker } from "../agents/terminalWorker";
@@ -229,6 +230,29 @@ async function detectedLaunch(request: HarnessRequest, taskId: string): Promise<
     };
 }
 
+/** The JUnit reports each module's test task left behind, failures first and with paths relative to the project. */
+async function latestTestResults(project: string, tasks: readonly { id: string; cwd: string }[]) {
+    const modules = [...new Set(tasks.filter((task) => isTestTask(task.id)).map((task) => task.cwd))];
+    const found = await Promise.all(modules.map(async (cwd) => ({ cwd, results: await readTestResults(cwd).catch(() => null) })));
+    return found.flatMap(({ cwd, results }) =>
+        results
+            ? [
+                  {
+                      cwd: relativeTo(project, cwd),
+                      passed: results.passed,
+                      failed: results.failed,
+                      skipped: results.skipped,
+                      failures: results.failures.map((failure) => ({
+                          test: `${failure.className}.${failure.name}`,
+                          message: failure.message,
+                          ...(failure.file ? { file: relativeTo(project, failure.file), line: failure.line } : {}),
+                      })),
+                  },
+              ]
+            : [],
+    );
+}
+
 function relativeTo(project: string, path: string): string {
     return path === project ? "." : path.startsWith(`${project}/`) ? path.slice(project.length + 1) : path;
 }
@@ -245,6 +269,7 @@ export async function handleHarnessRequest(request: HarnessRequest, signal?: Abo
                 portsApi.listening().catch(() => []),
                 detectTasksWithJava(project).catch(() => null),
             ]);
+            const testResults = await latestTestResults(project, detected?.tasks ?? []);
             const state = useStore.getState();
             const previewUrl = config.status === "valid" ? config.config.preview?.url : undefined;
             return {
@@ -282,6 +307,7 @@ export async function handleHarnessRequest(request: HarnessRequest, signal?: Abo
                         };
                     }),
                 ],
+                ...(testResults.length ? { testResults } : {}),
                 configStatus: config.status,
                 configErrors: config.status === "invalid" ? config.errors : undefined,
                 userTask: (() => {

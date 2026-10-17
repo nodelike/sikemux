@@ -140,6 +140,10 @@ does anything you start while the person runs you in YOLO mode.
   first. Starting a task already running through the harness just returns that
   execution.
 
+After a Maven or Gradle test task, `workspace_inspect` has `testResults`: per
+module, the counts and each failing test with its message, file and line, read
+from the JUnit reports. Read those instead of the whole build log.
+
 If a task you started stops with an error while you are doing something else,
 such as a dev server crashing, Sikemux sends you a notice with its
 `executionId`. Read its output with `task_read` before starting it again.

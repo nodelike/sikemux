@@ -7,7 +7,7 @@ import { getState } from "../state/store";
 import { reportError } from "../state/toast";
 import { IconCheck, IconChevron, IconClose, IconExternal, IconRefresh, IconRun, IconStop, IconTerminal } from "../ui/Icons";
 import { Tooltip } from "../ui/Tooltip";
-import { appTaskRuntime, getAppTaskSnapshot, javaChoiceOf, subscribeAppTasks, subscribeTaskRuntime } from "./application";
+import { addRerunTask, appTaskRuntime, getAppTaskSnapshot, javaChoiceOf, subscribeAppTasks, subscribeTaskRuntime } from "./application";
 import { checkItemText } from "./environmentCheck";
 import {
     dismissPendingCheck,
@@ -22,6 +22,8 @@ import {
     type PendingCheck,
 } from "./projectTaskActions";
 import { taskTerminalKey } from "./runtime";
+import { TestResultsCard, useFinishedTestRun, type FinishedTestRun } from "./TestResultsCard";
+import { rerunFailedCommand } from "./testResults";
 import type { TaskControllerSnapshot } from "./taskRegistry";
 
 function useSecondsSince(runId: number | null): number {
@@ -100,6 +102,8 @@ export function RunChip({ sessionId, project }: { sessionId: string; project: st
     const [open, setOpen] = useState(false);
     const elapsed = useSecondsSince(runtime?.activeRunId ?? null);
     const pendingCheck = useSyncExternalStore(subscribePendingCheck, getPendingCheck);
+    const testRun = useFinishedTestRun(runtime);
+    const [dismissedTests, setDismissedTests] = useState<string | null>(null);
 
     const config = controller?.cwd === project ? (controller.config ?? null) : null;
     const tasks = projectTasksFor(registry, project, config);
@@ -112,6 +116,9 @@ export function RunChip({ sessionId, project }: { sessionId: string; project: st
     const failed = !running && runtime?.status === "failed" && runtime.task?.id === selected.id ? exitSummary(runtime) : null;
     const java = javaChoiceOf(project, selected.id);
     const url = port ? `http://localhost:${port.port}` : null;
+    const tests = !running && testRun?.task.id === selected.id ? testRun.results : null;
+    const testsCardOpen =
+        testRun !== null && tests !== null && tests.failed > 0 && dismissedTests !== testRun.key && !open && pendingCheck?.project !== project;
 
     const close = () => setOpen(false);
     const showOutput = () => {
@@ -119,7 +126,22 @@ export function RunChip({ sessionId, project }: { sessionId: string; project: st
         if (reveal) revealPortOwner(reveal);
     };
     const primaryLabel = running ? `Stop ${running.label}` : `Run ${selected.label}`;
-    const state = port ? "up" : running ? "running" : failed ? "failed" : "idle";
+    const state = port ? "up" : running ? "running" : tests ? (tests.failed ? "failed" : "up") : failed ? "failed" : "idle";
+    const rerunFailed = (run: FinishedTestRun) => {
+        const command = rerunFailedCommand(run.task.command, run.results.failures);
+        if (!command) return null;
+        return () => {
+            setDismissedTests(run.key);
+            const [base, folder] = run.task.id.split(":");
+            const id = base.endsWith(".failed") ? run.task.id : folder ? `${base}.failed:${folder}` : `${base}.failed`;
+            const label = run.task.label.endsWith(" (failed only)") ? run.task.label : `${run.task.label} (failed only)`;
+            addRerunTask({ id, label, project, command, cwd: run.task.cwd, env: run.task.env }, run.task.id);
+            const task = getAppTaskSnapshot().tasks.find((candidate) => candidate.project === project && candidate.id === id);
+            if (!task) return;
+            setPicked((current) => ({ ...current, [project]: id }));
+            runProjectTask(project, config, task);
+        };
+    };
     return (
         <>
             <span className="tb-run" data-no-window-drag>
@@ -141,7 +163,13 @@ export function RunChip({ sessionId, project }: { sessionId: string; project: st
                     <span className="tb-run-label">{selected.label}</span>
                     {state === "up" && <span className="tb-run-meta">:{port!.port}</span>}
                     {state === "running" && <span className="tb-run-meta">{elapsed}s</span>}
-                    {state === "failed" && <span className="tb-run-meta failed">{failed}</span>}
+                    {tests ? (
+                        <span className={`tb-run-meta ${tests.failed ? "failed" : "passed"}`}>
+                            {tests.failed ? `${tests.failed} failed` : `${tests.passed} passed`}
+                        </span>
+                    ) : (
+                        state === "failed" && <span className="tb-run-meta failed">{failed}</span>
+                    )}
                     {java && (
                         <span className={`tb-run-meta${java.runtime ? "" : " warn"}`}>
                             {java.runtime ? `Java ${java.runtime.major}` : `needs Java ${java.required}`}
@@ -149,14 +177,25 @@ export function RunChip({ sessionId, project }: { sessionId: string; project: st
                     )}
                     <IconChevron size={10} className="env-dd-chev" />
                 </button>
-                {failed && (
-                    <Tooltip label="Show the output">
-                        <button className="tb-run-why" onClick={showOutput}>
+                {(failed || tests?.failed) && (
+                    <Tooltip label={tests?.failed ? "Show the failed tests" : "Show the output"}>
+                        <button className="tb-run-why" onClick={tests?.failed ? () => setDismissedTests(null) : showOutput}>
                             Why?
                         </button>
                     </Tooltip>
                 )}
                 {pendingCheck?.project === project && !open && <CheckCard check={pendingCheck} />}
+                {testsCardOpen && (
+                    <TestResultsCard
+                        run={testRun}
+                        onClose={() => setDismissedTests(testRun.key)}
+                        onRerunFailed={rerunFailed(testRun)}
+                        onShowOutput={() => {
+                            setDismissedTests(testRun.key);
+                            showOutput();
+                        }}
+                    />
+                )}
                 {open && (
                     <>
                         <div className="env-dd-scrim" onClick={close} />
