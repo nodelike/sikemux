@@ -79,6 +79,7 @@ const BUILTIN_LSP: &[(&str, &str, &[&str])] = &[
     ("go", "gopls", &[]),
     ("rust", "rust-analyzer", &[]),
     ("python", "pyright-langserver", &["--stdio"]),
+    ("java", "jdtls", &[]),
 ];
 
 const OVERRIDE_PREFIX: &str = "SIKEMUX_LSP_";
@@ -102,6 +103,26 @@ pub(super) fn server_languages() -> Vec<String> {
     languages.sort();
     languages.dedup();
     languages
+}
+
+const JDTLS_MIN_JAVA: u32 = 21;
+
+/// jdtls runs on the Java in `JAVA_HOME`, so one set for an older project would stop it starting.
+fn jdtls_java_home() -> Option<PathBuf> {
+    let current = crate::toolchains::default_java()?;
+    if current.major >= JDTLS_MIN_JAVA {
+        return None;
+    }
+    crate::toolchains::java_at_least(JDTLS_MIN_JAVA).map(|runtime| PathBuf::from(runtime.home))
+}
+
+pub(super) fn server_env(language: &str) -> Vec<(&'static str, PathBuf)> {
+    match language {
+        "java" => jdtls_java_home()
+            .map(|home| vec![("JAVA_HOME", home)])
+            .unwrap_or_default(),
+        _ => Vec::new(),
+    }
 }
 
 pub(super) fn server_command(language: &str) -> Option<(String, Vec<String>)> {
@@ -169,5 +190,29 @@ pub(super) fn install_gopls() -> AppResult<String> {
         AppError::Lsp(
             "gopls installed, but Sikemux could not locate it in PATH, GOBIN, or GOPATH/bin".into(),
         )
+    })
+}
+
+pub(super) fn install_jdtls() -> AppResult<String> {
+    let output = sikemux_process::user_environment::command("brew")
+        .args(["install", "jdtls"])
+        .output()
+        .map_err(|e| {
+            if e.kind() == std::io::ErrorKind::NotFound {
+                AppError::Lsp(
+                    "Homebrew not found on PATH. Install Homebrew first: https://brew.sh".into(),
+                )
+            } else {
+                AppError::Lsp(format!("run brew install jdtls: {e}"))
+            }
+        })?;
+    if !output.status.success() {
+        return Err(AppError::Lsp(format!(
+            "brew install jdtls failed: {}",
+            install_output_message(&output.stdout, &output.stderr)
+        )));
+    }
+    executable_in_path("jdtls").map(path_string).ok_or_else(|| {
+        AppError::Lsp("jdtls installed, but Sikemux could not locate it in PATH".into())
     })
 }
