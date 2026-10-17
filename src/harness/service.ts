@@ -13,6 +13,7 @@ import { agentIdsOf, projectSessionId } from "../state/selectors";
 import { useStore, setState } from "../state/store";
 import * as commands from "../state/commands";
 import { appTaskRuntime, detectTasksWithJava } from "../tasks/application";
+import { PERSONAL_TASK_PREFIX } from "../tasks/addedTasks";
 import { DETECTED_TASK_PREFIX } from "../tasks/detectedTasks";
 import { checkProblems, checkTask } from "../tasks/environmentCheck";
 import { isFilePath, isTestTask, readTestResults } from "../tasks/testResults";
@@ -165,7 +166,7 @@ async function startTask(request: HarnessRequest): Promise<{ previewUrl?: string
                 rows: 30,
             },
         };
-    } else if (taskId.startsWith(DETECTED_TASK_PREFIX)) prepared = await detectedLaunch(request, taskId);
+    } else if (taskId.startsWith(DETECTED_TASK_PREFIX) || taskId.startsWith(PERSONAL_TASK_PREFIX)) prepared = await detectedLaunch(request, taskId);
     else prepared = await configuredLaunch(request, executionId, taskId);
     const { launch, previewUrl } = prepared;
     const previous = text(params, "previousExecutionId", false);
@@ -307,7 +308,7 @@ export async function handleHarnessRequest(request: HarnessRequest, signal?: Abo
                             label,
                             command,
                             cwd: relativeTo(project, cwd),
-                            foundIn: "build files",
+                            foundIn: id.startsWith(PERSONAL_TASK_PREFIX) ? "added by the person" : "build files",
                             ...(java ? { java: { required: java.required, runsOn: java.runtime?.major ?? null } } : {}),
                         };
                     }),

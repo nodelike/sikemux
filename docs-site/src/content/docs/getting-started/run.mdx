@@ -20,6 +20,12 @@ Sikemux reads the build files at the project's root and in the folders just insi
 
 Spring Boot tasks appear only when the build uses Spring Boot. A project's own `./mvnw` or `./gradlew` is used when it has one. Tasks from a [`sikemux.json`](/getting-started/projects/#project-config) come first in the list.
 
+## Your own tasks
+
+When a project starts with its own script, such as `bash tool/run.sh`, add it from the run button's menu with **Add a task**: a name, the command and the folder it runs in. **For the team** saves it in `sikemux.json`, which you commit; **Only me** keeps it in a `.sikemux` folder that Git ignores, and it comes along into agent worktrees. Either way it comes first in the menu, and agents see it in `workspace_inspect`.
+
+**Find this project's tasks with an agent** asks an agent to read the README, AGENTS.md and the project's scripts and add the commands people really use to `sikemux.json`. The request lands in the agent's input; press Return to send it.
+
 ## Checked before it runs
 
 Before a task starts, Sikemux checks that its build tool is installed, that a new enough Java exists, that a Node.js project's dependencies are installed, and that the port a Spring Boot, Next.js, FastAPI, Flask or Django app listens on is free, whichever program holds it. If something is missing, a card opens under the run button with what it found; **Install and run** installs the missing pieces, with Homebrew or the project's package manager, and starts the task, **Fix and run** moves the app to the next free port when its own is taken, and **Run anyway** skips the check.
@@ -42,7 +48,7 @@ The run button shows how the task is doing:
 
 ## Test results
 
-When a Maven, Gradle, Vitest, Jest, pytest, Go or Cargo test task finishes, the run button shows how many tests failed or passed, read from the reports the test runner writes; Go and Cargo write none, so their test tasks keep a copy of the output, in a `.sikemux` folder that Git ignores or in Cargo's `target`. If any failed, a card lists them with the message and a link to the line that failed; **Rerun failed** runs only those tests again. Agents read the same results from `workspace_inspect`.
+When a Maven, Gradle, Vitest, Jest, pytest, Go or Cargo test task finishes, the run button shows how many tests failed or passed, read from the reports the test runner writes; Go and Cargo write none, so their test tasks keep a copy of the output, in a `.sikemux` folder that Git ignores or in Cargo's `target`. If any failed, a card lists them with the message and a link to the line that failed; **Rerun failed** runs only those tests again, and **Fix with an agent** hands just those failures to an agent you pick. When a task stops with an error, **Why?** shows the same choice. Agents read the same results from `workspace_inspect`.
 
 ## Agents in their own worktrees
 

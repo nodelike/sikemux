@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { requestOpenFile } from "../state/commands/editor";
 import { swallow } from "../state/toast";
-import { IconClose, IconRefresh, IconTerminal } from "../ui/Icons";
+import { IconAgent, IconClose, IconRefresh, IconTerminal } from "../ui/Icons";
 import type { ResolvedTaskDefinition, TaskControllerSnapshot } from "./taskRegistry";
 import { isTestTask, readTestResults, type TestResults } from "./testResults";
 
@@ -45,11 +45,13 @@ export function TestResultsCard({
     onClose,
     onRerunFailed,
     onShowOutput,
+    onFix,
 }: {
     run: FinishedTestRun;
     onClose: () => void;
     onRerunFailed: (() => void) | null;
     onShowOutput: () => void;
+    onFix: (anchor: HTMLElement) => void;
 }) {
     const { results } = run;
     return (
@@ -99,10 +101,58 @@ export function TestResultsCard({
                         <IconTerminal size={11} /> Show output
                     </button>
                     {onRerunFailed && (
-                        <button className="tb-run-check-btn primary" onClick={onRerunFailed}>
+                        <button className="tb-run-check-btn" onClick={onRerunFailed}>
                             <IconRefresh size={11} /> Rerun failed
                         </button>
                     )}
+                    <button className="tb-run-check-btn primary" onClick={(event) => onFix(event.currentTarget)}>
+                        <IconAgent size={11} /> Fix with an agent
+                    </button>
+                </div>
+            </div>
+        </>
+    );
+}
+
+/** Why a task stopped: its exit and command, with its output and an agent one click away. */
+export function FailureCard({
+    task,
+    summary,
+    onClose,
+    onShowOutput,
+    onFix,
+}: {
+    task: ResolvedTaskDefinition;
+    summary: string;
+    onClose: () => void;
+    onShowOutput: () => void;
+    onFix: (anchor: HTMLElement) => void;
+}) {
+    return (
+        <>
+            <div className="env-dd-scrim" onClick={onClose} />
+            <div className="env-dd-menu tb-run-check" role="dialog" aria-label={`Why ${task.label} stopped`} data-overlay>
+                <div className="tb-run-check-head">
+                    <span>
+                        {task.label} <span className="tb-run-tests-failed">{summary}</span>
+                    </span>
+                    <button className="tb-run-check-close" onClick={onClose} aria-label="Close">
+                        <IconClose size={11} />
+                    </button>
+                </div>
+                <div className="tb-run-check-item">
+                    <span className="tb-run-check-text">
+                        <span className="tb-run-tests-message">{task.command}</span>
+                        <span className="tb-run-check-detail">The reason is in its output, usually near the first error.</span>
+                    </span>
+                </div>
+                <div className="tb-run-check-actions">
+                    <button className="tb-run-check-btn" onClick={onShowOutput}>
+                        <IconTerminal size={11} /> Show output
+                    </button>
+                    <button className="tb-run-check-btn primary" onClick={(event) => onFix(event.currentTarget)}>
+                        <IconAgent size={11} /> Fix with an agent
+                    </button>
                 </div>
             </div>
         </>

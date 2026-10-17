@@ -2,6 +2,7 @@ import { toolchains } from "../api/toolchains";
 import { joinPath } from "../lib/paths";
 import type { ProjectTask } from "../projects/projectConfig";
 import { openTaskTerminal } from "../state/commands";
+import { readPersonalTasks } from "./addedTasks";
 import { detectProjectTasks } from "./detectedTasks";
 import { chooseJava, type JavaChoice } from "./javaToolchain";
 import { TaskRegistry, type TaskDefinitionInput, type TaskRegistrySnapshot } from "./taskRegistry";
@@ -71,7 +72,7 @@ export interface DetectedTasks {
 
 /** A project's build-file tasks, each pointed at the Java it should run on; java is keyed by task id. */
 export async function detectTasksWithJava(project: string): Promise<DetectedTasks> {
-    const detected = await detectProjectTasks(project);
+    const [detected, personal] = await Promise.all([detectProjectTasks(project), readPersonalTasks(project)]);
     const runtimes = detected.some((task) => task.java) ? await toolchains.javaRuntimes().catch(() => null) : null;
     const java = new Map<string, JavaChoice>();
     const tasks = detected.map(({ java: required, ...task }): TaskDefinitionInput => {
@@ -81,7 +82,7 @@ export async function detectTasksWithJava(project: string): Promise<DetectedTask
         if (!choice.runtime || choice.runtime.home === choice.current?.home) return task;
         return { ...task, env: { ...task.env, JAVA_HOME: choice.runtime.home } };
     });
-    return { tasks, java };
+    return { tasks: [...personal, ...tasks], java };
 }
 
 let shownProject: string | null = null;

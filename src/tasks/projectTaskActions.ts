@@ -5,6 +5,7 @@ import type { ProjectConfigLoadResult } from "../projects/projectConfig";
 import { whenTrusted } from "../projects/projectTrust";
 import { notify, reportError } from "../state/toast";
 import { activeProjectTaskInventoryMatches, appTaskRuntime, javaChoiceOf, refreshDetectedTasks, setPortOverride } from "./application";
+import { PERSONAL_TASK_PREFIX } from "./addedTasks";
 import { isDetectedRunTask } from "./detectedTasks";
 import { checkTask, type CheckItem } from "./environmentCheck";
 import { taskTerminalKey } from "./runtime";
@@ -22,7 +23,8 @@ export function projectTasksFor(
             ? snapshot.tasks.filter((task) => task.project === project && task.source === "project")
             : [];
     const detected = snapshot.tasks.filter((task) => task.project === project && task.source === "built-in");
-    const rank = (task: ResolvedTaskDefinition) => (isDetectedRunTask(task.id) ? 0 : isTestTask(task.id) ? 1 : 2);
+    const rank = (task: ResolvedTaskDefinition) =>
+        task.id.startsWith(PERSONAL_TASK_PREFIX) ? -1 : isDetectedRunTask(task.id) ? 0 : isTestTask(task.id) ? 1 : 2;
     detected.sort((left, right) => rank(left) - rank(right));
     return [...configured, ...detected];
 }

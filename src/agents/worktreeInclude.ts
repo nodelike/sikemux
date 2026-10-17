@@ -2,7 +2,7 @@ import { fsapi } from "../api/fs";
 import { joinPath } from "../lib/paths";
 
 /** Without a `.worktreeinclude`, the files a project usually keeps out of Git but needs to run. */
-const DEFAULT_INCLUDE = [".env", ".env.*", "*/.env", "*/.env.*"];
+const DEFAULT_INCLUDE = [".env", ".env.*", "*/.env", "*/.env.*", ".sikemux/.gitignore", ".sikemux/tasks.json"];
 const MAX_COPIED = 50;
 
 function segmentPattern(segment: string): RegExp {
@@ -50,7 +50,8 @@ export async function copyWorktreeIncludes(main: string, worktree: string): Prom
     const [sourceKinds, targetKinds, dirKinds] = await Promise.all([fsapi.pathKinds(sources), fsapi.pathKinds(targets), fsapi.pathKinds(targetDirs)]);
     const copied: string[] = [];
     for (const [index, path] of relative.entries()) {
-        if (sourceKinds[index] !== "file" || targetKinds[index] !== null || dirKinds[index] !== "dir") continue;
+        if (sourceKinds[index] !== "file" || targetKinds[index] !== null) continue;
+        if (dirKinds[index] === null) await fsapi.createDir(targetDirs[index]);
         await fsapi.copyIntoDir(sources[index], targetDirs[index]);
         copied.push(path);
     }

@@ -2,11 +2,12 @@ import { useEffect, useState, useSyncExternalStore } from "react";
 import { openPortExternally, revealPortOwner } from "../ports/portActions";
 import { taskTerminalReveal } from "../ports/projectPorts";
 import { useProjectPorts } from "../ports/useProjectPorts";
+import { SendToAgentMenu } from "../agents/SendToAgentMenu";
 import { projectControllerBridge } from "../projects/controllerBridge";
 import { invokeCommand } from "../api/invoke";
 import { getState } from "../state/store";
 import { reportError } from "../state/toast";
-import { IconCheck, IconChevron, IconClose, IconExternal, IconRefresh, IconRun, IconStop, IconTerminal } from "../ui/Icons";
+import { IconAgent, IconCheck, IconChevron, IconClose, IconExternal, IconPlus, IconRefresh, IconRun, IconStop, IconTerminal } from "../ui/Icons";
 import { Tooltip } from "../ui/Tooltip";
 import { addRerunTask, appTaskRuntime, getAppTaskSnapshot, javaChoiceOf, subscribeAppTasks, subscribeTaskRuntime } from "./application";
 import { checkItemText } from "./environmentCheck";
@@ -23,7 +24,9 @@ import {
     type PendingCheck,
 } from "./projectTaskActions";
 import { taskTerminalKey } from "./runtime";
-import { TestResultsCard, useFinishedTestRun, type FinishedTestRun } from "./TestResultsCard";
+import { AddTaskForm } from "./AddTaskForm";
+import { failureFixRequest, findTasksRequest, testFixRequest } from "./agentRequests";
+import { FailureCard, TestResultsCard, useFinishedTestRun, type FinishedTestRun } from "./TestResultsCard";
 import { rerunFailedCommand } from "./testResults";
 import type { ResolvedTaskDefinition, TaskControllerSnapshot } from "./taskRegistry";
 
@@ -162,6 +165,9 @@ export function RunChip({ sessionId, project }: { sessionId: string; project: st
     const pendingCheck = useSyncExternalStore(subscribePendingCheck, getPendingCheck);
     const testRun = useFinishedTestRun(runtime);
     const [dismissedTests, setDismissedTests] = useState<string | null>(null);
+    const [failureShown, setFailureShown] = useState<number | null>(null);
+    const [adding, setAdding] = useState(false);
+    const [agentPicker, setAgentPicker] = useState<{ x: number; y: number; text: string } | null>(null);
 
     const config = controller?.cwd === project ? (controller.config ?? null) : null;
     const tasks = projectTasksFor(registry, project, config);
@@ -185,6 +191,26 @@ export function RunChip({ sessionId, project }: { sessionId: string; project: st
         if (reveal) revealPortOwner(reveal);
     };
     const primaryLabel = running ? `Stop ${running.label}` : `Run ${selected.label}`;
+    const failureCardOpen = failed !== null && !tests && failureShown === (runtime?.runAttempts ?? null) && !open;
+    const whyShown = (tests?.failed && dismissedTests === testRun?.key) || (failed !== null && !tests && !failureCardOpen);
+    const status: { text: string; tone: string } | null = port
+        ? { text: `:${port.port}`, tone: "" }
+        : running
+          ? { text: `${elapsed}s`, tone: "" }
+          : tests
+            ? tests.failed
+                ? { text: `${tests.failed} failed`, tone: "failed" }
+                : { text: `${tests.passed} passed`, tone: "passed" }
+            : failed
+              ? { text: failed, tone: "failed" }
+              : java && !java.runtime
+                ? { text: `needs Java ${java.required}`, tone: "warn" }
+                : null;
+    const pickAgent = (anchor: HTMLElement, text: string) => {
+        const rect = anchor.getBoundingClientRect();
+        setOpen(false);
+        setAgentPicker({ x: rect.right, y: rect.bottom + 4, text });
+    };
     const state = port ? "up" : running ? "running" : tests ? (tests.failed ? "failed" : "up") : failed ? "failed" : "idle";
     const rerunFailed = (run: FinishedTestRun) => {
         const command = rerunFailedCommand(run.task.command, run.results.failures);
@@ -220,25 +246,14 @@ export function RunChip({ sessionId, project }: { sessionId: string; project: st
                     aria-label="Choose a task to run">
                     {state !== "idle" && <span className={`tb-run-state ${state}`} />}
                     <span className="tb-run-label">{selected.label}</span>
-                    {state === "up" && <span className="tb-run-meta">:{port!.port}</span>}
-                    {state === "running" && <span className="tb-run-meta">{elapsed}s</span>}
-                    {tests ? (
-                        <span className={`tb-run-meta ${tests.failed ? "failed" : "passed"}`}>
-                            {tests.failed ? `${tests.failed} failed` : `${tests.passed} passed`}
-                        </span>
-                    ) : (
-                        state === "failed" && <span className="tb-run-meta failed">{failed}</span>
-                    )}
-                    {java && (
-                        <span className={`tb-run-meta${java.runtime ? "" : " warn"}`}>
-                            {java.runtime ? `Java ${java.runtime.major}` : `needs Java ${java.required}`}
-                        </span>
-                    )}
+                    {status && <span className={`tb-run-meta ${status.tone}`}>· {status.text}</span>}
                     <IconChevron size={10} className="env-dd-chev" />
                 </button>
-                {(failed || tests?.failed) && (
-                    <Tooltip label={tests?.failed ? "Show the failed tests" : "Show the output"}>
-                        <button className="tb-run-why" onClick={tests?.failed ? () => setDismissedTests(null) : showOutput}>
+                {whyShown && (
+                    <Tooltip label={tests?.failed ? "Show the failed tests" : "Show why it stopped"}>
+                        <button
+                            className="tb-run-why"
+                            onClick={() => (tests?.failed ? setDismissedTests(null) : setFailureShown(runtime?.runAttempts ?? null))}>
                             Why?
                         </button>
                     </Tooltip>
@@ -253,6 +268,35 @@ export function RunChip({ sessionId, project }: { sessionId: string; project: st
                             setDismissedTests(testRun.key);
                             showOutput();
                         }}
+                        onFix={(anchor) => {
+                            setDismissedTests(testRun.key);
+                            pickAgent(anchor, testFixRequest(testRun, project));
+                        }}
+                    />
+                )}
+                {failureCardOpen && (
+                    <FailureCard
+                        task={selected}
+                        summary={failed}
+                        onClose={() => setFailureShown(null)}
+                        onShowOutput={() => {
+                            setFailureShown(null);
+                            showOutput();
+                        }}
+                        onFix={(anchor) => {
+                            setFailureShown(null);
+                            pickAgent(anchor, failureFixRequest(selected, failed, project));
+                        }}
+                    />
+                )}
+                {agentPicker && (
+                    <SendToAgentMenu
+                        x={agentPicker.x}
+                        y={agentPicker.y}
+                        sessionId={sessionId}
+                        alignRight
+                        delivery={() => ({ text: agentPicker.text })}
+                        onClose={() => setAgentPicker(null)}
                     />
                 )}
                 {open && (
@@ -373,6 +417,30 @@ export function RunChip({ sessionId, project }: { sessionId: string; project: st
                                     ))}
                                 </>
                             )}
+                            <div className="tb-run-menu-head">
+                                <span>Your own tasks</span>
+                            </div>
+                            {adding ? (
+                                <AddTaskForm
+                                    project={project}
+                                    onDone={(id) => {
+                                        setAdding(false);
+                                        if (id) setPicked((current) => ({ ...current, [project]: id }));
+                                    }}
+                                />
+                            ) : (
+                                <button className="env-dd-item" role="menuitem" onClick={() => setAdding(true)}>
+                                    <IconPlus size={12} />
+                                    <span>Add a task…</span>
+                                </button>
+                            )}
+                            <button
+                                className="env-dd-item"
+                                role="menuitem"
+                                onClick={(event) => pickAgent(event.currentTarget, findTasksRequest(project))}>
+                                <IconAgent size={12} />
+                                <span>Find this project's tasks with an agent…</span>
+                            </button>
                         </div>
                     </>
                 )}

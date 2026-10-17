@@ -105,18 +105,20 @@ inventing new ones. Inspect again after writing to see `configErrors`.
 `task_start` takes an `idempotencyKey` you choose and either a `taskId` or a
 `command` to run. `workspace_inspect` lists the task ids: those from
 `sikemux.json`, then those Sikemux found in the project's build files
-(`foundIn: "build files"`), such as Maven, Gradle and Go run, test and build
-tasks, Cargo run, test and build tasks, a `package.json`'s scripts, and a
-Python project's FastAPI, Flask or Django app and pytest. A found task runs on the Java its build asks for (`java.runsOn`), so
-prefer it to running `mvn` or `gradle` yourself. A `command` runs in the same kind of
-managed terminal as a configured task, in the project root or in `cwd`, a
-directory inside the project given relative to it, and `label` names its tab.
-The result's `taskId` looks like `sh:pnpm-dev-3fa2c1`; use it with
+(`foundIn: "build files"`), and those the person added for themselves
+(`foundIn: "added by the person"`). The found ones include Maven, Gradle and
+Go run, test and build tasks, Cargo run, test and build tasks, a
+`package.json`'s scripts, and a Python project's FastAPI, Flask or Django app
+and pytest. A found task runs on the Java its build asks for (`java.runsOn`),
+so prefer it to running `mvn` or `gradle` yourself. A `command` runs in the
+same kind of managed terminal as a configured task, in the project root or in
+`cwd`, a directory inside the project given relative to it, and `label` names
+its tab. The result's `taskId` looks like `sh:pnpm-dev-3fa2c1`; use it with
 `task_read`, `task_stop` and `task_restart`, or pass it back to `task_start`
-to run the same command again. Starting the same command in the same
-directory while it still runs returns that run. Use this for dev servers and
-watchers rather than background shell jobs: you can read their output, see
-when they exit, and they stop with the project.
+to run the same command again. Starting the same command in the same directory
+while it still runs returns that run. Use this for dev servers and watchers
+rather than background shell jobs: you can read their output, see when they
+exit, and they stop with the project.
 
 The key is what makes a retry safe. Reusing a key returns the original
 execution rather than starting a second one, and it keeps doing so after that
