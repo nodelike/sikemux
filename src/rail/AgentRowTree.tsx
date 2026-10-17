@@ -1,4 +1,5 @@
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
+import { AgentReview } from "./AgentReview";
 import { useBranchPullList, useHostRepo } from "../codehost/project";
 import * as cmd from "../state/commands";
 import type { AgentWorktree } from "../state/types";
@@ -22,7 +23,6 @@ export function AgentRowProject({ name }: { name: string }) {
  * Not built yet, waiting on agents recording them:
  * - Jira tickets: one item with the Jira mark, ids side by side, each opening its issue on the desk.
  * - Slack thread: one item with the Slack mark, `#channel · thread name`, each opening the thread.
- * - The branch opens nothing yet; it needs a view of one worktree's changes to open.
  */
 export function AgentRowTree({
     agentId,
@@ -34,14 +34,29 @@ export function AgentRowTree({
     /** The tree's spine goes on past its last item, as the line of a team that continues below. */
     runsOn?: boolean;
 }) {
+    const [reviewAt, setReviewAt] = useState<DOMRect | null>(null);
     if (!worktree) return null;
     return (
         <div className={`proj-children agent-tree${runsOn ? " runs-on" : ""}`}>
             <TreeItem icon={<IconGit size={13} />}>
-                <span className="agent-tree-mono" title={worktree.path}>
-                    {worktree.branch}
-                </span>
+                {agentId ? (
+                    <button
+                        type="button"
+                        className="agent-tree-link agent-tree-mono"
+                        title={`Review ${worktree.branch}`}
+                        onClick={(event) => {
+                            event.stopPropagation();
+                            setReviewAt(event.currentTarget.getBoundingClientRect());
+                        }}>
+                        {worktree.branch}
+                    </button>
+                ) : (
+                    <span className="agent-tree-mono" title={worktree.path}>
+                        {worktree.branch}
+                    </span>
+                )}
             </TreeItem>
+            {agentId && reviewAt && <AgentReview agentId={agentId} worktree={worktree} anchor={reviewAt} onClose={() => setReviewAt(null)} />}
             <WorktreePulls agentId={agentId} worktree={worktree} />
         </div>
     );
