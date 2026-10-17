@@ -115,6 +115,35 @@ async function gradleTasks(root: string, files: ReadonlySet<string>, read: ReadT
     return tasks.map((task) => ({ ...task, java }));
 }
 
+/**
+ * Go and Cargo write no report of their own, so their test tasks keep a copy of
+ * the readable output for the results card. `.sikemux` ignores itself in Git;
+ * Cargo's `target` is ignored already.
+ */
+export const GO_TEST_LOG = ".sikemux/go-test.log";
+export const CARGO_TEST_LOG = "target/sikemux-test.log";
+const GO_TEST_COMMAND = `sh -c 'set -o pipefail; mkdir -p .sikemux && echo "*" > .sikemux/.gitignore && go test -v ./... 2>&1 | tee ${GO_TEST_LOG}'`;
+const CARGO_TEST_COMMAND = `sh -c 'set -o pipefail; mkdir -p target && cargo test 2>&1 | tee ${CARGO_TEST_LOG}'`;
+
+async function rustTasks(root: string, files: ReadonlySet<string>, readDir: ReadDir): Promise<DetectedTask[]> {
+    if (!files.has("Cargo.toml")) return [];
+    const [sources, binaries] = await Promise.all([
+        readDir(joinPath(root, "src")).catch(() => []),
+        readDir(joinPath(root, "src/bin")).catch(() => []),
+    ]);
+    return [
+        ...(sources.some((entry) => entry.name === "main.rs") ? [{ id: "detected.cargo.run", label: "Cargo: run", command: "cargo run" }] : []),
+        ...binaries
+            .filter((entry) => !entry.is_dir && /^[A-Za-z0-9][A-Za-z0-9_-]*\.rs$/.test(entry.name))
+            .map((entry) => {
+                const name = entry.name.replace(/\.rs$/, "");
+                return { id: `detected.cargo.run.${name}`, label: `Cargo: run ${name}`, command: `cargo run --bin ${name}` };
+            }),
+        { id: "detected.cargo.test", label: "Cargo: test", command: CARGO_TEST_COMMAND },
+        { id: "detected.cargo.build", label: "Cargo: build", command: "cargo build" },
+    ];
+}
+
 async function goTasks(root: string, files: ReadonlySet<string>, readDir: ReadDir): Promise<DetectedTask[]> {
     if (!files.has("go.mod")) return [];
     const commands = files.has("cmd/") ? await readDir(joinPath(root, "cmd")).catch(() => []) : [];
@@ -123,7 +152,7 @@ async function goTasks(root: string, files: ReadonlySet<string>, readDir: ReadDi
         ...commands
             .filter((entry) => entry.is_dir && /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(entry.name))
             .map((entry) => ({ id: `detected.go.run.${entry.name}`, label: `Go: run ${entry.name}`, command: `go run ./cmd/${entry.name}` })),
-        { id: "detected.go.test", label: "Go: test", command: "go test ./..." },
+        { id: "detected.go.test", label: "Go: test", command: GO_TEST_COMMAND },
         { id: "detected.go.build", label: "Go: build", command: "go build ./..." },
     ];
 }
@@ -246,6 +275,7 @@ async function tasksIn(dir: string, readDir: ReadDir, read: ReadText): Promise<D
             goTasks(dir, files, readDir),
             nodeTasks(dir, files, read),
             pythonTasks(dir, files, read),
+            rustTasks(dir, files, readDir),
         ])
     ).flat();
 }
@@ -298,6 +328,7 @@ const BUILD_TOOL_NAMES: Readonly<Record<string, string>> = {
 
 /** The installed program a detected task's command starts with; a project's own `./mvnw` or `./gradlew` needs none. */
 export function buildToolOf(command: string): { program: string; name: string } | null {
-    const program = command.split(" ")[0];
+    const wrapped = /^sh -c '.*?\b(go|cargo) test\b/.exec(command);
+    const program = wrapped ? wrapped[1] : command.split(" ")[0];
     return Object.hasOwn(BUILD_TOOL_NAMES, program) ? { program, name: BUILD_TOOL_NAMES[program] } : null;
 }

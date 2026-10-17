@@ -106,8 +106,8 @@ inventing new ones. Inspect again after writing to see `configErrors`.
 `command` to run. `workspace_inspect` lists the task ids: those from
 `sikemux.json`, then those Sikemux found in the project's build files
 (`foundIn: "build files"`), such as Maven, Gradle and Go run, test and build
-tasks, a `package.json`'s scripts, and a Python project's FastAPI, Flask or
-Django app and pytest. A found task runs on the Java its build asks for (`java.runsOn`), so
+tasks, Cargo run, test and build tasks, a `package.json`'s scripts, and a
+Python project's FastAPI, Flask or Django app and pytest. A found task runs on the Java its build asks for (`java.runsOn`), so
 prefer it to running `mvn` or `gradle` yourself. A `command` runs in the same kind of
 managed terminal as a configured task, in the project root or in `cwd`, a
 directory inside the project given relative to it, and `label` names its tab.
@@ -143,7 +143,7 @@ does anything you start while the person runs you in YOLO mode.
   first. Starting a task already running through the harness just returns that
   execution.
 
-After a Maven, Gradle, Vitest, Jest or pytest test task, `workspace_inspect` has
+After a Maven, Gradle, Vitest, Jest, pytest, Go or Cargo test task, `workspace_inspect` has
 `testResults`: per module, the counts and each failing test with its message,
 file and line, read from the reports the runner writes. Read those instead of the whole build log.
 

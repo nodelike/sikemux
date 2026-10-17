@@ -1,6 +1,6 @@
 import { fsapi } from "../api/fs";
 import { joinPath } from "../lib/paths";
-import { JEST_REPORT, PYTEST_REPORT, VITEST_REPORT } from "./detectedTasks";
+import { CARGO_TEST_LOG, GO_TEST_LOG, JEST_REPORT, PYTEST_REPORT, VITEST_REPORT } from "./detectedTasks";
 
 export interface TestFailure {
     readonly className: string;
@@ -93,6 +93,73 @@ interface JestReport {
     }[];
 }
 
+/** `go test -v` prints a test's log lines between its `=== RUN` and its `--- FAIL`, and the package after its tests. */
+async function readGoResults(cwd: string): Promise<TestResults | null> {
+    const log = await fsapi.readTextFileLimited(joinPath(cwd, GO_TEST_LOG)).catch(() => null);
+    if (!log) return null;
+    const module = /^module\s+(\S+)/m.exec(await fsapi.readTextFileLimited(joinPath(cwd, "go.mod")).catch(() => ""))?.[1] ?? "";
+    let passed = 0;
+    let skipped = 0;
+    const failures: TestFailure[] = [];
+    let pending: { name: string; message: string; fileName: string | null; line: number | null }[] = [];
+    let current: { message: string; fileName: string | null; line: number | null } = { message: "", fileName: null, line: null };
+    for (const raw of log.split("\n")) {
+        const line = raw.replace(TERMINAL_COLOURS, "");
+        if (line.startsWith("=== RUN")) current = { message: "", fileName: null, line: null };
+        const logged = /^\s+(\S+\.go):(\d+): (.*)$/.exec(line);
+        if (logged && !current.message) current = { fileName: logged[1], line: Number(logged[2]), message: logged[3] };
+        const result = /^--- (PASS|FAIL|SKIP): (\S+)/.exec(line);
+        if (result?.[1] === "PASS") passed += 1;
+        else if (result?.[1] === "SKIP") skipped += 1;
+        else if (result?.[1] === "FAIL") pending.push({ name: result[2], ...current });
+        const done = /^(?:FAIL|ok)\s+(\S+)/.exec(line);
+        if (done && pending.length) {
+            const dir = module && done[1].startsWith(module) ? done[1].slice(module.length + 1) : "";
+            for (const failure of pending) {
+                const file = failure.fileName ? await existingFile(joinPath(cwd, dir, failure.fileName)) : null;
+                failures.push({ className: done[1], name: failure.name, message: failure.message, file, line: failure.line });
+            }
+            pending = [];
+        }
+    }
+    return { passed, failed: failures.length, skipped, failures: failures.slice(0, MAX_FAILURES) };
+}
+
+/** `cargo test` names failures in `---- name stdout ----` blocks, and totals each test binary in a `test result:` line. */
+async function readCargoResults(cwd: string): Promise<TestResults | null> {
+    const log = await fsapi.readTextFileLimited(joinPath(cwd, CARGO_TEST_LOG)).catch(() => null);
+    if (!log) return null;
+    const text = log.replace(TERMINAL_COLOURS, "");
+    let passed = 0;
+    let skipped = 0;
+    for (const total of text.matchAll(/test result: \w+\. (\d+) passed; (\d+) failed; (\d+) ignored/g)) {
+        passed += Number(total[1]);
+        skipped += Number(total[3]);
+    }
+    const failures: TestFailure[] = [];
+    for (const block of text.split(/^---- /m).slice(1)) {
+        const name = /^(\S+) stdout ----/.exec(block)?.[1];
+        if (!name) continue;
+        const panic = /panicked at ([^:\n]+):(\d+):\d+:\n([\s\S]*?)(?:\nnote:|\n\n|$)/.exec(block);
+        const message = panic
+            ? panic[3]
+                  .split("\n")
+                  .map((line) => line.trim())
+                  .filter(Boolean)
+                  .join(" · ")
+            : "";
+        const file = panic ? await existingFile(joinPath(cwd, panic[1])) : null;
+        failures.push({
+            className: name.split("::").slice(0, -1).join("::"),
+            name: name.split("::").pop() ?? name,
+            message,
+            file,
+            line: panic ? Number(panic[2]) : null,
+        });
+    }
+    return { passed, failed: failures.length, skipped, failures: failures.slice(0, MAX_FAILURES) };
+}
+
 /** Jest's first line names the matcher; the values it compared come a few lines later. */
 function jestMessage(text: string): string {
     const values = text
@@ -137,8 +204,8 @@ async function readJestResults(cwd: string): Promise<TestResults | null> {
 
 /** The latest JUnit XML results in a Maven or Gradle module, or null when it has none. */
 export async function readTestResults(cwd: string): Promise<TestResults | null> {
-    const [files, jest] = await Promise.all([reportFiles(cwd), readJestResults(cwd)]);
-    if (!files.length) return jest;
+    const [files, jest, go, cargo] = await Promise.all([reportFiles(cwd), readJestResults(cwd), readGoResults(cwd), readCargoResults(cwd)]);
+    if (!files.length) return jest ?? go ?? cargo;
     const parser = new DOMParser();
     let passed = 0;
     let skipped = 0;
@@ -180,6 +247,14 @@ export async function readTestResults(cwd: string): Promise<TestResults | null> 
 /** The same test command narrowed to the tests that failed, or null for a build tool it does not know. */
 export function rerunFailedCommand(command: string, failures: readonly TestFailure[]): string | null {
     if (command.includes(PYTEST_REPORT)) return `${command} --lf`;
+    if (command.includes(GO_TEST_LOG)) {
+        const names = [...new Set(failures.map((failure) => failure.name.split("/")[0]))].join("|");
+        return command.replace("go test -v ./...", `go test -v -run "^(${names})\\$" ./...`);
+    }
+    if (command.includes(CARGO_TEST_LOG)) {
+        const names = failures.map((failure) => (failure.className ? `${failure.className}::${failure.name}` : failure.name)).join(" ");
+        return command.replace("cargo test", `cargo test -- --exact ${names}`);
+    }
     if (command.includes(VITEST_REPORT) || command.includes(JEST_REPORT)) {
         const files = [...new Set(failures.map((failure) => failure.className))].map((file) => `'${file}'`);
         return `${command} ${files.join(" ")}`;

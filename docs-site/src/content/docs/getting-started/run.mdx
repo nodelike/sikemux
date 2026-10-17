@@ -14,6 +14,7 @@ Sikemux reads the build files at the project's root and in the folders just insi
 | `pom.xml` | Spring Boot: run, Maven: test, Maven: package |
 | `build.gradle` or `build.gradle.kts` | Spring Boot: bootRun, Gradle: run, Gradle: test, Gradle: build |
 | `package.json` | Its scripts, `dev` and `start` first, run with the package manager its lockfile names: npm, pnpm, Yarn or Bun |
+| `Cargo.toml` | Cargo: run (and one per file in `src/bin`), Cargo: test, Cargo: build |
 | `pyproject.toml`, `requirements.txt` or `manage.py` | The FastAPI or Flask app it finds, or Django's runserver, and pytest; run with the project's `.venv`, uv or Poetry |
 | `go.mod` | Go: run (and one per folder in `cmd/`), Go: test, Go: build |
 
@@ -41,7 +42,7 @@ The run button shows how the task is doing:
 
 ## Test results
 
-When a Maven, Gradle, Vitest, Jest or pytest test task finishes, the run button shows how many tests failed or passed, read from the reports the test runner writes. If any failed, a card lists them with the message and a link to the line that failed; **Rerun failed** runs only those tests again. Agents read the same results from `workspace_inspect`.
+When a Maven, Gradle, Vitest, Jest, pytest, Go or Cargo test task finishes, the run button shows how many tests failed or passed, read from the reports the test runner writes; Go and Cargo write none, so their test tasks keep a copy of the output, in a `.sikemux` folder that Git ignores or in Cargo's `target`. If any failed, a card lists them with the message and a link to the line that failed; **Rerun failed** runs only those tests again. Agents read the same results from `workspace_inspect`.
 
 ## Agents in their own worktrees
 
