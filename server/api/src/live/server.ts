@@ -12,6 +12,7 @@ import type { Logger } from "../log.ts";
 import type { Pusher } from "../push/send.ts";
 import { Hub } from "./hub.ts";
 import { listenForEvents, type Listener } from "./listener.ts";
+import { SHARE_PATH } from "../share/options.ts";
 import { LIVE_OPTIONS, type LiveOptions } from "./options.ts";
 import { failedHelloKeys, LiveSocket } from "./socket.ts";
 
@@ -35,7 +36,7 @@ export interface Live {
 export const LIVE_PATH = "/v1/live";
 
 /** Answers an upgrade with the API's error body, and logs its request id as every request's is. */
-function refuse(
+export function refuse(
   socket: Duplex,
   log: Logger,
   status: number,
@@ -82,6 +83,7 @@ export function attachLive(server: Server, services: LiveServices): Live {
     head: Buffer,
   ) => {
     const path = new URL(request.url ?? "/", "http://api").pathname;
+    if (path === SHARE_PATH) return;
     if (path !== LIVE_PATH)
       return refuse(socket, log, 404, "not_found", `No WebSocket at ${path}.`);
     if (stopping)

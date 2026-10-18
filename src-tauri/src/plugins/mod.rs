@@ -1,688 +1,203 @@
-pub mod agent;
-mod builtin;
+//! The plugins run in the core, so the window has none of its own: these
+//! commands take the panes' calls to the core, and their streams over its
+//! tool endpoint.
 
-use std::collections::{BTreeMap, HashSet};
-use std::path::Path;
+use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicU32, Ordering};
-use std::sync::{Arc, RwLock};
-use std::time::Duration;
+use std::sync::{Arc, Mutex, MutexGuard};
 
-use dashmap::DashMap;
-use semver::Version;
-use serde::Serialize;
-use serde_json::Value;
-use sikemux_plugin_api::{
-    AgentTool, Manifest, Plugin, PluginContext, PluginError, PluginResult, StreamSink,
-};
+use serde_json::{json, Value};
+use sikemux_core::cli::protocol::{CliServerResponse, MAX_CLI_RESPONSE_BYTES};
+use sikemux_core::server::plugins::{Failure, Outcome, StreamEvent};
+use sikemux_plugin_api::PluginError;
 use tauri::ipc::Channel;
-use tokio::runtime::{Handle, Runtime};
-use tokio::task::JoinHandle;
+use tokio::io::{AsyncBufReadExt, AsyncReadExt, BufReader};
+use tokio::task::AbortHandle;
 
 use crate::error::{AppError, AppResult};
 use crate::pty::PtyManager;
 
-struct Loaded {
-    plugin: Arc<dyn Plugin>,
-    context: Arc<PluginContext>,
-    call_timeout: Duration,
+/// The streams the page has open, each a connection to the core that ends
+/// the stream there when it closes.
+#[derive(Default)]
+pub struct PluginStreams {
+    next: AtomicU32,
+    open: Arc<Mutex<HashMap<u32, AbortHandle>>>,
 }
 
-const PLUGIN_THREADS: usize = 2;
-const CALL_TIMEOUT: Duration = Duration::from_secs(60);
-const AGENT_CHECK_TIMEOUT: Duration = Duration::from_secs(10);
-
-/// Plugins run on threads of their own, so one that blocks or spins starves
-/// other plugins but never the terminals and agents on the app's runtime.
-pub struct PluginHost {
-    plugins: BTreeMap<String, Loaded>,
-    streams: Arc<DashMap<u32, JoinHandle<()>>>,
-    next_stream: AtomicU32,
-    runtime: Option<Runtime>,
-    spawner: Handle,
-    /// Switched off in Settings: still built in, but nothing reaches them.
-    disabled: RwLock<HashSet<String>>,
+fn lock_open(open: &Mutex<HashMap<u32, AbortHandle>>) -> MutexGuard<'_, HashMap<u32, AbortHandle>> {
+    open.lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
-/// Every shell variable a built-in plugin reads.
-pub fn shell_variables() -> Vec<String> {
-    builtin::plugins()
-        .iter()
-        .flat_map(|plugin| plugin.manifest().environment.clone())
-        .collect()
-}
-
-impl PluginHost {
-    pub fn with_builtins(data_root: &Path, sikemux: &Version) -> std::io::Result<Self> {
-        Self::new(data_root, sikemux, builtin::plugins(), CALL_TIMEOUT)
+impl PluginStreams {
+    pub fn count(&self) -> usize {
+        lock_open(&self.open).len()
     }
 
-    fn new(
-        data_root: &Path,
-        sikemux: &Version,
-        plugins: Vec<Arc<dyn Plugin>>,
-        default_call_timeout: Duration,
-    ) -> std::io::Result<Self> {
-        let runtime = tokio::runtime::Builder::new_multi_thread()
-            .worker_threads(PLUGIN_THREADS)
-            .thread_name("sikemux-plugin")
-            .enable_all()
-            .build()?;
-        let mut loaded = BTreeMap::new();
-        for plugin in plugins {
-            let manifest = plugin.manifest();
-            if !manifest.supports(sikemux) {
-                eprintln!(
-                    "plugin {} needs sikemux {} and this is {sikemux}; not loading it",
-                    manifest.id, manifest.sikemux
-                );
-                continue;
-            }
-            if loaded.contains_key(&manifest.id) {
-                eprintln!(
-                    "plugin {} is registered twice; keeping the first",
-                    manifest.id
-                );
-                continue;
-            }
-            let context = Arc::new(PluginContext::new(data_root.join(&manifest.id)));
-            let call_timeout = manifest
-                .call_timeout_secs
-                .map_or(default_call_timeout, Duration::from_secs);
-            loaded.insert(
-                manifest.id.clone(),
-                Loaded {
-                    plugin,
-                    context,
-                    call_timeout,
-                },
-            );
+    pub fn stop(&self, stream_id: u32) {
+        let stream = lock_open(&self.open).remove(&stream_id);
+        if let Some(stream) = stream {
+            stream.abort();
         }
-        Ok(Self {
-            plugins: loaded,
-            streams: Arc::default(),
-            next_stream: AtomicU32::new(1),
-            spawner: runtime.handle().clone(),
-            runtime: Some(runtime),
-            disabled: RwLock::default(),
-        })
-    }
-
-    fn get(&self, id: &str) -> AppResult<&Loaded> {
-        if !self.is_enabled(id) {
-            return Err(AppError::Plugin {
-                plugin: id.to_owned(),
-                error: PluginError::new("disabled", format!("`{id}` is switched off in Settings")),
-            });
-        }
-        self.plugins.get(id).ok_or_else(|| AppError::Plugin {
-            plugin: id.to_owned(),
-            error: PluginError::new("not-installed", format!("no plugin named `{id}`")),
-        })
-    }
-
-    fn is_enabled(&self, id: &str) -> bool {
-        !self
-            .disabled
-            .read()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .contains(id)
-    }
-
-    pub fn set_disabled(&self, ids: Vec<String>) {
-        *self
-            .disabled
-            .write()
-            .unwrap_or_else(std::sync::PoisonError::into_inner) = ids.into_iter().collect();
-    }
-
-    fn offers_agents_tools(&self, id: &str) -> bool {
-        self.plugins
-            .get(id)
-            .is_some_and(|loaded| !loaded.plugin.manifest().tools.is_empty())
-    }
-
-    pub fn manifests(&self) -> Vec<Manifest> {
-        self.plugins
-            .values()
-            .map(|loaded| loaded.plugin.manifest().clone())
-            .collect()
-    }
-
-    /// Every tool the loaded plugins offer agents, beside the plugin that answers
-    /// it. When two plugins name the same tool, the first keeps it.
-    pub fn agent_tools(&self) -> Vec<(&str, &AgentTool)> {
-        self.tools_of(|id| self.is_enabled(id))
-    }
-
-    /// The tools an agent in a repository with these git remotes can use: only
-    /// those of plugins that say they would work there.
-    pub async fn agent_tools_for(&self, remotes: &[String]) -> Vec<(&str, &AgentTool)> {
-        let remotes: Arc<[String]> = remotes.into();
-        let checks: Vec<(&str, JoinHandle<PluginResult<bool>>)> = self
-            .plugins
-            .iter()
-            .filter(|(id, loaded)| {
-                self.is_enabled(id) && !loaded.plugin.manifest().tools.is_empty()
-            })
-            .map(|(id, loaded)| {
-                let plugin = Arc::clone(&loaded.plugin);
-                let context = Arc::clone(&loaded.context);
-                let remotes = Arc::clone(&remotes);
-                let check = self
-                    .spawner
-                    .spawn(async move { plugin.offers_agent_tools(&context, &remotes).await });
-                (id.as_str(), check)
-            })
-            .collect();
-        let mut offering = HashSet::new();
-        for (id, mut check) in checks {
-            match tokio::time::timeout(AGENT_CHECK_TIMEOUT, &mut check).await {
-                Ok(Ok(Ok(true))) => {
-                    offering.insert(id);
-                }
-                Ok(_) => {}
-                Err(_) => check.abort(),
-            }
-        }
-        self.tools_of(|id| offering.contains(id))
-    }
-
-    fn tools_of(&self, include: impl Fn(&str) -> bool) -> Vec<(&str, &AgentTool)> {
-        let mut offered: Vec<(&str, &AgentTool)> = Vec::new();
-        for (id, loaded) in self.plugins.iter().filter(|(id, _)| include(id)) {
-            for tool in &loaded.plugin.manifest().tools {
-                if offered.iter().all(|(_, kept)| kept.name != tool.name) {
-                    offered.push((id.as_str(), tool));
-                }
-            }
-        }
-        offered
-    }
-
-    /// Runs a tool by the name an agent knows it by. A plugin method that no
-    /// tool names cannot be reached this way.
-    pub async fn call_agent_tool(&self, name: &str, arguments: Value) -> AppResult<Value> {
-        let (plugin, method) = self
-            .agent_tools()
-            .into_iter()
-            .find(|(_, tool)| tool.name == name)
-            .map(|(plugin, tool)| (plugin.to_owned(), tool.method.clone()))
-            .ok_or_else(|| AppError::Other(format!("no plugin offers the tool `{name}`")))?;
-        self.call(&plugin, &method, arguments).await
-    }
-
-    pub async fn call(&self, id: &str, method: &str, params: Value) -> AppResult<Value> {
-        let loaded = self.get(id)?;
-        let plugin = Arc::clone(&loaded.plugin);
-        let context = Arc::clone(&loaded.context);
-        let call_timeout = loaded.call_timeout;
-        let owned_method = method.to_owned();
-        let task = self
-            .spawner
-            .spawn(async move { plugin.call(&context, &owned_method, params).await });
-        let abort = task.abort_handle();
-        let outcome = match tokio::time::timeout(call_timeout, task).await {
-            Ok(Ok(result)) => result,
-            Ok(Err(stopped)) => Err(PluginError::new("stopped", stopped.to_string())),
-            Err(_) => {
-                abort.abort();
-                Err(PluginError::new(
-                    "timed-out",
-                    format!(
-                        "`{method}` did not answer within {}s",
-                        call_timeout.as_secs()
-                    ),
-                ))
-            }
-        };
-        outcome.map_err(|error| AppError::Plugin {
-            plugin: id.to_owned(),
-            error,
-        })
-    }
-
-    pub fn start_stream(
-        &self,
-        id: &str,
-        method: String,
-        params: Value,
-        on_event: Channel<StreamEvent>,
-    ) -> AppResult<u32> {
-        let loaded = self.get(id)?;
-        let plugin = Arc::clone(&loaded.plugin);
-        let context = Arc::clone(&loaded.context);
-        let stream_id = self.next_stream.fetch_add(1, Ordering::Relaxed);
-        let streams = Arc::clone(&self.streams);
-        let items = on_event.clone();
-        let sink = StreamSink::new(move |value| items.send(StreamEvent::Item { value }).is_ok());
-        let (registered, is_registered) = tokio::sync::oneshot::channel::<()>();
-        let task = self.spawner.spawn(async move {
-            if is_registered.await.is_err() {
-                return;
-            }
-            let finished = plugin.stream(&context, &method, params, sink).await;
-            let last = match finished {
-                Ok(()) => StreamEvent::End,
-                Err(error) if error.category == PluginError::stream_closed().category => {
-                    StreamEvent::End
-                }
-                Err(error) => StreamEvent::Error { error },
-            };
-            let _ = on_event.send(last);
-            streams.remove(&stream_id);
-        });
-        self.streams.insert(stream_id, task);
-        let _ = registered.send(());
-        Ok(stream_id)
-    }
-
-    pub fn stop_stream(&self, stream_id: u32) {
-        if let Some((_, task)) = self.streams.remove(&stream_id) {
-            task.abort();
-        }
-    }
-
-    pub fn stream_count(&self) -> usize {
-        self.streams.len()
     }
 
     pub fn drain(&self) {
-        let ids: Vec<u32> = self.streams.iter().map(|entry| *entry.key()).collect();
-        for stream_id in ids {
-            self.stop_stream(stream_id);
+        let streams: Vec<AbortHandle> = lock_open(&self.open)
+            .drain()
+            .map(|(_, stream)| stream)
+            .collect();
+        for stream in streams {
+            stream.abort();
         }
     }
 }
 
-impl Drop for PluginHost {
-    fn drop(&mut self) {
-        if let Some(runtime) = self.runtime.take() {
-            runtime.shutdown_background();
-        }
+fn plugin_error(failure: Failure) -> AppError {
+    let error = PluginError::new(failure.category, failure.message);
+    AppError::Plugin {
+        plugin: failure.plugin,
+        error: match failure.status {
+            Some(status) => error.with_status(status),
+            None => error,
+        },
     }
 }
 
-#[derive(Clone, Serialize)]
-#[serde(tag = "kind", rename_all = "lowercase")]
-pub enum StreamEvent {
-    Item { value: Value },
-    End,
-    Error { error: PluginError },
-}
-
-/// Running agents list plugin tools again, since a plugin the person just
-/// signed in to or switched on may now offer theirs.
-fn tell_agents(manager: &PtyManager) {
-    if let Some(client) = manager.current_client() {
-        tauri::async_runtime::spawn(async move {
-            let _ = client.plugins_changed().await;
-        });
-    }
+async fn forward(manager: &PtyManager, method: &str, params: Value) -> AppResult<Value> {
+    let client = manager.client().await?;
+    crate::agent_names::call(&client, method.to_owned(), params).await
 }
 
 #[tauri::command]
-pub fn plugin_set_disabled(
-    host: tauri::State<'_, PluginHost>,
+pub async fn plugin_set_disabled(
     manager: tauri::State<'_, PtyManager>,
     ids: Vec<String>,
-) {
-    host.set_disabled(ids);
-    tell_agents(&manager);
+) -> AppResult<()> {
+    forward(&manager, "pluginSetDisabled", json!({ "ids": ids }))
+        .await
+        .map(drop)
 }
 
 #[tauri::command]
-pub fn plugin_manifests(host: tauri::State<'_, PluginHost>) -> Vec<Manifest> {
-    host.manifests()
+pub async fn plugin_manifests(manager: tauri::State<'_, PtyManager>) -> AppResult<Value> {
+    forward(&manager, "pluginManifests", Value::Null).await
 }
 
 #[tauri::command]
 pub async fn plugin_call(
-    host: tauri::State<'_, PluginHost>,
     manager: tauri::State<'_, PtyManager>,
     plugin: String,
     method: String,
     params: Value,
 ) -> AppResult<Value> {
-    let result = host.call(&plugin, &method, params).await;
-    if host.offers_agents_tools(&plugin) {
-        tell_agents(&manager);
+    let answer = forward(
+        &manager,
+        "plugin",
+        json!({ "plugin": plugin, "method": method, "params": params }),
+    )
+    .await?;
+    match serde_json::from_value(answer)? {
+        Outcome::Value(value) => Ok(value),
+        Outcome::Failed(failure) => Err(plugin_error(failure)),
     }
-    result
 }
 
 #[tauri::command]
 pub async fn plugin_stream_start(
-    host: tauri::State<'_, PluginHost>,
+    manager: tauri::State<'_, PtyManager>,
+    streams: tauri::State<'_, PluginStreams>,
     plugin: String,
     method: String,
     params: Value,
     on_event: Channel<StreamEvent>,
 ) -> AppResult<u32> {
-    host.start_stream(&plugin, method, params, on_event)
+    let answer = forward(
+        &manager,
+        "pluginStream",
+        json!({ "plugin": plugin, "method": method, "params": params }),
+    )
+    .await?;
+    let ticket = answer["ticket"]
+        .as_str()
+        .ok_or_else(|| AppError::Other("the core gave no ticket for the stream".into()))?
+        .to_owned();
+    let endpoint: PathBuf = crate::cli_paths::cli_endpoint_path()
+        .ok_or_else(|| AppError::Other("Sikemux's tool endpoint is unavailable".into()))?;
+    let connection = tauri::async_runtime::spawn_blocking(move || {
+        crate::cli_client::open_plugin_stream(&endpoint, ticket)
+    })
+    .await
+    .map_err(|error| AppError::Other(error.to_string()))?
+    .map_err(AppError::Other)?;
+    connection.set_nonblocking(true)?;
+    let connection = tokio::net::TcpStream::from_std(connection)?;
+
+    let stream_id = streams.next.fetch_add(1, Ordering::Relaxed);
+    let open = Arc::clone(&streams.open);
+    let (registered, is_registered) = tokio::sync::oneshot::channel::<()>();
+    let task = tauri::async_runtime::spawn(async move {
+        if is_registered.await.is_ok() {
+            let last = relay(connection, &on_event, &plugin).await;
+            let _ = on_event.send(last);
+        }
+        lock_open(&open).remove(&stream_id);
+    });
+    lock_open(&streams.open).insert(stream_id, task.inner().abort_handle());
+    let _ = registered.send(());
+    Ok(stream_id)
+}
+
+/// Hands the page each item the core writes, and returns how the stream ended.
+async fn relay(
+    connection: tokio::net::TcpStream,
+    on_event: &Channel<StreamEvent>,
+    plugin: &str,
+) -> StreamEvent {
+    let mut lines = BufReader::new(connection);
+    let mut line = Vec::new();
+    loop {
+        line.clear();
+        let read = (&mut lines)
+            .take(MAX_CLI_RESPONSE_BYTES + 1)
+            .read_until(b'\n', &mut line)
+            .await;
+        let event = match read {
+            Ok(0) | Err(_) => None,
+            Ok(_) => match serde_json::from_slice::<CliServerResponse>(&line) {
+                Ok(CliServerResponse::Result { value }) => serde_json::from_value(value).ok(),
+                Ok(CliServerResponse::Error { message }) => Some(StreamEvent::Error {
+                    error: Failure::new(plugin, "core", message),
+                }),
+                _ => None,
+            },
+        };
+        match event {
+            Some(StreamEvent::Item { value }) => {
+                if on_event.send(StreamEvent::Item { value }).is_err() {
+                    return StreamEvent::End;
+                }
+            }
+            Some(last) => return last,
+            None => {
+                return StreamEvent::Error {
+                    error: Failure::new(
+                        plugin,
+                        "core",
+                        "Sikemux's background process ended the stream",
+                    ),
+                }
+            }
+        }
+    }
 }
 
 #[tauri::command]
 pub async fn plugin_stream_stop(
-    host: tauri::State<'_, PluginHost>,
+    streams: tauri::State<'_, PluginStreams>,
     stream_id: u32,
 ) -> AppResult<()> {
-    host.stop_stream(stream_id);
+    streams.stop(stream_id);
     Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use serde_json::json;
-    use sikemux_plugin_api::PluginFuture;
-
-    struct Echo(Manifest);
-
-    impl Echo {
-        fn plugin(id: &str, sikemux: &str) -> Arc<dyn Plugin> {
-            let manifest = Manifest::from_json(
-                &json!({ "id": id, "name": "Echo", "version": "1.0.0", "sikemux": sikemux })
-                    .to_string(),
-            )
-            .expect("test manifest parses");
-            Arc::new(Self(manifest))
-        }
-    }
-
-    impl Plugin for Echo {
-        fn manifest(&self) -> &Manifest {
-            &self.0
-        }
-
-        fn call<'a>(
-            &'a self,
-            _ctx: &'a PluginContext,
-            method: &'a str,
-            params: Value,
-        ) -> PluginFuture<'a, Value> {
-            Box::pin(async move {
-                match method {
-                    "echo" => Ok(params),
-                    "block" => {
-                        std::thread::sleep(Duration::from_millis(300));
-                        Ok(Value::Null)
-                    }
-                    "hang" => std::future::pending().await,
-                    "fail" => {
-                        Err(PluginError::new("unconfigured", "sign in first").with_status(401))
-                    }
-                    _ => Err(PluginError::unknown_method(method)),
-                }
-            })
-        }
-    }
-
-    fn host(plugins: Vec<Arc<dyn Plugin>>) -> PluginHost {
-        PluginHost::new(
-            Path::new("/tmp/plugins"),
-            &Version::new(0, 4, 0),
-            plugins,
-            Duration::from_millis(100),
-        )
-        .expect("plugin runtime starts")
-    }
-
-    #[test]
-    #[cfg(all(feature = "github", feature = "signoz"))]
-    fn collects_the_shell_variables_plugins_read() {
-        let names = shell_variables();
-        for name in [
-            "GH_TOKEN",
-            "GH_ENTERPRISE_TOKEN",
-            "GH_HOST",
-            "SIGNOZ_API_KEY",
-        ] {
-            assert!(names.iter().any(|found| found == name), "{name} is missing");
-        }
-    }
-
-    #[test]
-    fn skips_incompatible_and_duplicate_plugins() {
-        let host = host(vec![
-            Echo::plugin("test.echo", ">=0.4"),
-            Echo::plugin("test.echo", ">=0.4"),
-            Echo::plugin("test.future", ">=9"),
-        ]);
-        let ids: Vec<String> = host.manifests().into_iter().map(|m| m.id).collect();
-        assert_eq!(ids, ["test.echo"]);
-    }
-
-    #[tokio::test]
-    async fn routes_calls_and_tags_errors_with_the_plugin() {
-        let host = host(vec![Echo::plugin("test.echo", "*")]);
-        assert_eq!(
-            host.call("test.echo", "echo", json!({ "a": 1 })).await.ok(),
-            Some(json!({ "a": 1 }))
-        );
-
-        let error = host
-            .call("test.echo", "fail", Value::Null)
-            .await
-            .expect_err("fails");
-        let wire = serde_json::to_value(&error).expect("serializes");
-        assert_eq!(
-            wire,
-            json!({ "category": "unconfigured", "message": "test.echo: sign in first", "status": 401, "plugin": "test.echo" })
-        );
-
-        let missing = host
-            .call("test.nope", "echo", Value::Null)
-            .await
-            .expect_err("fails");
-        assert_eq!(
-            serde_json::to_value(&missing).expect("serializes")["category"],
-            "not-installed"
-        );
-    }
-
-    #[tokio::test]
-    async fn agents_reach_only_the_methods_a_plugin_names_as_tools() {
-        let manifest = Manifest::from_json(
-            &json!({
-                "id": "test.echo", "name": "Echo", "version": "1.0.0", "sikemux": "*",
-                "tools": [{ "name": "echo_back", "method": "echo", "description": "Echo." }],
-            })
-            .to_string(),
-        )
-        .expect("test manifest parses");
-        let host = host(vec![Arc::new(Echo(manifest))]);
-
-        let offered: Vec<(&str, &str)> = host
-            .agent_tools()
-            .into_iter()
-            .map(|(plugin, tool)| (plugin, tool.name.as_str()))
-            .collect();
-        assert_eq!(offered, [("test.echo", "echo_back")]);
-        assert_eq!(
-            host.call_agent_tool("echo_back", json!({ "a": 1 }))
-                .await
-                .ok(),
-            Some(json!({ "a": 1 }))
-        );
-        assert!(host.call_agent_tool("fail", Value::Null).await.is_err());
-    }
-
-    #[tokio::test]
-    async fn a_switched_off_plugin_answers_nothing_and_offers_no_tools() {
-        let manifest = Manifest::from_json(
-            &json!({
-                "id": "test.echo", "name": "Echo", "version": "1.0.0", "sikemux": "*",
-                "tools": [{ "name": "echo_back", "method": "echo", "description": "Echo." }],
-            })
-            .to_string(),
-        )
-        .expect("test manifest parses");
-        let host = host(vec![Arc::new(Echo(manifest))]);
-
-        host.set_disabled(vec!["test.echo".into()]);
-        let refused = host
-            .call("test.echo", "echo", Value::Null)
-            .await
-            .expect_err("switched off");
-        assert_eq!(
-            serde_json::to_value(&refused).expect("serializes")["category"],
-            "disabled"
-        );
-        assert!(host.agent_tools().is_empty());
-
-        host.set_disabled(Vec::new());
-        assert!(host.call("test.echo", "echo", Value::Null).await.is_ok());
-        assert_eq!(host.agent_tools().len(), 1);
-    }
-
-    /// Offers its tools only to agents whose repository has a remote on `host`.
-    struct Picky {
-        manifest: Manifest,
-        host: &'static str,
-    }
-
-    impl Picky {
-        fn plugin(id: &str, host: &'static str) -> Arc<dyn Plugin> {
-            let manifest = Manifest::from_json(
-                &json!({
-                    "id": id, "name": "Picky", "version": "1.0.0", "sikemux": "*",
-                    "tools": [{ "name": "picky_look", "method": "look", "description": "Look." }],
-                })
-                .to_string(),
-            )
-            .expect("test manifest parses");
-            Arc::new(Self { manifest, host })
-        }
-    }
-
-    impl Plugin for Picky {
-        fn manifest(&self) -> &Manifest {
-            &self.manifest
-        }
-
-        fn call<'a>(
-            &'a self,
-            _ctx: &'a PluginContext,
-            method: &'a str,
-            _params: Value,
-        ) -> PluginFuture<'a, Value> {
-            Box::pin(async move { Err(PluginError::unknown_method(method)) })
-        }
-
-        fn offers_agent_tools<'a>(
-            &'a self,
-            _ctx: &'a PluginContext,
-            remotes: &'a [String],
-        ) -> PluginFuture<'a, bool> {
-            Box::pin(async move { Ok(remotes.iter().any(|remote| remote.contains(self.host))) })
-        }
-    }
-
-    fn offered_to(host: &PluginHost, remotes: &[&str]) -> Vec<String> {
-        let remotes: Vec<String> = remotes.iter().map(|remote| (*remote).to_owned()).collect();
-        tauri::async_runtime::block_on(host.agent_tools_for(&remotes))
-            .into_iter()
-            .map(|(plugin, _)| plugin.to_owned())
-            .collect()
-    }
-
-    #[test]
-    fn an_agent_is_offered_only_the_tools_that_would_work_in_its_repository() {
-        let host = host(vec![
-            Picky::plugin("test.github", "github.com"),
-            Picky::plugin("test.bitbucket", "bitbucket.org"),
-        ]);
-        assert_eq!(
-            offered_to(&host, &["git@bitbucket.org:team/app.git"]),
-            ["test.bitbucket"]
-        );
-        assert!(offered_to(&host, &[]).is_empty());
-
-        host.set_disabled(vec!["test.bitbucket".into()]);
-        assert!(offered_to(&host, &["git@bitbucket.org:team/app.git"]).is_empty());
-    }
-
-    #[test]
-    fn a_tool_name_passes_to_the_next_plugin_when_the_first_is_not_offered() {
-        let host = host(vec![
-            Picky::plugin("test.a", "github.com"),
-            Picky::plugin("test.b", "bitbucket.org"),
-        ]);
-        assert_eq!(
-            offered_to(&host, &["https://bitbucket.org/team/app"]),
-            ["test.b"]
-        );
-        assert_eq!(host.agent_tools().len(), 1);
-    }
-
-    #[test]
-    fn the_first_plugin_keeps_a_tool_name_two_plugins_claim() {
-        let claiming = |id: &str| -> Arc<dyn Plugin> {
-            let manifest = Manifest::from_json(
-                &json!({
-                    "id": id, "name": "Echo", "version": "1.0.0", "sikemux": "*",
-                    "tools": [{ "name": "echo_back", "method": "echo", "description": "Echo." }],
-                })
-                .to_string(),
-            )
-            .expect("test manifest parses");
-            Arc::new(Echo(manifest))
-        };
-        let host = host(vec![claiming("test.b"), claiming("test.a")]);
-        let offered: Vec<&str> = host
-            .agent_tools()
-            .into_iter()
-            .map(|(plugin, _)| plugin)
-            .collect();
-        assert_eq!(offered, ["test.a"]);
-    }
-
-    #[tokio::test]
-    async fn a_plugin_that_never_answers_times_out() {
-        let host = host(vec![Echo::plugin("test.echo", "*")]);
-        let error = host
-            .call("test.echo", "hang", Value::Null)
-            .await
-            .expect_err("times out");
-        assert_eq!(
-            serde_json::to_value(&error).expect("serializes")["category"],
-            "timed-out"
-        );
-    }
-
-    #[tokio::test]
-    async fn a_plugin_gets_the_call_timeout_it_declares() {
-        let manifest = Manifest::from_json(
-            &json!({
-                "id": "test.slow", "name": "Slow", "version": "1.0.0", "sikemux": "*",
-                "callTimeoutSecs": 1,
-            })
-            .to_string(),
-        )
-        .expect("test manifest parses");
-        let host = host(vec![
-            Arc::new(Echo(manifest)),
-            Echo::plugin("test.echo", "*"),
-        ]);
-        assert_eq!(
-            host.call("test.slow", "block", Value::Null).await.ok(),
-            Some(Value::Null)
-        );
-        assert!(host.call("test.echo", "block", Value::Null).await.is_err());
-    }
-
-    #[tokio::test(flavor = "current_thread")]
-    async fn a_blocking_plugin_does_not_hold_up_the_caller() {
-        let host = host(vec![Echo::plugin("test.echo", "*")]);
-        let started = std::time::Instant::now();
-        let error = host
-            .call("test.echo", "block", Value::Null)
-            .await
-            .expect_err("times out");
-        assert_eq!(
-            serde_json::to_value(&error).expect("serializes")["category"],
-            "timed-out"
-        );
-        assert!(started.elapsed() < Duration::from_millis(250));
-    }
 }

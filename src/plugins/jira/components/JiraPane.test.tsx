@@ -1,6 +1,6 @@
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { JiraIssue, JiraStatus } from "../api";
+import type { JiraIssue, JiraIssueSummary, JiraStatus } from "../api";
 
 const api = vi.hoisted(() => ({
     status: vi.fn(),
@@ -36,23 +36,29 @@ const summary = {
     status: "In Progress",
     statusCategory: "indeterminate" as const,
     priority: "High",
-    assignee: { accountId: "a1", name: "Ana" },
+    assignee: { accountId: "a1", name: "Ana", avatarUrl: null },
     issueType: "Bug",
     sprint: "Sprint 5",
     updated: null,
+    due: null,
+    parent: null,
     url: "https://acme.atlassian.net/browse/ABC-12",
 };
 
 const detail: JiraIssue = {
     ...summary,
     project: "ABC",
-    reporter: { accountId: "r1", name: "Raj" },
+    reporter: { accountId: "r1", name: "Raj", avatarUrl: null },
     labels: ["auth"],
     created: null,
     description: "Steps: **open** the app",
-    comments: [{ id: "1", author: "Raj", created: "2026-10-04T09:00:00.000+0000", body: "Seen on staging" }],
+    comments: [{ id: "1", author: "Raj", authorAvatarUrl: null, created: "2026-10-04T09:00:00.000+0000", body: "Seen on staging" }],
     commentCount: 1,
-    transitions: [{ id: "31", name: "Review", to: "In Review" }],
+    history: [],
+    transitions: [{ id: "31", name: "Review", to: "In Review", toCategory: "indeterminate" }],
+    subtasks: [],
+    blockedBy: [],
+    blocks: [],
 };
 
 afterEach(() => {
@@ -128,6 +134,48 @@ describe("JiraPane", () => {
         await act(async () => fireEvent.click(second));
         expect(api.setTask).toHaveBeenLastCalledWith("ABC-12", 1, "Keeps the 400", false, "acme.atlassian.net");
         expect(second).toBeChecked();
+    });
+
+    it("narrows a board to the people picked through Jira, and to typed words on the cards shown", async () => {
+        const kiran = { ...summary, key: "ABC-20", summary: "Dossier chart", assignee: { accountId: "k1", name: "Kiran Rao", avatarUrl: null } };
+        const loose = { ...summary, key: "ABC-21", summary: "Dossier picker", assignee: null };
+        const columns = (issues: JiraIssueSummary[]) => [{ name: "In Progress", statusIds: ["3"], issues }];
+        api.board.mockImplementation(async (_id: number, _site: string | undefined, picked: string[] = []) => ({
+            id: 7,
+            name: "ABC board",
+            kind: "kanban",
+            sprint: null,
+            columns: columns(picked.includes("k1") ? [kiran] : [summary, kiran, loose]),
+            truncated: false,
+        }));
+        render(<JiraPane paneId="jira-board-people" active />);
+        fireEvent.click(await screen.findByRole("button", { name: "ABC board" }));
+        expect(await screen.findAllByRole("listitem")).toHaveLength(3);
+
+        fireEvent.click(screen.getByRole("button", { name: "Kiran Rao" }));
+        await waitFor(() => expect(screen.getAllByRole("listitem")).toHaveLength(1));
+        expect(api.board).toHaveBeenLastCalledWith(7, "acme.atlassian.net", ["k1"]);
+        expect(screen.getByRole("button", { name: "Ana" })).toBeInTheDocument();
+
+        fireEvent.click(screen.getByRole("button", { name: "Clear" }));
+        await waitFor(() => expect(screen.getAllByRole("listitem")).toHaveLength(3));
+        fireEvent.change(screen.getByRole("textbox", { name: "Find a card" }), { target: { value: "dossier" } });
+        expect(screen.getAllByRole("listitem").map((card) => card.textContent)).toEqual([
+            expect.stringContaining("Dossier chart"),
+            expect.stringContaining("Dossier picker"),
+        ]);
+        expect(screen.getByRole("group", { name: "Filter the board" })).toHaveTextContent("Unassigned 1");
+    });
+
+    it("closes an opened issue back to the whole board", async () => {
+        render(<JiraPane paneId="jira-board-close" active />);
+        fireEvent.click(await screen.findByRole("button", { name: "ABC board" }));
+        fireEvent.click(await screen.findByRole("listitem"));
+        expect(await screen.findByRole("article", { name: "ABC-12 Fix the login race" })).toBeInTheDocument();
+
+        fireEvent.click(screen.getByRole("button", { name: "Close the issue" }));
+        expect(screen.queryByRole("article")).not.toBeInTheDocument();
+        expect(screen.getByRole("list", { name: "In Progress" })).toHaveTextContent("Fix the login race");
     });
 
     it("puts a card back and says why when Jira will not move it", async () => {

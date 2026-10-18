@@ -213,7 +213,7 @@ fn command_candidates(name: &str) -> Vec<String> {
         format!("/opt/homebrew/bin/{name}"),
         format!("/usr/local/bin/{name}"),
     ];
-    if let Some(path) = crate::system::find_executable(name) {
+    if let Some(path) = sikemux_process::user_environment::find_executable(name) {
         candidates.insert(0, path.to_string_lossy().into_owned());
     }
     candidates.dedup();

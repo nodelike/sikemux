@@ -1,9 +1,13 @@
+import { useState } from "react";
 import { act, cleanup, fireEvent, render, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Notification } from "../api";
 
 const api = vi.hoisted(() => ({
     inbox: vi.fn(),
+    status: vi.fn(() =>
+        Promise.resolve({ id: "work", ok: true, login: "me", avatarUrl: null, host: "example.test", canWriteCi: true, warning: null }),
+    ),
     markRead: vi.fn(),
     issue: vi.fn(),
     timeline: vi.fn(() => Promise.resolve([])),
@@ -12,7 +16,7 @@ const api = vi.hoisted(() => ({
 import { invalidate } from "../../plugin-api/resources";
 import { AccountProvider } from "../registry";
 import { InHost, registerTestHost, TEST_HOST } from "../testHost";
-import { InboxView } from "./InboxView";
+import { InboxDetail, InboxList } from "./InboxView";
 
 const host = registerTestHost(api);
 
@@ -29,15 +33,28 @@ const item = (overrides: Partial<Notification> = {}): Notification => ({
     ...overrides,
 });
 
-const list = () => document.querySelector(".git-left") as HTMLElement;
-const right = () => document.querySelector(".git-right") as HTMLElement;
+const list = () => document.querySelector(".inbox-list") as HTMLElement;
+const right = () => document.querySelector(".inbox-detail") as HTMLElement;
+
+/** The inbox as the git pane lays it out: the list in its side panel, the open notification beside it. */
+function Inbox() {
+    const [shown, setShown] = useState<Notification | null>(null);
+    return (
+        <>
+            <div className="inbox-list">
+                <InboxList shownId={shown?.id ?? null} onOpen={setShown} active />
+            </div>
+            <div className="inbox-detail">{shown && <InboxDetail item={shown} active />}</div>
+        </>
+    );
+}
 
 async function renderInbox(items: Notification[] = [item()]) {
     api.inbox.mockResolvedValue(items);
     const view = render(
         <InHost host={host}>
             <AccountProvider value="work">
-                <InboxView paneId="pane" login="me" active />
+                <Inbox />
             </AccountProvider>
         </InHost>,
     );

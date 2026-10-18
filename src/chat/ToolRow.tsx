@@ -225,9 +225,9 @@ export const ToolRow = memo(function ToolRow({ part }: { part: Extract<ChatPart,
     const linked = !file && toolUrl(target) !== null;
     const command = tool.kind === "execute" ? tool.title.trim() : null;
     /* The row holds one line of a command, so the whole of it is worth
-       opening when the line ends in an ellipsis or leaves lines out. */
+       opening while it runs, or when the line ends in an ellipsis or leaves lines out. */
     const overflowing = useCutOff(targetRef, command !== null && !running);
-    const cutOff = command !== null && !running && (overflowing || command !== target);
+    const cutOff = command !== null && (running || overflowing || command !== target);
     const opens = Boolean(diff || output || failure) || cutOff;
     const elapsed = toolElapsed(part);
     const toggle = () => setOpen((current) => !current);

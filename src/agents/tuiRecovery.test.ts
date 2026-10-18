@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { RESUME_WINDOW_MS } from "../chat/sessionRecovery";
-import { afterAgentExit, readAgentExit, type AgentProcessExit } from "./tuiRecovery";
+import { afterAgentExit, readAgentExit, RESUME_WINDOW_MS, type AgentProcessExit } from "./tuiRecovery";
 
 const exit = (code: number | null, signal: string | null = null, killed = false): AgentProcessExit => ({ code, signal, killed });
 

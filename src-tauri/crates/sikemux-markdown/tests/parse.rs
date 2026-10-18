@@ -337,11 +337,12 @@ fn a_review_reads_like_github_shows_it() {
         .collect();
     assert_eq!(
         kinds,
-        ["h", "p", "ol", "hr", "p", "ul", "pre", "p", "p", "ul"]
+        ["h", "p", "ol", "hr", "p", "ul", "details", "p", "p", "ul"]
     );
     assert_eq!(review[2]["c"][2]["c"][1]["t"], "table");
+    assert_eq!(review[6]["t"], "details");
     assert_eq!(
-        review[6],
+        review[6]["c"][0],
         json!({"t": "pre", "v": "ssh: connect to host dev port 22: Connection refused\nretrying in 500ms\n"})
     );
 }

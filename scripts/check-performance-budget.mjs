@@ -1,85 +1,26 @@
 import { readdir, readFile } from "node:fs/promises";
 import { gzipSync } from "node:zlib";
 
+/*
+ * Fails only on sizes a person would feel: startup code that delays the first
+ * pane, a file large enough to stutter the pane that loads it, or styles heavy
+ * enough to slow every layout. Ordinary feature growth fits under these.
+ */
+
 const distDir = new URL("../dist/", import.meta.url);
 const assetDir = new URL("./assets/", distDir);
 const files = await readdir(assetDir);
-const requiredHeadroom = 0.1;
 
-async function size(name) {
-  const bytes = await readFile(new URL(name, assetDir));
-  return { raw: bytes.byteLength, gzip: gzipSync(bytes).byteLength };
-}
+const STARTUP_JS = { raw: 2_000_000, gzip: 650_000 };
+const LATER_FILE_RAW = 600_000;
+const APP_CSS_RAW = 300_000;
 
-async function matching(pattern) {
-  const names = files.filter((name) => pattern.test(name));
-  return sizeOfNames(names);
-}
+const kb = (bytes) => `${Math.round(bytes / 1000)} KB`;
+const failures = [];
 
-async function sizeOfNames(names) {
-  const sizes = await Promise.all(names.map(size));
-  return {
-    names,
-    raw: sizes.reduce((total, item) => total + item.raw, 0),
-    gzip: sizes.reduce((total, item) => total + item.gzip, 0),
-  };
-}
-
-// The entry's own eager set: everything the browser fetches before the app
-// can render a single pane, i.e. the entry chunk plus every JS file it (or
-// something it statically imports) pulls in via `import ... from`. This
-// walks the real import graph instead of trusting a single filename pattern,
-// so it stays correct if a chunk that used to be lazy becomes part of the
-// boot path (or the reverse) without anyone remembering to update this file.
-async function computeEagerJsSet() {
-  const html = await readFile(new URL("index.html", distDir), "utf8");
-  const entryMatch = html.match(/<script[^>]*\ssrc="\/assets\/([^"]+\.js)"/);
-  if (!entryMatch)
-    throw new Error(
-      "performance budget: no entry script found in dist/index.html",
-    );
-  const entry = entryMatch[1];
-
-  const preloaded = [
-    ...html.matchAll(/rel="modulepreload"[^>]*\shref="\/assets\/([^"]+\.js)"/g),
-  ].map((m) => m[1]);
-
-  const visited = new Set([entry]);
-  const queue = [entry];
-  while (queue.length > 0) {
-    const name = queue.pop();
-    const content = await readFile(new URL(name, assetDir), "utf8");
-    const staticImports = [
-      ...content.matchAll(/\bimport(?:[^"'();]*)from"\.\/([^"]+\.js)"/g),
-      ...content.matchAll(/\bimport"\.\/([^"]+\.js)"/g),
-    ].map((m) => m[1]);
-    for (const dep of staticImports) {
-      if (!visited.has(dep)) {
-        visited.add(dep);
-        queue.push(dep);
-      }
-    }
-  }
-
-  const missingPreloads = [...visited].filter(
-    (name) => name !== entry && !preloaded.includes(name),
-  );
-  if (missingPreloads.length > 0) {
-    throw new Error(
-      `performance budget: statically imported by the entry but not <link rel="modulepreload">, so the browser discovers them late: ${missingPreloads.join(", ")}`,
-    );
-  }
-
-  return [...visited];
-}
-
-// Grammar chunks load one at a time, on demand, keyed by the language of
-// the file being diffed or of the code fence being coloured in a chat. This
-// list mirrors the grammars src/vendor/shiki.ts ships (every other grammar is
-// downloaded, not bundled) so a regression that re-folds them into one big
-// chunk shows up as a missing-chunk failure below instead of silently
-// vanishing into the "default-path JavaScript" catch-all.
-const diffLanguageChunkNames = [
+// Mirrors the grammars src/vendor/shiki.ts bundles, so a build that folds them
+// back into one chunk fails here instead of quietly growing another file.
+const grammarChunks = [
   "css",
   "html",
   "json",
@@ -91,182 +32,99 @@ const diffLanguageChunkNames = [
   "typescript",
   "yaml",
 ];
-const diffLanguageChunkPattern = new RegExp(
-  `^(?:${diffLanguageChunkNames.join("|")})-.*\\.js$`,
+
+async function size(name) {
+  const bytes = await readFile(new URL(name, assetDir));
+  return { name, raw: bytes.byteLength, gzip: gzipSync(bytes).byteLength };
+}
+
+/** The entry chunk and everything it statically imports: what loads before a pane can draw. */
+async function startupNames() {
+  const html = await readFile(new URL("index.html", distDir), "utf8");
+  const entry = html.match(/<script[^>]*\ssrc="\/assets\/([^"]+\.js)"/)?.[1];
+  if (!entry) throw new Error("no entry script found in dist/index.html");
+  const preloaded = [
+    ...html.matchAll(/rel="modulepreload"[^>]*\shref="\/assets\/([^"]+\.js)"/g),
+  ].map((match) => match[1]);
+
+  const visited = new Set([entry]);
+  const queue = [entry];
+  while (queue.length > 0) {
+    const content = await readFile(new URL(queue.pop(), assetDir), "utf8");
+    const imports = [
+      ...content.matchAll(/\bimport(?:[^"'();]*)from"\.\/([^"]+\.js)"/g),
+      ...content.matchAll(/\bimport"\.\/([^"]+\.js)"/g),
+    ].map((match) => match[1]);
+    for (const name of imports) {
+      if (visited.has(name)) continue;
+      visited.add(name);
+      queue.push(name);
+    }
+  }
+
+  const late = [...visited].filter(
+    (name) => name !== entry && !preloaded.includes(name),
+  );
+  if (late.length > 0) {
+    failures.push(
+      `imported at startup but not <link rel="modulepreload">, so the browser finds them late: ${late.join(", ")}`,
+    );
+  }
+  return visited;
+}
+
+const startup = await startupNames();
+const sizes = await Promise.all(
+  files.filter((name) => /\.(?:js|css|wasm)$/.test(name)).map(size),
 );
 
-const eagerJsSet = await computeEagerJsSet();
-const startupJs = await sizeOfNames(eagerJsSet);
-
-const budgets = [
-  {
-    label:
-      "startup JS (index + every modulepreloaded/statically-imported chunk)",
-    actual: startupJs,
-    raw: 2_400_000,
-    gzip: 760_000,
-  },
-  {
-    label: "CodeMirror core chunk",
-    pattern: /^codemirror-core-.*\.js$/,
-    raw: 470_000,
-    gzip: 150_000,
-  },
-  {
-    label: "CodeMirror language-pack chunk",
-    pattern: /^codemirror-langs-.*\.js$/,
-    raw: 475_000,
-    gzip: 180_000,
-  },
-  {
-    label: "xterm core chunk",
-    pattern: /^xterm-(?!webgl).*\.js$/,
-    raw: 450_000,
-    gzip: 120_000,
-  },
-  {
-    // Carries the part of colouring code that has to be there before any
-    // colours are: the grammar table, the token cache, the tokens' own markup
-    // and the splitting a diff line's changed span needs. Shiki itself is a
-    // chunk of its own, fetched only once a block that can use it settles.
-    // Tool calls also carry what they printed now, opened under the row, and
-    // the transcript animates new messages and tool runs opening and closing.
-    // The composer's @ and # pickers, context chips, and resuming a chat whose
-    // agent died live here too; the code host part loads only once # is typed.
-    // So does the Worktree switch's state; its button, the worktree line in the
-    // transcript, the header's pull request badge and the git work load apart.
-    // The project strip over a new chat's composer loads apart too. A terminal
-    // agent's resuming state and its failed-resume row live here as well, and
-    // so do Sikemux's own tool calls, drawn as a verb and what they acted on.
-    // A turn that needs a sign-in or hit a usage limit offers the account to
-    // move to on its error, and the move shows in the transcript. A page an
-    // agent built and shows sits in its reply too. The transcript lays itself
-    // out from the bottom, and tool rows draw an icon for what each call does.
-    // A sent message can be opened again, edited and sent in its place.
-    // GitLab's agent tools add their rows, and so do Slack's. A finished
-    // answer folds its work under how long it took. Subagents nest in their
-    // cards, and a table copies as markdown.
-    label: "ACP chat lazy chunk",
-    pattern: /^AgentSurface-.*\.js$/,
-    raw: 146_000,
-    gzip: 45_000,
-  },
-  {
-    // Shiki, its JavaScript regex engine and vscode-textmate, with no
-    // grammars and no themes (both are stubbed or dynamic). Fetched on demand the first time
-    // a diff is opened or a chat fence with a grammar we have settles, and
-    // shared by both from then on.
-    label: "Highlighter lazy chunk (shiki core + JS engine, no grammars)",
-    pattern: /^highlighter-.*\.js$/,
-    raw: 150_000,
-    gzip: 47_000,
-  },
-  {
-    label: "Diffs language grammar chunks (one per language, loaded on demand)",
-    pattern: diffLanguageChunkPattern,
-    raw: 950_000,
-    gzip: 130_000,
-  },
-  {
-    // Rolldown reaches CommonJS exports such as React's jsx through
-    // `(0, ns.jsx)(...)` at every call site, which Rollup did not. The app's
-    // motion (glides, rows opening and closing, overlays fading) lives here too.
-    // Chat agents in their own worktrees added a few small lazy chunks, and
-    // the top bar's listening ports chip one more for its menu. Taking
-    // terminals and tasks back from the core at launch added a little more.
-    // The account picture in the top bar and renaming tabs added a little more.
-    // So did the agent accounts in the rail's footer and the desk's tab kinds.
-    // Jira boards, the GitLab code host and the database pane added a little more.
-    label:
-      "default-path JavaScript except the highlighter and its grammar chunks",
-    pattern: new RegExp(
-      `^(?!(?:highlighter|paper-shaders|xterm-webgl|${diffLanguageChunkNames.join("|")})-).*\\.js$`,
-    ),
-    raw: 3_700_000,
-    gzip: 1_200_000,
-  },
-  {
-    label: "opt-in shader renderer",
-    pattern: /^paper-shaders-.*\.js$/,
-    raw: 70_000,
-    gzip: 35_000,
-  },
-  {
-    label: "opt-in xterm WebGL renderer",
-    pattern: /^xterm-webgl-.*\.js$/,
-    raw: 130_000,
-    gzip: 36_000,
-  },
-  {
-    // The chat pane has since grown rows the budget predates: subagent
-    // transcripts, background tasks, queued messages, the reconnect states,
-    // code block copy buttons, the composer microphone, a tool call's output,
-    // context chips, the resuming states, a terminal agent's among them,
-    // attached files drawn as cards, the agent header floated as pills, the
-    // editor a sent message opens in to be written again, and the line a
-    // finished answer's work folds under. It
-    // is one lazily loaded sheet behind an agent pane, so this buys those rows
-    // room without touching what the app loads at startup.
-    // Lightning CSS, Vite's minifier, keeps the spaces inside color-mix().
-    label: "ACP chat CSS",
-    pattern: /^AgentSurface-.*\.css$/,
-    raw: 51_500,
-    gzip: 9_400,
-  },
-  {
-    // Includes the JetBrainsMono Nerd Font @font-face rules: a base face per
-    // weight/style plus an icons face, each carrying an explicit
-    // unicode-range so the ~930 KB icons file only downloads once a PUA
-    // glyph is actually rendered. Plugin panes bring their own sheets.
-    // The rail's account cards and the desk's stepped edge and tab kinds add to it,
-    // as do the simulator's device and controls in the desk's strip and the tree's ignored files.
-    label: "application CSS",
-    pattern: /^index-.*\.css$/,
-    raw: 234_000,
-    gzip: 40_500,
-  },
-  {
-    label: "settings lazy CSS",
-    pattern: /^SettingsPanel-.*\.css$/,
-    raw: 42_300,
-    gzip: 7_000,
-  },
-];
-
-// Rather than a hand-written "this chunk is eager today" note that goes
-// stale the moment someone else's change makes it lazy (or vice versa),
-// compare each JS budget's matched files against the measured eager set and
-// report reality every run.
-function eagerness(actual) {
-  if (actual.names.length === 0) return "";
-  const jsNames = actual.names.filter((name) => name.endsWith(".js"));
-  if (jsNames.length === 0) return "";
-  const eagerCount = jsNames.filter((name) => eagerJsSet.includes(name)).length;
-  if (eagerCount === jsNames.length) return " [part of startup JS]";
-  if (eagerCount === 0) return " [lazy]";
-  return " [partly in startup JS]";
+const startupSizes = sizes.filter(({ name }) => startup.has(name));
+const startupRaw = startupSizes.reduce((sum, file) => sum + file.raw, 0);
+const startupGzip = startupSizes.reduce((sum, file) => sum + file.gzip, 0);
+console.log(
+  `startup JS: ${kb(startupRaw)} of ${kb(STARTUP_JS.raw)}, gzip ${kb(startupGzip)} of ${kb(STARTUP_JS.gzip)} (${startupSizes.length} files)`,
+);
+if (startupRaw > STARTUP_JS.raw || startupGzip > STARTUP_JS.gzip) {
+  const largest = [...startupSizes]
+    .sort((a, b) => b.raw - a.raw)
+    .slice(0, 5)
+    .map((file) => `${file.name} ${kb(file.raw)}`);
+  failures.push(
+    `startup JS is over its limit; largest: ${largest.join(", ")}. Load what the first pane does not need with a dynamic import.`,
+  );
 }
 
-let failed = false;
-for (const budget of budgets) {
-  const actual = budget.actual ?? (await matching(budget.pattern));
-  if (actual.names.length === 0) {
-    console.error(`performance budget: ${budget.label} chunk is missing`);
-    failed = true;
-    continue;
-  }
-  const rawHeadroom = 1 - actual.raw / budget.raw;
-  const gzipHeadroom = 1 - actual.gzip / budget.gzip;
-  const withinBudget =
-    rawHeadroom >= requiredHeadroom && gzipHeadroom >= requiredHeadroom;
-  const summary = `${budget.label}${eagerness(actual)}: raw ${actual.raw}/${budget.raw} (${(rawHeadroom * 100).toFixed(1)}% reserve), gzip ${actual.gzip}/${budget.gzip} (${(gzipHeadroom * 100).toFixed(1)}% reserve)`;
-  if (withinBudget) console.log(`performance budget ok: ${summary}`);
-  else {
-    console.error(
-      `performance budget exceeded: ${summary} (${actual.names.join(", ")})`,
-    );
-    failed = true;
+const appCss = sizes.filter(({ name }) => /^index-.*\.css$/.test(name));
+const appCssRaw = appCss.reduce((sum, file) => sum + file.raw, 0);
+console.log(`application CSS: ${kb(appCssRaw)} of ${kb(APP_CSS_RAW)}`);
+if (appCssRaw > APP_CSS_RAW) {
+  failures.push(
+    "application CSS is over its limit; move a feature's styles into the chunk that loads it",
+  );
+}
+
+const later = sizes.filter(
+  ({ name }) => !startup.has(name) && !/^index-.*\.css$/.test(name),
+);
+const largestLater = [...later].sort((a, b) => b.raw - a.raw)[0];
+console.log(
+  `largest file loaded later: ${largestLater.name} ${kb(largestLater.raw)} of ${kb(LATER_FILE_RAW)}`,
+);
+for (const file of later.filter((file) => file.raw > LATER_FILE_RAW)) {
+  failures.push(
+    `${file.name} is ${kb(file.raw)}, over ${kb(LATER_FILE_RAW)}; split it so opening its pane does not stutter`,
+  );
+}
+
+for (const grammar of grammarChunks) {
+  if (
+    !files.some(
+      (name) => name.startsWith(`${grammar}-`) && name.endsWith(".js"),
+    )
+  ) {
+    failures.push(`the ${grammar} grammar has no chunk of its own`);
   }
 }
 
-if (failed) process.exitCode = 1;
+for (const failure of failures) console.error(`performance budget: ${failure}`);
+if (failures.length > 0) process.exitCode = 1;

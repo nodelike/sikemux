@@ -14,20 +14,31 @@ import {
 } from "react";
 import { createPortal, flushSync } from "react-dom";
 import { keybindingLabelForAction, type KeybindingActionId } from "../commands/keybindings";
-import type { Agent, Session, SessionKind, Window, WindowRole } from "../state/types";
+import type { Agent, Session, SessionKind, Window } from "../state/types";
 import * as cmd from "../state/commands";
 import { animate, EASE_IN, EASE_PAN, EASE_POP, EASE_SWAP, foldedFrames, leavingRef, prefersReducedMotion } from "../lib/motion";
 import { rollupAgentDisplays, type AgentDisplay } from "../state/agentStatus";
 import { getState, useStore } from "../state/store";
-import { AgentIcon, IconClose, IconCommand, IconFolder, IconPencil, IconPlus, WindowIcon } from "../ui/Icons";
+import { AgentFace } from "../buddies/Buddy";
+import { IconAgent, IconClose, IconFolder, IconMove, IconPencil, IconPlus, IconServer, IconTerminal, WindowIcon } from "../ui/Icons";
+import { useHostRepo } from "../codehost/project";
+import { codeHost } from "../codehost/registry";
+import { isTreeSection } from "../codehost/state";
+import { SectionIcon } from "../codehost/components/ActionsIcon";
+import { sectionLabel, sectionsOf } from "../codehost/sections";
+import { collectPanes } from "../state/layout";
 import { Tooltip } from "../ui/Tooltip";
 import { EmptyState, Panel, PanelHeader } from "../ui/Panel";
 import { RailMasthead } from "./RailMasthead";
+import { RailAccount } from "../account/RailAccount";
 import { UpdateChip } from "./UpdateChip";
 import { AgentStateIndicator, showsAgentState } from "../agents/AgentStateIndicator";
 import { agentDisplayOf, agentIdsOf } from "../state/selectors";
-import { PROJECT_SURFACE_ORDER, PROJECT_SURFACES } from "../workbench/surfaces";
+import { PROJECT_SURFACE_ORDER, PROJECT_SURFACES, type ProjectSurfaceRole } from "../workbench/surfaces";
 import { pluginSurface, type FrontendPlugin } from "../plugins/registry";
+import type { PluginSignIn } from "../plugin-api/signInState";
+import { StatusDot, type StatusTone } from "../ui/StatusDot";
+import { useSshTone } from "../terminal/sshLinks";
 import { useInstalledPlugins } from "../plugins/installed";
 import { railGroupOf, type RailGroup } from "../state/railGroups";
 import { isPluginKind, pluginIdOf } from "../plugins/kinds";
@@ -38,11 +49,16 @@ import { newSpace, SpaceGlyph, SpaceSwitch } from "./SpaceSwitch";
 import { shownProjects } from "../state/projectSpaces";
 import type { ProjectSpace } from "../state/types";
 
+/* Line icons keep a margin inside their box and logos run edge to edge, so each is drawn at the size that inks the same area. */
+const LINE_ICON_SIZE = 13;
+const LOGO_SIZE = 13;
+
 function kindIcon(kind: SessionKind): ReactNode {
-    if (kind === "project") return <IconFolder size={13} />;
+    if (kind === "project") return <IconFolder size={LINE_ICON_SIZE} />;
+    if (kind === "ssh") return <IconServer size={LINE_ICON_SIZE} />;
     const surface = pluginSurface(kind);
-    if (surface) return surface.icon(15);
-    return <IconCommand size={13} />;
+    if (surface) return surface.icon(LOGO_SIZE);
+    return <IconTerminal size={LINE_ICON_SIZE} />;
 }
 
 const MAX_BADGE_ICONS = 5;
@@ -88,7 +104,7 @@ function cloneProjectRow(source: HTMLElement): HTMLElement {
 }
 
 function projectElement(id: string): HTMLElement | null {
-    return Array.from(document.querySelectorAll<HTMLElement>("[data-project-id]")).find((element) => element.dataset.projectId === id) ?? null;
+    return document.querySelector<HTMLElement>(`[data-project-id="${CSS.escape(id)}"]`);
 }
 
 function projectRects(): Map<string, DOMRect> {
@@ -142,7 +158,7 @@ function SessionCloseButton({ session }: { session: Session }) {
     );
 }
 
-function SimpleRow({ s }: { s: Session }) {
+function SimpleRow({ s, status }: { s: Session; status?: ReactNode }) {
     const { activeSessionId } = useRail();
     const active = s.id === activeSessionId;
     return (
@@ -153,6 +169,7 @@ function SimpleRow({ s }: { s: Session }) {
                 </span>
                 <span className="sess-name">{s.name}</span>
             </button>
+            {status && <span className="row-status">{status}</span>}
             <SessionCloseButton session={s} />
         </div>
     );
@@ -217,6 +234,16 @@ function ProjectBlock({ s }: { s: Session }) {
     // Active or not, a project is one tree root holding its row, so the row survives the switch and its tint cross-fades.
     const treeRef = useRef<HTMLDivElement>(null);
     useProjectUnfold(treeRef, active);
+    const host = useHostRepo(active ? s.cwd : null, active).repo;
+    const hostDef = host ? codeHost(host.provider) : undefined;
+    const gitArea = useStore((st) => {
+        for (const id of st.windowsBySession[s.id] ?? []) {
+            const win = st.windows[id];
+            const pane = win?.role === "git" ? collectPanes(win.root).find((candidate) => candidate.kind === "git") : undefined;
+            if (pane) return st.gitViews[pane.id]?.area ?? "local";
+        }
+        return null;
+    });
     const winIds = windowsBySession[s.id] ?? [];
     const sessionWindows = winIds.map((id) => windowsById[id]).filter(Boolean) as Window[];
     const agents = agentIdsOf({ windowsBySession, windows: windowsById }, s.id)
@@ -231,9 +258,14 @@ function ProjectBlock({ s }: { s: Session }) {
             {visibleAgents.length > 0 && (
                 <span className="proj-child-icons">
                     {visibleAgents.map((a) => (
-                        <span key={a.id} className={`proj-pip proj-pip-${a.type}`}>
-                            <AgentIcon type={a.type} size={20} />
-                        </span>
+                        <AgentFace
+                            key={a.id}
+                            agent={a}
+                            size={16}
+                            logoSize={20}
+                            logoClass={`proj-pip proj-pip-${a.type}`}
+                            buddyClass="proj-pip buddy-mark"
+                        />
                     ))}
                     {agentOverflow > 0 && <span className="proj-child-icons-more">+{agentOverflow}</span>}
                 </span>
@@ -258,7 +290,7 @@ function ProjectBlock({ s }: { s: Session }) {
                             onPointerDown={(event) => rail.onProjectPointerDown(event, s.id)}
                             onClick={() => rail.selectProject(s.id)}>
                             <span className="proj-folder">
-                                <IconFolder size={12} />
+                                <IconFolder size={LINE_ICON_SIZE} />
                             </span>
                             <span className="proj-name">{s.name}</span>
                             {agentBadge}
@@ -271,11 +303,66 @@ function ProjectBlock({ s }: { s: Session }) {
     }
 
     const activeRole = sessionWindows.find((w) => w.id === s.activeWindowId)?.role;
-    const isSubActive = (role: WindowRole): boolean => activeRole === role;
-
-    const children: SubRow[] = PROJECT_SURFACE_ORDER.map((role) => {
+    const tabCount = sessionWindows.filter((w) => w.role === "term").length;
+    const termIcons: ReactNode[] =
+        tabCount > 1
+            ? Array.from({ length: tabCount }, (_, i) => (
+                  <span key={i} className="proj-pip proj-pip-term">
+                      <IconTerminal size={LINE_ICON_SIZE} />
+                  </span>
+              ))
+            : [];
+    const surfaceRow = (role: ProjectSurfaceRole): SubRow => {
         const { label, shortcut, open } = PROJECT_SURFACES[role];
-        return { role, label, kbd: kb(shortcut), title: `${label} — ${kb(shortcut)}`, open };
+        return {
+            key: role,
+            icon: <WindowIcon role={role} size={13} />,
+            label,
+            kbd: kb(shortcut),
+            title: `${label} — ${kb(shortcut)}`,
+            open: role === "git" && gitArea && isTreeSection(gitArea) ? () => cmd.openGitArea("local") : open,
+            active: activeRole === role && !(role === "git" && gitArea && isTreeSection(gitArea)),
+            icons: [],
+        };
+    };
+    const hostRows: SubRow[] = hostDef
+        ? sectionsOf(hostDef)
+              .filter(isTreeSection)
+              .map((section) => ({
+                  key: section,
+                  icon: <SectionIcon section={section} size={13} />,
+                  label: sectionLabel(hostDef, section),
+                  title: sectionLabel(hostDef, section),
+                  open: () => cmd.openGitArea(section),
+                  active: activeRole === "git" && gitArea === section,
+                  icons: [],
+              }))
+        : [];
+    const terminalRow: SubRow = {
+        key: "term",
+        icon: <WindowIcon role="term" size={13} />,
+        label: "Terminal",
+        kbd: kb("window.terminal"),
+        title: `Terminal${tabCount > 1 ? ` · ${tabCount} tabs` : ""} — ${kb("window.terminal")}`,
+        open: () => cmd.selectWindowByRole("term"),
+        active: activeRole === "term",
+        icons: termIcons,
+    };
+    const agentsRow: SubRow = {
+        key: "agents",
+        icon: <IconAgent size={13} />,
+        label: "Agents",
+        kbd: kb("window.agents"),
+        title: `Agents${agents.length ? ` · ${agents.length}` : ""} — ${kb("window.agents")}`,
+        open: () => cmd.focusAgents(),
+        active: activeRole === "agent",
+        icons: [],
+    };
+    const children: SubRow[] = PROJECT_SURFACE_ORDER.flatMap((role) => {
+        const row = surfaceRow(role);
+        if (role === "files") return [row, terminalRow];
+        if (role === "git") return [agentsRow, row, ...hostRows];
+        return [row];
     });
     return (
         <div ref={treeRef} className={`proj-tree active${rail.projectDragClass(s.id)}`} data-project-id={s.id}>
@@ -288,7 +375,7 @@ function ProjectBlock({ s }: { s: Session }) {
                         onPointerDown={(event) => rail.onProjectPointerDown(event, s.id)}
                         onClick={() => rail.selectProject(s.id)}>
                         <span className="proj-folder">
-                            <IconFolder size={12} />
+                            <IconFolder size={LINE_ICON_SIZE} />
                         </span>
                         <span className="proj-name">{s.name}</span>
                         {agentBadge}
@@ -298,23 +385,21 @@ function ProjectBlock({ s }: { s: Session }) {
             </div>
             <div className="proj-children" ref={foldChildren}>
                 {children.map((c) => {
-                    const subActive = isSubActive(c.role);
                     return (
-                        <Tooltip key={c.role} label={c.title} side="right">
+                        <Tooltip key={c.key} label={c.title} side="right">
                             <button
                                 type="button"
-                                className={`proj-child${subActive ? " active" : ""}`}
+                                className={`proj-child${c.active ? " active" : ""}`}
                                 aria-label={c.label}
-                                aria-current={subActive ? "page" : undefined}
+                                aria-current={c.active ? "page" : undefined}
                                 onClick={(e) => {
                                     e.stopPropagation();
                                     c.open();
                                 }}>
                                 <span className="proj-child-tick" />
-                                <span className="proj-child-ic">
-                                    <WindowIcon role={c.role} size={13} />
-                                </span>
+                                <span className="proj-child-ic">{c.icon}</span>
                                 <span className="proj-child-label">{c.label}</span>
+                                {c.icons.length > 0 && <FittedIcons icons={c.icons} />}
                                 {c.kbd && <span className="proj-child-kbd">{c.kbd}</span>}
                             </button>
                         </Tooltip>
@@ -326,21 +411,49 @@ function ProjectBlock({ s }: { s: Session }) {
 }
 
 interface SubRow {
-    role: WindowRole;
+    key: string;
+    icon: ReactNode;
     label: string;
     kbd?: string;
     title: string;
     open: () => void;
+    active: boolean;
+    icons: ReactNode[];
 }
 
 function renderSession(s: Session) {
-    return s.kind === "project" ? <ProjectBlock key={s.id} s={s} /> : <SimpleRow key={s.id} s={s} />;
+    if (s.kind === "project") return <ProjectBlock key={s.id} s={s} />;
+    return <SimpleRow key={s.id} s={s} status={s.kind === "ssh" ? <SshDot sessionId={s.id} /> : undefined} />;
+}
+
+const SSH_TONE_LABEL: Record<StatusTone, string> = { ok: "Connected", pending: "Connecting", idle: "Not connected", failed: "Connection failed" };
+
+function SshDot({ sessionId }: { sessionId: string }) {
+    const tone = useSshTone(sessionId);
+    return <StatusDot tone={tone} label={SSH_TONE_LABEL[tone]} />;
+}
+
+const SIGN_IN_TONE: Record<PluginSignIn, { tone: StatusTone; label: string }> = {
+    "signed-in": { tone: "ok", label: "Signed in" },
+    checking: { tone: "pending", label: "Checking sign-in" },
+    "signed-out": { tone: "idle", label: "Not signed in" },
+    failed: { tone: "failed", label: "Sign-in failed" },
+};
+
+function SignInDot({ useSignIn }: { useSignIn: () => PluginSignIn }) {
+    const { tone, label } = SIGN_IN_TONE[useSignIn()];
+    return <StatusDot tone={tone} label={label} />;
+}
+
+function signInDot(plugin: FrontendPlugin): ReactNode {
+    return plugin.useSignIn ? <SignInDot useSignIn={plugin.useSignIn} /> : undefined;
 }
 
 /** A plugin that is enabled but not open yet: the same row its session will be, opening it on click. */
 function PluginLauncherRow({ plugin, name }: { plugin: FrontendPlugin; name: string }) {
     const surface = plugin.surfaces[0];
     if (!surface) return null;
+    const status = signInDot(plugin);
     return (
         <div className="session-row-shell">
             <button className="sess-row" onClick={plugin.open}>
@@ -349,6 +462,7 @@ function PluginLauncherRow({ plugin, name }: { plugin: FrontendPlugin; name: str
                 </span>
                 <span className="sess-name">{name}</span>
             </button>
+            {status && <span className="row-status">{status}</span>}
         </div>
     );
 }
@@ -364,9 +478,9 @@ function projectSpaceItems(session: Session, spaces: readonly ProjectSpace[], cu
             hint: mark(current === space.id),
             run: () => cmd.setProjectSpace(session.cwd, space.id),
         })),
-        { label: "New Space…", run: () => void newSpace((id) => cmd.setProjectSpace(session.cwd, id)) },
+        { label: "New Space…", icon: <IconPlus size={13} />, run: () => void newSpace((id) => cmd.setProjectSpace(session.cwd, id)) },
         { sep: true },
-        { label: "No Space", hint: mark(current === undefined), run: () => cmd.setProjectSpace(session.cwd, null) },
+        { label: "No Space", icon: <IconMove size={13} />, hint: mark(current === undefined), run: () => cmd.setProjectSpace(session.cwd, null) },
     ];
 }
 
@@ -482,7 +596,7 @@ export const SideRail = memo(function SideRail() {
     // Every enabled plugin always has a row; its session is only made on the first click.
     const pluginRows = enabledPlugins.flatMap((plugin) => {
         const opened = plugins.filter((session) => isPluginKind(session.kind) && pluginIdOf(session.kind) === plugin.id);
-        if (opened.length > 0) return opened.map(renderSession);
+        if (opened.length > 0) return opened.map((session) => <SimpleRow key={session.id} s={session} status={signInDot(plugin)} />);
         return [<PluginLauncherRow key={plugin.id} plugin={plugin} name={plugin.manifest.name} />];
     });
 
@@ -707,12 +821,13 @@ export const SideRail = memo(function SideRail() {
                         addKbd={kb("ssh.open")}
                         action={() => void cmd.openSshConfigEditor()}
                         actionTitle="Edit ~/.ssh/config"
-                        emptyText="no ssh hosts"
+                        emptyText="no SSH hosts"
                     />
-                    <Group label="Plugins" list={plugins} rows={pluginRows} emptyText="no plugins" className="rail-logos" />
+                    <Group label="Plugins" list={plugins} rows={pluginRows} emptyText="no plugins" />
                     <Group label="Terminals" list={commands} add={cmd.createCommandSession} addTitle="New terminal" emptyText="no terminals" />
                 </div>
                 <UpdateChip />
+                <RailAccount />
             </aside>
             {projectDragVisual &&
                 createPortal(
@@ -729,3 +844,33 @@ export const SideRail = memo(function SideRail() {
         </RailContext.Provider>
     );
 });
+
+/* A mark is 20px wide and each one after it overlaps the last, by more for
+   buddies, which fill their box, than for logos drawn small inside theirs. */
+const MARK = 20;
+const MARK_STEP = { buddies: 10, logos: 14 };
+const MORE = 22;
+
+/** As many marks as the row has room for, the rest counted as +N, so none is ever cut in half. */
+function FittedIcons({ icons }: { icons: ReactNode[] }) {
+    const ref = useRef<HTMLSpanElement>(null);
+    const [room, setRoom] = useState(Infinity);
+    const step = useStore((s) => (s.buddies ? MARK_STEP.buddies : MARK_STEP.logos));
+    useLayoutEffect(() => {
+        const el = ref.current;
+        if (!el) return;
+        const observer = new ResizeObserver(() => setRoom(el.clientWidth));
+        observer.observe(el);
+        return () => observer.disconnect();
+    }, []);
+    const width = (count: number, more: boolean) => (count > 0 ? MARK + (count - 1) * step : 0) + (more ? MORE : 0);
+    let shown = Math.min(icons.length, MAX_BADGE_ICONS);
+    while (shown > 0 && width(shown, shown < icons.length) > room) shown--;
+    const overflow = icons.length - shown;
+    return (
+        <span ref={ref} className="proj-child-icons">
+            {icons.slice(0, shown)}
+            {overflow > 0 && <span className="proj-child-icons-more">+{overflow}</span>}
+        </span>
+    );
+}

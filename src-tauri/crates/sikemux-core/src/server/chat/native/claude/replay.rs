@@ -44,9 +44,19 @@ fn is_uuid(text: &str) -> bool {
 /// sidechain and team records are dropped. Records are returned as stored, so they carry no
 /// `parent_tool_use_id`; Claude Code keeps subagent transcripts in separate files.
 pub fn read_chain(path: &Path) -> Result<Vec<Value>, String> {
+    read(path, false)
+}
+
+/// The active branch back to the chat's first message, where `read_chain` starts
+/// at its last compaction.
+pub fn read_history(path: &Path) -> Result<Vec<Value>, String> {
+    read(path, true)
+}
+
+fn read(path: &Path, across_compactions: bool) -> Result<Vec<Value>, String> {
     let bytes = std::fs::read(path).map_err(|error| format!("{}: {error}", path.display()))?;
     let entries = parse_entries(&bytes);
-    let chain = active_branch(entries);
+    let chain = active_branch(entries, across_compactions);
     Ok(finish_messages(chain))
 }
 
@@ -54,77 +64,106 @@ pub fn read_chain(path: &Path) -> Result<Vec<Value>, String> {
 /// spawned it, so a loaded chat shows what its subagents did. Claude Code
 /// keeps those beside the chat's, in `<session>/subagents/agent-<id>.jsonl`,
 /// each with a `.meta.json` naming the spawning call.
-pub fn with_subagents(path: &Path, mut records: Vec<Value>) -> Vec<Value> {
+pub fn with_subagents(path: &Path, records: Vec<Value>) -> Vec<Value> {
     let dir = path.with_extension("").join("subagents");
     let Ok(listing) = std::fs::read_dir(&dir) else {
         return records;
     };
-    let mut agents: Vec<(String, String, Vec<Value>)> = listing
+    let metas: Vec<PathBuf> = listing
         .flatten()
-        .filter_map(|entry| {
-            let meta_path = entry.path();
-            let stem = meta_path
-                .file_name()?
-                .to_str()?
-                .strip_suffix(".meta.json")?;
-            let meta: Value = serde_json::from_slice(&std::fs::read(&meta_path).ok()?).ok()?;
-            let spawner = str_field(&meta, "toolUseId")?.to_owned();
-            let bytes = std::fs::read(dir.join(format!("{stem}.jsonl"))).ok()?;
-            let mut entries = parse_entries(&bytes);
-            for entry in &mut entries {
-                entry["isSidechain"] = Value::Bool(false);
-            }
-            let mut chain = finish_messages(active_branch(entries));
-            // The task it was handed opens its transcript, and the subagent's
-            // own row already says it.
-            if chain.first().and_then(|record| str_field(record, "type")) == Some("user") {
-                chain.remove(0);
-            }
-            for record in &mut chain {
-                record["parent_tool_use_id"] = Value::String(spawner.clone());
-            }
-            let started = chain
-                .first()
-                .and_then(|record| str_field(record, "timestamp"))
-                .unwrap_or_default()
-                .to_owned();
-            Some((spawner, started, chain))
+        .map(|entry| entry.path())
+        .filter(|path| {
+            path.to_str()
+                .is_some_and(|name| name.ends_with(".meta.json"))
         })
         .collect();
-    // Inserted latest first, so agents spawned by one message keep their order.
-    agents.sort_by(|a, b| b.1.cmp(&a.1));
-    loop {
-        let before = agents.len();
-        let mut index = 0;
-        while index < agents.len() {
-            let spawned_at = records
-                .iter()
-                .position(|record| spawns(record, &agents[index].0));
-            match spawned_at {
-                Some(position) => {
-                    let (_, _, chain) = agents.remove(index);
-                    records.splice(position + 1..position + 1, chain);
-                }
-                None => index += 1,
-            }
-        }
-        if agents.is_empty() || agents.len() == before {
-            return records;
+    let threads = std::thread::available_parallelism()
+        .map_or(1, usize::from)
+        .min(metas.len().max(1));
+    let read: Vec<(String, String, Vec<Value>)> = std::thread::scope(|scope| {
+        let reading: Vec<_> = metas
+            .chunks(metas.len().div_ceil(threads).max(1))
+            .map(|metas| {
+                scope.spawn(|| {
+                    metas
+                        .iter()
+                        .filter_map(|meta| subagent(meta))
+                        .collect::<Vec<_>>()
+                })
+            })
+            .collect();
+        reading
+            .into_iter()
+            .flat_map(|read| read.join().unwrap_or_default())
+            .collect()
+    });
+    let mut by_spawner: HashMap<String, Vec<(String, Vec<Value>)>> = HashMap::new();
+    for (spawner, started, chain) in read {
+        by_spawner
+            .entry(spawner)
+            .or_default()
+            .push((started, chain));
+    }
+    let mut out = Vec::with_capacity(records.len());
+    put_in_subagents(records, &mut by_spawner, &mut out);
+    out
+}
+
+/// A subagent's transcript, beside the call that spawned it and when it started.
+fn subagent(meta_path: &Path) -> Option<(String, String, Vec<Value>)> {
+    let stem = meta_path.to_str()?.strip_suffix(".meta.json")?;
+    let meta: Value = serde_json::from_slice(&std::fs::read(meta_path).ok()?).ok()?;
+    let spawner = str_field(&meta, "toolUseId")?.to_owned();
+    let bytes = std::fs::read(format!("{stem}.jsonl")).ok()?;
+    let mut entries = parse_entries(&bytes);
+    for entry in &mut entries {
+        entry["isSidechain"] = Value::Bool(false);
+    }
+    let mut chain = finish_messages(active_branch(entries, true));
+    // The task it was handed opens its transcript, and the subagent's
+    // own row already says it.
+    if chain.first().and_then(|record| str_field(record, "type")) == Some("user") {
+        chain.remove(0);
+    }
+    for record in &mut chain {
+        record["parent_tool_use_id"] = Value::String(spawner.clone());
+    }
+    let started = chain
+        .first()
+        .and_then(|record| str_field(record, "timestamp"))
+        .unwrap_or_default()
+        .to_owned();
+    Some((spawner, started, chain))
+}
+
+/// `records` into `out`, each followed by the transcripts of the subagents it
+/// spawned, and theirs by the subagents those spawned.
+fn put_in_subagents(
+    records: Vec<Value>,
+    by_spawner: &mut HashMap<String, Vec<(String, Vec<Value>)>>,
+    out: &mut Vec<Value>,
+) {
+    for record in records {
+        let mut spawned: Vec<(String, Vec<Value>)> = tool_use_ids(&record)
+            .filter_map(|id| by_spawner.remove(id))
+            .flatten()
+            .collect();
+        out.push(record);
+        spawned.sort_by(|a, b| a.0.cmp(&b.0));
+        for (_, chain) in spawned {
+            put_in_subagents(chain, by_spawner, out);
         }
     }
 }
 
-/// Whether `record` holds the tool call `tool_use_id`.
-fn spawns(record: &Value, tool_use_id: &str) -> bool {
+fn tool_use_ids(record: &Value) -> impl Iterator<Item = &str> {
     record
         .pointer("/message/content")
         .and_then(Value::as_array)
-        .is_some_and(|blocks| {
-            blocks.iter().any(|block| {
-                str_field(block, "type") == Some("tool_use")
-                    && str_field(block, "id") == Some(tool_use_id)
-            })
-        })
+        .into_iter()
+        .flatten()
+        .filter(|block| str_field(block, "type") == Some("tool_use"))
+        .filter_map(|block| str_field(block, "id"))
 }
 
 /// A transcript bigger than this is read on several threads, in pieces of
@@ -230,6 +269,15 @@ impl Records {
             .and_then(|parent| self.get(parent))
     }
 
+    /// The last message before a compaction, which its boundary names only
+    /// as a logical parent.
+    fn compacted_from(&self, record: &Value) -> Option<&Value> {
+        if str_field(record, "subtype") != Some("compact_boundary") {
+            return None;
+        }
+        self.get(str_field(record, "logicalParentUuid")?)
+    }
+
     fn reparent_where(&mut self, from: Option<&Value>, except: &str, to: Option<Value>) {
         for uuid in &self.order {
             if uuid == except {
@@ -314,9 +362,12 @@ impl Records {
     }
 }
 
-fn active_branch(entries: Vec<Value>) -> Vec<Value> {
+fn active_branch(entries: Vec<Value>, across_compactions: bool) -> Vec<Value> {
     let mut records = Records::new(&entries);
-    records.relink_compactions();
+    // Before a compaction the messages it kept already stand in their place.
+    if !across_compactions {
+        records.relink_compactions();
+    }
     let mut file_index: HashMap<&str, usize> = HashMap::new();
     for (index, entry) in entries.iter().enumerate() {
         file_index.insert(uuid_of(entry), index);
@@ -377,7 +428,11 @@ fn active_branch(entries: Vec<Value>) -> Vec<Value> {
             break;
         }
         chain.push(record);
-        current = records.parent_of(record);
+        current = records.parent_of(record).or_else(|| {
+            across_compactions
+                .then(|| records.compacted_from(record))
+                .flatten()
+        });
     }
     chain.reverse();
     restore_split_messages(&records, chain, on_chain)
@@ -696,6 +751,17 @@ fn finish_messages(records: Vec<Value>) -> Vec<Value> {
         .collect()
 }
 
+/// The ids of the messages the transcript holds as sent by the person.
+pub fn user_message_ids(records: &[Value]) -> impl Iterator<Item = String> + '_ {
+    records
+        .iter()
+        .filter(|record| {
+            str_field(record, "type") == Some("user") && record.get("toolUseResult").is_none()
+        })
+        .filter_map(|record| str_field(record, "uuid"))
+        .map(str::to_owned)
+}
+
 /// The model of the last top-level non-synthetic assistant message, for the model picker.
 pub fn resumed_model(records: &[Value]) -> Option<String> {
     records.iter().rev().find_map(|record| {
@@ -735,8 +801,33 @@ pub fn replay(records: &[Value], session_id: &str, cwd: &Path) -> Vec<(String, V
     // tasks by itself; the prompt that wakes it is hidden, so a reply that
     // follows a finished turn begins a new one.
     let mut turn_over = false;
-    for record in records {
+    // Pictures from before the last compaction would be most of a long
+    // chat's bytes; their rows still say what they were.
+    let pictures_from = records
+        .iter()
+        .rposition(|record| {
+            truthy(record.get("isCompactSummary")) && parent_tool_use_id(record).is_none()
+        })
+        .unwrap_or(0);
+    for (position, record) in records.iter().enumerate() {
         let parent = parent_tool_use_id(record);
+        if truthy(record.get("isCompactSummary")) {
+            let target = match parent {
+                Some(parent) => replay.announce(parent, &mut Vec::new()),
+                None => replay.root.clone(),
+            };
+            let mut update = json!({
+                "sessionUpdate": "tool_call",
+                "toolCallId": uuid_of(record),
+                "title": "Compact conversation",
+                "kind": "think",
+                "status": "completed",
+            });
+            let at = str_field(record, "timestamp").and_then(crate::accounts::live::parse_rfc3339);
+            super::super::stamp_replayed(&mut update, at, false);
+            replay.updates.push((target, update));
+            continue;
+        }
         if str_field(record, "type") == Some("user") && parent.is_none() {
             if let Some(uuid) = str_field(record, "uuid").filter(|uuid| !uuid.is_empty()) {
                 turn_id = Some(uuid.to_string());
@@ -774,9 +865,22 @@ pub fn replay(records: &[Value], session_id: &str, cwd: &Path) -> Vec<(String, V
         let updates = replay.convert(&content, role, message_id.as_deref());
         let main_thread = parent.is_none();
         let wakes = main_thread && wakes_agent(record);
+        let woken_by = wakes
+            .then(|| task_notification(record))
+            .flatten()
+            .and_then(|(agent_id, _)| {
+                replay
+                    .children
+                    .iter()
+                    .find(|child| child.agent_id.as_deref() == Some(agent_id.as_str()))
+            })
+            .map(|child| child.session_id.clone());
         let mut opens_turn =
             (is_assistant || wakes) && main_thread && turn_over && !updates.is_empty();
         for mut update in updates {
+            if position < pictures_from {
+                drop_pictures(&mut update);
+            }
             // Claude's note to itself that background work ended wakes it; the turn
             // that follows is still one it began by itself.
             if main_thread
@@ -784,6 +888,9 @@ pub fn replay(records: &[Value], session_id: &str, cwd: &Path) -> Vec<(String, V
                 && !wakes
             {
                 turn_over = false;
+            }
+            if let Some(session_id) = &woken_by {
+                update["subagentSessionId"] = json!(session_id);
             }
             super::super::stamp_replayed(&mut update, at, opens_turn);
             opens_turn = false;
@@ -794,6 +901,21 @@ pub fn replay(records: &[Value], session_id: &str, cwd: &Path) -> Vec<(String, V
         }
     }
     replay.finish()
+}
+
+/// Drops the bytes of every picture in `value`, keeping what it was.
+fn drop_pictures(value: &mut Value) {
+    match value {
+        Value::Array(items) => items.iter_mut().for_each(drop_pictures),
+        Value::Object(fields) => {
+            if fields.get("type").and_then(Value::as_str) == Some("image") {
+                fields.remove("data");
+                fields.remove("source");
+            }
+            fields.values_mut().for_each(drop_pictures);
+        }
+        _ => {}
+    }
 }
 
 fn parent_tool_use_id(record: &Value) -> Option<&str> {
@@ -810,6 +932,7 @@ fn message_id_for_grouping(record: &Value) -> Option<String> {
 struct Child {
     tool_use_id: String,
     session_id: String,
+    agent_id: Option<String>,
     parent_tool_use_id: Option<String>,
     name: String,
     task: String,
@@ -873,6 +996,7 @@ fn collect_children(records: &[Value], session_id: &str) -> Vec<Child> {
             let child = Child {
                 tool_use_id: id.to_string(),
                 session_id: format!("{session_id}:replay-subagent:{id}"),
+                agent_id: None,
                 parent_tool_use_id: owner.clone(),
                 name: states::first_text(&[
                     field("name"),
@@ -911,12 +1035,14 @@ fn collect_children(records: &[Value], session_id: &str) -> Vec<Child> {
             child.terminal_state = Some(state);
         }
     }
-    for child in children.iter_mut().filter(|child| child.name.is_empty()) {
-        let agent_id = agent_ids
+    for child in children.iter_mut() {
+        child.agent_id = agent_ids
             .iter()
             .find(|(_, spawner)| **spawner == child.tool_use_id)
-            .map(|(agent_id, _)| agent_id.as_str());
-        child.name = states::unnamed(agent_id.unwrap_or(&child.tool_use_id));
+            .map(|(agent_id, _)| agent_id.clone());
+        if child.name.is_empty() {
+            child.name = states::unnamed(child.agent_id.as_deref().unwrap_or(&child.tool_use_id));
+        }
     }
     children
 }
@@ -998,6 +1124,7 @@ impl Replay<'_> {
                 self.children.push(Child {
                     tool_use_id: tool_use_id.to_string(),
                     session_id: format!("{}:replay-subagent:{tool_use_id}", self.root),
+                    agent_id: None,
                     parent_tool_use_id: None,
                     name: states::unnamed(tool_use_id),
                     task: states::UNNAMED_TASK.to_owned(),

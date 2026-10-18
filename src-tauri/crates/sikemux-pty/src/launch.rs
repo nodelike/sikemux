@@ -60,17 +60,29 @@ pub fn validate_direct_command(
     Ok(())
 }
 
+/// Runs `launch` in `shell`, as the person's interactive login shell would,
+/// with `path_first` put ahead on PATH again after their profile has run.
 pub fn configure_interactive_command(
     command: &mut CommandBuilder,
     shell: &str,
     launch: &PtyDirectCommand,
+    path_first: Option<&Path>,
 ) {
     let kind = detect_shell_kind(shell);
-    let invocation = std::iter::once(&launch.program)
+    let mut invocation = std::iter::once(&launch.program)
         .chain(launch.args.iter())
         .map(|value| quote_shell_word(value, kind))
         .collect::<Vec<_>>()
         .join(" ");
+    if let Some(folder) = path_first {
+        let folder = quote_shell_word(&folder.to_string_lossy(), kind);
+        let put_first = match kind {
+            Some(ShellKind::Fish) => format!("set -gx PATH {folder} $PATH; "),
+            Some(ShellKind::PowerShell) => format!("$env:PATH = {folder} + ':' + $env:PATH; "),
+            _ => format!("export PATH={folder}:\"$PATH\"; "),
+        };
+        invocation.insert_str(0, &put_first);
+    }
     #[cfg(unix)]
     command.args(["-l", "-i", "-c", &invocation]);
     #[cfg(windows)]
@@ -108,27 +120,6 @@ pub fn account_dir(config_path: &str) -> PathBuf {
     match path.parent() {
         Some(parent) if names_config_file => parent.to_path_buf(),
         _ => path,
-    }
-}
-
-pub fn apply_agent_profile(
-    command: &mut CommandBuilder,
-    context: Option<&PtyContext>,
-    profile: Option<&PtyAgentProfile>,
-) {
-    let Some(root) = profile
-        .and_then(|profile| profile.config_path.as_deref())
-        .map(str::trim)
-        .filter(|path| !path.is_empty())
-        .map(account_dir)
-    else {
-        return;
-    };
-    if let Some(variable) = context
-        .and_then(|context| context.agent_type.as_deref())
-        .and_then(account_variable)
-    {
-        command.env(variable, root);
     }
 }
 
@@ -250,8 +241,8 @@ pub fn configure_pty_environment(
 
 #[cfg(test)]
 mod tests {
-    use super::{apply_agent_profile, configure_pty_environment, PtyAgentProfile, PtyContext};
-    use crate::tests::{env, local_shell_context};
+    use super::{configure_pty_environment, PtyContext};
+    use crate::tests::env;
     use portable_pty::CommandBuilder;
     use std::collections::HashMap;
     use std::path::Path;
@@ -277,6 +268,7 @@ mod tests {
                 args: vec![argument.into()],
                 profile: None,
             },
+            None,
         );
         let pair = NativePtySystem::default()
             .openpty(PtySize {
@@ -311,28 +303,6 @@ mod tests {
         assert_eq!(
             super::quote_shell_word(r"it's\", Some(super::ShellKind::Zsh)),
             r"'it'\''s\'"
-        );
-    }
-
-    #[test]
-    fn agent_profiles_pin_provider_config_directories() {
-        let profile = PtyAgentProfile {
-            config_path: Some("/profiles/work/config.toml".into()),
-            environment_keys: Vec::new(),
-        };
-        let mut codex = CommandBuilder::new("codex");
-        let mut context = local_shell_context();
-        context.agent_id = Some("agent-1".into());
-        context.agent_type = Some("codex".into());
-        apply_agent_profile(&mut codex, Some(&context), Some(&profile));
-        assert_eq!(env(&codex, "CODEX_HOME"), Some("/profiles/work".into()));
-
-        let mut claude = CommandBuilder::new("claude");
-        context.agent_type = Some("claude".into());
-        apply_agent_profile(&mut claude, Some(&context), Some(&profile));
-        assert_eq!(
-            env(&claude, "CLAUDE_CONFIG_DIR"),
-            Some("/profiles/work".into())
         );
     }
 

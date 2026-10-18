@@ -70,6 +70,17 @@ export interface Tables {
     >;
   };
   challenges: { nonce: string; user_id: string; expires_at: Date };
+  host_sign_ins: {
+    code_hash: string;
+    user_code: string;
+    key: string;
+    name: string;
+    platform: string;
+    channel: string;
+    approved_by: string | null;
+    created_at: CreatedAt;
+    expires_at: Date;
+  };
   push_tokens: {
     device_key: string;
     platform: string;
@@ -107,6 +118,15 @@ export interface Tables {
     signature: string;
     commit_time: Date;
     assigned_at: CreatedAt;
+  };
+  shares: {
+    id: string;
+    user_id: string;
+    host_key: string;
+    created_at: CreatedAt;
+    expires_at: Date;
+    ended_at: ColumnType<Date | null, never, Date | null>;
+    ended_reason: ColumnType<string | null, never, string | null>;
   };
   audit: {
     id: Generated<string>;

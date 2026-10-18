@@ -1,6 +1,6 @@
 import { invokeCommand as invoke } from "../api/invoke";
 import { getIpcTransport } from "../api/transport";
-import { save } from "@tauri-apps/plugin-dialog";
+import { dialogsApi } from "../api/dialogs";
 import { appCacheDir } from "@tauri-apps/api/path";
 import { fsapi } from "../api/fs";
 import { busStats } from "../state/bus";
@@ -306,9 +306,8 @@ export function nativeDiagnostics(): Promise<unknown> {
 
 export async function exportDiagnosticsSnapshot(snapshot: unknown): Promise<string | null> {
     const stamp = new Date().toISOString().replaceAll(":", "-");
-    const path = await save({
+    const path = await dialogsApi.pickSavePath(`sikemux-diagnostics-${stamp}.json`, {
         title: "Save Sikemux diagnostics",
-        defaultPath: `sikemux-diagnostics-${stamp}.json`,
         filters: [{ name: "JSON", extensions: ["json"] }],
     });
     if (!path) return null;

@@ -1,0 +1,17 @@
+---
+title: Permission modes
+description: "Normal and YOLO, and why agents start in YOLO."
+---
+
+Every agent starts within a launch boundary:
+
+| Mode | What it does |
+|---|---|
+| **Normal** | The agent's own approval and sandbox behaviour: it asks before acting |
+| **YOLO** | Approvals and sandboxing are off: the agent acts without asking |
+
+**Agents start in YOLO by default, on purpose.** Sikemux is built for agents that work on their own while you do something else. Change the default in **Settings → Agents → Launch boundary**, or pick a mode for one launch in the agent palette.
+
+OpenCode and Pi have no YOLO mode, so they always start in Normal.
+
+A running chat can switch between Normal and YOLO for agents that have both.

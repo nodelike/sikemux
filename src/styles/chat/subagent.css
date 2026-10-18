@@ -113,7 +113,12 @@
     animation: chat-activity-spin 0.72s linear infinite;
 }
 
+/* Reversed around its one child so a running subagent's box stays on its newest line. */
 .chat-subagent-body {
+    display: flex;
+    flex-direction: column-reverse;
+    max-height: 420px;
+    overflow-y: auto;
     margin: 0 var(--chat-dock-step);
     padding: 4px 10px 8px calc(25px - var(--chat-dock-step));
     border: 1px solid var(--border);

@@ -42,7 +42,7 @@
     text-align: left;
 }
 .git-menu-item:hover:not(:disabled) {
-    background: var(--surface-selected);
+    background: var(--surface-hover);
     color: var(--text-primary);
 }
 .git-menu-item:disabled {
@@ -67,6 +67,7 @@
     font-size: 10.5px;
     font-weight: var(--weight-semibold);
     color: var(--text-primary);
+    border-radius: var(--radius-1);
 }
 .git-menu-item.danger .git-menu-key {
     color: var(--danger);
@@ -90,6 +91,7 @@
     max-height: 200px;
     overflow-y: auto;
     border: 1px solid var(--border);
+    border-radius: var(--radius-2);
 }
 .git-modal-suggestion {
     display: flex;
@@ -103,9 +105,10 @@
     font-size: 11.5px;
     cursor: pointer;
     text-align: left;
+    border-radius: var(--radius-2);
 }
 .git-modal-suggestion:hover {
-    background: var(--surface-selected);
+    background: var(--surface-hover);
     color: var(--text-primary);
 }
 .git-modal-suggestion-hint {

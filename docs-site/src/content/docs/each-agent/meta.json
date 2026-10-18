@@ -1,0 +1,14 @@
+{
+  "title": "Each agent",
+  "defaultOpen": true,
+  "pages": [
+    "claude-code",
+    "codex",
+    "opencode",
+    "hermes",
+    "pi",
+    "omp",
+    "grok",
+    "muse"
+  ]
+}

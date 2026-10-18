@@ -12,57 +12,11 @@
 .gha-detail .gha-back {
     margin: var(--space-3) 0 calc(-1 * var(--space-2));
 }
-.gha-page-head {
-    display: grid;
-    grid-template-columns: 30px minmax(0, 1fr);
-    align-items: center;
-    column-gap: var(--space-3);
-    row-gap: var(--space-1);
-    padding-bottom: var(--space-4);
-    border-bottom: 1px solid var(--border);
-}
-.gha-page-head > .gha-state-mark {
-    grid-row: 1 / span 2;
-    justify-content: center;
-    width: 30px;
-    height: 30px;
-    border-radius: var(--radius-full);
-    background: color-mix(in oklab, currentColor 12%, transparent);
-}
-.gha-page-title {
-    display: flex;
-    align-items: center;
-    gap: var(--space-2);
-    min-width: 0;
-}
-.gha-page-number {
-    flex: 0 0 auto;
-    font-size: var(--text-lg);
-    font-variant-numeric: tabular-nums;
-    color: var(--text-tertiary);
-}
+
 .gha-page-spacer {
     flex: 1 1 auto;
 }
-.gha-page-sub {
-    display: flex;
-    align-items: center;
-    flex-wrap: wrap;
-    gap: var(--space-1) var(--space-2);
-    min-width: 0;
-    font-size: var(--text-xs);
-    color: var(--text-tertiary);
-}
-.gha-page-sub > :not(.gha-state-word) + :not(.gha-labels)::before {
-    content: "·";
-    margin-right: var(--space-2);
-    color: var(--text-disabled);
-}
-.gha-page-sub > * {
-    display: inline-flex;
-    align-items: center;
-    min-width: 0;
-}
+
 .gha-who {
     display: inline-flex;
     align-items: center;
@@ -92,31 +46,7 @@
     font-weight: var(--weight-medium);
     color: var(--text-secondary);
 }
-.gha-page-sub .gha-branch > span {
-    font-family: inherit;
-    font-size: inherit;
-}
-.gha-state-word {
-    --state: var(--text-tertiary);
-    display: inline-flex;
-    align-items: center;
-    height: 20px;
-    padding: 0 var(--space-2);
-    border-radius: var(--radius-full);
-    background: color-mix(in oklab, var(--state) 16%, transparent);
-    color: var(--state);
-    font-size: var(--text-2xs);
-    font-weight: var(--weight-medium);
-}
-.gha-state-word[data-state="open"] {
-    --state: var(--live);
-}
-.gha-state-word:is([data-state="merged"], [data-state="closed"]) {
-    --state: var(--acc);
-}
-.gha-state-word[data-kind="pull"][data-state="closed"] {
-    --state: var(--danger);
-}
+
 .gha-diffstat {
     display: inline-flex;
     gap: var(--space-1);
@@ -153,7 +83,7 @@
     gap: var(--space-2);
     min-height: 26px;
 }
-.gha-merge-row > :is(.gha-outcome, .gha-state-mark) {
+.gha-merge-row > .gha-state-mark {
     justify-content: center;
     width: 22px;
     height: 22px;
@@ -205,4 +135,7 @@
 }
 .gha-patch-line.ctx {
     color: var(--text-tertiary);
+}
+.pr-headline-top > .status-mark {
+    --mark-lift: 0;
 }

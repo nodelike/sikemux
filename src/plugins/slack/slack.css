@@ -80,8 +80,7 @@
 
 .slack-channel.active {
     color: var(--text-primary);
-    background: var(--surface-selected);
-    border-color: var(--border-selected);
+    background: var(--surface-chosen);
 }
 
 .slack-channel-mark {
@@ -154,9 +153,16 @@
 }
 
 .slack-chip.primary {
-    border-color: var(--border-selected);
-    color: var(--text-primary);
-    background: var(--surface-selected);
+    border-color: var(--acc);
+    background: var(--acc);
+    color: var(--on-accent);
+}
+
+.slack-chip.primary:hover:not(:disabled) {
+    border-color: var(--acc);
+    background: var(--acc);
+    color: var(--on-accent);
+    filter: brightness(1.08);
 }
 
 .slack-chip:disabled {
@@ -184,8 +190,7 @@
 }
 
 .slack-message.open {
-    border-color: var(--border-selected);
-    background: var(--surface-selected);
+    background: var(--surface-chosen);
 }
 
 .slack-message-head {
@@ -201,7 +206,7 @@
     width: 22px;
     height: 22px;
     border-radius: var(--radius-1);
-    background: color-mix(in srgb, var(--acc) 30%, transparent);
+    background: var(--surface-raised);
     font-size: var(--text-2xs);
     font-weight: 600;
 }

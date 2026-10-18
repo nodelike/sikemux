@@ -1,0 +1,17 @@
+---
+title: Desk tabs
+description: "Each agent's browser tabs, beside its chat."
+---
+
+Every agent has a **desk**: the pane beside its chat where it opens pages, files and task terminals for you, as tabs in one strip. `⌘J` shows or hides the desk of the agent in front.
+
+When you ask an agent to open, show or preview a page, it opens the page on its desk rather than in your own browser, so you watch the same page it reads.
+
+## What tabs open
+
+- `http` and `https` pages.
+- Local files and folders: give the agent an absolute path, a `~/` path or a `file://` URL. Sikemux serves the folder to the tab from a private address on your computer, so relative links and images load too.
+
+## Size
+
+A tab's page follows the pane's size. An agent can hold a tab at a set size, such as phone (390×844), tablet (820×1180) or desktop (1280×800), to check a layout. The page is scaled down to fit the pane, never up. The phone size also sends iPhone Safari's user agent, so sites serve their phone version.

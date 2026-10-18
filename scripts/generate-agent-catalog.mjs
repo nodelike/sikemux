@@ -30,7 +30,6 @@ const FLAGS = ["accounts", "usage", "deletableChats", "bypass"];
 const BRANDED = [
   [".agent-glyph.%", "color"],
   [".agent-dormant-notch.%", "background"],
-  [".agent-header-btn.%", "--agent-provider"],
   [".agent-usage.%", "--usage-fill"],
   [".desk.%", "--desk-agent"],
   [".proj-pip-%", "color"],
@@ -48,7 +47,7 @@ for (const agent of agents) {
     throw new Error(
       `${agent.type} brand ${agent.brand} is not a #rrggbb colour`,
     );
-  for (const field of ["label", "command"]) {
+  for (const field of ["label", "about", "command"]) {
     if (typeof agent[field] !== "string" || !agent[field])
       throw new Error(`${agent.type} has no ${field}`);
   }
@@ -56,6 +55,24 @@ for (const agent of agents) {
     if (typeof agent[flag] !== "boolean")
       throw new Error(`${agent.type} does not say whether it has ${flag}`);
   }
+  if (
+    agent.install !== null &&
+    !/^curl -fsSL https:\/\/\S+ \| (ba)?sh$/.test(agent.install ?? "")
+  )
+    throw new Error(
+      `${agent.type} install must be null or "curl -fsSL https://… | sh"`,
+    );
+  if (
+    agent.login !== null &&
+    !(
+      Array.isArray(agent.login) &&
+      agent.login.length > 0 &&
+      agent.login.every((arg) => /^[a-z-]+$/.test(arg))
+    )
+  )
+    throw new Error(
+      `${agent.type} login must be null or its sign-in arguments`,
+    );
 }
 if (new Set(agents.map((agent) => agent.type)).size !== agents.length)
   throw new Error("src/agents/catalog.json lists an agent twice");
@@ -80,9 +97,12 @@ async function pretty(path, source) {
 const entries = agents.map((agent) => ({
   type: agent.type,
   label: agent.label,
+  about: agent.about,
   command: agent.command,
   brand: agent.brand,
   ...Object.fromEntries(FLAGS.map((flag) => [flag, agent[flag]])),
+  install: agent.install,
+  login: agent.login,
 }));
 
 await emit(

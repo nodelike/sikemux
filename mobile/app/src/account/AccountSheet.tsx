@@ -109,13 +109,12 @@ export function AccountSheet({ visible, onClose }: { visible: boolean; onClose: 
       {unconfirmed ? (
         <>
           <Text style={styles.noteTitle}>{unconfirmed}</Text>
-          <Text style={[styles.note, styles.noteAfterTitle]}>
-            Signing out now leaves this phone on your account until you remove it at app.sikemux.com.
-          </Text>
+          <Text style={[styles.note, styles.noteAfterTitle]}>This phone stays on your account until removed at app.sikemux.com.</Text>
           <View style={styles.choices}>
             <Button title="Try again" disabled={leaving} onPress={() => void leave()} />
             <Button
               kind="danger"
+              icon="IconLogOut"
               title={leaving ? 'Signing out…' : 'Sign out anyway'}
               disabled={leaving}
               onPress={() => void leave(true)}
@@ -123,10 +122,14 @@ export function AccountSheet({ visible, onClose }: { visible: boolean; onClose: 
           </View>
         </>
       ) : (
-        <>
-          <Text style={styles.note}>Signing out takes this phone off your account and forgets every host paired with it.</Text>
-          <Button kind="danger" title={leaving ? 'Signing out…' : 'Sign out'} disabled={leaving} onPress={() => void leave()} />
-        </>
+        <Button
+          kind="danger"
+          icon="IconLogOut"
+          title={leaving ? 'Signing out…' : 'Sign out'}
+          disabled={leaving}
+          onPress={() => void leave()}
+          style={styles.signOut}
+        />
       )}
       <Pressable
         onPress={() => {
@@ -177,6 +180,7 @@ const makeStyles = (colors: Palette) => {
     action: { fontFamily: fonts.uiMedium, fontSize: 15, color: colors.accent },
     update: { color: colors.accent },
     choices: { gap: 8 },
+    signOut: { marginTop: 16 },
     link: { height: 44, alignItems: 'center', justifyContent: 'center', marginTop: 4 },
     linkText: { fontFamily: fonts.uiMedium, fontSize: 15, color: colors.secondary },
     version: { ...type.meta, fontSize: 12, textAlign: 'center', paddingTop: 14 },

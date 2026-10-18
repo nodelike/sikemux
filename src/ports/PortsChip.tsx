@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useState } from "react";
-import { IconGlobe } from "../ui/Icons";
+import { IconPlug } from "../ui/Icons";
 import { Tooltip } from "../ui/Tooltip";
 import { useProjectPorts } from "./useProjectPorts";
 
@@ -24,7 +24,7 @@ export function PortsChip({ sessionId }: { sessionId: string }) {
                         aria-haspopup="menu"
                         aria-expanded={open}
                         aria-label={label}>
-                        <IconGlobe size={12} />
+                        <IconPlug size={12} />
                         <span className="tb-ports-count">{ports.length}</span>
                     </button>
                 </Tooltip>

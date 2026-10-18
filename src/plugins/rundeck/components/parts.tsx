@@ -23,14 +23,12 @@ interface Crumb {
     onClick?: () => void;
 }
 
-/** Shows a job picked out in its folder's list, the way a row click does. */
+/** Goes back to a job's own page, or opens it over its folder's list. */
 export function showJob(paneId: string, job: JobRef): void {
     const { stack } = cmd.rundeckView(paneId);
     const index = stack.findIndex((level) => level.kind === "service" && level.jobId === job.jobId);
     if (index >= 0) return cmd.rundeckPopTo(paneId, index);
-    cmd.updateRundeckSettings({ activeProject: job.project, activeGroup: job.group });
-    cmd.selectRundeckJob(paneId, job.jobId);
-    cmd.rundeckHome(paneId);
+    cmd.openRundeckJob(job, { paneId });
 }
 
 function locationCrumbs(paneId: string, project: string, group: string | null): Crumb[] {
@@ -47,6 +45,7 @@ function locationCrumbs(paneId: string, project: string, group: string | null): 
 
 export function levelCrumbs(paneId: string, level: RundeckLevel, project: string, group: string | null, runWord = "deploy"): Crumb[] {
     if (level.kind === "matrix" || level.kind === "service") return locationCrumbs(paneId, project, group);
+    if (level.kind === "activity") return [...locationCrumbs(paneId, level.project, null), { key: "activity", label: "Activity" }];
     const job: Crumb = { key: `job-${level.jobId}`, label: level.name, onClick: () => showJob(paneId, level) };
     const base = [...locationCrumbs(paneId, level.project, level.group), job];
     if (level.kind === "deploy") return [...base, { key: "run", label: runWord }];

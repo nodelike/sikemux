@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useProjectRepo } from "../git/projectRepo";
+import { errorText } from "../lib/format";
 import { deliverToAgent } from "../agents/agentInbox";
 import { worktreeSwitchState } from "./worktreeSwitch";
 import * as cmd from "../state/commands";
@@ -45,8 +47,10 @@ export function useChatWorktree({
     const on = choice?.cwd === cwd ? choice.on : projectDefault;
     const [step, setStep] = useState<string | null>(null);
     const pending = useRef<PendingSend | null>(null);
-    const checkouts = useResourceEnabled(visible && !agent.worktree && !started, gitWorktreesR, cwd);
-    const isRepo = checkouts.data ? true : checkouts.status === "error" ? false : null;
+    const project = useProjectRepo(cwd, visible && !agent.worktree && !started);
+    const checkouts = useResourceEnabled(visible && !agent.worktree && !started && project.repo !== null, gitWorktreesR, project.repo ?? cwd);
+    const noRepo = project.repos !== null && project.repo === null;
+    const isRepo = noRepo ? false : checkouts.data ? true : checkouts.status === "error" ? false : null;
     const state = worktreeSwitchState({ worktree: agent.worktree, isRepo, started, preparing: step, on });
 
     const toggle = () => {
@@ -84,8 +88,7 @@ export function useChatWorktree({
                     }
                     setStep("Starting the agent in the worktree");
                 },
-                (failure: unknown) =>
-                    giveBack(message, `Could not create a worktree: ${failure instanceof Error ? failure.message : String(failure)}`),
+                (failure: unknown) => giveBack(message, `Could not create a worktree: ${errorText(failure)}`),
             );
         return true;
     };

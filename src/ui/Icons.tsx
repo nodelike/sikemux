@@ -1,8 +1,10 @@
+import { useId } from "react";
 import type { AgentType } from "../state/types";
 
 const brunoLogo = new URL("../assets/bruno.svg", import.meta.url).href;
 const codexLogo = new URL("../assets/agent-logos/codex.svg", import.meta.url).href;
 const ompLogo = new URL("../assets/agent-logos/omp.svg", import.meta.url).href;
+const museLogo = new URL("../assets/agent-logos/muse.svg", import.meta.url).href;
 
 interface IconProps {
     size?: number;
@@ -107,6 +109,13 @@ export const IconDiscard = makeSvgIcon(
         <path d="M2.5 6.5h7a4 4 0 0 1 0 8h-2" />
     </>,
 );
+export const IconStash = makeSvgIcon(
+    <>
+        <rect x="2.5" y="2.5" width="11" height="3.5" rx="1" />
+        <path d="M3.5 6v6.5a1 1 0 0 0 1 1h7a1 1 0 0 0 1-1V6" />
+        <path d="M6.5 9h3" />
+    </>,
+);
 export const IconMerge = makeSvgIcon(
     <>
         <circle cx="4.5" cy="3.5" r="1.6" />
@@ -149,6 +158,14 @@ export const IconImage = makeSvgIcon(
         <path d="m2.4 11.6 3.4-3.2 2.6 2.4 1.9-1.7 3.3 2.9" />
     </>,
 );
+export const IconShare = makeSvgIcon(
+    <>
+        <circle cx="12" cy="3.6" r="1.7" />
+        <circle cx="4" cy="8" r="1.7" />
+        <circle cx="12" cy="12.4" r="1.7" />
+        <path d="m5.5 7.2 5-2.8M5.5 8.8l5 2.8" />
+    </>,
+);
 export const IconEye = makeSvgIcon(
     <>
         <path d="M1.6 8s2.3-4 6.4-4 6.4 4 6.4 4-2.3 4-6.4 4S1.6 8 1.6 8Z" />
@@ -166,10 +183,23 @@ export const IconGit = makeSvgIcon(
         <path d="M4.6 5.3v5.4M4.6 6.6c0 3 6.8 1.2 6.8-1.3" />
     </>,
 );
+export const IconBoard = makeSvgIcon(
+    <>
+        <rect x="2" y="2.5" width="3.4" height="11" rx="1" />
+        <rect x="6.3" y="2.5" width="3.4" height="7" rx="1" />
+        <rect x="10.6" y="2.5" width="3.4" height="9" rx="1" />
+    </>,
+);
 export const IconUser = makeSvgIcon(
     <>
         <circle cx="8" cy="5.2" r="2.5" />
         <path d="M3.6 13c0-2.5 2-4 4.4-4s4.4 1.5 4.4 4" />
+    </>,
+);
+export const IconUserMinus = makeSvgIcon(
+    <>
+        <circle cx="6.6" cy="5.2" r="2.5" />
+        <path d="M2.2 13c0-2.5 2-4 4.4-4s4.4 1.5 4.4 4M11.4 6.2h3.2" />
     </>,
 );
 export const IconClock = makeSvgIcon(
@@ -185,6 +215,14 @@ export const IconTimer = makeSvgIcon(
     </>,
 );
 export const IconAgent = makeSvgIcon(<path d="M8 1.8c.5 3.3 2.9 5.7 6.2 6.2-3.3.5-5.7 2.9-6.2 6.2-.5-3.3-2.9-5.7-6.2-6.2C5.1 7.5 7.5 5.1 8 1.8Z" />);
+/** An agent with a subagent beside it: everything running, counted together. */
+export const IconAgents = makeSvgIcon(
+    <>
+        <path stroke="none" d="M6.2 2.2c.4 2.6 2.2 4.4 4.8 4.8-2.6.4-4.4 2.2-4.8 4.8-.4-2.6-2.2-4.4-4.8-4.8 2.6-.4 4.4-2.2 4.8-4.8Z" />
+        <path stroke="none" d="M12.3 9.2c.2 1.4 1.1 2.3 2.5 2.5-1.4.2-2.3 1.1-2.5 2.5-.2-1.4-1.1-2.3-2.5-2.5 1.4-.2 2.3-1.1 2.5-2.5Z" />
+    </>,
+    { fill: "currentColor" },
+);
 export const IconWindow = makeSvgIcon(<rect x="2.2" y="2.8" width="11.6" height="10.4" rx="0" />);
 export const IconContrast = makeSvgIcon(
     <>
@@ -193,7 +231,7 @@ export const IconContrast = makeSvgIcon(
     </>,
 );
 export const IconCommand = makeSvgIcon(<path d="M3 4.6 6 8l-3 3.4M7.6 11.4H13" />);
-export const IconFolder = makeSvgIcon(<path d="M2 4.4h4l1.6 2H14v7.2H2z" />);
+export const IconFolder = makeSvgIcon(<path d="M2 3.6h4l1.6 2H14v7.2H2z" />);
 export const IconInbox = makeSvgIcon(
     <>
         <path d="M2.4 9.4 4 3.4h8l1.6 6v3.2H2.4z" />
@@ -223,6 +261,20 @@ export const IconPower = makeSvgIcon(
     <>
         <path d="M8 2.2v5.2" />
         <path d="M4.7 4.4a5 5 0 1 0 6.6 0" />
+    </>,
+);
+/** An arrow going in through a door: signing in. */
+export const IconLogIn = makeSvgIcon(
+    <>
+        <path d="M9.6 2.6h2.8a1 1 0 0 1 1 1v8.8a1 1 0 0 1-1 1H9.6" />
+        <path d="M6.2 5.2 9 8l-2.8 2.8M9 8H2.6" />
+    </>,
+);
+/** A door with an arrow leaving it: signing out. */
+export const IconLogOut = makeSvgIcon(
+    <>
+        <path d="M6.4 2.6H3.6a1 1 0 0 0-1 1v8.8a1 1 0 0 0 1 1h2.8" />
+        <path d="M10.4 5.2 13.2 8l-2.8 2.8M13.2 8H6.2" />
     </>,
 );
 export const IconRotate = makeSvgIcon(
@@ -257,12 +309,16 @@ export const IconGlobe = makeSvgIcon(
     </>,
 );
 
-export function IconAws({ size = 16, className }: IconProps) {
+export function IconAws({ size = 16, className, mono }: IconProps & { mono?: boolean }) {
     return (
         <svg width={size} height={(size * 360) / 599} viewBox="0 0 599 360" className={className} aria-hidden="true">
             <path
-                d="M510 0H511Q519 0 524 2Q526 2 530 2Q534 4 536 4Q544 6 548 6Q555 10 556 10Q559 12 562 16Q564 18 564 22V30Q564 38 559 38Q556 38 552 36Q534 28 514 28Q497 28 487 34Q477 40 477 50Q477 58 483 66Q489 72 505 76L534 84Q555 92 564 104Q574 118 574 132Q574 142 569 156Q563 166 554 172Q545 180 532 184Q521 188 504 188Q490 188 473 184Q457 180 450 176Q445 174 444 172Q442 168 443 166V156Q443 150 447 150H451H452Q454 150 455 152Q465 156 477 158Q489 160 502 160Q522 160 530 154Q541 148 541 136Q541 126 536 121Q531 116 515 112L486 102Q464 96 455 82Q445 68 445 52Q445 38 450 30Q455 20 465 14Q476 6 485 4Q496 0 510 0ZM100 0Q134 0 152 18Q168 34 168 66V132H169Q169 142 171 148Q173 154 177 162Q179 166 178 168Q178 170 175 174L162 182Q160 184 157 184Q154 184 151 182Q150 180 144 172Q143 170 141 166Q139 162 138 160Q114 186 79 188Q53 188 39 172Q25 158 25 134Q25 108 43 94Q60 78 91 78Q97 78 113 80Q118 80 125 82Q133 84 135 84V70Q135 46 126 38Q116 28 94 28Q86 28 72 30Q60 32 50 38Q48 38 47 40Q45 40 44 40Q42 42 41 40Q36 40 36 34V24Q36 20 38 18Q40 16 43 14Q53 8 69 4Q86 0 100 0ZM192 6H212Q218 6 219 8Q220 8 223 16L257 148L288 16Q289 10 292 8Q294 6 300 6H315Q322 6 324 8Q327 10 328 16L359 150L393 16Q396 8 397 8Q399 6 405 6H424Q429 6 428 10V14Q428 14 427 18L379 172Q377 178 374 182Q372 184 367 182H349Q343 182 342 182Q339 180 338 172L307 44L277 172Q276 178 273 180Q271 182 265 182H247Q242 182 240 180Q238 178 236 172L189 18Q187 14 187 10Q187 6 192 6ZM99 102Q80 102 69 110Q59 118 60 132Q60 148 66 154Q73 162 88 162Q97 162 108 158Q119 154 127 144Q132 140 134 132Q136 124 136 114V106Q130 104 118 102Q106 102 99 102ZM555 224Q590 224 596 232Q603 242 593 278Q583 314 559 332Q555 336 552 334Q549 332 551 328Q577 266 568 254Q560 244 492 252Q487 252 486 248Q485 246 490 242Q517 224 555 224ZM4 236Q7 236 9 238Q145 316 306 316Q423 316 532 270Q540 266 544 272Q548 278 541 284Q493 320 428 339Q363 358 299 360Q127 360 2 246Q-1 242 0 240Q0 238 4 236Z"
+                d="M510 0H511Q519 0 524 2Q526 2 530 2Q534 4 536 4Q544 6 548 6Q555 10 556 10Q559 12 562 16Q564 18 564 22V30Q564 38 559 38Q556 38 552 36Q534 28 514 28Q497 28 487 34Q477 40 477 50Q477 58 483 66Q489 72 505 76L534 84Q555 92 564 104Q574 118 574 132Q574 142 569 156Q563 166 554 172Q545 180 532 184Q521 188 504 188Q490 188 473 184Q457 180 450 176Q445 174 444 172Q442 168 443 166V156Q443 150 447 150H451H452Q454 150 455 152Q465 156 477 158Q489 160 502 160Q522 160 530 154Q541 148 541 136Q541 126 536 121Q531 116 515 112L486 102Q464 96 455 82Q445 68 445 52Q445 38 450 30Q455 20 465 14Q476 6 485 4Q496 0 510 0ZM100 0Q134 0 152 18Q168 34 168 66V132H169Q169 142 171 148Q173 154 177 162Q179 166 178 168Q178 170 175 174L162 182Q160 184 157 184Q154 184 151 182Q150 180 144 172Q143 170 141 166Q139 162 138 160Q114 186 79 188Q53 188 39 172Q25 158 25 134Q25 108 43 94Q60 78 91 78Q97 78 113 80Q118 80 125 82Q133 84 135 84V70Q135 46 126 38Q116 28 94 28Q86 28 72 30Q60 32 50 38Q48 38 47 40Q45 40 44 40Q42 42 41 40Q36 40 36 34V24Q36 20 38 18Q40 16 43 14Q53 8 69 4Q86 0 100 0ZM192 6H212Q218 6 219 8Q220 8 223 16L257 148L288 16Q289 10 292 8Q294 6 300 6H315Q322 6 324 8Q327 10 328 16L359 150L393 16Q396 8 397 8Q399 6 405 6H424Q429 6 428 10V14Q428 14 427 18L379 172Q377 178 374 182Q372 184 367 182H349Q343 182 342 182Q339 180 338 172L307 44L277 172Q276 178 273 180Q271 182 265 182H247Q242 182 240 180Q238 178 236 172L189 18Q187 14 187 10Q187 6 192 6ZM99 102Q80 102 69 110Q59 118 60 132Q60 148 66 154Q73 162 88 162Q97 162 108 158Q119 154 127 144Q132 140 134 132Q136 124 136 114V106Q130 104 118 102Q106 102 99 102Z"
                 fill="currentColor"
+            />
+            <path
+                d="M555 224Q590 224 596 232Q603 242 593 278Q583 314 559 332Q555 336 552 334Q549 332 551 328Q577 266 568 254Q560 244 492 252Q487 252 486 248Q485 246 490 242Q517 224 555 224ZM4 236Q7 236 9 238Q145 316 306 316Q423 316 532 270Q540 266 544 272Q548 278 541 284Q493 320 428 339Q363 358 299 360Q127 360 2 246Q-1 242 0 240Q0 238 4 236Z"
+                fill={mono ? "currentColor" : "#FF9900"}
             />
         </svg>
     );
@@ -322,6 +378,12 @@ export const IconReplaceAll = makeSvgIcon(
     </>,
 );
 export const IconCheck = makeSvgIcon(<path d="M3.5 8.4 6.6 11.5 12.5 4.5" />);
+export const IconCheckCircle = makeSvgIcon(
+    <>
+        <circle cx="8" cy="8" r="6.2" />
+        <path d="m5.5 8.2 1.8 1.8 3.3-3.6" />
+    </>,
+);
 export const IconWarning = makeSvgIcon(
     <>
         <path d="M8 1.9 14.6 13.6H1.4z" />
@@ -345,6 +407,12 @@ export const IconInfo = makeSvgIcon(
     <>
         <circle cx="8" cy="8" r="6.2" />
         <path d="M8 7.2v3.9M8 5v.1" />
+    </>,
+);
+export const IconAlertCircle = makeSvgIcon(
+    <>
+        <circle cx="8" cy="8" r="6.2" />
+        <path d="M8 4.9v3.9M8 11v.1" />
     </>,
 );
 export const IconExternal = makeSvgIcon(
@@ -387,6 +455,7 @@ export const IconFolderPlus = makeSvgIcon(
 );
 export const IconFilePlus = makeSvgIcon(<path d="M9 2H4v12h4.5M9 2l3 3v3M9 2v3h3M12 10.5v4M10 12.5h4" />);
 export const IconCollapseAll = makeSvgIcon(<path d="M5 2.5l3 3 3-3M5 13.5l3-3 3 3" />);
+export const IconExpandAll = makeSvgIcon(<path d="M5 5.5l3-3 3 3M5 10.5l3 3 3-3" />);
 export const IconStack = makeSvgIcon(
     <>
         <path d="M8 2.6 13.4 5.4 8 8.2 2.6 5.4Z" />
@@ -459,6 +528,13 @@ export const IconCube = makeSvgIcon(
         <path d="M2.8 5.2 8 8l5.2-2.8M8 8v5.6" />
     </>,
 );
+export const IconServer = makeSvgIcon(
+    <>
+        <rect x="2.4" y="2.6" width="11.2" height="4.6" rx="1.2" />
+        <rect x="2.4" y="8.8" width="11.2" height="4.6" rx="1.2" />
+        <path d="M4.9 4.9h.6M4.9 11.1h.6" />
+    </>,
+);
 export const IconTerminal = makeSvgIcon(
     <>
         <rect x="2.2" y="3" width="11.6" height="10" rx="1.4" />
@@ -524,10 +600,14 @@ export function IconOmp({ size, className }: IconProps) {
 
 export function IconGrok({ size, className }: IconProps) {
     return (
-        <svg width={size ?? 16} height={size ?? 16} viewBox="-72 -72 1168 1168" fill="currentColor" className={className} aria-hidden="true">
+        <svg width={size ?? 16} height={size ?? 16} viewBox="-171 -171 1366 1366" fill="currentColor" className={className} aria-hidden="true">
             <path d="M395.479 633.828 735.91 381.105C752.599 368.715 776.454 373.548 784.406 392.792 826.26 494.285 807.561 616.253 724.288 699.996 641.016 783.739 525.151 802.104 419.247 760.277L303.556 814.143C469.49 928.202 670.987 899.995 796.901 773.282 896.776 672.843 927.708 535.937 898.785 412.476L899.047 412.739C857.105 231.37 909.358 158.874 1016.4 10.6326 1018.93 7.11771 1021.47 3.60279 1024 0L883.144 141.651V141.212L395.392 633.916M325.226 695.251C206.128 580.84 226.662 403.776 328.285 301.668 403.431 226.097 526.549 195.254 634.026 240.596L749.454 186.994C728.657 171.88 702.007 155.623 671.424 144.2 533.19 86.9942 367.693 115.465 255.323 228.382 147.234 337.081 113.244 504.215 171.613 646.833 215.216 753.423 143.739 828.818 71.7385 904.916 46.2237 931.893 20.6216 958.87 0 987.429L325.139 695.339" />
         </svg>
     );
+}
+
+export function IconMuse({ size, className }: IconProps) {
+    return <img src={museLogo} width={size ?? 16} height={size ?? 16} className={className} alt="" aria-hidden="true" />;
 }
 
 export function IconHermes({ size, className }: IconProps) {
@@ -552,6 +632,7 @@ export function AgentIcon({ type, size, className }: { type: AgentType; size?: n
     if (type === "opencode") return <IconOpenCode size={size} className={className} />;
     if (type === "omp") return <IconOmp size={size} className={className} />;
     if (type === "grok") return <IconGrok size={size} className={className} />;
+    if (type === "muse") return <IconMuse size={size} className={className} />;
     return <IconClaude size={size} className={className} />;
 }
 
@@ -559,36 +640,37 @@ import type { WindowRole } from "../state/types";
 import { pluginSurface } from "../plugins/registry";
 export function WindowIcon({ role, size }: { role: WindowRole; size?: number }) {
     if (role === "files") return <IconEditor size={size} />;
-    if (role === "term") return <IconCommand size={size} />;
+    if (role === "term") return <IconTerminal size={size} />;
     if (role === "git") return <IconGit size={size} />;
     if (role === "diff") return <IconCommit size={size} />;
     if (role === "search") return <IconSearch size={size} />;
     if (role === "agent") return <IconAgent size={size} />;
+    if (role === "shared") return <IconEye size={size} />;
+    if (role === "board") return <IconBoard size={size} />;
     const surface = pluginSurface(role);
     if (surface) return surface.icon(size ?? 14);
     return <IconWindow size={size} />;
 }
 
+/** A battery drawn the way macOS draws it: a thin rounded case, a soft cap, and the charge filling it; charging, a bolt breaks out of it top and bottom. */
 export function IconBattery({ size = 14, percent, charging, className }: IconProps & { percent: number; charging?: boolean }) {
-    const padding = 2.2;
-    const inner = 24 - 4 - 2 - padding * 2; // body width minus borders + cap + pads
-    const fillW = Math.max(0, Math.min(inner, (inner * percent) / 100));
-    const fillX = 2 + padding;
+    const knockout = useId();
+    const level = Math.max(0, Math.min(100, percent)) / 100;
+    const bolt = "M14.6 -1.6 L8.4 7.4 H12.6 L11.4 14.6 L17.6 5.6 H13.4 Z";
     return (
-        <svg width={size * (24 / 16)} height={size} viewBox="0 0 24 16" fill="none" className={className} aria-hidden="true">
-            <rect x="1" y="2.5" width="19" height="11" rx="1.4" stroke="currentColor" strokeWidth="1.4" />
-            <rect x="20.6" y="5.5" width="2" height="5" rx="0.6" fill="currentColor" />
-            <rect x={fillX} y={2.5 + padding} width={fillW} height={11 - padding * 2} rx="0.4" fill="currentColor" />
+        <svg width={(size * 28) / 13} height={size} viewBox="0 0 28 13" fill="none" className={className} aria-hidden="true" overflow="visible">
             {charging && (
-                <path
-                    d="M11 5 L8 9 H10.5 L9.6 12 L13 7.6 H10.6 L11 5 Z"
-                    fill="currentColor"
-                    stroke="var(--void, #100e16)"
-                    strokeWidth="1.2"
-                    strokeLinejoin="round"
-                    paintOrder="stroke"
-                />
+                <mask id={knockout} maskUnits="userSpaceOnUse" x="-2" y="-4" width="32" height="21">
+                    <rect x="-2" y="-4" width="32" height="21" fill="#fff" />
+                    <path d={bolt} fill="#000" stroke="#000" strokeWidth="2.4" strokeLinejoin="round" />
+                </mask>
             )}
+            <g mask={charging ? `url(#${knockout})` : undefined}>
+                <rect x="0.5" y="0.5" width="23.5" height="12" rx="3.6" stroke="currentColor" strokeOpacity="0.45" />
+                <path d="M25.4 4.4a1.6 1.6 0 0 1 1.6 1.6v1a1.6 1.6 0 0 1-1.6 1.6z" fill="currentColor" fillOpacity="0.45" />
+                <rect x="2" y="2" width={Math.max(level > 0 ? 2.2 : 0, 20.5 * level)} height="9" rx="2.2" fill="currentColor" />
+            </g>
+            {charging && <path d={bolt} fill="currentColor" />}
         </svg>
     );
 }
@@ -698,6 +780,13 @@ export function IconSparkle({ size = 16 }: { size?: number }) {
     );
 }
 
+export const IconSettings = makeSvgIcon(
+    <g strokeWidth={1.8}>
+        <circle cx="12" cy="12" r="3" />
+        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+    </g>,
+    { viewBox: "0 0 24 24" },
+);
 export const IconWrench = makeSvgIcon24(
     <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.4-3.4a6 6 0 0 1-7.9 7.9l-6.6 6.6a2.1 2.1 0 0 1-3-3l6.6-6.6a6 6 0 0 1 7.9-7.9z" />,
 );

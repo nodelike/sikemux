@@ -13,6 +13,7 @@
     padding-right: var(--space-3);
     border: 1px solid var(--border);
     background: var(--s-raised);
+    border-radius: var(--radius-3);
 }
 /* The swatch shows the theme's own colours. Nothing washes over it — a tint
    here made every preview look like the theme already applied. */
@@ -120,7 +121,7 @@
     color: var(--text-primary);
 }
 .theme-pick-tone.on {
-    background: var(--surface-selected);
+    background: var(--surface-chosen);
     color: var(--text-primary);
 }
 .theme-pick-tone:focus-visible {
@@ -133,6 +134,7 @@
     overflow-y: auto;
     border: 1px solid var(--border);
     background: var(--s-raised);
+    border-radius: var(--radius-3);
 }
 .theme-pick-track {
     position: relative;
@@ -187,7 +189,7 @@
 }
 .theme-pick-row.active,
 .theme-pick-row.editing {
-    background: var(--surface-selected);
+    background: var(--surface-chosen);
     color: var(--text-primary);
 }
 .theme-pick-chip {
@@ -245,6 +247,7 @@
         background var(--dur-1),
         border-color var(--dur-1),
         color var(--dur-1);
+    border-radius: var(--radius-2);
 }
 .settings-theme-act:hover {
     background: var(--surface-hover);

@@ -10,13 +10,14 @@ import { chooseFactor, CONFIRM_WORD, confirmed, deletion, REVERIFY_HINT, START }
 import { signOutHere } from '@/account/leave';
 import { CodeEntry } from '@/ui/CodeEntry';
 import { Button, Field, PasswordField } from '@/ui/controls';
+import { Prompt } from '@/ui/prompt';
 import { Nav, Screen, useBottomGap } from '@/ui/screen';
 import { type Palette, typeFor, useStyles } from '@/ui/theme';
 
 const GONE = [
-  'Hosts are signed out. The phones paired to them keep working.',
+  'Hosts are signed out.',
   'Phones, this one too, are signed out and removed from every host.',
-  'After 30 days your sign-in, device keys and the account’s history are erased, and backups within 30 days after that.',
+  'After 30 days your sign-in, device keys and history are erased, and backups 30 days later.',
 ];
 
 function describe(error: unknown): string {
@@ -130,13 +131,10 @@ export default function DeleteAccount() {
     return (
       <Screen>
         <Nav back="Back" onBack={back} />
-        <View style={byEmail ? styles.codeBlock : styles.block}>
-          <Text style={[styles.title, byEmail && styles.centered]}>Confirm it&apos;s you</Text>
-          <Text style={[styles.detail, byEmail && styles.centered]}>
-            {phase.factor.strategy === 'email_code'
-              ? `Sikemux sent a code to ${phase.factor.to}. Enter it to delete your account.`
-              : 'Enter your password to delete your account.'}
-          </Text>
+        <Prompt
+          icon="IconShield"
+          title="Confirm it's you"
+          detail={phase.factor.strategy === 'email_code' ? `Sikemux sent a code to ${phase.factor.to}.` : undefined}>
           {byEmail ? (
             <View style={styles.tiles}>
               <CodeEntry
@@ -149,28 +147,31 @@ export default function DeleteAccount() {
                 }}
               />
             </View>
-          ) : (
-            <>
-              <PasswordField
-                value={phase.entry}
-                onChangeText={(entry) => dispatch({ type: 'entered', entry })}
-                placeholder="Password"
-                autoFocus
-                textContentType="password"
-                autoComplete="current-password"
-                returnKeyType="go"
-                onSubmitEditing={() => void check(phase.entry)}
-              />
-              <Button
-                kind="danger"
-                title={phase.checking ? 'Checking…' : 'Delete account'}
-                disabled={phase.checking || !phase.entry}
-                onPress={() => void check(phase.entry)}
-              />
-            </>
-          )}
-          {state.problem ? <Text style={[styles.problem, byEmail && styles.centered]}>{state.problem}</Text> : null}
-        </View>
+          ) : null}
+          {byEmail && state.problem ? <Text style={[styles.problem, styles.underTiles]}>{state.problem}</Text> : null}
+        </Prompt>
+        {byEmail ? null : (
+          <View style={styles.form}>
+            <PasswordField
+              value={phase.entry}
+              onChangeText={(entry) => dispatch({ type: 'entered', entry })}
+              placeholder="Password"
+              autoFocus
+              textContentType="password"
+              autoComplete="current-password"
+              returnKeyType="go"
+              onSubmitEditing={() => void check(phase.entry)}
+            />
+            <Button
+              kind="danger"
+              icon="IconTrash"
+              title={phase.checking ? 'Checking…' : 'Delete account'}
+              disabled={phase.checking || !phase.entry}
+              onPress={() => void check(phase.entry)}
+            />
+            {state.problem ? <Text style={styles.problem}>{state.problem}</Text> : null}
+          </View>
+        )}
       </Screen>
     );
   }
@@ -179,41 +180,44 @@ export default function DeleteAccount() {
   return (
     <Screen>
       <Nav back="Back" onBack={back} />
-      <ScrollView contentContainerStyle={[styles.block, { paddingBottom: bottom }]} keyboardShouldPersistTaps="handled">
-        <Text style={styles.title}>Delete your account</Text>
-        <Text style={styles.detail}>
-          This deletes {email ? <Text style={styles.ink}>{email}</Text> : 'it'} from Sikemux. Changed your mind? Sign in again within 30
-          days to restore it.
-        </Text>
-        <View style={styles.list}>
-          {GONE.map((line) => (
-            <View key={line} style={styles.item}>
-              <Text style={styles.bullet}>•</Text>
-              <Text style={styles.itemText}>{line}</Text>
-            </View>
-          ))}
+      <ScrollView contentContainerStyle={{ paddingBottom: bottom }} keyboardShouldPersistTaps="handled">
+        <Prompt
+          icon="IconTrash"
+          tone="danger"
+          title="Delete your account"
+          detail={<>This deletes {email ? <Text style={styles.ink}>{email}</Text> : 'your account'}. You can restore it within 30 days.</>}
+        />
+        <View style={styles.form}>
+          <View style={styles.list}>
+            {GONE.map((line) => (
+              <View key={line} style={styles.item}>
+                <Text style={styles.bullet}>•</Text>
+                <Text style={styles.itemText}>{line}</Text>
+              </View>
+            ))}
+          </View>
+          <Text style={styles.label}>
+            Type <Text style={styles.word}>{CONFIRM_WORD}</Text> to confirm
+          </Text>
+          <Field
+            value={state.typed}
+            onChangeText={(text) => dispatch({ type: 'typed', text })}
+            placeholder={CONFIRM_WORD}
+            editable={!busy}
+            autoCapitalize="none"
+            autoCorrect={false}
+            returnKeyType="go"
+            onSubmitEditing={() => void start()}
+          />
+          {state.problem ? <Text style={styles.problem}>{state.problem}</Text> : null}
+          <Button
+            kind="danger"
+            icon="IconTrash"
+            title={busy ? 'Deleting…' : 'Delete account'}
+            disabled={busy || !confirmed(state)}
+            onPress={() => void start()}
+          />
         </View>
-        <Text style={styles.detail}>Your code and files never reached us, so they stay on your hosts.</Text>
-        <Text style={styles.label}>
-          Type <Text style={styles.word}>{CONFIRM_WORD}</Text> to confirm
-        </Text>
-        <Field
-          value={state.typed}
-          onChangeText={(text) => dispatch({ type: 'typed', text })}
-          placeholder={CONFIRM_WORD}
-          editable={!busy}
-          autoCapitalize="none"
-          autoCorrect={false}
-          returnKeyType="go"
-          onSubmitEditing={() => void start()}
-        />
-        {state.problem ? <Text style={styles.problem}>{state.problem}</Text> : null}
-        <Button
-          kind="danger"
-          title={busy ? 'Deleting…' : 'Delete account'}
-          disabled={busy || !confirmed(state)}
-          onPress={() => void start()}
-        />
       </ScrollView>
     </Screen>
   );
@@ -222,11 +226,8 @@ export default function DeleteAccount() {
 const makeStyles = (colors: Palette) => {
   const type = typeFor(colors);
   return StyleSheet.create({
-    block: { paddingTop: 40, paddingHorizontal: 24, gap: 12 },
-    codeBlock: { paddingTop: 40, paddingHorizontal: 28, alignItems: 'center', gap: 12 },
-    title: { ...type.title, fontSize: 22 },
-    detail: { ...type.body },
-    centered: { textAlign: 'center' },
+    form: { paddingTop: 24, paddingHorizontal: 24, gap: 12 },
+    underTiles: { textAlign: 'center', marginTop: 12 },
     list: { gap: 8 },
     item: { flexDirection: 'row', gap: 10, paddingRight: 8 },
     bullet: { ...type.body, color: colors.tertiary },
@@ -234,7 +235,7 @@ const makeStyles = (colors: Palette) => {
     label: { ...type.meta, marginTop: 8, marginBottom: -4 },
     word: { ...type.mono, color: colors.ink },
     ink: { color: colors.ink },
-    tiles: { marginTop: 12 },
+    tiles: { marginTop: 24 },
     problem: { ...type.meta, color: colors.danger },
   });
 };

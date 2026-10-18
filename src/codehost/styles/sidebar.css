@@ -25,16 +25,59 @@
         border-color var(--dur-1) linear,
         color var(--dur-1) linear;
 }
+
+button.gha-chip {
+    border-radius: var(--radius-2);
+}
 .gha-chip:hover {
     color: var(--text-primary);
     border-color: var(--border-strong);
 }
 .gha-chip[data-on="1"] {
-    background: var(--surface-selected);
-    border-color: var(--border-selected);
+    background: var(--surface-chosen);
     color: var(--text-primary);
 }
 .gha-chip:focus-visible {
     box-shadow: var(--focus-ring);
     outline: none;
+}
+/* A list's state filter is one segmented track, like the tab rail's scope switch. */
+.gha-chips.gha-seg {
+    display: inline-flex;
+    flex-wrap: nowrap;
+    gap: 2px;
+    padding: 3px;
+    border-radius: var(--radius-2);
+    box-shadow: inset 0 0 0 1px var(--border);
+}
+.gha-seg > .gha-chip {
+    height: 22px;
+    padding: 0 var(--space-3);
+    border: 0;
+    border-radius: calc(var(--radius-2) - 2px);
+    background: none;
+}
+.gha-seg > .gha-chip:hover {
+    color: var(--text-secondary);
+}
+.gha-seg > .gha-chip[data-on="1"] {
+    background: var(--surface-active);
+    color: var(--text-primary);
+}
+.gha-seg > .gha-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-1h);
+}
+.gha-chip-count {
+    padding: 0 5px;
+    border-radius: var(--radius-full);
+    background: var(--surface-hover);
+    color: var(--text-tertiary);
+    font-size: var(--text-3xs);
+    font-variant-numeric: tabular-nums;
+    line-height: 15px;
+}
+.gha-chip[data-on="1"] > .gha-chip-count {
+    color: var(--text-secondary);
 }

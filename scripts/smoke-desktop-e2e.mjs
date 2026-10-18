@@ -405,36 +405,113 @@ function numberOf(elements, label) {
   return index;
 }
 
-// The fixture server lives in this process, so a CLI call must not block its event loop.
-function runWhileServing(executable, args, env, timeout) {
-  return new Promise((resolveRun) => {
-    const child = spawn(executable, args, { cwd: root, env, timeout });
+// The core answers a tool call as the agent whose processes make it, so the
+// browser calls run from a relay the core starts as an agent's terminal.
+const RELAY = `import { createServer } from "node:net";
+import { spawn } from "node:child_process";
+const [socket, cli] = process.argv.slice(2);
+createServer((connection) => {
+  let input = "";
+  connection.on("data", (chunk) => {
+    input += chunk;
+    if (!input.endsWith("\\n")) return;
+    const { args, env } = JSON.parse(input);
+    const child = spawn(cli, args, { env });
     let stdout = "";
     let stderr = "";
-    child.stdout.on("data", (chunk) => {
-      stdout += chunk;
-    });
-    child.stderr.on("data", (chunk) => {
-      stderr += chunk;
-    });
-    child.on("error", (error) => resolveRun({ error, stdout, stderr }));
+    child.stdout.on("data", (chunk) => (stdout += chunk));
+    child.stderr.on("data", (chunk) => (stderr += chunk));
+    child.on("error", (error) => connection.end(JSON.stringify({ error: error.message })));
     child.on("close", (status, signal) =>
-      resolveRun({ status, signal, stdout, stderr }),
+      connection.end(JSON.stringify({ status, signal, stdout, stderr })),
     );
   });
+}).listen(socket);
+`;
+
+async function startAgentRelay(agentId) {
+  const script = join(temporaryRoot, "relay.mjs");
+  const socket = join(temporaryRoot, "relay.sock");
+  await writeFile(script, RELAY, "utf8");
+  const core = await openCore(coreSocket);
+  const spawned = await core.request(
+    {
+      op: "spawn",
+      launch: { version: "e2e", cliExecutable: null, cliEndpoint: null },
+      target: {
+        kind: "terminal",
+        cols: 80,
+        rows: 24,
+        cwd: project,
+        startup: null,
+        directCommand: {
+          program: process.execPath,
+          args: [script, socket, cliExecutable],
+          profile: null,
+        },
+        context: {
+          sessionId: "e2e",
+          sessionName: "e2e",
+          sessionKind: "project",
+          project,
+          windowId: null,
+          paneId: null,
+          agentId,
+          agentType: "e2e",
+        },
+        env: {},
+        continues: null,
+      },
+    },
+    10_000,
+  );
+  const id = spawned?.response?.id;
+  if (!id)
+    fail(
+      `the core did not start the agent relay: ${JSON.stringify(spawned)}`,
+      desktopLog,
+    );
+  await waitFor("the agent relay to listen", READY_TIMEOUT_MS, () =>
+    stat(socket).then(
+      (details) => details.isSocket(),
+      () => false,
+    ),
+  );
+  const run = (args, env) =>
+    new Promise((resolveRun) => {
+      const connection = connect(socket);
+      let reply = "";
+      connection.on("data", (chunk) => {
+        reply += chunk;
+      });
+      connection.on("error", (error) => resolveRun({ error }));
+      connection.on("end", () => resolveRun(JSON.parse(reply)));
+      connection.write(`${JSON.stringify({ args, env })}\n`);
+    });
+  const stop = async () => {
+    await core.request({ op: "kill", id }, 5_000);
+    core.close();
+  };
+  return { run, stop };
 }
 
 // Each step is its own CLI process, so element numbers must survive between calls.
 async function exerciseBrowserTools(harnessEnv) {
-  const env = { ...harnessEnv, SIKEMUX_AGENT_ID: BROWSER_AGENT_ID };
+  const relay = await startAgentRelay(BROWSER_AGENT_ID);
+  try {
+    await driveBrowser(relay, harnessEnv);
+  } finally {
+    await relay.stop();
+  }
+}
+
+async function driveBrowser(relay, env) {
   const tool = async (method, params = {}) => {
-    const result = await runWhileServing(
-      cliExecutable,
+    const result = await relay.run(
       ["tool", method, JSON.stringify(params)],
       env,
-      70_000,
     );
-    if (result.error) fail(`${method}: ${result.error.message}`, desktopLog);
+    if (result.error) fail(`${method}: ${result.error}`, desktopLog);
     if (result.status !== 0) fail(`${method}: ${result.stderr}`, desktopLog);
     return JSON.parse(result.stdout);
   };
@@ -497,12 +574,15 @@ async function exerciseBrowserTools(harnessEnv) {
     const title = await evaluate("document.title");
     if (title !== FIXTURE_TITLE) fail(`evaluate returned ${title}`, desktopLog);
 
+    const clicked = Date.now();
     await tool("browser.click", { selector: "#later" });
+    const clickTook = Date.now() - clicked;
     const waited = await tool("browser.wait", {
       text: "Loaded late",
       timeoutMs: 5000,
     });
-    if (!waited.met || waited.waitedMs < 100)
+    // On a slow runner the click can return after the text's 800 ms delay, leaving nothing to wait for.
+    if (!waited.met || (waited.waitedMs < 100 && clickTook < 700))
       fail(`wait for text returned ${JSON.stringify(waited)}`, desktopLog);
     const missing = await tool("browser.wait", {
       selector: "#never",
@@ -699,9 +779,9 @@ async function exerciseHarnessWithWindowClosed(harnessEnv) {
   const { cursor } = json(tool("workspace.inspect"), "harness inspect");
 
   await quitDesktop();
-  const status = run(cliExecutable, ["status"], isolatedEnvironment, 2_000);
-  if (!/its window is closed/u.test(status.stdout))
-    fail(`status did not say the window is closed: ${status.stdout}`);
+  const status = hostStatus();
+  if (status.running !== true || status.window !== false)
+    fail(`status did not say the window is closed: ${JSON.stringify(status)}`);
   const read = json(
     tool("task.read", { executionId: started.executionId, plain: true }),
     "task.read with the window closed",
@@ -1162,6 +1242,8 @@ async function expectTuiAgentResumed(core, previous, runs) {
     "the terminal agent to come back in a new terminal",
     READY_TIMEOUT_MS,
     async () => Boolean((resumed = await tuiAgentSession(core, previous))),
+  ).catch((error) =>
+    fail(error.message.replace("desktop E2E smoke failed: ", ""), desktopLog),
   );
   if (await coreSession(core, previous))
     fail("the crashed agent's old terminal was left behind", desktopLog);
@@ -1388,6 +1470,21 @@ function launchDesktop(environment = {}) {
   return child;
 }
 
+function hostStatus() {
+  const status = run(
+    cliExecutable,
+    ["status", "--json"],
+    isolatedEnvironment,
+    2_000,
+    "sikemux",
+  );
+  try {
+    return JSON.parse(status.stdout);
+  } catch {
+    return { running: false, window: null };
+  }
+}
+
 async function waitForBroker(child) {
   await waitFor(
     "the desktop window behind the CLI endpoint",
@@ -1400,18 +1497,50 @@ async function waitForBroker(child) {
           desktopLog,
         );
       }
-      const status = run(cliExecutable, ["status"], isolatedEnvironment, 2_000);
-      return (
-        status.status === 0 &&
-        /^Sikemux \S+ is running\s*$/u.test(status.stdout)
-      );
+      const status = hostStatus();
+      return status.running === true && status.window === true;
     },
   );
 }
 
-let desktop = launchDesktop();
+// A dev build's core trusts the program that started it as Sikemux's own
+// window, so this smoke starts the core the app would, with the app's
+// arguments, and may then type into terminals, run chats and update the core.
+const appIdentifier = JSON.parse(
+  await readFile(join(root, "src-tauri", "tauri.e2e.conf.json"), "utf8"),
+).identifier;
+const appData =
+  process.platform === "darwin"
+    ? join(isolatedHome, "Library", "Application Support", appIdentifier)
+    : join(isolatedHome, ".local", "share", appIdentifier);
+const ownCore = spawn(
+  cliExecutable,
+  [
+    "core",
+    "--socket",
+    coreSocket,
+    "--cli-endpoint",
+    endpoint,
+    "--data-dir",
+    appData,
+  ],
+  { cwd: project, env: isolatedEnvironment, stdio: ["ignore", "pipe", "pipe"] },
+);
+for (const stream of [ownCore.stdout, ownCore.stderr])
+  stream.on("data", (chunk) => {
+    desktopLog = boundedAppend(desktopLog, chunk);
+  });
+let desktop;
 
 try {
+  await waitFor("the core to answer", READY_TIMEOUT_MS, async () => {
+    if (ownCore.exitCode !== null)
+      fail("the core exited as it started", desktopLog);
+    const core = await openCore(coreSocket).catch(() => null);
+    core?.close();
+    return Boolean(core);
+  });
+  desktop = launchDesktop();
   await waitForBroker(desktop);
 
   // The window registers with the core as soon as the app connects to it,
@@ -1644,10 +1773,10 @@ try {
 
   if (exerciseBrowser) await exerciseBrowserTools(harnessEnv);
 
-  const afterOpen = run(cliExecutable, ["status"], isolatedEnvironment, 2_000);
-  if (afterOpen.status !== 0) {
+  const afterOpen = hostStatus();
+  if (afterOpen.running !== true || afterOpen.window !== true) {
     fail(
-      `desktop stopped responding after the editor flow: ${afterOpen.stderr}`,
+      `desktop stopped responding after the editor flow: ${JSON.stringify(afterOpen)}`,
       desktopLog,
     );
   }
@@ -1659,8 +1788,9 @@ try {
     "✓ Desktop E2E smoke passed: process → core endpoint → Tauri event/commands → WebView editor → SQLite → quit and relaunch → update in place",
   );
 } finally {
-  await stopExactChild(desktop);
+  if (desktop) await stopExactChild(desktop);
   await stopCore(coreSocket);
+  await stopExactChild(ownCore);
   await rm(temporaryRoot, {
     recursive: true,
     force: true,

@@ -1,97 +1,64 @@
 //! Remote access and the phones allowed in, for the Devices settings page,
-//! and the projects and agents the app offers paired devices. The core keeps
+//! and the projects the app offers paired devices. The core keeps
 //! the state; these commands forward to it.
 
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
 
-use serde::Deserialize;
+use serde_json::{json, Value};
 use sikemux_core::client::CoreClient;
 use sikemux_core::protocol::{
-    AllowedDevice, BackdropImage, ChatLauncher, DeviceAccess, ProjectInfo, PublishedChat,
-    PublishedRecent, RemoteStatus,
+    AllowedDevice, BackdropImage, DeviceAccess, PublishedChat, PublishedRecent, RemoteStatus,
 };
 use tauri::{AppHandle, Manager, State};
 
-use crate::acp::LauncherSpec;
 use crate::error::AppResult;
 use crate::login_item::{self, CoreLaunch};
 use crate::pty::{core_error, PtyManager};
 
-/// What the app last published, sent again to a core it reconnects to: the
-/// core keeps it in memory only.
-#[derive(Default)]
-pub struct PublishedWorkspace(Mutex<Option<(Vec<ProjectInfo>, Vec<ChatLauncher>)>>);
-
-/// The backdrop the app last published, sent again like the workspace.
+/// The backdrop the app last published, sent again to a core it reconnects
+/// to, which keeps it in memory only.
 #[derive(Default)]
 pub struct PublishedBackdrop(Mutex<Option<(bool, Option<BackdropImage>)>>);
 
-/// The theme colours the app last published, sent again like the workspace.
+/// The theme colours the app last published, sent again like the backdrop.
 #[derive(Default)]
 pub struct PublishedPalette(Mutex<BTreeMap<String, String>>);
 
 /// The chats the app lists, and the titles of its terminal agents by agent id.
 type AgentList = (Vec<PublishedChat>, BTreeMap<String, String>);
 
-/// The agents the app last listed, sent again like the workspace.
+/// The agents the app last listed, sent again like the backdrop.
 #[derive(Default)]
 pub struct PublishedAgents(Mutex<Option<AgentList>>);
 
-/// The recent chats the app last listed, sent again like the workspace.
+/// The recent chats the app last listed, sent again like the backdrop.
 #[derive(Default)]
 pub struct PublishedRecentChats(Mutex<Option<Vec<PublishedRecent>>>);
 
-/// The agents the app last showed, sent again like the workspace.
+/// The buddies the app last published, or none while they are off, sent again like the backdrop.
+#[derive(Default)]
+pub struct PublishedBuddies(Mutex<Value>);
+
+/// The agents the app last showed, sent again like the backdrop.
 #[derive(Default)]
 pub struct PublishedOnScreen(Mutex<Vec<String>>);
 
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct LauncherRequest {
-    id: String,
-    provider: String,
-    label: String,
-    config_path: Option<String>,
-    executable_path: Option<String>,
-    #[serde(default)]
-    environment_keys: Vec<String>,
-    permission_mode: String,
-    #[serde(default)]
-    status: Option<String>,
-}
-
+/// The projects the app has open and the mode it starts agents in, which the
+/// core keeps and offers each agent in.
 #[tauri::command]
 pub async fn remote_publish_workspace(
     manager: State<'_, PtyManager>,
-    published: State<'_, PublishedWorkspace>,
-    projects: Vec<ProjectInfo>,
-    launchers: Vec<LauncherRequest>,
+    projects: Value,
+    permission_mode: String,
 ) -> AppResult<()> {
-    let mut ready = Vec::with_capacity(launchers.len());
-    for request in launchers {
-        let spec = LauncherSpec {
-            id: request.id,
-            provider: request.provider,
-            label: request.label,
-            config_path: request.config_path,
-            executable_path: request.executable_path,
-            environment_keys: request.environment_keys,
-            permission_mode: request.permission_mode,
-            status: request.status,
-        };
-        if let Ok(launcher) = crate::acp::launcher(spec).await {
-            ready.push(launcher);
-        }
-    }
-    if let Ok(mut last) = published.0.lock() {
-        *last = Some((projects.clone(), ready.clone()));
-    }
     let client = manager.client().await?;
+    let workspace = json!({ "projects": projects, "permissionMode": permission_mode });
     client
-        .publish_workspace(projects, ready)
+        .call("setWorkspace", workspace)
         .await
-        .map_err(core_error)
+        .map_err(core_error)?;
+    Ok(())
 }
 
 #[tauri::command]
@@ -142,6 +109,23 @@ pub async fn remote_publish_agents(
 }
 
 #[tauri::command]
+pub async fn remote_publish_buddies(
+    manager: State<'_, PtyManager>,
+    published: State<'_, PublishedBuddies>,
+    buddies: Value,
+) -> AppResult<()> {
+    if let Ok(mut last) = published.0.lock() {
+        *last = buddies.clone();
+    }
+    let client = manager.client().await?;
+    client
+        .call("publishBuddies", buddies)
+        .await
+        .map_err(core_error)?;
+    Ok(())
+}
+
+#[tauri::command]
 pub async fn remote_publish_recent(
     manager: State<'_, PtyManager>,
     published: State<'_, PublishedRecentChats>,
@@ -177,14 +161,6 @@ pub(crate) async fn connected(
     launch: Option<&CoreLaunch>,
     client: &Arc<CoreClient>,
 ) {
-    let last = app
-        .try_state::<PublishedWorkspace>()
-        .and_then(|published| published.0.lock().ok().and_then(|last| last.clone()));
-    if let Some((projects, launchers)) = last {
-        if let Err(error) = client.publish_workspace(projects, launchers).await {
-            eprintln!("Sikemux could not tell its core which agents devices may start: {error}");
-        }
-    }
     let palette = app
         .try_state::<PublishedPalette>()
         .and_then(|published| published.0.lock().ok().map(|last| last.clone()))
@@ -210,6 +186,15 @@ pub(crate) async fn connected(
             eprintln!("Sikemux could not tell its core which agents it has: {error}");
         }
     }
+    let buddies = app
+        .try_state::<PublishedBuddies>()
+        .and_then(|published| published.0.lock().ok().map(|last| last.clone()))
+        .filter(|buddies| !buddies.is_null());
+    if let Some(buddies) = buddies {
+        if let Err(error) = client.call("publishBuddies", buddies).await {
+            eprintln!("Sikemux could not tell its core the buddies it draws: {error}");
+        }
+    }
     let recent = app
         .try_state::<PublishedRecentChats>()
         .and_then(|published| published.0.lock().ok().and_then(|last| last.clone()));
@@ -230,6 +215,17 @@ pub(crate) async fn connected(
     if let Ok(status) = client.remote_status().await {
         login_item::sync(&app.config().identifier, launch, status.enabled);
     }
+}
+
+/// Who waits to join this host and who is paired, and the hosts linked with
+/// it or asking to be.
+#[tauri::command]
+pub async fn remote_pairing(manager: State<'_, PtyManager>) -> AppResult<Value> {
+    let client = manager.client().await?;
+    client
+        .call("pairing", Value::Null)
+        .await
+        .map_err(core_error)
 }
 
 #[tauri::command]

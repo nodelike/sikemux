@@ -4,6 +4,9 @@
 //
 //   node scripts/testflight-release.mjs submit 0.1.0-nightly.10 10010
 //
+// `prune-certificates` revokes the development certificates earlier CI archives made. Each runner
+// starts with an empty keychain, so Xcode makes a new one every run until Apple's limit refuses.
+//
 // Signs in with the App Store Connect API key in APP_STORE_CONNECT_KEY, _KEY_ID and _ISSUER_ID.
 import { Buffer } from 'node:buffer';
 import { createSign } from 'node:crypto';
@@ -50,11 +53,20 @@ function token() {
   return `${unsigned}.${signature}`;
 }
 
+const TRANSIENT_RETRIES = 4;
+
 async function call(path, init = {}) {
-  const response = await fetch(`${API}${path}`, {
-    ...init,
-    headers: { authorization: `Bearer ${token()}`, 'content-type': 'application/json', ...init.headers },
-  });
+  let response;
+  for (let attempt = 0; ; attempt++) {
+    response = await fetch(`${API}${path}`, {
+      ...init,
+      headers: { authorization: `Bearer ${token()}`, 'content-type': 'application/json', ...init.headers },
+    });
+    const transient = response.status === 429 || response.status >= 500;
+    if (!transient || attempt === TRANSIENT_RETRIES) break;
+    console.log(`App Store Connect answered ${response.status}; asking again in ${10 * (attempt + 1)} seconds`);
+    await sleep(10_000 * (attempt + 1));
+  }
   const answer = response.status === 204 ? {} : await response.json().catch(() => ({}));
   if (!response.ok) {
     const details = answer.errors?.map((error) => error.detail ?? error.title).join('; ') ?? response.statusText;
@@ -103,6 +115,25 @@ async function setWhatToTest(buildId, notes) {
   });
 }
 
+const DEVELOPMENT_TYPES = ['DEVELOPMENT', 'IOS_DEVELOPMENT'];
+
+/** A certificate Xcode made through the API key, whose private key went with its runner. */
+export function madeByCi(certificate) {
+  const { certificateType, name = '', displayName = '' } = certificate.attributes;
+  return DEVELOPMENT_TYPES.includes(certificateType) && `${name} ${displayName}`.includes('Created via API');
+}
+
+async function pruneCertificates() {
+  const found = await call(`/v1/certificates?filter[certificateType]=${DEVELOPMENT_TYPES.join(',')}&limit=200`);
+  const stale = found.data.filter(madeByCi);
+  for (const certificate of found.data) {
+    const { name, displayName, expirationDate } = certificate.attributes;
+    console.log(`TestFlight: ${stale.includes(certificate) ? 'revoking' : 'keeping'} ${name} (${displayName}), expires ${expirationDate}`);
+    if (stale.includes(certificate)) await call(`/v1/certificates/${certificate.id}`, { method: 'DELETE' });
+  }
+  console.log(`TestFlight: revoked ${stale.length} development certificates earlier CI runs made`);
+}
+
 async function submit(version, build) {
   const notes = releaseNotes(version);
   const base = version.replace(/-.*$/, '');
@@ -138,8 +169,9 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   const [command, version, build] = process.argv.slice(2);
   try {
     if (command === 'submit' && version && build) await submit(version, build);
+    else if (command === 'prune-certificates') await pruneCertificates();
     else {
-      console.error('usage: testflight-release.mjs submit <version> <build number>');
+      console.error('usage: testflight-release.mjs submit <version> <build number> | prune-certificates');
       process.exit(2);
     }
   } catch (error) {

@@ -13,6 +13,10 @@
 //! - `limit` fails the way Claude Code does when the account is out of usage;
 //! - anything else is echoed back.
 //!
+//! With `FAKE_CLAUDE_OUT_OF_USAGE=1` every prompt fails as `limit` does. A
+//! message under an id the transcript already has is dropped, as Claude Code
+//! drops it.
+//!
 //! A model change is answered the way Claude Code does, with a message saying
 //! so. `FAKE_CLAUDE_SETTINGS_MODEL` names the model its settings choose.
 
@@ -22,7 +26,7 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{channel, Sender};
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use serde_json::{json, Value};
 
@@ -174,7 +178,9 @@ impl Claude {
         self.send(json!({ "type": "command_lifecycle", "command_uuid": uuid, "state": "started" }));
         let message_id = format!("msg-{uuid}");
         let mut words = text.split_whitespace();
-        match words.next().unwrap_or_default() {
+        let out_of_usage = std::env::var("FAKE_CLAUDE_OUT_OF_USAGE").as_deref() == Ok("1");
+        let verb = words.next().unwrap_or_default();
+        match if out_of_usage { "limit" } else { verb } {
             "stream" => {
                 let count: usize = words.next().and_then(|n| n.parse().ok()).unwrap_or(1);
                 self.send(json!({
@@ -197,6 +203,46 @@ impl Claude {
                     "uuid": uuid::Uuid::new_v4().to_string(),
                     "parent_tool_use_id": null,
                     "message": { "id": message_id, "model": "fake", "role": "assistant", "content": [{ "type": "text", "text": said }] },
+                });
+                self.record(assistant.clone());
+                self.send(assistant);
+                self.finish(uuid, None);
+            }
+            // Fails the first time for want of the network, and answers when sent again.
+            "offline" => {
+                static FAILED_ONCE: std::sync::atomic::AtomicBool =
+                    std::sync::atomic::AtomicBool::new(false);
+                if !FAILED_ONCE.swap(true, Ordering::AcqRel) {
+                    self.send(json!({
+                        "type": "system", "subtype": "api_retry", "attempt": 1, "max_retries": 10,
+                        "retry_delay_ms": 500, "error_status": null, "error": "unknown",
+                    }));
+                    self.finish(uuid, Some("API Error: Connection error."));
+                    return;
+                }
+                let assistant = json!({
+                    "type": "assistant",
+                    "uuid": uuid::Uuid::new_v4().to_string(),
+                    "parent_tool_use_id": null,
+                    "message": { "id": message_id, "model": "fake", "role": "assistant", "content": [{ "type": "text", "text": "back online" }] },
+                });
+                self.record(assistant.clone());
+                self.send(assistant);
+                self.finish(uuid, None);
+            }
+            "retry" => {
+                let count: u64 = words.next().and_then(|n| n.parse().ok()).unwrap_or(1);
+                for attempt in 1..=count {
+                    self.send(json!({
+                        "type": "system", "subtype": "api_retry", "attempt": attempt, "max_retries": 10,
+                        "retry_delay_ms": 500, "error_status": null, "error": "unknown",
+                    }));
+                }
+                let assistant = json!({
+                    "type": "assistant",
+                    "uuid": uuid::Uuid::new_v4().to_string(),
+                    "parent_tool_use_id": null,
+                    "message": { "id": message_id, "model": "fake", "role": "assistant", "content": [{ "type": "text", "text": "back" }] },
                 });
                 self.record(assistant.clone());
                 self.send(assistant);
@@ -240,10 +286,17 @@ impl Claude {
                 self.finish(uuid, None);
             }
             "limit" => {
+                let resets_at = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap()
+                    .as_secs()
+                    + 3600;
                 self.send(json!({
                     "type": "assistant",
                     "parent_tool_use_id": null,
                     "error": "rate_limit",
+                    "api_error": "usage_limit_reached",
+                    "api_error_params": { "rate_limit_info": { "status": "rejected", "resetsAt": resets_at, "rateLimitType": "five_hour" } },
                     "message": { "id": message_id, "model": "<synthetic>", "role": "assistant", "content": [{ "type": "text", "text": "You've hit your limit · resets 3pm" }] },
                 }));
                 self.finish(uuid, Some("You've hit your limit · resets 3pm"));
@@ -364,6 +417,9 @@ fn main() {
             }
             Some("user") => {
                 let uuid = message["uuid"].as_str().unwrap_or_default().to_owned();
+                if claude.records().iter().any(|record| record["uuid"] == uuid) {
+                    continue;
+                }
                 let text: String = message["message"]["content"]
                     .as_array()
                     .map(|blocks| {

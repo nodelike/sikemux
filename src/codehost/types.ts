@@ -301,6 +301,8 @@ export interface TimelineItem {
     message: string | null;
     /** Who or what it was about: a requested reviewer, a label, a new title. */
     subject: string | null;
+    /** The issue or pull request that mentioned this one, for a cross-reference, where the host says. */
+    source?: { number: number; pull: boolean; state: string | null; merged: boolean; repo: string | null } | null;
 }
 
 /** Who wrote a commit, by the email in it, and the account the host matched that email to. */
@@ -387,6 +389,8 @@ export interface Release {
     prerelease: boolean;
     publishedAt: string | null;
     author: string | null;
+    /** The author's picture, sent by hosts that have one, a bot's included. */
+    avatarUrl?: string | null;
     assets: ReleaseAsset[];
     url: string;
 }

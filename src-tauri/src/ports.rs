@@ -153,6 +153,32 @@ fn scan(_app_pid: u32, _core_pid: Option<u32>, _ptys: Vec<PtyProcess>) -> Vec<Li
     Vec::new()
 }
 
+/// Whether something on this Mac, not only what Sikemux started, already
+/// listens on `port`. Connecting reaches servers on loopback or on every
+/// address, and unlike listening it never raises the macOS firewall prompt.
+fn in_use(port: u16) -> bool {
+    let loopback = [
+        std::net::IpAddr::from([127, 0, 0, 1]),
+        std::net::IpAddr::from(std::net::Ipv6Addr::LOCALHOST),
+    ];
+    loopback.into_iter().any(|ip| {
+        std::net::TcpStream::connect_timeout(
+            &std::net::SocketAddr::new(ip, port),
+            std::time::Duration::from_millis(200),
+        )
+        .is_ok()
+    })
+}
+
+#[tauri::command]
+pub async fn ports_in_use(ports: Vec<u16>) -> AppResult<Vec<u16>> {
+    tauri::async_runtime::spawn_blocking(move || {
+        ports.into_iter().filter(|&port| in_use(port)).collect()
+    })
+    .await
+    .map_err(|error| AppError::Pty(format!("ports_in_use join: {error}")))
+}
+
 /// TCP ports that terminals, tasks and chat agents (or anything they started)
 /// are listening on. Chat agents are the app's children; terminals and tasks
 /// are the terminal core's.

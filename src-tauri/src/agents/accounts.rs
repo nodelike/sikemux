@@ -1,407 +1,50 @@
-//! The person's accounts with Claude Code and Codex.
-//!
-//! Each account is a directory the agent's CLI keeps its sign-in in, named by
-//! `CLAUDE_CONFIG_DIR` or `CODEX_HOME`. Signing in and out runs the CLI's own
-//! login and logout commands, and who is signed in comes from the CLI too:
-//! Sikemux never reads or stores a credential.
-//!
-//! An account Sikemux adds links its chats, settings and tools to the default
-//! directory, so a chat can move between accounts and only the sign-in
-//! differs.
+//! Signing the person in and out of their accounts with Claude Code and
+//! Codex, through each CLI's own login. The core keeps the accounts and says
+//! who each is signed in as; these commands pass the app's asks on to it.
 
-use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::collections::{BTreeMap, HashMap};
+use std::path::PathBuf;
 use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
 
 use serde::Serialize;
-use serde_json::{json, Map, Value};
-use tauri::{AppHandle, Emitter};
+use serde_json::Value;
+use sikemux_core::agent_accounts::{cli, folders::link_shared, METHODS};
+use tauri::{AppHandle, Emitter, State};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{ChildStdin, Command};
 use tokio::sync::oneshot;
 
-use super::config::agent_config_root;
-use super::executable::{apply_login_environment, apply_process_config};
-use super::status::forget_status;
-use super::usage::{codex_app_server, forget_agent_usage};
 use super::AgentKind;
+use crate::error::{AppError, AppResult};
+use crate::pty::PtyManager;
 
-/// Marks a directory as one Sikemux made, whose shared entries it may link.
-const MARKER: &str = ".sikemux-account";
-const STATUS_TIMEOUT: Duration = Duration::from_secs(12);
+const SIGN_OUT_TIMEOUT: Duration = Duration::from_secs(12);
 const SIGN_IN_TIMEOUT: Duration = Duration::from_secs(15 * 60);
 const SIGN_IN_TAIL: usize = 12;
 
-/// What a Claude account shares with the default one. Anything else, such as
-/// the sign-in and the CLI's own caches, stays with the account.
-const CLAUDE_SHARED: &[&str] = &[
-    "projects",
-    "settings.json",
-    "CLAUDE.md",
-    "agents",
-    "commands",
-    "skills",
-    "plugins",
-    "hooks",
-    "output-styles",
-    "todos",
-    "plans",
-    "file-history",
-    "history.jsonl",
-    "keybindings.json",
-    "session-env",
-    "shell-snapshots",
-];
-
-/// What a Codex account keeps to itself. Everything else is shared.
-const CODEX_OWN: &[&str] = &[
-    "auth.json",
-    "models_cache.json",
-    "log",
-    "memories",
-    "tmp",
-    MARKER,
-];
-
-fn shares(agent: AgentKind, name: &str) -> bool {
-    match agent {
-        AgentKind::Claude => CLAUDE_SHARED.contains(&name),
-        AgentKind::Codex => !CODEX_OWN.contains(&name),
-        _ => false,
-    }
-}
-
-fn default_root(agent: AgentKind) -> Option<PathBuf> {
-    let home = crate::system::user_home();
-    match agent {
-        AgentKind::Claude => Some(home.join(".claude")),
-        AgentKind::Codex => Some(home.join(".codex")),
-        _ => None,
-    }
-}
-
-/// The folder an account keeps its chats in. Accounts that share one can
-/// take over each other's chats.
-fn sessions_root(agent: AgentKind, config_path: Option<&str>) -> Option<PathBuf> {
-    let root = agent_config_root(agent.as_str(), config_path)?;
-    let folder = match agent {
-        AgentKind::Claude => "projects",
-        AgentKind::Codex => "sessions",
-        _ => return None,
-    };
-    let path = root.join(folder);
-    Some(std::fs::canonicalize(&path).unwrap_or(path))
-}
-
-pub(crate) fn sessions_shared(provider: &str, one: Option<&str>, other: Option<&str>) -> bool {
-    let Some(agent) = kind(provider) else {
-        return false;
-    };
-    sessions_root(agent, one).is_some_and(|root| sessions_root(agent, other) == Some(root))
-}
-
-pub(crate) fn kind(provider: &str) -> Option<AgentKind> {
-    match provider {
-        "claude" => Some(AgentKind::Claude),
-        "codex" => Some(AgentKind::Codex),
-        _ => None,
-    }
-}
-
-/// Links the default directory's shared entries into an account Sikemux
-/// made. Entries already there are left alone, so a file the account wrote
-/// itself is never replaced.
-pub(crate) fn link_shared(agent: AgentKind, config_path: Option<&str>) {
-    let (Some(account), Some(shared)) = (
-        config_path.and_then(|path| agent_config_root(agent.as_str(), Some(path))),
-        default_root(agent),
-    ) else {
-        return;
-    };
-    link_into(agent, &account, &shared);
-}
-
-fn link_into(agent: AgentKind, account: &Path, shared: &Path) {
-    if !account.join(MARKER).is_file() || account == shared {
-        return;
-    }
-    let sessions = match agent {
-        AgentKind::Claude => "projects",
-        _ => "sessions",
-    };
-    let _ = std::fs::create_dir_all(shared.join(sessions));
-    let Ok(entries) = std::fs::read_dir(shared) else {
-        return;
-    };
-    for entry in entries.flatten() {
-        let name = entry.file_name();
-        let Some(name) = name.to_str() else {
-            continue;
-        };
-        let target = account.join(name);
-        if !shares(agent, name) || target.symlink_metadata().is_ok() {
-            continue;
-        }
-        #[cfg(unix)]
-        if let Err(error) = std::os::unix::fs::symlink(entry.path(), &target) {
-            eprintln!("Could not share {name} with the account in {account:?}: {error}");
-        }
-    }
-}
-
-fn slug(name: &str) -> String {
-    let mut slug = String::new();
-    for ch in name.trim().chars() {
-        if ch.is_ascii_alphanumeric() {
-            slug.push(ch.to_ascii_lowercase());
-        } else if !slug.is_empty() && !slug.ends_with('-') {
-            slug.push('-');
-        }
-    }
-    let slug = slug.trim_end_matches('-');
-    let slug: String = slug.chars().take(32).collect();
-    if slug.is_empty() {
-        "account".into()
-    } else {
-        slug
-    }
-}
-
-/// What a new Claude account starts with from the default one: its tool
-/// servers and which projects it trusts. Claude keeps both beside the
-/// sign-in, so they cannot be linked.
-fn claude_seed(default: &Value) -> Value {
-    let mut seed = Map::new();
-    seed.insert("hasCompletedOnboarding".into(), json!(true));
-    for key in ["mcpServers", "theme", "lastOnboardingVersion"] {
-        if let Some(value) = default.get(key) {
-            seed.insert(key.into(), value.clone());
-        }
-    }
-    if let Some(projects) = default.get("projects").and_then(Value::as_object) {
-        let kept: Map<String, Value> = projects
-            .iter()
-            .map(|(path, project)| {
-                let mut kept = Map::new();
-                for key in [
-                    "allowedTools",
-                    "mcpServers",
-                    "enabledMcpjsonServers",
-                    "disabledMcpjsonServers",
-                    "hasTrustDialogAccepted",
-                ] {
-                    if let Some(value) = project.get(key) {
-                        kept.insert(key.into(), value.clone());
-                    }
-                }
-                (path.clone(), Value::Object(kept))
-            })
-            .collect();
-        seed.insert("projects".into(), Value::Object(kept));
-    }
-    Value::Object(seed)
-}
-
-fn make_account(agent: AgentKind, name: &str, home: &Path) -> Result<String, String> {
-    let prefix = match agent {
-        AgentKind::Claude => ".claude",
-        AgentKind::Codex => ".codex",
-        _ => return Err("Only Claude and Codex keep separate accounts".into()),
-    };
-    let base = format!("{prefix}-{}", slug(name));
-    let mut folder = base.clone();
-    let mut counter = 2;
-    while home.join(&folder).exists() {
-        folder = format!("{base}-{counter}");
-        counter += 1;
-    }
-    let directory = home.join(&folder);
-    std::fs::create_dir_all(&directory).map_err(|error| error.to_string())?;
-    std::fs::write(
-        directory.join(MARKER),
-        "Made by Sikemux for one account. Links here point at the default account's shared files.\n",
-    )
-    .map_err(|error| error.to_string())?;
-    if matches!(agent, AgentKind::Claude) {
-        let default = std::fs::read(home.join(".claude.json"))
-            .ok()
-            .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok())
-            .unwrap_or(Value::Null);
-        let seed = serde_json::to_vec_pretty(&claude_seed(&default)).map_err(|e| e.to_string())?;
-        std::fs::write(directory.join(".claude.json"), seed).map_err(|e| e.to_string())?;
-    }
-    Ok(format!("~/{folder}"))
-}
-
-/// Makes a directory for another account, sharing what the default one
-/// has, and returns it as a profile's directory.
+/// The core's calls about the person's agent accounts.
 #[tauri::command]
-pub async fn agent_account_add(agent: AgentKind, name: String) -> Result<String, String> {
-    let home = crate::system::user_home();
-    let path = make_account(agent, &name, &home)?;
-    link_shared(agent, Some(&path));
-    Ok(path)
-}
-
-#[derive(Serialize, Debug, Default, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct AgentAccountStatus {
-    signed_in: bool,
-    /// The person's own name on the account, where the agent keeps one.
-    name: Option<String>,
-    email: Option<String>,
-    plan: Option<String>,
-    organization: Option<String>,
-    /// `subscription`, `apiKey`, or what else the CLI says it signs in with.
-    method: Option<String>,
-    sessions: Option<String>,
-}
-
-impl AgentAccountStatus {
-    pub(super) fn is_signed_in(&self) -> bool {
-        self.signed_in
+pub async fn agent_accounts_call(
+    manager: State<'_, PtyManager>,
+    method: String,
+    params: Value,
+) -> AppResult<Value> {
+    if !METHODS.contains(&method.as_str()) {
+        return Err(AppError::Other(format!("{method} is not an account call")));
     }
-
-    /// How the account signs in, such as `subscription` or `apiKey`.
-    pub(super) fn method(&self) -> Option<&str> {
-        self.method.as_deref()
-    }
+    let client = manager.client().await?;
+    crate::agent_names::call(&client, method, params).await
 }
 
-fn parse_claude_status(text: &str) -> Option<AgentAccountStatus> {
-    let status: Value = serde_json::from_str(text.trim()).ok()?;
-    let text_of = |key: &str| {
-        status
-            .get(key)
-            .and_then(Value::as_str)
-            .filter(|value| !value.is_empty())
-            .map(str::to_owned)
-    };
-    let method = text_of("authMethod").filter(|method| method != "none");
-    Some(AgentAccountStatus {
-        signed_in: status
-            .get("loggedIn")
-            .and_then(Value::as_bool)
-            .unwrap_or(false),
-        name: None,
-        email: text_of("email"),
-        plan: text_of("subscriptionType"),
-        organization: text_of("orgName"),
-        method: method.map(|method| {
-            if method == "claude.ai" {
-                "subscription".into()
-            } else {
-                method
-            }
-        }),
-        sessions: None,
-    })
-}
-
-/// `auth status` leaves the name out; Claude keeps it in the account's
-/// `.claude.json`, which holds no credentials.
-fn claude_account_name(config: &Value) -> Option<String> {
-    let account = config.get("oauthAccount")?;
-    ["displayName", "fullName"]
-        .into_iter()
-        .filter_map(|key| account.get(key).and_then(Value::as_str))
-        .map(str::trim)
-        .find(|name| !name.is_empty())
-        .map(str::to_owned)
-}
-
-/// Claude puts `.claude.json` inside a chosen config folder, but beside the
-/// default `~/.claude` folder rather than in it.
-fn claude_config_file(config_path: Option<&str>) -> Option<PathBuf> {
-    let root = agent_config_root("claude", config_path)?;
-    let inside = root.join(".claude.json");
-    if inside.exists() {
-        return Some(inside);
-    }
-    let home = crate::system::user_home();
-    (root == home.join(".claude")).then(|| home.join(".claude.json"))
-}
-
-fn parse_codex_status(result: &Value) -> AgentAccountStatus {
-    let account = result.get("account").filter(|account| !account.is_null());
-    let text_of = |key: &str| {
-        account
-            .and_then(|account| account.get(key))
-            .and_then(Value::as_str)
-            .filter(|value| !value.is_empty())
-            .map(str::to_owned)
-    };
-    let method = text_of("type").map(|kind| match kind.as_str() {
-        "chatgpt" => "subscription".to_owned(),
-        _ => kind,
-    });
-    AgentAccountStatus {
-        signed_in: account.is_some(),
-        name: None,
-        email: text_of("email"),
-        plan: text_of("planType"),
-        organization: None,
-        method,
-        sessions: None,
-    }
-}
-
-pub(super) fn agent_command(
+async fn agent_command(
     agent: AgentKind,
-    executable: &Path,
+    executable_path: Option<&str>,
     config_path: Option<&str>,
-) -> Command {
-    let mut command = Command::from(sikemux_process::user_environment::command(executable));
-    apply_login_environment(&mut command);
-    apply_process_config(&mut command, agent.as_str(), config_path);
-    command.kill_on_drop(true);
-    command
-}
-
-async fn executable(agent: AgentKind, executable_path: Option<&str>) -> Result<PathBuf, String> {
-    super::resolve_agent_executable(agent.as_str(), executable_path).await
-}
-
-/// Who an account is signed in as, asked of the agent's own CLI.
-#[tauri::command]
-pub async fn agent_account_status(
-    agent: AgentKind,
-    executable_path: Option<String>,
-    config_path: Option<String>,
-) -> Result<AgentAccountStatus, String> {
-    link_shared(agent, config_path.as_deref());
-    let program = executable(agent, executable_path.as_deref()).await?;
-    let mut status = match agent {
-        AgentKind::Claude => {
-            let mut command = agent_command(agent, &program, config_path.as_deref());
-            command
-                .args(["auth", "status", "--json"])
-                .stdin(std::process::Stdio::null())
-                .stdout(std::process::Stdio::piped())
-                .stderr(std::process::Stdio::null());
-            let output = tokio::time::timeout(STATUS_TIMEOUT, command.output())
-                .await
-                .map_err(|_| "Claude took too long to say who is signed in".to_string())?
-                .map_err(|_| "Could not ask Claude who is signed in".to_string())?;
-            // A signed-out account still answers, with a failing exit code.
-            parse_claude_status(&String::from_utf8_lossy(&output.stdout))
-                .ok_or_else(|| "Claude did not say who is signed in".to_string())?
-        }
-        AgentKind::Codex => parse_codex_status(
-            &codex_app_server(&program, config_path.as_deref(), "account/read", "account").await?,
-        ),
-        _ => return Err("Only Claude and Codex keep separate accounts".into()),
-    };
-    if matches!(agent, AgentKind::Claude) && status.signed_in {
-        status.name = claude_config_file(config_path.as_deref())
-            .and_then(|file| std::fs::read(file).ok())
-            .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok())
-            .and_then(|config| claude_account_name(&config));
-    }
-    status.sessions = sessions_root(agent, config_path.as_deref())
-        .map(|path| path.to_string_lossy().into_owned());
-    Ok(status)
+) -> Result<Command, String> {
+    let program: PathBuf =
+        sikemux_core::launch::discovery::resolve(agent.as_str(), executable_path).await?;
+    Ok(cli(agent.as_str(), &program, config_path, BTreeMap::new()))
 }
 
 /// A sign-in running for one account, which the person can answer or stop.
@@ -446,9 +89,9 @@ pub async fn agent_account_sign_in(
     executable_path: Option<String>,
     config_path: Option<String>,
 ) -> Result<(), String> {
-    link_shared(agent, config_path.as_deref());
-    let program = executable(agent, executable_path.as_deref()).await?;
-    let mut command = agent_command(agent, &program, config_path.as_deref());
+    link_shared(agent.as_str(), config_path.as_deref());
+    let mut command =
+        agent_command(agent, executable_path.as_deref(), config_path.as_deref()).await?;
     match agent {
         AgentKind::Claude => command.args(["auth", "login", "--claudeai"]),
         AgentKind::Codex => command.arg("login"),
@@ -534,8 +177,6 @@ pub async fn agent_account_sign_in(
     if let Ok(mut running) = sign_ins().lock() {
         running.remove(&key);
     }
-    forget_agent_usage(agent, config_path.as_deref());
-    forget_status(agent, config_path.as_deref());
     match ended {
         Ok(Some(Ok(status))) if status.success() => Ok(()),
         Ok(Some(_)) => Err(match tail.last() {
@@ -598,8 +239,8 @@ pub async fn agent_account_sign_out(
     executable_path: Option<String>,
     config_path: Option<String>,
 ) -> Result<(), String> {
-    let program = executable(agent, executable_path.as_deref()).await?;
-    let mut command = agent_command(agent, &program, config_path.as_deref());
+    let mut command =
+        agent_command(agent, executable_path.as_deref(), config_path.as_deref()).await?;
     match agent {
         AgentKind::Claude => command.args(["auth", "logout"]),
         AgentKind::Codex => command.arg("logout"),
@@ -609,12 +250,10 @@ pub async fn agent_account_sign_out(
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null());
-    let status = tokio::time::timeout(STATUS_TIMEOUT, command.status())
+    let status = tokio::time::timeout(SIGN_OUT_TIMEOUT, command.status())
         .await
         .map_err(|_| "Sign-out took too long".to_string())?
         .map_err(|_| format!("Could not start the {} sign-out", agent.as_str()))?;
-    forget_agent_usage(agent, config_path.as_deref());
-    forget_status(agent, config_path.as_deref());
     if status.success() {
         Ok(())
     } else {
@@ -622,144 +261,9 @@ pub async fn agent_account_sign_out(
     }
 }
 
-/// The variables that point an agent at an account's directory.
-pub(crate) fn account_environment(
-    provider: &str,
-    config_path: Option<&str>,
-) -> Vec<(String, String)> {
-    let Some(variable) = sikemux_pty::launch::account_variable(provider) else {
-        return Vec::new();
-    };
-    let directory = match config_path.map(str::trim).filter(|path| !path.is_empty()) {
-        Some(path) => sikemux_pty::launch::account_dir(path)
-            .to_string_lossy()
-            .into_owned(),
-        // The default account is wherever the person's shell points the agent.
-        None => match sikemux_pty::user_shell::user_variable(variable) {
-            Some(directory) => directory,
-            None => return Vec::new(),
-        },
-    };
-    vec![(variable.to_owned(), directory)]
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn an_account_name_becomes_a_folder_name() {
-        assert_eq!(slug("Work"), "work");
-        assert_eq!(slug("  My Team / Max  "), "my-team-max");
-        assert_eq!(slug("???"), "account");
-    }
-
-    #[test]
-    fn a_new_claude_account_shares_chats_and_settings_but_not_its_sign_in() {
-        let home = tempfile::tempdir().unwrap();
-        let shared = home.path().join(".claude");
-        std::fs::create_dir_all(shared.join("projects/-tmp")).unwrap();
-        std::fs::write(shared.join("settings.json"), "{}").unwrap();
-        std::fs::write(shared.join(".credentials.json"), "secret").unwrap();
-        std::fs::write(
-            home.path().join(".claude.json"),
-            r#"{"oauthAccount":{"accountUuid":"me"},"mcpServers":{"x":{}},"projects":{"/p":{"hasTrustDialogAccepted":true,"lastCost":3}}}"#,
-        )
-        .unwrap();
-
-        let path = make_account(AgentKind::Claude, "Work", home.path()).unwrap();
-        assert_eq!(path, "~/.claude-work");
-        let account = home.path().join(".claude-work");
-        assert!(account.join(MARKER).is_file());
-        let seed: Value =
-            serde_json::from_slice(&std::fs::read(account.join(".claude.json")).unwrap()).unwrap();
-        assert_eq!(seed["mcpServers"], json!({ "x": {} }));
-        assert_eq!(
-            seed["projects"]["/p"],
-            json!({ "hasTrustDialogAccepted": true })
-        );
-        assert!(seed.get("oauthAccount").is_none());
-
-        assert_eq!(
-            make_account(AgentKind::Claude, "Work", home.path()).unwrap(),
-            "~/.claude-work-2"
-        );
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn linking_shares_only_what_is_shared_and_keeps_what_is_there() {
-        let home = tempfile::tempdir().unwrap();
-        let shared = home.path().join(".codex");
-        std::fs::create_dir_all(shared.join("sessions")).unwrap();
-        std::fs::write(shared.join("config.toml"), "").unwrap();
-        std::fs::write(shared.join("auth.json"), "{}").unwrap();
-        let account = home.path().join(".codex-work");
-        std::fs::create_dir_all(&account).unwrap();
-        std::fs::write(account.join("config.toml"), "own = true").unwrap();
-
-        link_into(AgentKind::Codex, &account, &shared);
-        assert!(
-            !account.join("sessions").exists(),
-            "linked into a folder it did not make"
-        );
-
-        std::fs::write(account.join(MARKER), "").unwrap();
-        link_into(AgentKind::Codex, &account, &shared);
-        assert_eq!(
-            std::fs::read_link(account.join("sessions")).unwrap(),
-            shared.join("sessions")
-        );
-        assert_eq!(
-            std::fs::read_to_string(account.join("config.toml")).unwrap(),
-            "own = true"
-        );
-        assert!(!account.join("auth.json").exists());
-
-        assert!(shares(AgentKind::Claude, "projects"));
-        assert!(!shares(AgentKind::Claude, ".credentials.json"));
-        assert!(!shares(AgentKind::Claude, "daemon"));
-    }
-
-    #[test]
-    fn claude_says_who_is_signed_in() {
-        let status = parse_claude_status(
-            r#"{"loggedIn":true,"authMethod":"claude.ai","email":"me@x.com","orgName":"Me","subscriptionType":"max"}"#,
-        )
-        .unwrap();
-        assert!(status.signed_in);
-        assert_eq!(status.email.as_deref(), Some("me@x.com"));
-        assert_eq!(status.plan.as_deref(), Some("max"));
-        assert_eq!(status.method.as_deref(), Some("subscription"));
-        let out = parse_claude_status(r#"{"loggedIn":false,"authMethod":"none"}"#).unwrap();
-        assert!(!out.signed_in);
-        assert_eq!(out.method, None);
-        assert_eq!(parse_claude_status("not json"), None);
-    }
-
-    #[test]
-    fn claude_keeps_the_account_name_beside_the_sign_in() {
-        let config =
-            json!({ "oauthAccount": { "displayName": "Kishore", "fullName": "Kishore G" } });
-        assert_eq!(claude_account_name(&config).as_deref(), Some("Kishore"));
-        let full = json!({ "oauthAccount": { "displayName": " ", "fullName": "Kishore G" } });
-        assert_eq!(claude_account_name(&full).as_deref(), Some("Kishore G"));
-        assert_eq!(claude_account_name(&json!({ "projects": {} })), None);
-    }
-
-    #[test]
-    fn codex_says_who_is_signed_in() {
-        let status = parse_codex_status(&json!({
-            "account": { "type": "chatgpt", "email": "me@x.com", "planType": "pro" },
-            "requiresOpenaiAuth": true,
-        }));
-        assert!(status.signed_in);
-        assert_eq!(status.plan.as_deref(), Some("pro"));
-        assert_eq!(status.method.as_deref(), Some("subscription"));
-        let key = parse_codex_status(&json!({ "account": { "type": "apiKey" } }));
-        assert_eq!(key.method.as_deref(), Some("apiKey"));
-        assert!(!parse_codex_status(&json!({ "account": null })).signed_in);
-    }
 
     #[test]
     fn the_sign_in_page_is_read_from_the_cli_output() {

@@ -1,5 +1,5 @@
 import { recordOf } from '@mac/chat/acpEvents';
-import { groupTasks, runningSubagents } from '@mac/chat/transcript';
+import { groupTasks, runningSubagents, subagentActivity, taskDetail, workflowAgentDetail } from '@mac/chat/transcript';
 import type { AcpAsyncTask, AcpSubagent, ChatState } from '@mac/chat/types';
 import type { Held } from './session';
 
@@ -39,14 +39,48 @@ export function liveWork(state: ChatState, queued: readonly Held[]): LiveWork {
   };
 }
 
-/** What the strip counts, which changes far less often than the chat does. */
+/** `task` is the kind an agent named its background tasks, for the pieces that count them. */
+export type StripPiece = { key: string; task?: string; count: string; word: string };
+
+/** The one line docked on the composer: a count for each kind of work, and the running things it turns through. */
+export type LiveStripView = { pieces: StripPiece[]; lines: string[]; working: boolean };
+
+/** A kind of work named the way the Mac's live stack names it, counted. */
+export function counted(word: string, count: number): string {
+  return count === 1 || word === 'queued' ? word : `${word}s`;
+}
+
+export function liveStrip(work: LiveWork): LiveStripView {
+  const done = work.plan.filter((entry) => entry.status === 'completed').length;
+  const pieces: StripPiece[] = [
+    ...(work.subagents.length
+      ? [{ key: 'subagents', count: String(work.subagents.length), word: counted('subagent', work.subagents.length) }]
+      : []),
+    ...work.tasks.map(([kind, tasks]) => ({
+      key: `task-${kind}`,
+      task: kind,
+      count: String(tasks.length),
+      word: counted(kind, tasks.length),
+    })),
+    ...(work.queued.length ? [{ key: 'queued', count: String(work.queued.length), word: 'queued' }] : []),
+    ...(work.planOpen ? [{ key: 'plan', count: `${done}/${work.plan.length}`, word: 'plan' }] : []),
+  ];
+  const running = work.tasks.flatMap(([, tasks]) => tasks.filter((task) => task.state === 'running'));
+  const lines = [
+    ...work.subagents.map((subagent) => `${subagent.name} · ${subagentActivity(subagent)}`),
+    ...running.flatMap((task) => [
+      [task.name, taskDetail(task)].filter(Boolean).join(' · '),
+      ...(task.agents ?? [])
+        .filter((agent) => agent.state === 'running')
+        .map((agent) => [agent.label, workflowAgentDetail(agent)].filter(Boolean).join(' · ')),
+    ]),
+  ];
+  return { pieces, lines, working: work.subagents.length > 0 || running.length > 0 };
+}
+
+/** What the strip shows, which changes far less often than the chat does. */
 export function liveKey(work: LiveWork): string {
-  return JSON.stringify([
-    work.subagents.map((subagent) => subagent.sessionId),
-    work.tasks.map(([kind, tasks]) => [kind, tasks.map((task) => `${task.asyncTaskId}:${task.state}`)]),
-    work.queued.map((held) => held.id),
-    work.plan.map((entry) => entry.status),
-  ]);
+  return JSON.stringify(liveStrip(work));
 }
 
 export function hasLiveWork(work: LiveWork): boolean {

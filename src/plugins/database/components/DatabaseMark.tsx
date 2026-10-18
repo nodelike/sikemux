@@ -4,7 +4,7 @@ export function DatabaseMark({ size = 16, className }: { size?: number; classNam
         <svg
             width={size}
             height={size}
-            viewBox="0 0 24 24"
+            viewBox="1.6 1.6 20.8 20.8"
             className={className}
             fill="none"
             stroke="#3B9EE8"

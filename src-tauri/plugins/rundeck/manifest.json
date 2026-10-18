@@ -2,5 +2,95 @@
   "id": "sikemux.rundeck",
   "name": "Rundeck",
   "version": "0.1.0",
-  "sikemux": ">=0.4"
+  "sikemux": ">=0.4",
+  "callTimeoutSecs": 65,
+  "tools": [
+    {
+      "name": "rundeck_projects",
+      "row": {"verb": "list", "kind": "read", "icon": "folder", "target": ["Rundeck projects"]},
+      "method": "projects",
+      "description": "The Rundeck projects the person can see."
+    },
+    {
+      "name": "rundeck_jobs",
+      "row": {"verb": "list", "kind": "read", "icon": "rocket", "target": ["{project} jobs", "Rundeck jobs"], "detail": ["“{filter}”"]},
+      "method": "agentJobs",
+      "description": "Jobs by full group/name path, with ids and options: required, default, allowed values. A filter that matches nothing answers with the closest paths.",
+      "properties": {
+        "project": { "type": "string", "description": "Default: every project." },
+        "filter": { "type": "string", "description": "Text in the job's path, any case." }
+      }
+    },
+    {
+      "name": "rundeck_run",
+      "row": {"verb": "run", "kind": "execute", "icon": "run", "target": ["{job}"], "detail": ["{project}"]},
+      "method": "agentRun",
+      "description": "Run a job and wait up to 50s for it to end: status, duration, url, last log lines. Still running? rundeck_execution with wait.",
+      "properties": {
+        "job": { "type": "string", "description": "Its id or group/name path." },
+        "project": { "type": "string" },
+        "options": { "type": "object", "additionalProperties": { "type": "string" }, "description": "Option values by name." },
+        "wait": { "type": "boolean", "description": "Default true; false answers with the execution id at once." }
+      },
+      "required": ["job"]
+    },
+    {
+      "name": "rundeck_executions",
+      "row": {"verb": "list", "kind": "read", "icon": "activity", "target": ["runs of {job}", "{project} runs", "running jobs"]},
+      "method": "agentExecutions",
+      "description": "Runs, newest first, with status, branch, user and duration. With neither job nor project, what is running now.",
+      "properties": {
+        "job": { "type": "string", "description": "Its id or group/name path." },
+        "project": { "type": "string" },
+        "running": { "type": "boolean", "description": "Only runs still going." },
+        "max": { "type": "integer", "description": "Default 10, at most 50." }
+      }
+    },
+    {
+      "name": "rundeck_execution",
+      "row": {"verb": "read", "kind": "read", "icon": "status", "target": ["run {executionId}"]},
+      "method": "agentExecution",
+      "description": "One run: status, the options it ran with, timings and url. wait holds up to 50s for it to end and adds its last log lines.",
+      "properties": {
+        "executionId": { "type": "integer" },
+        "wait": { "type": "boolean" }
+      },
+      "required": ["executionId"]
+    },
+    {
+      "name": "rundeck_logs",
+      "row": {"verb": "logs", "kind": "read", "icon": "log-lines", "target": ["run {executionId}"], "detail": ["“{grep}”"]},
+      "method": "agentLogs",
+      "description": "The end of a run's output, after grep. truncated means earlier lines were left out.",
+      "properties": {
+        "executionId": { "type": "integer" },
+        "tail": { "type": "integer", "description": "Default 100, at most 2000." },
+        "grep": { "type": "string", "description": "Only lines containing this, any case." }
+      },
+      "required": ["executionId"]
+    },
+    {
+      "name": "rundeck_abort",
+      "row": {"verb": "abort", "kind": "execute", "icon": "stop", "target": ["run {executionId}"]},
+      "method": "abort",
+      "description": "Stop a running execution.",
+      "properties": {
+        "executionId": { "type": "integer" }
+      },
+      "required": ["executionId"]
+    },
+    {
+      "name": "rundeck_plan",
+      "row": {"verb": "plan", "kind": "read", "icon": "steps", "target": ["{job}"], "detail": ["{branch}"]},
+      "method": "agentPlan",
+      "description": "Before deploying a branch: what the job last deployed, the option carrying the branch, and whether the checkout is clean, pushed and contains it.",
+      "properties": {
+        "job": { "type": "string", "description": "Its id or group/name path." },
+        "project": { "type": "string" },
+        "repo": { "type": "string", "description": "Local checkout path." },
+        "branch": { "type": "string", "description": "Default: the checkout's branch." }
+      },
+      "required": ["job"]
+    }
+  ]
 }

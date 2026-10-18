@@ -450,6 +450,14 @@ pub fn note_person(event: &NSEvent) {
     }
 }
 
+/// Whether the app's latest pointer or key input came from an agent rather
+/// than the person.
+pub fn agent_input_is_latest() -> bool {
+    let last = LAST_INPUT.with(Cell::get);
+    let now = Instant::now();
+    last.keeps_cursor_shape(now) || last.keeps_cursor_shown(now)
+}
+
 type SetCursor = unsafe extern "C-unwind" fn(*mut AnyObject, Sel);
 type HideCursor = unsafe extern "C-unwind" fn(*const AnyClass, Sel, Bool);
 

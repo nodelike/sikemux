@@ -2,20 +2,19 @@ import { useState } from "react";
 import { GitColumns } from "../../git/GitColumns";
 import { notify, openUrl, reportError, swallow } from "../../plugin-api/host";
 import { useResourceEnabled } from "../../plugin-api/resources";
-import { EmptyState, IconExternal, IconGit, IconRefresh, SkeletonRows, Tooltip } from "../../plugin-api/ui";
+import { EmptyState, IconChevron, IconDownload, IconExternal, IconFile, IconRefresh, SkeletonRows, StaleNotice, Tooltip } from "../../plugin-api/ui";
 import { hostApi, failureMessage, type Release, type RepoRef } from "../api";
 import { useHost } from "../registry";
 import { releasesR } from "../resources";
 import { SectionIcon } from "./ActionsIcon";
-import { Who } from "./Bits";
+import { ShellAccount } from "./Bits";
+import { Face } from "./CommentThread";
 import { useNow } from "../../plugin-api/hooks";
 import { Prose } from "./Pictures";
 import { formatAgo, formatBytes } from "../../lib/format";
 
 /** How many releases the backend reads, newest first. */
 const RELEASES_READ = 100;
-
-type Tab = "notes" | "assets";
 
 /** The newest release that is neither a draft nor a pre-release, which is the one GitHub marks as latest. */
 export function latestOf(releases: readonly Release[]): number | null {
@@ -44,25 +43,34 @@ function Tags({ release, latest }: { release: Release; latest: boolean }) {
     );
 }
 
+/** A release as the side panel lists it: its name and tags, then its tag, who and when. */
 function ReleaseRow({ release, latest, now, on, onOpen }: { release: Release; latest: boolean; now: number; on: boolean; onOpen: () => void }) {
     return (
-        <button type="button" className="gha-item-row" data-on={on ? "1" : "0"} onClick={onOpen}>
+        <button
+            type="button"
+            className="side-row"
+            data-on={on ? "1" : "0"}
+            ref={(node) => {
+                if (node && on) node.scrollIntoView({ block: "nearest" });
+            }}
+            onClick={onOpen}>
             <SectionIcon section="releases" size={13} />
-            <span className="gha-item-head">
-                <span className="gha-item-title">{release.name}</span>
+            <span className="side-row-title">{release.name}</span>
+            <span className="release-row-tags">
                 <Tags release={release} latest={latest} />
             </span>
-            <span className="gha-item-sub">
-                {release.tag !== release.name && <span className="gha-mono">{release.tag}</span>}
-                {release.author && <Who login={release.author} avatarUrl={null} />}
+            <span className="side-row-sub">
+                {release.tag !== release.name ? `${release.tag} · ` : ""}
+                {release.author ?? "someone"} · {formatAgo(release.publishedAt, now)}
             </span>
-            <span className="gha-item-when">{formatAgo(release.publishedAt, now)}</span>
         </button>
     );
 }
 
-function Assets({ repo, release }: { repo: RepoRef; release: Release }) {
+/** A release's files as GitHub lists them under its notes: name, size, downloads and when, each saved with one click. */
+function Assets({ repo, release, now }: { repo: RepoRef; release: Release; now: number }) {
     const [saving, setSaving] = useState<ReadonlySet<number>>(() => new Set());
+    const [open, setOpen] = useState(true);
     const save = (id: number, name: string) => {
         if (saving.has(id)) return;
         setSaving((was) => new Set(was).add(id));
@@ -78,82 +86,92 @@ function Assets({ repo, release }: { repo: RepoRef; release: Release }) {
                 }),
             );
     };
-    if (release.assets.length === 0) return <EmptyState message="This release has no files." />;
+    if (release.assets.length === 0) return null;
     return (
-        <div className="gha-artifacts release-assets">
-            {release.assets.map((asset) => (
-                <div className="gha-artifact" key={asset.id}>
-                    <span className="gha-artifact-name">{asset.name}</span>
-                    <span className="gha-dim">{formatBytes(asset.sizeBytes)}</span>
-                    <span className="gha-dim">{asset.downloads} downloads</span>
-                    <button type="button" className="gha-link" disabled={saving.has(asset.id)} onClick={() => save(asset.id, asset.name)}>
-                        {saving.has(asset.id) ? "Saving…" : "Download"}
-                    </button>
+        <section className="release-assets">
+            <button type="button" className="release-assets-head" aria-expanded={open} onClick={() => setOpen((was) => !was)}>
+                <IconChevron size={11} className="release-assets-chev" />
+                Assets
+                <span className="git-group-count">{release.assets.length}</span>
+            </button>
+            {open && (
+                <div className="release-asset-list">
+                    {release.assets.map((asset) => (
+                        <div className="release-asset" key={asset.id}>
+                            <IconFile size={13} />
+                            <button
+                                type="button"
+                                className="release-asset-name"
+                                disabled={saving.has(asset.id)}
+                                title={`Download ${asset.name}`}
+                                onClick={() => save(asset.id, asset.name)}>
+                                {asset.name}
+                            </button>
+                            {asset.downloads > 0 && (
+                                <span className="release-asset-meta" title={`${asset.downloads} downloads`}>
+                                    <IconDownload size={11} />
+                                    {asset.downloads}
+                                </span>
+                            )}
+                            <span className="release-asset-meta">{formatBytes(asset.sizeBytes)}</span>
+                            <span className="release-asset-meta release-asset-when">
+                                {saving.has(asset.id) ? "Saving…" : formatAgo(release.publishedAt, now)}
+                            </span>
+                        </div>
+                    ))}
                 </div>
-            ))}
+            )}
+        </section>
+    );
+}
+
+/** One release read on the right as GitHub shows it: its header, its notes, then its files under them. */
+function ReleaseRight({ repo, release, latest, now }: { repo: RepoRef; release: Release; latest: boolean; now: number }) {
+    const host = useHost();
+    return (
+        <div className="pr-right">
+            <div className="git-detail">
+                <div className="pr-headline">
+                    <span className="pr-face">
+                        <Face login={release.author} url={release.avatarUrl ?? null} />
+                    </span>
+                    <span className="pr-headline-top">
+                        <h2 className="git-detail-title pr-headline-title">{release.name}</h2>
+                        <Tags release={release} latest={latest} />
+                        <Tooltip label={`Open on ${host.name}`}>
+                            <button
+                                type="button"
+                                className="gha-icon-btn"
+                                aria-label={`Open on ${host.name}`}
+                                onClick={() => void openUrl(release.url).catch(swallow(`open ${host.name}`))}>
+                                <IconExternal size={12} />
+                            </button>
+                        </Tooltip>
+                    </span>
+                    <span className="pr-headline-sub">
+                        <span className="pr-headline-who">
+                            {release.author ?? "someone"} released this {formatAgo(release.publishedAt, now)}
+                        </span>
+                        <span className="pr-ref">{release.tag}</span>
+                    </span>
+                </div>
+            </div>
+            <div className="pr-conversation">
+                <div className="release-page gha-reading">
+                    {release.body.trim() ? <Prose>{release.body}</Prose> : <p className="gha-dim release-empty">This release has no notes.</p>}
+                    <Assets repo={repo} release={release} now={now} />
+                </div>
+            </div>
         </div>
     );
 }
 
-function ReleaseRight({ repo, release, latest, now }: { repo: RepoRef; release: Release; latest: boolean; now: number }) {
-    const host = useHost();
-    const [tab, setTab] = useState<Tab>("notes");
-    const tabs: { id: Tab; label: string; count: number }[] = [
-        { id: "notes", label: "Notes", count: 0 },
-        { id: "assets", label: "Assets", count: release.assets.length },
-    ];
-    return (
-        <div className="pr-right">
-            <div className="git-detail">
-                <div className="pr-title-row">
-                    <h2 className="git-detail-title">{release.name}</h2>
-                    <Tooltip label={`Open on ${host.name}`}>
-                        <button
-                            type="button"
-                            className="gha-icon-btn"
-                            aria-label={`Open on ${host.name}`}
-                            onClick={() => void openUrl(release.url).catch(swallow(`open ${host.name}`))}>
-                            <IconExternal size={12} />
-                        </button>
-                    </Tooltip>
-                </div>
-                <div className="git-detail-meta">
-                    {release.author && <Who login={release.author} avatarUrl={null} />}
-                    <span>released {formatAgo(release.publishedAt, now)}</span>
-                    <span className="gha-branch">
-                        <IconGit size={11} />
-                        <span>{release.tag}</span>
-                    </span>
-                    <Tags release={release} latest={latest} />
-                </div>
-                <div className="git-detail-actions" role="tablist" aria-label="Release">
-                    {tabs.map((each) => (
-                        <button
-                            key={each.id}
-                            type="button"
-                            role="tab"
-                            aria-selected={tab === each.id}
-                            className="gha-chip pr-tab"
-                            data-on={tab === each.id ? "1" : "0"}
-                            onClick={() => setTab(each.id)}>
-                            {each.label}
-                            {each.count > 0 && <span className="gha-tab-count">{each.count}</span>}
-                        </button>
-                    ))}
-                </div>
-            </div>
-            <div className="pr-conversation">
-                {tab === "assets" ? (
-                    <Assets repo={repo} release={release} />
-                ) : release.body.trim() ? (
-                    <Prose className="prose release-notes">{release.body}</Prose>
-                ) : (
-                    <EmptyState message="This release has no notes." />
-                )}
-            </div>
-        </div>
-    );
-}
+type Kind = "all" | "stable" | "pre";
+const KINDS: { id: Kind; label: string }[] = [
+    { id: "all", label: "All" },
+    { id: "stable", label: "Releases" },
+    { id: "pre", label: "Pre-releases" },
+];
 
 interface Props {
     paneId: string;
@@ -161,66 +179,86 @@ interface Props {
     active: boolean;
 }
 
-/** Releases down the left, newest first; the one picked, the latest to begin with, reads on the right. */
+/** Releases in the side panel, newest first; the one picked, the latest to begin with, reads on the right. */
 export function ReleasesView({ paneId, repo, active }: Props) {
     const host = useHost();
     const releases = useResourceEnabled(active, releasesR, repo);
     const [picked, setPicked] = useState<number | null>(null);
+    const [kind, setKind] = useState<Kind>("all");
     const now = useNow(false);
 
-    const rows = releases.data ?? [];
-    const latest = latestOf(rows);
-    const shown = rows.find((release) => release.id === picked) ?? rows.find((release) => release.id === latest) ?? rows[0] ?? null;
+    const all = releases.data ?? [];
+    const latest = latestOf(all);
+    const rows = all.filter((release) => kind === "all" || (kind === "pre") === (release.prerelease || release.draft));
+    const shown = all.find((release) => release.id === picked) ?? all.find((release) => release.id === latest) ?? all[0] ?? null;
 
-    const left =
-        releases.status === "loading" && !releases.data ? (
-            <SkeletonRows rows={6} label="Loading releases" />
-        ) : releases.error ? (
-            <EmptyState
-                title="Could not read releases"
-                message={failureMessage(releases.error)}
-                tone="error"
-                action={{ label: "Try again", onClick: () => void releases.refresh() }}
-            />
-        ) : (
-            <div className="gha-list pr-list">
-                <div className="gha-list-head">
-                    <span className="gha-dim">
-                        {rows.length === RELEASES_READ ? `Newest ${RELEASES_READ}` : `${rows.length} release${rows.length === 1 ? "" : "s"}`}
-                    </span>
+    const left = (
+        <div className="git-side">
+            <div className="git-side-head">
+                <div className="git-side-title">
+                    <SectionIcon section="releases" size={14} />
+                    <span className="pr-side-number">Releases</span>
                     <span className="gha-page-spacer" />
                     <Tooltip label="Refresh">
-                        <button type="button" className="gha-icon-btn" onClick={() => void releases.refresh()} aria-label="Refresh releases">
+                        <button type="button" className="git-foot-btn icon" onClick={() => void releases.refresh()} aria-label="Refresh releases">
                             <IconRefresh size={13} />
                         </button>
                     </Tooltip>
+                    <ShellAccount />
                 </div>
-                {rows.length === 0 ? (
-                    <EmptyState icon={<SectionIcon section="releases" size={20} />} message="This repository has no releases." />
-                ) : (
-                    rows.map((release) => (
-                        <ReleaseRow
-                            key={release.id}
-                            release={release}
-                            latest={release.id === latest}
-                            now={now}
-                            on={release.id === shown?.id}
-                            onOpen={() => setPicked(release.id)}
-                        />
-                    ))
-                )}
-                {rows.length >= RELEASES_READ && (
-                    <div className="gha-pager">
+                <div className="gha-chips gha-seg side-seg release-kinds" role="group" aria-label="Which releases to list">
+                    {KINDS.map((each) => (
                         <button
+                            key={each.id}
                             type="button"
-                            className="gha-link"
-                            onClick={() => void openUrl(rows[0].url.replace(/\/tag\/.*$/u, "")).catch(swallow(`open ${host.name}`))}>
-                            Older releases on {host.name}
+                            className="gha-chip"
+                            data-on={kind === each.id ? "1" : "0"}
+                            onClick={() => setKind(each.id)}>
+                            {each.label}
                         </button>
-                    </div>
-                )}
+                    ))}
+                </div>
             </div>
-        );
+            {releases.status === "loading" && !releases.data ? (
+                <SkeletonRows rows={6} label="Loading releases" />
+            ) : releases.error && !releases.data ? (
+                <EmptyState
+                    title="Could not read releases"
+                    message={failureMessage(releases.error)}
+                    tone="error"
+                    action={{ label: "Try again", onClick: () => void releases.refresh() }}
+                />
+            ) : (
+                <div className="git-list side-list">
+                    <StaleNotice handle={releases} />
+                    {rows.length === 0 ? (
+                        <EmptyState icon={<SectionIcon section="releases" size={20} />} message="No releases here." />
+                    ) : (
+                        rows.map((release) => (
+                            <ReleaseRow
+                                key={release.id}
+                                release={release}
+                                latest={release.id === latest}
+                                now={now}
+                                on={release.id === shown?.id}
+                                onOpen={() => setPicked(release.id)}
+                            />
+                        ))
+                    )}
+                    {all.length >= RELEASES_READ && (
+                        <div className="gha-pager">
+                            <button
+                                type="button"
+                                className="gha-link"
+                                onClick={() => void openUrl(all[0].url.replace(/\/tag\/.*$/u, "")).catch(swallow(`open ${host.name}`))}>
+                                Older releases on {host.name}
+                            </button>
+                        </div>
+                    )}
+                </div>
+            )}
+        </div>
+    );
 
     const right = shown ? (
         <ReleaseRight key={shown.id} repo={repo} release={shown} latest={shown.id === latest} now={now} />

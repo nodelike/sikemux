@@ -2,8 +2,10 @@ use std::path::{Component, Path, PathBuf};
 
 use serde_json::{json, Map, Value};
 
+use crate::server::edits;
+
 use super::super::json::{
-    is_js_whitespace, js_join_item, js_number, js_str, non_nullish, texts, truthy,
+    is_js_whitespace, js_join_item, js_number, js_str, non_nullish, str_field, texts, truthy,
 };
 
 pub struct ToolInfo {
@@ -253,7 +255,7 @@ pub fn tool_result(
     tool_use_result: Option<&Value>,
     _cwd: &Path,
 ) -> Value {
-    let is_error = truthy(result.get("is_error"));
+    let is_error = failed(name, result);
     let mut update = Map::new();
     update.insert("sessionUpdate".into(), "tool_call_update".into());
     update.insert("toolCallId".into(), id.into());
@@ -267,7 +269,7 @@ pub fn tool_result(
         } else {
             exit_plan_mode_raw_output(name, content)
         };
-        update.insert("rawOutput".into(), raw_output);
+        update.insert("rawOutput".into(), without_pictures(raw_output));
     }
     if !is_plan_tool(name) {
         let fields = result_fields(name, input, result, tool_use_result);
@@ -276,6 +278,20 @@ pub fn tool_result(
         }
     }
     Value::Object(update)
+}
+
+/// `content` already carries the result's pictures, and they are most of a
+/// long chat's bytes.
+pub(super) fn without_pictures(raw_output: Value) -> Value {
+    match raw_output {
+        Value::Array(blocks) => Value::Array(
+            blocks
+                .into_iter()
+                .filter(|block| str_field(block, "type") != Some("image"))
+                .collect(),
+        ),
+        other => other,
+    }
 }
 
 fn exit_plan_mode_raw_output(name: &str, content: &Value) -> Value {
@@ -311,6 +327,12 @@ fn content_field(blocks: Vec<Value>) -> Fields {
     vec![("content".to_string(), Value::Array(blocks))]
 }
 
+/// Sikemux answers AskUserQuestion by refusing it and asking the person
+/// itself, so that refusal is not a failure.
+fn failed(name: &str, result: &Value) -> bool {
+    truthy(result.get("is_error")) && name != "AskUserQuestion"
+}
+
 fn result_fields(
     name: &str,
     input: &Value,
@@ -318,7 +340,7 @@ fn result_fields(
     tool_use_result: Option<&Value>,
 ) -> Fields {
     let content = result.get("content");
-    let is_error = truthy(result.get("is_error"));
+    let is_error = failed(name, result);
     if is_error && content.is_some_and(|c| js_length(c) > 0) {
         return content_update(content, true);
     }
@@ -342,7 +364,8 @@ fn result_fields(
             });
             content_update(cleaned.as_ref(), is_error)
         }
-        "Skill" | "Edit" | "Write" => Vec::new(),
+        "Edit" | "Write" => edited(structured),
+        "Skill" => Vec::new(),
         "ExitPlanMode" => vec![("title".to_string(), "Exited Plan Mode".into())],
         "WebSearch" => {
             if let Some(results) = structured
@@ -358,6 +381,36 @@ fn result_fields(
         }
         _ => content_update(content, is_error),
     }
+}
+
+/// The lines an edit changed, from the patch Claude Code reports, for the
+/// core's record of who edited what.
+fn edited(structured: Option<&Value>) -> Fields {
+    let Some(structured) = structured else {
+        return Vec::new();
+    };
+    let hunks = structured
+        .get("structuredPatch")
+        .and_then(Value::as_array)
+        .filter(|hunks| !hunks.is_empty());
+    let (Some(path), Some(hunks)) = (structured.get("filePath"), hunks) else {
+        return Vec::new();
+    };
+    let lines: edits::Lines = hunks
+        .iter()
+        .flat_map(|hunk| {
+            let new_start = hunk.get("newStart").and_then(Value::as_u64).unwrap_or(0);
+            let lines = hunk.get("lines").and_then(Value::as_array);
+            edits::hunk(
+                new_start,
+                lines.into_iter().flatten().filter_map(Value::as_str),
+            )
+        })
+        .collect();
+    vec![(
+        "_meta".to_string(),
+        json!({ "sikemux": { "edited": [{ "path": path, "lines": lines }] } }),
+    )]
 }
 
 fn web_search_lines(results: &[Value]) -> Vec<String> {
@@ -936,12 +989,12 @@ pub fn content_chunk(block: &Value, role: &str, message_id: Option<&str>) -> Opt
 }
 
 /// The task list built from TaskCreate/TaskUpdate/TaskList results and the task hooks (§4.6).
-#[derive(Default, Clone, Debug)]
+#[derive(Default, Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct TaskPlan {
     tasks: Vec<(String, TaskEntry)>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 struct TaskEntry {
     subject: Option<Value>,
     status: Value,
@@ -1444,6 +1497,6 @@ fn is_line_terminator(ch: char) -> bool {
 }
 
 #[cfg(test)]
-mod matches_adapter;
+pub(super) mod matches_adapter;
 #[cfg(test)]
 mod tests;

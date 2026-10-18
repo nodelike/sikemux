@@ -2,7 +2,8 @@
 //! find it. Sign-in happens in the person's browser (OAuth with PKCE), which
 //! hands back to a one-time listener on 127.0.0.1. The refresh token stays in
 //! the Keychain; the core keeps which account owns it, and holds the live
-//! connection that tells it when the account lets this host go.
+//! connection that tells it when the account lets this host go. A host with no
+//! browser signs in by a code approved elsewhere instead, and keeps no token.
 
 mod profile;
 
@@ -12,18 +13,20 @@ use std::time::{Duration, Instant};
 
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
-use reqwest::{Client, Response};
+use reqwest::Response;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use sikemux_core::accounts::protocol::{
-    ApiError, Challenge, Channel, Device, DeviceList, DeviceRegistration, DeviceRole, Platform,
+    Challenge, Device, DeviceList, DeviceRegistration, DeviceRole, JoinTicket,
 };
 use sikemux_core::client::CoreClient;
-use sikemux_core::protocol::{AccountLinkState, BuildChannel, DeviceInfo, RemoteStatus};
+use sikemux_core::protocol::{AccountLinkState, DeviceInfo, RemoteStatus};
 use tauri::{AppHandle, Emitter, Manager, State};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::oneshot;
+
+use sikemux_host::account::{api, channel, http};
 
 use crate::error::{AppError, AppResult};
 use crate::pty::{core_error, PtyManager};
@@ -40,7 +43,6 @@ const CLERK: &str = "https://immense-llama-6668.clerk.accounts.dev";
 const CLIENT_ID: &str = "IfRz79s1n2WGOt3J";
 const SCOPES: &str = "email profile offline_access";
 const SIGN_IN_TIMEOUT: Duration = Duration::from_secs(5 * 60);
-const REQUEST_TIMEOUT: Duration = Duration::from_secs(20);
 const PROFILE_RETRY: Duration = Duration::from_secs(15 * 60);
 
 #[cfg(not(test))]
@@ -57,27 +59,9 @@ fn key_account() -> &'static str {
     }
 }
 
-fn api(path: &str) -> String {
-    format!(
-        "{}{path}",
-        sikemux_core::accounts::api_base().trim_end_matches('/')
-    )
-}
-
 /// Emitted with the new [`AccountStatus`] when the account changes without
 /// the app asking, such as this host being removed from it elsewhere.
 pub const ACCOUNT_CHANGED_EVENT: &str = "account_changed";
-
-fn http() -> &'static Client {
-    static CLIENT: OnceLock<Client> = OnceLock::new();
-    CLIENT.get_or_init(|| {
-        Client::builder()
-            .timeout(REQUEST_TIMEOUT)
-            .user_agent(concat!("sikemux/", env!("CARGO_PKG_VERSION")))
-            .build()
-            .unwrap_or_default()
-    })
-}
 
 /// What the Keychain entry holds. Only the refresh token is secret, but
 /// keeping it all in one entry means there is never half an account.
@@ -107,6 +91,16 @@ impl AccountStatus {
             email: None,
             name: None,
             picture: None,
+        }
+    }
+
+    /// A host signed in by code keeps no sign-in here, so only the core
+    /// knows its account, and only by id.
+    fn owned_by(owner: Option<String>) -> Self {
+        Self {
+            signed_in: owner.is_some(),
+            user_id: owner,
+            ..Self::signed_out()
         }
     }
 }
@@ -223,55 +217,75 @@ pub async fn account_status(
     app: AppHandle,
     manager: State<'_, PtyManager>,
 ) -> AppResult<AccountStatus> {
-    let dir = profile_dir(&app)?;
-    let Some(saved) = read_saved().await? else {
-        return Ok(AccountStatus::signed_out());
-    };
     let remote = match manager.client().await {
         Ok(core) => core.remote_status().await.ok(),
         Err(_) => None,
     };
+    let owner = remote.as_ref().and_then(|remote| remote.owner.clone());
+    let Some(saved) = read_saved().await? else {
+        return Ok(AccountStatus::owned_by(owner));
+    };
     if remote.is_some_and(|remote| released(&remote, &saved.user_id)) {
         forget(&app, &saved).await?;
-        return Ok(AccountStatus::signed_out());
+        return Ok(AccountStatus::owned_by(owner));
     }
-    Ok(status_of(&dir, saved).await)
+    Ok(status_of(&profile_dir(&app)?, saved).await)
 }
 
-/// The core reported that the account let this host go, so the sign-in
-/// saved here goes too, and the app hears it is signed out.
+/// Follows the core's owner when it changes without the app asking: the
+/// account let this host go, or the host signed in or out by code.
 pub fn notice_remote(app: &AppHandle, remote: &RemoteStatus) {
-    let removed = remote.owner.is_none()
-        && remote
-            .account
-            .as_ref()
-            .is_some_and(|link| link.state == AccountLinkState::Removed);
-    if !removed {
+    static OWNER: Mutex<Option<Option<String>>> = Mutex::new(None);
+    if remote.core_id.is_empty() {
         return;
     }
-    let app = app.clone();
+    let changed = {
+        let mut last = OWNER
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let changed = last.as_ref().is_some_and(|last| *last != remote.owner);
+        *last = Some(remote.owner.clone());
+        changed
+    };
+    if !changed {
+        return;
+    }
+    let removed = remote
+        .account
+        .as_ref()
+        .is_some_and(|link| link.state == AccountLinkState::Removed);
+    let (app, owner) = (app.clone(), remote.owner.clone());
     tauri::async_runtime::spawn(async move {
-        let Ok(Some(saved)) = read_saved().await else {
+        let Ok(saved) = read_saved().await else {
             return;
         };
-        match forget(&app, &saved).await {
-            Ok(()) => {
-                let _ = app.emit(ACCOUNT_CHANGED_EVENT, AccountStatus::signed_out());
+        match (saved, &owner) {
+            (None, _) => {}
+            (Some(saved), Some(owner)) if saved.user_id == *owner => return,
+            (Some(_), None) if !removed => return,
+            (Some(saved), _) => {
+                if let Err(error) = forget(&app, &saved).await {
+                    eprintln!("sikemux: could not forget the account: {error}");
+                    return;
+                }
             }
-            Err(error) => eprintln!("sikemux: could not forget the account: {error}"),
         }
+        let _ = app.emit(ACCOUNT_CHANGED_EVENT, AccountStatus::owned_by(owner));
     });
 }
 
 /// Asks the account service for the name and picture again once the cached
 /// ones are a few hours old. Offline, the cached ones stay.
 #[tauri::command]
-pub async fn account_refresh_profile(app: AppHandle) -> AppResult<AccountStatus> {
+pub async fn account_refresh_profile(
+    app: AppHandle,
+    manager: State<'_, PtyManager>,
+) -> AppResult<AccountStatus> {
     static LAST_TRY: tokio::sync::Mutex<Option<Instant>> = tokio::sync::Mutex::const_new(None);
     let dir = profile_dir(&app)?;
     let mut last_try = LAST_TRY.lock().await;
     let Some(saved) = read_saved().await? else {
-        return Ok(AccountStatus::signed_out());
+        return account_status(app, manager).await;
     };
     let stale = saved_profile(&dir, &saved.user_id)
         .await
@@ -289,6 +303,44 @@ pub async fn account_refresh_profile(app: AppHandle) -> AppResult<AccountStatus>
     drop(last_try);
     let saved = read_saved().await?.unwrap_or(saved);
     Ok(status_of(&dir, saved).await)
+}
+
+/// The last access token handed out and when it expires, in seconds since
+/// the epoch, so pages that watch shared chats do not each renew the sign-in.
+static ISSUED: OnceLock<tokio::sync::Mutex<Option<(String, u64)>>> = OnceLock::new();
+
+/// An access token for the signed-in account, kept until shortly before it
+/// expires. None when signed out.
+pub(crate) async fn access_token() -> AppResult<Option<String>> {
+    let Some(saved) = read_saved().await? else {
+        return Ok(None);
+    };
+    let mut issued = ISSUED
+        .get_or_init(|| tokio::sync::Mutex::new(None))
+        .lock()
+        .await;
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|elapsed| elapsed.as_secs())
+        .unwrap_or(0);
+    if let Some((token, expires)) = issued.as_ref() {
+        if *expires > now + 120 && subject(token).ok().as_deref() == Some(saved.user_id.as_str()) {
+            return Ok(Some(token.clone()));
+        }
+    }
+    let token = refreshed_access_token(&saved).await?;
+    *issued = Some((token.clone(), expiry(&token).unwrap_or(now)));
+    Ok(Some(token))
+}
+
+fn expiry(access_token: &str) -> Option<u64> {
+    #[derive(Deserialize)]
+    struct Claims {
+        exp: u64,
+    }
+    let payload = access_token.split('.').nth(1)?;
+    let bytes = URL_SAFE_NO_PAD.decode(payload).ok()?;
+    Some(serde_json::from_slice::<Claims>(&bytes).ok()?.exp)
 }
 
 /// A new access token for the saved account. When the account service hands
@@ -353,17 +405,15 @@ pub async fn account_sign_in(
     })?;
     let core = manager.client().await?;
     register_host(&core, &tokens.access_token, &user_id).await?;
-    core.set_owner(Some(user_id.clone()))
-        .await
-        .map_err(core_error)?;
     let saved = Saved {
         user_id: user_id.clone(),
         email: email.clone(),
         refresh_token,
     };
-    if let Err(error) = write_saved(&saved).await {
-        let _ = core.set_owner(None).await;
-        return Err(error);
+    write_saved(&saved).await?;
+    if let Err(error) = core.set_owner(Some(user_id.clone())).await {
+        let _ = delete_saved().await;
+        return Err(core_error(error));
     }
     let dir = profile_dir(&app)?;
     let _ = profile::forget(&dir).await;
@@ -397,6 +447,79 @@ pub async fn account_phones(manager: State<'_, PtyManager>) -> AppResult<Vec<Dev
         .map_err(core_error)?
         .devices;
     Ok(unpaired_phones(list.devices, &paired))
+}
+
+/// The other hosts on the account that this one has not linked with, newest
+/// first.
+#[tauri::command]
+pub async fn account_hosts(manager: State<'_, PtyManager>) -> AppResult<Vec<Device>> {
+    let Some(token) = access_token().await? else {
+        return Ok(Vec::new());
+    };
+    let response = http()
+        .get(api("/v1/devices"))
+        .query(&[("role", "host")])
+        .bearer_auth(token)
+        .send()
+        .await?;
+    if !response.status().is_success() {
+        return Err(api_failure(response).await);
+    }
+    let list: DeviceList = response.json().await?;
+    let core = manager.client().await?;
+    let own = core.remote_status().await.map_err(core_error)?.core_id;
+    let pairing = core
+        .call("pairing", serde_json::Value::Null)
+        .await
+        .map_err(core_error)?;
+    let linked: Vec<&str> = pairing["links"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|link| link["id"].as_str())
+        .collect();
+    Ok(list
+        .devices
+        .into_iter()
+        .filter(|device| device.role == DeviceRole::Host && device.key != own)
+        .filter(|device| !linked.contains(&device.key.as_str()))
+        .collect())
+}
+
+/// Links this host with `key`, another host on the account, with a ticket
+/// from the account, once the person there allows it. Answers with this
+/// host's devices and links.
+#[tauri::command]
+pub async fn account_link_host(
+    manager: State<'_, PtyManager>,
+    key: String,
+    name: String,
+    platform: String,
+) -> AppResult<serde_json::Value> {
+    let token = access_token()
+        .await?
+        .ok_or_else(|| AppError::Other("sign in to link this computer with another".into()))?;
+    let core = manager.client().await?;
+    let own = core.remote_status().await.map_err(core_error)?.core_id;
+    if own.is_empty() {
+        return Err(AppError::Other("the core's key has not loaded".into()));
+    }
+    let response = http()
+        .post(api(&format!("/v1/devices/{own}/join")))
+        .bearer_auth(token)
+        .json(&serde_json::json!({ "host": key }))
+        .send()
+        .await?;
+    if !response.status().is_success() {
+        return Err(api_failure(response).await);
+    }
+    let ticket: JoinTicket = response.json().await?;
+    core.call(
+        "linkHost",
+        serde_json::json!({ "ticket": ticket, "name": name, "platform": platform }),
+    )
+    .await
+    .map_err(core_error)
 }
 
 fn unpaired_phones(devices: Vec<Device>, paired: &[DeviceInfo]) -> Vec<Device> {
@@ -634,22 +757,7 @@ async fn user_info(access_token: &str) -> Option<profile::UserInfo> {
 }
 
 async fn api_failure(response: Response) -> AppError {
-    let status = response.status();
-    match response.json::<ApiError>().await {
-        Ok(body) => AppError::Other(format!(
-            "the account server refused: {}",
-            body.error.message
-        )),
-        Err(_) => AppError::Other(format!("the account server answered {status}")),
-    }
-}
-
-fn channel(build: BuildChannel) -> Channel {
-    match build {
-        BuildChannel::Dev => Channel::Dev,
-        BuildChannel::Nightly => Channel::Nightly,
-        BuildChannel::Stable => Channel::Stable,
-    }
+    AppError::Other(sikemux_host::account::refusal(response).await)
 }
 
 async fn register_host(core: &CoreClient, access_token: &str, user_id: &str) -> AppResult<Device> {
@@ -670,7 +778,7 @@ async fn register_host(core: &CoreClient, access_token: &str, user_id: &str) -> 
         key: signed.key,
         role: DeviceRole::Host,
         name: signed.name.chars().take(64).collect(),
-        platform: Platform::Macos,
+        platform: sikemux_core::server::HOST_PLATFORM,
         channel: Some(channel(signed.channel)),
         nonce: challenge.nonce,
         signature: signed.signature,
@@ -690,6 +798,7 @@ async fn register_host(core: &CoreClient, access_token: &str, user_id: &str) -> 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use sikemux_core::accounts::protocol::Platform;
 
     #[test]
     fn a_saved_sign_in_reaches_the_keychain_as_token_like_text_and_comes_back() {

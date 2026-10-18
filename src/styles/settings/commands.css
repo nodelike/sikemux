@@ -90,6 +90,7 @@
     font-size: var(--text-xs);
     line-height: 1.7;
     white-space: pre;
+    border-radius: var(--radius-3);
 }
 
 @media (max-width: 860px) {

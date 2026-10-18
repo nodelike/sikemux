@@ -22,6 +22,11 @@ export class Folds {
     return this.open.get(id) ?? otherwise;
   }
 
+  /** Which folds under `prefix` are open, as one value that changes only when one of them does. */
+  openUnder(prefix: string): string {
+    return [...this.open].flatMap(([id, open]) => (open && id.startsWith(prefix) ? [id] : [])).join('\n');
+  }
+
   set(id: string, open: boolean) {
     this.open.set(id, open);
     this.listeners.forEach((listener) => listener());

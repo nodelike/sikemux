@@ -46,11 +46,10 @@ const capability = {
   permissions: [
     "core:default",
     "core:window:allow-start-dragging",
-    "dialog:default",
-    "notification:default",
     "process:allow-restart",
     "process:allow-exit",
     "core:window:allow-show",
+    "core:window:allow-destroy",
     "core:window:allow-unminimize",
     "core:window:allow-set-focus",
     "core:webview:allow-set-webview-focus",

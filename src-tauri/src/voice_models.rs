@@ -206,13 +206,17 @@ async fn already_matches(path: &Path, file: &ModelFile) -> bool {
 }
 
 pub(crate) fn hash_file(path: &Path) -> std::io::Result<String> {
+    Ok(hex::encode(hasher_over(path)?.finalize()))
+}
+
+fn hasher_over(path: &Path) -> std::io::Result<Sha256> {
     let mut reader = File::open(path)?;
     let mut hasher = Sha256::new();
     let mut buffer = vec![0u8; 1 << 20];
     loop {
         let read = reader.read(&mut buffer)?;
         if read == 0 {
-            return Ok(hex::encode(hasher.finalize()));
+            return Ok(hasher);
         }
         hasher.update(&buffer[..read]);
     }
@@ -249,36 +253,51 @@ async fn download_as(
         .ok_or_else(|| AppError::Other(format!("{} has no parent", destination.display())))?;
     std::fs::create_dir_all(parent)?;
     let partial = PathBuf::from(format!("{}.partial", destination.display()));
-    let mut result = write_verified(url, &partial, file, &mut progress).await;
+    write_verified(url, &partial, file, &mut progress).await?;
     #[cfg(unix)]
-    if executable && result.is_ok() {
+    if executable {
         use std::os::unix::fs::PermissionsExt;
-        result = std::fs::set_permissions(&partial, std::fs::Permissions::from_mode(0o755))
-            .map_err(Into::into);
+        std::fs::set_permissions(&partial, std::fs::Permissions::from_mode(0o755))?;
     }
-    if result.is_err() {
-        let _ = std::fs::remove_file(&partial);
-    }
-    result?;
     std::fs::rename(&partial, destination)?;
     Ok(())
 }
 
+/// Downloads into `partial`, carrying on from whatever an earlier try left
+/// there. A file that turns out wrong is deleted so the next try starts clean.
 async fn write_verified(
     url: &str,
     partial: &Path,
     file: &ModelFile,
     progress: &mut impl FnMut(u64),
 ) -> AppResult<()> {
-    let response = client().get(url).send().await?.error_for_status()?;
-    let mut out = File::create(partial)?;
-    let mut hasher = Sha256::new();
-    let mut written = 0u64;
+    let kept = std::fs::metadata(partial)
+        .map(|meta| meta.len())
+        .unwrap_or(0);
+    let mut request = client().get(url);
+    if kept > 0 && kept < file.size {
+        request = request.header(reqwest::header::RANGE, format!("bytes={kept}-"));
+    }
+    let response = request.send().await?;
+    let resumed = kept > 0 && response.status() == reqwest::StatusCode::PARTIAL_CONTENT;
+    let response = response.error_for_status()?;
+    let (mut out, mut hasher, mut written) = if resumed {
+        let earlier = partial.to_path_buf();
+        let hasher = tokio::task::spawn_blocking(move || hasher_over(&earlier))
+            .await
+            .map_err(|error| AppError::Other(error.to_string()))??;
+        let out = std::fs::OpenOptions::new().append(true).open(partial)?;
+        (out, hasher, kept)
+    } else {
+        (File::create(partial)?, Sha256::new(), 0)
+    };
+    progress(written);
     let mut stream = response.bytes_stream();
     while let Some(chunk) = stream.next().await {
         let chunk = chunk?;
         written += chunk.len() as u64;
         if written > file.size {
+            let _ = std::fs::remove_file(partial);
             return Err(AppError::Http(format!(
                 "{} is larger than expected",
                 file.path
@@ -289,7 +308,14 @@ async fn write_verified(
         progress(written);
     }
     out.sync_all()?;
-    if written != file.size || hex::encode(hasher.finalize()) != file.sha256 {
+    if written < file.size {
+        return Err(AppError::Http(format!(
+            "{} stopped downloading early",
+            file.path
+        )));
+    }
+    if hex::encode(hasher.finalize()) != file.sha256 {
+        let _ = std::fs::remove_file(partial);
         return Err(AppError::Http(format!(
             "{} did not match the expected hash",
             file.path
@@ -346,6 +372,71 @@ mod tests {
             plain_relative("Encoder.mlmodelc/weights/weight.bin").unwrap(),
             PathBuf::from("Encoder.mlmodelc/weights/weight.bin")
         );
+    }
+
+    #[tokio::test]
+    async fn a_download_cut_off_halfway_carries_on_from_where_it_stopped() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let _ = rustls::crypto::ring::default_provider().install_default();
+        let body: Vec<u8> = (0..64 * 1024).map(|index| (index % 251) as u8).collect();
+        let half = body.len() / 2;
+        let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
+            .await
+            .unwrap();
+        let url = format!("http://{}/model.bin", listener.local_addr().unwrap());
+        let served = body.clone();
+        let server = tokio::spawn(async move {
+            let mut asked = Vec::new();
+            for attempt in 0..2 {
+                let (mut socket, _) = listener.accept().await.unwrap();
+                let mut request = vec![0u8; 4096];
+                let read = socket.read(&mut request).await.unwrap();
+                let request = String::from_utf8_lossy(&request[..read]).to_lowercase();
+                let range = request
+                    .lines()
+                    .find_map(|line| line.strip_prefix("range: bytes="))
+                    .map(|from| from.trim_end_matches('-').parse::<usize>().unwrap());
+                asked.push(range);
+                let head = match range {
+                    Some(from) => format!(
+                        "HTTP/1.1 206 Partial Content\r\nContent-Length: {}\r\nContent-Range: bytes {from}-{}/{}\r\n\r\n",
+                        served.len() - from,
+                        served.len() - 1,
+                        served.len()
+                    ),
+                    None => format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n", served.len()),
+                };
+                socket.write_all(head.as_bytes()).await.unwrap();
+                let from = range.unwrap_or(0);
+                let to = if attempt == 0 { half } else { served.len() };
+                socket.write_all(&served[from..to]).await.unwrap();
+                socket.shutdown().await.unwrap();
+            }
+            asked
+        });
+
+        let dir = tempfile::tempdir().unwrap();
+        let destination = dir.path().join("model.bin");
+        let file = ModelFile {
+            path: "model.bin".into(),
+            size: body.len() as u64,
+            sha256: hex::encode(Sha256::digest(&body)),
+        };
+        assert!(download(&url, &destination, &file, |_| {}).await.is_err());
+        let partial = dir.path().join("model.bin.partial");
+        assert_eq!(std::fs::metadata(&partial).unwrap().len(), half as u64);
+
+        let mut first = None;
+        download(&url, &destination, &file, |bytes| {
+            first.get_or_insert(bytes);
+        })
+        .await
+        .unwrap();
+        assert_eq!(first, Some(half as u64));
+        assert_eq!(std::fs::read(&destination).unwrap(), body);
+        assert!(!partial.exists());
+        assert_eq!(server.await.unwrap(), vec![None, Some(half)]);
     }
 
     #[tokio::test]

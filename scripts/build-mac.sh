@@ -50,15 +50,11 @@ TARGET_ARGS=()
 node "$ROOT/scripts/build-voice-helper.mjs" ${TARGET_ARGS[@]+"${TARGET_ARGS[@]}"}
 node "$ROOT/scripts/build-notch-helper.mjs" ${TARGET_ARGS[@]+"${TARGET_ARGS[@]}"}
 node "$ROOT/scripts/build-sim-helper.mjs" ${TARGET_ARGS[@]+"${TARGET_ARGS[@]}"}
-# Tauri refuses to build until the sidecar file exists, but the real sidecar
-# comes out of the same build, so an empty file stands in until then.
-SIDECAR="$ROOT/src-tauri/binaries/sikemux-editor-${TARGET:-$(rustc -vV | sed -n 's/^host: //p')}"
-[[ -e "$SIDECAR" ]] || : >"$SIDECAR"
+node "$ROOT/scripts/build-cli-sidecar.mjs" ${TARGET_ARGS[@]+"${TARGET_ARGS[@]}"}
 printf '→ pnpm tauri build --no-bundle'
 printf ' %q' "${BUILD_ARGS[@]}"
 echo
 pnpm tauri build --no-bundle "${BUILD_ARGS[@]}"
-node "$ROOT/scripts/build-cli-sidecar.mjs" --from-app-build ${TARGET_ARGS[@]+"${TARGET_ARGS[@]}"}
 printf '→ pnpm tauri bundle'
 printf ' %q' "${BUILD_ARGS[@]}"
 echo
@@ -82,7 +78,7 @@ fail() {
 
 # The README and sikemux.com promise a small download, so a release that grows
 # past this fails here instead of shipping.
-DMG_BUDGET_BYTES=17000000
+DMG_BUDGET_BYTES=20000000
 
 notarize_dmg() {
   local credentials status

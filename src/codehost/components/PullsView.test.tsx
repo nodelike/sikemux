@@ -127,11 +127,10 @@ it("reads a pull request in the git pane's columns: its card and files on the le
     expect(await within(right).findByText("1 file")).toBeInTheDocument();
 });
 
-it("lists the pull request's commits in the history fold, newest first, and shows one's files on the right", async () => {
+it("lists the pull request's commits on the side panel's Commits page, newest first, and shows one's files on the right", async () => {
     const user = userEvent.setup();
     render(view(31));
-    const toggle = await screen.findByRole("button", { name: /^Commits/ });
-    await waitFor(() => expect(toggle).toHaveTextContent("2"));
+    await user.click(await screen.findByRole("tab", { name: "Commits" }));
 
     const rows = await screen.findAllByRole("button", { name: /feat: / });
     expect(rows.map((row) => row.getAttribute("aria-label"))).toEqual(["bbbbbbb feat: second", "aaaaaaa feat: first"]);
@@ -221,7 +220,7 @@ describe("the list", () => {
         resetView("p-git");
     });
 
-    it("shows how CI went on each one's head commit", async () => {
+    it("shows how CI went on each one's head commit, asking for an older one's own runs", async () => {
         const run = (sha: string, conclusion: string): Run => ({
             id: `${sha}-${conclusion}`,
             name: "CI",
@@ -248,11 +247,17 @@ describe("the list", () => {
             { ...pull, headSha: "abc" },
             { ...pull, number: 32, title: "untested", headSha: "def" },
         ]);
-        api.runs.mockResolvedValue({ runs: [run("abc", "success"), run("abc", "failure"), run("zzz", "success")], total: 3 });
+        api.runs.mockImplementation(((query: { headSha?: string }) =>
+            Promise.resolve(
+                query.headSha === "def"
+                    ? { runs: [run("def", "success")], total: 1 }
+                    : { runs: [run("abc", "success"), run("abc", "failure"), run("zzz", "success")], total: 3 },
+            )) as unknown as () => Promise<{ runs: Run[]; total: number }>);
         render(view(null));
         await screen.findByText("the run page");
-        await waitFor(() => expect(document.querySelectorAll(".pr-row-ci")[0]).toHaveTextContent("Failed"));
-        expect(document.querySelectorAll(".pr-row-ci")[1]).toBeEmptyDOMElement();
+        const ciOf = (title: string) => screen.getByText(title).closest(".pr-row")?.querySelector(".pr-ci");
+        await waitFor(() => expect(ciOf("the run page")).toHaveAttribute("data-outcome", "failure"));
+        await waitFor(() => expect(ciOf("untested")).toHaveAttribute("data-outcome", "success"));
     });
 });
 
@@ -338,12 +343,10 @@ describe("an open pull request", () => {
 
     it("offers no checkout of a fork's branch on a host that cannot fetch it, nor outside the project", async () => {
         detail({ headLabel: "someone-else:feat/run-page" });
-        await within(leftColumn()).findByRole("button", { name: "Merge pull request" });
-        expect(within(leftColumn()).queryByRole("button", { name: /Check out/ })).toBeNull();
+        expect(await within(leftColumn()).findByRole("button", { name: /Check out/ })).toBeDisabled();
         cleanup();
         detail({}, { cwd: null });
-        await within(leftColumn()).findByRole("button", { name: "Merge pull request" });
-        expect(within(leftColumn()).queryByRole("button", { name: /Check out/ })).toBeNull();
+        expect(await within(leftColumn()).findByRole("button", { name: /Check out/ })).toBeDisabled();
     });
 
     it("does not offer approving to its own author", async () => {

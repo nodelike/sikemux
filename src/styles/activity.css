@@ -88,7 +88,7 @@
 }
 .activity-metrics button[aria-pressed="true"] {
     border-color: var(--border);
-    background: var(--surface-selected);
+    background: var(--surface-chosen);
     color: var(--text-primary);
 }
 .activity-metrics button:focus-visible {

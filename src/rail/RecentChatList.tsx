@@ -1,24 +1,24 @@
 import { useState } from "react";
 import type { AgentInfo, RecentChat } from "../api/agents";
-import { selectedProviderProfile } from "../agents/agentProfiles";
 import { canDeleteChats } from "../agents/catalog";
 import { AgentTitleInput } from "../agents/AgentTitleInput";
 import * as cmd from "../state/commands";
 import { projectSessionId } from "../state/selectors";
 import { useStore } from "../state/store";
-import { AgentIcon } from "../ui/Icons";
+import { AgentIcon, IconMessage, IconPencil, IconPin, IconTrash } from "../ui/Icons";
 import { Panel, PanelHeader } from "../ui/Panel";
 import { TreeContextMenu } from "./FileTree";
 import { chatKey, type RecentChats } from "./useRecentChats";
 import { formatAge } from "../lib/format";
+import { basename } from "../lib/paths";
+import { AgentRowProject } from "./AgentRowTree";
 
 /** Saved chats, each resumed in the project it ran in. */
 export function RecentChatList({ recent, providers }: { recent: RecentChats; providers: AgentInfo[] }) {
     const sessions = useStore((s) => s.sessions);
     const sessionOrder = useStore((s) => s.sessionOrder);
     const activeSessionId = useStore((s) => s.activeSessionId);
-    const profiles = useStore((s) => s.providerProfiles);
-    const profileSelections = useStore((s) => s.selectedProviderProfileIds);
+    const allProjects = useStore((s) => s.tabRailScope === "all");
     const [renaming, setRenaming] = useState<string | null>(null);
     const [menu, setMenu] = useState<{ chat: RecentChat; x: number; y: number } | null>(null);
 
@@ -30,15 +30,7 @@ export function RecentChatList({ recent, providers }: { recent: RecentChats; pro
         return id ? sessions[id] : undefined;
     };
 
-    const open = (chat: RecentChat) => {
-        const project = projectOf(chat);
-        cmd.addAgent(chat.agent, chat.id, chat.title, {
-            sessionId: project?.id,
-            profileId: selectedProviderProfile(chat.agent, profiles, profileSelections)?.id,
-            detectedExecutablePath: providerOf(chat)?.command,
-        });
-        if (project && project.id !== activeSessionId) cmd.selectSession(project.id);
-    };
+    const open = (chat: RecentChat) => cmd.openSavedChat(chat, { detectedExecutablePath: providerOf(chat)?.command });
 
     const rename = (chat: RecentChat, title: string) => {
         const provider = providerOf(chat);
@@ -93,19 +85,23 @@ export function RecentChatList({ recent, providers }: { recent: RecentChats; pro
                         <span className="agent-ago">{formatAge(chat.mtime * 1000)}</span>
                     </div>
                 ) : (
-                    <button
-                        key={key}
-                        className="agent-row recent"
-                        title={elsewhere}
-                        onClick={() => open(chat)}
-                        onContextMenu={(event) => {
-                            event.preventDefault();
-                            setMenu({ chat, x: event.clientX, y: event.clientY });
-                        }}>
-                        {glyph}
-                        <span className="agent-title">{chat.title}</span>
-                        <span className="agent-ago">{formatAge(chat.mtime * 1000)}</span>
-                    </button>
+                    <div key={key} className="agent-recent">
+                        <button
+                            className={`agent-row recent${allProjects ? " two-line" : ""}`}
+                            title={elsewhere}
+                            onClick={() => open(chat)}
+                            onContextMenu={(event) => {
+                                event.preventDefault();
+                                setMenu({ chat, x: event.clientX, y: event.clientY });
+                            }}>
+                            {glyph}
+                            <span className="agent-row-text">
+                                <span className="agent-title">{chat.title}</span>
+                                {allProjects && <AgentRowProject name={project?.name ?? basename(chat.project)} />}
+                            </span>
+                            <span className="agent-ago">{formatAge(chat.mtime * 1000)}</span>
+                        </button>
+                    </div>
                 );
             })}
             {menu && (
@@ -113,9 +109,16 @@ export function RecentChatList({ recent, providers }: { recent: RecentChats; pro
                     x={menu.x}
                     y={menu.y}
                     items={[
-                        { label: "Open", run: () => open(menu.chat) },
-                        { label: "Rename…", run: () => setRenaming(chatKey(menu.chat)) },
-                        ...(canDeleteChats(menu.chat.agent) ? [{ sep: true }, { label: "Delete…", danger: true, run: () => remove(menu.chat) }] : []),
+                        { label: "Open", icon: <IconMessage size={13} />, run: () => open(menu.chat) },
+                        { label: "Rename…", icon: <IconPencil size={13} />, run: () => setRenaming(chatKey(menu.chat)) },
+                        {
+                            label: "Pin",
+                            icon: <IconPin size={13} />,
+                            run: () => cmd.pinChat({ agent: menu.chat.agent, id: menu.chat.id, title: menu.chat.title, project: menu.chat.project }),
+                        },
+                        ...(canDeleteChats(menu.chat.agent)
+                            ? [{ sep: true }, { label: "Delete…", icon: <IconTrash size={13} />, danger: true, run: () => remove(menu.chat) }]
+                            : []),
                     ]}
                     onClose={() => setMenu(null)}
                 />

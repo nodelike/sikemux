@@ -2,10 +2,12 @@ use std::sync::OnceLock;
 use std::time::Duration;
 
 use futures::StreamExt;
-use reqwest::{Client, Method, Response};
+use reqwest::{Client, Method, RequestBuilder, Response, StatusCode};
 use serde_json::Value;
 
+use crate::config::Site;
 use crate::error::{JiraError, JiraResult};
+use crate::oauth;
 
 const MAX_RESPONSE_BYTES: usize = 16 * 1024 * 1024;
 
@@ -17,8 +19,16 @@ pub struct Credentials {
 }
 
 pub enum Auth {
-    Basic { email: String, token: String },
+    Basic {
+        email: String,
+        token: String,
+    },
     Bearer(String),
+    /// A kept browser sign-in, whose access token is renewed once if Jira stops taking it.
+    Atlassian {
+        site: Site,
+        token: String,
+    },
 }
 
 pub fn http() -> JiraResult<&'static Client> {
@@ -89,19 +99,14 @@ pub async fn send(
     query: &[(&str, String)],
     body: Option<&Value>,
 ) -> JiraResult<Value> {
-    let request = http()?.request(method, format!("{}{path}", credentials.url));
-    let mut request = match &credentials.auth {
-        Auth::Basic { email, token } => request.basic_auth(email, Some(token)),
-        Auth::Bearer(token) => request.bearer_auth(token),
+    let (mut status, mut bytes) = send_once(credentials, None, &method, path, query, body).await?;
+    if status == StatusCode::UNAUTHORIZED {
+        if let Auth::Atlassian { site, token } = &credentials.auth {
+            let renewed = oauth::renew(site, token).await?;
+            (status, bytes) =
+                send_once(credentials, Some(&renewed), &method, path, query, body).await?;
+        }
     }
-    .header("Accept", "application/json")
-    .query(query);
-    if let Some(body) = body {
-        request = request.json(body);
-    }
-    let response = request.send().await?;
-    let status = response.status();
-    let bytes = read_limited(response).await?;
     let parsed: Value = if bytes.is_empty() {
         Value::Null
     } else {
@@ -123,6 +128,77 @@ pub async fn send(
         status: status.as_u16(),
         message,
     })
+}
+
+/// A picture the site gives only to someone signed in, such as a project's avatar: its
+/// content type and its bytes.
+pub async fn fetch(
+    credentials: &Credentials,
+    path: &str,
+    query: &[(String, String)],
+) -> JiraResult<(Option<String>, Vec<u8>)> {
+    let get = |renewed: Option<String>| {
+        signed(
+            http().map(|client| client.get(format!("{}{path}", credentials.url))),
+            credentials,
+            renewed.as_deref(),
+        )
+        .map(|request| request.header("Accept", "image/*").query(query))
+    };
+    let mut response = get(None)?.send().await?;
+    if response.status() == StatusCode::UNAUTHORIZED {
+        if let Auth::Atlassian { site, token } = &credentials.auth {
+            response = get(Some(oauth::renew(site, token).await?))?.send().await?;
+        }
+    }
+    let status = response.status();
+    if !status.is_success() {
+        return Err(JiraError::Http {
+            status: status.as_u16(),
+            message: "the picture did not load".into(),
+        });
+    }
+    let kind = response
+        .headers()
+        .get("content-type")
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_string);
+    Ok((kind, read_limited(response).await?))
+}
+
+fn signed(
+    request: JiraResult<RequestBuilder>,
+    credentials: &Credentials,
+    renewed: Option<&str>,
+) -> JiraResult<RequestBuilder> {
+    let request = request?;
+    Ok(match (&credentials.auth, renewed) {
+        (_, Some(token)) => request.bearer_auth(token),
+        (Auth::Bearer(token) | Auth::Atlassian { token, .. }, None) => request.bearer_auth(token),
+        (Auth::Basic { email, token }, None) => request.basic_auth(email, Some(token)),
+    })
+}
+
+/// `renewed` stands in for the access token the credentials were made with.
+async fn send_once(
+    credentials: &Credentials,
+    renewed: Option<&str>,
+    method: &Method,
+    path: &str,
+    query: &[(&str, String)],
+    body: Option<&Value>,
+) -> JiraResult<(StatusCode, Vec<u8>)> {
+    let request =
+        http().map(|client| client.request(method.clone(), format!("{}{path}", credentials.url)));
+    let mut request = signed(request, credentials, renewed)?
+        .header("Accept", "application/json")
+        .query(query);
+    if let Some(body) = body {
+        request = request.json(body);
+    }
+    let response = request.send().await?;
+    let status = response.status();
+    Ok((status, read_limited(response).await?))
 }
 
 #[cfg(test)]

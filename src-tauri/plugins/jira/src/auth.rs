@@ -33,7 +33,10 @@ pub async fn credentials(data_dir: &Path, host: Option<&str>) -> JiraResult<(Sit
         }
         SiteSignIn::Atlassian { cloud_id } => Credentials {
             url: format!("{}/{cloud_id}", oauth::API_URL),
-            auth: Auth::Bearer(oauth::access_token(&site).await?),
+            auth: Auth::Atlassian {
+                site: site.clone(),
+                token: oauth::access_token(&site).await?,
+            },
         },
     };
     Ok((site, credentials))

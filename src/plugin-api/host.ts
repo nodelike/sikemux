@@ -1,4 +1,4 @@
-import { open as openDialog } from "@tauri-apps/plugin-dialog";
+import { dialogsApi } from "../api/dialogs";
 import { invokeCommand } from "../api/invoke";
 import { subscribe } from "../state/bus";
 import * as cmd from "../state/commands";
@@ -8,6 +8,9 @@ import { notify, reportError } from "../state/toast";
 import type { PluginKind } from "../plugins/kinds";
 import type { GitStatus } from "../api/git";
 import type { GitArea } from "../state/types";
+import type { BoardCard, CardTicket, NewCard, ProjectBoard } from "../agents/agentBoard";
+import { agentBoardApi } from "../api/agentBoard";
+import { nearestProjectSessionId } from "../agents/agentTargets";
 
 export { fsapi as files, type DirEntry } from "../api/fs";
 export { git } from "../api/git";
@@ -49,12 +52,90 @@ export function focusSignInBrowser(): Promise<void> {
     return invokeCommand<void>("macos_focus_app", { app: cloudBrowser, shortcut: cloudBrowserShortcut || null });
 }
 
+function clipped(text: string, max: number, tail: string): string {
+    const points = Array.from(text);
+    return points.length > max ? points.slice(0, max).join("") + tail : text;
+}
+
+export interface TicketCard {
+    title: string;
+    details: string;
+    ticket: CardTicket;
+}
+
+function fitted(card: TicketCard): NewCard {
+    return {
+        ...card,
+        title: clipped(card.title.replace(/\s+/g, " ").trim(), 199, "…"),
+        details: clipped(card.details, 4000, "\n\n[Cut short; the ticket has the rest.]"),
+    };
+}
+
+function ticketCard(board: ProjectBoard, key: string): BoardCard | undefined {
+    return board.cards.find((card) => card.ticket?.key.toLowerCase() === key.toLowerCase());
+}
+
+/**
+ * Puts a ticket on the board of the nearest open project as a card, with its subtasks as cards under it. It waits
+ * on the tickets that block it, and the tickets it blocks wait on it, when those are on the board too. Only the
+ * person does this.
+ */
+export async function sendToBoard(card: TicketCard & { subtasks?: TicketCard[]; blockedBy?: string[]; blocks?: string[] }): Promise<boolean> {
+    const state = getState();
+    const session = state.sessions[nearestProjectSessionId(state) ?? ""];
+    const folder = session?.cwd;
+    if (!folder) {
+        notify("error", "Open a project to put this on its board");
+        return false;
+    }
+    let board: ProjectBoard;
+    try {
+        board = await agentBoardApi.add(folder, fitted(card));
+    } catch (error) {
+        reportError("send to the board")(error);
+        return false;
+    }
+    const made = ticketCard(board, card.ticket.key);
+    const then = async (label: string, work: () => Promise<ProjectBoard>) => {
+        try {
+            board = await work();
+        } catch (error) {
+            reportError(label)(error);
+        }
+    };
+    if (made) {
+        for (const sub of card.subtasks ?? []) {
+            const there = ticketCard(board, sub.ticket.key);
+            if (!there) await then(`put ${sub.ticket.key} under it`, () => agentBoardApi.add(folder, { ...fitted(sub), parent: made.id }));
+            else if (there.parent === null)
+                await then(`put ${sub.ticket.key} under it`, () => agentBoardApi.update(folder, there.id, { parent: made.id }));
+        }
+        const waits = (card.blockedBy ?? []).flatMap((key) => ticketCard(board, key)?.id ?? []);
+        if (waits.length > 0) await then("make it wait on its blockers", () => agentBoardApi.update(folder, made.id, { dependsOn: waits }));
+        for (const key of card.blocks ?? []) {
+            const blocked = ticketCard(board, key);
+            if (blocked && !blocked.dependsOn.includes(made.id)) {
+                await then(`make ${key} wait on it`, () => agentBoardApi.update(folder, blocked.id, { dependsOn: [...blocked.dependsOn, made.id] }));
+            }
+        }
+    }
+    cmd.setAgentBoard(folder, board);
+    notify("success", `put ${card.ticket.key} on ${session.name}'s board`);
+    return true;
+}
+
 /** The folder of the project in front of the person, or null when a project is not what they are looking at. */
 export function useActiveProjectCwd(): string | null {
     return useStore((s) => {
         const session = s.sessions[s.activeSessionId];
         return session?.kind === "project" && session.cwd ? session.cwd : null;
     });
+}
+
+/** The project in front, or else the one the person last had in front, or else the first one open. */
+export function useNearestProject(): { name: string; cwd: string } | null {
+    const session = useStore((s) => s.sessions[nearestProjectSessionId(s) ?? ""]);
+    return session?.cwd ? { name: session.name, cwd: session.cwd } : null;
 }
 
 function surfacePane(state: StoreState, kind: PluginKind, activeOnly: boolean): string | null {
@@ -74,15 +155,28 @@ export function activeSurfacePane(kind: PluginKind): string | null {
 }
 
 /** Asks the person for a folder; null when they cancel. */
-export async function pickFolder(title: string): Promise<string | null> {
-    const picked = await openDialog({ directory: true, multiple: false, title });
-    return typeof picked === "string" ? picked : null;
+export function pickFolder(title: string): Promise<string | null> {
+    return dialogsApi.pickFolder({ title });
 }
 
 /** Asks the person for a file, offering only these extensions when any are given; null when they cancel. */
-export async function pickFile(title: string, filter?: { name: string; extensions: string[] }): Promise<string | null> {
-    const picked = await openDialog({ directory: false, multiple: false, title, filters: filter ? [filter] : undefined });
-    return typeof picked === "string" ? picked : null;
+export function pickFile(title: string, filter?: { name: string; extensions: string[] }): Promise<string | null> {
+    return dialogsApi.pickFile({ title, filters: filter ? [filter] : undefined });
+}
+
+/** Runs a program in a terminal over the window, settling once the person closes it. */
+export function runInTerminal(title: string, argv: string[]): Promise<void> {
+    const command = argv.map(cmd.shellQuote).join(" ");
+    cmd.runCustomCommand({ id: `plugin-terminal:${title}`, title, detail: "", command, contexts: [], placement: "popup" });
+    const opened = getState().commandPopup;
+    if (!opened) return Promise.resolve();
+    return new Promise((resolve) => {
+        const stop = useStore.subscribe((state) => {
+            if (state.commandPopup?.id === opened.id) return;
+            stop();
+            resolve();
+        });
+    });
 }
 
 /** Brings this surface's session forward, opening it if needed, and returns the pane it shows in. */

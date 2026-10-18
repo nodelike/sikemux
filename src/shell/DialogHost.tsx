@@ -1,6 +1,6 @@
 import { useModalFocus } from "../hooks/useModalFocus";
 import { useEffect, useRef, useState } from "react";
-import { acceptDialog, dismissDialog, useDialogs, type PendingDialog } from "../state/dialog";
+import { acceptDialog, chooseOther, dismissDialog, useDialogs, type PendingDialog } from "../state/dialog";
 import { useOccludeNativeViews } from "../state/nativeViews";
 import { IconInfo, IconWarning } from "../ui/Icons";
 import { Kbd } from "../ui/Kbd";
@@ -28,7 +28,7 @@ function DialogSheet({ dialog }: { dialog: PendingDialog }) {
     const accept = () => acceptDialog(dialog.id, value);
     const dismiss = () => dismissDialog(dialog.id);
     // Destructive confirms focus cancel so a stray Return never deletes anything.
-    const destructive = dialog.kind === "confirm" && !!dialog.destructive;
+    const destructive = dialog.kind !== "prompt" && !!dialog.destructive;
 
     useEffect(() => {
         if (dialog.kind === "prompt") {
@@ -74,7 +74,7 @@ function DialogSheet({ dialog }: { dialog: PendingDialog }) {
                         ))}
                     </div>
                 )}
-                {dialog.kind === "confirm" && dialog.commands && dialog.commands.length > 0 && (
+                {dialog.kind !== "prompt" && dialog.commands && dialog.commands.length > 0 && (
                     <ul className="dlg-commands">
                         {dialog.commands.map((entry, i) => (
                             <li key={i}>
@@ -111,6 +111,11 @@ function DialogSheet({ dialog }: { dialog: PendingDialog }) {
                     <button ref={cancelRef} type="button" className="dlg-btn" onClick={dismiss}>
                         {dialog.cancelLabel ?? "Cancel"}
                     </button>
+                    {dialog.kind === "choice" && (
+                        <button type="button" className="dlg-btn" onClick={() => chooseOther(dialog.id)}>
+                            {dialog.otherLabel}
+                        </button>
+                    )}
                     <button
                         ref={confirmRef}
                         type="button"

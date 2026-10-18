@@ -51,7 +51,6 @@ export interface ActivityModel {
 }
 
 export interface ActivityPricing {
-    status: "fresh" | "cached" | "unavailable";
     fetchedAtMs: number | null;
 }
 

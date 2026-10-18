@@ -1,4 +1,5 @@
 import { lazy, memo, Suspense, useCallback, useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from "react";
+import { defaultRepoAmong, isMissingRepository } from "./projectRepo";
 import {
     git,
     hasUnstaged,
@@ -28,13 +29,26 @@ import type { Pull } from "../codehost/types";
 import { FileIcon } from "../ui/FileIcon";
 import { TreeContextMenu, type CtxItem } from "../rail/FileTree";
 import {
+    AgentIcon,
     IconCheckout,
     IconChevron,
+    IconCollapseAll,
+    IconCommit,
+    IconExpandAll,
+    IconFilePlus,
+    IconInbox,
+    IconGlobe,
+    IconLaptop,
+    IconStash,
     IconCopy,
     IconDiscard,
     IconFetch,
     IconFile,
     IconGit,
+    IconStar,
+    IconKeyboard,
+    IconLink,
+    IconLogLines,
     IconMerge,
     IconMinus,
     IconMore,
@@ -43,11 +57,15 @@ import {
     IconPull,
     IconPullRequest,
     IconPush,
+    IconRefresh,
     IconSearch,
+    IconStack,
     IconTrash,
     IconWarning,
 } from "../ui/Icons";
 import { Tooltip } from "../ui/Tooltip";
+import { SwipePages } from "../ui/SwipePages";
+import { withShortcut } from "../commands/useShortcutLabel";
 import { GitCmdLogBar } from "./GitCmdLogBar";
 import { GitComposer } from "./GitComposer";
 import { AuthorAvatar } from "./AuthorAvatar";
@@ -55,22 +73,29 @@ import { GitGraph } from "./GitGraph";
 import { GitModalRenderer } from "./GitModalRenderer";
 import { VirtualPanelRows } from "./VirtualPanelRows";
 import { gitStatusDecoration } from "./gitFileStatus";
+import { fileAuthors, useChangeOwners } from "./changeOwners";
+import { FileAgentFaces } from "./FileAgentFaces";
+import { CommitAgents, useCommitOwners } from "./CommitAgents";
 import { GitColumns } from "./GitColumns";
-import { HISTORY_CLEARANCE, HISTORY_MIN, ResizeHandle } from "./ResizeHandle";
+import { useGitShell } from "../codehost/shellContext";
+import { ShellAccount } from "../codehost/components/Bits";
+import type { Notification } from "../codehost/api";
 import { SkeletonRows } from "../ui/Skeleton";
 import { EmptyState } from "../ui/Panel";
 import { AI_MODELS, AI_PROVIDER_LABEL, GIT_HELP, GIT_PANEL_BY_KEY, defaultAiModel } from "./gitPaneConstants";
 import { filterByQuery, isInRange } from "./gitPaneLogic";
 import type { GitAiProvider } from "./gitPaneTypes";
-import { basename as basenameOf, dirname } from "../lib/paths";
+import { basename as basenameOf, dirname, joinPath } from "../lib/paths";
 
 const CommitReview = lazy(() => import("./CommitReview").then((module) => ({ default: memo(module.CommitReview) })));
 const MergeReview = lazy(() => import("./MergeReview").then((module) => ({ default: memo(module.MergeReview) })));
+const InboxList = lazy(() => import("../codehost/components/InboxView").then((module) => ({ default: module.InboxList })));
+const InboxDetail = lazy(() => import("../codehost/components/InboxView").then((module) => ({ default: module.InboxDetail })));
 
 const ROW_HEIGHT = 26;
 
 type Side = "staged" | "unstaged";
-type FileEntry = { kind: "group"; side: Side; count: number } | { kind: "file"; side: Side; file: GitFile };
+type FileEntry = { kind: "group"; side: Side; count: number; folded: boolean } | { kind: "file"; side: Side; file: GitFile };
 type BranchEntry =
     | { kind: "local"; branch: GitBranch }
     | { kind: "remote"; remote: GitRemote; open: boolean }
@@ -78,6 +103,16 @@ type BranchEntry =
 
 const branchEntryKey = (entry: BranchEntry) =>
     entry.kind === "local" ? `l:${entry.branch.name}` : entry.kind === "remote" ? `r:${entry.remote.name}` : `rb:${entry.branch.full_ref}`;
+
+function movedTo(file: GitFile, side: Side | undefined): GitFile {
+    if (side === "staged" && hasUnstaged(file))
+        return { ...file, index: isStaged(file) ? file.index : file.worktree === "?" ? "A" : file.worktree, worktree: " " };
+    if (side === "unstaged" && isStaged(file)) {
+        const worktree = hasUnstaged(file) ? file.worktree : file.index === "A" ? "?" : file.index;
+        return { ...file, index: worktree === "?" ? "?" : " ", worktree };
+    }
+    return file;
+}
 
 const firstLine = (text: string) => text.trim().split("\n")[0] ?? "";
 
@@ -113,7 +148,6 @@ function GitWorkbench({
     onLeaveRepo: (() => void) | null;
 }) {
     const paneRootRef = useRef<HTMLDivElement>(null);
-    const historyRef = useRef<HTMLDivElement>(null);
     const storedView = useStore((s) => s.gitViews[paneId]);
     const view = {
         ...DEFAULT_GIT_VIEW,
@@ -141,7 +175,13 @@ function GitWorkbench({
     const status = repo ? (overview.data?.status ?? null) : null;
     const branches = useMemo(() => (repo ? (overview.data?.branches ?? []) : []), [repo, overview.data?.branches]);
     const commits = useMemo(() => (repo ? (overview.data?.log ?? []) : []), [repo, overview.data?.log]);
-    const files = useMemo(() => status?.files ?? [], [status?.files]);
+    const [pendingSides, setPendingSides] = useState<ReadonlyMap<string, Side>>(new Map());
+    const files = useMemo(() => {
+        const listed = status?.files ?? [];
+        return pendingSides.size ? listed.map((file) => movedTo(file, pendingSides.get(file.path))) : listed;
+    }, [status?.files, pendingSides]);
+    const owners = useChangeOwners(repo, false, fetching && panel !== "branches");
+    const stagedOwners = useChangeOwners(repo, true, fetching && panel !== "branches" && files.some((file) => isStaged(file) && hasUnstaged(file)));
     const remotes = useMemo(() => (repo ? (remotesRes.data ?? []) : []), [repo, remotesRes.data]);
     const stashes = useMemo(() => (repo ? (stashesRes.data ?? []) : []), [repo, stashesRes.data]);
     const remoteBranches = useMemo(() => (repo && openRemote ? (remoteBranchesRes.data ?? []) : []), [repo, openRemote, remoteBranchesRes.data]);
@@ -156,9 +196,10 @@ function GitWorkbench({
     const busy = sharedOperation?.busy ? sharedOperation.label : localBusy;
     const generating = !!sharedOperation?.busy && sharedOperation.label.startsWith("Generate message");
     const [menu, setMenu] = useState<{ x: number; y: number; items: CtxItem[]; alignRight: boolean } | null>(null);
+    const [inboxOpen, setInboxOpen] = useState(false);
+    const [notification, setNotification] = useState<Notification | null>(null);
     const [queries, setQueries] = useState<Record<GitPanel, string>>({ files: "", commits: "", branches: "" });
     const [fileFilterOpen, setFileFilterOpen] = useState(false);
-    const [commitSearchOpen, setCommitSearchOpen] = useState(false);
     const filterInputs = useRef<Record<GitPanel, HTMLInputElement | null>>({ files: null, commits: null, branches: null });
     const [rangeAnchor, setRangeAnchor] = useState<number | null>(null);
 
@@ -176,27 +217,36 @@ function GitWorkbench({
         if (fileFilterOpen) filterInputs.current.files?.focus();
     }, [fileFilterOpen]);
 
-    useEffect(() => {
-        if (commitSearchOpen) filterInputs.current.commits?.focus();
-    }, [commitSearchOpen]);
-
     const filteredFiles = useMemo(() => filterByQuery(files, queries.files, (f) => [f.path]), [files, queries.files]);
     const filteredCommits = useMemo(() => filterByQuery(commits, queries.commits, (c) => [c.subject, c.hash, c.author]), [commits, queries.commits]);
+    const commitOwners = useCommitOwners(repo, commits);
     const stagedFiles = useMemo(() => filteredFiles.filter(isStaged), [filteredFiles]);
     const unstagedFiles = useMemo(() => filteredFiles.filter(hasUnstaged), [filteredFiles]);
 
+    const [foldedSides, setFoldedSides] = useState<ReadonlySet<Side>>(new Set());
+    const [reviewFold, setReviewFold] = useState({ folded: false, seq: 0 });
+    const toggleSide = (side: Side) =>
+        setFoldedSides((current) => {
+            const next = new Set(current);
+            if (!next.delete(side)) next.add(side);
+            return next;
+        });
     const fileEntries = useMemo<FileEntry[]>(() => {
-        const side = (name: Side, list: GitFile[]): FileEntry[] =>
-            list.length
-                ? [{ kind: "group", side: name, count: list.length }, ...list.map((file) => ({ kind: "file" as const, side: name, file }))]
-                : [];
+        const side = (name: Side, list: GitFile[]): FileEntry[] => {
+            if (!list.length) return [];
+            const folded = foldedSides.has(name);
+            const group: FileEntry = { kind: "group", side: name, count: list.length, folded };
+            return folded ? [group] : [group, ...list.map((file) => ({ kind: "file" as const, side: name, file }))];
+        };
         return [...side("staged", stagedFiles), ...side("unstaged", unstagedFiles)];
-    }, [stagedFiles, unstagedFiles]);
+    }, [stagedFiles, unstagedFiles, foldedSides]);
 
+    const [localFolded, setLocalFolded] = useState(false);
+    const branchQuery = queries.branches.toLowerCase();
+    const localBranches = useMemo(() => branches.filter((b) => !branchQuery || b.name.toLowerCase().includes(branchQuery)), [branches, branchQuery]);
     const branchEntries = useMemo<BranchEntry[]>(() => {
-        const q = queries.branches.toLowerCase();
-        const match = (name: string) => !q || name.toLowerCase().includes(q);
-        const entries: BranchEntry[] = branches.filter((b) => match(b.name)).map((branch) => ({ kind: "local", branch }));
+        const match = (name: string) => !branchQuery || name.toLowerCase().includes(branchQuery);
+        const entries: BranchEntry[] = localFolded ? [] : localBranches.map((branch) => ({ kind: "local", branch }));
         for (const remote of remotes) {
             const open = remote.name === openRemote;
             entries.push({ kind: "remote", remote, open });
@@ -205,21 +255,27 @@ function GitWorkbench({
                     if (!branch.is_head_pointer && match(branch.name)) entries.push({ kind: "remoteBranch", remote: remote.name, branch });
         }
         return entries;
-    }, [branches, remotes, remoteBranches, openRemote, queries.branches]);
+    }, [localBranches, localFolded, remotes, remoteBranches, openRemote, branchQuery]);
 
     const lenFor = (p: GitPanel) => (p === "files" ? fileEntries.length : p === "commits" ? filteredCommits.length : branchEntries.length);
     const clampSel = (p: GitPanel) => Math.max(0, Math.min(lenFor(p) - 1, sel[p]));
     const selectedFileEntry = fileEntries[clampSel("files")];
     const selectedFile = selectedFileEntry?.kind === "file" ? selectedFileEntry : fileEntries.find((e) => e.kind === "file");
     const selectedFileIndex = selectedFile ? fileEntries.indexOf(selectedFile) : -1;
+    // Folding a group hides its rows, not the file the review is following.
+    const lastReviewed = useRef<string | undefined>(undefined);
+    useEffect(() => {
+        if (selectedFile) lastReviewed.current = selectedFile.file.path;
+    }, [selectedFile]);
+    const reviewFocus = selectedFile?.file.path ?? (files.some((file) => file.path === lastReviewed.current) ? lastReviewed.current : undefined);
     const selectedCommit = filteredCommits[clampSel("commits")];
     const selectedBranchEntry = branchEntries[clampSel("branches")];
 
-    const setPanel = (p: GitPanel) => cmd.setGitView(paneId, { panel: p });
+    const setPanel = (p: GitPanel) => {
+        setInboxOpen(false);
+        cmd.setGitView(paneId, { panel: p });
+    };
     const setSel = (p: GitPanel, index: number) => cmd.setGitView(paneId, { panel: p, selected: { ...sel, [p]: index } });
-    const historyOpen = view.historyOpen;
-    const setHistoryOpen = (open: boolean) =>
-        cmd.setGitView(paneId, open ? { historyOpen: true } : { historyOpen: false, panel: panel === "commits" ? "files" : panel });
     const setOpenRemote = (name: string | null) => cmd.setGitView(paneId, { openRemote: name });
 
     const errorTimerRef = useRef<number | undefined>(undefined);
@@ -264,10 +320,42 @@ function GitWorkbench({
 
     // ---- Changes ----
 
-    const stageFile = (file: GitFile) => void run("", () => git.stage(repo, file.path));
-    const unstageFile = (file: GitFile) => void run("", () => git.unstage(repo, file.path));
-    const stageAll = () => void run("", () => git.stageAll(repo));
-    const unstageAll = () => void run("", () => git.unstageAll(repo));
+    // The rows move at once; the next status read either confirms the move or puts them back.
+    // Clicks in quick succession wait their turn rather than being refused as a clash.
+    const moveQueue = useRef<Promise<unknown>>(Promise.resolve());
+    const latestMove = useRef(new Map<string, object>());
+    const moveFiles = async (paths: string[], side: Side, label: string, fn: () => Promise<void>) => {
+        const move = {};
+        for (const path of paths) latestMove.current.set(path, move);
+        setPendingSides((sides) => new Map([...sides, ...paths.map((path) => [path, side] as const)]));
+        const turn = moveQueue.current.then(() => run(label, fn));
+        moveQueue.current = turn;
+        await turn;
+        await overview.refresh().catch(() => {});
+        const settled = paths.filter((path) => latestMove.current.get(path) === move);
+        for (const path of settled) latestMove.current.delete(path);
+        setPendingSides((sides) => {
+            const next = new Map(sides);
+            for (const path of settled) next.delete(path);
+            return next;
+        });
+    };
+    const stageFile = (file: GitFile) => void moveFiles([file.path], "staged", "", () => git.stage(repo, file.path));
+    const unstageFile = (file: GitFile) => void moveFiles([file.path], "unstaged", "", () => git.unstage(repo, file.path));
+    const stageAll = () =>
+        void moveFiles(
+            files.filter(hasUnstaged).map((f) => f.path),
+            "staged",
+            "",
+            () => git.stageAll(repo),
+        );
+    const unstageAll = () =>
+        void moveFiles(
+            files.filter(isStaged).map((f) => f.path),
+            "unstaged",
+            "",
+            () => git.unstageAll(repo),
+        );
     const discardFile = (file: GitFile) =>
         openGitConfirm({
             title: `Discard changes to ${basenameOf(file.path)}?`,
@@ -313,7 +401,7 @@ function GitWorkbench({
         if (range) {
             const paths = [...new Set(range.flatMap((e) => (e.kind === "file" && e.side === "unstaged" ? [e.file.path] : [])))];
             setRangeAnchor(null);
-            if (paths.length) void run("staging range", () => git.stagePaths(repo, paths));
+            if (paths.length) void moveFiles(paths, "staged", "staging range", () => git.stagePaths(repo, paths));
             return;
         }
         if (!selectedFile) return;
@@ -389,6 +477,7 @@ function GitWorkbench({
                 ...(i > 0 ? [{ sep: true }] : []),
                 ...AI_MODELS[provider].map((model) => ({
                     label: `${AI_PROVIDER_LABEL[provider]} · ${model}`,
+                    icon: <AgentIcon type={provider} size={13} className={`agent-glyph ${provider}`} />,
                     hint: provider === aiProvider && model === aiModel ? "✓" : undefined,
                     run: () => useGitWorkbench.setState({ provider, model }),
                 })),
@@ -603,15 +692,17 @@ function GitWorkbench({
         ...(b.current
             ? []
             : [
-                  { label: "Check out", hint: "↵", run: () => checkoutBranch(b.name) },
-                  { label: `Merge into ${currentBranch || "HEAD"}`, hint: "M", run: () => mergeRef(b.name) },
-                  { label: `Squash merge into ${currentBranch || "HEAD"}`, run: () => mergeRef(b.name, true) },
+                  { label: "Check out", hint: "↵", icon: <IconCheckout size={13} />, run: () => checkoutBranch(b.name) },
+                  { label: `Merge into ${currentBranch || "HEAD"}`, hint: "M", icon: <IconMerge size={13} />, run: () => mergeRef(b.name) },
+                  { label: `Squash merge into ${currentBranch || "HEAD"}`, icon: <IconMerge size={13} />, run: () => mergeRef(b.name, true) },
                   { sep: true },
               ]),
-        { label: "New branch from here", hint: "n", run: () => openNewBranchPrompt(b.name) },
-        { label: "Rename…", hint: "R", run: () => openBranchRenamePrompt(b) },
-        { label: "Copy name", run: () => void copyValue(b.name, b.name) },
-        ...(b.current ? [] : [{ sep: true }, { label: "Delete…", hint: "d", danger: true, run: () => openBranchDeleteMenu(b) }]),
+        { label: "New branch from here", hint: "n", icon: <IconPlus size={13} />, run: () => openNewBranchPrompt(b.name) },
+        { label: "Rename…", hint: "R", icon: <IconPencil size={13} />, run: () => openBranchRenamePrompt(b) },
+        { label: "Copy name", icon: <IconCopy size={13} />, run: () => void copyValue(b.name, b.name) },
+        ...(b.current
+            ? []
+            : [{ sep: true }, { label: "Delete…", hint: "d", icon: <IconTrash size={13} />, danger: true, run: () => openBranchDeleteMenu(b) }]),
     ];
 
     const checkoutRemoteBranch = (remote: string, rb: GitRemoteBranch) =>
@@ -645,13 +736,20 @@ function GitWorkbench({
         {
             label: rb.tracked_by ? `Check out ${rb.tracked_by}` : "Check out as a local branch",
             hint: "↵",
+            icon: <IconCheckout size={13} />,
             run: () => checkoutRemoteBranch(remote, rb),
         },
-        { label: `Merge into ${currentBranch || "HEAD"}`, hint: "M", run: () => mergeRef(rb.full_ref) },
-        { label: `Set as upstream of ${currentBranch || "HEAD"}`, hint: "u", disabled: !currentBranch, run: () => setUpstreamTo(rb) },
-        { label: "Copy name", run: () => void copyValue(rb.full_ref, rb.full_ref) },
+        { label: `Merge into ${currentBranch || "HEAD"}`, hint: "M", icon: <IconMerge size={13} />, run: () => mergeRef(rb.full_ref) },
+        {
+            label: `Set as upstream of ${currentBranch || "HEAD"}`,
+            hint: "u",
+            icon: <IconLink size={13} />,
+            disabled: !currentBranch,
+            run: () => setUpstreamTo(rb),
+        },
+        { label: "Copy name", icon: <IconCopy size={13} />, run: () => void copyValue(rb.full_ref, rb.full_ref) },
         { sep: true },
-        { label: `Delete on ${remote}…`, danger: true, run: () => confirmRemoteBranchDelete(remote, rb) },
+        { label: `Delete on ${remote}…`, icon: <IconTrash size={13} />, danger: true, run: () => confirmRemoteBranchDelete(remote, rb) },
     ];
 
     const doFetch = (remote: string | null) =>
@@ -686,9 +784,10 @@ function GitWorkbench({
         });
 
     const remoteItems = (r: GitRemote): CtxItem[] => [
-        { label: `Fetch ${r.name}`, hint: "f", run: () => doFetch(r.name) },
+        { label: `Fetch ${r.name}`, hint: "f", icon: <IconFetch size={13} />, run: () => doFetch(r.name) },
         {
             label: "Edit URL…",
+            icon: <IconPencil size={13} />,
             run: () =>
                 openGitPrompt({
                     title: `Edit url · ${r.name}`,
@@ -705,6 +804,7 @@ function GitWorkbench({
         },
         {
             label: "Rename…",
+            icon: <IconPencil size={13} />,
             run: () =>
                 openGitPrompt({
                     title: `Rename remote · ${r.name}`,
@@ -720,10 +820,11 @@ function GitWorkbench({
                     },
                 }),
         },
-        { label: "Copy URL", run: () => void copyValue(r.url, `${r.name} URL`) },
+        { label: "Copy URL", icon: <IconCopy size={13} />, run: () => void copyValue(r.url, `${r.name} URL`) },
         { sep: true },
         {
             label: "Remove remote…",
+            icon: <IconTrash size={13} />,
             danger: true,
             run: () =>
                 openGitConfirm({
@@ -766,13 +867,14 @@ function GitWorkbench({
 
     const openBranchPicker = (anchor: HTMLElement) =>
         openMenuAt(anchor, [
-            { label: "New branch…", hint: "N", run: () => openNewBranchPrompt() },
-            { label: "Check out by name…", hint: "c", run: openCheckoutPrompt },
-            { label: "Show all branches", hint: "3", run: () => setPanel("branches") },
+            { label: "New branch…", hint: "N", icon: <IconPlus size={13} />, run: () => openNewBranchPrompt() },
+            { label: "Check out by name…", hint: "c", icon: <IconCheckout size={13} />, run: openCheckoutPrompt },
+            { label: "Show all branches", hint: "3", icon: <IconGit size={13} />, run: () => setPanel("branches") },
             { sep: true },
             ...branches.map((b) => ({
                 label: b.name,
                 hint: b.current ? "current" : (b.upstream ?? undefined),
+                icon: <IconGit size={13} />,
                 disabled: b.current,
                 run: () => checkoutBranch(b.name),
             })),
@@ -780,18 +882,30 @@ function GitWorkbench({
 
     const openHelpCheatsheet = () => openGitCheatsheet("Git pane keybindings", GIT_HELP);
 
-    const openMoreMenu = (anchor: HTMLElement) =>
+    const openMoreMenu = (anchor: HTMLElement, pickRepo: (() => void) | null) =>
         openMenuAt(anchor, [
-            { label: "Fetch all remotes", hint: "F", run: () => doFetch(null) },
-            { label: "Add remote…", run: openAddRemotePrompt },
+            ...(pickRepo ? [{ label: "Choose another repository…", icon: <IconGit size={13} />, run: pickRepo }, { sep: true as const }] : []),
+            { label: "Fetch all remotes", hint: "F", icon: <IconFetch size={13} />, run: () => doFetch(null) },
+            { label: "Add remote…", icon: <IconPlus size={13} />, run: openAddRemotePrompt },
             { sep: true },
-            { label: "Stash changes…", hint: "s", disabled: files.length === 0, run: openFilesStashMenu },
-            { label: "Discard unstaged changes…", danger: true, disabled: unstagedFiles.length === 0, run: discardAllUnstaged },
-            { label: stashes.length ? `Stashes (${stashes.length})…` : "No stashes", disabled: stashes.length === 0, run: openStashesMenu },
+            { label: "Stash changes…", hint: "s", icon: <IconStack size={13} />, disabled: files.length === 0, run: openFilesStashMenu },
+            {
+                label: "Discard unstaged changes…",
+                icon: <IconDiscard size={13} />,
+                danger: true,
+                disabled: unstagedFiles.length === 0,
+                run: discardAllUnstaged,
+            },
+            {
+                label: stashes.length ? `Stashes (${stashes.length})…` : "No stashes",
+                icon: <IconStack size={13} />,
+                disabled: stashes.length === 0,
+                run: openStashesMenu,
+            },
             { sep: true },
-            { label: "Refresh", hint: "r", run: refreshRepoState },
-            { label: cmdLogOpen ? "Hide command log" : "Show command log", hint: "@", run: toggleGitCmdLog },
-            { label: "Keyboard shortcuts", hint: "?", run: openHelpCheatsheet },
+            { label: "Refresh", hint: "r", icon: <IconRefresh size={13} />, run: refreshRepoState },
+            { label: cmdLogOpen ? "Hide command log" : "Show command log", hint: "@", icon: <IconLogLines size={13} />, run: toggleGitCmdLog },
+            { label: "Keyboard shortcuts", hint: "?", icon: <IconKeyboard size={13} />, run: openHelpCheatsheet },
         ]);
 
     // ---- Keyboard ----
@@ -810,7 +924,6 @@ function GitWorkbench({
 
     const focusFilter = () => {
         if (panel === "files") setFileFilterOpen(true);
-        else if (panel === "commits") setCommitSearchOpen(true);
         else filterInputs.current[panel]?.focus();
     };
 
@@ -838,6 +951,7 @@ function GitWorkbench({
         }
         if (busy) return;
 
+        if (inboxOpen && !INBOX_KEYS.has(k)) return;
         let handled = true;
         if (k === "?") openHelpCheatsheet();
         else if (k === "@") toggleGitCmdLog();
@@ -847,10 +961,9 @@ function GitWorkbench({
             else if (queries[panel]) setQueries((q) => ({ ...q, [panel]: "" }));
             else handled = false;
         } else if (GIT_PANEL_BY_KEY[k]) setPanel(GIT_PANEL_BY_KEY[k]!);
-        else if (k === "h" && panel !== "branches") {
-            if (historyOpen && panel === "commits") setHistoryOpen(false);
-            else cmd.setGitView(paneId, { historyOpen: true, panel: "commits" });
-        } else if (k === "j" || k === "ArrowDown") moveSel(1);
+        else if (k === "4") setInboxOpen(true);
+        else if (k === "h" && panel !== "branches") setPanel(panel === "commits" ? "files" : "commits");
+        else if (k === "j" || k === "ArrowDown") moveSel(1);
         else if (k === "k" || k === "ArrowUp") moveSel(-1);
         else if (k === "r" && panel === "commits" && selectedCommit) openCommitResetMenu(selectedCommit);
         else if (k === "r") refreshRepoState();
@@ -915,11 +1028,17 @@ function GitWorkbench({
         root.focus({ preventScroll: true });
     }, [active]);
 
+    // Switching screens unmounts the row that had focus; the pane takes it back so its keys keep working.
     const focusKey = `${panel}:${sel[panel]}`;
     useEffect(() => {
-        if (!document.activeElement?.closest(".git-row, .gg-row")) return;
-        paneRootRef.current?.querySelector<HTMLElement>(".git-list .git-row.sel, .git-list .gg-row.sel")?.focus();
-    }, [focusKey]);
+        const held = document.activeElement;
+        const lost = !held || held === document.body;
+        if (!lost && !held.closest(".git-row, .gg-row")) return;
+        const root = paneRootRef.current;
+        const row = root?.querySelector<HTMLElement>(".swipe-page.is-current .git-list :is(.git-row, .gg-row).sel");
+        if (row) row.focus();
+        else if (lost && active) root?.focus({ preventScroll: true });
+    }, [focusKey, active]);
 
     const graphHandlers = useRef({ select: (_i: number) => {}, activate: () => {} });
     graphHandlers.current = {
@@ -965,23 +1084,40 @@ function GitWorkbench({
             const staged = entry.side === "staged";
             return (
                 <div className={`git-group git-file-group${i > 0 ? " follows" : ""}`}>
-                    <span className="git-label">{staged ? "Staged" : "Unstaged"}</span>
-                    <span className="git-count">{entry.count}</span>
+                    <button type="button" className="git-group-toggle" aria-expanded={!entry.folded} onClick={() => toggleSide(entry.side)}>
+                        <IconChevron size={13} className="git-group-chev" />
+                        <span className="git-group-icon">{staged ? <IconFilePlus size={13} /> : <IconFile size={13} />}</span>
+                        <span className="git-group-name">{staged ? "Staged Changes" : "Changes"}</span>
+                    </button>
                     <span className="git-section-actions">
                         {i === 0 && (
-                            <button type="button" className="git-text-btn" onClick={openFilesStashMenu}>
-                                Stash
-                            </button>
+                            <RowButton
+                                label={reviewFold.folded ? "Expand all diffs" : "Collapse all diffs"}
+                                onClick={() => setReviewFold((fold) => ({ folded: !fold.folded, seq: fold.seq + 1 }))}>
+                                {reviewFold.folded ? <IconExpandAll size={13} /> : <IconCollapseAll size={13} />}
+                            </RowButton>
+                        )}
+                        {i === 0 && (
+                            <RowButton label="Stash" onClick={openFilesStashMenu}>
+                                <IconStash size={13} />
+                            </RowButton>
                         )}
                         {!staged && (
-                            <button type="button" className="git-text-btn danger" onClick={discardAllUnstaged}>
-                                Discard all
-                            </button>
+                            <RowButton label="Discard all" onClick={discardAllUnstaged}>
+                                <IconDiscard size={13} />
+                            </RowButton>
                         )}
-                        <button type="button" className="git-text-btn" onClick={staged ? unstageAll : stageAll}>
-                            {staged ? "Unstage all" : "Stage all"}
-                        </button>
+                        {staged ? (
+                            <RowButton label="Unstage all" onClick={unstageAll}>
+                                <IconMinus size={13} />
+                            </RowButton>
+                        ) : (
+                            <RowButton label="Stage all" onClick={stageAll}>
+                                <IconPlus size={13} />
+                            </RowButton>
+                        )}
                     </span>
+                    <span className="git-group-count">{entry.count}</span>
                 </div>
             );
         }
@@ -989,12 +1125,16 @@ function GitWorkbench({
         const selected = panel === "files" && selectedFileIndex === i;
         const dir = dirname(file.path);
         const status = gitStatusDecoration(side === "staged" ? file.index : file.worktree);
+        const authors = fileAuthors(owners, file.path);
         return (
             <div
                 role="button"
                 tabIndex={selected ? 0 : -1}
                 aria-label={`${file.path}, ${side}`}
-                className={`git-row git-file-row${selected ? " sel" : ""}${isInRange(fileRowRange, i) ? " ranged" : ""}`}
+                data-side={side}
+                data-first={fileEntries[i - 1]?.kind === "file" ? undefined : ""}
+                data-last={fileEntries[i + 1]?.kind === "file" ? undefined : ""}
+                className={`git-row git-tree-row git-file-row${selected ? " sel" : ""}${isInRange(fileRowRange, i) ? " ranged" : ""}`}
                 onFocus={() => setSel("files", i)}
                 onClick={(event) => {
                     event.currentTarget.focus();
@@ -1005,7 +1145,11 @@ function GitWorkbench({
                     {basenameOf(file.path)}
                     {dir && <span className="git-row-dir">{dir}</span>}
                 </span>
+                <FileAgentFaces authors={authors} />
                 <span className="git-row-actions">
+                    <RowButton label={`Open ${file.path}`} onClick={() => cmd.requestOpenFile(joinPath(repo, file.path))}>
+                        <IconFile size={12} />
+                    </RowButton>
                     {side === "unstaged" && (
                         <RowButton label="Discard changes" onClick={() => discardFile(file)}>
                             <IconDiscard size={12} />
@@ -1046,17 +1190,20 @@ function GitWorkbench({
                 <div
                     {...common}
                     aria-expanded={entry.open}
-                    className={`git-row git-remote-row${selected ? " sel" : ""}`}
+                    className={`git-group git-file-group follows${selected ? " sel" : ""}`}
                     onClick={(event) => {
                         common.onClick(event);
                         setOpenRemote(entry.open ? null : entry.remote.name);
                     }}>
-                    <span className={`git-remote-chev${entry.open ? " open" : ""}`}>
-                        <IconChevron size={10} />
+                    <span className="git-group-toggle" aria-expanded={entry.open}>
+                        <IconChevron size={13} className="git-group-chev" />
+                        <span className="git-group-icon">
+                            <IconGlobe size={13} />
+                        </span>
+                        <span className="git-group-name">{entry.remote.name}</span>
+                        {entry.open && remoteBranchesRes.status === "loading" && <span className="git-panel-spinner" />}
                     </span>
-                    <span className="git-row-name">{entry.remote.name}</span>
-                    {entry.open && remoteBranchesRes.status === "loading" && <span className="git-panel-spinner" />}
-                    <span className="git-row-actions">
+                    <span className="git-section-actions">
                         <RowButton label={`Fetch ${entry.remote.name}`} onClick={() => doFetch(entry.remote.name)}>
                             <IconFetch size={12} />
                         </RowButton>
@@ -1068,7 +1215,12 @@ function GitWorkbench({
         if (entry.kind === "remoteBranch") {
             const rb = entry.branch;
             return (
-                <div {...common} className={`git-row git-branch-row remote${selected ? " sel" : ""}`} title={rb.full_ref}>
+                <div
+                    {...common}
+                    className={`git-row git-tree-row git-branch-row remote${selected ? " sel" : ""}`}
+                    data-first={branchEntries[i - 1]?.kind === "remoteBranch" ? undefined : ""}
+                    data-last={branchEntries[i + 1]?.kind === "remoteBranch" ? undefined : ""}
+                    title={rb.full_ref}>
                     <span className="git-dot remote" />
                     <span className="git-row-name">{rb.name}</span>
                     {rb.tracked_by && <span className="git-row-hint">tracked</span>}
@@ -1090,7 +1242,9 @@ function GitWorkbench({
         return (
             <div
                 {...common}
-                className={`git-row git-branch-row${b.current ? " current" : ""}${selected ? " sel" : ""}`}
+                className={`git-row git-tree-row git-branch-row${b.current ? " current" : ""}${selected ? " sel" : ""}`}
+                data-first={i === 0 ? "" : undefined}
+                data-last={branchEntries[i + 1]?.kind === "local" ? undefined : ""}
                 title={b.upstream ? `tracks ${b.upstream}` : b.name}>
                 <span className={`git-dot${b.current ? " current" : ""}`} />
                 <span className="git-row-name">{b.name}</span>
@@ -1130,40 +1284,57 @@ function GitWorkbench({
         );
     };
 
+    const openCommitUndoMenu = (anchor: HTMLElement, c: GitCommit) =>
+        openMenuAt(anchor, [
+            { label: "Reset to here…", hint: "r", icon: <IconDiscard size={13} />, run: () => openCommitResetMenu(c) },
+            { label: "Revert…", hint: "v", icon: <IconDiscard size={13} />, danger: true, run: () => openCommitRevertConfirm(c) },
+        ]);
+
     const commitHead = (c: GitCommit) => (
-        <div className="git-detail">
-            <h2 className="git-detail-title">{c.subject}</h2>
-            <div className="git-detail-meta">
-                <AuthorAvatar name={c.author} email={c.author_email} />
-                <span>{c.author}</span>
-                <span>·</span>
-                <span>{c.date}</span>
-                <span>·</span>
-                <span className="mono git-detail-hash">{c.hash}</span>
-                {c.unpushed ? <span className="git-chip warn">not pushed</span> : upstream && <span className="git-chip">pushed</span>}
-                {c.refs
-                    .filter((r) => r !== "HEAD")
-                    .map((r) => (
-                        <span key={r} className="git-chip">
-                            {r.replace(/^HEAD -> |^tag: /, "")}
-                        </span>
-                    ))}
+        <div className="git-detail git-card">
+            <div className="git-card-body">
+                <h2 className="git-detail-title">{c.subject}</h2>
+                <dl className="git-detail-facts">
+                    <dt>Author</dt>
+                    <dd>
+                        <AuthorAvatar name={c.author} email={c.author_email} />
+                        <span>{c.author}</span>
+                        <CommitAgents owners={commitOwners?.[c.full_hash]} repo={repo} />
+                    </dd>
+                    <dt>Date</dt>
+                    <dd>{c.date}</dd>
+                    <dt>Commit</dt>
+                    <dd>
+                        <span className="mono git-detail-hash">{c.hash}</span>
+                        <Tooltip label="Copy hash">
+                            <button
+                                type="button"
+                                className="git-detail-copy"
+                                aria-label="Copy hash"
+                                onClick={() => void copyValue(c.full_hash || c.hash, c.hash)}>
+                                <IconCopy size={12} />
+                            </button>
+                        </Tooltip>
+                        {c.unpushed ? <span className="git-chip warn">not pushed</span> : upstream && <span className="git-chip">pushed</span>}
+                        {c.refs
+                            .filter((r) => r !== "HEAD")
+                            .map((r) => (
+                                <span key={r} className="git-chip">
+                                    {r.replace(/^HEAD -> |^tag: /, "")}
+                                </span>
+                            ))}
+                    </dd>
+                </dl>
             </div>
-            <div className="git-detail-actions">
-                <button type="button" className="git-btn" onClick={() => void copyValue(c.full_hash || c.hash, c.hash)}>
-                    <IconCopy size={12} />
-                    Copy hash
-                </button>
-                <button type="button" className="git-btn" onClick={() => openCommitBranchPrompt(c)}>
+            <div className="git-card-foot">
+                <button type="button" className="git-foot-btn" onClick={() => openCommitBranchPrompt(c)}>
                     <IconGit size={12} />
                     Branch from here
                 </button>
-                <button type="button" className="git-btn warn" onClick={() => openCommitResetMenu(c)}>
+                <button type="button" className="git-foot-btn" aria-haspopup="menu" onClick={(event) => openCommitUndoMenu(event.currentTarget, c)}>
                     <IconDiscard size={12} />
-                    Reset to here
-                </button>
-                <button type="button" className="git-btn danger" onClick={() => openCommitRevertConfirm(c)}>
-                    Revert
+                    Undo this commit
+                    <IconChevron size={9} className="git-foot-chev" />
                 </button>
             </div>
         </div>
@@ -1172,19 +1343,29 @@ function GitWorkbench({
     const branchHead = (entry: BranchEntry) => {
         if (entry.kind === "remote") {
             return (
-                <div className="git-detail">
-                    <h2 className="git-detail-title mono">{entry.remote.name}</h2>
-                    <div className="git-detail-meta">
-                        <span className="mono">{entry.remote.url}</span>
+                <div className="git-detail git-card">
+                    <div className="git-card-body">
+                        <h2 className="git-detail-title mono">{entry.remote.name}</h2>
+                        <dl className="git-detail-facts">
+                            <dt>URL</dt>
+                            <dd className="mono">{entry.remote.url}</dd>
+                        </dl>
                     </div>
-                    <div className="git-detail-actions">
-                        {remoteItems(entry.remote)
-                            .filter((item) => !item.sep)
-                            .map((item) => (
-                                <button key={item.label} type="button" className={`git-btn${item.danger ? " danger" : ""}`} onClick={item.run}>
-                                    {item.label}
-                                </button>
-                            ))}
+                    <div className="git-card-foot">
+                        <span className="git-card-group">
+                            {remoteItems(entry.remote)
+                                .filter((item) => !item.sep)
+                                .map((item) => (
+                                    <button
+                                        key={item.label}
+                                        type="button"
+                                        className={`git-foot-btn${item.danger ? " danger" : ""}`}
+                                        onClick={item.run}>
+                                        {item.icon}
+                                        {item.label}
+                                    </button>
+                                ))}
+                        </span>
                     </div>
                 </div>
             );
@@ -1192,32 +1373,32 @@ function GitWorkbench({
         if (entry.kind === "remoteBranch") {
             const rb = entry.branch;
             return (
-                <div className="git-detail">
-                    <h2 className="git-detail-title mono">{rb.full_ref}</h2>
-                    <div className="git-detail-meta">
-                        {rb.tracked_by ? (
-                            <span>
-                                tracked by <span className="mono">{rb.tracked_by}</span>
-                            </span>
-                        ) : (
-                            <span>no local branch</span>
-                        )}
+                <div className="git-detail git-card">
+                    <div className="git-card-body">
+                        <h2 className="git-detail-title mono">{rb.full_ref}</h2>
+                        <dl className="git-detail-facts">
+                            <dt>Local</dt>
+                            <dd>{rb.tracked_by ? <span className="mono">{rb.tracked_by}</span> : "no local branch"}</dd>
+                        </dl>
                     </div>
-                    <div className="git-detail-actions">
-                        <button type="button" className="git-btn primary" onClick={() => checkoutRemoteBranch(entry.remote, rb)}>
+                    <div className="git-card-foot">
+                        <span className="git-card-group">
+                            <button type="button" className="git-foot-btn" onClick={() => openMergeMenu(rb.full_ref)}>
+                                <IconMerge size={12} />
+                                Merge into {currentBranch || "HEAD"}
+                            </button>
+                            <button type="button" className="git-foot-btn" disabled={!currentBranch} onClick={() => setUpstreamTo(rb)}>
+                                <IconLink size={12} />
+                                Set as upstream
+                            </button>
+                            <button type="button" className="git-foot-btn danger" onClick={() => confirmRemoteBranchDelete(entry.remote, rb)}>
+                                <IconTrash size={12} />
+                                Delete on {entry.remote}
+                            </button>
+                        </span>
+                        <button type="button" className="git-foot-btn primary" onClick={() => checkoutRemoteBranch(entry.remote, rb)}>
                             <IconCheckout size={12} />
                             {rb.tracked_by ? `Check out ${rb.tracked_by}` : "Check out"}
-                        </button>
-                        <button type="button" className="git-btn" onClick={() => openMergeMenu(rb.full_ref)}>
-                            <IconMerge size={12} />
-                            Merge into {currentBranch || "HEAD"}
-                        </button>
-                        <button type="button" className="git-btn" disabled={!currentBranch} onClick={() => setUpstreamTo(rb)}>
-                            Set as upstream
-                        </button>
-                        <button type="button" className="git-btn danger" onClick={() => confirmRemoteBranchDelete(entry.remote, rb)}>
-                            <IconTrash size={12} />
-                            Delete on {entry.remote}
                         </button>
                     </div>
                 </div>
@@ -1225,72 +1406,76 @@ function GitWorkbench({
         }
         const b = entry.branch;
         return (
-            <div className="git-detail">
-                <h2 className="git-detail-title mono">
-                    {b.name}
-                    {b.current && <span className="git-chip live">checked out</span>}
-                </h2>
-                <div className="git-detail-meta">
-                    {b.upstream ? (
-                        <span>
-                            tracks <span className="mono">{b.upstream}</span>
-                        </span>
-                    ) : (
-                        <span>no upstream</span>
-                    )}
+            <div className="git-detail git-card">
+                <div className="git-card-body">
+                    <h2 className="git-detail-title mono">
+                        {b.name}
+                        {b.current && <span className="git-chip live">checked out</span>}
+                    </h2>
+                    <dl className="git-detail-facts">
+                        <dt>Upstream</dt>
+                        <dd>{b.upstream ? <span className="mono">{b.upstream}</span> : "none"}</dd>
+                        {b.current && (
+                            <>
+                                <dt>To push</dt>
+                                <dd className={ahead > 0 ? "git-fact-ahead" : undefined}>
+                                    {ahead} commit{ahead === 1 ? "" : "s"}
+                                </dd>
+                                <dt>To pull</dt>
+                                <dd className={behind > 0 ? "git-fact-behind" : undefined}>
+                                    {behind} commit{behind === 1 ? "" : "s"}
+                                </dd>
+                                <dt>Changes</dt>
+                                <dd>
+                                    {files.length} uncommitted file{files.length === 1 ? "" : "s"}
+                                </dd>
+                            </>
+                        )}
+                    </dl>
                 </div>
-                {b.current && (
-                    <div className="git-stats">
-                        <div className="git-stat">
-                            <b className="ahead">{ahead}</b>
-                            <span>to push</span>
-                        </div>
-                        <div className="git-stat">
-                            <b className="behind">{behind}</b>
-                            <span>to pull</span>
-                        </div>
-                        <div className="git-stat">
-                            <b>{files.length}</b>
-                            <span>uncommitted</span>
-                        </div>
-                    </div>
-                )}
-                <div className="git-detail-actions">
+                <div className="git-card-foot">
                     {b.current ? (
                         <>
-                            <button type="button" className="git-btn primary" onClick={pushRepo}>
-                                <IconPush size={12} />
-                                {upstream ? "Push" : "Publish"}
-                            </button>
-                            <button type="button" className="git-btn" onClick={pullRepo}>
-                                <IconPull size={12} />
-                                Pull
-                            </button>
-                            <button type="button" className="git-btn" onClick={() => openBranchRenamePrompt(b)}>
-                                <IconPencil size={12} />
-                                Rename
-                            </button>
-                            <button type="button" className="git-btn" onClick={() => openNewBranchPrompt(b.name)}>
-                                <IconPlus size={12} />
-                                New branch from here
-                            </button>
+                            <span className="git-card-group">
+                                <button type="button" className="git-foot-btn" onClick={() => openNewBranchPrompt(b.name)}>
+                                    <IconPlus size={12} />
+                                    New branch from here
+                                </button>
+                                <button type="button" className="git-foot-btn" onClick={() => openBranchRenamePrompt(b)}>
+                                    <IconPencil size={12} />
+                                    Rename
+                                </button>
+                            </span>
+                            <span className="git-card-group">
+                                <button type="button" className="git-foot-btn" onClick={pullRepo}>
+                                    <IconPull size={12} />
+                                    Pull
+                                </button>
+                                <button type="button" className={`git-foot-btn${ahead > 0 || !upstream ? " primary" : ""}`} onClick={pushRepo}>
+                                    <IconPush size={12} />
+                                    {upstream ? "Push" : "Publish"}
+                                </button>
+                            </span>
                         </>
                     ) : (
                         <>
-                            <button type="button" className="git-btn primary" onClick={() => checkoutBranch(b.name)}>
+                            <span className="git-card-group">
+                                <button type="button" className="git-foot-btn" onClick={() => mergeRef(b.name)}>
+                                    <IconMerge size={12} />
+                                    Merge into {currentBranch || "HEAD"}
+                                </button>
+                                <button type="button" className="git-foot-btn" onClick={() => mergeRef(b.name, true)}>
+                                    <IconMerge size={12} />
+                                    Squash merge
+                                </button>
+                                <button type="button" className="git-foot-btn danger" onClick={() => openBranchDeleteMenu(b)}>
+                                    <IconTrash size={12} />
+                                    Delete
+                                </button>
+                            </span>
+                            <button type="button" className="git-foot-btn primary" onClick={() => checkoutBranch(b.name)}>
                                 <IconCheckout size={12} />
                                 Check out
-                            </button>
-                            <button type="button" className="git-btn" onClick={() => mergeRef(b.name)}>
-                                <IconMerge size={12} />
-                                Merge into {currentBranch || "HEAD"}
-                            </button>
-                            <button type="button" className="git-btn" onClick={() => mergeRef(b.name, true)}>
-                                Squash merge
-                            </button>
-                            <button type="button" className="git-btn danger" onClick={() => openBranchDeleteMenu(b)}>
-                                <IconTrash size={12} />
-                                Delete
                             </button>
                         </>
                     )}
@@ -1306,7 +1491,7 @@ function GitWorkbench({
             <EmptyState tone="error" icon={<IconWarning size={14} />} title="Git error" message={overviewError} />
         ) : null;
 
-    const filterInput = (p: GitPanel, placeholder: string) => (
+    const filterInput = (p: GitPanel, placeholder: string, count?: number) => (
         <label className="git-filter">
             <IconSearch size={12} />
             <input
@@ -1315,6 +1500,7 @@ function GitWorkbench({
                 }}
                 value={queries[p]}
                 placeholder={placeholder}
+                aria-label={placeholder}
                 spellCheck={false}
                 autoCapitalize="off"
                 autoCorrect="off"
@@ -1328,236 +1514,157 @@ function GitWorkbench({
                     if (event.key === "Escape" || event.key === "Enter") {
                         if (event.key === "Escape") setQueries((q) => ({ ...q, [p]: "" }));
                         if (p === "files") setFileFilterOpen(false);
-                        if (p === "commits") setCommitSearchOpen(false);
-                        window.requestAnimationFrame(() =>
-                            paneRootRef.current
-                                ?.querySelector<HTMLElement>(".git-list .git-row.sel, .git-list .gg-row.sel, .git-list .git-row")
-                                ?.focus(),
-                        );
+                        window.requestAnimationFrame(() => {
+                            const list = paneRootRef.current?.querySelector(".swipe-page.is-current .git-list");
+                            (
+                                list?.querySelector<HTMLElement>(":is(.git-row, .gg-row).sel") ??
+                                list?.querySelector<HTMLElement>(".git-row, .gg-row")
+                            )?.focus();
+                        });
                     }
                 }}
             />
+            {!!count && <span className="git-filter-count">{count}</span>}
         </label>
     );
 
-    let left: ReactNode;
     let right: ReactNode;
-    if (panel !== "branches") {
-        const latest = commits[0];
-        left = (
-            <>
-                <GitComposer
-                    repo={repo}
-                    busy={!!busy}
-                    generating={generating}
-                    stagedCount={files.filter(isStaged).length}
-                    agentLabel={`${AI_PROVIDER_LABEL[aiProvider]} · ${(aiModel || defaultAiModel(aiProvider)).replace(/^[^/]+\//, "")}`}
-                    messageRef={messageRef}
-                    onCommit={doCommit}
-                    onGenerate={generateCommitMessage}
-                    onPickAgent={openAgentMenu}
+    const latest = commits[0];
+    const commitReview = (commit: (typeof commits)[number]) => (
+        <CommitReview
+            key={commit.hash}
+            repo={repo}
+            rev={commit.hash}
+            title={commit.hash}
+            subtitle={commit.subject}
+            head={commitHead(commit)}
+            owners={commitOwners?.[commit.full_hash]}
+            onOpenFile={cmd.requestOpenFile}
+        />
+    );
+    const filesLeft = (
+        <div className="git-changes">
+            <GitComposer
+                repo={repo}
+                busy={!!busy}
+                generating={generating}
+                stagedCount={files.filter(isStaged).length}
+                agentLabel={`${AI_PROVIDER_LABEL[aiProvider]} · ${(aiModel || defaultAiModel(aiProvider)).replace(/^[^/]+\//, "")}`}
+                messageRef={messageRef}
+                onCommit={doCommit}
+                onGenerate={generateCommitMessage}
+                onPickAgent={openAgentMenu}
+            />
+            {(fileFilterOpen || queries.files) && filterInput("files", "Filter files")}
+            <div className="git-list">
+                {fileEntries.length === 0 &&
+                    (loadingOrError(5, "Loading changed files") ?? (
+                        <EmptyState
+                            icon={<IconGit size={14} />}
+                            title={queries.files ? "No matches" : "Nothing to commit"}
+                            message={queries.files ? `Nothing matches "${queries.files}".` : "The working tree is clean."}
+                        />
+                    ))}
+                <VirtualPanelRows
+                    items={fileEntries}
+                    selectedIndex={selectedFileIndex}
+                    focused={panel === "files"}
+                    estimateSize={ROW_HEIGHT}
+                    getKey={(entry) => (entry.kind === "group" ? `g:${entry.side}` : `${entry.side}:${entry.file.path}`)}
+                    renderRow={fileRow}
                 />
-                {(fileFilterOpen || queries.files) && filterInput("files", "Filter files")}
-                <div className="git-list">
-                    {fileEntries.length === 0 &&
-                        (loadingOrError(5, "Loading changed files") ?? (
-                            <EmptyState
-                                icon={<IconGit size={14} />}
-                                title={queries.files ? "No matches" : "Nothing to commit"}
-                                message={queries.files ? `Nothing matches "${queries.files}".` : "The working tree is clean."}
-                            />
-                        ))}
-                    <VirtualPanelRows
-                        items={fileEntries}
-                        selectedIndex={selectedFileIndex}
-                        focused={panel === "files"}
-                        estimateSize={ROW_HEIGHT}
-                        getKey={(entry) => (entry.kind === "group" ? `g:${entry.side}` : `${entry.side}:${entry.file.path}`)}
-                        renderRow={fileRow}
-                    />
-                </div>
-                {historyOpen && (
-                    <ResizeHandle
-                        targetRef={historyRef}
-                        axis="y"
-                        grows={-1}
-                        min={HISTORY_MIN}
-                        max={() => (historyRef.current?.parentElement?.clientHeight ?? HISTORY_MIN + HISTORY_CLEARANCE) - HISTORY_CLEARANCE}
-                        size={view.historyHeight}
-                        label="Resize the history"
-                        className="git-history-split"
-                        onResize={(height) => cmd.setGitView(paneId, { historyHeight: height })}
+            </div>
+        </div>
+    );
+    const filesRight = () =>
+        filteredFiles.length > 0 ? (
+            <MergeReview
+                repo={repo}
+                files={filteredFiles}
+                focusPath={reviewFocus}
+                onOpenFile={cmd.requestOpenFile}
+                onSaved={onReviewSaved}
+                fileActions={reviewActions}
+                owners={owners}
+                stagedOwners={stagedOwners}
+                foldAll={reviewFold}
+            />
+        ) : latest ? (
+            commitReview(latest)
+        ) : (
+            <EmptyState message="Nothing to review." />
+        );
+    const commitsLeft = (
+        <div className="git-history open">
+            {filterInput("commits", "Search commits", commits.length)}
+            <div className="git-list">
+                {filteredCommits.length === 0 ? (
+                    (loadingOrError(8, "Loading commits") ?? (
+                        <EmptyState
+                            title={queries.commits ? "No matches" : "No commits"}
+                            message={queries.commits ? `Nothing matches "${queries.commits}".` : "No commits on this branch yet."}
+                        />
+                    ))
+                ) : (
+                    <GitGraph
+                        commits={filteredCommits}
+                        selectedIndex={clampSel("commits")}
+                        focused={panel === "commits"}
+                        range={null}
+                        onSelect={onGraphSelect}
+                        onActivate={onGraphActivate}
+                        repo={repo}
+                        owners={commitOwners}
                     />
                 )}
-                <div
-                    ref={historyRef}
-                    className={`git-history${historyOpen ? " open" : ""}`}
-                    style={historyOpen && view.historyHeight ? { flex: `0 0 ${view.historyHeight}px`, minHeight: HISTORY_MIN } : undefined}>
-                    <div className="git-history-head">
-                        <button
-                            type="button"
-                            className="git-history-toggle"
-                            aria-expanded={historyOpen}
-                            onClick={() => {
-                                if (historyOpen) {
-                                    setCommitSearchOpen(false);
-                                    setHistoryOpen(false);
-                                } else cmd.setGitView(paneId, { historyOpen: true, panel: "commits" });
-                            }}>
-                            <span className="git-history-chev">
-                                <IconChevron size={10} />
+            </div>
+        </div>
+    );
+    const branchesLeft = (
+        <>
+            {filterInput("branches", "Filter branches")}
+            <div className="git-list">
+                {branchEntries.length === 0 &&
+                    (loadingOrError(5, "Loading branches") ?? (
+                        <EmptyState
+                            title={queries.branches ? "No matches" : "No branches"}
+                            message={queries.branches ? `Nothing matches "${queries.branches}".` : "This repository has no branches yet."}
+                        />
+                    ))}
+                {localBranches.length > 0 && (
+                    <div className="git-group git-file-group">
+                        <button type="button" className="git-group-toggle" aria-expanded={!localFolded} onClick={() => setLocalFolded((was) => !was)}>
+                            <IconChevron size={13} className="git-group-chev" />
+                            <span className="git-group-icon">
+                                <IconLaptop size={13} />
                             </span>
-                            <span className="git-label">History</span>
-                            {commits.length > 0 && <span className="git-count">{commits.length}</span>}
-                            {!historyOpen && latest && <span className="git-history-latest">{latest.subject}</span>}
-                            {!historyOpen && <kbd>h</kbd>}
+                            <span className="git-group-name">Local</span>
                         </button>
-                        {historyOpen &&
-                            (commitSearchOpen || queries.commits ? (
-                                <label className="git-history-search">
-                                    <IconSearch size={11} />
-                                    <input
-                                        ref={(input) => {
-                                            filterInputs.current.commits = input;
-                                        }}
-                                        value={queries.commits}
-                                        placeholder="Search commits"
-                                        aria-label="Search commits"
-                                        spellCheck={false}
-                                        autoCapitalize="off"
-                                        autoCorrect="off"
-                                        onChange={(event) => {
-                                            const value = event.target.value;
-                                            setQueries((q) => ({ ...q, commits: value }));
-                                            setSel("commits", 0);
-                                        }}
-                                        onBlur={() => {
-                                            if (!queries.commits) setCommitSearchOpen(false);
-                                        }}
-                                        onKeyDown={(event) => {
-                                            event.stopPropagation();
-                                            if (event.key !== "Escape" && event.key !== "Enter") return;
-                                            if (event.key === "Escape") setQueries((q) => ({ ...q, commits: "" }));
-                                            setCommitSearchOpen(false);
-                                            window.requestAnimationFrame(() =>
-                                                paneRootRef.current
-                                                    ?.querySelector<HTMLElement>(".git-history .gg-row.sel, .git-history .gg-row")
-                                                    ?.focus(),
-                                            );
-                                        }}
-                                    />
-                                </label>
-                            ) : (
-                                <Tooltip label="Search commits (/)">
-                                    <button
-                                        type="button"
-                                        className="git-row-act"
-                                        aria-label="Search commits"
-                                        onClick={() => {
-                                            cmd.setGitView(paneId, { panel: "commits" });
-                                            setCommitSearchOpen(true);
-                                        }}>
-                                        <IconSearch size={12} />
-                                    </button>
-                                </Tooltip>
-                            ))}
+                        <span className="git-group-count">{localBranches.length}</span>
                     </div>
-                    {historyOpen && (
-                        <>
-                            <div className="git-list">
-                                {filteredCommits.length === 0 ? (
-                                    (loadingOrError(8, "Loading commits") ?? (
-                                        <EmptyState
-                                            title={queries.commits ? "No matches" : "No commits"}
-                                            message={queries.commits ? `Nothing matches "${queries.commits}".` : "No commits on this branch yet."}
-                                        />
-                                    ))
-                                ) : (
-                                    <GitGraph
-                                        commits={filteredCommits}
-                                        selectedIndex={clampSel("commits")}
-                                        focused={panel === "commits"}
-                                        range={null}
-                                        onSelect={onGraphSelect}
-                                        onActivate={onGraphActivate}
-                                    />
-                                )}
-                            </div>
-                        </>
-                    )}
-                </div>
-            </>
-        );
-        right =
-            panel === "commits" && selectedCommit ? (
-                <CommitReview
-                    key={selectedCommit.hash}
-                    repo={repo}
-                    rev={selectedCommit.hash}
-                    title={selectedCommit.hash}
-                    subtitle={selectedCommit.subject}
-                    head={commitHead(selectedCommit)}
-                    onOpenFile={cmd.requestOpenFile}
+                )}
+                <VirtualPanelRows
+                    items={branchEntries}
+                    selectedIndex={clampSel("branches")}
+                    focused={panel === "branches"}
+                    estimateSize={ROW_HEIGHT}
+                    getKey={branchEntryKey}
+                    renderRow={branchRow}
                 />
-            ) : filteredFiles.length > 0 ? (
-                <MergeReview
-                    repo={repo}
-                    files={filteredFiles}
-                    focusPath={selectedFile?.file.path}
-                    onOpenFile={cmd.requestOpenFile}
-                    onSaved={onReviewSaved}
-                    fileActions={reviewActions}
-                />
-            ) : latest ? (
-                <CommitReview
-                    key={latest.hash}
-                    repo={repo}
-                    rev={latest.hash}
-                    title={latest.hash}
-                    subtitle={latest.subject}
-                    head={commitHead(latest)}
-                    onOpenFile={cmd.requestOpenFile}
-                />
-            ) : (
-                <EmptyState message="Nothing to review." />
-            );
-    } else {
-        const localCount = branchEntries.filter((e) => e.kind === "local").length;
-        left = (
-            <>
-                {filterInput("branches", "Filter branches")}
-                <div className="git-list">
-                    {branchEntries.length === 0 &&
-                        (loadingOrError(5, "Loading branches") ?? (
-                            <EmptyState
-                                title={queries.branches ? "No matches" : "No branches"}
-                                message={queries.branches ? `Nothing matches "${queries.branches}".` : "This repository has no branches yet."}
-                            />
-                        ))}
-                    {localCount > 0 && (
-                        <div className="git-group">
-                            <span>Local</span>
-                            <span className="git-count">{localCount}</span>
-                        </div>
-                    )}
-                    <VirtualPanelRows
-                        items={branchEntries}
-                        selectedIndex={clampSel("branches")}
-                        focused={panel === "branches"}
-                        estimateSize={ROW_HEIGHT}
-                        getKey={branchEntryKey}
-                        renderRow={branchRow}
-                    />
-                </div>
-                <div className="git-left-foot">
-                    <button type="button" className="git-btn wide" onClick={() => openNewBranchPrompt()}>
-                        <IconPlus size={12} />
-                        New branch
-                        <kbd>N</kbd>
-                    </button>
-                </div>
-            </>
-        );
+            </div>
+            <div className="git-left-foot">
+                <button type="button" className="git-btn wide" onClick={() => openNewBranchPrompt()}>
+                    <IconPlus size={12} />
+                    New branch
+                    <kbd>N</kbd>
+                </button>
+            </div>
+        </>
+    );
+    if (panel === "files") right = filesRight();
+    else if (panel === "commits")
+        right = selectedCommit ? commitReview(selectedCommit) : latest ? commitReview(latest) : <EmptyState message="No commits yet." />;
+    else {
         const entry = selectedBranchEntry;
         right = !entry ? (
             <EmptyState message="Select a branch to see its details." />
@@ -1576,6 +1683,71 @@ function GitWorkbench({
         );
     }
 
+    const sideHead = (
+        <div className="git-side-head">
+            <div className="git-side-title">
+                {onLeaveRepo && (
+                    <Tooltip label="Back to the repositories in this folder">
+                        <button type="button" className="git-foot-btn git-back" onClick={onLeaveRepo}>
+                            <IconChevron size={11} className="git-back-icon" />
+                            {basenameOf(repo)}
+                        </button>
+                    </Tooltip>
+                )}
+                <Tooltip label="Switch branch">
+                    <button type="button" className="git-foot-btn git-switch" onClick={(event) => openBranchPicker(event.currentTarget)}>
+                        <IconGit size={13} />
+                        <span className="git-switch-name">{overviewLoading ? "…" : currentBranch || "detached"}</span>
+                        <IconChevron size={9} className="git-switch-chev" />
+                    </button>
+                </Tooltip>
+                {ahead > 0 && <span className="git-side-count ahead">↑{ahead}</span>}
+                {behind > 0 && <span className="git-side-count behind">↓{behind}</span>}
+                <span className="git-tb-grow" />
+                {overviewError && <span className="git-tb-chip error">git error</span>}
+                {busy && (
+                    <span className={`git-tb-busy${busy.startsWith("✗") ? " error" : ""}`}>
+                        {!busy.startsWith("✗") && <span className="git-panel-spinner" />}
+                        <span>{busy}</span>
+                    </span>
+                )}
+                <ShellAccount />
+                <SideMoreButton onOpen={openMoreMenu} />
+            </div>
+            <div className="git-btn-group git-side-actions" role="group" aria-label="Sync with the remote">
+                <Tooltip label="Fetch all remotes (F)">
+                    <button type="button" className="git-btn" onClick={() => doFetch(null)}>
+                        <IconFetch size={13} />
+                        Fetch
+                    </button>
+                </Tooltip>
+                <Tooltip label={behind > 0 ? `Pull ${behind} commit${behind > 1 ? "s" : ""} (p)` : "Pull (p)"}>
+                    <button type="button" className="git-btn" onClick={pullRepo}>
+                        <IconPull size={13} />
+                        Pull
+                        {behind > 0 && <span className="git-btn-count">{behind}</span>}
+                    </button>
+                </Tooltip>
+                <Tooltip
+                    label={
+                        !upstream ? "Publish branch and set upstream (P)" : ahead > 0 ? `Push ${ahead} commit${ahead > 1 ? "s" : ""} (P)` : "Push (P)"
+                    }>
+                    <button type="button" className={`git-btn${ahead > 0 || !upstream ? " primary" : ""}`} onClick={pushRepo}>
+                        <IconPush size={13} />
+                        {upstream ? "Push" : "Publish"}
+                        {ahead > 0 && <span className="git-btn-count">{ahead}</span>}
+                    </button>
+                </Tooltip>
+                <Tooltip label="Open pull request (⌃P)">
+                    <button type="button" className="git-btn" aria-label="Pull request" onClick={openPullRequest}>
+                        <IconPullRequest size={13} />
+                        PR
+                    </button>
+                </Tooltip>
+            </div>
+        </div>
+    );
+
     return (
         <div ref={paneRootRef} className="git-pane" tabIndex={-1}>
             <GitHostShell
@@ -1583,94 +1755,56 @@ function GitWorkbench({
                 cwd={repo}
                 area={view.area}
                 active={active}
-                onArea={(area) => cmd.setGitView(paneId, { area })}
-                local={[
-                    {
-                        id: "changes",
-                        label: "Changes (1)",
-                        icon: <IconFile size={16} />,
-                        count: files.length,
-                        on: view.area === "local" && panel !== "branches",
-                        onSelect: () => cmd.setGitView(paneId, { area: "local", panel: panel === "branches" ? "files" : panel }),
-                    },
-                    {
-                        id: "branches",
-                        label: "Branches (2)",
-                        icon: <IconGit size={16} />,
-                        on: view.area === "local" && panel === "branches",
-                        onSelect: () => cmd.setGitView(paneId, { area: "local", panel: "branches" }),
-                    },
-                ]}>
-                <div className="git-toolbar">
-                    {onLeaveRepo && (
-                        <Tooltip label="Back to the repositories in this folder">
-                            <button type="button" className="git-btn git-back" onClick={onLeaveRepo}>
-                                <IconChevron size={11} className="git-back-icon" />
-                                {basenameOf(repo)}
-                            </button>
-                        </Tooltip>
-                    )}
-                    <Tooltip label="Switch branch">
-                        <button type="button" className="git-btn git-switch" onClick={(event) => openBranchPicker(event.currentTarget)}>
-                            <IconGit size={13} />
-                            <span className="git-switch-name">{overviewLoading ? "…" : currentBranch || "detached"}</span>
-                            <IconChevron size={9} className="git-switch-chev" />
-                        </button>
-                    </Tooltip>
-                    {overviewError && <span className="git-tb-chip error">git error</span>}
-                    {busy && (
-                        <span className={`git-tb-busy${busy.startsWith("✗") ? " error" : ""}`}>
-                            {!busy.startsWith("✗") && <span className="git-panel-spinner" />}
-                            <span>{busy}</span>
-                        </span>
-                    )}
-                    <span className="git-tb-grow" />
-                    <Tooltip label="Fetch all remotes (F)">
-                        <button type="button" className="git-btn" onClick={() => doFetch(null)}>
-                            <IconFetch size={13} />
-                            Fetch
-                        </button>
-                    </Tooltip>
-                    <Tooltip label={behind > 0 ? `Pull ${behind} commit${behind > 1 ? "s" : ""} (p)` : "Pull (p)"}>
-                        <button type="button" className="git-btn" onClick={pullRepo}>
-                            <IconPull size={13} />
-                            Pull
-                            {behind > 0 && <span className="git-btn-count">{behind}</span>}
-                        </button>
-                    </Tooltip>
-                    <Tooltip
-                        label={
-                            !upstream
-                                ? "Publish branch and set upstream (P)"
-                                : ahead > 0
-                                  ? `Push ${ahead} commit${ahead > 1 ? "s" : ""} (P)`
-                                  : "Push (P)"
-                        }>
-                        <button type="button" className={`git-btn${ahead > 0 || !upstream ? " primary" : ""}`} onClick={pushRepo}>
-                            <IconPush size={13} />
-                            {upstream ? "Push" : "Publish"}
-                            {ahead > 0 && <span className="git-btn-count">{ahead}</span>}
-                        </button>
-                    </Tooltip>
-                    <Tooltip label="Open pull request (⌃P)">
-                        <button type="button" className="git-btn" onClick={openPullRequest}>
-                            <IconPullRequest size={13} />
-                            Pull request
-                        </button>
-                    </Tooltip>
-                    <MoreButton label="Remotes, stashes and more" onOpen={openMoreMenu} className="git-btn icon" />
-                </div>
+                fetching={fetching}
+                onArea={(area) => cmd.setGitView(paneId, { area })}>
                 <GitColumns
                     paneId={paneId}
+                    framed
                     left={
                         <>
-                            {left}
+                            <div className="git-side">
+                                {sideHead}
+                                <GitSidePages
+                                    current={inboxOpen ? "inbox" : panel}
+                                    onChange={(id) => (id === "inbox" ? setInboxOpen(true) : setPanel(id as GitPanel))}
+                                    onInboxGone={() => setInboxOpen(false)}
+                                    pages={[
+                                        { id: "files", label: withShortcut("Changes", "1"), icon: <IconFile size={14} />, content: filesLeft },
+                                        { id: "commits", label: withShortcut("History", "2"), icon: <IconCommit size={14} />, content: commitsLeft },
+                                        { id: "branches", label: withShortcut("Branches", "3"), icon: <IconGit size={14} />, content: branchesLeft },
+                                    ]}
+                                    inbox={{
+                                        id: "inbox",
+                                        label: withShortcut("Inbox", "4"),
+                                        icon: <IconInbox size={14} />,
+                                        content: (
+                                            <div className="git-list git-inbox-list">
+                                                <Suspense fallback={<SkeletonRows rows={8} label="Loading notifications" />}>
+                                                    <InboxList
+                                                        shownId={notification?.id ?? null}
+                                                        onOpen={setNotification}
+                                                        active={active && inboxOpen}
+                                                    />
+                                                </Suspense>
+                                            </div>
+                                        ),
+                                    }}
+                                />
+                            </div>
                             {cmdLogOpen && <GitCmdLogBar />}
                         </>
                     }
                     right={
                         <div className="git-right-review">
-                            <Suspense fallback={<SkeletonRows rows={6} label="Loading diff preview" />}>{right}</Suspense>
+                            <Suspense fallback={<SkeletonRows rows={6} label="Loading diff preview" />}>
+                                {!inboxOpen ? (
+                                    right
+                                ) : notification ? (
+                                    <InboxDetail key={notification.id} item={notification} active={active} />
+                                ) : (
+                                    <EmptyState message="Pick a notification to read it." />
+                                )}
+                            </Suspense>
                             {busy && !busy.startsWith("✗") && (
                                 <div className="git-busy-overlay">
                                     <div className="git-busy-card">
@@ -1687,6 +1821,40 @@ function GitWorkbench({
             <GitModalRenderer paneId={paneId} active={active} />
         </div>
     );
+}
+
+const INBOX_KEYS = new Set(["1", "2", "3", "4", "?", "@", "F", "P", "p"]);
+
+type SidePage = { id: string; label: string; icon: ReactNode; content: ReactNode };
+
+/** The side panel's lists, with the host's inbox after them while someone is signed in to a host that has one. */
+function GitSidePages({
+    current,
+    onChange,
+    onInboxGone,
+    pages,
+    inbox,
+}: {
+    current: string;
+    onChange: (id: string) => void;
+    onInboxGone: () => void;
+    pages: SidePage[];
+    inbox: SidePage;
+}) {
+    const hasInbox = useGitShell().inbox;
+    const inboxGone = !hasInbox && current === inbox.id;
+    useEffect(() => {
+        if (inboxGone) onInboxGone();
+    }, [inboxGone, onInboxGone]);
+    return (
+        <SwipePages label="Git lists" current={inboxGone ? pages[0].id : current} onChange={onChange} pages={hasInbox ? [...pages, inbox] : pages} />
+    );
+}
+
+/** The side panel's menu of everything else, which can also pick the host repository the pane shows. */
+function SideMoreButton({ onOpen }: { onOpen: (anchor: HTMLElement, pickRepo: (() => void) | null) => void }) {
+    const { pickRepo } = useGitShell();
+    return <MoreButton label="Remotes, stashes and more" onOpen={(anchor) => onOpen(anchor, pickRepo)} className="git-foot-btn icon" />;
 }
 
 function MoreButton({
@@ -1716,13 +1884,10 @@ function MoreButton({
     );
 }
 
-function isMissingRepository(error: string | null | undefined): boolean {
-    return !!error && /could not find repository/i.test(error);
-}
-
 function GitRepoPicker({ paneId, root, active }: { paneId: string; root: string; active: boolean }) {
     const discovered = useCachedResourceEnabled(active && !!root, gitDiscoveredReposR, root || "");
     const repos = discovered.data ?? [];
+    const chosen = useStore((s) => s.defaultGitRepos[root]);
 
     if (discovered.status === "loading" && !discovered.data) {
         return (
@@ -1760,8 +1925,8 @@ function GitRepoPicker({ paneId, root, active }: { paneId: string; root: string;
             </div>
             <ul className="git-repo-list">
                 {repos.map((entry) => (
-                    <li key={entry.path}>
-                        <button type="button" className="git-repo-row" onClick={() => cmd.setGitView(paneId, { repo: entry.path })}>
+                    <li key={entry.path} className="git-repo-item">
+                        <button type="button" className="git-repo-row" onClick={() => cmd.setGitView(paneId, { repo: entry.path, listing: false })}>
                             <IconGit size={13} className={`git-repo-icon${entry.changes > 0 ? " dirty" : ""}`} />
                             <span className="git-repo-name">{entry.name}</span>
                             <span className="git-repo-branch">{entry.branch || "no commits"}</span>
@@ -1769,6 +1934,16 @@ function GitRepoPicker({ paneId, root, active }: { paneId: string; root: string;
                             {entry.behind > 0 && <span className="git-repo-sync">{entry.behind}↓</span>}
                             <span className={`git-repo-changes${entry.changes > 0 ? " dirty" : ""}`}>{entry.changes > 0 ? entry.changes : "—"}</span>
                         </button>
+                        <Tooltip label={chosen === entry.path ? "Opened by default; click to stop" : "Open this one by default in this project"}>
+                            <button
+                                type="button"
+                                className={`git-repo-default${chosen === entry.path ? " on" : ""}`}
+                                aria-pressed={chosen === entry.path}
+                                aria-label="Open by default"
+                                onClick={() => cmd.setDefaultGitRepo(root, chosen === entry.path ? null : entry.path)}>
+                                <IconStar size={12} />
+                            </button>
+                        </Tooltip>
                     </li>
                 ))}
             </ul>
@@ -1802,21 +1977,26 @@ function useSettled(active: boolean): boolean {
 export function GitPane({ paneId, cwd, active, visible }: { paneId: string; cwd: string; active: boolean; visible: boolean }) {
     const fetching = useSettled(visible);
     const selectedRepo = useStore((s) => s.gitViews[paneId]?.repo ?? null);
+    const listing = useStore((s) => s.gitViews[paneId]?.listing ?? false);
+    const chosen = useStore((s) => s.defaultGitRepos[cwd]);
     const rootOverview = useCachedResourceEnabled(fetching && !!cwd && !selectedRepo, gitOverviewR, cwd || "");
     const settledRoot = useRef<{ cwd: string; missing: boolean } | null>(null);
     if (rootOverview.status !== "loading") {
         settledRoot.current = { cwd, missing: rootOverview.status === "error" && !rootOverview.data && isMissingRepository(rootOverview.error) };
     }
     const rootMissing = settledRoot.current?.cwd === cwd && settledRoot.current.missing;
+    const discovered = useCachedResourceEnabled(fetching && rootMissing && !selectedRepo, gitDiscoveredReposR, cwd || "");
+    const fallback = rootMissing && discovered.data ? defaultRepoAmong(chosen, discovered.data) : null;
 
-    if (!selectedRepo && rootMissing) return <GitRepoPicker paneId={paneId} root={cwd} active={fetching} />;
+    if (!selectedRepo && rootMissing && (listing || !fallback)) return <GitRepoPicker paneId={paneId} root={cwd} active={fetching} />;
+    const repo = selectedRepo ?? fallback ?? cwd;
     return (
         <GitWorkbench
             paneId={paneId}
-            repo={selectedRepo ?? cwd}
+            repo={repo}
             active={active}
             fetching={fetching}
-            onLeaveRepo={selectedRepo ? () => cmd.setGitView(paneId, { repo: null }) : null}
+            onLeaveRepo={repo !== cwd ? () => cmd.setGitView(paneId, { repo: null, listing: true }) : null}
         />
     );
 }

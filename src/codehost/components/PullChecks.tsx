@@ -2,7 +2,7 @@ import { useResourceEnabled } from "../../plugin-api/resources";
 import type { RepoRef } from "../api";
 import { runsR } from "../resources";
 import { checksSummary, elapsedMs, eventLabel, isUnfinished, outcomeOf, OUTCOME_LABEL, overallOutcome } from "../runStatus";
-import { OutcomeIcon } from "./ActionsIcon";
+import { StatusMark } from "./ActionsIcon";
 import { useEvery, useNow } from "../../plugin-api/hooks";
 import { formatDuration } from "../../lib/format";
 
@@ -28,7 +28,7 @@ export function PullChecks({ repo, sha, active, onOpenRun }: Props) {
     return (
         <div className="gha-merge-part">
             <div className="gha-merge-row">
-                <OutcomeIcon outcome={overallOutcome(runs)} size={12} />
+                <StatusMark outcome={overallOutcome(runs)} size={14} />
                 <span className="gha-merge-title">{summary === "all passed" ? "All checks passed" : `Checks: ${summary}`}</span>
             </div>
             <div className="gha-checks">
@@ -37,7 +37,7 @@ export function PullChecks({ repo, sha, active, onOpenRun }: Props) {
                     const going = isUnfinished(run);
                     return (
                         <button key={run.id} type="button" className="gha-check" data-outcome={outcome} onClick={() => onOpenRun(run.id)}>
-                            <OutcomeIcon outcome={outcome} size={11} />
+                            <StatusMark outcome={outcome} size={13} />
                             <span className="gha-check-name">
                                 {run.name} <span className="gha-item-number gha-dim">#{run.runNumber}</span>
                             </span>

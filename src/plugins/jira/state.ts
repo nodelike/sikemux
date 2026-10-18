@@ -1,6 +1,7 @@
 import { activeSurfacePane, openSurface } from "../../plugin-api/host";
 import { definePaneViews } from "../../plugin-api/paneViews";
-import { JIRA_ISSUES } from "./kinds";
+import { definePluginSettings } from "../../plugin-api/settings";
+import { JIRA_ISSUES, JIRA_PLUGIN_ID } from "./kinds";
 
 export type JiraList =
     | { kind: "mine" }
@@ -76,6 +77,16 @@ const views = definePaneViews<JiraView>({ list: { kind: "mine" }, issue: null, s
 
 export const useJiraView = views.use;
 export const updateJiraView = views.update;
+
+export interface JiraSettings {
+    /** How wide the open issue is, in pixels; null for the width that follows the pane. */
+    detailWidth: number | null;
+}
+
+export const jiraSettings = definePluginSettings(JIRA_PLUGIN_ID, (saved): JiraSettings => {
+    const width = (saved as { detailWidth?: unknown } | null)?.detailWidth;
+    return { detailWidth: typeof width === "number" ? width : null };
+});
 
 export const openJira = (): string | null => openSurface(JIRA_ISSUES);
 

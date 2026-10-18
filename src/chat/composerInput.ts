@@ -28,8 +28,10 @@ export function unknownCommand(text: string, commands: readonly AcpAvailableComm
     return name && commands.length > 0 && !commands.some((command) => command.name === name) ? name : null;
 }
 
-/** `/` runs a command, `@` names something in the project, `#` names an issue or pull request. */
-export type ComposerTrigger = "/" | "@" | "#";
+/** `/` runs a command, `@` names an agent or earlier chat, `#` an issue, `!` a pull request and `+` a file or folder. */
+export type ComposerTrigger = "/" | "@" | "#" | "!" | "+";
+
+const TRIGGERS: readonly string[] = ["/", "@", "#", "!", "+"];
 
 export interface ComposerToken {
     trigger: ComposerTrigger;
@@ -44,9 +46,9 @@ export function tokenAt(text: string, caret: number): ComposerToken | null {
     for (let start = caret - 1; start >= 0; start -= 1) {
         const character = text[start];
         if (/\s/.test(character)) return null;
-        if (character !== "/" && character !== "@" && character !== "#") continue;
+        if (!TRIGGERS.includes(character)) continue;
         if (start > 0 && !/\s/.test(text[start - 1])) continue;
-        return { trigger: character, start, needle: text.slice(start + 1, caret) };
+        return { trigger: character as ComposerTrigger, start, needle: text.slice(start + 1, caret) };
     }
     return null;
 }
@@ -58,6 +60,32 @@ export function removeToken(text: string, token: Pick<ComposerToken, "start">, c
     if ((before === "" || /\s$/.test(before)) && /^ /.test(after)) after = after.slice(1);
     return { text: `${before}${after}`, caret: before.length };
 }
+
+/** Where a tag written into the draft starts, when the caret sits right after it. */
+export function tagBefore(text: string, caret: number, tags: readonly string[]): number | null {
+    for (const tag of tags) {
+        const start = caret - tag.length;
+        if (start >= 0 && text.slice(start, caret) === tag && (start === 0 || /\s/.test(text[start - 1]))) return start;
+    }
+    return null;
+}
+
+/** Where a tag is written in the draft as a word of its own. */
+export function tagStarts(text: string, tag: string): number[] {
+    const starts: number[] = [];
+    for (let at = text.indexOf(tag); at !== -1; at = text.indexOf(tag, at + 1)) {
+        const end = at + tag.length;
+        if ((at === 0 || /\s/.test(text[at - 1])) && (end === text.length || /[\s.,;:!?)]/.test(text[end]))) starts.push(at);
+    }
+    return starts;
+}
+
+export function hasTag(text: string, tag: string): boolean {
+    return tagStarts(text, tag).length > 0;
+}
+
+/** The most rows the composer's menu lists for files, agents or issues. */
+export const MAX_MENU_ENTRIES = 8;
 
 export interface ProjectEntry {
     /** Relative to the project, with a trailing slash on a folder. */

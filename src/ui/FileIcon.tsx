@@ -1,7 +1,6 @@
 import { useSyncExternalStore } from "react";
 import { languageOf } from "../languages";
 import { swallow } from "../state/toast";
-import { currentTheme, subscribeTheme } from "../themes/bus";
 
 /** The Material file icon theme's lookup tables, as scripts/generate-file-icons.mjs writes them. */
 export interface FileIconIndex {
@@ -66,14 +65,24 @@ function subscribeTables(listener: () => void) {
 }
 
 const loadedTables = () => tables;
-const isDark = () => currentTheme().dark;
 
+function IconImage({ name, size, variant }: { name: string; size: number; variant?: "dark" | "light" }) {
+    const className = variant ? `theme-icon theme-icon-${variant}` : "theme-icon";
+    return <img className={className} src={`/file-icons/${name}.svg`} width={size} height={size} alt="" draggable={false} />;
+}
+
+// An icon drawn differently on a light theme keeps both pictures and CSS shows one, since swapping an SVG's source re-reads it.
 export function ThemeIcon({ icon, size = 15 }: { icon: string | null; size?: number }) {
     const loaded = useSyncExternalStore(subscribeTables, loadedTables);
-    const dark = useSyncExternalStore(subscribeTheme, isDark);
     if (!icon) return <span className="theme-icon" style={{ width: size, height: size }} />;
-    const shown = (!dark && loaded?.light.get(icon)) || icon;
-    return <img className="theme-icon" src={`/file-icons/${shown}.svg`} width={size} height={size} alt="" draggable={false} />;
+    const light = loaded?.light.get(icon);
+    if (!light) return <IconImage name={icon} size={size} />;
+    return (
+        <>
+            <IconImage name={icon} size={size} variant="dark" />
+            <IconImage name={light} size={size} variant="light" />
+        </>
+    );
 }
 
 export function FileIcon({ name, size = 14 }: { name: string; size?: number }) {

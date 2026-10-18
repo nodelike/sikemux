@@ -1,42 +1,41 @@
-import { memo, useEffect, useRef, useState } from 'react';
+import { Fragment, memo, useEffect, useRef, useState } from 'react';
 import { Animated, Pressable, StyleSheet, Text, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import MaskedView from '@react-native-masked-view/masked-view';
 import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
 
+import { agentLabel } from '@mac/agents/catalog';
 import { formatAge } from '@mac/lib/format';
-import { AGENT_GROUPS, AGENT_LABELS, type AgentDisplay, type AgentGroup } from '@mac/state/agentStatus';
-import type { Attention, ChatInfo, ProjectInfo, RecentInfo, SessionInfo, Snapshot } from '@/core/protocol';
+import type { ChatInfo, ProjectInfo, RecentInfo, SessionInfo, Snapshot } from '@/core/protocol';
 import { problem as problemOf, reloadDevices, retry, useDevices, useHostStatus, useLive } from '@/devices/hub';
-import { deviceName, type PairedDevice, updateDevice } from '@/devices/paired';
+import { deviceKind, deviceName, type PairedDevice, updateDevice } from '@/devices/paired';
+import { Board } from '@/devices/Board';
 import { ForgetSheet, useForget } from '@/devices/ForgetSheet';
 import { ProjectSheet } from '@/devices/ProjectSheet';
-import { asking as askingOf } from '@/devices/asking';
+import { WorkerRow, workersOf } from '@/devices/RemoteWorker';
 import { summary } from '@/devices/status';
-import { chatDisplay, chatState, chatTitle, folder } from '@/devices/words';
-import { Wants } from '@/screens/Wants';
+import { chatDisplay, chatTitle, folder, inProject, itemIn } from '@/devices/words';
 import { haptics } from '@/ui/haptics';
 import { useMinute, useScrollPause } from '@/ui/motion';
+import { AgentFace } from '@/ui/Buddy';
 import { AgentIcon, Icon } from '@/ui/Icon';
 import { Button, IconButton } from '@/ui/controls';
 import { Row, Rows, SectionLabel } from '@/ui/list';
+import { EmptyState, Prompt } from '@/ui/prompt';
 import { Nav, Screen, useBottomGap } from '@/ui/screen';
-import { Dot, NeedsYou, ShellCount, SubagentCount, Working } from '@/ui/status';
+import { AgentState, NeedsYou, ShellCount, SubagentCount, Working } from '@/ui/status';
 import { fonts, isLight, type Palette, typeFor, useColors, useStyles, useType, translucent } from '@/ui/theme';
 
-type Tab = 'agents' | 'terminals';
+type Tab = 'agents' | 'terminals' | 'board';
 
 /** The New chat pill's height, which the list leaves room for below its last row. */
 const NEW_CHAT_HEIGHT = 52;
 /** Recent chats shown before Show more. */
 const RECENT_SHOWN = 10;
 
-function projectName(snapshot: Snapshot, cwd: string): string {
-  return snapshot.workspace.projects.find((project) => project.path === cwd)?.name ?? folder(cwd);
-}
-
-function inProject(project: ProjectInfo, cwd: string): boolean {
-  return cwd === project.path || cwd.startsWith(`${project.path}/`);
+/** The name of the project with this id or folder. */
+function projectName(snapshot: Snapshot, where: string): string {
+  return snapshot.workspace.projects.find((project) => project.id === where || project.path === where)?.name ?? folder(where);
 }
 
 /** What runs in a project, as its row in the project sheet shows it. */
@@ -46,7 +45,7 @@ function ProjectTail({ snapshot, project }: { snapshot: Snapshot; project: Proje
   const type = useType();
   const chats = snapshot.chats.filter((chat) => inProject(project, chat.cwd));
   const terminals = snapshot.sessions.filter((session) => session.project === project.id && session.running).length;
-  const waiting = chats.some((chat) => chatDisplay(chat).group === 'blocked');
+  const waiting = snapshot.inbox.items.some((item) => item.tier === 'needs' && itemIn(item, project));
   if (!chats.length && !terminals) return null;
   return (
     <View style={styles.tail}>
@@ -55,7 +54,7 @@ function ProjectTail({ snapshot, project }: { snapshot: Snapshot; project: Proje
         <View style={styles.faces}>
           {chats.slice(0, 3).map((chat, index) => (
             <View key={chat.agentId} style={[styles.face, index > 0 && { marginLeft: -4 }]}>
-              <AgentIcon provider={chat.provider} size={16} />
+              <AgentFace agentId={chat.agentId} provider={chat.provider} group={chat.group} size={16} />
             </View>
           ))}
         </View>
@@ -66,25 +65,6 @@ function ProjectTail({ snapshot, project }: { snapshot: Snapshot; project: Proje
         </View>
       )}
     </View>
-  );
-}
-
-function ChatStatus({ display }: { display: AgentDisplay }) {
-  const colors = useColors();
-  if (display.group === 'blocked') return <NeedsYou />;
-  if (display.group === 'working') return <Working />;
-  if (display.group === 'done') return <Dot color={colors.accent} />;
-  return null;
-}
-
-function ChatEnd({ chat }: { chat: ChatInfo }) {
-  const display = chatDisplay(chat);
-  return (
-    <>
-      {display.subagents ? <SubagentCount count={display.subagents} /> : null}
-      {display.tasks ? <ShellCount count={display.tasks} /> : null}
-      <ChatStatus display={display} />
-    </>
   );
 }
 
@@ -121,7 +101,7 @@ function Recent({
     if (resuming) return;
     if (!full) {
       haptics.warning();
-      setNote({ text: `This phone can watch ${hostName}, not resume its chats. The host can give it full access.`, failed: false });
+      setNote({ text: `This phone can only watch ${hostName}.`, failed: false });
       return;
     }
     if (live.status !== 'open') {
@@ -183,6 +163,26 @@ function Recent({
   );
 }
 
+type OpenAgent = { kind: 'chat'; chat: ChatInfo; rank?: number } | { kind: 'terminal'; session: SessionInfo; rank?: number };
+
+/** The open agents in the host rail's order, what wants the person first; agents the core has not ranked go last. */
+function openAgents(snapshot: Snapshot, scope: ProjectInfo | undefined, provider: string): OpenAgent[] {
+  const chats = snapshot.chats
+    .filter((chat) => (!scope || inProject(scope, chat.cwd)) && (provider === 'all' || chat.provider === provider))
+    .map((chat): OpenAgent => ({ kind: 'chat', chat, rank: chat.attentionRank }));
+  const terminals = snapshot.sessions
+    .filter(
+      (session) =>
+        session.agentName &&
+        session.running &&
+        (!scope || session.project === scope.id) &&
+        (provider === 'all' || session.agentType === provider),
+    )
+    .map((session): OpenAgent => ({ kind: 'terminal', session, rank: session.attentionRank }));
+  return [...chats, ...terminals].sort((a, b) => (a.rank ?? Infinity) - (b.rank ?? Infinity));
+}
+
+/** The host's agents: its open agents in one list, each with its own state, then its recent chats. */
 function Agents({
   core,
   snapshot,
@@ -190,6 +190,7 @@ function Agents({
   provider,
   full,
   hostName,
+  onTab,
 }: {
   core: string;
   snapshot: Snapshot;
@@ -197,43 +198,46 @@ function Agents({
   provider: string;
   full: boolean;
   hostName: string;
+  onTab: (tab: Tab) => void;
 }) {
   const styles = useStyles(makeStyles);
-  const scoped = snapshot.chats.filter((chat) => !scope || inProject(scope, chat.cwd));
-  const chats = scoped.filter((chat) => provider === 'all' || chat.provider === provider);
-  const placeOf = (chat: ChatInfo) => (scope ? undefined : projectName(snapshot, chat.cwd));
-  const attentionOf = (chat: ChatInfo) => snapshot.attentions.find((known) => known.agentId === chat.agentId && askingOf(known));
-  const groupOf = (group: AgentGroup) => {
-    const rows = chats.filter((chat) => chatDisplay(chat).group === group);
-    if (group === 'done' || group === 'idle') rows.sort((x, y) => (y.activeAt ?? 0) - (x.activeAt ?? 0));
-    return rows;
-  };
+  const open = openAgents(snapshot, scope, provider);
+  const workers = snapshot.inbox.remoteAgents ?? [];
+  const leads = new Set(open.map((agent) => (agent.kind === 'chat' ? agent.chat.agentId : agent.session.agentId)));
+  const strays = scope
+    ? []
+    : workers.filter((worker) => !(worker.lead && leads.has(worker.lead)) && (provider === 'all' || worker.cli === provider));
+  const placeOf = (project: string | undefined) => (scope || !project ? undefined : projectName(snapshot, project));
 
   return (
     <>
-      {AGENT_GROUPS.map((group) => {
-        const rows = groupOf(group);
-        if (!rows.length) return null;
-        return (
-          <View key={group}>
-            <SectionLabel>{AGENT_LABELS[group]}</SectionLabel>
-            <Rows>
-              {rows.map((chat) => (
-                <ChatRow
-                  key={chat.agentId}
-                  core={core}
-                  chat={chat}
-                  place={placeOf(chat)}
-                  attention={group === 'blocked' ? attentionOf(chat) : undefined}
-                />
-              ))}
-            </Rows>
-          </View>
-        );
-      })}
+      {open.length || strays.length ? (
+        <Rows style={styles.open}>
+          {open.map((agent) =>
+            agent.kind === 'chat' ? (
+              <Fragment key={agent.chat.agentId}>
+                <ChatRow core={core} chat={agent.chat} place={placeOf(agent.chat.cwd)} />
+                {workersOf(workers, agent.chat.agentId).map((worker) => (
+                  <WorkerRow key={worker.agentId} worker={worker} nested />
+                ))}
+              </Fragment>
+            ) : (
+              <Fragment key={agent.session.id}>
+                <TerminalAgentRow session={agent.session} place={placeOf(agent.session.project)} onOpen={() => onTab('terminals')} />
+                {agent.session.agentId
+                  ? workersOf(workers, agent.session.agentId).map((worker) => <WorkerRow key={worker.agentId} worker={worker} nested />)
+                  : null}
+              </Fragment>
+            ),
+          )}
+          {strays.map((worker) => (
+            <WorkerRow key={worker.agentId} worker={worker} />
+          ))}
+        </Rows>
+      ) : null}
       <Recent core={core} snapshot={snapshot} scope={scope} provider={provider} full={full} hostName={hostName} />
-      {!scoped.length && !snapshot.recent.some((chat) => !scope || chat.project === scope.id) ? (
-        <Text style={styles.empty}>{scope ? `No agents in ${scope.name}.` : 'No agents running.'}</Text>
+      {!open.length && !strays.length && !snapshot.recent.some((chat) => !scope || chat.project === scope.id) ? (
+        <EmptyState icon="IconAgent" text={scope ? `No agents in ${scope.name}.` : 'No agents running.'} />
       ) : null}
     </>
   );
@@ -241,6 +245,7 @@ function Agents({
 
 function terminalTitle(session: SessionInfo): string {
   if (session.task) return session.task.label;
+  if (session.agentName) return session.title ?? agentLabel(session.agentType ?? 'agent');
   return session.agentType ?? 'Terminal';
 }
 
@@ -253,35 +258,45 @@ function terminalDetail(session: SessionInfo): string {
 
 /* A host sends its whole view several times a second while an agent works; each row redraws only when its own
    item changed, which the hub keeps as the same object otherwise. */
-const ChatRow = memo(function ChatRow({
-  core,
-  chat,
-  place,
-  attention,
-}: {
-  core: string;
-  chat: ChatInfo;
-  place?: string;
-  attention?: Attention;
-}) {
-  const state = chatState(chat);
-  const asking = chatDisplay(chat).group === 'blocked';
+const ChatRow = memo(function ChatRow({ core, chat, place }: { core: string; chat: ChatInfo; place?: string }) {
+  const display = chatDisplay(chat);
   return (
     <Row
-      mark={<AgentIcon provider={chat.provider} size={20} />}
+      mark={<AgentFace agentId={chat.agentId} provider={chat.provider} group={display.group} size={20} />}
+      name={chat.name}
       title={chatTitle(chat)}
-      place={asking && attention ? undefined : place}
-      detail={
-        asking && attention ? (
-          <>
-            {state} · <Wants attention={attention} />
-          </>
-        ) : (
-          state
-        )
+      place={place}
+      end={
+        <>
+          {display.subagents ? <SubagentCount count={display.subagents} /> : null}
+          {display.tasks ? <ShellCount count={display.tasks} /> : null}
+          <AgentState group={display.group} />
+        </>
       }
-      end={<ChatEnd chat={chat} />}
       onPress={() => router.push(`/device/${core}/chat/${chat.agentId}`)}
+    />
+  );
+});
+
+/** An agent running in a terminal, listed with the chats as the host's rail lists it. */
+const TerminalAgentRow = memo(function TerminalAgentRow({
+  session,
+  place,
+  onOpen,
+}: {
+  session: SessionInfo;
+  place?: string;
+  onOpen: () => void;
+}) {
+  const group = session.group ?? (session.unread ? 'done' : 'idle');
+  return (
+    <Row
+      mark={<AgentFace agentId={session.agentId} provider={session.agentType ?? 'agent'} group={group} size={20} />}
+      name={session.agentName}
+      title={terminalTitle(session)}
+      place={place}
+      end={<AgentState group={group} />}
+      onPress={onOpen}
     />
   );
 });
@@ -327,6 +342,7 @@ const TerminalRow = memo(function TerminalRow({ session }: { session: SessionInf
           color={session.running ? colors.secondary : colors.tertiary}
         />
       }
+      name={session.task ? undefined : session.agentName}
       title={terminalTitle(session)}
       detail={<Text style={type.mono}>{terminalDetail(session)}</Text>}
       end={session.running ? session.task ? <Working /> : <View style={styles.liveDot} /> : null}
@@ -335,14 +351,13 @@ const TerminalRow = memo(function TerminalRow({ session }: { session: SessionInf
 });
 
 function Terminals({ snapshot, scope }: { snapshot: Snapshot; scope?: ProjectInfo }) {
-  const styles = useStyles(makeStyles);
   const groups = new Map<string, SessionInfo[]>();
   for (const session of snapshot.sessions) {
     if (scope && session.project !== scope.id) continue;
     const project = snapshot.workspace.projects.find((known) => known.id === session.project)?.name ?? 'Other';
     groups.set(project, [...(groups.get(project) ?? []), session]);
   }
-  if (!groups.size) return <Text style={styles.empty}>{scope ? `No terminals in ${scope.name}.` : 'No terminals open.'}</Text>;
+  if (!groups.size) return <EmptyState icon="IconCommand" text={scope ? `No terminals in ${scope.name}.` : 'No terminals open.'} />;
   return (
     <>
       {[...groups].map(([project, sessions]) => (
@@ -407,9 +422,7 @@ function UnderBar({ height, open, bottom }: { height: number; open: Animated.Ani
         </Defs>
         <Rect x="0" y="0" width="100%" height="100%" fill="url(#over-home)" />
       </Svg>
-      <Animated.View
-        style={{ position: 'absolute', top: 0, left: 0, right: 0, height: height + FADE, backgroundColor: '#000', opacity: open }}
-      />
+      <Animated.View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom, backgroundColor: '#000', opacity: open }} />
     </View>
   );
 }
@@ -434,25 +447,19 @@ function HostTab({ label, count, on, onPress }: { label: string; count?: number;
 /** The host turned this phone away: only forgetting it here and connecting again helps. */
 function Unpaired({ device }: { device?: PairedDevice }) {
   const styles = useStyles(makeStyles);
-  const type = useType();
   const { forgetting, problem, leave } = useForget(device);
   return (
-    <View style={styles.away}>
-      <Text style={[type.title, { fontSize: 20, textAlign: 'center' }]} accessibilityRole="header">
-        This host no longer knows this phone
-      </Text>
-      <Text style={[type.body, { textAlign: 'center', marginTop: 8 }]}>
-        It was removed on the host. Forget it here, then connect to it again from Devices.
-      </Text>
+    <Prompt icon="IconUnlink" title="This host no longer knows this phone" fill>
       {problem ? <Text style={styles.problem}>{problem}</Text> : null}
       <Button
         kind="danger"
+        icon="IconTrash"
         title={forgetting ? 'Forgetting…' : 'Forget this host'}
         onPress={() => void leave()}
         disabled={forgetting || !device}
         style={styles.retry}
       />
-    </View>
+    </Prompt>
   );
 }
 
@@ -468,19 +475,19 @@ export default function Device() {
   const live = useLive(core);
   const status = useHostStatus(core);
   const scrollPause = useScrollPause();
-  const [tab, setTab] = useState<Tab>(linkedTab === 'terminals' ? 'terminals' : 'agents');
+  const [tab, setTab] = useState<Tab>(linkedTab === 'terminals' || linkedTab === 'board' ? linkedTab : 'agents');
   const [followedLink, setFollowedLink] = useState(linkedTab);
   if (linkedTab !== followedLink) {
     setFollowedLink(linkedTab);
-    if (linkedTab === 'agents' || linkedTab === 'terminals') setTab(linkedTab);
+    if (linkedTab === 'agents' || linkedTab === 'terminals' || linkedTab === 'board') setTab(linkedTab);
   }
   const behind = status.outdated;
   const away = live.status === 'closed' || !!status.problem;
   const unreachable =
     behind === 'host'
-      ? { title: 'This host needs a newer Sikemux', body: 'Update Sikemux on the host, then come back here.' }
+      ? { title: 'This host needs a newer Sikemux' }
       : behind === 'phone'
-        ? { title: 'Update this app', body: 'This host runs a newer Sikemux than this app understands.' }
+        ? { title: 'Update this app', body: 'This host runs a newer Sikemux.' }
         : { title: "Can't reach this host", body: 'It may be asleep, offline, or have remote access turned off.' };
   const snapshot = live.snapshot;
   const [picking, setPicking] = useState(false);
@@ -488,8 +495,7 @@ export default function Device() {
   const starts = device?.access === 'full' && status.online && tab === 'agents';
   const bottom = useBottomGap();
   const scope = snapshot?.workspace.projects.find((project) => project.id === device?.project);
-  const asking =
-    snapshot?.chats.filter((chat) => chatDisplay(chat).group === 'blocked' && (!scope || inProject(scope, chat.cwd))).length ?? 0;
+  const asking = snapshot?.inbox.items.filter((item) => item.tier === 'needs' && (!scope || itemIn(item, scope))).length ?? 0;
   const [filter, setFilter] = useState('all');
   const providers = [
     ...new Set([
@@ -545,9 +551,7 @@ export default function Device() {
       {status.unpaired ? (
         <Unpaired device={device} />
       ) : away && !snapshot ? (
-        <View style={styles.away}>
-          <Text style={[type.title, { fontSize: 20, textAlign: 'center' }]}>{unreachable.title}</Text>
-          <Text style={[type.body, { textAlign: 'center', marginTop: 8 }]}>{unreachable.body}</Text>
+        <Prompt icon={behind ? 'IconDownload' : deviceKind(device?.model)} title={unreachable.title} detail={unreachable.body} fill>
           {behind ? null : (
             <>
               <View style={styles.trying}>
@@ -564,7 +568,7 @@ export default function Device() {
               />
             </>
           )}
-        </View>
+        </Prompt>
       ) : !snapshot ? (
         <View style={styles.away}>
           <View style={styles.trying}>
@@ -574,7 +578,9 @@ export default function Device() {
       ) : (
         <>
           <View style={styles.list}>
-            <MaskedView style={styles.list} maskElement={<UnderBar height={barHeight} open={unpinned} bottom={bottom} />}>
+            <MaskedView
+              style={styles.list}
+              maskElement={<UnderBar height={barHeight} open={unpinned} bottom={bottom + NEW_CHAT_HEIGHT + 24} />}>
               <Animated.ScrollView
                 {...scrollPause}
                 onScroll={Animated.event([{ nativeEvent: { contentOffset: { y: scrolled } } }], { useNativeDriver: true })}
@@ -596,9 +602,18 @@ export default function Device() {
                         provider={provider}
                         full={device?.access === 'full'}
                         hostName={hostName}
+                        onTab={switchTo}
                       />
-                    ) : (
+                    ) : tab === 'terminals' ? (
                       <Terminals snapshot={snapshot} scope={scope} />
+                    ) : (
+                      <Board
+                        core={core}
+                        connection={live.status === 'open' ? live.connection : undefined}
+                        snapshot={snapshot}
+                        scope={scope}
+                        onScope={scopeTo}
+                      />
                     )
                   ) : null}
                 </View>
@@ -611,6 +626,7 @@ export default function Device() {
                 <View style={styles.tabs} accessibilityRole="tablist">
                   <HostTab label="Agents" count={asking} on={tab === 'agents'} onPress={() => switchTo('agents')} />
                   <HostTab label="Terminals" on={tab === 'terminals'} onPress={() => switchTo('terminals')} />
+                  <HostTab label="Board" on={tab === 'board'} onPress={() => switchTo('board')} />
                 </View>
                 {snapshot.workspace.projects.length || filtering ? (
                   <Pressable
@@ -716,6 +732,7 @@ const makeStyles = (colors: Palette) => {
     picker: { flexShrink: 1, flexDirection: 'row', alignItems: 'center', gap: 6 },
     pickerText: { flexShrink: 1, fontFamily: fonts.ui, fontSize: 13, color: colors.secondary },
     body: { paddingHorizontal: 16 },
+    open: { marginTop: 10 },
     newChat: {
       position: 'absolute',
       right: 16,
@@ -738,7 +755,6 @@ const makeStyles = (colors: Palette) => {
     faces: { flexDirection: 'row' },
     face: { width: 16, height: 16, alignItems: 'center', justifyContent: 'center' },
     termCount: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-    empty: { ...type.meta, textAlign: 'center', paddingTop: 40 },
     age: { fontSize: 12, fontVariant: ['tabular-nums'] },
     more: { minHeight: 40, justifyContent: 'center', paddingLeft: 38, paddingRight: 8, borderRadius: 9 },
     morePressed: { backgroundColor: colors.active },
@@ -748,7 +764,7 @@ const makeStyles = (colors: Palette) => {
     liveDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: colors.live },
     away: { flex: 1, justifyContent: 'center', paddingHorizontal: 32, paddingBottom: 120 },
     trying: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, marginTop: 16 },
-    retry: { marginTop: 24 },
+    retry: { marginTop: 24, alignSelf: 'stretch' },
     stale: { opacity: 0.5 },
     problem: { ...type.meta, color: colors.danger, textAlign: 'center', marginTop: 12 },
   });

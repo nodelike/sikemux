@@ -134,6 +134,7 @@ export const actionsApi = {
     jobSummary: (repo: RepoRef, checkRunId: string) => call<JobSummary | null>("jobSummary", { ...repo, checkRunId: Number(checkRunId) }),
     runTiming: (repo: RepoRef, runId: string) => call<RunTiming>("runTiming", { ...repo, runId: Number(runId) }),
     workflowFile: (repo: RepoRef, workflowId: string) => call<WorkflowFile>("workflowFile", { ...repo, workflowId: Number(workflowId) }),
+    workflowFileAt: (repo: RepoRef, path: string, gitRef: string) => call<WorkflowFile>("workflowFileAt", { ...repo, path, gitRef }),
     artifacts: (repo: RepoRef, runId: string) =>
         call<(Omit<Artifact, "id"> & { id: number })[]>("artifacts", { ...repo, runId: Number(runId) }).then((rows): Artifact[] =>
             rows.map(withTextId),
@@ -143,6 +144,7 @@ export const actionsApi = {
         call<GithubRunDetail>("runAttempt", { ...repo, runId: Number(runId), attempt }).then(fromDetail),
 
     pulls: (repo: RepoRef, state: string) => call<Pull[]>("pulls", { ...repo, state }),
+    pullCounts: (repo: RepoRef) => call<{ open: number; closed: number }>("pullCounts", { ...repo }),
     pull: (repo: RepoRef, number: number) => call<Pull>("pull", { ...repo, number }),
     pullFiles: (repo: RepoRef, number: number) => call<ChangedFile[]>("pullFiles", { ...repo, number, fullPatches: true }),
     pullCommits: (repo: RepoRef, number: number) => call<PullCommit[]>("pullCommits", { ...repo, number }),
@@ -150,6 +152,7 @@ export const actionsApi = {
     commitAuthors: (repo: RepoRef, gitRef: string | null) => call<CommitAuthor[]>("commitAuthors", { ...repo, gitRef }),
     pullReviews: (repo: RepoRef, number: number) => call<Review[]>("pullReviews", { ...repo, number }),
     issues: (repo: RepoRef, state: string, page: number) => call<IssuePage>("issues", { ...repo, state, page }),
+    issueCounts: (repo: RepoRef) => call<{ open: number; closed: number }>("issueCounts", { ...repo }),
     issue: (repo: RepoRef, number: number) => call<Issue>("issue", { ...repo, number }),
     comments: (repo: RepoRef, number: number) => call<Comment[]>("comments", { ...repo, number }),
     releases: (repo: RepoRef) => call<Release[]>("releases", repo),

@@ -4,6 +4,7 @@
 
 use std::collections::HashMap;
 
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use super::super::super::states::{self, Held, Subagent};
@@ -44,12 +45,14 @@ fn ended_state(status: &str) -> Option<Subagent> {
 
 /// A subagent with a card in the chat. Its session is its thread's id, so
 /// work sent to it again reopens the same card.
+#[derive(Serialize, Deserialize)]
 struct Child {
     parent_session: String,
     path: String,
     ended: bool,
 }
 
+#[derive(Serialize, Deserialize)]
 struct Pending {
     parent_session: String,
     task: String,
@@ -68,6 +71,7 @@ pub(super) enum Route {
 /// An update for a session, and the session it is for.
 pub(super) type Addressed = (String, Value);
 
+#[derive(Serialize, Deserialize)]
 pub(super) struct Subagents {
     root: String,
     children: HashMap<String, Child>,

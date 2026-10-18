@@ -54,7 +54,7 @@ export function SignInForm({ status, onSignedIn }: Props) {
 
     return (
         <SignInScreen
-            mark={<BitbucketMark size={26} className="icon-bitbucket" />}
+            mark={<BitbucketMark size={26} />}
             title="Connect Bitbucket"
             lede="Pull requests, pipelines and reviews for this repository, right beside your changes."
             foot="Sikemux keeps your sign-in in the macOS Keychain.">
@@ -102,7 +102,7 @@ export function SignInForm({ status, onSignedIn }: Props) {
                 <SignInWaiting onCancel={attempt.cancel}>Finish signing in in your browser</SignInWaiting>
             ) : (
                 <button type="button" className="signin-btn primary" onClick={signInWithBrowser}>
-                    <BitbucketMark size={14} />
+                    <BitbucketMark size={14} mono />
                     Continue with Bitbucket
                 </button>
             )}

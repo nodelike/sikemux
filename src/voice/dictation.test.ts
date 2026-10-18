@@ -12,7 +12,8 @@ const api = vi.hoisted(() => ({
 }));
 vi.mock("../api/voice", () => ({ voiceApi: api }));
 
-const { finishDictationInto, handleVoiceEvent, onVoiceKeyDown, onVoiceKeyUp, toggleDictation, useVoice } = await import("./dictation");
+const { finishDictationInto, handleVoiceEvent, onVoiceKeyDown, onVoiceKeyUp, resumeAfterNetwork, toggleDictation, useVoice } =
+    await import("./dictation");
 const { getState, setState } = await import("../state/store");
 
 const key = (type: "keydown" | "keyup", code: string, init: KeyboardEventInit = {}) => new KeyboardEvent(type, { code, ...init });
@@ -125,6 +126,28 @@ describe("voice dictation", () => {
         expect(api.cancel).toHaveBeenCalledOnce();
         onVoiceKeyUp(key("keyup", "AltRight"));
         expect(api.stop).not.toHaveBeenCalled();
+    });
+
+    it("pauses a download cut off by the network and carries on once it is back", async () => {
+        const message = "You're offline, so the speech model paused downloading. It carries on when you're back.";
+        resumeAfterNetwork("online");
+        expect(api.prepare).not.toHaveBeenCalled();
+
+        handleVoiceEvent({ type: "error", reason: "offline", message });
+        expect(useVoice.getState()).toMatchObject({ phase: "off", reason: message });
+
+        resumeAfterNetwork("offline");
+        await vi.runAllTimersAsync();
+        expect(api.prepare).not.toHaveBeenCalled();
+
+        resumeAfterNetwork("online");
+        await vi.runAllTimersAsync();
+        expect(api.prepare).toHaveBeenCalledOnce();
+        expect(useVoice.getState().phase).toBe("preparing");
+
+        resumeAfterNetwork("changed");
+        await vi.runAllTimersAsync();
+        expect(api.prepare).toHaveBeenCalledOnce();
     });
 
     it("ignores the key while the model is still downloading", () => {

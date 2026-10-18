@@ -24,6 +24,7 @@ export interface JiraStatus {
 export interface JiraPerson {
     accountId: string;
     name: string;
+    avatarUrl: string | null;
 }
 
 export type StatusCategory = "new" | "indeterminate" | "done" | "";
@@ -38,21 +39,43 @@ export interface JiraIssueSummary {
     issueType: string | null;
     sprint: string | null;
     updated: string | null;
+    /** The day it is due, as `2026-10-31`. */
+    due: string | null;
+    /** The epic or other issue it sits under. */
+    parent: JiraParent | null;
     url: string;
+}
+
+export interface JiraParent {
+    key: string;
+    summary: string;
+    /** Jira's name for the epic's colour: `color_1` to `color_14`, or a name such as `teal`. */
+    color: string | null;
 }
 
 export interface JiraComment {
     id: string;
     author: string;
+    authorAvatarUrl: string | null;
     created: string;
     /** Markdown. */
     body: string;
+}
+
+/** One edit to an issue and the fields it changed. */
+export interface JiraChange {
+    id: string;
+    author: string;
+    authorAvatarUrl: string | null;
+    created: string;
+    fields: { field: string; from: string | null; to: string | null }[];
 }
 
 export interface JiraTransition {
     id: string;
     name: string;
     to: string;
+    toCategory: StatusCategory;
 }
 
 export interface JiraIssue extends JiraIssueSummary {
@@ -64,7 +87,14 @@ export interface JiraIssue extends JiraIssueSummary {
     description: string;
     comments: JiraComment[];
     commentCount: number;
+    /** The latest edits, newest first. */
+    history: JiraChange[];
     transitions: JiraTransition[];
+    subtasks: JiraIssueSummary[];
+    /** The keys of the issues this one is blocked by. */
+    blockedBy: string[];
+    /** The keys of the issues this one blocks. */
+    blocks: string[];
 }
 
 export interface JiraPage {
@@ -83,6 +113,7 @@ export const refreshJira = () => invalidate((kind) => kind.startsWith("jira."));
 export interface JiraProject {
     key: string;
     name: string;
+    avatarUrl: string | null;
 }
 
 export interface JiraBoard {
@@ -90,6 +121,8 @@ export interface JiraBoard {
     name: string;
     kind: "scrum" | "kanban" | string;
     project: string | null;
+    /** The project's key when the board belongs to one rather than to a person. */
+    projectKey: string | null;
 }
 
 export interface JiraSprint {
@@ -114,6 +147,8 @@ export interface JiraBoardView {
     truncated: boolean;
 }
 
+const avatars = new Map<string, Promise<string>>();
+
 export const jiraApi = {
     status: () => backend.call<JiraStatus>("status"),
     signIn: (site: string, email: string, token: string) => backend.call<JiraStatus>("signIn", { site, email, token }),
@@ -133,9 +168,34 @@ export const jiraApi = {
     filters: (site?: string) => backend.call<JiraFilter[]>("filters", { site }),
     projects: (site?: string) => backend.call<JiraProject[]>("projects", { site }),
     boards: (site?: string) => backend.call<JiraBoard[]>("boards", { site }),
-    board: (id: number, site?: string) => backend.call<JiraBoardView>("board", { id, site }),
+    /** A board, narrowed to the cards of the people picked: account ids, plus "me" and "none" for unassigned. */
+    board: (id: number, site?: string, picked: string[] = []) =>
+        backend.call<JiraBoardView>("board", {
+            id,
+            site,
+            people: picked.filter((each) => each !== "me" && each !== "none"),
+            mine: picked.includes("me"),
+            unassigned: picked.includes("none"),
+        }),
     /** Moves an issue into a board column through whichever transition leads to one of its statuses. */
     moveIssue: (key: string, column: JiraColumn, site?: string) =>
         backend.call<void>("moveIssue", { key, statusIds: column.statusIds, column: column.name, site }),
-    keys: (text: string) => backend.call<string[]>("keys", { text }),
+    /** A person's picture as a `data:` address, since the window cannot load Atlassian's images itself. */
+    avatar(url: string): Promise<string> {
+        const known = avatars.get(url);
+        if (known) return known;
+        const fetched = backend.call<string>("image", { url });
+        avatars.set(url, fetched);
+        fetched.catch(() => avatars.delete(url));
+        return fetched;
+    },
+    /** A project's picture as a `data:` address; Jira serves these only to someone signed in. */
+    siteImage(url: string, site?: string): Promise<string> {
+        const known = avatars.get(url);
+        if (known) return known;
+        const fetched = backend.call<string>("siteImage", { url, site });
+        avatars.set(url, fetched);
+        fetched.catch(() => avatars.delete(url));
+        return fetched;
+    },
 };

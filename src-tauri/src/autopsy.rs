@@ -15,6 +15,8 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 
+use sikemux_host::hang_reports::{autopsy_dir, is_bundle, DIRECTORY_PREFIX, REPORT_FILE};
+
 use crate::bounded_process;
 use crate::observability::{
     global_observability, HangListener, HangSignal, Metadata, ObservabilitySnapshot, ScalarValue,
@@ -22,8 +24,6 @@ use crate::observability::{
 };
 
 const REPORT_VERSION: u32 = 1;
-const REPORT_FILE: &str = "report.json";
-const DIRECTORY_PREFIX: &str = "hang-";
 const RETAINED_AUTOPSIES: usize = 5;
 const MIN_AUTOPSY_INTERVAL: Duration = Duration::from_secs(120);
 const SAMPLE_BINARY: &str = "/usr/bin/sample";
@@ -69,34 +69,6 @@ pub struct HangReport {
     pub activity_history: Vec<UiActivitySnapshot>,
     pub observability: ObservabilitySnapshot,
     pub samples: Vec<StackSample>,
-}
-
-/// One autopsy as listed by `sikemux doctor`.
-#[derive(Clone, Debug, PartialEq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct HangReportSummary {
-    pub directory: String,
-    pub report: String,
-    pub captured_at: String,
-    pub captured_at_ms: u64,
-    pub delay_ms: u64,
-    pub summary: String,
-    pub stacks: Vec<String>,
-}
-
-/// The fields of a written report that listing needs. Everything else in the
-/// bundle is for a human reading the file.
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct ReportHeader {
-    captured_at: String,
-    captured_at_ms: u64,
-    watchdog: String,
-    delay_ms: u64,
-    #[serde(default)]
-    activity: Option<UiActivitySnapshot>,
-    #[serde(default)]
-    samples: Vec<StackSample>,
 }
 
 /// Captures native stacks of a process into a file.
@@ -356,94 +328,6 @@ pub fn prune(directory: &Path, keep: usize) -> io::Result<()> {
     Ok(())
 }
 
-fn is_bundle(path: &Path) -> bool {
-    path.file_name()
-        .and_then(|name| name.to_str())
-        .is_some_and(|name| name.starts_with(DIRECTORY_PREFIX))
-}
-
-/// Reads every autopsy bundle in `directory`, newest first.
-pub fn list_reports(directory: &Path) -> Vec<HangReportSummary> {
-    let Ok(entries) = fs::read_dir(directory) else {
-        return Vec::new();
-    };
-    let mut summaries = entries
-        .filter_map(Result::ok)
-        .map(|entry| entry.path())
-        .filter(|path| path.is_dir() && is_bundle(path))
-        .filter_map(|path| read_summary(&path))
-        .collect::<Vec<_>>();
-    summaries.sort_by_key(|summary| std::cmp::Reverse(summary.captured_at_ms));
-    summaries
-}
-
-fn read_summary(directory: &Path) -> Option<HangReportSummary> {
-    let report = directory.join(REPORT_FILE);
-    let header: ReportHeader = serde_json::from_slice(&fs::read(&report).ok()?).ok()?;
-    let stacks = header
-        .samples
-        .iter()
-        .filter_map(|sample| sample.file.as_ref())
-        .map(|file| directory.join(file).to_string_lossy().into_owned())
-        .collect();
-    Some(HangReportSummary {
-        directory: directory.to_string_lossy().into_owned(),
-        report: report.to_string_lossy().into_owned(),
-        captured_at: header.captured_at.clone(),
-        captured_at_ms: header.captured_at_ms,
-        delay_ms: header.delay_ms,
-        summary: summarize(&header),
-        stacks,
-    })
-}
-
-fn summarize(header: &ReportHeader) -> String {
-    let mut parts = vec![format!(
-        "{} froze for {}",
-        header.watchdog,
-        human_duration(header.delay_ms)
-    )];
-    if let Some(activity) = &header.activity {
-        if let Some(pane) = &activity.focus_pane {
-            parts.push(format!("focus {pane}"));
-        }
-        if let Some(inflight) = activity.inflight.first() {
-            parts.push(format!(
-                "inflight {} ({})",
-                inflight.command,
-                human_duration(inflight.age_ms)
-            ));
-        }
-        let rejections: u64 = activity
-            .rejections
-            .iter()
-            .fold(0, |total, rejection| total.saturating_add(rejection.count));
-        if rejections == 1 {
-            parts.push("1 rejection".to_owned());
-        } else if rejections > 1 {
-            parts.push(format!("{rejections} rejections"));
-        }
-    }
-    if header.samples.iter().all(|sample| sample.file.is_none()) {
-        parts.push("no stacks captured".to_owned());
-    }
-    parts.join(" · ")
-}
-
-pub fn human_duration(ms: u64) -> String {
-    if ms < 1_000 {
-        format!("{ms}ms")
-    } else {
-        format!("{}.{}s", ms / 1_000, (ms % 1_000) / 100)
-    }
-}
-
-/// Where autopsies live. Debug and release stay separate so a development run
-/// cannot bury the evidence from an installed build.
-pub fn autopsy_dir() -> Option<PathBuf> {
-    sikemux_process::paths::config_file("autopsy", "")
-}
-
 /// Builds the listener the UI watchdog notifies. `None` when there is nowhere
 /// to write, which leaves hang detection working and evidence capture off.
 pub fn listener(activity: Arc<UiActivityLog>) -> Option<Arc<dyn HangListener>> {
@@ -509,8 +393,8 @@ pub fn web_content_pid() -> Option<i32> {
 mod macos {
     use std::ffi::c_void;
 
-    use objc2::msg_send;
     use objc2::rc::Retained;
+    use objc2::{msg_send, sel};
     use objc2_web_kit::WKWebView;
 
     /// WebKit runs the page in a separate WebContent process and only exposes
@@ -524,9 +408,13 @@ mod macos {
         // live WKWebView, on the main thread.
         let webview: Retained<WKWebView> =
             unsafe { Retained::retain(pointer.cast::<WKWebView>()) }?;
-        // SAFETY: `_webProcessIdentifier` is a private WKWebView method that takes nothing
-        // and returns the pid as an int. Unlike `keep_running_when_covered`, its
-        // existence is not checked first.
+        // SAFETY: a plain `respondsToSelector:` query.
+        let present: bool =
+            unsafe { msg_send![&*webview, respondsToSelector: sel!(_webProcessIdentifier)] };
+        if !present {
+            return None;
+        }
+        // SAFETY: confirmed above; it takes nothing and returns the pid as an int.
         let pid: i32 = unsafe { msg_send![&*webview, _webProcessIdentifier] };
         (pid > 0).then_some(pid)
     }
@@ -541,59 +429,22 @@ fn now_ms() -> u64 {
 
 /// `20260918-142233-471`, which sorts chronologically as a directory name.
 fn stamp(ms: u64) -> String {
-    let (year, month, day, hour, minute, second, millis) = utc_parts(ms);
-    format!("{year:04}{month:02}{day:02}-{hour:02}{minute:02}{second:02}-{millis:03}")
+    let at = time::OffsetDateTime::UNIX_EPOCH + time::Duration::milliseconds(ms as i64);
+    at.format(time::macros::format_description!(
+        "[year][month][day]-[hour][minute][second]-[subsecond digits:3]"
+    ))
+    .unwrap_or_default()
 }
 
 pub(crate) fn iso8601(ms: u64) -> String {
-    let (year, month, day, hour, minute, second, millis) = utc_parts(ms);
-    format!("{year:04}-{month:02}-{day:02}T{hour:02}:{minute:02}:{second:02}.{millis:03}Z")
-}
-
-fn utc_parts(ms: u64) -> (i64, u32, u32, u64, u64, u64, u64) {
-    let seconds = ms / 1_000;
-    let millis = ms % 1_000;
-    let time_of_day = seconds % 86_400;
-    let (year, month, day) = civil_from_days((seconds / 86_400) as i64);
-    (
-        year,
-        month,
-        day,
-        time_of_day / 3_600,
-        (time_of_day % 3_600) / 60,
-        time_of_day % 60,
-        millis,
-    )
-}
-
-/// Days since 1970-01-01 to a calendar date, using Howard Hinnant's shift of
-/// the year start to March so leap days land at the end of the cycle.
-fn civil_from_days(days: i64) -> (i64, u32, u32) {
-    let shifted = days + 719_468;
-    let era = if shifted >= 0 {
-        shifted
-    } else {
-        shifted - 146_096
-    } / 146_097;
-    let day_of_era = (shifted - era * 146_097) as u64;
-    let year_of_era =
-        (day_of_era - day_of_era / 1_460 + day_of_era / 36_524 - day_of_era / 146_096) / 365;
-    let day_of_year = day_of_era - (365 * year_of_era + year_of_era / 4 - year_of_era / 100);
-    let shifted_month = (5 * day_of_year + 2) / 153;
-    let day = (day_of_year - (153 * shifted_month + 2) / 5 + 1) as u32;
-    let month = if shifted_month < 10 {
-        shifted_month + 3
-    } else {
-        shifted_month - 9
-    } as u32;
-    let year = year_of_era as i64 + era * 400;
-    (if month <= 2 { year + 1 } else { year }, month, day)
+    sikemux_core::accounts::live::rfc3339(ms)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::observability::{Observability, UiActivityRejection, UiInflightCommand};
+    use sikemux_host::hang_reports::list_reports;
 
     struct FakeCapturer {
         body: &'static str,
@@ -775,21 +626,9 @@ mod tests {
     }
 
     #[test]
-    fn calendar_dates_survive_leap_years_and_century_boundaries() {
-        assert_eq!(civil_from_days(0), (1970, 1, 1));
-        assert_eq!(civil_from_days(59), (1970, 3, 1));
+    fn report_times_read_in_utc() {
         assert_eq!(iso8601(0), "1970-01-01T00:00:00.000Z");
-        // 2000-02-29 and 2024-02-29 are leap days; 1900 was not a leap year.
-        assert_eq!(civil_from_days(11_016), (2000, 2, 29));
-        assert_eq!(civil_from_days(19_782), (2024, 2, 29));
         assert_eq!(iso8601(1_789_000_000_123), "2026-09-10T00:26:40.123Z");
-    }
-
-    #[test]
-    fn durations_read_as_seconds_once_they_matter() {
-        assert_eq!(human_duration(0), "0ms");
-        assert_eq!(human_duration(999), "999ms");
-        assert_eq!(human_duration(1_000), "1.0s");
-        assert_eq!(human_duration(4_299), "4.2s");
+        assert_eq!(stamp(1_789_000_000_123), "20260910-002640-123");
     }
 }

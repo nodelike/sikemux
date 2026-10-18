@@ -1,67 +1,37 @@
 import { agentLabel } from "../agents/catalog";
-import { CHAT_AGENT_TYPES, agentSupportsChat, normalizePermissionMode } from "../agents/agentLaunch";
+import { CHAT_AGENT_TYPES, agentSupportsChat } from "../agents/agentLaunch";
 import { selectedProviderProfile } from "../agents/agentProfiles";
 import { agentCwd } from "../agents/agentPtyContext";
-import type { AgentInfo, RecentChat } from "../api/agents";
-import type { LauncherRequest, PublishedChat, PublishedProject, PublishedRecent } from "../api/remote";
+import type { RecentChat } from "../api/agents";
+import type { PublishedChat, PublishedProject, PublishedRecent } from "../api/remote";
 import { agentWindowId, ownerSessionId } from "../state/selectors";
 import type { StoreState } from "../state/store";
-import type { AgentPermissionMode, AgentType, ProviderProfile, ProviderProfileSelection, Session } from "../state/types";
+import type { AgentType, ProviderProfile, ProviderProfileSelection, Session } from "../state/types";
 
 /** The longest title the core keeps. */
 const MAX_TITLE_CHARS = 200;
 
-const launcherId = (type: AgentType, profile?: ProviderProfile) => (profile ? `${type}:${profile.id}` : type);
+/** The launcher the app offers for a provider and profile, as devices and the core name it. */
+export const launcherId = (type: AgentType, profileId?: string) => (profileId ? `${type}:${profileId}` : type);
 
-export interface RemoteWorkspace {
-    readonly projects: PublishedProject[];
-    readonly launchers: LauncherRequest[];
-}
-
-/**
- * The projects open in this window and the chat agents it can start, as a
- * paired device sees them. A provider with profiles offers one agent per
- * profile; the others offer one.
- */
-export function remoteWorkspace(
-    sessions: Record<string, Session>,
-    sessionOrder: readonly string[],
-    profiles: readonly ProviderProfile[],
-    permissionMode: AgentPermissionMode,
-    catalog: readonly AgentInfo[] = [],
-): RemoteWorkspace {
-    const statusOf = (type: AgentType, configPath?: string) =>
-        catalog.find((agent) => agent.type === type && (agent.configPath ?? undefined) === configPath)?.status?.state;
-    const projects = sessionOrder
+/** The projects open in this window, as a paired device sees them. */
+export function remoteProjects(sessions: Record<string, Session>, sessionOrder: readonly string[]): PublishedProject[] {
+    return sessionOrder
         .map((id) => sessions[id])
         .filter((session): session is Session => session?.kind === "project" && session.cwd !== "")
         .map((session) => ({ id: session.id, name: session.name, path: session.cwd }));
-    const launchers = CHAT_AGENT_TYPES.flatMap((type): LauncherRequest[] => {
-        const mode = normalizePermissionMode(type, permissionMode);
+}
+
+/** The chat agents the core offers, as its launchers name them: one per profile, or one for a provider with none. */
+export function chatLaunchers(profiles: readonly ProviderProfile[]): { id: string; label: string }[] {
+    return CHAT_AGENT_TYPES.flatMap((type) => {
         const own = profiles.filter((profile) => profile.provider === type);
-        if (own.length === 0)
-            return [
-                {
-                    id: launcherId(type),
-                    provider: type,
-                    label: agentLabel(type),
-                    environmentKeys: [],
-                    permissionMode: mode,
-                    status: statusOf(type),
-                },
-            ];
+        if (own.length === 0) return [{ id: launcherId(type), label: agentLabel(type) }];
         return own.map((profile) => ({
-            id: launcherId(type, profile),
-            provider: type,
+            id: launcherId(type, profile.id),
             label: own.length > 1 ? `${agentLabel(type)} · ${profile.name}` : agentLabel(type),
-            configPath: profile.configPath,
-            executablePath: profile.executablePath,
-            environmentKeys: profile.environmentKeys ?? [],
-            permissionMode: mode,
-            status: statusOf(type, profile.configPath),
         }));
     });
-    return { projects, launchers };
 }
 
 /** The provider profile a chat was started with, read back from its launcher's id. */
@@ -83,7 +53,7 @@ export function remoteRecent(
         const own = profiles.filter((profile) => profile.provider === chat.agent);
         const profile = own.length ? (selectedProviderProfile(chat.agent, profiles, selections) ?? own[0]) : undefined;
         return {
-            launcher: launcherId(chat.agent, profile),
+            launcher: launcherId(chat.agent, profile?.id),
             provider: chat.agent,
             sessionId: chat.id,
             title: Array.from(chat.title).slice(0, MAX_TITLE_CHARS).join(""),

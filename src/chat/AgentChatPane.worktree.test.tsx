@@ -5,6 +5,7 @@ import { resetResourcesForTests } from "../state/resources";
 import { setState } from "../state/store";
 import type { Agent, AgentWorktree } from "../state/types";
 import { AgentChatPane } from "./AgentChatPane";
+import { draftOf, typeDraft } from "../test/draft";
 
 const mocks = vi.hoisted(() => ({
     prompt: vi.fn(async () => {}),
@@ -46,7 +47,6 @@ vi.mock("../state/commands", () => ({
     noteAgentBackgroundWork: vi.fn(),
     toggleAgentSkipPermissions: vi.fn(),
 }));
-vi.mock("@tauri-apps/plugin-dialog", () => ({ open: vi.fn(async () => null) }));
 
 const agent: Agent = {
     id: "agent-wt",
@@ -77,13 +77,13 @@ function renderPane() {
     return view;
 }
 
-async function sendFirstMessage(text: string): Promise<HTMLTextAreaElement> {
-    const editor = screen.getByRole("textbox", { name: "Message agent" }) as HTMLTextAreaElement;
+async function sendFirstMessage(text: string): Promise<HTMLElement> {
+    const editor = screen.getByRole("textbox", { name: "Message agent" });
     await waitFor(() => expect(mocks.start).toHaveBeenCalledWith(expect.objectContaining({ cwd: "/repo" })));
     const toggle = await screen.findByRole("button", { name: "worktree" });
     fireEvent.click(toggle);
     expect(toggle).toHaveAttribute("aria-pressed", "true");
-    fireEvent.change(editor, { target: { value: text } });
+    typeDraft(editor, text);
     fireEvent.keyDown(editor, { key: "Enter" });
     return editor;
 }
@@ -131,7 +131,7 @@ describe("AgentChatPane in a worktree", () => {
 
         resolveCreate({ worktree, cwd: worktree.path, setupError: "Install failed: exit 1" });
         expect(await screen.findByText(/Install failed: exit 1\. The worktree is kept at/)).toBeInTheDocument();
-        await waitFor(() => expect(editor.value).toBe("Fix the flaky PTY test"));
+        await waitFor(() => expect(draftOf(editor)).toBe("Fix the flaky PTY test"));
         expect(mocks.setAgentWorktree).toHaveBeenCalledWith(agent.id, worktree.path, worktree);
         expect(mocks.prompt).not.toHaveBeenCalled();
     });
@@ -142,7 +142,7 @@ describe("AgentChatPane in a worktree", () => {
         const editor = await sendFirstMessage("Fix the flaky PTY test");
 
         expect(await screen.findByText("Could not create a worktree: branch exists")).toBeInTheDocument();
-        await waitFor(() => expect(editor.value).toBe("Fix the flaky PTY test"));
+        await waitFor(() => expect(draftOf(editor)).toBe("Fix the flaky PTY test"));
         expect(mocks.setAgentWorktree).not.toHaveBeenCalled();
         expect(mocks.prompt).not.toHaveBeenCalled();
     });
@@ -152,7 +152,7 @@ describe("AgentChatPane in a worktree", () => {
         const editor = screen.getByRole("textbox", { name: "Message agent" });
         await screen.findByRole("button", { name: "worktree" });
         await waitFor(() => expect(screen.getByRole("button", { name: "worktree" })).toBeEnabled());
-        fireEvent.change(editor, { target: { value: "hello" } });
+        typeDraft(editor, "hello");
         fireEvent.keyDown(editor, { key: "Enter" });
         await waitFor(() => expect(mocks.prompt).toHaveBeenCalledWith(agent.id, "hello", [], [], expect.any(String)));
         expect(mocks.create).not.toHaveBeenCalled();

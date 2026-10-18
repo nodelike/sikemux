@@ -11,8 +11,9 @@ use std::time::{Duration, Instant};
 use git2::{BranchType, ErrorCode, Repository};
 use serde::Serialize;
 
-use crate::error::RundeckResult;
+use crate::error::{RundeckError, RundeckResult};
 
+use crate::client::Session;
 use crate::executions::{deployed_branch, newest_succeeded};
 
 const FETCH_TIMEOUT: Duration = Duration::from_secs(15);
@@ -82,11 +83,11 @@ fn relation_without_repo(deployed: Option<&str>, target: &str) -> BranchRelation
 }
 
 /// Compute a read-only deploy plan. An empty `repo_path` skips the git side.
-pub async fn plan(request: PlanRequest) -> RundeckResult<PlanResult> {
+pub async fn plan(session: &Session, request: PlanRequest) -> RundeckResult<PlanResult> {
     let target_branch = request.target_branch.trim().to_string();
 
     // The git-side analysis is still useful when the deploy history is not.
-    let deployed_branch = newest_succeeded(&request.job_id)
+    let deployed_branch = newest_succeeded(session, &request.job_id)
         .await
         .ok()
         .flatten()
@@ -179,6 +180,22 @@ fn read_head(repo: &Repository, plan: &mut PlanResult) -> bool {
         }
         Err(_) => false,
     }
+}
+
+/// The branch the checkout at `repo_path` is on.
+pub fn current_branch(repo_path: &std::path::Path) -> RundeckResult<String> {
+    let repo = Repository::discover(repo_path).map_err(|_| {
+        RundeckError::Unclear(format!("{} is not in a git checkout", repo_path.display()))
+    })?;
+    let detached = repo.head_detached().unwrap_or(false);
+    let head = repo.head().ok().filter(|_| !detached);
+    let branch = head.and_then(|head| head.shorthand().ok().map(String::from));
+    branch.ok_or_else(|| {
+        RundeckError::Unclear(format!(
+            "{} is on no branch; name the branch",
+            repo_path.display()
+        ))
+    })
 }
 
 /// Fetches and walks the local checkout, which can take as long as the fetch

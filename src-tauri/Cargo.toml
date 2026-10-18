@@ -1,6 +1,6 @@
 [package]
 name = "sikemux"
-version = "0.5.2"
+version.workspace = true
 description = "A GUI terminal multiplexer"
 authors = ["nodelike"]
 edition = "2021"
@@ -8,6 +8,9 @@ default-run = "sikemux"
 
 [workspace]
 members = ["crates/*", "plugins/*"]
+
+[workspace.package]
+version = "0.5.3-nightly.7"
 
 # Only crates that set `lints.workspace = true` get these, which is every
 # plugin crate and not the app. A plugin that panics takes the app down.
@@ -30,42 +33,28 @@ name = "sikemux_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [features]
-default = ["aws", "bitbucket", "bruno", "database", "github", "gitlab", "jira", "rundeck", "signoz", "slack"]
 ipc-command-tests = ["tauri/test"]
-aws = ["dep:sikemux-plugin-aws"]
-bitbucket = ["dep:sikemux-plugin-bitbucket"]
-gitlab = ["dep:sikemux-plugin-gitlab"]
-bruno = ["dep:sikemux-plugin-bruno"]
-database = ["dep:sikemux-plugin-database"]
-github = ["dep:sikemux-plugin-github"]
-jira = ["dep:sikemux-plugin-jira"]
-rundeck = ["dep:sikemux-plugin-rundeck"]
-signoz = ["dep:sikemux-plugin-signoz"]
-slack = ["dep:sikemux-plugin-slack"]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 sha2 = "0.11"
 hex = "0.4"
-serde_json = "1"
 
 [dependencies]
 tauri = { version = "2", default-features = false, features = ["macos-private-api", "wry", "unstable", "compression"] }
-tauri-plugin-dialog = "2"
-tauri-plugin-notification = "2"
+rfd = { version = "0.16", default-features = false, features = ["gtk3"] }
 tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
 tauri-plugin-single-instance = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }
-toml = "0.9"
+toml = "1"
 base64 = "0.23"
 sha2 = "0.11"
 hex = "0.4"
 git2 = { version = "0.21", default-features = false, features = ["vendored-libgit2"] }
 rusqlite = { version = "0.40", features = ["bundled"] }
 notify = "8"
-dashmap = "6"
 ignore = "0.4"
 grep-matcher = "0.1"
 grep-regex = "0.1"
@@ -75,30 +64,22 @@ regex = "1"
 rayon = "1"
 url = "2"
 tempfile = "3"
-linked-hash-map = "0.5"
+hashlink = "0.12"
 thiserror = "1"
-uuid = { version = "1", features = ["v4"] }
+time = { version = "0.3", features = ["formatting", "macros"] }
+uuid = { version = "1", features = ["v4", "v7"] }
 getrandom = { version = "0.3", features = ["std"] }
 futures = "0.3"
 semver = "1"
 sikemux-plugin-api = { path = "crates/sikemux-plugin-api" }
-sikemux-plugin-aws = { path = "plugins/aws", optional = true }
-sikemux-plugin-bitbucket = { path = "plugins/bitbucket", optional = true }
-sikemux-plugin-gitlab = { path = "plugins/gitlab", optional = true }
-sikemux-plugin-bruno = { path = "plugins/bruno", optional = true }
-sikemux-plugin-database = { path = "plugins/database", optional = true }
-sikemux-plugin-github = { path = "plugins/github", optional = true }
-sikemux-plugin-jira = { path = "plugins/jira", optional = true }
-sikemux-plugin-rundeck = { path = "plugins/rundeck", optional = true }
-sikemux-plugin-signoz = { path = "plugins/signoz", optional = true }
-sikemux-plugin-slack = { path = "plugins/slack", optional = true }
 sikemux-keychain = { path = "crates/sikemux-keychain" }
 sikemux-process = { path = "crates/sikemux-process" }
 sikemux-markdown = { path = "crates/sikemux-markdown" }
 sikemux-pty = { path = "crates/sikemux-pty" }
 sikemux-core = { path = "crates/sikemux-core" }
+sikemux-host = { path = "crates/sikemux-host", default-features = false }
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "process", "time", "sync", "io-util", "net"] }
-reqwest = { version = "0.13", default-features = false, features = ["json", "form", "rustls-no-provider", "gzip", "stream", "cookies", "multipart"] }
+reqwest = { version = "0.13", default-features = false, features = ["json", "form", "query", "rustls-no-provider", "gzip", "stream", "cookies", "multipart"] }
 rustls = { version = "0.23", default-features = false, features = ["ring"] }
 open = "5"
 trash = "5"
@@ -106,6 +87,9 @@ trash = "5"
 [target.'cfg(unix)'.dependencies]
 rustix = { version = "1", features = ["fs"] }
 libc = "0.2"
+
+[target.'cfg(not(target_os = "macos"))'.dependencies]
+notify-rust = "4"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 workspace-hack = { version = "0.1", path = "crates/workspace-hack" }
@@ -142,18 +126,19 @@ opt-level = 3
 inherits = "release"
 panic = "unwind"
 opt-level = "z"
+[profile.mobile.package."*"]
+opt-level = "z"
 
+# Built for size, which takes about 1.8 MB off the DMG.
 [profile.release]
-# Sikemux is latency-sensitive (PTY parsing, Git walks, serialization). The
-# complete app is already small enough that runtime speed wins over a few MB.
-opt-level = 3
+opt-level = "s"
 lto = "fat"
 codegen-units = 1
 panic = "abort"
 strip = "symbols"
 
-# Crates that never sit on a hot path are built for size. Together they take
-# well over 1 MB off the binary; encryption itself stays in `ring` at full speed.
+# Plugins never sit on a hot path, so they go further and are built for the
+# smallest size.
 [profile.release.package.sikemux-plugin-aws]
 opt-level = "z"
 [profile.release.package.sikemux-plugin-bitbucket]
@@ -168,14 +153,89 @@ opt-level = "z"
 opt-level = "z"
 [profile.release.package.sikemux-plugin-jira]
 opt-level = "z"
+[profile.release.package.sikemux-plugin-linear]
+opt-level = "z"
 [profile.release.package.sikemux-plugin-rundeck]
 opt-level = "z"
 [profile.release.package.sikemux-plugin-signoz]
 opt-level = "z"
 [profile.release.package.sikemux-plugin-slack]
 opt-level = "z"
-[profile.release.package.libsqlite3-sys]
-opt-level = "s"
+[profile.release.package.sikemux-plugin-vercel]
+opt-level = "z"
+# Terminal output, serialization and search run through these for every byte,
+# so they stay at full speed: built for size, parsing a terminal flood took 55%
+# longer and encoding JSON 48% longer.
+[profile.release.package.sikemux-pty]
+opt-level = 3
+[profile.release.package.sikemux-wire]
+opt-level = 3
+[profile.release.package.vt100]
+opt-level = 3
+[profile.release.package.vte]
+opt-level = 3
+[profile.release.package.unicode-width]
+opt-level = 3
+[profile.release.package.arrayvec]
+opt-level = 3
+[profile.release.package.itoa]
+opt-level = 3
+[profile.release.package.memchr]
+opt-level = 3
+[profile.release.package.serde]
+opt-level = 3
+[profile.release.package.serde_core]
+opt-level = 3
+[profile.release.package.serde_json]
+opt-level = 3
+[profile.release.package.ryu]
+opt-level = 3
+[profile.release.package.zmij]
+opt-level = 3
+[profile.release.package.indexmap]
+opt-level = 3
+[profile.release.package.hashbrown]
+opt-level = 3
+[profile.release.package.tokio]
+opt-level = 3
+[profile.release.package.bytes]
+opt-level = 3
+[profile.release.package.mio]
+opt-level = 3
+[profile.release.package.regex]
+opt-level = 3
+[profile.release.package.regex-automata]
+opt-level = 3
+[profile.release.package.aho-corasick]
+opt-level = 3
+[profile.release.package.grep-searcher]
+opt-level = 3
+[profile.release.package.grep-regex]
+opt-level = 3
+[profile.release.package.grep-matcher]
+opt-level = 3
+[profile.release.package.ignore]
+opt-level = 3
+[profile.release.package.globset]
+opt-level = 3
+[profile.release.package.bstr]
+opt-level = 3
+[profile.release.package.portable-pty]
+opt-level = 3
+[profile.release.package.ring]
+opt-level = 3
+[profile.release.package.base64]
+opt-level = 3
+[profile.release.package.rayon]
+opt-level = 3
+[profile.release.package.rayon-core]
+opt-level = 3
+[profile.release.package.crossbeam-deque]
+opt-level = 3
+[profile.release.package.crossbeam-epoch]
+opt-level = 3
+[profile.release.package.crossbeam-utils]
+opt-level = 3
 [profile.release.package.rusqlite]
 opt-level = "s"
 [profile.release.package.tauri-plugin-updater]
@@ -200,11 +260,7 @@ opt-level = "s"
 opt-level = "s"
 [profile.release.package.minisign-verify]
 opt-level = "s"
-[profile.release.package.tauri-plugin-notification]
-opt-level = "s"
 [profile.release.package.mac-notification-sys]
-opt-level = "s"
-[profile.release.package.tauri-plugin-dialog]
 opt-level = "s"
 [profile.release.package.rfd]
 opt-level = "s"

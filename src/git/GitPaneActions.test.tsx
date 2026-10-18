@@ -3,7 +3,8 @@ import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { git, type GitBranch, type GitCommit, type GitFile, type GitRemote, type GitRemoteBranch, type GitStash } from "../api/git";
-import { gitOverviewR, gitRemoteBranchesR, gitRemotesR, gitStashesR } from "../state/resources.defs";
+import { remoteRepoR } from "../codehost/project";
+import { gitChangeOwnersR, gitOverviewR, gitRemoteBranchesR, gitRemotesR, gitStashesR } from "../state/resources.defs";
 import { getState, setState } from "../state/store";
 import { useGitWorkbench } from "../state/gitWorkbench";
 import { useToasts } from "../state/toast";
@@ -17,6 +18,7 @@ const h = vi.hoisted(() => ({
     stashes: null as unknown as Resource<unknown[]>,
     remoteBranches: null as unknown as Resource<unknown[]>,
     empty: null as unknown as Resource<unknown[]>,
+    owners: null as unknown as Resource<{ authors: unknown[]; files: unknown[] }>,
     copyText: vi.fn(),
 }));
 
@@ -27,6 +29,8 @@ vi.mock("../state/resources", async (original) => ({
         if (definition === gitRemotesR) return h.remotes;
         if (definition === gitStashesR) return h.stashes;
         if (definition === gitRemoteBranchesR) return h.remoteBranches;
+        if (definition === gitChangeOwnersR) return h.owners;
+        if (definition === remoteRepoR) return { status: "ok", data: null, refresh: vi.fn() };
         return h.empty;
     },
 }));
@@ -150,6 +154,7 @@ beforeEach(() => {
         remoteBranch("topic"),
     ]);
     h.empty = resource<unknown[]>([]);
+    h.owners = resource({ authors: [], files: [] });
     h.copyText.mockReset().mockResolvedValue(undefined);
     for (const name of gitCalls) vi.spyOn(git, name).mockResolvedValue("" as never);
     vi.spyOn(git, "status").mockResolvedValue({ branch: "main", upstream: null, ahead: 0, behind: 0, files: files() });
@@ -203,7 +208,8 @@ async function accept() {
     await flush();
 }
 
-const row = (name: string, nth = 0) => screen.getAllByText(name, { selector: ".git-row-name" })[nth].closest<HTMLElement>(".git-row")!;
+const row = (name: string, nth = 0) =>
+    screen.getAllByText(name, { selector: ".git-row-name, .git-group-name" })[nth].closest<HTMLElement>(".git-row, .git-group")!;
 const menuItem = (name: RegExp) => screen.getByRole("menuitem", { name });
 
 describe("changes", () => {
@@ -371,7 +377,8 @@ describe("history", () => {
     it("searches the commits and says when nothing matches", async () => {
         const user = userEvent.setup();
         renderPane();
-        await user.click(screen.getByRole("button", { name: "Search commits" }));
+        press("2");
+        press("/");
         const search = screen.getByRole("textbox", { name: "Search commits" });
         expect(search).toHaveFocus();
         await user.type(search, "nope");
@@ -382,37 +389,22 @@ describe("history", () => {
         await user.type(search, "{Escape}");
         expect(screen.getByRole("button", { name: "c0 subject 0" })).toBeInTheDocument();
         await waitFor(() => expect(screen.getByRole("button", { name: "c0 subject 0" })).toHaveFocus());
-        expect(screen.queryByRole("textbox", { name: "Search commits" })).toBeNull();
+        expect(search).toHaveValue("");
     });
 
     it("focuses the first commit when a search that matched nothing is dropped", async () => {
         const user = userEvent.setup();
         renderPane();
-        await user.click(screen.getByRole("button", { name: "Search commits" }));
+        press("2");
         await user.type(screen.getByRole("textbox", { name: "Search commits" }), "nope{Escape}");
         await waitFor(() => expect(screen.getByRole("button", { name: "c0 subject 0" })).toHaveFocus());
-    });
-
-    it("closes the search on blur only while it is empty", async () => {
-        const user = userEvent.setup();
-        renderPane();
-        press("h");
-        press("/");
-        const search = screen.getByRole("textbox", { name: "Search commits" });
-        act(() => search.blur());
-        expect(screen.queryByRole("textbox", { name: "Search commits" })).toBeNull();
-
-        await user.click(screen.getByRole("button", { name: "Search commits" }));
-        await user.type(screen.getByRole("textbox", { name: "Search commits" }), "subject 1{Enter}");
-        expect(screen.getByRole("textbox", { name: "Search commits" })).toHaveValue("subject 1");
-        expect(screen.queryByRole("button", { name: "c0 subject 0" })).toBeNull();
     });
 });
 
 describe("branches", () => {
     const openBranches = () => {
         renderPane();
-        press("2");
+        press("3");
     };
 
     it("refuses to delete the checked-out branch", () => {
@@ -651,9 +643,8 @@ describe("keyboard", () => {
     it("clears a branch filter with Escape and returns to it with /", async () => {
         const user = userEvent.setup();
         renderPane();
-        press("2");
-        press("h");
-        expect(view()).toMatchObject({ historyOpen: true, panel: "branches" });
+        press("3");
+        expect(view()).toMatchObject({ panel: "branches" });
 
         const filter = screen.getByPlaceholderText("Filter branches");
         await user.type(filter, "feat{Enter}");
@@ -667,7 +658,7 @@ describe("keyboard", () => {
         await user.type(filter, "x{Escape}");
         expect(filter).toHaveValue("");
 
-        await user.click(screen.getByRole("button", { name: "Changes (1)" }));
+        await user.click(screen.getByRole("tab", { name: "Changes — 1" }));
         expect(view()).toMatchObject({ area: "local", panel: "files" });
     });
 });
@@ -681,14 +672,14 @@ describe("details", () => {
         expect(document.querySelector(".git-tb-busy.error")).toHaveTextContent(`✗ ${"x".repeat(80)}…`);
     });
 
-    it("closes the history with h and leaves the file list where it was", async () => {
+    it("goes to History with h and back, leaving the file list where it was", async () => {
         const user = userEvent.setup();
         renderPane();
         await user.click(row("b.ts"));
         press("h");
-        expect(view()).toMatchObject({ historyOpen: true, panel: "commits" });
+        expect(view()).toMatchObject({ panel: "commits" });
         press("h");
-        expect(view()).toMatchObject({ historyOpen: false, panel: "files" });
+        expect(view()).toMatchObject({ panel: "files" });
         expect(row("b.ts")).toHaveClass("sel");
     });
 

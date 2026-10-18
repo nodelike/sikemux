@@ -9,7 +9,7 @@ use std::time::Duration;
 
 use serde_json::Value;
 pub use sikemux_core::cli::protocol::HarnessRequest;
-use sikemux_core::cli::protocol::{is_browser_method, is_plugin_method, is_sim_method};
+use sikemux_core::cli::protocol::{is_browser_method, is_sim_method};
 use sikemux_core::protocol::{CallId, RunSelector, WindowAnswer, WindowCall};
 use tauri::{AppHandle, Emitter, Manager, State};
 
@@ -109,10 +109,19 @@ pub(crate) fn answer_window_call(app: &AppHandle, call_id: CallId, call: WindowC
         .name("sikemux-window-call".into())
         .spawn(move || match call {
             WindowCall::Harness { request } => {
-                let result = run(&app, request);
+                let result = serde_json::from_value(request)
+                    .map_err(|error| format!("Sikemux could not read the tool call: {error}"))
+                    .and_then(|request| run(&app, request));
                 answer_core(&app, call_id, result);
             }
-            WindowCall::Open { request } => crate::cli_open::answer(&app, call_id, request),
+            WindowCall::Open { request } => match serde_json::from_value(request) {
+                Ok(request) => crate::cli_open::answer(&app, call_id, request),
+                Err(error) => answer_core(
+                    &app,
+                    call_id,
+                    Err(format!("Sikemux could not read the open request: {error}")),
+                ),
+            },
         });
     if let Err(error) = spawned {
         eprintln!("Sikemux could not answer a tool call: {error}");
@@ -120,19 +129,17 @@ pub(crate) fn answer_window_call(app: &AppHandle, call_id: CallId, call: WindowC
 }
 
 fn run(app: &AppHandle, request: HarnessRequest) -> Result<Value, String> {
+    if request.method == crate::agent_questions::CHANGED_METHOD {
+        return crate::agent_questions::changed(app, &request.params);
+    }
+    if request.method == crate::agent_board::CHANGED_METHOD {
+        return crate::agent_board::changed(app, &request.params);
+    }
     if is_browser_method(&request.method) {
         return crate::browser::tools::execute(app, &request);
     }
     if is_sim_method(&request.method) {
         return crate::simulator::tools::execute(app, &request);
-    }
-    if is_plugin_method(&request.method) {
-        return crate::plugins::agent::execute(
-            app,
-            &request.project,
-            &request.method,
-            &request.params,
-        );
     }
     let id = request.id.clone();
     let method = request.method.clone();
@@ -176,9 +183,6 @@ fn run(app: &AppHandle, request: HarnessRequest) -> Result<Value, String> {
     }
 }
 
-/// An agent must not pull the person's keyboard away from another app they
-/// are typing in, so unless Sikemux is already in front it only asks for
-/// attention.
 /// Shows the window and makes Sikemux the active app, for a person who asked to see something in it.
 pub(crate) fn bring_to_front(app: &AppHandle) {
     if let Some(window) = app.get_window("main") {
@@ -188,13 +192,12 @@ pub(crate) fn bring_to_front(app: &AppHandle) {
     }
 }
 
+/// An agent must not pull the person's keyboard away from another app they
+/// are typing in, or raise the window over it, so unless Sikemux is already
+/// in front it only asks for attention.
 fn bring_forward(app: &AppHandle) {
     if let Some(window) = app.get_window("main") {
-        let _ = window.show();
-        let _ = window.unminimize();
-        if window.is_focused().unwrap_or(false) {
-            let _ = window.set_focus();
-        } else {
+        if !window.is_focused().unwrap_or(false) {
             let _ = window.request_user_attention(Some(tauri::UserAttentionType::Informational));
         }
     }

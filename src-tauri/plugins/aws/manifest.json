@@ -11,5 +11,283 @@
     "AWS_REGION",
     "AWS_DEFAULT_REGION",
     "AWS_CA_BUNDLE"
+  ],
+  "tools": [
+    {
+      "name": "aws_profiles",
+      "row": {
+        "verb": "list",
+        "kind": "read",
+        "icon": "folder",
+        "target": [
+          "AWS profiles"
+        ]
+      },
+      "method": "agentProfiles",
+      "description": "The AWS profiles set up on this computer, and which one calls use when you name none.",
+      "properties": {}
+    },
+    {
+      "name": "aws_identity",
+      "row": {
+        "verb": "whoami",
+        "kind": "read",
+        "icon": "status",
+        "target": [
+          "{profile}",
+          "AWS identity"
+        ]
+      },
+      "method": "agentIdentity",
+      "description": "The account, role and region a profile acts as. Fails with a clear message when its sign-in has expired.",
+      "properties": {
+        "profile": {
+          "type": "string",
+          "description": "Leave out for the default, or the only profile."
+        },
+        "region": {
+          "type": "string",
+          "description": "Leave out for the profile's region."
+        }
+      }
+    },
+    {
+      "name": "aws_ecs",
+      "row": {
+        "verb": "ecs",
+        "kind": "read",
+        "icon": "dashboard",
+        "target": [
+          "{cluster}/{service} {tasks} tasks",
+          "{cluster} {tasks} tasks",
+          "{cluster}/{service}",
+          "{cluster}",
+          "clusters"
+        ]
+      },
+      "method": "agentEcs",
+      "description": "ECS clusters; a cluster's services; a service's deployments and recent events; or tasks with health, image and why they stopped.",
+      "properties": {
+        "profile": {
+          "type": "string",
+          "description": "Leave out for the default, or the only profile."
+        },
+        "region": {
+          "type": "string",
+          "description": "Leave out for the profile's region."
+        },
+        "cluster": {
+          "type": "string",
+          "description": "Name or ARN; leave out to list clusters."
+        },
+        "service": {
+          "type": "string",
+          "description": "Name; with no tasks, its deployments and events."
+        },
+        "tasks": {
+          "type": "string",
+          "enum": [
+            "running",
+            "stopped"
+          ],
+          "description": "List tasks, of the service or the whole cluster."
+        }
+      }
+    },
+    {
+      "name": "aws_task_definition",
+      "row": {
+        "verb": "read",
+        "kind": "read",
+        "icon": "code",
+        "target": [
+          "{name}"
+        ]
+      },
+      "method": "agentTaskDefinition",
+      "description": "An ECS task definition's containers: image, cpu, memory, ports, log group, and the names of its environment variables and secrets.",
+      "properties": {
+        "profile": {
+          "type": "string",
+          "description": "Leave out for the default, or the only profile."
+        },
+        "region": {
+          "type": "string",
+          "description": "Leave out for the profile's region."
+        },
+        "name": {
+          "type": "string",
+          "description": "family, family:revision or ARN."
+        }
+      },
+      "required": [
+        "name"
+      ]
+    },
+    {
+      "name": "aws_target_health",
+      "row": {
+        "verb": "health",
+        "kind": "read",
+        "icon": "network",
+        "target": [
+          "{loadBalancer}",
+          "{targetGroup}",
+          "load balancers"
+        ]
+      },
+      "method": "agentTargetHealth",
+      "description": "A load balancer's listeners, rules and target health, or one target group's. With neither, lists the load balancers.",
+      "properties": {
+        "profile": {
+          "type": "string",
+          "description": "Leave out for the default, or the only profile."
+        },
+        "region": {
+          "type": "string",
+          "description": "Leave out for the profile's region."
+        },
+        "loadBalancer": {
+          "type": "string",
+          "description": "Name or ARN."
+        },
+        "targetGroup": {
+          "type": "string",
+          "description": "Name or ARN."
+        }
+      }
+    },
+    {
+      "name": "aws_logs",
+      "row": {
+        "verb": "logs",
+        "kind": "search",
+        "icon": "log-lines",
+        "target": [
+          "{group}"
+        ],
+        "detail": [
+          "{pattern}",
+          "{stream}"
+        ]
+      },
+      "method": "agentLogs",
+      "description": "The newest CloudWatch log events in a group, or one stream of it, optionally matching a filter pattern.",
+      "properties": {
+        "profile": {
+          "type": "string",
+          "description": "Leave out for the default, or the only profile."
+        },
+        "region": {
+          "type": "string",
+          "description": "Leave out for the profile's region."
+        },
+        "group": {
+          "type": "string",
+          "description": "The log group. An unknown one lists groups with a similar name."
+        },
+        "stream": {
+          "type": "string",
+          "description": "One log stream."
+        },
+        "pattern": {
+          "type": "string",
+          "description": "A CloudWatch filter pattern, like ERROR or \"timed out\"."
+        },
+        "since": {
+          "type": "string",
+          "description": "How far back: 30m, 2h, 1d. Default 1h."
+        },
+        "limit": {
+          "type": "integer",
+          "description": "Events to return, newest kept. Default 100, at most 500."
+        }
+      },
+      "required": [
+        "group"
+      ]
+    },
+    {
+      "name": "aws_metrics",
+      "row": {
+        "verb": "metric",
+        "kind": "read",
+        "icon": "activity",
+        "target": [
+          "{namespace} {metric}"
+        ]
+      },
+      "method": "agentMetrics",
+      "description": "A CloudWatch metric over time, at most 120 points, oldest first.",
+      "properties": {
+        "profile": {
+          "type": "string",
+          "description": "Leave out for the default, or the only profile."
+        },
+        "region": {
+          "type": "string",
+          "description": "Leave out for the profile's region."
+        },
+        "namespace": {
+          "type": "string",
+          "description": "Like AWS/ECS or AWS/ApplicationELB."
+        },
+        "metric": {
+          "type": "string",
+          "description": "Like CPUUtilization."
+        },
+        "dimensions": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Name to value, like {\"ClusterName\":\"prod\",\"ServiceName\":\"api\"}; all of the metric's."
+        },
+        "stat": {
+          "type": "string",
+          "description": "Average (default), Sum, Minimum, Maximum, SampleCount or a percentile like p99."
+        },
+        "since": {
+          "type": "string",
+          "description": "How far back: 30m, 2h, 1d. Default 3h."
+        },
+        "period": {
+          "type": "integer",
+          "description": "Seconds per point, widened to keep 120 points."
+        }
+      },
+      "required": [
+        "namespace",
+        "metric"
+      ]
+    },
+    {
+      "name": "aws_ec2",
+      "row": {
+        "verb": "list",
+        "kind": "read",
+        "icon": "window",
+        "target": [
+          "EC2 {name}",
+          "EC2 instances"
+        ]
+      },
+      "method": "agentEc2",
+      "description": "EC2 instances with name, state, type and addresses.",
+      "properties": {
+        "profile": {
+          "type": "string",
+          "description": "Leave out for the default, or the only profile."
+        },
+        "region": {
+          "type": "string",
+          "description": "Leave out for the profile's region."
+        },
+        "name": {
+          "type": "string",
+          "description": "Only instances whose name, id or IP contains this."
+        }
+      }
+    }
   ]
 }

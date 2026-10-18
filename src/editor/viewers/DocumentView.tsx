@@ -8,7 +8,7 @@ function samePlacement(a: DocumentPlacement | null, b: DocumentPlacement) {
     return !!a && a.x === b.x && a.y === b.y && a.width === b.width && a.height === b.height;
 }
 
-/* macOS's Quick Look view draws the document; it is a native view laid over
+/* macOS's PDFKit or Quick Look view draws the document; it is a native view laid over
    this stage, so it steps aside for overlays and while the stage slides. */
 export function DocumentView({ path, preview, onReload, visible }: ViewProps & { visible: boolean }) {
     const owner = useId();

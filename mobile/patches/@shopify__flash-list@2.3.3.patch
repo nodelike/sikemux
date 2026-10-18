@@ -1,0 +1,56 @@
+diff --git a/dist/recyclerview/RecyclerView.js b/dist/recyclerview/RecyclerView.js
+index 6799c8a61bff4607633196097da35c7a6975f0b6..cf09f06aed590492b108d562dd7682f0656e6db0 100644
+--- a/dist/recyclerview/RecyclerView.js
++++ b/dist/recyclerview/RecyclerView.js
+@@ -127,6 +127,8 @@ const RecyclerViewComponent = (props, ref) => {
+         }
+         if (recyclerViewManager.modifyChildrenLayout(layoutInfo, (_a = data === null || data === void 0 ? void 0 : data.length) !== null && _a !== void 0 ? _a : 0) &&
+             !hasExceededMaxRendersWithoutCommit) {
++            // Move the scroll anchor in the same render as the items it corrects for, so both land in one frame.
++            applyOffsetCorrection();
+             // Trigger re-render if layout modifications were made
+             setRenderId((prev) => prev + 1);
+         }
+@@ -148,9 +150,6 @@ const RecyclerViewComponent = (props, ref) => {
+      */
+     const onScrollHandler = useCallback((event) => {
+         var _a, _b, _c;
+-        if (recyclerViewManager.ignoreScrollEvents) {
+-            return;
+-        }
+         let scrollOffset = horizontal
+             ? event.nativeEvent.contentOffset.x
+             : event.nativeEvent.contentOffset.y;
+@@ -158,6 +157,11 @@ const RecyclerViewComponent = (props, ref) => {
+         if (isHorizontalRTL) {
+             scrollOffset = adjustOffsetForRTL(scrollOffset, event.nativeEvent.contentSize.width, event.nativeEvent.layoutMeasurement.width);
+         }
++        if (recyclerViewManager.ignoreScrollEvents) {
++            // Kept for when the ignoring ends: a scroll that stops meanwhile would otherwise leave its rows unrendered.
++            recyclerViewManager.ignoredScrollOffset = scrollOffset;
++            return;
++        }
+         velocityTracker.computeVelocity(scrollOffset, recyclerViewManager.getAbsoluteLastScrollOffset(), Boolean(horizontal), (velocity, isMomentumEnd) => {
+             if (recyclerViewManager.ignoreScrollEvents) {
+                 return;
+diff --git a/dist/recyclerview/hooks/useRecyclerViewController.js b/dist/recyclerview/hooks/useRecyclerViewController.js
+index 08724d1f33824ef563948cff17904d7f497739d4..c42c412b3274e5c6ea3bc8047ee3b8f133e31856 100644
+--- a/dist/recyclerview/hooks/useRecyclerViewController.js
++++ b/dist/recyclerview/hooks/useRecyclerViewController.js
+@@ -146,8 +146,16 @@ export function useRecyclerViewController(recyclerViewManager, ref, scrollViewRe
+                             recyclerViewManager.ignoreScrollEvents = true;
+                             setTimeout(() => {
+                                 recyclerViewManager.ignoreScrollEvents = false;
++                                const ignored = recyclerViewManager.ignoredScrollOffset;
++                                recyclerViewManager.ignoredScrollOffset = undefined;
++                                if (ignored !== undefined) {
++                                    updateScrollOffsetWithCallback(ignored, () => { });
++                                }
+                             }, 100);
+                         }
++                        else {
++                            updateScrollOffsetWithCallback(recyclerViewManager.getAbsoluteLastScrollOffset() + diff, () => { });
++                        }
+                     }
+                 }
+             }

@@ -237,7 +237,7 @@
 
 .chat-connection-state button:hover,
 .chat-reconnect button:hover {
-    border-color: var(--acc-line);
+    border-color: var(--border-strong);
     color: var(--ink);
 }
 
@@ -290,6 +290,20 @@
 }
 
 /* What fixes the failure sits beside it: a sign-in, or another account. */
+/* What the agent itself said about a failed turn, opened from Details. */
+.chat-error-details {
+    flex-basis: 100%;
+    max-height: 160px;
+    margin: 0;
+    padding: 6px 8px;
+    overflow: auto;
+    border-radius: var(--radius-control);
+    background: color-mix(in srgb, var(--danger) 6%, transparent);
+    font-family: var(--mono);
+    font-size: 11px;
+    white-space: pre-wrap;
+}
+
 .chat-error-actions {
     display: flex;
     flex-wrap: wrap;
@@ -309,7 +323,7 @@
 }
 
 .chat-error-actions button:hover {
-    border-color: var(--acc-line);
+    border-color: var(--border-strong);
     color: var(--ink);
 }
 
@@ -380,7 +394,7 @@
     height: 26px;
     place-items: center;
     border: 1px solid var(--line);
-    border-radius: var(--radius-full);
+    border-radius: var(--radius-2);
     background: var(--chat-composer-fill);
     color: var(--ink-dim);
     box-shadow: 0 6px 18px color-mix(in srgb, var(--void) calc(var(--window-opacity, 1) * 52%), transparent);
@@ -388,6 +402,6 @@
 }
 
 .chat-jump-bottom:hover {
-    border-color: var(--acc-line);
+    border-color: var(--border-strong);
     color: var(--ink);
 }

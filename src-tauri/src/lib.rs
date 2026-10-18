@@ -1,17 +1,19 @@
 mod account;
 mod acp;
 mod activity;
+mod agent_board;
+mod agent_names;
 mod agent_notification;
+mod agent_questions;
 mod agents;
 #[cfg(target_os = "macos")]
 mod app_menu;
 mod autopsy;
 mod browser;
-pub mod cli_client;
 mod cli_install;
 mod cli_open;
-mod cli_paths;
 mod deep_link;
+mod dialogs;
 mod diff;
 mod document_preview;
 mod error;
@@ -24,9 +26,10 @@ mod fs_watch;
 mod git;
 mod grammars;
 mod harness;
-mod login_item;
+mod inbox;
 mod lsp;
 mod markdown;
+mod model_checks;
 mod model_providers;
 mod notch;
 pub mod observability;
@@ -35,15 +38,19 @@ mod plugins;
 mod ports;
 mod preview;
 mod pty;
+mod relaunch;
 mod release_credits;
 mod remote;
 mod search;
 mod settings;
+mod share;
 mod sim;
 mod simulator;
+mod skills;
 mod ssh;
 mod state;
 mod system;
+mod toolchains;
 mod transparency;
 mod updates;
 mod usage;
@@ -51,12 +58,13 @@ mod voice;
 mod voice_models;
 mod wallpaper;
 mod wheel;
-mod without_page_script;
+
+use sikemux_host::{build_identity, cli_client, cli_paths, install_tls_crypto, login_item};
 
 use acp::AcpManager;
 use browser::BrowserManager;
 use observability::UiWatchdogState;
-use plugins::PluginHost;
+use plugins::PluginStreams;
 use pty::PtyManager;
 use sikemux_process as bounded_process;
 use sim::SimManager;
@@ -64,30 +72,12 @@ use simulator::SimulatorManager;
 use tauri::Manager;
 use voice::VoiceManager;
 
-/// The build of this app and of the sidecar bundled with it, which runs the
-/// background core. Both are compiled with the same build script output.
-pub fn build_identity() -> sikemux_core::protocol::BuildIdentity {
-    sikemux_core::protocol::BuildIdentity::new(
-        env!("CARGO_PKG_VERSION"),
-        env!("SIKEMUX_BUILD_COMMIT"),
-        env!("SIKEMUX_BUILD_TIME").parse().unwrap_or(0),
-        env!("SIKEMUX_BUILD_SOURCE"),
-    )
-}
-
-// reqwest is built without a TLS crypto backend of its own, so every HTTP
-// client in the app and its plugins uses the one installed here.
-pub(crate) fn install_tls_crypto() {
-    let _ = rustls::crypto::ring::default_provider().install_default();
-}
-
 /// The app window only ever shows the app. A link that would load another
 /// page in it would replace the whole workspace and end every running shell.
-/// WebKit asks the same of every frame, so the chat's page frames and the
-/// editor's PDF frame pass too.
+/// WebKit asks the same of every frame, so the chat's page frames pass too.
 fn main_window_may_load(url: &tauri::Url) -> bool {
     match url.scheme() {
-        "tauri" | "page" | "preview" => url.host_str() == Some("localhost"),
+        "tauri" | "page" => url.host_str() == Some("localhost"),
         "http" if cfg!(debug_assertions) => {
             url.host_str() == Some("localhost") && url.port() == Some(1420)
         }
@@ -107,7 +97,7 @@ pub fn run() {
     install_tls_crypto();
     system::normalize_user_environment();
     #[cfg(target_os = "linux")]
-    system::avoid_webkit_dmabuf_renderer_on_nvidia();
+    system::keep_webkit_rendering_on_nvidia();
 
     // Raise our open-file-descriptor limit FIRST, before any subsystem
     // opens an fd. macOS launchd hands GUI apps a soft RLIMIT_NOFILE of 256;
@@ -147,12 +137,6 @@ pub fn run() {
                 let _ = window.set_focus();
             }
         }))
-        .plugin(without_page_script::without_page_script(
-            tauri_plugin_dialog::init(),
-        ))
-        .plugin(without_page_script::without_page_script(
-            tauri_plugin_notification::init(),
-        ))
         .plugin(main_window_navigation_guard())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
@@ -174,7 +158,7 @@ pub fn run() {
                 if let Some(browser) = window.try_state::<BrowserManager>() {
                     browser.drain("the window closed");
                 }
-                if let Some(plugins) = window.try_state::<PluginHost>() {
+                if let Some(plugins) = window.try_state::<PluginStreams>() {
                     plugins.drain();
                 }
                 lsp::drain_all();
@@ -207,7 +191,7 @@ pub fn run() {
                 if let Some(browser) = webview.try_state::<BrowserManager>() {
                     browser.drain(&format!("the window started loading {}", payload.url()));
                 }
-                if let Some(plugins) = webview.try_state::<PluginHost>() {
+                if let Some(plugins) = webview.try_state::<PluginStreams>() {
                     plugins.drain();
                 }
                 if let Some(sim) = webview.try_state::<SimManager>() {
@@ -218,14 +202,13 @@ pub fn run() {
         })
         .setup(|_app| {
             _app.manage(UiWatchdogState::start()?);
-            model_providers::init(_app.path().app_data_dir()?.join("model-providers.json"));
-            _app.manage(PluginHost::with_builtins(
-                &_app.path().app_data_dir()?.join("plugins"),
-                &_app.package_info().version,
-            )?);
+            model_providers::init(&_app.path().app_data_dir()?);
+            skills::watch_global(_app.handle().clone());
+            _app.manage(PluginStreams::default());
             let sim = SimManager::default();
             _app.manage(sim.clone());
             _app.manage(SimulatorManager::for_app(_app.handle().clone(), sim));
+            relaunch::restore(_app.handle());
             tauri::async_runtime::spawn_blocking(simulator::offered);
             wheel::watch(_app.handle());
             _app.state::<PtyManager>().start(_app.handle());
@@ -263,11 +246,12 @@ pub fn run() {
         .manage(harness::HarnessBroker::default())
         .manage(cli_open::CliOpens::default())
         .manage(AcpManager::default())
-        .manage(remote::PublishedWorkspace::default())
         .manage(remote::PublishedAgents::default())
         .manage(remote::PublishedRecentChats::default())
         .manage(remote::PublishedOnScreen::default())
+        .manage(agent_names::AgentsInApp::default())
         .manage(remote::PublishedPalette::default())
+        .manage(remote::PublishedBuddies::default())
         .manage(remote::PublishedBackdrop::default())
         .manage(BrowserManager::default())
         .manage(VoiceManager::default())
@@ -278,6 +262,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             acp::acp_start,
             acp::acp_attach,
+            acp::acp_history,
             acp::acp_list,
             acp::acp_prompt,
             acp::acp_edit,
@@ -300,8 +285,10 @@ pub fn run() {
             pty::commands::pty_shell_at_prompt,
             pty::commands::pty_kill,
             ports::listening_ports,
+            ports::ports_in_use,
             pty::commands::pty_sessions,
             remote::remote_status,
+            remote::remote_pairing,
             remote::remote_set_enabled,
             remote::remote_set_device_access,
             remote::remote_revoke_device,
@@ -310,7 +297,15 @@ pub fn run() {
             account::account_sign_in,
             account::account_cancel_sign_in,
             account::account_phones,
+            account::account_hosts,
+            account::account_link_host,
             account::account_sign_out,
+            share::share_access,
+            share::share_call,
+            agent_names::agent_name_call,
+            agent_questions::agent_question_call,
+            inbox::inbox_call,
+            agent_board::agent_board_call,
             remote::remote_answer_pairing,
             remote::remote_allow_devices,
             remote::remote_publish_workspace,
@@ -319,6 +314,7 @@ pub fn run() {
             remote::remote_publish_on_screen,
             notch::notch_configure,
             remote::remote_publish_palette,
+            remote::remote_publish_buddies,
             remote::remote_publish_backdrop,
             pty::commands::task_watch,
             pty::commands::app_quit_and_stop_everything,
@@ -341,21 +337,23 @@ pub fn run() {
             system::battery_status,
             system::runtime_diagnostics,
             system::integration_health,
+            system::build_tool_installed,
+            system::install_build_tool,
+            toolchains::java_runtimes,
+            toolchains::install_java,
             observability::observability_ui_heartbeat,
             observability::observability_ui_activity,
             updates::update_check,
             updates::update_install,
+            pty::commands::update_blockers,
+            pty::commands::update_force_core,
             usage::usage_report_active,
             release_credits::release_avatars,
             release_credits::release_notes,
             grammars::grammar_load,
             state::state_save,
             agents::executable::available_agents,
-            agents::status::refresh_agent_statuses,
-            agents::status::mark_agent_signed_out,
-            agents::usage::agent_usage,
-            agents::accounts::agent_account_add,
-            agents::accounts::agent_account_status,
+            agents::accounts::agent_accounts_call,
             agents::accounts::agent_account_sign_in,
             agents::accounts::agent_account_sign_in_code,
             agents::accounts::agent_account_sign_in_cancel,
@@ -365,6 +363,7 @@ pub fn run() {
             agents::sessions::context::agent_session_context,
             agents::sessions::rename::agent_session_rename,
             agents::sessions::delete::agent_session_delete,
+            agents::sessions::relocate::agent_session_relocate,
             agents::sessions::live_agent_sessions,
             agents::watch::agent_sessions_watch_start,
             agents::watch::agent_sessions_watch_stop,
@@ -431,6 +430,8 @@ pub fn run() {
             git::revisions::git_compare,
             git::blame::git_blame,
             git::commit::git_commit,
+            git::agents::git_change_owners,
+            git::agents::git_commit_owners,
             git::commit::git_push,
             git::commit::git_pull,
             git::ai::git_ai_commit,
@@ -472,12 +473,23 @@ pub fn run() {
             files::list_project_files_snapshot,
             settings::scan_project_roots,
             model_providers::model_providers,
+            model_providers::model_provider_models,
             model_providers::model_provider_connect,
             model_providers::model_provider_disconnect,
+            model_providers::model_provider_check,
+            model_providers::model_helper,
+            model_providers::model_helper_set,
+            skills::skills_overview,
+            skills::skills_create,
+            skills::skills_install,
+            skills::skills_remove,
+            skills::skills_adopt,
             settings::expand_path,
             settings::is_directory,
             wallpaper::wallpaper_image,
-            agent_notification::notify_agent,
+            agent_notification::post_notification,
+            dialogs::pick_paths,
+            dialogs::pick_save_path,
             search::project_search,
             search::project_search_cancel,
             search::project_search_replace,
@@ -530,6 +542,9 @@ pub fn run() {
             if let tauri::RunEvent::Opened { urls } = &event {
                 deep_link::receive(app_handle, urls);
             }
+            if let tauri::RunEvent::ExitRequested { code, .. } = &event {
+                relaunch::note_exit_requested(*code);
+            }
             // RunEvent::Exit fires on every teardown route: quit, `exit()`,
             // and the restart after an in-app update, which raises no window
             // CloseRequested. Terminals and chat agents stay in the core on
@@ -537,6 +552,7 @@ pub fn run() {
             // it exits.
             if let tauri::RunEvent::Exit = event {
                 use tauri::Manager;
+                let updating = relaunch::for_update() && relaunch::save(app_handle).is_ok();
                 if let Some(watchdog) = app_handle.try_state::<UiWatchdogState>() {
                     watchdog.suspend();
                 }
@@ -552,14 +568,18 @@ pub fn run() {
                 if let Some(browser) = app_handle.try_state::<BrowserManager>() {
                     browser.drain("Sikemux is quitting");
                 }
-                if let Some(plugins) = app_handle.try_state::<PluginHost>() {
+                if let Some(plugins) = app_handle.try_state::<PluginStreams>() {
                     plugins.drain();
                 }
                 if let Some(voice) = app_handle.try_state::<VoiceManager>() {
                     voice.drain();
                 }
                 if let Some(simulators) = app_handle.try_state::<SimulatorManager>() {
-                    simulators.drain();
+                    if updating {
+                        simulators.step_aside();
+                    } else {
+                        simulators.drain();
+                    }
                 }
                 if let Some(sim) = app_handle.try_state::<SimManager>() {
                     sim.drain();

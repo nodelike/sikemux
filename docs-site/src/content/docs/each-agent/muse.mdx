@@ -1,0 +1,31 @@
+---
+title: Muse
+description: "Meta's Muse Code in Sikemux: setup, chats and permission modes."
+---
+
+Muse Code is Meta's coding agent.
+
+## At a glance
+
+| | |
+|---|---|
+| Command | `muse` |
+| Chat in Sikemux | Yes, and its own TUI |
+| Permission modes | Normal and YOLO |
+| Effort levels | minimal, low, medium, high, xhigh, max, ultra |
+| Several accounts | No |
+
+## Install and sign in
+
+Muse has no public installer Sikemux can run, so it has no **Install** or **Sign in** button. Install and sign in to Muse the way Meta tells you to, and Sikemux finds `muse` on your `PATH`.
+
+## How Sikemux runs it
+
+A chat talks to `muse serve --trust-workspace`, Muse's own JSON-RPC session protocol. The folder's own rules and skills load, as they do when you open and trust a folder in Muse.
+
+| Mode | Approvals | Sandbox |
+|---|---|---|
+| **Normal** | Muse asks before acting | On, with network access allowed |
+| **YOLO** | Muse acts without asking | Off |
+
+Meta's provider refuses the effort level "none", so the lowest effort Sikemux offers for Muse is minimal.

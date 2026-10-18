@@ -4,20 +4,29 @@ import { describe, expect, it } from "vitest";
 
 import { schema, validator } from "../src/index.ts";
 
-const fixtures = join(import.meta.dirname, "../fixtures");
+/** Fixtures of the types sikemux-wire holds, and of those only the core holds. */
+const folders = ["../fixtures", "../fixtures-core"].map((folder) =>
+  join(import.meta.dirname, folder),
+);
 const names = Object.keys(schema.$defs) as (keyof typeof schema.$defs)[];
 const { validate } = validator();
+const folderOf = new Map(
+  folders.flatMap((folder) =>
+    readdirSync(folder).map((name) => [name, folder] as const),
+  ),
+);
 
 describe("contract fixtures", () => {
   it("cover every definition, so the Rust round trip sees every type", () => {
-    expect(readdirSync(fixtures).sort()).toEqual([...names].sort());
+    expect([...folderOf.keys()].sort()).toEqual([...names].sort());
   });
 
   for (const name of names) {
-    for (const file of readdirSync(join(fixtures, name))) {
+    const folder = folderOf.get(name) ?? folders[0] ?? "";
+    for (const file of readdirSync(join(folder, name))) {
       it(`${name}/${file} matches its definition`, () => {
         const value: unknown = JSON.parse(
-          readFileSync(join(fixtures, name, file), "utf8"),
+          readFileSync(join(folder, name, file), "utf8"),
         );
         expect(validate(name, value)).toEqual({ ok: true, value });
       });

@@ -6,13 +6,13 @@
 //   would hide them. Instead we use a fixed denylist of well-known build /
 //   dependency / cache directories.
 
+use std::collections::HashMap;
 use std::ops::Range;
 use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 use std::time::{Duration, Instant};
 
-use dashmap::DashMap;
 use ignore::WalkBuilder;
 use serde::Serialize;
 
@@ -71,14 +71,17 @@ impl ProjectCache {
     }
 }
 
-fn cache() -> &'static DashMap<String, Arc<ProjectCache>> {
-    static CACHE: OnceLock<DashMap<String, Arc<ProjectCache>>> = OnceLock::new();
-    CACHE.get_or_init(DashMap::new)
+type ProjectCaches = Mutex<HashMap<String, Arc<ProjectCache>>>;
+
+fn cache() -> &'static ProjectCaches {
+    static CACHE: OnceLock<ProjectCaches> = OnceLock::new();
+    CACHE.get_or_init(Default::default)
 }
 
-fn cache_admission_lock() -> &'static Mutex<()> {
-    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-    LOCK.get_or_init(|| Mutex::new(()))
+fn lock_caches(caches: &ProjectCaches) -> MutexGuard<'_, HashMap<String, Arc<ProjectCache>>> {
+    caches
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
 fn next_cache_access() -> u64 {
@@ -116,53 +119,30 @@ pub(crate) fn canonical_repo_key(repo: &str) -> Result<String, String> {
     Ok(canonical)
 }
 
-fn evict_one_idle_project_cache_from(caches: &DashMap<String, Arc<ProjectCache>>) -> bool {
-    let mut candidates = caches
+/// Lookups clone a cell's `Arc` only while holding the map's lock, so under it
+/// a count of one means nobody is using the cell.
+fn evict_one_idle_project_cache_from(caches: &mut HashMap<String, Arc<ProjectCache>>) -> bool {
+    let idle = caches
         .iter()
-        .map(|entry| {
-            (
-                entry.value().last_used.load(Ordering::Acquire),
-                entry.key().clone(),
-            )
-        })
-        .collect::<Vec<_>>();
-    candidates.sort_unstable();
-    for (_, key) in candidates {
-        // A concurrent lookup holds the DashMap shard while cloning the Arc.
-        // `remove_if` therefore observes its strong reference before deciding;
-        // only the map-owned, fully idle cell can be evicted.
-        if caches
-            .remove_if(&key, |_, project| Arc::strong_count(project) == 1)
-            .is_some()
-        {
-            return true;
-        }
-    }
-    false
+        .filter(|(_, project)| Arc::strong_count(project) == 1)
+        .min_by_key(|(_, project)| project.last_used.load(Ordering::Acquire))
+        .map(|(key, _)| key.clone());
+    idle.is_some_and(|key| caches.remove(&key).is_some())
 }
 
 fn project_cache_from(
-    caches: &DashMap<String, Arc<ProjectCache>>,
-    admission_lock: &Mutex<()>,
+    caches: &ProjectCaches,
     repo: &str,
     capacity: usize,
 ) -> Result<Arc<ProjectCache>, String> {
-    if let Some(project) = caches.get(repo) {
-        let project = project.clone();
-        project.touch();
-        return Ok(project);
-    }
-
-    let _admission = admission_lock
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let mut caches = lock_caches(caches);
     if let Some(project) = caches.get(repo) {
         let project = project.clone();
         project.touch();
         return Ok(project);
     }
     while caches.len() >= capacity {
-        if !evict_one_idle_project_cache_from(caches) {
+        if !evict_one_idle_project_cache_from(&mut caches) {
             return Err(format!(
                 "project file cache is busy at its {capacity}-project safety limit"
             ));
@@ -174,19 +154,15 @@ fn project_cache_from(
 }
 
 fn project_cache(repo: &str) -> Result<Arc<ProjectCache>, String> {
-    project_cache_from(
-        cache(),
-        cache_admission_lock(),
-        repo,
-        MAX_PROJECT_CACHE_ENTRIES,
-    )
+    project_cache_from(cache(), repo, MAX_PROJECT_CACHE_ENTRIES)
 }
 
 /// Explicit invalidation keeps compatibility with callers that need the next
 /// read to be a complete scan. The per-project lock object is retained so an
 /// in-flight scan and invalidation cannot split across different cache cells.
 pub fn invalidate(repo: &str) {
-    if let Some(project) = cache().get(repo) {
+    let project = lock_caches(cache()).get(repo).cloned();
+    if let Some(project) = project {
         *project.lock() = None;
     }
 }
@@ -1011,22 +987,23 @@ mod tests {
 
     #[test]
     fn project_cache_cap_evicts_only_idle_cells() {
-        let caches = DashMap::new();
-        let admission = Mutex::new(());
-        let first = project_cache_from(&caches, &admission, "first", 2).unwrap();
-        let second = project_cache_from(&caches, &admission, "second", 2).unwrap();
+        let caches = ProjectCaches::default();
+        let first = project_cache_from(&caches, "first", 2).unwrap();
+        let second = project_cache_from(&caches, "second", 2).unwrap();
 
         // Both cells have active borrowers, so admitting a third cannot split an
         // in-flight scan/invalidation across a replacement lock cell.
-        assert!(project_cache_from(&caches, &admission, "third", 2).is_err());
-        assert_eq!(caches.len(), 2);
+        assert!(project_cache_from(&caches, "third", 2).is_err());
+        assert_eq!(lock_caches(&caches).len(), 2);
 
         drop(first);
-        let third = project_cache_from(&caches, &admission, "third", 2).unwrap();
-        assert!(!caches.contains_key("first"));
-        assert!(caches.contains_key("second"));
-        assert!(caches.contains_key("third"));
-        assert_eq!(caches.len(), 2);
+        let third = project_cache_from(&caches, "third", 2).unwrap();
+        let held = lock_caches(&caches);
+        assert!(!held.contains_key("first"));
+        assert!(held.contains_key("second"));
+        assert!(held.contains_key("third"));
+        assert_eq!(held.len(), 2);
+        drop(held);
 
         drop(second);
         drop(third);

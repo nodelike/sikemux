@@ -4,10 +4,11 @@ use std::time::{Duration, Instant};
 
 use sikemux_core::client::EventSink;
 use sikemux_core::protocol::{CallId, ChatEventKind, Event, SessionId, WindowCall};
-use sikemux_pty::shell_protocol::PTY_SHELL_METADATA_EVENT;
+use sikemux_pty::shell_protocol::{SshLink, PTY_SHELL_METADATA_EVENT};
 use sikemux_pty::task::TaskProcessExit;
 use tauri::{AppHandle, Emitter, Manager};
 
+use crate::inbox::LastInbox;
 use crate::observability::{global_observability, Metadata, ScalarValue};
 
 use super::streams::StreamTable;
@@ -27,6 +28,14 @@ pub(super) fn output_totals() -> (u64, u64) {
 }
 
 const PTY_EXITED_EVENT: &str = "pty_exited";
+const PTY_SSH_LINK_EVENT: &str = "pty_ssh_link";
+
+#[derive(Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PtySshLink {
+    id: SessionId,
+    link: SshLink,
+}
 
 /// How a session's process ended, for every session, watched or not, so the
 /// page can bring back an agent that died while its pane was hidden.
@@ -44,11 +53,16 @@ struct PtyExited {
 pub(super) struct AppSink {
     app: AppHandle,
     streams: Arc<StreamTable>,
+    inbox: LastInbox,
 }
 
 impl AppSink {
     pub(super) fn new(app: AppHandle, streams: Arc<StreamTable>) -> Self {
-        Self { app, streams }
+        Self {
+            app,
+            streams,
+            inbox: LastInbox::default(),
+        }
     }
 
     fn emit<S: serde::Serialize + Clone>(&self, event: &str, payload: S) {
@@ -148,6 +162,7 @@ impl EventSink for AppSink {
                 report_exited(&self.streams, id, task_exit(code, signal));
             }
             Event::ShellMetadata(metadata) => self.emit(PTY_SHELL_METADATA_EVENT, metadata),
+            Event::SshLink { id, link } => self.emit(PTY_SSH_LINK_EVENT, PtySshLink { id, link }),
             Event::TaskOutput { .. } => {}
             Event::AgentState(state) => {
                 if state.state == "stopped" {
@@ -171,14 +186,18 @@ impl EventSink for AppSink {
                 crate::remote::follow_remote_access(&self.app, status.enabled);
                 self.emit("remote_status_changed", status);
             }
-            Event::ChatBegun { chat } => self.emit("remote_chat_begun", chat),
+            Event::ChatBegun { chat } => {
+                crate::model_providers::chat_begun(&chat);
+                self.emit("remote_chat_begun", chat)
+            }
             Event::WakeChat { agent_id } => self.emit("remote_chat_wake", agent_id),
+            Event::Network { change } => self.emit("network_changed", change),
             Event::FocusAgent { agent_id } => {
                 crate::harness::bring_to_front(&self.app);
                 self.emit("focus_agent", agent_id);
             }
-            Event::Attention { .. } | Event::AttentionCleared { .. } | Event::DeviceView { .. } => {
-            }
+            Event::DeviceView { view } => self.inbox.changed(&self.app, view.inbox),
+            Event::Attention { .. } | Event::AttentionCleared { .. } => {}
         }
     }
 

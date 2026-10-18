@@ -5,9 +5,15 @@ import { join, resolve } from "node:path";
 import { createInterface } from "node:readline";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { Browser } from "playwright-core";
-import { mergeConfig, type PluginOption } from "vite";
+import {
+  mergeConfig,
+  type PluginOption,
+  type PreviewServer,
+  type ViteDevServer,
+} from "vite";
 import base from "../vite.config.ts";
 import { DEMO_PROJECTS, PANE_IMAGE } from "./world/projects.ts";
+import { PANE_IMAGE_FILE } from "./world/paneImage.ts";
 
 const LOCAL_ROOTS: Record<string, string> = {
   sikemux: resolve(import.meta.dirname, ".."),
@@ -15,15 +21,7 @@ const LOCAL_ROOTS: Record<string, string> = {
   "moodboard-studio": join(homedir(), "projects/personal/moodboard-studio"),
 };
 
-const PANE_IMAGE_FILE = join(
-  homedir(),
-  "wallpaper/old/jinx-graffiti-5120x2880-19975.jpg",
-);
-
-const WALLPAPER_FILE = join(
-  homedir(),
-  "wallpaper/butterfly-neon-glowing-dark-background-amoled-3840x2160-2171.png",
-);
+const WALLPAPER_FILE = join(homedir(), "wallpaper/midnight-garden.jpeg");
 
 const MAX_FILE_BYTES = 400_000;
 const HIDDEN_FOLDERS = new Set([
@@ -271,12 +269,31 @@ function send(response: ServerResponse, status: number, value: unknown) {
 }
 
 let chosenWallpaper: Buffer | null = null;
+let chosenScreenshot: Buffer | null = null;
 
 let snapshotBrowser: Promise<Browser> | null = null;
 
+const NOTCH_DIR = join(import.meta.dirname, "out/notch");
+let notchRender: Promise<void> | null = null;
+
+// The island is SwiftUI, so its own snapshot tool draws it once per server, on a clear background.
+function renderNotch(): Promise<void> {
+  notchRender ??= new Promise((done, fail) => {
+    const notchPackage = join(import.meta.dirname, "../src-tauri/notch");
+    spawn("swift", ["run", "--package-path", notchPackage, "notch-snapshots", NOTCH_DIR, "--bare"], {
+      stdio: "ignore",
+    }).on("exit", (code) => {
+      if (code === 0) return done();
+      notchRender = null;
+      fail(new Error(`notch-snapshots exited with ${code}`));
+    });
+  });
+  return notchRender;
+}
+
 async function snapshot(
   origin: string,
-  { state, layout }: Record<string, unknown>,
+  { state, layout, screenshot, notch }: Record<string, unknown>,
 ): Promise<string[]> {
   snapshotBrowser ??= import("playwright-core").then(({ chromium }) =>
     chromium.launch({ channel: "chrome" }),
@@ -291,21 +308,35 @@ async function snapshot(
   try {
     await context.clock.setFixedTime(new Date("2026-09-26T09:41:00"));
     const page = await context.newPage();
-    await page.goto(`${origin}/showcase/twitter.html?capture`);
-    await page.frameLocator("iframe").locator(".shell").waitFor();
-    const app = page.frames()[1];
-    await app.waitForFunction(() => "showcase" in window);
-    await app.evaluate((restored) => {
-      const { showcase } = window as unknown as {
-        showcase: {
-          store: { setState: (state: object) => void };
-          backend: { stepLive: () => number };
+    const island = notch ? `&notch=${notch}` : "";
+    if (screenshot) {
+      await page.goto(`${origin}/showcase/twitter.html?capture&screenshot${island}`);
+      await page.waitForFunction(() =>
+        [...document.querySelectorAll<HTMLImageElement>(".shot")].every(
+          (image) => image.complete && image.naturalWidth > 0,
+        ),
+      );
+    } else {
+      await page.goto(`${origin}/showcase/twitter.html?capture${island}`);
+      await page.frameLocator("iframe").locator(".shell").waitFor();
+      const app = page.frames()[1];
+      await app.waitForFunction(() => "showcase" in window);
+      await app.evaluate((restored) => {
+        const { showcase } = window as unknown as {
+          showcase: {
+            store: { setState: (state: object) => void };
+            backend: { stepLive: () => number };
+          };
         };
-      };
-      showcase.store.setState(restored as object);
-      while (showcase.backend.stepLive() >= 0);
-    }, state);
-    await page.waitForTimeout(1500);
+        showcase.store.setState(restored as object);
+        while (showcase.backend.stepLive() >= 0);
+      }, state);
+      await page.waitForTimeout(1500);
+    }
+    await page.waitForFunction(() => {
+      const image = document.querySelector<HTMLImageElement>(".notch");
+      return !image?.getAttribute("src") || (image.complete && image.naturalWidth > 0);
+    });
     const stamp = new Date().toLocaleString("sv").replace(/[ :]/g, "-");
     if (layout !== "thirds") {
       const name = `sikemux-${stamp}.png`;
@@ -325,107 +356,135 @@ async function snapshot(
   }
 }
 
+function serveDemoFiles(server: ViteDevServer | PreviewServer, port: number) {
+  server.httpServer?.on("close", () => {
+    markdownParser?.stop();
+    void snapshotBrowser?.then((browser) => browser.close());
+  });
+  server.middlewares.use("/__showcase", async (request, response) => {
+    if (request.url === `/preview/${encodeURIComponent(PANE_IMAGE)}`) {
+      if (!existsSync(PANE_IMAGE_FILE)) {
+        response.statusCode = 404;
+        return response.end();
+      }
+      response.setHeader("Content-Type", "image/jpeg");
+      return response.end(readFileSync(PANE_IMAGE_FILE));
+    }
+    if (request.url === "/simulator/chrome") {
+      response.setHeader("Content-Type", "application/json");
+      return response.end(JSON.stringify(await simulatorChrome()));
+    }
+    if (request.url === "/simulator/frame") {
+      const frame = join(import.meta.dirname, "../mobile/showcase/out/asking.png");
+      if (!existsSync(frame)) return response.writeHead(404).end();
+      response.setHeader("Content-Type", "image/png");
+      return response.end(readFileSync(frame));
+    }
+    const notchState = request.url?.match(/^\/notch\/([\w-]+)\.png$/);
+    if (notchState) {
+      await renderNotch();
+      const file = join(NOTCH_DIR, `${notchState[1]}.png`);
+      if (!existsSync(file)) return response.writeHead(404).end();
+      response.setHeader("Content-Type", "image/png");
+      return response.end(readFileSync(file));
+    }
+    const shownPage = request.url?.match(/^\/page\/([0-9a-f]{32})$/);
+    if (shownPage) {
+      response.setHeader("Content-Type", "text/html");
+      return response.end(
+        readFileSync(join(import.meta.dirname, "pages", `${shownPage[1]}.html`)),
+      );
+    }
+    if (request.url?.split("?")[0] === "/screenshot") {
+      if (request.method === "POST") {
+        const chunks: Buffer[] = [];
+        for await (const chunk of request) chunks.push(chunk as Buffer);
+        chosenScreenshot = Buffer.concat(chunks);
+        return response.end();
+      }
+      if (!chosenScreenshot) return response.writeHead(404).end();
+      return response.end(chosenScreenshot);
+    }
+    if (request.url?.split("?")[0] === "/wallpaper") {
+      if (request.method === "POST") {
+        const chunks: Buffer[] = [];
+        for await (const chunk of request) chunks.push(chunk as Buffer);
+        chosenWallpaper = Buffer.concat(chunks);
+        return response.end();
+      }
+      if (!chosenWallpaper && !existsSync(WALLPAPER_FILE)) {
+        response.statusCode = 404;
+        return response.end();
+      }
+      return response.end(chosenWallpaper ?? readFileSync(WALLPAPER_FILE));
+    }
+    try {
+      const input = await body(request);
+      switch (request.url) {
+        case "/read_dirs":
+          return send(
+            response,
+            200,
+            (input.paths as string[]).map(readDir),
+          );
+        case "/read_file": {
+          const content = readFile(input.path as string);
+          return content === null
+            ? send(response, 404, {
+                error: "No such file or directory (os error 2)",
+              })
+            : send(response, 200, content);
+        }
+        case "/list_files": {
+          const found = localRoot(input.repo as string);
+          return send(
+            response,
+            200,
+            found ? [...found.project.files].sort() : [],
+          );
+        }
+        case "/commit_files":
+          return send(
+            response,
+            200,
+            commitFiles(input.project as string, input.rev as string),
+          );
+        case "/git_log":
+          return send(
+            response,
+            200,
+            gitLog(input.project as string, Number(input.count ?? 60)),
+          );
+        case "/snapshot":
+          return send(
+            response,
+            200,
+            await snapshot(`http://localhost:${port}`, input),
+          );
+        case "/markdown":
+          return send(
+            response,
+            200,
+            await parseMarkdown(input.requests as unknown[]),
+          );
+        default:
+          return send(response, 404, {
+            error: "unknown showcase endpoint",
+          });
+      }
+    } catch (error) {
+      return send(response, 500, { error: String(error) });
+    }
+  });
+}
+
 function demoFileSystem(): PluginOption {
   return {
     name: "sikemux-showcase-fs",
-    configureServer(server) {
-      server.httpServer?.on("close", () => {
-        markdownParser?.stop();
-        void snapshotBrowser?.then((browser) => browser.close());
-      });
-      server.middlewares.use("/__showcase", async (request, response) => {
-        if (request.url === `/preview/${encodeURIComponent(PANE_IMAGE)}`) {
-          response.setHeader("Content-Type", "image/jpeg");
-          return response.end(readFileSync(PANE_IMAGE_FILE));
-        }
-        if (request.url === "/simulator/chrome") {
-          response.setHeader("Content-Type", "application/json");
-          return response.end(JSON.stringify(await simulatorChrome()));
-        }
-        if (request.url === "/simulator/frame") {
-          const frame = join(import.meta.dirname, "../mobile/showcase/out/asking.png");
-          if (!existsSync(frame)) return response.writeHead(404).end();
-          response.setHeader("Content-Type", "image/png");
-          return response.end(readFileSync(frame));
-        }
-        const shownPage = request.url?.match(/^\/page\/([0-9a-f]{32})$/);
-        if (shownPage) {
-          response.setHeader("Content-Type", "text/html");
-          return response.end(
-            readFileSync(join(import.meta.dirname, "pages", `${shownPage[1]}.html`)),
-          );
-        }
-        if (request.url?.split("?")[0] === "/wallpaper") {
-          if (request.method === "POST") {
-            const chunks: Buffer[] = [];
-            for await (const chunk of request) chunks.push(chunk as Buffer);
-            chosenWallpaper = Buffer.concat(chunks);
-            return response.end();
-          }
-          return response.end(chosenWallpaper ?? readFileSync(WALLPAPER_FILE));
-        }
-        try {
-          const input = await body(request);
-          switch (request.url) {
-            case "/read_dirs":
-              return send(
-                response,
-                200,
-                (input.paths as string[]).map(readDir),
-              );
-            case "/read_file": {
-              const content = readFile(input.path as string);
-              return content === null
-                ? send(response, 404, {
-                    error: "No such file or directory (os error 2)",
-                  })
-                : send(response, 200, content);
-            }
-            case "/list_files": {
-              const found = localRoot(input.repo as string);
-              return send(
-                response,
-                200,
-                found ? [...found.project.files].sort() : [],
-              );
-            }
-            case "/commit_files":
-              return send(
-                response,
-                200,
-                commitFiles(input.project as string, input.rev as string),
-              );
-            case "/git_log":
-              return send(
-                response,
-                200,
-                gitLog(input.project as string, Number(input.count ?? 60)),
-              );
-            case "/snapshot":
-              return send(
-                response,
-                200,
-                await snapshot(
-                  `http://localhost:${server.config.server.port}`,
-                  input,
-                ),
-              );
-            case "/markdown":
-              return send(
-                response,
-                200,
-                await parseMarkdown(input.requests as unknown[]),
-              );
-            default:
-              return send(response, 404, {
-                error: "unknown showcase endpoint",
-              });
-          }
-        } catch (error) {
-          return send(response, 500, { error: String(error) });
-        }
-      });
-    },
+    configureServer: (server) =>
+      serveDemoFiles(server, server.config.server.port),
+    configurePreviewServer: (server) =>
+      serveDemoFiles(server, server.config.preview.port),
   };
 }
 

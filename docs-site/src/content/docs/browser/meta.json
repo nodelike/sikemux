@@ -1,0 +1,9 @@
+{
+  "title": "Browser",
+  "defaultOpen": true,
+  "pages": [
+    "desk-tabs",
+    "agents-and-pages",
+    "webkit"
+  ]
+}

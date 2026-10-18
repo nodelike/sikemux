@@ -2,10 +2,10 @@ import { act, cleanup, fireEvent, render, screen } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AwsIdentity, AwsProfile } from "../api";
 
-const { profiles, identity, ssoLogin } = vi.hoisted(() => ({ profiles: vi.fn(), identity: vi.fn(), ssoLogin: vi.fn() }));
+const { profiles, setup, identity, ssoLogin } = vi.hoisted(() => ({ profiles: vi.fn(), setup: vi.fn(), identity: vi.fn(), ssoLogin: vi.fn() }));
 vi.mock("../api", async (importOriginal) => {
     const original = await importOriginal<typeof import("../api")>();
-    return { ...original, awsApi: { ...original.awsApi, profiles, identity, ssoLogin } };
+    return { ...original, awsApi: { ...original.awsApi, profiles, setup, identity, ssoLogin } };
 });
 
 import { awsSettings, useAws } from "../state";
@@ -29,6 +29,7 @@ beforeEach(() => {
     awsSettings.update(() => ({ profile: null, service: "ecs" }));
     useAws.setState({ ecsViews: {}, selection: {}, lambdaLogs: {}, counts: {} });
     profiles.mockReset().mockResolvedValue([prod]);
+    setup.mockReset().mockResolvedValue({ cli: true, homebrew: true });
     identity.mockReset().mockResolvedValue(expired);
     ssoLogin.mockReset().mockReturnValue({ done: new Promise(() => {}), cancel: vi.fn() });
 });
@@ -45,10 +46,10 @@ describe("AwsPane", () => {
         });
         expect(awsSettings.get().profile).toBe("prod-admin");
         expect(identity).toHaveBeenCalledWith("prod-admin", false);
-        expect(screen.getByText("Session expired")).toBeInTheDocument();
+        expect(screen.getByText("Sign-in expired")).toBeInTheDocument();
 
         await act(async () => {
-            fireEvent.click(screen.getByRole("button", { name: "Continue with AWS SSO" }));
+            fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
         });
         expect(ssoLogin).toHaveBeenCalledWith("prod-admin");
         expect(screen.getByText("Approve the request in your browser")).toBeInTheDocument();

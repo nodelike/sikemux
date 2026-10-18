@@ -13,6 +13,7 @@ mod boards;
 mod client;
 mod config;
 mod error;
+mod images;
 mod issues;
 mod oauth;
 
@@ -83,7 +84,8 @@ impl Plugin for Jira {
                 "boards" => answer(boards::boards(data_dir, params(input)?)).await,
                 "board" => answer(boards::board(data_dir, params(input)?)).await,
                 "moveIssue" => answer(boards::move_issue(data_dir, params(input)?)).await,
-                "keys" => reply(issues::keys_in(&params::<issues::KeysRequest>(input)?.text)),
+                "image" => answer(images::image(params(input)?)).await,
+                "siteImage" => answer(images::site_image(data_dir, params(input)?)).await,
                 _ => Err(PluginError::unknown_method(method)),
             }
         })

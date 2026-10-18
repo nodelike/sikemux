@@ -11,6 +11,7 @@
 //   artifacts — what a run left behind, and putting one on disk
 //   approvals — a run held at an environment until somebody signs it off
 //   pulls     — pull requests, the files they touch, and merging one
+//   review    — what reviewers asked of a pull request, and answering it
 //   issues    — issues, and closing or reopening one
 //   releases  — releases, their notes and the files hung off them
 //   inbox     — the notifications GitHub would otherwise email
@@ -35,6 +36,7 @@ mod pulls;
 mod ratelimit;
 mod releases;
 mod repo;
+mod review;
 mod runs;
 mod watch;
 mod workflows;
@@ -196,10 +198,12 @@ fn dispatch<'a>(ctx: &'a PluginContext, method: &'a str, input: Value) -> Plugin
         "runAttempt" => answer(input, move |q| runs::attempt(data_dir, q)),
 
         "jobLog" => answer(input, move |q| logs::job(data_dir, q)),
+        "jobLogExcerpt" => answer(input, move |q| logs::excerpt(data_dir, q)),
         "annotations" => answer(input, move |q| annotations::list(data_dir, q)),
         "jobSummary" => answer(input, move |q| annotations::summary(data_dir, q)),
         "runTiming" => answer(input, move |q| runs::timing(data_dir, q)),
         "workflowFile" => answer(input, move |q| workflows::file(data_dir, q)),
+        "workflowFileAt" => answer(input, move |q| workflows::file_at(data_dir, q)),
 
         "artifacts" => answer(input, move |q| artifacts::list(data_dir, q)),
 
@@ -207,15 +211,20 @@ fn dispatch<'a>(ctx: &'a PluginContext, method: &'a str, input: Value) -> Plugin
         "reviewDeployment" => answer(input, move |q| approvals::review(data_dir, q)),
 
         "pulls" => answer(input, move |q| pulls::list(data_dir, q)),
+        "pullCounts" => answer(input, move |q| pulls::counts(data_dir, q)),
+        "issueCounts" => answer(input, move |q| pulls::issue_counts(data_dir, q)),
         "pull" => answer(input, move |q| pulls::get(data_dir, q)),
         "pullFiles" => answer(input, move |q| pulls::files(data_dir, q)),
         "pullCommits" => answer(input, move |q| pulls::commits(data_dir, q)),
+        "commitPulls" => answer(input, move |q| pulls::of_commit(data_dir, q)),
         "commitAuthors" => answer(input, move |q| pulls::commit_authors(data_dir, q)),
         "pullReviews" => answer(input, move |q| pulls::reviews(data_dir, q)),
         "mergePull" => answer(input, move |q| pulls::merge(data_dir, q)),
         "createPull" => answer(input, move |q| pulls::create(data_dir, q)),
         "setPullState" => answer(input, move |q| pulls::set_state(data_dir, q)),
         "reviewPull" => answer(input, move |q| pulls::review(data_dir, q)),
+        "reviewFeedback" => answer(input, move |q| review::feedback(data_dir, q)),
+        "answerReview" => answer(input, move |q| review::answer(data_dir, q)),
 
         "issues" => answer(input, move |q| issues::list(data_dir, q)),
         "issue" => answer(input, move |q| issues::get(data_dir, q)),

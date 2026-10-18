@@ -1,0 +1,76 @@
+{
+  "id": "sikemux.linear",
+  "name": "Linear",
+  "version": "0.1.0",
+  "sikemux": ">=0.4",
+  "callTimeoutSecs": 60,
+  "tools": [
+    {
+      "name": "linear_search",
+      "row": {"verb": "search", "kind": "search", "icon": "search", "target": ["{query}", "my issues"]},
+      "method": "search",
+      "description": "Linear issues matching words, newest first. With no query, the person's open issues. Each has its identifier, state, assignee and link.",
+      "properties": {
+        "query": { "type": "string", "description": "Words or an identifier such as ENG-123." },
+        "limit": { "type": "integer", "description": "Default 25, at most 100." },
+        "workspace": { "type": "string", "description": "Workspace url key. Default: the default one." }
+      }
+    },
+    {
+      "name": "linear_issue",
+      "row": {"verb": "read", "kind": "read", "icon": "issue", "target": ["{id}"]},
+      "method": "issue",
+      "description": "One Linear issue with its description, comments, labels, branch name and its team's states.",
+      "properties": {
+        "id": { "type": "string", "description": "An identifier such as ENG-123." },
+        "workspace": { "type": "string" }
+      },
+      "required": ["id"]
+    },
+    {
+      "name": "linear_comment",
+      "row": {"verb": "comment", "kind": "edit", "icon": "message", "target": ["{id}"]},
+      "method": "comment",
+      "description": "Comment on a Linear issue as the person, in markdown. Say only what they asked for.",
+      "properties": {
+        "id": { "type": "string", "description": "An identifier such as ENG-123." },
+        "body": { "type": "string" },
+        "workspace": { "type": "string" }
+      },
+      "required": ["id", "body"]
+    },
+    {
+      "name": "linear_update",
+      "row": {"verb": "update", "kind": "edit", "icon": "status", "target": ["{id} {state}", "{id}"]},
+      "method": "update",
+      "description": "Change a Linear issue: move it to a state by name, assign it (me, a name or an email; empty unassigns), set priority 0-4, or add and remove labels.",
+      "properties": {
+        "id": { "type": "string", "description": "An identifier such as ENG-123." },
+        "state": { "type": "string", "description": "A state of the issue's team, such as In Review." },
+        "assignee": { "type": "string" },
+        "priority": { "type": "integer", "description": "0 none, 1 urgent, 2 high, 3 medium, 4 low." },
+        "addLabels": { "type": "array", "items": { "type": "string" } },
+        "removeLabels": { "type": "array", "items": { "type": "string" } },
+        "title": { "type": "string" },
+        "workspace": { "type": "string" }
+      },
+      "required": ["id"]
+    },
+    {
+      "name": "linear_create",
+      "row": {"verb": "create", "kind": "edit", "icon": "square-plus", "target": ["{team}: {title}"]},
+      "method": "create",
+      "description": "File a Linear issue in a team, by its key such as ENG. Optional description, assignee, state and priority. Answers with its identifier and link.",
+      "properties": {
+        "team": { "type": "string" },
+        "title": { "type": "string" },
+        "description": { "type": "string", "description": "Markdown." },
+        "assignee": { "type": "string" },
+        "state": { "type": "string" },
+        "priority": { "type": "integer" },
+        "workspace": { "type": "string" }
+      },
+      "required": ["team", "title"]
+    }
+  ]
+}

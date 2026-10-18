@@ -1,0 +1,70 @@
+---
+title: Chats and terminals
+description: "An agent's chat, its own terminal UI, and how to talk to it while it works."
+---
+
+Start an agent with `⌘N`, or from **Start an agent** on the welcome screen. Each agent opens in the chat Sikemux draws for it.
+
+## GUI and TUI
+
+The **GUI / TUI** switch at the top of an agent swaps between:
+
+- **GUI**: Sikemux's chat, with the transcript, tool calls, questions and the composer.
+- **TUI**: the agent's own terminal interface, running in a Sikemux terminal.
+
+Switch while the agent is idle. A switch waits until the agent finishes its reply.
+
+What you typed but did not send comes with you. A draft in the composer waits at the TUI's prompt, unsent, and what is typed in Claude's input box comes back to the composer.
+
+## The composer
+
+- `@` names another agent, in this project or any other, or an earlier chat to open again.
+- `#` hands over a GitHub, GitLab or Bitbucket issue, and `!` a pull request.
+- `+` attaches a file or folder from the project.
+- What you pick stays in your message as a chip. Backspace once selects a chip, and again removes it.
+- Selections from terminals, problems, logs and pull request lines can be sent to any agent.
+
+## While the agent works
+
+| You press | What happens |
+|---|---|
+| `Enter` | Sends it now, steering the agent in the middle of its reply |
+| `⌘Enter` | Your message waits and is sent when the agent finishes its reply |
+| `⌘Enter` in an empty box | Sends the messages that were waiting, now |
+
+To swap the two, set **Settings › Agents › Sending while an agent works** to **Queue**. An agent that can't be steered always queues.
+
+## Pinned chats
+
+Point at an open chat in the tab rail and click the pin beside its close, or right-click a chat, open or from the earlier chats, and choose **Pin**. It stays in **Pinned**, right under the running chats, whether it is open or closed, and keeps the name you give it. Click a closed one to open it again. The same pin, or **Unpin** in the menu, takes it off.
+
+## Moving a chat to another project
+
+Right-click an agent's tab or its row in the tab rail and choose **Move to Project…**, then pick the project. A chat that hasn't started yet can also move from the project name above its composer.
+
+A Claude Code or Codex chat that has already started moves too, with its history: Sikemux stops it, files its saved conversation under the new project, and resumes it there. Wait for it to finish its reply first. Other agents can move only before their first message.
+
+## If something stops it mid-reply
+
+An agent's reply finishes even if Sikemux's background process crashes, your computer restarts, or the agent's own process dies, and nobody has to be watching. Sikemux opens the agent's saved conversation again, says so in the chat, and asks the agent to check what got done before carrying on, since a step cut off mid-way may not have finished. After a few stops in a row the agent is left stopped, with **Retry**.
+
+After a restart this happens when Sikemux's background process starts again: at login when remote access is on, otherwise when you next open Sikemux.
+
+## When the agent asks you something
+
+An agent's questions open above the composer, one tab per question. Pick an answer, or type your own in the composer, and the next question comes up. Nothing reaches the agent until every question has an answer: then **Send** gives it all of them in one message. A single question goes as soon as you answer it.
+
+| You press | What happens |
+|---|---|
+| `1`–`9` | Picks that answer, or ticks it when the question takes several |
+| `↑` `↓` | Moves between the answers |
+| `Space` | Ticks the answer you moved to, when the question takes several |
+| `←` `→` | Moves between the questions |
+| `Enter` | Picks the answer you moved to, or moves on once you've ticked some |
+| `⌘Enter` | Sends every answer, once each question has one |
+
+These keys work while the composer is empty. The arrow at the right of the tabs folds the questions away, so the composer writes to the agent again.
+
+## Its desk
+
+Each agent has its own browser tabs on its desk. `⌘J` shows or hides the desk of the agent in front. See [Browser](/browser/desk-tabs/).

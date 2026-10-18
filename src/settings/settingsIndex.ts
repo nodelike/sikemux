@@ -1,10 +1,11 @@
 import { IS_MACOS } from "../lib/platform";
 
 export type SettingsPageId =
-    "general" | "appearance" | "keybindings" | "activity" | "about" | "agents" | "actions" | "cli" | "devices" | "cloud" | "plugins";
+    "general" | "project" | "appearance" | "keybindings" | "activity" | "about" | "agents" | "actions" | "cli" | "devices" | "cloud" | "plugins";
 
 export const SETTINGS_GROUPS: { label: string; pages: SettingsPageId[] }[] = [
     { label: "App", pages: ["general", "appearance", "keybindings", "activity", "about"] },
+    { label: "Project", pages: ["project"] },
     { label: "Tools", pages: ["agents", "actions", "cli", "devices", "cloud", "plugins"] },
 ];
 
@@ -12,6 +13,7 @@ export const SETTINGS_PAGE_ORDER: SettingsPageId[] = SETTINGS_GROUPS.flatMap((gr
 
 export const SETTINGS_PAGE_NAMES: Record<SettingsPageId, string> = {
     general: "General",
+    project: "This project",
     appearance: "Appearance",
     keybindings: "Keybindings",
     activity: "Activity",
@@ -61,11 +63,19 @@ export const SETTINGS_INDEX: SettingsEntry[] = [
     section("general", "Project folders", "repos repositories directories roots scan depth index picker"),
     section("general", "Session transfer", "export import clipboard move machine bundle copy"),
 
+    section("project", "Default git repository", "git repos repositories several multiple monorepo folder branch worktree diff"),
+
     section("appearance", "Theme", "colours colors palette dark light custom fork editor"),
     section("appearance", "Interface"),
     row("appearance", "Interface", "Text size", "font zoom scale larger smaller accessibility"),
     row("appearance", "Interface", "Pane texture", "dither dithering shader grain noise background effect"),
     row("appearance", "Interface", "Pane image", "picture photo wallpaper background dither dithered custom"),
+    row("appearance", "Interface", "Pane strength", "dither grain picture opacity intensity texture image"),
+    section("appearance", "Buddies", "agent icon character avatar mascot face"),
+    row("appearance", "Buddies", "Show buddies", "agent icon character avatar mascot harness logo"),
+    row("appearance", "Buddies", "Pack", "agent icon character avatar mascot style"),
+    row("appearance", "Buddies", "Shape", "agent icon character avatar mixed"),
+    row("appearance", "Buddies", "Animate faces", "motion blink animation"),
     ...(IS_MACOS
         ? [
               section("appearance", "Window"),
@@ -93,28 +103,32 @@ export const SETTINGS_INDEX: SettingsEntry[] = [
     row("about", "Privacy", "Share anonymous usage", "analytics telemetry tracking opt out posthog"),
     section("about", "Help", "what's new changelog diagnostics welcome onboarding"),
 
+    section("agents", "Agents on this machine", "install reinstall missing claude codex opencode hermes pi omp grok cli"),
     section("agents", "Launch boundary", "permissions yolo sandbox safety bypass approval"),
-    section("agents", "Claude accounts", "sign in login logout email subscription max pro switch rotate limit"),
-    row("agents", "Claude accounts", "Another account", "add second work personal sign in"),
-    section("agents", "Codex accounts", "sign in login logout email chatgpt plus pro switch rotate limit"),
-    row("agents", "Codex accounts", "Another account", "add second work personal sign in"),
+    section("agents", "Claude accounts", "sign in login logout email subscription max pro switch rotate limit add second work personal"),
+    section("agents", "Codex accounts", "sign in login logout email chatgpt plus pro switch rotate limit add second work personal"),
     section("agents", "Provider profiles", "claude codex gemini accounts"),
     row("agents", "Provider profiles", "Name", "profile"),
     row("agents", "Provider profiles", "Provider", "claude codex gemini"),
     row("agents", "Provider profiles", "Executable path", "binary cli path"),
     row("agents", "Provider profiles", "Profile directory", "config account home"),
-    row("agents", "Provider profiles", "Claude default", "profile"),
-    row("agents", "Provider profiles", "Codex default", "profile"),
+    section("agents", "Coding plans", "zai glm minimax kimi code opencode go synthetic ollama subscription plan key claude codex"),
     section(
         "agents",
         "Model providers",
-        "openrouter baseten together fireworks groq cerebras deepseek moonshot kimi mistral vercel api key hosted open models opencode pi omp",
+        "openrouter baseten together fireworks groq cerebras deepseek moonshot kimi mistral vercel api key hosted open models opencode pi omp claude codex",
     ),
+    section("agents", "Local models", "ollama lm studio lmstudio local offline runner claude codex"),
+    section("agents", "Helpers", "cheap model workers scouts reviewers subagents spawn paid by provider"),
+    row("agents", "Helpers", "Agent", "helper worker scout reviewer subagent cheap model provider"),
+    section("agents", "Skills", "skill SKILL.md library claude codex opencode pi omp hermes grok global own move"),
+    row("agents", "Skills", "Add a skill", "new create install git folder"),
     section("agents", "Sessions"),
     row("agents", "Sessions", "Restore agent tabs", "resume reopen startup"),
     row("agents", "Sessions", "Notify when an agent needs you", "notification alert badge dock permission finished"),
     row("agents", "Sessions", "Test notification", "notification sound permission send try"),
     row("agents", "Sessions", "Rail density", "compact comfortable sidebar"),
+    row("agents", "Sessions", "Sending while an agent works", "steer queue interrupt enter"),
     row("agents", "Sessions", "Idle agents", "sleep memory process"),
     ...(IS_MACOS
         ? [

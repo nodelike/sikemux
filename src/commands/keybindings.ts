@@ -119,6 +119,13 @@ const coreKeybindingActions = [
         defaultBinding: on("Meta+Digit0", "Ctrl+Digit0"),
     },
     {
+        id: "theme.switch",
+        label: "Switch theme",
+        detail: "Preview each theme as you move through them, Enter keeps one",
+        category: "Workspace",
+        defaultBinding: null,
+    },
+    {
         id: "agent.new",
         label: "New agent",
         detail: "Start the agent you launched last in this project, ready to type to",
@@ -149,14 +156,14 @@ const coreKeybindingActions = [
     {
         id: "terminal.new",
         label: "New terminal",
-        detail: "A shell tab in this project, another login on this host, or a new command session",
+        detail: "A terminal tab in this project, another login on this host, or a new terminal under Terminals",
         category: "Panes",
         defaultBinding: on("Meta+KeyT", "Ctrl+Shift+KeyT"),
     },
     {
         id: "session.command",
-        label: "Focus command session",
-        detail: "Jump to the command terminal",
+        label: "Focus Terminals",
+        detail: "Jump to the terminal under Terminals",
         category: "Panes",
         defaultBinding: on("Meta+Ctrl+KeyT", "Ctrl+Alt+Shift+KeyT"),
     },
@@ -351,6 +358,13 @@ const coreKeybindingActions = [
         detail: "Jump to the search window",
         category: "Navigation",
         defaultBinding: on("Meta+Alt+Digit5", "Ctrl+Alt+Digit5"),
+    },
+    {
+        id: "window.board",
+        label: "Focus board",
+        detail: "Jump to the project's board of cards",
+        category: "Navigation",
+        defaultBinding: on("Meta+Alt+Digit6", "Ctrl+Alt+Digit6"),
     },
     {
         id: "browser.tabNew",

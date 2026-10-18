@@ -117,6 +117,6 @@ export function demoActivity(): ActivitySummary {
       model("claude-sonnet-5-5", "claude", 0.08, 0),
       model("claude-haiku-4-5", "claude", 0.02, 0),
     ],
-    pricing: { status: "fresh", fetchedAtMs: Date.now() },
+    pricing: { fetchedAtMs: Date.now() },
   };
 }

@@ -158,6 +158,129 @@
       }
     },
     {
+      "method": "post",
+      "path": "/v1/host-sign-ins",
+      "operationId": "startHostSignIn",
+      "summary": "Start signing in a host that has no browser, such as a server reached over SSH",
+      "auth": "none",
+      "request": "HostSignInStart",
+      "responses": {
+        "201": {
+          "description": "The codes, good for ten minutes. The host shows the user code and asks every interval seconds whether it was approved.",
+          "body": "HostSignIn"
+        },
+        "429": {
+          "description": "Too many sign-ins from this address.",
+          "body": "ApiError"
+        }
+      }
+    },
+    {
+      "method": "post",
+      "path": "/v1/host-sign-ins/poll",
+      "operationId": "pollHostSignIn",
+      "summary": "Whether the person approved this host yet",
+      "auth": "none",
+      "request": "HostSignInPoll",
+      "responses": {
+        "200": {
+          "description": "Pending, or approved with the account and a challenge to sign.",
+          "body": "HostSignInState"
+        },
+        "404": {
+          "description": "The code is unknown, was refused, or has expired.",
+          "body": "ApiError"
+        },
+        "429": {
+          "description": "Asked more often than the interval allows.",
+          "body": "ApiError"
+        }
+      }
+    },
+    {
+      "method": "post",
+      "path": "/v1/host-sign-ins/finish",
+      "operationId": "finishHostSignIn",
+      "summary": "Register the approved host on the account, proving it holds its key",
+      "auth": "none",
+      "request": "HostSignInFinish",
+      "responses": {
+        "201": {
+          "description": "The host is on the account. The code is used up.",
+          "body": "Device"
+        },
+        "200": {
+          "description": "The host was already on the account and is updated. The code is used up.",
+          "body": "Device"
+        },
+        "400": {
+          "description": "The challenge is unknown, used or expired.",
+          "body": "ApiError"
+        },
+        "403": {
+          "description": "The signature does not prove the host holds its key.",
+          "body": "ApiError"
+        },
+        "404": {
+          "description": "The code is unknown, was refused, or has expired.",
+          "body": "ApiError"
+        },
+        "409": {
+          "description": "The key is registered to another account, or as a phone.",
+          "body": "ApiError"
+        }
+      }
+    },
+    {
+      "method": "get",
+      "path": "/v1/host-sign-ins/{userCode}",
+      "operationId": "getPendingHost",
+      "summary": "The host waiting behind a user code, to check before approving it",
+      "auth": "signedIn",
+      "responses": {
+        "200": {
+          "description": "The waiting host.",
+          "body": "PendingHost"
+        },
+        "404": {
+          "description": "The code is unknown, was refused, or has expired.",
+          "body": "ApiError"
+        }
+      }
+    },
+    {
+      "method": "post",
+      "path": "/v1/host-sign-ins/{userCode}/approve",
+      "operationId": "approveHostSignIn",
+      "summary": "Add the waiting host to your account",
+      "auth": "signedIn",
+      "responses": {
+        "204": {
+          "description": "Approved. The host finishes on its next ask."
+        },
+        "404": {
+          "description": "The code is unknown, was refused, or has expired.",
+          "body": "ApiError"
+        }
+      }
+    },
+    {
+      "method": "delete",
+      "path": "/v1/host-sign-ins/{userCode}",
+      "operationId": "refuseHostSignIn",
+      "summary": "Refuse the waiting host",
+      "auth": "signedIn",
+      "responses": {
+        "204": {
+          "description": "Refused. The host hears the code is gone."
+        },
+        "404": {
+          "description": "The code is unknown, was refused, or has expired.",
+          "body": "ApiError"
+        }
+      }
+    },
+    {
       "method": "get",
       "path": "/v1/live",
       "operationId": "openLive",

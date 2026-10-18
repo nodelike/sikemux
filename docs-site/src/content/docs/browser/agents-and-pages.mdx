@@ -1,0 +1,20 @@
+---
+title: How agents use pages
+description: "What an agent can do with a tab, and pages that need a password."
+---
+
+An agent drives its desk tabs through Sikemux's `browser_*` tools. It can:
+
+- read a page as numbered elements and text;
+- click, type, press keys, scroll and drag;
+- wait for a page to reach a state, such as text appearing or the network going quiet;
+- take screenshots, draw on them and record the tab;
+- read the network calls and console messages of the page.
+
+You see each of these happen on the desk.
+
+## Pages that need a password
+
+An agent never asks you to paste a password into its chat. When it needs one, it asks a **secret question**. You answer in a masked field, your answer goes straight to the agent as a file only your account can read, and the transcript shows only that it was answered.
+
+Fields inside a frame from another site, such as a card field or a sign-in widget, can't be read by the agent. It can still click into them and type at the caret.

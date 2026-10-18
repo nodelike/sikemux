@@ -62,6 +62,7 @@ export function readNetwork(
     ],
     minimumVersions: {
       macos: versions("macos"),
+      linux: versions("linux"),
       ios: versions("ios"),
       android: versions("android"),
     },

@@ -11,9 +11,8 @@ use serde_json::json;
 use sikemux_core::client::{probe, ClientError, ClientEvent, CoreClient};
 use sikemux_core::protocol::{
     Attention, AttentionKind, BackdropImage, BuildIdentity, ChatAttachment, ChatEventKind,
-    ChatLaunch, ChatLauncher, ChatState, DeviceAccess, DeviceView, Event, LaunchIdentity,
-    ProjectInfo, PublishedChat, PublishedRecent, RemoteStatus, SessionId, SpawnTarget,
-    TerminalSpawn, MAX_ATTACHMENT_BYTES,
+    ChatLaunch, ChatState, DeviceAccess, DeviceView, Event, LaunchIdentity, PublishedChat,
+    PublishedRecent, RemoteStatus, SessionId, SpawnTarget, TerminalSpawn, MAX_ATTACHMENT_BYTES,
 };
 use sikemux_core::remote::{self, SecretKey};
 use sikemux_core::server::{self, ServerConfig, ServerError};
@@ -380,30 +379,23 @@ async fn revoking_or_narrowing_a_device_takes_effect_on_its_open_connection() {
 const FAKE_AGENT: &str = env!("CARGO_BIN_EXE_sikemux-fake-acp-agent");
 
 async fn publish_fake_agent(app: &CoreClient) {
-    publish_fake_agent_asking(app, "bypass").await;
-}
-
-async fn publish_fake_agent_asking(app: &CoreClient, permission_mode: &str) {
-    let launcher = ChatLauncher {
-        id: "opencode".into(),
-        provider: "opencode".into(),
-        label: "OpenCode".into(),
-        program: FAKE_AGENT.into(),
-        args: vec!["acp".into()],
-        env: [("SECRET_TOKEN".to_owned(), "do-not-share".to_owned())].into(),
-        permission_mode: permission_mode.into(),
-        account: None,
-        fallbacks: Vec::new(),
-        status: None,
-    };
-    let project = ProjectInfo {
-        id: "sess-tmp".into(),
-        name: "tmp".into(),
-        path: std::env::temp_dir(),
-    };
-    app.publish_workspace(vec![project], vec![launcher])
+    let accounts = json!({
+        "profiles": [{
+            "id": "fake",
+            "name": "Fake",
+            "provider": "opencode",
+            "accent": "#a277ff",
+            "executablePath": FAKE_AGENT,
+        }],
+    });
+    app.call("setAgentAccounts", accounts)
         .await
-        .expect("publish");
+        .expect("the accounts");
+    let workspace = json!({
+        "projects": [{ "id": "sess-tmp", "name": "tmp", "path": std::env::temp_dir() }],
+        "permissionMode": "bypass",
+    });
+    app.call("setWorkspace", workspace).await.expect("publish");
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -419,7 +411,7 @@ async fn a_prompt_reaches_everyone_watching_but_its_sender_and_stays_in_the_repl
         .await
         .expect("the phone connects");
     let (agent_id, _) = client
-        .start_chat("opencode".into(), "sess-tmp".into(), None)
+        .start_chat("opencode:fake".into(), "sess-tmp".into(), None)
         .await
         .expect("the phone starts a chat");
     app.acp_attach(agent_id.clone())
@@ -571,6 +563,9 @@ async fn a_device_lists_the_app_s_chats_and_wakes_a_sleeping_one() {
     let phone = Device::new("Phone", DeviceAccess::Full);
     let core = start_core(&core_key, &[&phone]);
     let (app, mut app_events) = CoreClient::connect(&core.socket).await.expect("app");
+    app.register_window()
+        .await
+        .expect("the app opens its window");
     publish_fake_agent(&app).await;
     let status = listening(&app).await;
     let endpoint = phone.endpoint().await;
@@ -578,7 +573,7 @@ async fn a_device_lists_the_app_s_chats_and_wakes_a_sleeping_one() {
         .await
         .expect("the phone connects");
     let (agent_id, _) = client
-        .start_chat("opencode".into(), "sess-tmp".into(), None)
+        .start_chat("opencode:fake".into(), "sess-tmp".into(), None)
         .await
         .expect("the phone starts a chat");
 
@@ -750,11 +745,18 @@ async fn a_device_starts_a_chat_agent_the_app_published_and_talks_to_it() {
         .expect("the phone connects");
     let workspace = client.workspace().await.expect("workspace");
     assert_eq!(workspace.projects[0].name, "tmp");
-    assert_eq!(workspace.launchers[0].label, "OpenCode");
-    assert!(!format!("{workspace:?}").contains("do-not-share"));
+    let fake = workspace
+        .launchers
+        .iter()
+        .find(|launcher| launcher.id == "opencode:fake");
+    assert_eq!(
+        fake.map(|launcher| launcher.label.as_str()),
+        Some("OpenCode")
+    );
+    assert!(!format!("{workspace:?}").contains(FAKE_AGENT));
 
     let (agent_id, start) = client
-        .start_chat("opencode".into(), "sess-tmp".into(), None)
+        .start_chat("opencode:fake".into(), "sess-tmp".into(), None)
         .await
         .expect("the phone starts a chat");
     assert!(!start.session_id.is_empty());
@@ -768,8 +770,8 @@ async fn a_device_starts_a_chat_agent_the_app_published_and_talks_to_it() {
         }
     };
     assert_eq!(begun.agent_id, agent_id);
-    assert_eq!(begun.launcher.as_deref(), Some("opencode"));
-    assert_eq!(begun.permission_mode, "bypass");
+    assert_eq!(begun.launcher.as_deref(), Some("opencode:fake"));
+    assert_eq!(begun.permission_mode, "workspace-write");
     assert_eq!(begun.started_by, Some(phone.id()));
     client
         .acp_prompt(
@@ -810,13 +812,18 @@ async fn a_watching_device_cannot_start_a_chat() {
         1
     );
     let refused = client
-        .start_chat("opencode".into(), "sess-tmp".into(), None)
+        .start_chat("opencode:fake".into(), "sess-tmp".into(), None)
         .await;
     assert!(refusal(refused).contains("watch"));
-    assert!(
-        refusal(client.publish_workspace(Vec::new(), Vec::new()).await)
-            .contains("only Sikemux on this host")
-    );
+    assert!(refusal(
+        client
+            .call(
+                "setWorkspace",
+                json!({ "projects": [], "permissionMode": "bypass" })
+            )
+            .await
+    )
+    .contains("only Sikemux on this host"));
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -833,7 +840,7 @@ async fn a_device_sends_a_file_for_a_chat_and_the_agent_is_given_its_path() {
         .await
         .expect("the phone connects");
     let (agent_id, _) = client
-        .start_chat("opencode".into(), "sess-tmp".into(), None)
+        .start_chat("opencode:fake".into(), "sess-tmp".into(), None)
         .await
         .expect("the phone starts a chat");
     app.acp_attach(agent_id.clone())
@@ -937,7 +944,7 @@ async fn a_device_sends_a_file_for_a_chat_and_the_agent_is_given_its_path() {
 
 fn recent_chat(session_id: &str) -> PublishedRecent {
     PublishedRecent {
-        launcher: "opencode".into(),
+        launcher: "opencode:fake".into(),
         provider: "opencode".into(),
         session_id: session_id.into(),
         title: "Fix the login flake".into(),
@@ -1010,7 +1017,7 @@ async fn a_watching_device_sees_a_permission_request_it_never_attached_to_and_an
     let watch = Device::new("Watch", DeviceAccess::Watch);
     let core = start_core(&core_key, &[&phone, &watch]);
     let (app, _app_events) = CoreClient::connect(&core.socket).await.expect("app");
-    publish_fake_agent_asking(&app, "workspace-write").await;
+    publish_fake_agent(&app).await;
     let status = listening(&app).await;
 
     let watch_endpoint = watch.endpoint().await;
@@ -1022,7 +1029,7 @@ async fn a_watching_device_sees_a_permission_request_it_never_attached_to_and_an
         .await
         .expect("the phone connects");
     let (agent_id, _) = driver
-        .start_chat("opencode".into(), "sess-tmp".into(), None)
+        .start_chat("opencode:fake".into(), "sess-tmp".into(), None)
         .await
         .expect("start");
     driver
@@ -1079,14 +1086,19 @@ async fn a_device_is_sent_its_view_on_connecting_and_again_when_it_changes() {
     assert!(first.workspace.projects.is_empty());
     publish_fake_agent(&app).await;
     let changed = until_view(&mut events, |view| !view.workspace.projects.is_empty()).await;
-    assert_eq!(changed.workspace.launchers[0].id, "opencode");
+    assert!(changed
+        .workspace
+        .launchers
+        .iter()
+        .any(|launcher| launcher.id == "opencode:fake"));
 
     tokio::time::sleep(Duration::from_secs(1)).await;
+    let mut last = changed;
     while let Ok(event) = events.try_recv() {
-        assert!(
-            !matches!(event, ClientEvent::Event(Event::DeviceView { .. })),
-            "nothing changed, so nothing was sent"
-        );
+        if let ClientEvent::Event(Event::DeviceView { view }) = event {
+            assert_ne!(view, last, "nothing changed, so nothing was sent");
+            last = view;
+        }
     }
     while let Ok(event) = app_events.try_recv() {
         assert!(!matches!(
@@ -1130,7 +1142,7 @@ async fn a_device_that_reconnects_hears_only_what_it_missed_and_detaching_stops_
         .await
         .expect("the phone connects");
     let (agent_id, _) = first
-        .start_chat("opencode".into(), "sess-tmp".into(), None)
+        .start_chat("opencode:fake".into(), "sess-tmp".into(), None)
         .await
         .expect("start");
     let ChatAttachment::Live { mark, .. } =

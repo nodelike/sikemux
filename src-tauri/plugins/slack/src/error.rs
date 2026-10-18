@@ -21,6 +21,8 @@ pub enum SlackError {
     NotFound(String),
     Keychain(String),
     Transport(String),
+    /// The service could not be reached at all, such as when the Mac is offline.
+    Unreachable(sikemux_plugin_api::Unreachable),
     Response(String),
 }
 
@@ -43,6 +45,9 @@ impl fmt::Display for SlackError {
             Self::NotFound(message) => formatter.write_str(message),
             Self::Keychain(message) => write!(formatter, "keychain: {message}"),
             Self::Transport(message) => write!(formatter, "slack: {message}"),
+            Self::Unreachable(kind) => formatter.write_str(
+                &sikemux_plugin_api::network::unreachable_message(*kind, "Slack"),
+            ),
             Self::Response(message) => write!(formatter, "slack: unexpected response: {message}"),
         }
     }
@@ -68,6 +73,10 @@ pub fn in_words(code: &str) -> String {
 /// be sent, such as a DNS or certificate failure, is further down the chain.
 impl From<reqwest::Error> for SlackError {
     fn from(error: reqwest::Error) -> Self {
+        if let Some(kind) = sikemux_plugin_api::unreachable(&error) {
+            eprintln!("slack: {error}");
+            return Self::Unreachable(kind);
+        }
         let mut message = error.to_string();
         let mut cause = std::error::Error::source(&error);
         while let Some(next) = cause {
@@ -98,6 +107,7 @@ impl From<SlackError> for PluginError {
             SlackError::RateLimited { .. } => {
                 PluginError::new("rate-limited", message).with_status(429)
             }
+            SlackError::Unreachable(kind) => PluginError::unreachable(kind, "Slack"),
             SlackError::Api(_) | SlackError::Transport(_) => PluginError::new("slack", message),
             SlackError::Http { status, .. } => PluginError::http(status, message),
             SlackError::BadArg(_) => PluginError::new("bad-params", message),

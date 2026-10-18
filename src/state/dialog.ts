@@ -21,6 +21,14 @@ export interface ConfirmRequest {
     commands?: { label: string; command: string }[];
 }
 
+/** A confirm with a second way to go ahead besides the confirm button. */
+export interface ChoiceRequest extends ConfirmRequest {
+    otherLabel: string;
+}
+
+/** Which way the person went ahead from a choice, or null when they cancelled. */
+export type Choice = "confirm" | "other" | null;
+
 export interface PromptRequest {
     title: string;
     body?: string;
@@ -33,8 +41,9 @@ export interface PromptRequest {
 }
 
 type PendingConfirm = ConfirmRequest & { id: number; kind: "confirm"; resolve: (value: boolean) => void };
+type PendingChoice = ChoiceRequest & { id: number; kind: "choice"; resolve: (value: Choice) => void };
 type PendingPrompt = PromptRequest & { id: number; kind: "prompt"; resolve: (value: string | null) => void };
-export type PendingDialog = PendingConfirm | PendingPrompt;
+export type PendingDialog = PendingConfirm | PendingChoice | PendingPrompt;
 
 interface DialogStore {
     /** Head of the queue — the dialog currently on screen. */
@@ -62,6 +71,10 @@ export function confirmDialog(request: ConfirmRequest): Promise<boolean> {
     return new Promise((resolve) => enqueue({ ...request, id: counter++, kind: "confirm", resolve }));
 }
 
+export function choiceDialog(request: ChoiceRequest): Promise<Choice> {
+    return new Promise((resolve) => enqueue({ ...request, id: counter++, kind: "choice", resolve }));
+}
+
 export function promptDialog(request: PromptRequest): Promise<string | null> {
     return new Promise((resolve) => enqueue({ ...request, id: counter++, kind: "prompt", resolve }));
 }
@@ -70,7 +83,15 @@ export function promptDialog(request: PromptRequest): Promise<string | null> {
 export function acceptDialog(id: number, value?: string): void {
     settle(id, (dialog) => {
         if (dialog.kind === "confirm") dialog.resolve(true);
+        else if (dialog.kind === "choice") dialog.resolve("confirm");
         else dialog.resolve(value ?? "");
+    });
+}
+
+/** Goes ahead with the open choice's other way. */
+export function chooseOther(id: number): void {
+    settle(id, (dialog) => {
+        if (dialog.kind === "choice") dialog.resolve("other");
     });
 }
 

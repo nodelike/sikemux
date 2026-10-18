@@ -148,7 +148,7 @@ actor Dictation {
         let samples =
             sampleRate == 16_000 ? captured : try AudioConverter().resample(captured, from: sampleRate)
         var decoderState = try TdtDecoderState()
-        let result = try await asr.transcribe(samples, decoderState: &decoderState)
+        let result = try await asr.transcribe(samples, decoderState: &decoderState, language: .english)
         return result.text.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }

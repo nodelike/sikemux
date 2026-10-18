@@ -1,9 +1,10 @@
 import { memo, useEffect, useState, type ReactNode } from 'react';
-import { Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Image, Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
-import { collapseDiff } from '@mac/chat/diff';
 import { durationLabel } from '@mac/chat/durationLabel';
-import { toolDetail, toolKind, toolRunning, toolTarget } from '@mac/chat/toolLabels';
+import { toolDetail, toolKind, toolPath, toolRunning, toolTarget, toolUrl } from '@mac/chat/toolLabels';
+import { sikemuxToolRow } from '@mac/chat/toolRows';
+import { attachmentName } from '@mac/chat/transcript';
 import {
   callCount,
   callsLabel,
@@ -20,12 +21,13 @@ import { Icon } from '@/ui/Icon';
 import type { IconName } from '@/ui/icons.generated';
 import { fonts, type Palette, useColors, useStyles } from '@/ui/theme';
 import { Shimmer } from '@/ui/Shimmer';
+import { DiffBody } from './Diff';
+import { FileRef } from './FileRef';
 import { useFold } from './folds';
+import { ImageViewerHost, useShowImage } from './ImageViewer';
 
 export type ToolPart = Extract<ChatPart, { kind: 'tool' }>;
 
-/** Lines of a change shown under its row; the host's diff view has the rest. */
-const DIFF_ROWS = 120;
 /** Lines of output shown before "Show all", as on the Mac. */
 const OUTPUT_FOLD_LINES = 12;
 /** JetBrains Mono's advance at the rows' 11.5px, for lining the verbs up in one column. */
@@ -92,9 +94,13 @@ const TOOL_ICONS: Record<ToolIconName, IconName> = {
   wrench: 'IconWrench',
 };
 
+/** The marks of the plugins whose tools the phone's icon set already draws; the rest keep the call's own icon. */
+const PLUGIN_MARKS: Readonly<Record<string, IconName>> = { 'sikemux.aws': 'IconAws', 'sikemux.rundeck': 'IconRundeck' };
+
 /** The icon and colour of a call, as the Mac's tool rows draw them. */
 function look(tool: AcpToolCall, colors: Palette): { icon: IconName; color: string } {
-  const icon = TOOL_ICONS[toolIconName(tool)];
+  const plugin = tool.status === 'failed' ? undefined : sikemuxToolRow(tool)?.plugin;
+  const icon = (plugin && PLUGIN_MARKS[plugin]) || TOOL_ICONS[toolIconName(tool)];
   if (tool.status === 'failed') return { icon, color: colors.danger };
   const kind = toolRowKind(tool);
   const color =
@@ -123,12 +129,16 @@ export function LiveSeconds({ since, spent = 0, style }: { since?: number; spent
   return <Text style={style}>{secondsSince(started, now, spent)}</Text>;
 }
 
+/* While a view around a scroller holds the touch, iOS won't let the scroller pan, so the
+   scroller's own content takes it before the message's press handler can. */
+const keepTouch = () => true;
+
 /** Scrolls sideways inside the transcript, so long lines keep to the width of the screen. */
 function Sideways({ children }: { children: ReactNode }) {
   const styles = useStyles(makeStyles);
   return (
     <ScrollView horizontal contentContainerStyle={styles.pad} showsHorizontalScrollIndicator={false}>
-      {children}
+      <View onStartShouldSetResponder={keepTouch}>{children}</View>
     </ScrollView>
   );
 }
@@ -137,7 +147,11 @@ function Sideways({ children }: { children: ReactNode }) {
 function Terminal({ part, command, group }: { part: ToolPart; command: string | null; group: string }) {
   const colors = useColors();
   const styles = useStyles(makeStyles);
+  const show = useShowImage();
   const output = part.output;
+  const picture = output?.image
+    ? { uri: `data:${output.image.mimeType};base64,${output.image.data}`, name: attachmentName(output.image.mimeType) }
+    : null;
   const [whole, setWhole] = useFold(`${group}/${part.id}/whole`, false);
   const lines = output?.text ? output.text.split('\n') : [];
   const folds = lines.length > OUTPUT_FOLD_LINES;
@@ -154,13 +168,10 @@ function Terminal({ part, command, group }: { part: ToolPart; command: string | 
           <CopyButton value={command} label="command" size={12} />
         </View>
       ) : null}
-      {output?.image ? (
-        <Image
-          source={{ uri: `data:${output.image.mimeType};base64,${output.image.data}` }}
-          style={styles.image}
-          resizeMode="contain"
-          accessibilityIgnoresInvertColors
-        />
+      {picture ? (
+        <Pressable onPress={() => show(picture)} accessibilityRole="imagebutton" accessibilityLabel="Picture the call returned, open">
+          <Image source={{ uri: picture.uri }} style={styles.image} resizeMode="contain" accessibilityIgnoresInvertColors />
+        </Pressable>
       ) : null}
       {output?.text ? (
         <View style={[styles.output, command !== null && styles.ruled]}>
@@ -193,51 +204,12 @@ function Terminal({ part, command, group }: { part: ToolPart; command: string | 
   );
 }
 
-function Diff({ part }: { part: ToolPart }) {
-  const colors = useColors();
-  const styles = useStyles(makeStyles);
-  const diff = part.diff ? collapseDiff(part.diff.lines, 2) : null;
-  if (!diff) return null;
-  const shown = diff.rows.slice(0, DIFF_ROWS);
-  const more = diff.rows.length - shown.length;
-  return (
-    <ScrollView style={[styles.box, styles.whole]} nestedScrollEnabled>
-      <Sideways>
-        <View>
-          {shown.map((row, index) =>
-            'gap' in row ? (
-              <Text key={index} style={[styles.mono, styles.outputText, { color: colors.inkFaint }]}>
-                ⋯ {row.gap} unchanged line{row.gap === 1 ? '' : 's'}
-              </Text>
-            ) : (
-              <Text
-                key={index}
-                style={[
-                  styles.mono,
-                  styles.outputText,
-                  row.sign === '+' && { color: colors.gitAdded },
-                  row.sign === '-' && { color: colors.gitDeleted },
-                ]}
-                selectable>
-                {row.sign} {row.text}
-              </Text>
-            ),
-          )}
-          {more > 0 ? (
-            <Text style={[styles.mono, styles.outputText, { color: colors.inkFaint }]}>{more} more lines on the host</Text>
-          ) : null}
-        </View>
-      </Sideways>
-    </ScrollView>
-  );
-}
-
 function ToolDetail({ part, command, group }: { part: ToolPart; command: string | null; group: string }) {
   const styles = useStyles(makeStyles);
   return (
     <View style={styles.detail}>
       {part.diff ? (
-        <Diff part={part} />
+        <DiffBody diff={part.diff} fold={`${group}/${part.id}/diff`} />
       ) : command !== null || part.output ? (
         <Terminal part={part} command={command} group={group} />
       ) : (
@@ -246,6 +218,24 @@ function ToolDetail({ part, command, group }: { part: ToolPart; command: string 
         </Text>
       )}
     </View>
+  );
+}
+
+/** What a call acted on: a file as the Mac's file ref, a web address as a link, anything else as written. */
+function Target({ tool, target }: { tool: AcpToolCall; target: string }) {
+  const styles = useStyles(makeStyles);
+  const file = toolPath(tool);
+  if (file) return <FileRef raw={file} label={target} look="plain" />;
+  const link = toolUrl(target);
+  if (!link) return target;
+  return (
+    <>
+      {link.before}
+      <Text style={styles.link} onPress={() => Linking.openURL(link.url).catch(() => {})} accessibilityRole="link">
+        {link.raw}
+      </Text>
+      {link.after}
+    </>
   );
 }
 
@@ -271,7 +261,8 @@ const ToolRow = memo(function ToolRow({
   const target = toolTarget(tool);
   const detail = toolDetail(tool);
   const command = tool.kind === 'execute' ? tool.title.trim() : null;
-  const opens = Boolean(part.diff || part.output || part.failure) || (command !== null && !running && command !== target);
+  // The row holds one line of a command, so the whole of it is worth opening while it runs or when the row shortened it.
+  const opens = Boolean(part.diff || part.output || part.failure) || (command !== null && (running || command !== target));
   const [open, setOpen] = useFold(`${group}/${part.id}`, false);
   const elapsed = toolElapsed(part, !untimed);
   return (
@@ -296,7 +287,7 @@ const ToolRow = memo(function ToolRow({
           </Shimmer>
         ) : (
           <Text style={[styles.mono, styles.target]} numberOfLines={1}>
-            {target}
+            <Target tool={tool} target={target} />
             {detail ? <Text style={{ color: colors.inkDim }}> {detail}</Text> : null}
           </Text>
         )}
@@ -311,6 +302,11 @@ const ToolRow = memo(function ToolRow({
             <LiveSeconds since={part.startedAt} style={styles.endText} />
           ) : elapsed ? (
             <Text style={styles.endText}>{elapsed}</Text>
+          ) : null}
+          {opens ? (
+            <View style={[styles.rowChevron, open && styles.rowChevronOpen]}>
+              <Icon name="IconChevron" size={10} color={colors.inkDim} />
+            </View>
           ) : null}
         </View>
       </Pressable>
@@ -343,41 +339,43 @@ export const ToolGroup = memo(
     const calls = callsLabel(parts.length);
     const kindWidth = summary.kindWidth * KIND_CHAR + 1;
     return (
-      <View style={styles.group}>
-        <Pressable
-          onPress={() => setOpen(!open)}
-          style={styles.summary}
-          hitSlop={6}
-          accessibilityRole="button"
-          accessibilityLabel={`${said ?? calls}${current ? ', running' : ''}`}
-          accessibilityState={{ expanded: open }}>
-          {current ? (
-            <Shimmer style={[styles.summaryText, said !== null && { color: colors.secondary }]} layout={styles.summaryLabel}>
-              {said ?? calls}
-            </Shimmer>
-          ) : (
-            <Text style={styles.summaryText} numberOfLines={1}>
-              {calls}
-            </Text>
-          )}
-          {said !== null && parts.length > 1 ? <Text style={styles.summaryTime}>{callCount(parts.length)}</Text> : null}
-          {current ? (
-            <LiveSeconds key={current.id} since={current.startedAt} spent={spent} style={styles.summaryTime} />
-          ) : !untimed && spent > 0 ? (
-            <Text style={styles.summaryTime}>{durationLabel(spent)}</Text>
+      <ImageViewerHost>
+        <View style={styles.group}>
+          <Pressable
+            onPress={() => setOpen(!open)}
+            style={styles.summary}
+            hitSlop={6}
+            accessibilityRole="button"
+            accessibilityLabel={`${said ?? calls}${current ? ', running' : ''}`}
+            accessibilityState={{ expanded: open }}>
+            {current ? (
+              <Shimmer style={[styles.summaryText, said !== null && { color: colors.secondary }]} layout={styles.summaryLabel}>
+                {said ?? calls}
+              </Shimmer>
+            ) : (
+              <Text style={styles.summaryText} numberOfLines={1}>
+                {calls}
+              </Text>
+            )}
+            {said !== null && parts.length > 1 ? <Text style={styles.summaryTime}>{callCount(parts.length)}</Text> : null}
+            {current ? (
+              <LiveSeconds key={current.id} since={current.startedAt} spent={spent} style={styles.summaryTime} />
+            ) : !untimed && spent > 0 ? (
+              <Text style={styles.summaryTime}>{durationLabel(spent)}</Text>
+            ) : null}
+            <View style={[styles.chevron, open && { transform: [{ rotate: '90deg' }] }]}>
+              <Icon name="IconChevron" size={11} color={colors.inkDim} />
+            </View>
+          </Pressable>
+          {open ? (
+            <View style={styles.body}>
+              {parts.map((part, index) => (
+                <ToolRow key={part.id} part={part} last={index === parts.length - 1} untimed={untimed} group={id} kindWidth={kindWidth} />
+              ))}
+            </View>
           ) : null}
-          <View style={[styles.chevron, open && { transform: [{ rotate: '90deg' }] }]}>
-            <Icon name="IconChevron" size={11} color={colors.inkDim} />
-          </View>
-        </Pressable>
-        {open ? (
-          <View style={styles.body}>
-            {parts.map((part, index) => (
-              <ToolRow key={part.id} part={part} last={index === parts.length - 1} untimed={untimed} group={id} kindWidth={kindWidth} />
-            ))}
-          </View>
-        ) : null}
-      </View>
+        </View>
+      </ImageViewerHost>
     );
   },
   (before, after) =>
@@ -414,7 +412,10 @@ const makeStyles = (colors: Palette) => {
     mono: { fontFamily: fonts.mono, fontSize: 11.5 },
     target: { flex: 1, color: colors.ink },
     targetLayout: { flex: 1 },
-    end: { flexDirection: 'row', gap: 6 },
+    end: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+    link: { color: colors.accent },
+    rowChevron: { opacity: 0.55 },
+    rowChevronOpen: { opacity: 1, transform: [{ rotate: '90deg' }] },
     endText: { fontFamily: fonts.mono, fontSize: 10.5, color: colors.inkDim },
     detailRow: { flexDirection: 'row' },
     detail: { flex: 1, marginLeft: 18, marginTop: 2, marginBottom: 6 },

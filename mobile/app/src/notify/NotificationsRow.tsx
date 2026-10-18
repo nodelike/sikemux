@@ -41,9 +41,7 @@ export function NotificationsRow() {
               {Platform.OS === 'ios' ? 'Allow them in Settings' : 'Allow them in Android settings'}
             </Text>
           </Pressable>
-        ) : (
-          <Text style={type.meta}>When agents need you or finish</Text>
-        )}
+        ) : null}
       </View>
       <Switch
         value={on}

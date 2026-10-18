@@ -76,8 +76,15 @@
 }
 .experience-frame footer button.primary {
     border-color: var(--acc);
-    color: var(--text-primary);
-    background: var(--surface-selected);
+    background: var(--acc);
+    color: var(--on-accent);
+}
+
+.experience-frame footer button.primary:hover:not(:disabled) {
+    border-color: var(--acc);
+    background: var(--acc);
+    color: var(--on-accent);
+    filter: brightness(1.08);
 }
 
 /* Too old for the accounts server: nothing behind it answers until Sikemux updates or quits. */
@@ -130,8 +137,15 @@
 }
 .update-required-actions button.primary {
     border-color: var(--acc);
-    color: var(--text-primary);
-    background: var(--surface-selected);
+    background: var(--acc);
+    color: var(--on-accent);
+}
+
+.update-required-actions button.primary:hover:not(:disabled) {
+    border-color: var(--acc);
+    background: var(--acc);
+    color: var(--on-accent);
+    filter: brightness(1.08);
 }
 
 /* First run: the whole window, since nothing is open yet to be covered. */
@@ -321,6 +335,20 @@
 .welcome-agents li.is-missing .agent-glyph {
     opacity: 0.4;
     filter: grayscale(1);
+}
+
+.welcome-agent-install {
+    height: 22px;
+    margin-left: 4px;
+    padding: 0 8px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-2);
+    color: var(--text-primary);
+    font-size: var(--text-2xs);
+}
+
+.welcome-agent-install:hover {
+    background: var(--surface-hover);
 }
 
 .welcome-muted {
@@ -580,7 +608,7 @@
     font-size: var(--text-3xs);
 }
 .wn-wall button:hover .wn-avatar {
-    box-shadow: 0 0 0 2px var(--acc);
+    box-shadow: 0 0 0 2px var(--border-strong);
 }
 .wn-wall .wn-rest {
     height: 28px;
@@ -593,7 +621,7 @@
 }
 .wn-wall .wn-rest:hover {
     color: var(--text-primary);
-    background: color-mix(in oklab, var(--acc) 22%, transparent);
+    background: var(--surface-hover);
 }
 .wn-main {
     flex: 1;
@@ -705,7 +733,7 @@
 .wn-notes blockquote {
     margin: 16px 0;
     padding: 2px 0 2px 14px;
-    border-left: 2px solid var(--acc);
+    border-left: 2px solid var(--border-strong);
 }
 .wn-notes hr {
     margin: 22px 0;
@@ -811,6 +839,7 @@
     background: var(--surface-sunken);
     box-shadow: var(--shadow-4);
     overflow: hidden;
+    border-radius: var(--radius-4);
 }
 .command-popup > header {
     display: flex;
@@ -826,4 +855,98 @@
 .command-popup > header button {
     color: var(--text-tertiary);
     font-size: 10px;
+}
+.wn-waiting {
+    display: grid;
+    gap: 10px;
+    padding: 12px 20px 12px 32px;
+    border-top: 1px solid var(--border);
+    color: var(--text-secondary);
+    font-size: var(--text-xs);
+    line-height: 1.5;
+}
+.wn-waiting p {
+    margin: 0;
+}
+.wn-waiting b {
+    color: var(--warn);
+    font-weight: 600;
+}
+.wn-waiting-agents {
+    display: grid;
+    gap: 6px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+.wn-waiting-agents li {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    min-width: 0;
+    padding: 7px 10px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-2);
+    background: var(--surface-raised);
+}
+.wn-waiting-agents span {
+    min-width: 0;
+    overflow: hidden;
+    color: var(--text-primary);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.wn-waiting-agents small {
+    flex: 0 0 auto;
+    color: var(--text-tertiary);
+}
+.wn-waiting-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+}
+.wn-waiting-actions button {
+    padding: 7px 12px;
+    border: 1px solid var(--border);
+    color: var(--text-secondary);
+    background: transparent;
+    font-size: var(--text-xs);
+}
+.wn-waiting-actions .danger {
+    border-color: color-mix(in srgb, var(--danger) 50%, transparent);
+    color: var(--danger);
+}
+.wn-waiting-actions .danger:hover {
+    background: color-mix(in srgb, var(--danger) 12%, transparent);
+}
+.command-popup.agent-install {
+    grid-template-rows: 34px 1fr 44px;
+}
+.agent-install > header {
+    gap: 12px;
+}
+.agent-install-command {
+    overflow: hidden;
+    color: var(--text-tertiary);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.agent-install > footer {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 0 10px 0 14px;
+    border-top: 1px solid var(--border);
+    font-size: var(--text-xs);
+}
+.agent-install-state {
+    flex: 1;
+    color: var(--text-secondary);
+}
+.agent-install > footer button {
+    height: 26px;
+    padding: 0 10px;
+    border: 1px solid var(--border);
+    color: var(--text-primary);
 }

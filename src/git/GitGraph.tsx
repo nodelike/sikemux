@@ -3,15 +3,15 @@ import { subscribeTheme } from "../themes/bus";
 import type { GitCommit } from "../api/git";
 import { EmptyState } from "../ui/Panel";
 import { AuthorAvatar } from "./AuthorAvatar";
+import { CommitAgents, type CommitOwners } from "./CommitAgents";
 
 export { authorColor, initials } from "./AuthorAvatar";
 
-const ROW_H = 30;
+const ROW_H = 32;
 /** Beyond two, refs crowd the subject out of the row entirely. */
-const MAX_ROW_REFS = 2;
 const LANE_W = 14; // horizontal gap between lanes
 const X0 = 14; // x of lane 0's centre
-const NODE_R = 4;
+const NODE_R = 3;
 const GUTTER_PAD = 18; // breathing room between the deepest lane and the text
 
 const gutterWidth = (maxLanes: number) => X0 + Math.max(0, maxLanes - 1) * LANE_W + GUTTER_PAD;
@@ -128,8 +128,9 @@ export function withoutScope(subject: string): string {
     return subject.replace(/^[a-z]+(\([^)]*\))?!?:\s+/i, "") || subject;
 }
 
-function readVar(el: HTMLElement, name: string): string {
-    return getComputedStyle(el).getPropertyValue(name).trim();
+// The theme sets these on the root element itself, so reading them there needs no style resolve.
+function readVar(name: string): string {
+    return document.documentElement.style.getPropertyValue(name).trim();
 }
 const FALLBACK_PALETTE = ["#a277ff", "#61ffca", "#ff6ac1", "#ffca85", "#7cc5ff", "#ff6767"];
 const FALLBACK_WARN = "#ffca85";
@@ -141,8 +142,8 @@ interface GraphColors {
     void: string;
 }
 
-function readPalette(el: HTMLElement): string[] {
-    const themed = ["--acc", "--live", "--cmd", "--warn", "--danger"].map((n) => readVar(el, n)).filter(Boolean);
+function readPalette(): string[] {
+    const themed = ["--acc", "--live", "--cmd", "--warn", "--danger"].map(readVar).filter(Boolean);
     const all = [...themed, "#7cc5ff", "#ffd166", "#9b8cff"];
     return all.length ? all : FALLBACK_PALETTE;
 }
@@ -173,8 +174,8 @@ function drawSelection(canvas: HTMLCanvasElement, rows: RowLayout[], maxLanes: n
     const ctx = sizeCanvas(canvas, rows, maxLanes);
     const row = rows[selectedIndex];
     if (!ctx || !row) return;
-    ctx.lineWidth = 1.5;
-    ctx.strokeStyle = "rgba(255,255,255,.9)";
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = "rgba(255,255,255,.75)";
     ctx.beginPath();
     ctx.arc(laneX(row.lane), selectedIndex * ROW_H + ROW_H / 2, NODE_R + 3, 0, Math.PI * 2);
     ctx.stroke();
@@ -190,7 +191,9 @@ function draw(canvas: HTMLCanvasElement, rows: RowLayout[], maxLanes: number, co
     const edgeColor = (e: { color: number; unpushed: boolean }) => (e.unpushed ? unpushedColor : col(e.color));
     const cp = ROW_H * 0.42;
 
-    ctx.lineWidth = 1.8;
+    // The lines sit back like the project tree's spine, so the commits' text leads the eye.
+    ctx.lineWidth = 1.5;
+    ctx.globalAlpha = 0.7;
     rows.forEach((r, i) => {
         const yTop = i * ROW_H;
         const yMid = yTop + ROW_H / 2;
@@ -224,6 +227,7 @@ function draw(canvas: HTMLCanvasElement, rows: RowLayout[], maxLanes: number, co
         }
     });
 
+    ctx.globalAlpha = 1;
     rows.forEach((r, i) => {
         const yMid = i * ROW_H + ROW_H / 2;
         const nodeX = laneX(r.lane);
@@ -231,18 +235,18 @@ function draw(canvas: HTMLCanvasElement, rows: RowLayout[], maxLanes: number, co
 
         ctx.fillStyle = voidColor;
         ctx.beginPath();
-        ctx.arc(nodeX, yMid, NODE_R + 1.6, 0, Math.PI * 2);
+        ctx.arc(nodeX, yMid, NODE_R + 1.5, 0, Math.PI * 2);
         ctx.fill();
 
         if (r.isHead) {
-            ctx.lineWidth = 2.2;
+            ctx.lineWidth = 1.5;
             ctx.strokeStyle = c;
             ctx.beginPath();
             ctx.arc(nodeX, yMid, NODE_R + 1, 0, Math.PI * 2);
             ctx.stroke();
             ctx.fillStyle = c;
             ctx.beginPath();
-            ctx.arc(nodeX, yMid, 2.3, 0, Math.PI * 2);
+            ctx.arc(nodeX, yMid, 1.6, 0, Math.PI * 2);
             ctx.fill();
         } else {
             ctx.fillStyle = c;
@@ -277,6 +281,8 @@ export const GitGraph = memo(function GitGraph({
     range,
     onSelect,
     onActivate,
+    repo = "",
+    owners,
 }: {
     commits: GitCommit[];
     selectedIndex: number;
@@ -284,6 +290,9 @@ export const GitGraph = memo(function GitGraph({
     range: [number, number] | null;
     onSelect: (i: number) => void;
     onActivate: () => void;
+    repo?: string;
+    /** The agents each commit's signed footer names, by full hash. */
+    owners?: CommitOwners;
 }) {
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const selectionCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -292,19 +301,15 @@ export const GitGraph = memo(function GitGraph({
     const { rows, maxLanes } = useMemo(() => computeGraph(commits), [commits]);
     const gutter = gutterWidth(maxLanes);
     const [themeRevision, setThemeRevision] = useState(0);
-    // Reading a CSS variable forces a style resolve, so the palette is read
-    // once per theme rather than on every redraw. Until it is read nothing is drawn.
     const [colors, setColors] = useState<GraphColors | null>(null);
 
     useEffect(() => subscribeTheme(() => setThemeRevision((n) => n + 1)), []);
 
     useLayoutEffect(() => {
-        const el = wrapRef.current;
-        if (!el) return;
         setColors({
-            palette: readPalette(el),
-            unpushed: readVar(el, "--warn") || FALLBACK_WARN,
-            void: readVar(el, "--void") || FALLBACK_VOID,
+            palette: readPalette(),
+            unpushed: readVar("--warn") || FALLBACK_WARN,
+            void: readVar("--void") || FALLBACK_VOID,
         });
     }, [themeRevision]);
 
@@ -328,62 +333,58 @@ export const GitGraph = memo(function GitGraph({
         <div className="git-graph" style={{ position: "relative" }} ref={wrapRef}>
             <canvas ref={canvasRef} className="git-graph-canvas" aria-hidden />
             <canvas ref={selectionCanvasRef} className="git-graph-canvas" aria-hidden />
-            {commits.map((c, i) => {
-                const sel = focused && selectedIndex === i;
-                const inRange = range !== null && i >= range[0] && i <= range[1];
-                // The lane's ringed node already marks HEAD; the branch it points at is the ref worth reading.
-                const refs = c.refs.filter((r) => r !== "HEAD").map((r) => r.replace(/^HEAD -> /, ""));
-                return (
-                    <div
-                        key={c.full_hash || c.hash}
-                        ref={sel ? selRef : undefined}
-                        role="button"
-                        tabIndex={selectedIndex === i ? 0 : -1}
-                        aria-label={`${c.hash} ${c.subject}`}
-                        onKeyDown={(event) => {
-                            if (event.key === "Enter" || event.key === " ") {
-                                event.preventDefault();
-                                event.stopPropagation();
-                                onSelect(i);
-                                onActivate();
-                            }
-                            if (["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) {
-                                event.preventDefault();
-                                event.stopPropagation();
-                                const next =
-                                    event.key === "Home"
-                                        ? 0
-                                        : event.key === "End"
-                                          ? commits.length - 1
-                                          : Math.max(0, Math.min(commits.length - 1, i + (event.key === "ArrowDown" ? 1 : -1)));
-                                onSelect(next);
-                                wrapRef.current?.querySelectorAll<HTMLElement>(".gg-row")[next]?.focus();
-                            }
-                        }}
-                        className={`gg-row${sel ? " sel" : ""}${inRange ? " ranged" : ""}`}
-                        style={{ height: ROW_H, paddingLeft: gutter }}
-                        onClick={() => onSelect(i)}
-                        onDoubleClick={onActivate}
-                        title={`${c.subject} — ${c.hash} · ${c.author}${c.refs.length ? ` · ${c.refs.join(", ")}` : ""}`}>
-                        <AuthorAvatar name={c.author} email={c.author_email} />
-                        {refs.length > 0 && (
-                            <span className="gg-refs">
-                                {refs.slice(0, MAX_ROW_REFS).map((r) => (
-                                    <RefBadge key={r} label={r} />
-                                ))}
-                                {refs.length > MAX_ROW_REFS && (
-                                    <span className="gg-ref more" title={refs.slice(MAX_ROW_REFS).join(", ")}>
-                                        +{refs.length - MAX_ROW_REFS}
-                                    </span>
-                                )}
-                            </span>
-                        )}
-                        <span className="gg-subj">{withoutScope(c.subject)}</span>
-                        <span className="gg-hash">{c.hash}</span>
-                        <span className="gg-when">{c.date}</span>
-                    </div>
-                );
-            })}
+            <div className="gg-rows">
+                {commits.map((c, i) => {
+                    const sel = focused && selectedIndex === i;
+                    const inRange = range !== null && i >= range[0] && i <= range[1];
+                    // The lane's ringed node already marks HEAD; the branch it points at is the ref worth reading.
+                    const refs = c.refs.filter((r) => r !== "HEAD").map((r) => r.replace(/^HEAD -> /, ""));
+                    return (
+                        <div
+                            key={c.full_hash || c.hash}
+                            ref={sel ? selRef : undefined}
+                            role="button"
+                            tabIndex={selectedIndex === i ? 0 : -1}
+                            aria-label={`${c.hash} ${c.subject}`}
+                            onKeyDown={(event) => {
+                                if (event.key === "Enter" || event.key === " ") {
+                                    event.preventDefault();
+                                    event.stopPropagation();
+                                    onSelect(i);
+                                    onActivate();
+                                }
+                                if (["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) {
+                                    event.preventDefault();
+                                    event.stopPropagation();
+                                    const next =
+                                        event.key === "Home"
+                                            ? 0
+                                            : event.key === "End"
+                                              ? commits.length - 1
+                                              : Math.max(0, Math.min(commits.length - 1, i + (event.key === "ArrowDown" ? 1 : -1)));
+                                    onSelect(next);
+                                    wrapRef.current?.querySelectorAll<HTMLElement>(".gg-row")[next]?.focus();
+                                }
+                            }}
+                            className={`gg-row${sel ? " sel" : ""}${inRange ? " ranged" : ""}`}
+                            style={{ height: ROW_H, paddingLeft: gutter }}
+                            onClick={() => onSelect(i)}
+                            onDoubleClick={onActivate}
+                            title={`${c.subject} — ${c.hash} · ${c.author}${c.refs.length ? ` · ${c.refs.join(", ")}` : ""}`}>
+                            <AuthorAvatar name={c.author} email={c.author_email} />
+                            {refs.length > 0 && (
+                                <span className="gg-refs">
+                                    <RefBadge label={refs[0]} />
+                                </span>
+                            )}
+                            <span className="gg-subj">{withoutScope(c.subject)}</span>
+                            <CommitAgents owners={owners?.[c.full_hash]} repo={repo} compact />
+                            <span className="gg-hash">{c.hash}</span>
+                            <span className="gg-when">{c.date}</span>
+                        </div>
+                    );
+                })}
+            </div>
         </div>
     );
 });

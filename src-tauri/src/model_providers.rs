@@ -1,241 +1,203 @@
-//! Hosted model providers a person pays for directly, such as Baseten or
-//! OpenRouter. OpenCode, Pi and OMP already know each one and turn it on
-//! when its key is in their environment, so connecting a provider is saving
-//! its key in the Keychain and handing it to those agents as they start.
+//! Where agents get models besides their makers' own accounts: pay-per-token APIs,
+//! coding plans and runners on this computer. The catalogue in `model-providers.json`
+//! holds every provider's facts. Connecting a keyed provider saves its key in the
+//! Keychain, hands it to OpenCode, Pi and OMP as they start, and lets Claude Code
+//! and Codex chats run on it.
 
-use std::collections::{BTreeMap, BTreeSet, HashMap};
-use std::path::PathBuf;
-use std::sync::{Mutex, OnceLock};
+use std::collections::BTreeMap;
+use std::path::Path;
+use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
 use reqwest::{Client, StatusCode};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
+use sikemux_core::launch::model_feed::Snapshot;
+use sikemux_core::launch::providers::{
+    self, Helper, KeySpec, Kind, Provider, Providers, Wiring, KEY_SERVICE, ROUTED_AGENTS,
+};
+use sikemux_core::protocol::ChatInfo;
 
-#[cfg(not(test))]
-const KEY_SERVICE: &str = "sikemux-model-provider";
-/// Tests keep to an entry of their own, so they never replace or delete a real key.
-#[cfg(test)]
-const KEY_SERVICE: &str = "sikemux-model-provider-test";
+use crate::model_checks::{self, Check};
+
 const CHECK_TIMEOUT: Duration = Duration::from_secs(15);
+const RUNNER_TIMEOUT: Duration = Duration::from_secs(2);
 
-/// The agents that read these providers' keys from their environment.
-const READERS: &[&str] = &["opencode", "pi", "omp"];
-
-#[derive(Debug, PartialEq, Eq)]
-struct Preset {
-    id: &'static str,
-    label: &'static str,
-    env: &'static str,
-    /// Answers 401 or 403 to a key the provider does not know.
-    check_url: &'static str,
-    keys_url: &'static str,
+fn keyed(id: &str) -> Result<(&'static Provider, &'static KeySpec), String> {
+    let provider = providers::find(id)
+        .ok_or_else(|| format!("Sikemux does not know a provider called {id}"))?;
+    let key = provider
+        .key
+        .as_ref()
+        .ok_or_else(|| format!("{} runs on this computer and needs no key", provider.label))?;
+    Ok((provider, key))
 }
 
-const PRESETS: &[Preset] = &[
-    Preset {
-        id: "openrouter",
-        label: "OpenRouter",
-        env: "OPENROUTER_API_KEY",
-        check_url: "https://openrouter.ai/api/v1/key",
-        keys_url: "https://openrouter.ai/settings/keys",
-    },
-    Preset {
-        id: "baseten",
-        label: "Baseten",
-        env: "BASETEN_API_KEY",
-        check_url: "https://inference.baseten.co/v1/models",
-        keys_url: "https://app.baseten.co/settings/api_keys",
-    },
-    Preset {
-        id: "together",
-        label: "Together AI",
-        env: "TOGETHER_API_KEY",
-        check_url: "https://api.together.xyz/v1/models",
-        keys_url: "https://api.together.ai/settings/api-keys",
-    },
-    Preset {
-        id: "fireworks",
-        label: "Fireworks",
-        env: "FIREWORKS_API_KEY",
-        check_url: "https://api.fireworks.ai/inference/v1/models",
-        keys_url: "https://fireworks.ai/account/api-keys",
-    },
-    Preset {
-        id: "groq",
-        label: "Groq",
-        env: "GROQ_API_KEY",
-        check_url: "https://api.groq.com/openai/v1/models",
-        keys_url: "https://console.groq.com/keys",
-    },
-    Preset {
-        id: "cerebras",
-        label: "Cerebras",
-        env: "CEREBRAS_API_KEY",
-        check_url: "https://api.cerebras.ai/v1/models",
-        keys_url: "https://cloud.cerebras.ai",
-    },
-    Preset {
-        id: "deepseek",
-        label: "DeepSeek",
-        env: "DEEPSEEK_API_KEY",
-        check_url: "https://api.deepseek.com/models",
-        keys_url: "https://platform.deepseek.com/api_keys",
-    },
-    Preset {
-        id: "moonshot",
-        label: "Moonshot AI",
-        env: "MOONSHOT_API_KEY",
-        check_url: "https://api.moonshot.ai/v1/models",
-        keys_url: "https://platform.moonshot.ai/console/api-keys",
-    },
-    Preset {
-        id: "mistral",
-        label: "Mistral",
-        env: "MISTRAL_API_KEY",
-        check_url: "https://api.mistral.ai/v1/models",
-        keys_url: "https://console.mistral.ai/api-keys",
-    },
-    Preset {
-        id: "vercel",
-        label: "Vercel AI Gateway",
-        env: "AI_GATEWAY_API_KEY",
-        check_url: "https://ai-gateway.vercel.sh/v1/models",
-        keys_url: "https://vercel.com/dashboard/ai-gateway/api-keys",
-    },
-];
-
-fn preset(id: &str) -> Result<&'static Preset, String> {
-    PRESETS
-        .iter()
-        .find(|preset| preset.id == id)
-        .ok_or_else(|| format!("Sikemux does not know a provider called {id}"))
-}
-
-#[derive(Serialize, Debug, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
+#[derive(Serialize)]
 pub struct ModelProvider {
-    id: &'static str,
-    label: &'static str,
-    keys_url: &'static str,
+    #[serde(flatten)]
+    provider: &'static Provider,
+    /// A keyed provider has its key saved; a local runner is answering.
     connected: bool,
+    /// What a running local runner has installed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    models: Option<Vec<String>>,
+    /// The agents Sikemux can run on it in place of their makers' accounts.
+    agents: Vec<&'static str>,
+    /// Whether each model checked so far calls tools the way agents need.
+    checks: BTreeMap<String, Check>,
+    #[serde(flatten)]
+    choices: Choices,
 }
 
-/// Which providers have a key saved, and the keys themselves once read, so
-/// a launch does not start the Keychain tool for every provider every time.
-struct Store {
-    path: PathBuf,
-    connected: Mutex<BTreeSet<String>>,
-    keys: Mutex<HashMap<String, String>>,
+/// The models a provider serves, with what it starts chats on.
+#[derive(Serialize)]
+pub struct ServedModels {
+    models: Vec<String>,
+    #[serde(flatten)]
+    choices: Choices,
 }
 
-static STORE: OnceLock<Store> = OnceLock::new();
-
-pub fn init(path: PathBuf) {
-    let _ = STORE.set(Store::load(path));
+#[derive(Serialize)]
+pub struct Choices {
+    /// The coding model it starts helpers and checks on.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    model: Option<String>,
+    /// The model each agent's chat starts on.
+    defaults: BTreeMap<&'static str, String>,
+    /// What models.dev says of these models, by API name.
+    facts: BTreeMap<String, ModelFacts>,
 }
 
-fn store() -> Result<&'static Store, String> {
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ModelFacts {
+    context: u64,
+    /// USD per million tokens; a plan's models cost nothing more.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    input: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    output: Option<f64>,
+    /// Only a hint: a check is the final word.
+    tool_call: bool,
+}
+
+/// Claude Code's own suffix for a long context, which the APIs do not take.
+fn api_name(model: &str) -> &str {
+    model.strip_suffix("[1m]").unwrap_or(model)
+}
+
+fn choices(provider: &Provider, feed: &Snapshot, served: Option<&[String]>) -> Choices {
+    let model = provider.coding_model("", feed, served);
+    let defaults: BTreeMap<_, _> = ROUTED_AGENTS
+        .iter()
+        .filter(|agent| provider.routes(agent))
+        .filter_map(|agent| Some((*agent, provider.coding_model(agent, feed, served)?)))
+        .collect();
+    let listed = provider
+        .models_dev
+        .as_deref()
+        .and_then(|id| feed.models(id));
+    let named = served
+        .map(|served| served.iter().map(String::as_str).collect::<Vec<_>>())
+        .unwrap_or_else(|| {
+            model
+                .iter()
+                .chain(defaults.values())
+                .map(|model| api_name(model))
+                .collect()
+        });
+    let facts = named
+        .into_iter()
+        .filter_map(|name| {
+            let model = listed?.get(name)?;
+            let cost = model.cost.unwrap_or_default();
+            let facts = ModelFacts {
+                context: model.limit.context,
+                input: cost.input,
+                output: cost.output,
+                tool_call: model.tool_call,
+            };
+            Some((name.to_owned(), facts))
+        })
+        .collect();
+    Choices {
+        model,
+        defaults,
+        facts,
+    }
+}
+
+static STORE: OnceLock<Providers> = OnceLock::new();
+
+/// What models.dev says of every provider's models. Reads the disk, so it blocks.
+pub fn feed() -> Arc<Snapshot> {
+    store().map(Providers::feed).unwrap_or_default()
+}
+
+pub fn init(data_dir: &Path) {
+    let _ = STORE.set(Providers::new(data_dir));
+    model_checks::init(data_dir);
+}
+
+fn store() -> Result<&'static Providers, String> {
     STORE
         .get()
         .ok_or_else(|| "Model providers are not ready yet".to_string())
 }
 
-impl Store {
-    fn load(path: PathBuf) -> Self {
-        let connected = std::fs::read(&path)
-            .ok()
-            .and_then(|bytes| serde_json::from_slice::<BTreeSet<String>>(&bytes).ok())
-            .unwrap_or_default()
-            .into_iter()
-            .filter(|id| preset(id).is_ok())
-            .collect();
-        Self {
-            path,
-            connected: Mutex::new(connected),
-            keys: Mutex::new(HashMap::new()),
-        }
-    }
-
-    fn connected(&self) -> BTreeSet<String> {
-        self.connected
-            .lock()
-            .map(|connected| connected.clone())
-            .unwrap_or_default()
-    }
-
-    fn set_connected(&self, id: &str, connected: bool) -> Result<(), String> {
-        let mut ids = self
-            .connected
-            .lock()
-            .map_err(|_| "Model providers are unavailable".to_string())?;
-        let changed = if connected {
-            ids.insert(id.to_owned())
-        } else {
-            ids.remove(id)
-        };
-        if !changed {
-            return Ok(());
-        }
-        let bytes = serde_json::to_vec(&*ids).map_err(|error| error.to_string())?;
-        sikemux_process::files::write_atomic(&self.path, &bytes, false)
-            .map_err(|error| error.to_string())
-    }
-
-    fn remember_key(&self, id: &str, key: Option<String>) {
-        if let Ok(mut keys) = self.keys.lock() {
-            match key {
-                Some(key) => keys.insert(id.to_owned(), key),
-                None => keys.remove(id),
-            };
-        }
-    }
-
-    fn key(&self, id: &str) -> Option<String> {
-        if let Some(key) = self.keys.lock().ok()?.get(id).cloned() {
-            return Some(key);
-        }
-        let key = match sikemux_keychain::read(KEY_SERVICE, id) {
-            Ok(key) => key?,
-            Err(error) => {
-                eprintln!("Sikemux could not read the {id} key: {error}");
-                return None;
-            }
-        };
-        self.remember_key(id, Some(key.clone()));
-        Some(key)
-    }
-}
-
-fn reads_provider_keys(agent: &str) -> bool {
-    READERS.contains(&agent)
+async fn blocking<T: Send + 'static>(
+    work: impl FnOnce(&'static Providers) -> T + Send + 'static,
+) -> Result<T, String> {
+    let store = store()?;
+    tokio::task::spawn_blocking(move || work(store))
+        .await
+        .map_err(|error| error.to_string())
 }
 
 /// The keys `agent` should start with, under the names it looks for.
 pub async fn environment(agent: &str) -> BTreeMap<String, String> {
-    if !reads_provider_keys(agent) {
-        return BTreeMap::new();
-    }
-    let Ok(store) = store() else {
-        return BTreeMap::new();
-    };
-    let connected = store.connected();
-    if connected.is_empty() {
-        return BTreeMap::new();
-    }
-    tokio::task::spawn_blocking(move || {
-        connected
-            .iter()
-            .filter_map(|id| {
-                let preset = preset(id).ok()?;
-                Some((preset.env.to_owned(), store.key(id)?))
-            })
-            .collect()
-    })
-    .await
-    .unwrap_or_default()
+    let agent = agent.to_owned();
+    blocking(move |store| store.environment(&agent))
+        .await
+        .unwrap_or_default()
 }
 
-fn client() -> &'static Client {
+/// The key of a connected provider.
+pub(crate) async fn key(id: &str) -> Option<String> {
+    let id = id.to_owned();
+    blocking(move |store| store.key(&id)).await.ok().flatten()
+}
+
+/// What a chat of `agent` starts with, on `provider` when one is named. A
+/// model first used there has its tool calls checked.
+pub async fn wiring(
+    agent: &str,
+    provider: Option<String>,
+    model: Option<String>,
+) -> Result<Wiring, String> {
+    let agent = agent.to_owned();
+    let (wiring, first) = blocking(move |store| {
+        let model = model.or_else(|| store.coding_model(provider.as_deref()?, &agent));
+        let wiring = store.wiring(&agent, provider.as_deref(), model.as_deref())?;
+        let routed = provider.as_deref().and_then(providers::find);
+        Ok::<_, String>((wiring, routed.zip(model)))
+    })
+    .await??;
+    if let Some((routed, model)) = first {
+        model_checks::first_use(routed, &model);
+    }
+    Ok(wiring)
+}
+
+/// A chat the core started on a provider has its model's tool calls checked once.
+pub fn chat_begun(chat: &ChatInfo) {
+    let provider = chat.model_provider.as_deref().and_then(providers::find);
+    if let (Some(provider), Some(model)) = (provider, chat.model.as_deref()) {
+        model_checks::first_use(provider, model);
+    }
+}
+
+pub(crate) fn client() -> &'static Client {
     static CLIENT: OnceLock<Client> = OnceLock::new();
     CLIENT.get_or_init(|| {
         Client::builder()
@@ -258,80 +220,154 @@ fn check_failure(label: &str, status: StatusCode) -> Option<String> {
     }
 }
 
-async fn check_key(preset: &Preset, key: &str) -> Result<(), String> {
+async fn check_key(provider: &Provider, spec: &KeySpec, key: &str) -> Result<(), String> {
     let response = client()
-        .get(preset.check_url)
+        .get(&spec.check)
         .bearer_auth(key)
         .send()
         .await
-        .map_err(|_| format!("Could not reach {} to check the key", preset.label))?;
-    match check_failure(preset.label, response.status()) {
+        .map_err(|_| format!("Could not reach {} to check the key", provider.label))?;
+    match check_failure(&provider.label, response.status()) {
         Some(failure) => Err(failure),
         None => Ok(()),
     }
 }
 
+#[derive(Deserialize)]
+struct ModelList {
+    data: Vec<ListedModel>,
+}
+
+#[derive(Deserialize)]
+struct ListedModel {
+    id: String,
+}
+
+/// What the provider serves, by its OpenAI-compatible model list. `None` when
+/// it does not answer.
+async fn listed_models(
+    provider: &Provider,
+    key: Option<&str>,
+    timeout: Duration,
+) -> Option<Vec<String>> {
+    let mut request = client()
+        .get(format!("{}/models", provider.openai))
+        .timeout(timeout);
+    if let Some(key) = key {
+        request = request.bearer_auth(key);
+    }
+    let response = request.send().await.ok()?.error_for_status().ok()?;
+    let list: ModelList = response.json().await.ok()?;
+    Some(list.data.into_iter().map(|model| model.id).collect())
+}
+
+/// Local runners are asked what they have on every call, so only when settings ask.
 #[tauri::command]
-pub fn model_providers() -> Vec<ModelProvider> {
-    let connected = store().map(Store::connected).unwrap_or_default();
-    PRESETS
-        .iter()
-        .map(|preset| ModelProvider {
-            id: preset.id,
-            label: preset.label,
-            keys_url: preset.keys_url,
-            connected: connected.contains(preset.id),
-        })
-        .collect()
+pub async fn model_providers() -> Vec<ModelProvider> {
+    let (saved, feed) = blocking(|store| (store.connected(), store.feed()))
+        .await
+        .unwrap_or_default();
+    futures::future::join_all(providers::catalogue().iter().map(|provider| {
+        let (saved, feed) = (&saved, &feed);
+        async move {
+            let models = match provider.kind {
+                Kind::Local => listed_models(provider, None, RUNNER_TIMEOUT).await,
+                Kind::Api | Kind::Plan => None,
+            };
+            ModelProvider {
+                provider,
+                connected: models.is_some() || saved.contains(&provider.id),
+                choices: choices(provider, feed, models.as_deref()),
+                models,
+                agents: ROUTED_AGENTS
+                    .iter()
+                    .copied()
+                    .filter(|agent| provider.routes(agent))
+                    .collect(),
+                checks: model_checks::of(&provider.id),
+            }
+        }
+    }))
+    .await
+}
+
+/// The models a connected provider serves, read with its key.
+#[tauri::command]
+pub async fn model_provider_models(id: String) -> Result<ServedModels, String> {
+    let (provider, _) = keyed(&id)?;
+    let (key, feed) = blocking(move |store| (store.key(&id), store.feed())).await?;
+    let key = key.ok_or_else(|| format!("Connect {} first", provider.label))?;
+    let models = listed_models(provider, Some(&key), CHECK_TIMEOUT)
+        .await
+        .ok_or_else(|| format!("{} did not list its models", provider.label))?;
+    Ok(ServedModels {
+        choices: choices(provider, &feed, Some(&models)),
+        models,
+    })
+}
+
+/// Asks the provider whether `model` calls tools the way agents need, now.
+#[tauri::command]
+pub async fn model_provider_check(id: String, model: String) -> Result<Check, String> {
+    let provider = providers::find(&id)
+        .ok_or_else(|| format!("Sikemux does not know a provider called {id}"))?;
+    let key = match provider.key {
+        Some(_) => Some(
+            key(&id)
+                .await
+                .ok_or_else(|| format!("Connect {} first", provider.label))?,
+        ),
+        None => None,
+    };
+    model_checks::run(provider, key.as_deref(), model.trim()).await
+}
+
+/// What helpers run on: workers started without a model named, and Claude Code's subagents.
+#[tauri::command]
+pub async fn model_helper() -> Result<Option<Helper>, String> {
+    blocking(Providers::helper).await
+}
+
+#[tauri::command]
+pub async fn model_helper_set(helper: Option<Helper>) -> Result<(), String> {
+    blocking(move |store| store.set_helper(helper.as_ref())).await?
 }
 
 /// Saves the key once the provider accepts it. Agents already running keep
 /// the environment they started with.
 #[tauri::command]
 pub async fn model_provider_connect(id: String, key: String) -> Result<(), String> {
-    let preset = preset(&id)?;
+    let (provider, spec) = keyed(&id)?;
     let store = store()?;
     let key = key.trim().to_owned();
     if key.is_empty() {
         return Err("Paste the key first".into());
     }
-    check_key(preset, &key).await?;
+    check_key(provider, spec, &key).await?;
     let saved = key.clone();
-    tokio::task::spawn_blocking(move || sikemux_keychain::write(KEY_SERVICE, preset.id, &saved))
+    tokio::task::spawn_blocking(move || sikemux_keychain::write(KEY_SERVICE, &provider.id, &saved))
         .await
         .map_err(|error| error.to_string())?
         .map_err(|error| error.to_string())?;
-    store.remember_key(preset.id, Some(key));
-    store.set_connected(preset.id, true)
+    store.remember_key(&provider.id, Some(key));
+    store.set_connected(&provider.id, true)
 }
 
 #[tauri::command]
 pub async fn model_provider_disconnect(id: String) -> Result<(), String> {
-    let preset = preset(&id)?;
+    let (provider, _) = keyed(&id)?;
     let store = store()?;
-    tokio::task::spawn_blocking(move || sikemux_keychain::delete(KEY_SERVICE, preset.id))
+    tokio::task::spawn_blocking(move || sikemux_keychain::delete(KEY_SERVICE, &provider.id))
         .await
         .map_err(|error| error.to_string())?
         .map_err(|error| error.to_string())?;
-    store.remember_key(preset.id, None);
-    store.set_connected(preset.id, false)
+    store.remember_key(&provider.id, None);
+    store.set_connected(&provider.id, false)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn every_preset_has_its_own_id_and_key_name() {
-        let ids: BTreeSet<_> = PRESETS.iter().map(|preset| preset.id).collect();
-        let envs: BTreeSet<_> = PRESETS.iter().map(|preset| preset.env).collect();
-        assert_eq!(ids.len(), PRESETS.len());
-        assert_eq!(envs.len(), PRESETS.len());
-        for preset in PRESETS {
-            assert!(preset.check_url.starts_with("https://"), "{}", preset.id);
-            assert!(preset.keys_url.starts_with("https://"), "{}", preset.id);
-        }
-    }
 
     #[test]
     fn a_rejected_key_is_told_apart_from_a_provider_that_did_not_answer() {
@@ -346,24 +382,5 @@ mod tests {
         );
         assert!(check_failure("Groq", StatusCode::BAD_GATEWAY)
             .is_some_and(|failure| failure.contains("could not check")));
-    }
-
-    #[test]
-    fn the_connected_list_survives_a_restart_and_drops_unknown_providers() {
-        let directory = tempfile::tempdir().expect("temporary directory");
-        let path = directory.path().join("model-providers.json");
-        std::fs::write(&path, r#"["baseten","retired-provider"]"#).expect("write list");
-        let store = Store::load(path.clone());
-        assert_eq!(store.connected(), BTreeSet::from(["baseten".to_string()]));
-        store.set_connected("groq", true).expect("connect");
-        assert_eq!(
-            Store::load(path.clone()).connected(),
-            BTreeSet::from(["baseten".to_string(), "groq".to_string()])
-        );
-        store.set_connected("baseten", false).expect("disconnect");
-        assert_eq!(
-            std::fs::read_to_string(&path).expect("read list"),
-            r#"["groq"]"#
-        );
     }
 }

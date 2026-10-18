@@ -5,6 +5,8 @@ import "./database";
 import "./github";
 import "./gitlab";
 import "./jira";
+import "./linear";
 import "./rundeck";
 import "./signoz";
 import "./slack";
+import "./vercel";

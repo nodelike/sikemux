@@ -9,7 +9,7 @@ import { createPortal } from "react-dom";
  * the chrome, and portals to <body> so pane overflow can't clip it.
  */
 
-const OPEN_DELAY_MS = 380;
+const OPEN_DELAY_MS = 1000;
 const GAP = 8;
 
 type Side = "top" | "bottom" | "left" | "right";

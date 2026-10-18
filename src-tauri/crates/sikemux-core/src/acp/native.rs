@@ -2,10 +2,11 @@
 //! differently, so the choices here are read from what the session offers
 //! rather than assumed.
 
-use agent_client_protocol::schema::v1::{LoadSessionRequest, NewSessionRequest};
-use agent_client_protocol::{JsonRpcRequest, JsonRpcResponse};
-use serde::{Deserialize, Serialize};
+use agent_client_protocol::schema::v1::Meta;
+use serde::Serialize;
 use serde_json::{json, Value};
+
+use crate::git_guard::shim;
 
 /// The arguments that put each agent's own binary into ACP mode.
 ///
@@ -19,36 +20,27 @@ pub fn arguments(provider: &str) -> Option<&'static [&'static str]> {
     }
 }
 
-/// `session/new` answered as raw JSON. The typed answer drops the model list
-/// Hermes sends, which the schema only knows as unstable.
-#[derive(Debug, Clone, Serialize, Deserialize, JsonRpcRequest)]
-#[request(method = "session/new", response = SessionSetup)]
-#[serde(transparent)]
-pub struct NewSession(pub NewSessionRequest);
-
-#[derive(Debug, Clone, Serialize, Deserialize, JsonRpcRequest)]
-#[request(method = "session/load", response = SessionSetup)]
-#[serde(transparent)]
-pub struct LoadSession(pub LoadSessionRequest);
-
-#[derive(Debug, Clone, Serialize, Deserialize, JsonRpcResponse)]
-#[serde(transparent)]
-pub struct SessionSetup(pub Value);
+/// What a session of `provider`'s opens with beside its folder and tools.
+/// Grok loads the plugin whose hook checks its shell commands, since its
+/// login profile's PATH puts the system's git ahead of Sikemux's.
+pub fn session_meta(provider: &str) -> Option<Meta> {
+    let plugin = shim::grok_plugin().filter(|_| provider == "grok")?;
+    let mut meta = Meta::new();
+    meta.insert("pluginDirs".into(), json!([plugin]));
+    Some(meta)
+}
 
 /// Hermes lists its models beside the session instead of as a config option,
 /// and changes them through `session/set_model`.
-#[derive(Debug, Clone, Serialize, Deserialize, JsonRpcRequest)]
-#[request(method = "session/set_model", response = SetSessionModelResponse)]
+#[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SetSessionModel {
     pub session_id: String,
     pub model_id: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, JsonRpcResponse)]
-pub struct SetSessionModelResponse {
-    #[serde(rename = "_meta", default, skip_serializing_if = "Option::is_none")]
-    pub meta: Option<Value>,
+impl SetSessionModel {
+    pub const METHOD: &str = "session/set_model";
 }
 
 /// Whether the model picker has to be built from the session's model list.

@@ -1,6 +1,8 @@
 import { useEffect } from "react";
 import { create } from "zustand";
+import { getIpcTransport } from "../api/transport";
 import { voiceApi, type VoiceEvent, type VoiceStage } from "../api/voice";
+import { NETWORK_CHANGED_EVENT, type NetworkChange } from "../shell/NetworkBridge";
 import { setVoiceDictation } from "../state/commands";
 import { useStore } from "../state/store";
 import { focusedTextInsertTarget, insertText } from "../state/textInsertRegistry";
@@ -28,6 +30,9 @@ const START_DELAY_MS = 150;
 let lifecycle: Promise<void> = Promise.resolve();
 let pendingStart: number | null = null;
 let recording = false;
+/* Whether right Option started this recording, so another key means a shortcut rather than speech. */
+let held = false;
+let waitingForNetwork = false;
 
 const set = (next: Partial<VoiceState>) => useVoice.setState(next);
 
@@ -46,6 +51,7 @@ async function prepare(): Promise<void> {
 }
 
 async function shutdown(): Promise<void> {
+    waitingForNetwork = false;
     abandonHold();
     set({ phase: "off", reason: null, stage: null, fraction: 0 });
     await voiceApi.shutdown();
@@ -92,6 +98,12 @@ export function handleVoiceEvent(event: VoiceEvent): void {
             return;
         case "error":
             recording = false;
+            if (event.reason === "offline") {
+                waitingForNetwork = true;
+                set({ phase: "off", reason: event.message, stage: null, fraction: 0, target: null, partial: "" });
+                notify("info", event.message);
+                return;
+            }
             if (event.reason === "models") {
                 set({ phase: "off", reason: event.message, stage: null, fraction: 0, target: null, partial: "" });
             } else {
@@ -102,7 +114,15 @@ export function handleVoiceEvent(event: VoiceEvent): void {
     }
 }
 
+/** Starts a model download again once the network is back, if going offline paused it. */
+export function resumeAfterNetwork(change: NetworkChange): void {
+    if (change === "offline" || !waitingForNetwork) return;
+    waitingForNetwork = false;
+    inOrder(prepare);
+}
+
 function abandonHold(): void {
+    held = false;
     if (pendingStart !== null) {
         window.clearTimeout(pendingStart);
         pendingStart = null;
@@ -133,6 +153,7 @@ function startWhenReady(): void {
 
 function beginHold(): void {
     if (pendingStart !== null || recording) return;
+    held = true;
     set({ target: focusedTextInsertTarget() });
     pendingStart = window.setTimeout(() => {
         pendingStart = null;
@@ -147,6 +168,7 @@ function finishRecording(): void {
 }
 
 function endHold(): void {
+    held = false;
     if (pendingStart !== null) {
         abandonHold();
         return;
@@ -191,7 +213,7 @@ export function toggleDictation(into: HTMLElement): void {
 
 export function onVoiceKeyDown(event: KeyboardEvent): void {
     if (event.code !== HOLD_KEY) {
-        abandonHold();
+        if (held) abandonHold();
         return;
     }
     if (event.repeat || event.metaKey || event.ctrlKey || event.shiftKey) return;
@@ -213,9 +235,12 @@ export function useVoiceDictation(): void {
             await voiceApi.subscribe(handleVoiceEvent, controller.signal);
             if (!controller.signal.aborted) await prepare();
         });
+        void getIpcTransport()
+            .subscribe<NetworkChange>(NETWORK_CHANGED_EVENT, ({ payload }) => resumeAfterNetwork(payload), { signal: controller.signal })
+            .catch(() => {});
         window.addEventListener("keydown", onVoiceKeyDown, { capture: true, signal: controller.signal });
         window.addEventListener("keyup", onVoiceKeyUp, { capture: true, signal: controller.signal });
-        window.addEventListener("blur", abandonHold, { signal: controller.signal });
+        window.addEventListener("blur", () => held && abandonHold(), { signal: controller.signal });
         return () => {
             controller.abort();
             inOrder(shutdown);

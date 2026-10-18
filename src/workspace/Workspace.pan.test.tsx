@@ -6,9 +6,9 @@ import { getState, setState } from "../state/store";
 import { agentWindowId } from "../state/selectors";
 import { withAgents } from "../test/agents";
 import { performanceTelemetry } from "../lib/performance";
-import { HELD_END_MS, SPENT_END_MS } from "./wheelPan";
+import { HELD_END_MS, SPENT_END_MS } from "../lib/swipe";
 import { setFingersDown } from "../lib/wheelTouch";
-import { PAN_MS, RETURN_MS, settleMs } from "./useWindowPan";
+import { PAN_MS } from "./useWindowPan";
 import type { Agent } from "../state/types";
 
 vi.mock("../terminal/TerminalPane", () => ({ TerminalPane: () => <div>Terminal output</div> }));
@@ -219,6 +219,8 @@ describe("workspace wheel pan", () => {
     afterEach(() => vi.useRealTimers());
 
     const STAGE_WIDTH = 1000;
+    /** Longer than any landing takes. */
+    const LANDING_MS = 700;
     const activeWindow = () => getState().sessions[getState().activeSessionId].activeWindowId;
     const order = () => getState().windowsBySession[getState().activeSessionId];
 
@@ -241,8 +243,16 @@ describe("workspace wheel pan", () => {
         act(() => void vi.advanceTimersByTime(20));
         return taken;
     };
-    const settleTime = (track: HTMLElement) => Number.parseFloat(track.style.getPropertyValue("--window-pan-ms"));
+    /** A hand still moving fast as it lifts, having pulled the next screen hardly on at all. */
+    const flick = (over: Element) => {
+        swipe(over, 20);
+        swipe(over, 20);
+        swipe(over, 20);
+    };
+    const lift = () => act(() => setFingersDown(false));
+    const landed = () => act(() => void vi.advanceTimersByTime(LANDING_MS));
     const panOf = (track: HTMLElement) => track.style.transform;
+    const pulled = (track: HTMLElement) => -Number.parseFloat(panOf(track).slice("translate(calc(".length));
 
     /*
      * The finger drives the track directly: the offsets are on, the screen it is
@@ -262,103 +272,43 @@ describe("workspace wheel pan", () => {
     });
 
     /*
-     * The strip, the keyboard and the indicator follow the screen the swipe has
-     * pulled more than halfway on. The track is not told anything: it is still
-     * under the finger, in exactly the place the last frame left it.
+     * One swipe is one screen. However far the hand pulls, the session stays put
+     * while it is down, the track stops at the next screen, and nothing past it paints.
      */
-    it("makes the screen more than half on the active one without moving the track", () => {
+    it("moves no further than the next screen while the hand is down", () => {
+        const { container, track, live, index } = stageOfScreens();
+        const before = activeWindow();
+        setFingersDown(true);
+
+        for (let i = 0; i < 6; i++) swipe(live, 300);
+
+        expect(activeWindow()).toBe(before);
+        expect(container.querySelectorAll(".window-layer.painted")).toHaveLength(2);
+        expect(pulled(track) - index).toBeGreaterThan(1);
+        expect(pulled(track) - index).toBeLessThan(1.15);
+    });
+
+    /*
+     * The landing is the track's alone. The session moves once the track has
+     * arrived, so nothing re-renders while anything is moving.
+     */
+    it("lands on the screen a pull was set down on, and only then moves the session", () => {
         const { track, live, index } = stageOfScreens();
         const neighbour = order()[index + 1];
+        setFingersDown(true);
 
         swipe(live, 400);
+        act(() => void vi.advanceTimersByTime(200));
+        lift();
+
         expect(activeWindow()).not.toBe(neighbour);
-        expect(panOf(track)).toBe(slidLeft(index + 0.4));
+        expect(track).toHaveClass("panning");
 
-        swipe(live, 200);
-
-        expect(activeWindow()).toBe(neighbour);
-        expect(track).not.toHaveClass("sliding");
-        expect(panOf(track)).toBe(slidLeft(index + 0.6));
-    });
-
-    /*
-     * The events a trackpad keeps sending after the fingers leave are the swipe
-     * carrying on, so they keep scrolling rather than being swallowed. Each
-     * screen crossed becomes the one the drag counts from, and at every moment
-     * the finger is between exactly two of them.
-     */
-    it("scrolls on through the screens after it for as long as the events come", () => {
-        const { container, track, live, index } = stageOfScreens();
-        const painted = () => container.querySelectorAll(".window-layer.painted").length;
-
-        swipe(live, 600);
-        expect(activeWindow()).toBe(order()[index + 1]);
-        expect(painted()).toBe(2);
-
-        swipe(live, 600);
-        expect(activeWindow()).toBe(order()[index + 1]);
-        expect(painted()).toBe(2);
-
-        swipe(live, 600);
-
-        expect(activeWindow()).toBe(order()[index + 2]);
-        expect(painted()).toBe(2);
-        expect(panOf(track)).toBe(slidLeft(index + 1.8));
-    });
-
-    /*
-     * Quiet is the only thing that animates, and all it ever has to cover is the
-     * half screen between the finger and whatever screen the swipe ended on.
-     */
-    it("closes onto the active screen once the events stop", () => {
-        const { track, live, index } = stageOfScreens();
-        const neighbour = order()[index + 1];
-
-        swipe(live, 600);
-        expect(track).not.toHaveClass("sliding");
-
-        act(() => void vi.advanceTimersByTime(SPENT_END_MS));
+        landed();
 
         expect(activeWindow()).toBe(neighbour);
-        expect(track).toHaveClass("sliding");
-        expect(panOf(track)).toBe(slidLeft(index + 1));
-        expect(settleTime(track)).toBeGreaterThan(0);
-        expect(settleTime(track)).toBeLessThan(PAN_MS);
-    });
-
-    /*
-     * A hand that has gone is not going to pull any further, so a pull set down
-     * well onto the next screen has chosen it even though it never reached the
-     * half a screen a crossing takes under a hand that is still there.
-     */
-    it("takes the screen a pull was set down most of the way onto", () => {
-        const { track, live, index } = stageOfScreens();
-
-        swipe(live, 350);
-        expect(activeWindow()).toBe(order()[index]);
-
-        act(() => void vi.advanceTimersByTime(SPENT_END_MS));
-
-        expect(activeWindow()).toBe(order()[index + 1]);
-        expect(panOf(track)).toBe(slidLeft(index + 1));
-    });
-
-    /*
-     * A pull that has already crossed onto the next screen is counted from that
-     * one, and the ground that carried it there is the same ground a throw is read
-     * from, so the throw may not buy a second screen with it. Landing two screens
-     * on would also travel across a screen that nobody painted.
-     */
-    it("does not let a throw spend the ground the crossing already did", () => {
-        const { container, track, live, index } = stageOfScreens();
-
-        act(() => setFingersDown(true));
-        swipe(live, 600);
-        act(() => setFingersDown(false));
-
-        expect(activeWindow()).toBe(order()[index + 1]);
-        expect(container.querySelectorAll(".window-layer.painted")).toHaveLength(2);
-        expect(panOf(track)).toBe(slidLeft(index + 1));
+        expect(track).not.toHaveClass("panning");
+        expect(panOf(track)).toBe("");
     });
 
     /*
@@ -370,122 +320,118 @@ describe("workspace wheel pan", () => {
     it("keeps following a finger that holds still part way through", () => {
         const { track, live, index } = stageOfScreens();
         setFingersDown(true);
-        // Far longer than a person pauses, and still not the end of the swipe.
         const pause = HELD_END_MS - 100;
 
         swipe(live, 300);
         act(() => void vi.advanceTimersByTime(pause));
 
-        expect(track).not.toHaveClass("sliding");
+        expect(track).toHaveClass("panning");
         expect(panOf(track)).toBe(slidLeft(index + 0.3));
 
         swipe(live, 300);
         act(() => void vi.advanceTimersByTime(pause));
 
-        expect(track).not.toHaveClass("sliding");
         expect(panOf(track)).toBe(slidLeft(index + 0.6));
     });
 
-    /*
-     * The hand leaving is the end of the swipe, so the track closes there and
-     * then. Waiting for the glide the hand left to run out would hold it still
-     * for the second or two that takes.
-     */
-    it("closes the moment the hand leaves, with nothing left to wait for", () => {
-        const { track, live, index } = stageOfScreens();
-        const neighbour = order()[index + 1];
-        setFingersDown(true);
+    /* A pull set down short of a quarter of the next screen has not chosen it. */
+    it("puts back a pull that never got far onto the next screen", () => {
+        const { track, live } = stageOfScreens();
+        const before = activeWindow();
 
-        swipe(live, 600);
-        act(() => void vi.advanceTimersByTime(400));
-        expect(track).not.toHaveClass("sliding");
+        swipe(live, 200);
+        act(() => void vi.advanceTimersByTime(SPENT_END_MS));
+        landed();
 
-        act(() => setFingersDown(false));
-
-        expect(activeWindow()).toBe(neighbour);
-        expect(track).toHaveClass("sliding");
-        expect(panOf(track)).toBe(slidLeft(index + 1));
+        expect(activeWindow()).toBe(before);
+        expect(track).not.toHaveClass("panning");
     });
 
     /*
-     * Nothing carries a swipe once the hand has gone, so a swipe still moving
-     * when it ended has to carry itself: it goes on to the next screen even
-     * though the hand never pulled it halfway on.
+     * A hand still moving fast as it lifts has thrown the swipe, and it carries on
+     * to the next screen however little of it was showing.
      */
     it("carries a thrown swipe on to the next screen", () => {
-        const { track, live, index } = stageOfScreens();
-        const neighbour = order()[index + 1];
+        const { live, index } = stageOfScreens();
         setFingersDown(true);
 
-        swipe(live, 200);
-        expect(activeWindow()).not.toBe(neighbour);
+        flick(live);
+        lift();
+        landed();
 
-        act(() => setFingersDown(false));
-
-        expect(activeWindow()).toBe(neighbour);
-        expect(track).toHaveClass("sliding");
-        expect(panOf(track)).toBe(slidLeft(index + 1));
+        expect(activeWindow()).toBe(order()[index + 1]);
     });
 
     /*
      * A hand does not move further because the screen it is on is wider, so the
-     * same throw has to carry on a big monitor. Measured against the screen it
-     * would not: this is a fifteenth of a wide stage and over half of a narrow one.
+     * same throw has to carry on a big monitor.
      */
     it("carries the same throw however wide the screen is", () => {
-        const { track, live, index } = stageOfScreens(3000);
-        const neighbour = order()[index + 1];
+        const { live, index } = stageOfScreens(3000);
         setFingersDown(true);
 
-        swipe(live, 200);
-        act(() => setFingersDown(false));
+        flick(live);
+        lift();
+        landed();
 
-        expect(activeWindow()).toBe(neighbour);
-        expect(panOf(track)).toBe(slidLeft(index + 1));
+        expect(activeWindow()).toBe(order()[index + 1]);
     });
 
     /* The same distance, set down rather than thrown, was never going anywhere. */
     it("puts back a swipe the hand had stopped before it left", () => {
-        const { track, live, index } = stageOfScreens();
+        const { live } = stageOfScreens();
         const before = activeWindow();
         setFingersDown(true);
 
-        swipe(live, 200);
+        flick(live);
         act(() => void vi.advanceTimersByTime(400));
-        act(() => setFingersDown(false));
+        lift();
+        landed();
 
         expect(activeWindow()).toBe(before);
-        expect(panOf(track)).toBe(slidLeft(index));
+    });
+
+    /* A hand pulling back as it lifts has changed its mind, however far it had got. */
+    it("puts back a swipe the hand was taking back as it lifted", () => {
+        const { live } = stageOfScreens();
+        const before = activeWindow();
+        setFingersDown(true);
+
+        swipe(live, 400);
+        swipe(live, -30);
+        swipe(live, -30);
+        lift();
+        landed();
+
+        expect(activeWindow()).toBe(before);
     });
 
     /*
      * A trackpad keeps sending the swipe's glide for a second or more after the
-     * hand has gone. The swipe has already landed by then, so the glide may not
-     * start dragging the screen it landed on off again.
+     * hand has gone. The swipe is landing by then, so the glide may not drag the
+     * track anywhere else.
      */
     it("ignores the glide a swipe leaves behind", () => {
-        const { track, live } = stageOfScreens();
+        const { track, live, index } = stageOfScreens();
         setFingersDown(true);
-        swipe(live, 600);
-        act(() => setFingersDown(false));
+        swipe(live, 400);
+        lift();
 
-        const landed = activeWindow();
-        const at = panOf(track);
         expect(swipe(live, 600)).toBe(true);
         swipe(live, 600);
+        landed();
 
-        expect(activeWindow()).toBe(landed);
-        expect(panOf(track)).toBe(at);
+        expect(activeWindow()).toBe(order()[index + 1]);
+        expect(panOf(track)).toBe("");
     });
 
-    /* And a hand coming back down mid-glide is a new swipe, not more of the old one.
-       The first one crossed onto the screen after it and closed there, so the second
-       is a fresh 0.3 of a screen from that one and not from where the glide went. */
+    /* And a hand coming back down mid-glide is a new swipe, counted from where the last one landed. */
     it("takes a hand coming back down as a new swipe", () => {
         const { track, live, index } = stageOfScreens();
         setFingersDown(true);
-        swipe(live, 600);
-        act(() => setFingersDown(false));
+        swipe(live, 400);
+        lift();
+        landed();
         swipe(live, 400);
 
         act(() => setFingersDown(true));
@@ -494,24 +440,18 @@ describe("workspace wheel pan", () => {
         expect(panOf(track)).toBe(slidLeft(index + 1.3));
     });
 
-    /*
-     * A swipe that never pulled a screen halfway on has not chosen it, so quiet
-     * puts the one it started on back. This is the shortest travel there is, and
-     * it may not crawl.
-     */
-    it("puts the screen back when the swipe never pulled the next one halfway on", () => {
+    /* A swipe started while the last one is still landing finishes that landing first. */
+    it("starts a new swipe from where a landing was going", () => {
         const { track, live, index } = stageOfScreens();
-        const before = activeWindow();
+        setFingersDown(true);
+        swipe(live, 400);
+        lift();
 
+        act(() => setFingersDown(true));
         swipe(live, 100);
-        expect(track).not.toHaveClass("sliding");
 
-        act(() => void vi.advanceTimersByTime(SPENT_END_MS));
-
-        expect(activeWindow()).toBe(before);
-        expect(track).toHaveClass("sliding");
-        expect(panOf(track)).toBe(slidLeft(index));
-        expect(settleTime(track)).toBeLessThan(PAN_MS / 2);
+        expect(activeWindow()).toBe(order()[index + 1]);
+        expect(panOf(track)).toBe(slidLeft(index + 1.1));
     });
 
     /*
@@ -530,49 +470,14 @@ describe("workspace wheel pan", () => {
 
         expect(activeWindow()).toBe(last);
         expect(container.querySelectorAll(".window-layer.painted")).toHaveLength(1);
-        const pulled = Number.parseFloat(panOf(track).slice("translate(calc(".length));
-        expect(-pulled - index).toBeGreaterThan(0);
-        expect(-pulled - index).toBeLessThan(0.15);
-    });
+        expect(pulled(track) - index).toBeGreaterThan(0);
+        expect(pulled(track) - index).toBeLessThan(0.15);
 
-    /*
-     * A swipe thrown at a screen that is not there is the fastest the track ever
-     * goes, and the close has to turn it round. Coming back is its own movement:
-     * one time for every one of them, whatever the throw was worth, rather than a
-     * time read off the little ground a resisted pull covered.
-     */
-    it("brings a swipe thrown past the last screen back in the time a swipe comes back in", () => {
-        const { track, live } = stageOfScreens();
-        const last = order().at(-1)!;
-        act(() => cmd.selectWindowId(last));
-        act(() => void vi.advanceTimersByTime(PAN_MS * 2));
-        const index = order().indexOf(last);
-
-        act(() => setFingersDown(true));
-        swipe(live, 900);
-        act(() => setFingersDown(false));
+        act(() => void vi.advanceTimersByTime(SPENT_END_MS));
+        landed();
 
         expect(activeWindow()).toBe(last);
-        expect(track).toHaveClass("returning");
-        expect(settleTime(track)).toBe(RETURN_MS);
-        expect(panOf(track)).toBe(slidLeft(index));
-    });
-
-    /* A close that carries on the way the hand went picks up where the hand left
-       off, so it keeps the pace of the ground it has left rather than turning round. */
-    it("carries a thrown swipe on without turning it round", () => {
-        const { track, live, index } = stageOfScreens();
-
-        act(() => setFingersDown(true));
-        swipe(live, 300);
-        act(() => setFingersDown(false));
-
-        expect(activeWindow()).toBe(order()[index + 1]);
-        expect(track).toHaveClass("sliding");
-        expect(track).not.toHaveClass("returning");
-        // A throw of 0.3 of a screen leaves the other 0.7 of it to cover.
-        expect(settleTime(track)).toBe(settleMs(0.7));
-        expect(panOf(track)).toBe(slidLeft(index + 1));
+        expect(track).not.toHaveClass("panning");
     });
 
     /*
@@ -601,25 +506,24 @@ describe("workspace wheel pan", () => {
     /*
      * A switch from the keyboard mid-swipe takes the session off the screens the
      * gesture was dragging between, so the gesture has nothing left to hold and
-     * its snap must not pull the session back.
+     * its landing must not pull the session back.
      */
     it("lets go when the session is switched out from under it", () => {
         const { live, index } = stageOfScreens();
         const chosen = order()[index + 4];
 
-        swipe(live, 100);
+        swipe(live, 400);
         act(() => cmd.selectWindowId(chosen));
         act(() => void vi.advanceTimersByTime(SPENT_END_MS));
+        landed();
 
         expect(activeWindow()).toBe(chosen);
     });
 
     /*
      * A screen closing elsewhere moves the session along the track without
-     * switching it, so the swipe is no longer counting from the screen it
-     * started on and no switch plans a slide. The track still has to come back:
-     * left where the finger had it, the whole session sits half a screen off the
-     * stage with a band of shell down the edge, and nothing ever puts it back.
+     * switching it, so no switch plans a slide. The track still has to come back,
+     * or the whole session sits half a screen off the stage.
      */
     it("gives the track back when the screens move under the swipe", () => {
         const { container, track } = stageOfScreens();
@@ -632,6 +536,7 @@ describe("workspace wheel pan", () => {
 
         act(() => cmd.closeWindowById(order()[0]));
         act(() => void vi.advanceTimersByTime(SPENT_END_MS));
+        landed();
 
         expect(activeWindow()).toBe(on);
         expect(track).not.toHaveClass("panning");
@@ -640,7 +545,7 @@ describe("workspace wheel pan", () => {
 
     /*
      * Dragging is direct manipulation rather than animation, so it still follows
-     * the finger with motion reduced; only the close at the end stops being a slide.
+     * the finger with motion reduced; only the landing stops being a movement.
      */
     it("follows the finger with motion reduced and cuts at the end", () => {
         vi.stubGlobal("matchMedia", (query: string) => ({ matches: query === "(prefers-reduced-motion: reduce)", media: query }));

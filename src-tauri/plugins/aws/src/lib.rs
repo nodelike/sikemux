@@ -1,20 +1,27 @@
-// AWS surface — view-only dashboard over the user's SSO-configured profiles.
+// AWS surface — view-only dashboard over the user's profiles, and read-only
+// aws_* tools for agents.
 // Every API call shells out to the `aws` CLI so the heavy SDK crates stay out
 // of the binary; the CLI reuses the user's existing SSO token cache and
 // ~/.aws/config resolution rules (sso_session refs, source_profile chains,
 // region precedence) for free.
 
+mod agent;
+mod agent_profile;
 mod auth;
 mod billing;
 mod common;
 mod ec2;
 mod ecs;
+mod elb;
 mod error;
 mod lambda;
 mod logs;
+mod metrics;
 mod s3;
 mod sqs;
 
+use std::collections::BTreeMap;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use serde::Deserialize;
@@ -23,6 +30,7 @@ use sikemux_plugin_api::{
     params, reply, Manifest, Plugin, PluginContext, PluginError, PluginFuture, StreamSink,
 };
 
+use crate::common::Target;
 use crate::error::AwsResult;
 
 pub fn plugin() -> Result<Arc<dyn Plugin>, PluginError> {
@@ -42,6 +50,17 @@ struct ProfileParams {
 }
 
 #[derive(Deserialize)]
+struct AgentProfilePicksParams {
+    project: Option<PathBuf>,
+}
+
+#[derive(Deserialize)]
+struct PickAgentProfileParams {
+    project: Option<PathBuf>,
+    profile: Option<String>,
+}
+
+#[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct IdentityParams {
     profile: String,
@@ -51,14 +70,16 @@ struct IdentityParams {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct ClusterParams {
-    profile: String,
+    #[serde(flatten)]
+    target: Target,
     cluster: String,
 }
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct ServiceParams {
-    profile: String,
+    #[serde(flatten)]
+    target: Target,
     cluster: String,
     service: String,
 }
@@ -66,7 +87,8 @@ struct ServiceParams {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct TaskParams {
-    profile: String,
+    #[serde(flatten)]
+    target: Target,
     cluster: String,
     task_arn: String,
 }
@@ -74,14 +96,16 @@ struct TaskParams {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct BillingParams {
-    profile: String,
+    #[serde(flatten)]
+    target: Target,
     months_back: u32,
 }
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct TailParams {
-    profile: String,
+    #[serde(flatten)]
+    target: Target,
     log_group: String,
     log_stream: Option<String>,
     since: Option<String>,
@@ -98,75 +122,76 @@ impl Plugin for Aws {
         &self.manifest
     }
 
+    fn agent_environment(&self, ctx: &PluginContext, project: &Path) -> BTreeMap<String, String> {
+        agent_profile::environment(ctx, project)
+    }
+
     fn call<'a>(
         &'a self,
-        _ctx: &'a PluginContext,
+        ctx: &'a PluginContext,
         method: &'a str,
         input: Value,
     ) -> PluginFuture<'a, Value> {
         Box::pin(async move {
             match method {
                 "profiles" => reply(auth::profiles().await),
+                "agentProfilePicks" => {
+                    let AgentProfilePicksParams { project } = params(input)?;
+                    reply(agent_profile::picks(ctx, project.as_deref()))
+                }
+                "pickAgentProfile" => {
+                    let PickAgentProfileParams { project, profile } = params(input)?;
+                    reply(agent_profile::pick(ctx, project.as_deref(), profile)?)
+                }
                 "identity" => {
                     let IdentityParams { profile, force } = params(input)?;
                     reply(auth::identity(profile, force).await)
                 }
-                "ecsClusters" => {
-                    let ProfileParams { profile } = params(input)?;
-                    answer(ecs::clusters(profile)).await
-                }
+                "ecsClusters" => answer(ecs::clusters(&params(input)?)).await,
                 "ecsServices" => {
-                    let ClusterParams { profile, cluster } = params(input)?;
-                    answer(ecs::services(profile, cluster)).await
+                    let ClusterParams { target, cluster } = params(input)?;
+                    answer(ecs::services(&target, &cluster)).await
                 }
                 "ecsTasks" => {
                     let ServiceParams {
-                        profile,
+                        target,
                         cluster,
                         service,
                     } = params(input)?;
-                    answer(ecs::tasks(profile, cluster, service)).await
+                    answer(ecs::tasks(&target, &cluster, Some(&service), false)).await
                 }
                 "ecsTaskLogConfig" => {
                     let TaskParams {
-                        profile,
+                        target,
                         cluster,
                         task_arn,
                     } = params(input)?;
-                    answer(ecs::task_log_config(profile, cluster, task_arn)).await
+                    answer(ecs::task_log_config(&target, &cluster, &task_arn)).await
                 }
                 "ecsServiceLogConfig" => {
                     let ServiceParams {
-                        profile,
+                        target,
                         cluster,
                         service,
                     } = params(input)?;
-                    answer(ecs::service_log_config(profile, cluster, service)).await
+                    answer(ecs::service_log_config(&target, &cluster, &service)).await
                 }
-                "ec2Instances" => {
-                    let ProfileParams { profile } = params(input)?;
-                    answer(ec2::instances(profile)).await
-                }
-                "lambdaFunctions" => {
-                    let ProfileParams { profile } = params(input)?;
-                    answer(lambda::functions(profile)).await
-                }
-                "sqsQueues" => {
-                    let ProfileParams { profile } = params(input)?;
-                    answer(sqs::queues(profile)).await
-                }
+                "ec2Instances" => answer(ec2::instances(&params(input)?)).await,
+                "lambdaFunctions" => answer(lambda::functions(&params(input)?)).await,
+                "sqsQueues" => answer(sqs::queues(&params(input)?)).await,
                 "billingMonths" => {
                     let BillingParams {
-                        profile,
+                        target,
                         months_back,
                     } = params(input)?;
-                    answer(billing::months(profile, months_back)).await
+                    answer(billing::months(&target, months_back)).await
                 }
-                "s3Buckets" => {
-                    let ProfileParams { profile } = params(input)?;
-                    answer(s3::buckets(profile)).await
-                }
-                _ => Err(PluginError::unknown_method(method)),
+                "s3Buckets" => answer(s3::buckets(&params(input)?)).await,
+                "setup" => reply(auth::setup()),
+                _ => match agent::call(ctx, method, input).await {
+                    Some(answer) => answer,
+                    None => Err(PluginError::unknown_method(method)),
+                },
             }
         })
     }
@@ -186,15 +211,27 @@ impl Plugin for Aws {
                 }
                 "tailLogs" => {
                     let TailParams {
-                        profile,
+                        target,
                         log_group,
                         log_stream,
                         since,
                     } = params(input)?;
-                    logs::tail(profile, log_group, log_stream, since, sink).await
+                    logs::tail(target, log_group, log_stream, since, sink).await
                 }
                 _ => Err(PluginError::unknown_method(method)),
             }
+        })
+    }
+
+    fn offers_agent_tools<'a>(
+        &'a self,
+        _ctx: &'a PluginContext,
+        _remotes: &'a [String],
+    ) -> PluginFuture<'a, bool> {
+        Box::pin(async {
+            Ok(tokio::task::spawn_blocking(auth::aws_in_use)
+                .await
+                .unwrap_or(false))
         })
     }
 }

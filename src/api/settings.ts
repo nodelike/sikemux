@@ -1,5 +1,5 @@
 import { invokeCommand as invoke } from "./invoke";
-import { open } from "@tauri-apps/plugin-dialog";
+import { dialogsApi } from "./dialogs";
 import type { ProjectRoot } from "../state/types";
 
 export interface ProjectEntry {
@@ -17,21 +17,9 @@ export const settingsApi = {
     scanProjectRoots: (roots: ProjectRoot[]) => invoke<ProjectEntry[]>("scan_project_roots", { roots }),
     expandPath: (path: string) => invoke<string>("expand_path", { path }),
     isDirectory: (path: string) => invoke<boolean>("is_directory", { path }),
-    pickFolder: async (defaultPath?: string): Promise<string | null> => {
-        const picked = await open({
-            directory: true,
-            multiple: false,
-            defaultPath,
-        });
-        if (picked == null) return null;
-        return Array.isArray(picked) ? (picked[0] ?? null) : picked;
-    },
-    pickImage: async (): Promise<string | null> => {
-        const picked = await open({
-            multiple: false,
+    pickFolder: (defaultPath?: string) => dialogsApi.pickFolder({ defaultPath }),
+    pickImage: () =>
+        dialogsApi.pickFile({
             filters: [{ name: "Images", extensions: ["png", "jpg", "jpeg", "webp", "gif", "avif", "heic", "bmp", "tiff"] }],
-        });
-        if (picked == null) return null;
-        return Array.isArray(picked) ? (picked[0] ?? null) : picked;
-    },
+        }),
 };

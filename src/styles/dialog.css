@@ -5,7 +5,7 @@
  * The one modal surface in the product, so it sets the pattern the palettes
  * follow: a scrim that dims without tinting, one raised card with a hairline
  * and real height, and a footer whose primary action is the only filled thing
- * on screen. See DESIGN.md § Overlays.
+ * on screen.
  */
 .dlg-scrim {
     position: fixed;
@@ -48,8 +48,8 @@
     height: 26px;
     flex: none;
     border-radius: var(--radius-2);
-    color: var(--acc);
-    background: var(--surface-selected);
+    color: var(--text-primary);
+    background: var(--surface-chosen);
 }
 .dlg.danger .dlg-glyph {
     color: var(--danger);
@@ -200,6 +200,29 @@
 .dlg-btn.primary.danger:hover:not(:disabled) {
     background: color-mix(in oklab, var(--danger) 88%, white 12%);
     color: var(--on-danger);
+}
+
+/* Signing an agent account in looks like a plugin's sign-in, in a dialog card. */
+.account-dlg .signin-screen {
+    padding: var(--space-6) var(--space-5) var(--space-5);
+}
+.account-signed-out {
+    display: flex;
+    gap: var(--space-1h);
+}
+.account-signed-out > .signin-choice:first-child {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+.account-remove {
+    flex: none;
+    justify-content: center;
+    width: 40px;
+    padding: 0;
+    color: var(--text-tertiary);
+}
+.account-remove:hover {
+    color: var(--danger);
 }
 
 @keyframes dlgScrimIn {

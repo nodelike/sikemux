@@ -1,0 +1,42 @@
+---
+title: OpenCode
+description: "OpenCode in Sikemux: install, sign-in with a provider, chats and skills."
+---
+
+OpenCode is an open-source coding agent that works with many model providers.
+
+## At a glance
+
+| | |
+|---|---|
+| Command | `opencode` |
+| Chat in Sikemux | Yes, and its own TUI |
+| Permission modes | Normal only |
+| Effort levels | Not offered in Sikemux |
+| Several accounts | No |
+
+## Install
+
+```bash
+curl -fsSL https://opencode.ai/install | bash
+```
+
+It installs to `~/.opencode/bin/opencode` and updates itself.
+
+## Sign in
+
+OpenCode signs in per model provider:
+
+```bash
+opencode auth login
+```
+
+Sikemux reads OpenCode as signed in when `opencode auth list` shows a credential, or when your shell sets an API key for one of its providers.
+
+## How Sikemux runs it
+
+A chat runs `opencode acp`, OpenCode's [Agent Client Protocol](https://agentclientprotocol.com) mode. OpenCode has no YOLO mode, so it always runs with its own approvals.
+
+## Skills
+
+Sikemux adds its skills library to OpenCode's skill paths for each chat, alongside the paths you configured.

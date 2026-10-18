@@ -3,7 +3,6 @@
 // port, each at a path of its own, so only one port has to stay free.
 
 use std::fmt;
-use std::io::Read;
 use std::time::Duration;
 
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -36,10 +35,9 @@ pub fn redirect_uri(path: &str) -> String {
 /// asked for is turned away.
 pub fn new_state() -> LoopbackResult<String> {
     let mut bytes = [0u8; 16];
-    std::fs::File::open("/dev/urandom")
-        .and_then(|mut source| source.read_exact(&mut bytes))
+    getrandom::fill(&mut bytes)
         .map_err(|error| LoopbackError(format!("no randomness: {error}")))?;
-    Ok(bytes.iter().map(|byte| format!("{byte:02x}")).collect())
+    Ok(hex::encode(bytes))
 }
 
 /// Listens on both loopback addresses, since a browser may try `localhost`

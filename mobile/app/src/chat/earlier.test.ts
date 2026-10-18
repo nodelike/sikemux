@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
+import { earlierMessages, withEarlier } from '@mac/chat/earlier';
 import { chatReducer, initialChatState } from '@mac/chat/reducer';
+import { runningSubagents } from '@mac/chat/transcript';
 
 import { parsed } from './chatEvents';
-import { earlierMessages, withEarlier } from './earlier';
 
 const update = (update: Record<string, unknown>) => ({ kind: 'session_update', payload: { sessionId: 's', update } });
 const said = (messageId: string, text: string) =>
@@ -41,7 +42,7 @@ describe('a chat shown from its last turns', () => {
 
   it('puts earlier turns above without touching what is on screen', () => {
     const shown = reduced([...turn(2), ...turn(3)]);
-    const page = earlierMessages(parsed(JSON.stringify([...turn(0), ...turn(1)])), 1);
+    const page = earlierMessages({ number: 1, actions: parsed(JSON.stringify([...turn(0), ...turn(1)])) }, []);
     const state = withEarlier(shown, page);
 
     expect(texts(state.messages)).toEqual(['ask 0', 'answer 0', 'ask 1', 'answer 1', 'ask 2', 'answer 2', 'ask 3', 'answer 3']);
@@ -54,13 +55,44 @@ describe('a chat shown from its last turns', () => {
   });
 
   it('keeps a tool call and its result together within a page', () => {
-    const [, answer] = earlierMessages(parsed(JSON.stringify(turn(0))), 1);
+    const [, answer] = earlierMessages({ number: 1, actions: parsed(JSON.stringify(turn(0))) }, []);
     const tool = answer.parts.find((part) => part.kind === 'tool');
     expect(tool?.kind === 'tool' && tool.tool.status).toBe('completed');
   });
 
   it('leaves the chat alone when a page is empty', () => {
     const shown = reduced(turn(0));
-    expect(withEarlier(shown, earlierMessages([], 1))).toBe(shown);
+    expect(withEarlier(shown, earlierMessages({ number: 1, actions: [] }, []))).toBe(shown);
+  });
+
+  it('counts the subagents a whole chat would, once an earlier page joins the end', () => {
+    const spawned = (session: string, id: string) => ({
+      kind: 'session_update',
+      payload: { sessionId: session, update: { sessionUpdate: 'subagent_spawned', subagentSessionId: id, name: id } },
+    });
+    const ended = (id: string) => update({ sessionUpdate: 'subagent_state_update', subagentSessionId: id, state: 'completed' });
+    const page = [...turn(0), spawned('s', 'corpus'), spawned('corpus', 'fixtures'), spawned('s', 'still')];
+    // The host starts the end with the starts of the subagents it speaks of.
+    const tail = [
+      spawned('s', 'corpus'),
+      spawned('corpus', 'fixtures'),
+      spawned('s', 'still'),
+      ...turn(1),
+      ended('fixtures'),
+      ended('corpus'),
+    ];
+    const whole = reduced([...page, ...tail]);
+    const shown = reduced(tail);
+    const stitched = withEarlier(
+      shown,
+      earlierMessages({ number: 1, actions: parsed(JSON.stringify(page)) }, parsed(JSON.stringify(tail))),
+    );
+
+    const names = (state: typeof whole) => runningSubagents(state.messages).map((subagent) => subagent.name);
+    expect(names(whole)).toEqual(['still']);
+    expect(names(shown)).toEqual(['still']);
+    expect(names(stitched)).toEqual(['still']);
+    const cards = stitched.messages.flatMap((message) => message.parts.filter((part) => part.kind === 'subagent'));
+    expect(cards).toHaveLength(2);
   });
 });

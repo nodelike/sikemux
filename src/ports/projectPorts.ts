@@ -2,7 +2,8 @@ import type { ListeningPort } from "../api/ports";
 import { collectPanes } from "../state/layout";
 import { agentIdsOf, activeAgentId, terminalLabel } from "../state/selectors";
 import type { StoreState } from "../state/store";
-import { taskPtyBindings } from "../tasks/nativeRuntime";
+import { taskPtyBindings, type TaskPtyBinding } from "../tasks/nativeRuntime";
+import { terminalKeyOfExecution } from "../tasks/runtime";
 
 type PortsState = Pick<StoreState, "sessions" | "windows" | "windowsBySession" | "agents" | "agentActivity" | "desks" | "terminalTitles">;
 
@@ -17,7 +18,14 @@ export interface ProjectPort {
     process: string;
     url: string;
     preview: boolean;
-    owner: { kind: "terminal" | "task" | "agent"; label: string; reveal: PortReveal | null };
+    owner: {
+        kind: "terminal" | "task" | "agent";
+        label: string;
+        reveal: PortReveal | null;
+        terminalKey?: string;
+        /** Set when a task run listens here, so it can be stopped. */
+        executionId?: string;
+    };
 }
 
 const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "0.0.0.0", "[::1]", "[::]"]);
@@ -57,30 +65,50 @@ export function deskAgentFor(state: PortsState, sessionId: string): string | nul
     return live.sort((left, right) => lastWorked(right) - lastWorked(left))[0] ?? null;
 }
 
-function agentOwner(state: PortsState, agentId: string): ProjectPort["owner"] {
-    return { kind: "agent", label: state.agents[agentId]?.title || "agent", reveal: { kind: "agent", agentId } };
+function agentOwner(state: PortsState, agentId: string, executionId?: string): ProjectPort["owner"] {
+    const terminalKey = executionId ? (terminalKeyOfExecution(executionId) ?? undefined) : undefined;
+    return {
+        kind: "agent",
+        label: state.agents[agentId]?.title || "agent",
+        reveal: { kind: "agent", agentId },
+        ...(executionId ? { executionId, terminalKey } : {}),
+    };
+}
+
+function taskTerminal(
+    state: PortsState,
+    sessionId: string,
+    matches: (binding: TaskPtyBinding) => boolean,
+): { label: string; reveal: PortReveal } | null {
+    const bound = (id: string) => {
+        const binding = taskPtyBindings.getSnapshot(id);
+        return binding !== null && matches(binding);
+    };
+    for (const [agentId, desk] of Object.entries(state.desks))
+        for (const terminal of desk.terminals)
+            if (bound(terminal.id)) return { label: terminal.label, reveal: { kind: "desk-terminal", agentId, id: terminal.id } };
+    const shown = sessionPanes(state, sessionId).find(({ pane }) => bound(pane.id));
+    if (!shown) return null;
+    return { label: shown.pane.title || "task", reveal: { kind: "pane", sessionId, windowId: shown.windowId, paneId: shown.pane.id } };
+}
+
+/** Where a task's output is showing, for opening it when the task fails. */
+export function taskTerminalReveal(state: PortsState, sessionId: string, terminalKey: string): PortReveal | null {
+    return taskTerminal(state, sessionId, (binding) => binding.terminalKey === terminalKey)?.reveal ?? null;
 }
 
 function taskOwner(state: PortsState, sessionId: string, executionId: string): ProjectPort["owner"] {
-    for (const [agentId, desk] of Object.entries(state.desks))
-        for (const terminal of desk.terminals)
-            if (taskPtyBindings.getSnapshot(terminal.id)?.executionId === executionId)
-                return { kind: "task", label: terminal.label, reveal: { kind: "desk-terminal", agentId, id: terminal.id } };
-    const shown = sessionPanes(state, sessionId).find(({ pane }) => taskPtyBindings.getSnapshot(pane.id)?.executionId === executionId);
-    if (shown)
-        return {
-            kind: "task",
-            label: shown.pane.title || "task",
-            reveal: { kind: "pane", sessionId, windowId: shown.windowId, paneId: shown.pane.id },
-        };
-    return { kind: "task", label: "task", reveal: null };
+    const terminalKey = terminalKeyOfExecution(executionId) ?? undefined;
+    const shown = taskTerminal(state, sessionId, (binding) => binding.executionId === executionId);
+    return { kind: "task", label: shown?.label ?? "task", reveal: shown?.reveal ?? null, ...(terminalKey ? { terminalKey } : {}), executionId };
 }
 
 function ownerIn(state: PortsState, sessionId: string, project: string, port: ListeningPort): ProjectPort["owner"] | null {
     const owner = port.owner;
     if (owner.kind === "agent" || owner.agentId) {
         const agentId = owner.agentId!;
-        return agentIdsOf(state, sessionId).includes(agentId) ? agentOwner(state, agentId) : null;
+        const executionId = owner.kind === "pty" ? (owner.taskExecutionId ?? undefined) : undefined;
+        return agentIdsOf(state, sessionId).includes(agentId) ? agentOwner(state, agentId, executionId) : null;
     }
     if (owner.taskExecutionId) return owner.project === project ? taskOwner(state, sessionId, owner.taskExecutionId) : null;
     if (owner.paneId) {

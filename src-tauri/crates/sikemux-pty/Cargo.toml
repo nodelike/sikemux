@@ -9,6 +9,7 @@ sikemux-process = { path = "../sikemux-process" }
 sikemux-wire = { path = "../sikemux-wire" }
 portable-pty = "0.9"
 vt100 = "0.16"
+memchr = "2"
 regex = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }

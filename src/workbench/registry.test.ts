@@ -13,7 +13,7 @@ import {
     type PersistedCodecResult,
 } from "./registry";
 
-const BUILTIN_KINDS = ["terminal", "editor", "git", "diff", "search", "agent", "desk"] as const satisfies readonly CorePaneKind[];
+const BUILTIN_KINDS = ["terminal", "editor", "git", "diff", "search", "agent", "desk", "shared", "board"] as const satisfies readonly CorePaneKind[];
 
 function nullEnvelope(itemId: string, kind: PaneKind, overrides: Record<string, unknown> = {}): Record<string, unknown> {
     return { itemId, kind, version: 1, state: null, ...overrides };

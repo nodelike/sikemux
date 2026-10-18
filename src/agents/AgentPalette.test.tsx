@@ -7,6 +7,8 @@ const mocks = vi.hoisted(() => ({
     sessions: vi.fn(),
 }));
 
+const { installAgent, signInAgent } = vi.hoisted(() => ({ installAgent: vi.fn(), signInAgent: vi.fn() }));
+vi.mock("./AgentInstall", () => ({ installAgent, signInAgent }));
 vi.mock("../api/agents", () => ({
     agentApi: {
         available: mocks.available,
@@ -200,6 +202,43 @@ describe("AgentPalette", () => {
         await user.click(screen.getByRole("button", { name: "+ new Codex in Normal mode" }));
         expect(agentIdsOf(getState(), "sess-project")).toEqual([]);
         expect(getState().agentPaletteOpen).toBe(true);
+    });
+
+    it("offers to install an agent that is not on this machine", async () => {
+        const user = userEvent.setup();
+        openTerminal();
+        render(<AgentPalette />);
+
+        const grok = await screen.findByRole("button", { name: "Install Grok" });
+        expect(grok).toHaveTextContent("xAI's coding agent");
+        expect(screen.queryByRole("button", { name: /Install Codex/ })).not.toBeInTheDocument();
+        expect(screen.queryByRole("button", { name: /Muse/ })).not.toBeInTheDocument();
+
+        await user.type(screen.getByRole("textbox", { name: "Search agent sessions" }), "install gr");
+        expect(screen.getByRole("button", { name: "Install Grok" })).toBeInTheDocument();
+        await user.click(screen.getByRole("button", { name: "Install Grok" }));
+        expect(installAgent).toHaveBeenCalledWith("grok");
+        expect(agentIdsOf(getState(), "sess-project")).toEqual([]);
+        expect(getState().agentPaletteOpen).toBe(false);
+    });
+
+    it("offers a signed-out agent's own sign-in beside starting it", async () => {
+        const user = userEvent.setup();
+        mocks.available.mockResolvedValue([
+            { type: "codex", label: "Codex", command: "/opt/bin/codex", defaultModel: null, defaultEffort: null, status: { state: "signedOut" } },
+        ]);
+        invalidate((kind) => kind === "agents.catalog" || kind === "agents.sessions");
+        openTerminal();
+        render(<AgentPalette />);
+
+        expect(await screen.findByRole("button", { name: /^\+ new Codex/ })).toBeInTheDocument();
+        await user.type(screen.getByRole("textbox", { name: "Search agent sessions" }), "sign in");
+        const signIn = screen.getByRole("button", { name: "Sign in to Codex" });
+        expect(signIn).toHaveTextContent("Signed out");
+        await user.click(signIn);
+        expect(signInAgent).toHaveBeenCalledWith(expect.objectContaining({ type: "codex", command: "/opt/bin/codex" }));
+        expect(agentIdsOf(getState(), "sess-project")).toEqual([]);
+        expect(getState().agentPaletteOpen).toBe(false);
     });
 
     it("says a signed-out agent will ask to sign in, and still starts it", async () => {

@@ -144,8 +144,7 @@
     overflow: hidden;
 }
 .gha-label {
-    display: inline-flex;
-    align-items: center;
+    display: inline-block;
     flex: 0 0 auto;
     height: 17px;
     max-width: 18ch;
@@ -156,7 +155,7 @@
     color: var(--text-secondary);
     font-size: var(--text-3xs);
     font-weight: var(--weight-medium);
-    line-height: 1;
+    line-height: 15px;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -189,4 +188,17 @@
 }
 .gha-item-row[data-unread="0"] .gha-item-title {
     color: var(--text-secondary);
+}
+.gha-list-title {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-1h);
+    flex: none;
+    margin: 0 var(--space-2) 0 0;
+    color: var(--text-primary);
+    font-size: var(--text-sm);
+    font-weight: var(--weight-medium);
+}
+.gha-list-title > svg {
+    color: var(--text-tertiary);
 }

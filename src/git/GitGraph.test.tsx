@@ -93,14 +93,13 @@ describe("GitGraph", () => {
         node("a", []),
     ];
 
-    it("labels a commit's refs by kind, folding the overflow into a count", () => {
+    it("labels a commit with its first ref, leaving the rest to the row's tooltip", () => {
         render(<GitGraph commits={history} selectedIndex={0} focused range={null} onSelect={() => {}} onActivate={() => {}} />);
         const row = screen.getByRole("button", { name: "m feat(git): merge" });
         expect(row).toHaveClass("sel");
+        expect(row.querySelectorAll(".gg-ref")).toHaveLength(1);
         expect(row.querySelector(".gg-ref.branch")).toHaveTextContent("main");
-        expect(row.querySelector(".gg-ref.remote")).toHaveTextContent("origin/main");
-        expect(row.querySelector(".gg-ref.more")).toHaveTextContent("+1");
-        expect(row.querySelector(".gg-ref.more")).toHaveAttribute("title", "tag: v1");
+        expect(row.getAttribute("title")).toContain("origin/main, tag: v1");
         expect(row).toHaveTextContent("merge");
         expect(row.querySelector(".gg-subj")).toHaveTextContent(/^merge$/);
     });

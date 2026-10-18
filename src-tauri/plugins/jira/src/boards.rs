@@ -1,6 +1,7 @@
 //! Jira Software boards: which ones the person can see, a board's columns with the issues
 //! in each, and moving an issue into another column.
 
+use std::collections::{BTreeSet, HashMap};
 use std::path::Path;
 
 use reqwest::Method;
@@ -10,7 +11,9 @@ use serde_json::{json, Value};
 use crate::auth;
 use crate::client::{self, Credentials};
 use crate::error::{JiraError, JiraResult};
-use crate::issues::{issue_path, sprint_field, summarise, text, IssueSummary, SUMMARY_FIELDS};
+use crate::issues::{
+    custom_fields, issue_path, summarise, text, CustomFields, IssueSummary, SUMMARY_FIELDS,
+};
 
 /// How many issues one board shows; a board this full is better narrowed in Jira itself.
 const BOARD_ISSUES_MAX: usize = 300;
@@ -24,6 +27,8 @@ pub struct Board {
     /// `scrum` or `kanban`.
     pub kind: String,
     pub project: Option<String>,
+    /// The project's key when the board belongs to one rather than to a person.
+    pub project_key: Option<String>,
 }
 
 #[derive(Serialize, Debug, PartialEq)]
@@ -77,6 +82,7 @@ pub fn boards_of(body: &Value) -> Vec<Board> {
                         kind: text(board.get("type")).unwrap_or_else(|| "kanban".into()),
                         project: text(board.pointer("/location/projectKey"))
                             .or_else(|| text(board.pointer("/location/displayName"))),
+                        project_key: text(board.pointer("/location/projectKey")),
                     })
                 })
                 .collect()
@@ -101,11 +107,137 @@ pub async fn boards(data_dir: &Path, request: BoardsRequest) -> JiraResult<Vec<B
     Ok(boards_of(&body))
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
 pub struct BoardRequest {
     pub id: u64,
     #[serde(default)]
     pub site: Option<String>,
+    /// Account ids whose cards to show. With none of these set, the whole board shows.
+    #[serde(default)]
+    pub people: Vec<String>,
+    #[serde(default)]
+    pub mine: bool,
+    #[serde(default)]
+    pub unassigned: bool,
+}
+
+/// The JQL that keeps only the cards of the people picked on a board, or nothing when nobody is.
+pub fn people_clause(request: &BoardRequest) -> Option<String> {
+    let mut picks = Vec::new();
+    if !request.people.is_empty() {
+        let ids: Vec<String> = request
+            .people
+            .iter()
+            .map(|id| format!("\"{}\"", id.replace('\\', "\\\\").replace('"', "\\\"")))
+            .collect();
+        picks.push(format!("assignee in ({})", ids.join(", ")));
+    }
+    if request.mine {
+        picks.push("assignee = currentUser()".to_string());
+    }
+    if request.unassigned {
+        picks.push("assignee is EMPTY".to_string());
+    }
+    (!picks.is_empty()).then(|| format!("({})", picks.join(" OR ")))
+}
+
+/// A kanban board with a backlog keeps it on its own page, as the first column of its
+/// configuration; Jira's board leaves that column off, and so its issues.
+pub fn drop_backlog_column(configuration: &mut Value) {
+    if let Some(columns) = configuration
+        .pointer_mut("/columnConfig/columns")
+        .and_then(Value::as_array_mut)
+    {
+        if !columns.is_empty() {
+            columns.remove(0);
+        }
+    }
+}
+
+/// What a kanban board shows: the people picked, the board's own sub-filter, and done work
+/// from the last two weeks only, as Jira hides older completed issues.
+pub fn kanban_jql(people: Option<&str>, configuration: &Value) -> String {
+    let sub_filter = text(configuration.pointer("/subQuery/query"))
+        .filter(|query| !query.trim().is_empty())
+        .map(|query| format!("({query})"));
+    let clauses: Vec<String> = [
+        people.map(str::to_string),
+        sub_filter,
+        Some("(statusCategory != Done OR updated >= -14d)".into()),
+    ]
+    .into_iter()
+    .flatten()
+    .collect();
+    format!("{} ORDER BY Rank ASC", clauses.join(" AND "))
+}
+
+/// The colour an epic wears: its board colour as `color_N` where its project keeps one, else its own colour by name.
+pub fn epic_color(fields: &Value, ids: &CustomFields) -> Option<String> {
+    let board = ids
+        .epic_color
+        .as_deref()
+        .and_then(|id| text(fields.get(id)))
+        .and_then(|label| {
+            label
+                .strip_prefix("ghx-label-")
+                .map(|number| format!("color_{number}"))
+        });
+    board.or_else(|| {
+        ids.issue_color
+            .as_deref()
+            .and_then(|id| text(fields.get(id)))
+    })
+}
+
+/// The colours of the epics the cards sit under, read from the epics themselves, by epic key.
+async fn parent_colors(
+    credentials: &Credentials,
+    ids: &CustomFields,
+    issues: &[Value],
+) -> HashMap<String, String> {
+    let wanted: Vec<&str> = [ids.epic_color.as_deref(), ids.issue_color.as_deref()]
+        .into_iter()
+        .flatten()
+        .collect();
+    let keys: BTreeSet<String> = issues
+        .iter()
+        .filter_map(|issue| text(issue.pointer("/fields/parent/key")))
+        .collect();
+    let mut colors = HashMap::new();
+    if wanted.is_empty() {
+        return colors;
+    }
+    for chunk in keys.into_iter().collect::<Vec<_>>().chunks(PAGE) {
+        let body = json!({
+            "jql": format!("key in ({})", chunk.join(",")),
+            "maxResults": chunk.len(),
+            "fields": wanted,
+        });
+        let Ok(answer) = client::send(
+            credentials,
+            Method::POST,
+            "/rest/api/3/search/jql",
+            &[],
+            Some(&body),
+        )
+        .await
+        else {
+            break;
+        };
+        for epic in answer
+            .get("issues")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+        {
+            let fields = epic.get("fields").unwrap_or(&Value::Null);
+            if let (Some(key), Some(color)) = (text(epic.get("key")), epic_color(fields, ids)) {
+                colors.insert(key, color);
+            }
+        }
+    }
+    colors
 }
 
 /// Puts each issue in the column that holds its status, keeping the board's column order.
@@ -115,6 +247,7 @@ pub fn arrange(
     issues: &[Value],
     site: &str,
     sprint_field: Option<&str>,
+    epics: &HashMap<String, String>,
 ) -> Vec<Column> {
     let mut columns: Vec<Column> = configuration
         .pointer("/columnConfig/columns")
@@ -147,7 +280,11 @@ pub fn arrange(
             .iter_mut()
             .find(|column| column.status_ids.contains(&status))
         {
-            column.issues.push(summarise(issue, site, sprint_field));
+            let mut card = summarise(issue, site, sprint_field);
+            if let Some(parent) = card.parent.as_mut() {
+                parent.color = epics.get(&parent.key).cloned();
+            }
+            column.issues.push(card);
         }
     }
     columns
@@ -203,13 +340,20 @@ pub async fn board(data_dir: &Path, request: BoardRequest) -> JiraResult<BoardVi
     let (site, credentials) = auth::credentials(data_dir, request.site.as_deref()).await?;
     let base = format!("/rest/agile/1.0/board/{}", request.id);
     let configuration_path = format!("{base}/configuration");
-    let (about, configuration, sprint_field) = tokio::join!(
+    let backlog_path = format!("{base}/backlog");
+    let count_only = [("maxResults", "0".to_string())];
+    let (about, configuration, ids, backlog) = tokio::join!(
         client::send(&credentials, Method::GET, &base, &[], None),
         client::send(&credentials, Method::GET, &configuration_path, &[], None),
-        sprint_field(&site, &credentials),
+        custom_fields(&site, &credentials),
+        client::send(&credentials, Method::GET, &backlog_path, &count_only, None),
     );
-    let (about, configuration) = (about?, configuration?);
+    let sprint_field = ids.sprint.clone();
+    let (about, mut configuration) = (about?, configuration?);
     let kind = text(about.get("type")).unwrap_or_else(|| "kanban".into());
+    if kind == "kanban" && backlog.is_ok() {
+        drop_backlog_column(&mut configuration);
+    }
     let sprint = if kind == "scrum" {
         let sprints = client::send(
             &credentials,
@@ -227,31 +371,34 @@ pub async fn board(data_dir: &Path, request: BoardRequest) -> JiraResult<BoardVi
         Some(field) => format!("{SUMMARY_FIELDS},{field}"),
         None => SUMMARY_FIELDS.into(),
     };
+    let people = people_clause(&request);
     let (issues, truncated) = match &sprint {
         Some(sprint) => {
             issues_from(
                 &credentials,
                 &format!("{base}/sprint/{}/issue", sprint.id),
                 &fields,
-                None,
+                people.as_deref(),
             )
             .await?
         }
         None => {
-            issues_from(
-                &credentials,
-                &format!("{base}/issue"),
-                &fields,
-                Some("statusCategory != Done OR updated >= -14d ORDER BY Rank ASC"),
-            )
-            .await?
+            let jql = kanban_jql(people.as_deref(), &configuration);
+            issues_from(&credentials, &format!("{base}/issue"), &fields, Some(&jql)).await?
         }
     };
+    let epics = parent_colors(&credentials, &ids, &issues).await;
     Ok(BoardView {
         id: request.id,
         name: text(about.get("name")).unwrap_or_default(),
         kind,
-        columns: arrange(&configuration, &issues, &site.host, sprint_field.as_deref()),
+        columns: arrange(
+            &configuration,
+            &issues,
+            &site.host,
+            sprint_field.as_deref(),
+            &epics,
+        ),
         sprint,
         truncated,
     })
@@ -315,6 +462,27 @@ pub async fn move_issue(data_dir: &Path, request: MoveRequest) -> JiraResult<()>
 mod tests {
     use super::*;
 
+    #[test]
+    fn people_clause_keeps_the_whole_board_when_nobody_is_picked() {
+        assert_eq!(people_clause(&BoardRequest::default()), None);
+    }
+
+    #[test]
+    fn people_clause_matches_anyone_picked() {
+        let request = BoardRequest {
+            people: vec!["5b10:ac8d".into(), "6c2\"x".into()],
+            mine: true,
+            unassigned: true,
+            ..BoardRequest::default()
+        };
+        assert_eq!(
+            people_clause(&request).as_deref(),
+            Some(
+                r#"(assignee in ("5b10:ac8d", "6c2\"x") OR assignee = currentUser() OR assignee is EMPTY)"#
+            )
+        );
+    }
+
     fn issue(key: &str, status: &str) -> Value {
         json!({ "key": key, "fields": {
             "summary": format!("{key} summary"),
@@ -336,13 +504,15 @@ mod tests {
                     id: 7,
                     name: "CIQ board".into(),
                     kind: "scrum".into(),
-                    project: Some("CIQ".into())
+                    project: Some("CIQ".into()),
+                    project_key: Some("CIQ".into()),
                 },
                 Board {
                     id: 9,
                     name: "Support".into(),
                     kind: "kanban".into(),
-                    project: Some("Help desk".into())
+                    project: Some("Help desk".into()),
+                    project_key: None,
                 },
             ]
         );
@@ -361,7 +531,13 @@ mod tests {
             issue("A-3", "10001"),
             issue("A-4", "999"),
         ];
-        let columns = arrange(&configuration, &issues, "acme.atlassian.net", None);
+        let columns = arrange(
+            &configuration,
+            &issues,
+            "acme.atlassian.net",
+            None,
+            &HashMap::new(),
+        );
         let keys: Vec<(&str, Vec<&str>)> = columns
             .iter()
             .map(|column| {

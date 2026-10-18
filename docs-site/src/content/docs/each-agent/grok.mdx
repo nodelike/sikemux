@@ -1,0 +1,38 @@
+---
+title: Grok
+description: "xAI's Grok agent in Sikemux: install, sign-in, chats and skills."
+---
+
+Grok is xAI's coding agent.
+
+## At a glance
+
+| | |
+|---|---|
+| Command | `grok` |
+| Chat in Sikemux | Yes, and its own TUI |
+| Permission modes | Normal and YOLO |
+| Effort levels | none, minimal, low, medium, high, xhigh, max |
+| Several accounts | No |
+
+## Install
+
+```bash
+curl -fsSL https://x.ai/cli/install.sh | bash
+```
+
+It installs to `~/.grok/bin/grok` and adds a block to your shell's startup file so `grok` is on your `PATH`. Sikemux finds it in `~/.grok/bin` either way.
+
+## Sign in
+
+```bash
+grok login
+```
+
+Grok has no sign-in check Sikemux can ask, so a chat refused for want of a sign-in marks it signed out and offers **Sign in to Grok**.
+
+## How Sikemux runs it
+
+A chat runs `grok agent --no-leader stdio`. Grok normally shares one background process between its windows. `--no-leader` gives each chat its own, so one chat's approvals never reach another.
+
+Like Hermes, Grok runs in a private home Sikemux prepares. That's how it gets the skills library and a plugin that checks its shell commands, since Grok's own login PATH puts the system `git` ahead of Sikemux's.

@@ -26,10 +26,10 @@
     place-items: center;
     width: 42px;
     height: 42px;
-    border: 1px solid color-mix(in srgb, var(--acc) 52%, var(--border));
+    border: 1px solid var(--border);
     border-radius: var(--radius-panel);
-    background: color-mix(in srgb, var(--acc) 14%, var(--bg-raised, var(--surface-raised)));
-    color: var(--acc);
+    background: var(--surface-chosen);
+    color: var(--text-primary);
     font-weight: 800;
     letter-spacing: 0.04em;
 }
@@ -51,15 +51,15 @@
 .boot-state button {
     margin-top: 4px;
     padding: 8px 12px;
-    border: 1px solid color-mix(in srgb, var(--acc) 48%, var(--border));
+    border: 1px solid var(--acc);
     border-radius: var(--radius-control);
-    background: color-mix(in srgb, var(--acc) 12%, var(--bg-raised, var(--surface-raised)));
-    color: var(--text-primary);
+    background: var(--acc);
+    color: var(--on-accent);
     cursor: pointer;
 }
 
 .boot-state button:hover {
-    background: color-mix(in oklab, var(--ink) 6%, var(--bg-raised, var(--surface-raised)));
+    filter: brightness(1.08);
 }
 
 .body {
@@ -87,6 +87,7 @@
     border-bottom: 1px solid var(--border);
     position: relative;
     z-index: 5;
+    border-radius: var(--radius-2);
 }
 
 .tb-left {
@@ -122,37 +123,48 @@
     flex: 0 0 auto;
 }
 
-.zoom-pill {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    font-size: 10px;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    color: var(--warn);
-    border: 1px solid rgba(255, 202, 133, 0.3);
-    padding: 2px 7px;
-}
-
-.voice-pill {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    font-size: 10px;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
+/* Dictation is a mic in the bar: it pulses while listening and dims while the words are written out. */
+.voice-mic {
+    position: relative;
+    display: grid;
+    place-items: center;
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
     color: var(--danger);
-    border: 1px solid color-mix(in srgb, var(--danger) 45%, transparent);
-    padding: 2px 7px;
 }
-.voice-pill-listening {
-    animation: tb-update-pulse 1.4s ease-in-out infinite;
+.voice-mic.listening::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background: color-mix(in srgb, var(--danger) 22%, transparent);
+    animation: voice-mic-pulse 1.4s ease-out infinite;
 }
-.voice-pill-transcribing {
+.voice-mic.transcribing {
     color: var(--ink-dim);
-    border-color: var(--line);
+    animation: voice-mic-breathe 1.6s ease-in-out infinite alternate;
+}
+@keyframes voice-mic-pulse {
+    from {
+        opacity: 1;
+        transform: scale(0.6);
+    }
+    to {
+        opacity: 0;
+        transform: scale(1.25);
+    }
+}
+@keyframes voice-mic-breathe {
+    to {
+        opacity: 0.45;
+    }
+}
+@media (prefers-reduced-motion: reduce) {
+    .voice-mic.listening::after,
+    .voice-mic.transcribing {
+        animation: none;
+    }
 }
 .voice-caption {
     position: fixed;
@@ -252,49 +264,14 @@
     transition:
         color 0.12s,
         background 0.12s;
+    border-radius: var(--radius-2);
 }
 .tb-btn:hover {
     color: var(--text-secondary);
     background: var(--surface-raised);
 }
 .tb-btn.on {
-    color: var(--acc);
-}
-
-.tb-account {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    flex: 0 0 auto;
-    width: 26px;
-    height: 26px;
-    padding: 0;
-    color: var(--text-tertiary);
-    user-select: none;
-    -webkit-user-select: none;
-    transition:
-        color 0.12s,
-        background 0.12s;
-}
-.tb-account:hover {
     color: var(--text-primary);
-    background: var(--surface-hover);
-}
-.tb-account-face {
-    display: grid;
-    place-items: center;
-    width: 20px;
-    height: 20px;
-    object-fit: cover;
-    box-shadow: 0 0 0 1px var(--border);
-}
-.tb-account-initials {
-    background: var(--surface-raised);
-    color: var(--text-secondary);
-    font-size: 9px;
-    font-weight: 600;
-    line-height: 1;
-    letter-spacing: 0.02em;
 }
 
 .side-rail {
@@ -303,6 +280,7 @@
     flex: 0 0 auto;
     background: color-mix(in srgb, var(--surface) calc(var(--window-opacity, 1) * 100%), transparent);
     overflow: hidden;
+    border-radius: var(--radius-3);
 }
 .side-rail {
     width: 238px;
@@ -356,6 +334,7 @@
 .sess-row {
     gap: var(--space-2);
     width: auto;
+    border-radius: var(--radius-2);
 }
 .sess-icon-glyph {
     display: flex;
@@ -363,26 +342,16 @@
     justify-content: center;
 }
 .sess-icon.command {
-    color: var(--cmd);
+    color: var(--live);
 }
 .sess-icon.project {
     color: var(--live);
 }
-.sess-icon.aws,
-.icon-aws {
-    color: var(--brand-aws);
-}
-.icon-github {
+.icon-github,
+.icon-linear,
+.icon-vercel {
     color: var(--text-primary);
 }
-.icon-bitbucket {
-    color: var(--brand-bitbucket);
-}
-
-.icon-gitlab {
-    color: var(--brand-gitlab);
-}
-
 .sess-name {
     flex: 1;
     text-align: left;
@@ -400,6 +369,7 @@
     width: 100%;
     cursor: pointer;
     text-align: left;
+    border-radius: var(--radius-2);
 }
 .proj-row.expanded .proj-name {
     font-weight: 600;
@@ -611,15 +581,6 @@
    would animate in from nothing on the first frame. */
 .window-track.sliding {
     transition: transform var(--window-pan-ms) var(--ease-pan);
-}
-/* A close that carries on the way the hand was going starts at the speed the
-   hand had, which is what the curve above opens at. A close that goes back
-   against it cannot: the track is still travelling the other way, and a curve
-   that opens at speed puts most of the way home into the first frame, which
-   reads as the track jumping rather than coming back. So this one drifts on a
-   little the way it was going, stops, and then comes back. */
-.window-track.sliding.returning {
-    transition-timing-function: cubic-bezier(0.34, -0.1, 0.2, 1);
 }
 @media (prefers-reduced-motion: reduce) {
     .window-track.sliding {
@@ -882,24 +843,11 @@
     padding: 2px;
     overflow-x: auto;
     scrollbar-width: none;
-    border: 1px solid color-mix(in oklab, var(--ink) 8%, transparent);
+    border: 1px solid var(--border);
     border-radius: calc(var(--radius-2) + 3px);
-    background: color-mix(in oklab, var(--ink) 3%, transparent);
 }
 .space-track::-webkit-scrollbar {
     display: none;
-}
-.space-track.clipped-start {
-    -webkit-mask-image: linear-gradient(90deg, transparent, #000 20px);
-    mask-image: linear-gradient(90deg, transparent, #000 20px);
-}
-.space-track.clipped-end {
-    -webkit-mask-image: linear-gradient(-90deg, transparent, #000 20px);
-    mask-image: linear-gradient(-90deg, transparent, #000 20px);
-}
-.space-track.clipped-start.clipped-end {
-    -webkit-mask-image: linear-gradient(90deg, transparent, #000 20px, #000 calc(100% - 20px), transparent);
-    mask-image: linear-gradient(90deg, transparent, #000 20px, #000 calc(100% - 20px), transparent);
 }
 .space-track > button {
     display: flex;
@@ -920,15 +868,13 @@
 }
 .space-track > button:hover {
     color: var(--text-primary);
-    background: var(--surface-hover);
 }
 .space-track > button.active {
     color: var(--text-primary);
-    background: var(--surface-selected);
-    border-color: var(--border-selected);
+    background: var(--surface-active);
 }
 .space-track > button.active svg {
-    color: var(--acc);
+    color: var(--text-primary);
 }
 .space-name {
     max-width: 140px;
@@ -975,8 +921,7 @@
 }
 .space-icon-grid > button.active {
     color: var(--text-primary);
-    background: var(--surface-selected);
-    border-color: var(--border-selected);
+    background: var(--surface-chosen);
 }
 .space-icon-none {
     width: 100%;
@@ -992,8 +937,7 @@
 }
 .space-icon-none.active {
     color: var(--text-primary);
-    background: var(--surface-selected);
-    border-color: var(--border-selected);
+    background: var(--surface-chosen);
 }
 .space-editor {
     min-width: 220px;
@@ -1095,7 +1039,21 @@
     background: var(--surface-hover);
 }
 .space-edit-foot > button.done {
-    color: var(--text-primary);
-    background: var(--surface-selected);
-    border-color: var(--border-selected);
+    color: var(--on-accent);
+    background: var(--acc);
+    border-color: var(--acc);
+}
+
+/* A strip that scrolls sideways fades at whichever end has more; useSideScroll says which. */
+.side-scroll.clipped-start {
+    -webkit-mask-image: linear-gradient(90deg, transparent, #000 20px);
+    mask-image: linear-gradient(90deg, transparent, #000 20px);
+}
+.side-scroll.clipped-end {
+    -webkit-mask-image: linear-gradient(-90deg, transparent, #000 20px);
+    mask-image: linear-gradient(-90deg, transparent, #000 20px);
+}
+.side-scroll.clipped-start.clipped-end {
+    -webkit-mask-image: linear-gradient(90deg, transparent, #000 20px, #000 calc(100% - 20px), transparent);
+    mask-image: linear-gradient(90deg, transparent, #000 20px, #000 calc(100% - 20px), transparent);
 }

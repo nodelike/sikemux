@@ -4,10 +4,12 @@
 
 use std::collections::{HashMap, HashSet};
 
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 use crate::acp::account;
 
+use super::super::super::reset::{month_day, WallClock, Zone};
 use super::super::super::states::{self, Subagent};
 use super::super::json::text_or_empty as text;
 use super::super::session::TurnEnd;
@@ -32,11 +34,28 @@ pub(super) enum Effect {
 /// How to answer one of Codex's requests.
 pub(super) enum Reply {
     Ask(Question),
+    /// Codex asks something with request_user_input, which goes the way of
+    /// Sikemux's own questions.
+    PutQuestion,
     Answer(Value),
     Refuse,
 }
 
+/// Codex's request_user_input answered with what the agent is told in place
+/// of the answer, which comes later as a message.
+pub(super) fn user_input_told(params: &Value, told: &str) -> Value {
+    let answers: serde_json::Map<String, Value> = params["questions"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|question| question["id"].as_str())
+        .map(|id| (id.to_owned(), json!({ "answers": [told] })))
+        .collect();
+    json!({ "answers": answers })
+}
+
 /// The turn this side prompted.
+#[derive(Serialize, Deserialize)]
 struct Turn {
     number: u64,
     /// Codex's id for it, once Codex has said.
@@ -47,6 +66,7 @@ struct Turn {
     title: Option<String>,
 }
 
+#[derive(Serialize, Deserialize)]
 pub(super) struct Session {
     pub thread_id: String,
     turn: Option<Turn>,
@@ -58,10 +78,13 @@ pub(super) struct Session {
     /// Turns this side ended already, whose late notifications are dropped.
     stale: HashSet<String>,
     errors: HashMap<String, Value>,
+    /// How many times Codex has retried each turn's request.
+    retries: HashMap<String, u64>,
     /// The turn each of the app's message ids began.
     pub message_turns: HashMap<String, String>,
     items: Items,
     edits: HashMap<String, Value>,
+    #[serde(with = "super::super::json::pairs")]
     tool_calls: HashMap<(String, String), Vec<String>>,
     pub subagents: Subagents,
     pub token_usage: Option<Value>,
@@ -128,6 +151,7 @@ pub(super) fn failure_meta(turn_id: &str, error: &Value) -> Value {
         .as_str()
         .filter(|message| !message.is_empty())
         .unwrap_or("Turn failed");
+    let resets_at = (category == "limit").then(|| resets_at(title)).flatten();
     json!({ "jetbrains": { "air": { "version": 1, "sessionFailure": {
         "id": format!("{turn_id}:error"),
         "revision": 1,
@@ -135,7 +159,43 @@ pub(super) fn failure_meta(turn_id: &str, error: &Value) -> Value {
         "severity": "error",
         "title": title,
         "actions": actions,
+        "resetsAt": resets_at,
     } } } })
+}
+
+/// When a usage limit resets, from the "try again at 2:46 AM" or "try again
+/// at Oct 12th, 2026 2:46 AM" Codex ends its message with, in this host's time.
+fn resets_at(message: &str) -> Option<u64> {
+    let stamp = message
+        .rsplit_once("try again at ")?
+        .1
+        .trim_end_matches('.');
+    let (date, time) = match stamp.split_once(", ") {
+        Some((day, rest)) => {
+            let (year, time) = rest.split_once(' ')?;
+            let (month, day) = month_day(day)?;
+            (Some((Some(year.parse().ok()?), month, day)), time)
+        }
+        None => (None, stamp),
+    };
+    let (clock, half) = time.split_once(' ')?;
+    let pm = match half {
+        "AM" => false,
+        "PM" => true,
+        _ => return None,
+    };
+    let (hour, minute) = clock.split_once(':')?;
+    let (hour, minute): (i32, i32) = (hour.parse().ok()?, minute.parse().ok()?);
+    if !(1..=12).contains(&hour) || !(0..60).contains(&minute) {
+        return None;
+    }
+    WallClock {
+        zone: Zone::Host,
+        date,
+        hour: hour % 12 + if pm { 12 } else { 0 },
+        minute,
+    }
+    .unix_ms()
 }
 
 impl Session {
@@ -149,6 +209,7 @@ impl Session {
             waiting: None,
             stale: HashSet::new(),
             errors: HashMap::new(),
+            retries: HashMap::new(),
             message_turns: HashMap::new(),
             items: Items::default(),
             edits: HashMap::new(),
@@ -159,6 +220,12 @@ impl Session {
             questions: 0,
             gone: false,
         }
+    }
+
+    /// The turn that ended with subagents still at work, which is answered
+    /// once they end or a while has passed.
+    pub fn waiting_turn(&self) -> Option<u64> {
+        self.waiting.as_ref().map(|(turn, _)| *turn)
     }
 
     /// Turn `number` is being sent.
@@ -365,6 +432,7 @@ impl Session {
 
     fn turn_completed(&mut self, ended: &Value) -> Vec<Effect> {
         let id = text(ended, "id");
+        self.retries.remove(id);
         if self.stale.remove(id) {
             return Vec::new();
         }
@@ -446,7 +514,26 @@ impl Session {
         match method {
             "turn/started" => self.turn_started(text(&params["turn"], "id")),
             "turn/completed" => self.turn_completed(&params["turn"]),
-            "error" if params["willRetry"] != true => {
+            "error" if params["willRetry"] == true => {
+                let turn = params["turnId"].as_str().unwrap_or_default().to_owned();
+                if self.stale.contains(&turn) {
+                    return Vec::new();
+                }
+                let attempt = self.retries.entry(turn.clone()).or_default();
+                *attempt += 1;
+                let (category, _) = failure_policy(&params["error"]["codexErrorInfo"]);
+                let detail = params["error"]["message"]
+                    .as_str()
+                    .unwrap_or("Codex is retrying");
+                let update = crate::acp::account::retrying(
+                    &format!("{turn}:retry"),
+                    category,
+                    *attempt,
+                    detail,
+                );
+                vec![Effect::Update(self.thread_id.clone(), update)]
+            }
+            "error" => {
                 if let Some(turn) = params["turnId"].as_str() {
                     self.errors.insert(turn.to_owned(), params["error"].clone());
                 }
@@ -598,7 +685,8 @@ impl Session {
             "item/permissions/requestApproval" => {
                 Reply::Ask(approvals::permissions(&session, params))
             }
-            "item/tool/requestUserInput" => Reply::Answer(json!({ "answers": {} })),
+            "item/tool/requestUserInput" if stale => Reply::Answer(json!({ "answers": {} })),
+            "item/tool/requestUserInput" => Reply::PutQuestion,
             "mcpServer/elicitation/request" if stale => {
                 Reply::Answer(approvals::cancelled_elicitation())
             }
@@ -669,6 +757,50 @@ mod tests {
     }
 
     #[test]
+    fn a_turn_the_stream_dropped_ends_as_the_networks_failure() {
+        let mut session = session();
+        session.titled = true;
+        session.begin(2, None, None);
+        session.started(2, "turn-n");
+        let error = json!({ "message": "stream disconnected before completion", "codexErrorInfo": { "responseStreamDisconnected": {} } });
+        let effects = notify(
+            &mut session,
+            "turn/completed",
+            turn("turn-n", "failed", error),
+        );
+        match ended(&effects) {
+            Some((2, TurnEnd::Failed { failure, .. })) => {
+                assert_eq!(failure.kind, FailureKind::Network);
+                assert_eq!(
+                    failure.details.as_deref(),
+                    Some("stream disconnected before completion")
+                );
+            }
+            _ => panic!("the turn should have failed for want of the network"),
+        }
+    }
+
+    #[test]
+    fn each_retry_codex_makes_is_a_warning_with_its_attempt() {
+        let mut session = Session::new("thread".into());
+        let retry = json!({
+            "error": { "message": "Reconnecting... 1/5", "codexErrorInfo": { "responseStreamDisconnected": {} } },
+            "willRetry": true, "threadId": "thread", "turnId": "turn-a",
+        });
+        notify(&mut session, "error", retry.clone());
+        let effects = notify(&mut session, "error", retry);
+        let [Effect::Update(thread, update)] = effects.as_slice() else {
+            panic!("a retry should tell the chat");
+        };
+        assert_eq!(thread, "thread");
+        let notice = &update["_meta"]["jetbrains"]["air"]["sessionFailure"];
+        assert_eq!(notice["severity"], "warning");
+        assert_eq!(notice["category"], "connection");
+        assert_eq!(notice["attempt"], 2);
+        assert_eq!(notice["title"], "Reconnecting... 1/5");
+    }
+
+    #[test]
     fn a_prompted_turn_ends_when_codex_completes_it() {
         let mut session = session();
         session.begin(1, Some("msg-1".into()), Some("Fix it".into()));
@@ -706,6 +838,23 @@ mod tests {
             _ => panic!("the turn should have completed"),
         }
         assert_eq!(session.active_turn(), None);
+    }
+
+    #[test]
+    fn a_usage_limit_says_when_it_resets() {
+        let now = crate::server::remote::unix_ms();
+        let said = |at: &str| {
+            resets_at(&format!("You've hit your usage limit. Upgrade to Plus to continue using Codex (https://chatgpt.com/explore/plus), or try again at {at}."))
+        };
+        let later = said("Oct 12th, 2027 2:46 AM").expect("a day ahead");
+        assert!(later > now + 300 * 86_400_000);
+        let today = said("11:59 PM").expect("a clock");
+        assert!(today > now && today <= now + 86_400_000);
+        assert_eq!(said("Oct 12th, 2025 2:46 AM"), None);
+        assert_eq!(
+            resets_at("You've hit your usage limit, or try again later."),
+            None
+        );
     }
 
     #[test]
@@ -772,7 +921,7 @@ mod tests {
         assert_eq!(kind(json!("other")), FailureKind::Other);
         assert_eq!(
             kind(json!({ "responseStreamDisconnected": { "httpStatusCode": null } })),
-            FailureKind::Other
+            FailureKind::Network
         );
         assert_eq!(kind(Value::Null), FailureKind::Other);
     }
@@ -915,8 +1064,11 @@ mod tests {
             json!([{ "path": "/nowhere/a.txt" }])
         );
         assert!(matches!(
-            session.question("item/tool/requestUserInput", &json!({ "threadId": "thread" })),
-            Reply::Answer(answer) if answer == json!({ "answers": {} })
+            session.question(
+                "item/tool/requestUserInput",
+                &json!({ "threadId": "thread" })
+            ),
+            Reply::PutQuestion
         ));
         assert!(matches!(
             session.question("item/tool/call", &json!({})),

@@ -1,11 +1,12 @@
-import { useState } from 'react';
+import { createContext, useContext, useState, type ReactNode } from 'react';
 import { ActivityIndicator, Image, Modal, Platform, Pressable, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Directory, File } from 'expo-file-system';
+import { Directory, File, Paths } from 'expo-file-system';
 
 import { haptics } from '@/ui/haptics';
 import { Icon } from '@/ui/Icon';
 import { fonts, type Palette, radius, useColors, useStyles } from '@/ui/theme';
+import { useHostFile } from './hostFiles';
 
 const MIME: Record<string, string> = {
   jpg: 'image/jpeg',
@@ -20,8 +21,18 @@ const MIME: Record<string, string> = {
   tiff: 'image/tiff',
 };
 
+/** A picture a call returned is held as text; the share sheet and the folder picker both want a file. */
+function onDisk(uri: string, name: string): string {
+  const data = /^data:[^,]*;base64,/.exec(uri);
+  if (!data) return uri;
+  const file = new File(Paths.cache, name);
+  file.write(uri.slice(data[0].length), { encoding: 'base64' });
+  return file.uri;
+}
+
 /** iOS's share sheet carries Save Image and Save to Files; Android saves into a folder the person picks, needing no storage access. */
-async function save(uri: string, name: string): Promise<boolean> {
+async function save(shown: string, name: string): Promise<boolean> {
+  const uri = onDisk(shown, name);
   if (Platform.OS === 'ios') {
     const result = await Share.share({ url: uri });
     return result.action === Share.sharedAction;
@@ -97,6 +108,32 @@ export function ImageViewer({ uri, name, onClose }: { uri: string | undefined; n
         ) : null}
       </View>
     </Modal>
+  );
+}
+
+/** A picture to open: one this phone holds, or a file on the host. */
+export type ShownImage = { name: string } & ({ uri: string } | { path: string });
+
+const ShowImageContext = createContext<(image: ShownImage) => void>(() => {});
+
+/** Opens a picture over the whole screen from anywhere under an `ImageViewerHost`, a line of text included. */
+export const useShowImage = () => useContext(ShowImageContext);
+
+function HostImage({ path, name, onClose }: { path: string; name: string; onClose: () => void }) {
+  const uri = useHostFile(path, true);
+  return <ImageViewer uri={uri} name={name} onClose={onClose} />;
+}
+
+/** Holds the viewer for what is drawn under it, since a viewer cannot open from inside a line of text. */
+export function ImageViewerHost({ children }: { children: ReactNode }) {
+  const [shown, setShown] = useState<ShownImage | null>(null);
+  const close = () => setShown(null);
+  return (
+    <ShowImageContext value={setShown}>
+      {children}
+      {shown && 'path' in shown ? <HostImage path={shown.path} name={shown.name} onClose={close} /> : null}
+      {shown && 'uri' in shown ? <ImageViewer uri={shown.uri} name={shown.name} onClose={close} /> : null}
+    </ShowImageContext>
   );
 }
 

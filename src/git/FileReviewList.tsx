@@ -1,11 +1,9 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
-import { useVirtualizer } from "@tanstack/react-virtual";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { CardStream, type CardStreamHandle } from "../ui/CardStream";
 import { FileIcon } from "../ui/FileIcon";
-import { IconChevron } from "../ui/Icons";
+import { IconCollapseAll, IconExpandAll } from "../ui/Icons";
 import { Tooltip } from "../ui/Tooltip";
 import { basename, dirname } from "../lib/paths";
-
-const REVIEW_HEADER_HEIGHT = 29;
 
 export interface FileReviewListProps {
     /** Repository-relative paths, in the order they are listed. */
@@ -21,44 +19,52 @@ export interface FileReviewListProps {
     actions?: (path: string) => ReactNode;
     /** The diff under a file's header, drawn only while that file is open and near the view. */
     body: (path: string, focused: boolean) => ReactNode;
+    /** Folds every file whenever a new set of files arrives, as a commit's list does. */
+    startCollapsed?: boolean;
+    /** Folding every file from outside, by a control that lives elsewhere; the list then shows no toolbar of its own. */
+    foldAll?: { folded: boolean; seq: number };
 }
 
 /**
  * Changed files in one collapsible, virtualized stream: a header per file with its icon, path and status, and its diff
  * under it. Local changes, commits and pull requests are all reviewed through it.
  */
-export function FileReviewList({ paths, focusPath, estimate, onOpenFile, status, actions, body }: FileReviewListProps) {
-    const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
-    const itemRefs = useRef(new Map<string, HTMLDivElement>());
-    const listRef = useRef<HTMLDivElement>(null);
+export function FileReviewList({
+    paths,
+    focusPath,
+    estimate,
+    onOpenFile,
+    status,
+    actions,
+    body,
+    startCollapsed = false,
+    foldAll,
+}: FileReviewListProps) {
+    const [collapsed, setCollapsed] = useState<Set<string>>(() => (startCollapsed ? new Set(paths) : new Set()));
+    const stream = useRef<CardStreamHandle>(null);
     const pathSet = useMemo(() => new Set(paths), [paths]);
     const pathIndex = useMemo(() => new Map(paths.map((path, index) => [path, index])), [paths]);
-    const virtualizer = useVirtualizer({
-        count: paths.length,
-        getScrollElement: () => listRef.current,
-        estimateSize: (index) => {
-            const path = paths[index];
-            if (path === undefined || collapsed.has(path)) return REVIEW_HEADER_HEIGHT;
-            return estimate(path);
-        },
-        getItemKey: (index) => paths[index] ?? index,
-        overscan: 2,
-        initialRect: { width: 1000, height: 800 },
-    });
 
     useEffect(() => {
         setCollapsed((current) => {
+            if (startCollapsed) return new Set(pathSet);
             const next = new Set([...current].filter((path) => pathSet.has(path)));
             return next.size === current.size ? current : next;
         });
-    }, [pathSet]);
+    }, [pathSet, startCollapsed]);
 
+    // Only a new request folds; a changed file list keeps what the reader opened.
+    const listed = useRef(pathSet);
+    listed.current = pathSet;
+    const foldSeq = foldAll?.seq ?? 0;
+    const foldedAll = foldAll?.folded ?? false;
     useEffect(() => {
-        virtualizer.measure();
-    }, [collapsed, paths, virtualizer]);
+        if (foldSeq === 0) return;
+        setCollapsed(foldedAll ? new Set(listed.current) : new Set());
+    }, [foldSeq, foldedAll]);
 
-    const scrollTargets = useRef({ pathIndex, virtualizer });
-    scrollTargets.current = { pathIndex, virtualizer };
+    const scrollTargets = useRef(pathIndex);
+    scrollTargets.current = pathIndex;
     const focusListed = !!focusPath && pathSet.has(focusPath);
 
     // Only a new focus (or one that has just appeared in the list) scrolls. A
@@ -71,11 +77,9 @@ export function FileReviewList({ paths, focusPath, estimate, onOpenFile, status,
             next.delete(focusPath);
             return next;
         });
-        const { pathIndex: index, virtualizer: list } = scrollTargets.current;
-        const row = index.get(focusPath) ?? -1;
+        const row = scrollTargets.current.get(focusPath) ?? -1;
         window.requestAnimationFrame(() => {
-            if (row >= 0) list.scrollToIndex(row, { align: "start" });
-            else itemRefs.current.get(focusPath)?.scrollIntoView?.({ block: "start" });
+            if (row >= 0) stream.current?.scrollToCard(row);
         });
     }, [focusPath, focusListed]);
 
@@ -91,48 +95,40 @@ export function FileReviewList({ paths, focusPath, estimate, onOpenFile, status,
 
     return (
         <div className="merge-review">
-            <div className="merge-review-toolbar">
-                <span className="merge-review-count">
-                    {paths.length} {paths.length === 1 ? "file" : "files"}
-                </span>
-                <button
-                    type="button"
-                    className="merge-review-action"
-                    onClick={() => setCollapsed(new Set())}
-                    disabled={expandedCount === paths.length}>
-                    Expand all
-                </button>
-                <button type="button" className="merge-review-action" onClick={() => setCollapsed(new Set(paths))} disabled={expandedCount === 0}>
-                    Collapse all
-                </button>
-            </div>
-            <div className="merge-review-list" ref={listRef}>
-                <div className="merge-review-virtual" style={{ height: virtualizer.getTotalSize() }}>
-                    {virtualizer.getVirtualItems().map((row) => {
-                        const path = paths[row.index];
-                        if (path === undefined) return null;
-                        // Placed by `top`, not a transform: WebKit draws a sticky file header inside a transformed box at the box's bottom and leaves it there as the list scrolls.
-                        const style: CSSProperties = {
-                            top: row.start,
-                            height: row.size,
-                            overflow: "clip",
-                        };
-                        return (
-                            <div key={row.key} className="merge-review-virtual-item" style={style}>
-                                <div ref={virtualizer.measureElement} data-index={row.index}>
-                                    {renderFile(path)}
-                                </div>
-                            </div>
-                        );
-                    })}
+            {!foldAll && (
+                <div className="merge-review-toolbar">
+                    <span className="merge-review-count">
+                        {paths.length} {paths.length === 1 ? "file" : "files"}
+                    </span>
+                    <button
+                        type="button"
+                        className="merge-review-action"
+                        onClick={() => setCollapsed(new Set())}
+                        disabled={expandedCount === paths.length}>
+                        <IconExpandAll size={12} />
+                        Expand all
+                    </button>
+                    <button type="button" className="merge-review-action" onClick={() => setCollapsed(new Set(paths))} disabled={expandedCount === 0}>
+                        <IconCollapseAll size={12} />
+                        Collapse all
+                    </button>
                 </div>
-            </div>
+            )}
+            <CardStream
+                handle={stream}
+                keys={paths}
+                collapsed={collapsed}
+                onToggle={toggle}
+                estimate={estimate}
+                toggleLabel={(path, open) => `${open ? "Collapse" : "Expand"} ${path}`}
+                itemClassName={(path) => (path === focusPath ? "focused" : "")}
+                header={renderHeader}
+                body={(path) => body(path, path === focusPath)}
+            />
         </div>
     );
 
-    function renderFile(path: string) {
-        const open = !collapsed.has(path);
-        const focused = path === focusPath;
+    function renderHeader(path: string) {
         const name = (
             <>
                 {dirname(path) && <span className="merge-file-dir">{dirname(path)}/</span>}
@@ -140,43 +136,27 @@ export function FileReviewList({ paths, focusPath, estimate, onOpenFile, status,
             </>
         );
         return (
-            <div
-                className={`acc-item merge-review-item${open ? " open" : ""}${focused ? " focused" : ""}`}
-                key={path}
-                ref={(node) => {
-                    if (node) itemRefs.current.set(path, node);
-                    else itemRefs.current.delete(path);
-                }}>
-                <div className="acc-header merge-file-header" onClick={() => toggle(path)}>
-                    <Tooltip label={open ? "Collapse" : "Expand"}>
-                        <button type="button" className="acc-toggle" aria-label={`${open ? "Collapse" : "Expand"} ${path}`}>
-                            <span className={`acc-chev${open ? " open" : ""}`}>
-                                <IconChevron size={11} />
-                            </span>
+            <>
+                <FileIcon name={basename(path)} size={14} />
+                {onOpenFile ? (
+                    <Tooltip label="Open in editor">
+                        <button
+                            type="button"
+                            className="acc-name"
+                            onClick={(event) => {
+                                event.stopPropagation();
+                                onOpenFile(path);
+                            }}>
+                            {name}
                         </button>
                     </Tooltip>
-                    <FileIcon name={basename(path)} size={14} />
-                    {onOpenFile ? (
-                        <Tooltip label="Open in editor">
-                            <button
-                                type="button"
-                                className="acc-name"
-                                onClick={(event) => {
-                                    event.stopPropagation();
-                                    onOpenFile(path);
-                                }}>
-                                {name}
-                            </button>
-                        </Tooltip>
-                    ) : (
-                        <span className="acc-name">{name}</span>
-                    )}
-                    <span className="acc-grow" />
-                    {actions && <span className="merge-file-actions">{actions(path)}</span>}
-                    <span className="merge-file-status">{status(path)}</span>
-                </div>
-                {open && body(path, focused)}
-            </div>
+                ) : (
+                    <span className="acc-name">{name}</span>
+                )}
+                <span className="acc-grow" />
+                {actions && <span className="merge-file-actions">{actions(path)}</span>}
+                <span className="merge-file-status">{status(path)}</span>
+            </>
         );
     }
 }

@@ -1,19 +1,29 @@
-import { focusSignInBrowser, openSignInUrl, swallow } from "../../../plugin-api/host";
+import { focusSignInBrowser, openSignInUrl, openUrl, runInTerminal, swallow } from "../../../plugin-api/host";
 import { invalidate, useResource, useResourceEnabled } from "../../../plugin-api/resources";
 import { IconAws, SignInScreen, SignInWaiting, useSignInAttempt } from "../../../plugin-api/ui";
 import { awsApi, type AwsProfile } from "../api";
 import { deriveAuthState } from "../auth";
-import { awsIdentityR, awsProfilesR } from "../resources";
+import { awsIdentityR, awsProfilesR, awsSetupR } from "../resources";
 import { setAwsProfile } from "../state";
 
-const mark = <IconAws size={28} className="icon-aws" />;
+const mark = <IconAws size={28} />;
+const INSTALL_GUIDE = "https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html";
+
+function checkAgain(): void {
+    invalidate((kind) => kind.startsWith("aws."));
+}
+
+/** The pane reads everything again once the terminal closes, so it moves on by itself. */
+function runSetup(title: string, argv: string[]): void {
+    void runInTerminal(title, argv).then(checkAgain);
+}
 
 function ProfileList({ profiles }: { profiles: AwsProfile[] }) {
     return (
         <div className="signin-choices">
             {profiles.map((p) => (
                 <button key={p.name} type="button" className="signin-choice" onClick={() => setAwsProfile(p.name)}>
-                    <IconAws size={14} className="icon-aws" />
+                    <IconAws size={14} />
                     <span className="signin-choice-name">{p.name}</span>
                     <span className="signin-choice-meta">{[p.kind === "sso" ? "SSO" : p.kind, p.region].filter(Boolean).join(" · ")}</span>
                 </button>
@@ -22,13 +32,93 @@ function ProfileList({ profiles }: { profiles: AwsProfile[] }) {
     );
 }
 
+function CheckAgain() {
+    return (
+        <div className="signin-alt">
+            <button type="button" className="signin-link" onClick={checkAgain}>
+                Check again
+            </button>
+        </div>
+    );
+}
+
+function InstallCli() {
+    const homebrew = useResource(awsSetupR).data?.homebrew ?? false;
+    return (
+        <SignInScreen
+            mark={mark}
+            title="Install the AWS CLI"
+            lede={<>Sikemux and its agents reach AWS through the AWS CLI, which this computer does not have yet.</>}
+            foot={
+                homebrew ? (
+                    <>
+                        Runs <code>brew install awscli</code> in a terminal.
+                    </>
+                ) : (
+                    <>Opens Amazon’s install guide.</>
+                )
+            }>
+            {homebrew ? (
+                <button type="button" className="signin-btn primary" onClick={() => runSetup("Install the AWS CLI", ["brew", "install", "awscli"])}>
+                    Install with Homebrew
+                </button>
+            ) : (
+                <button
+                    type="button"
+                    className="signin-btn primary"
+                    onClick={() => void openUrl(INSTALL_GUIDE).catch(swallow("open the AWS CLI guide"))}>
+                    Get the installer
+                </button>
+            )}
+            <CheckAgain />
+        </SignInScreen>
+    );
+}
+
+function SetUpProfile() {
+    return (
+        <SignInScreen
+            mark={mark}
+            title="Set up an AWS profile"
+            lede={
+                <>
+                    Sikemux and its agents use the profiles in <code>~/.aws/config</code>, and there are none yet.
+                </>
+            }
+            foot={
+                <>
+                    Runs <code>aws configure sso</code> in a terminal.
+                </>
+            }>
+            <button type="button" className="signin-btn primary" onClick={() => runSetup("Set up an AWS profile", ["aws", "configure", "sso"])}>
+                <IconAws size={14} mono />
+                Set up a profile
+            </button>
+            <div className="signin-alt">
+                <button type="button" className="signin-link" onClick={() => runSetup("Set up AWS access keys", ["aws", "configure"])}>
+                    Use access keys instead
+                </button>
+                <button type="button" className="signin-link" onClick={checkAgain}>
+                    Check again
+                </button>
+            </div>
+        </SignInScreen>
+    );
+}
+
 export function AwsAuthEmpty({ mode, profile }: { mode: "no-profile" | "unauthed"; profile?: string }) {
     const profilesR = useResource(awsProfilesR);
+    const setup = useResource(awsSetupR).data ?? null;
     const profiles = profilesR.data ?? null;
 
-    if (mode === "no-profile") {
-        return (
-            <div className="aws-pane">
+    if (mode === "unauthed") return <SignedOut profile={profile ?? ""} profiles={profiles} />;
+    return (
+        <div className="aws-pane">
+            {setup && !setup.cli ? (
+                <InstallCli />
+            ) : profiles !== null && profiles.length === 0 ? (
+                <SetUpProfile />
+            ) : (
                 <SignInScreen
                     mark={mark}
                     title="Pick an AWS profile"
@@ -37,19 +127,11 @@ export function AwsAuthEmpty({ mode, profile }: { mode: "no-profile" | "unauthed
                             Services, logs and billing for one account at a time. Profiles come from <code>~/.aws/config</code>.
                         </>
                     }>
-                    {profiles === null && <p className="signin-note">Looking for profiles…</p>}
-                    {profiles !== null && profiles.length === 0 && (
-                        <div className="signin-callout">
-                            No profiles found. Run <code>aws configure sso</code> to add one.
-                        </div>
-                    )}
-                    {profiles && profiles.length > 0 && <ProfileList profiles={profiles} />}
+                    {profiles === null ? <p className="signin-note">Looking for profiles…</p> : <ProfileList profiles={profiles} />}
                 </SignInScreen>
-            </div>
-        );
-    }
-
-    return <SignedOut profile={profile ?? ""} profiles={profiles} />;
+            )}
+        </div>
+    );
 }
 
 function SignedOut({ profile, profiles }: { profile: string; profiles: AwsProfile[] | null }) {
@@ -57,6 +139,8 @@ function SignedOut({ profile, profiles }: { profile: string; profiles: AwsProfil
     const auth = deriveAuthState(profile, identity);
     const attempt = useSignInAttempt();
     const waiting = attempt.waiting;
+
+    if (auth.kind === "cli-missing") return <InstallCli />;
 
     const signIn = async () => {
         await focusSignInBrowser().catch(swallow("bring the sign-in browser forward"));
@@ -69,7 +153,9 @@ function SignedOut({ profile, profiles }: { profile: string; profiles: AwsProfil
         });
     };
 
-    const ssoUrl = profiles?.find((p) => p.name === profile)?.sso_start_url ?? null;
+    const chosen = profiles?.find((p) => p.name === profile);
+    const usesSso = chosen?.kind !== "credentials" || auth.kind === "expired";
+    const ssoUrl = chosen?.sso_start_url ?? null;
     const message =
         attempt.error ??
         (auth.kind === "error"
@@ -77,14 +163,7 @@ function SignedOut({ profile, profiles }: { profile: string; profiles: AwsProfil
             : auth.kind === "no-profile"
               ? ""
               : ((auth as { identity?: { message?: string | null } }).identity?.message ?? ""));
-    const title =
-        auth.kind === "expired"
-            ? "Session expired"
-            : auth.kind === "no-credentials"
-              ? "No credentials"
-              : auth.kind === "cli-missing"
-                ? "AWS CLI missing"
-                : "Not signed in";
+    const title = auth.kind === "expired" ? "Sign-in expired" : auth.kind === "no-credentials" ? "No credentials" : "Not signed in";
     const others = (profiles ?? []).filter((p) => p.name !== profile);
 
     return (
@@ -92,25 +171,40 @@ function SignedOut({ profile, profiles }: { profile: string; profiles: AwsProfil
             mark={mark}
             title={title}
             lede={
-                auth.kind === "cli-missing" ? (
-                    <>Sikemux signs in through the AWS CLI. Install it, then retry.</>
+                usesSso ? (
+                    <>
+                        Profile <code>{profile}</code> needs a fresh sign-in. Agents use it too, and only you can sign in.
+                    </>
                 ) : (
                     <>
-                        Profile <code>{profile}</code> needs a fresh SSO token to keep browsing.
+                        Profile <code>{profile}</code> has no working access keys.
                     </>
                 )
             }
             foot={
-                <>
-                    Signing in runs <code>aws sso login</code>, so the CLI shares the session.
-                </>
+                usesSso ? (
+                    <>
+                        Signing in runs <code>aws sso login</code>, so the CLI shares the session.
+                    </>
+                ) : (
+                    <>
+                        Runs <code>aws configure</code> for this profile in a terminal.
+                    </>
+                )
             }>
             {waiting ? (
                 <SignInWaiting onCancel={attempt.cancel}>Approve the request in your browser</SignInWaiting>
+            ) : usesSso ? (
+                <button type="button" className="signin-btn primary" onClick={() => void signIn()}>
+                    <IconAws size={14} mono />
+                    Sign in
+                </button>
             ) : (
-                <button type="button" className="signin-btn primary" disabled={auth.kind === "cli-missing"} onClick={() => void signIn()}>
-                    <IconAws size={14} />
-                    Continue with AWS SSO
+                <button
+                    type="button"
+                    className="signin-btn primary"
+                    onClick={() => runSetup("Set up AWS access keys", ["aws", "configure", "--profile", profile])}>
+                    Set up access keys
                 </button>
             )}
 

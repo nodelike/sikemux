@@ -18,7 +18,9 @@ export type MdElement =
     | { t: "code"; v: string }
     | { t: "a"; href: string; title?: string; c: MdNode[] }
     | { t: "img"; src: string; alt: string; title?: string }
-    | { t: "fnref"; n: number };
+    | { t: "fnref"; n: number }
+    /** A `<details>` fold from embedded HTML. */
+    | { t: "details"; summary: string; open?: boolean; c: MdNode[] };
 
 export interface MarkdownOptions {
     /** Tables, strikethrough, task lists, footnotes and bare addresses as links. */

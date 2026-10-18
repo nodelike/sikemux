@@ -648,28 +648,11 @@ pub async fn mark_all_read(data_dir: &Path) -> BitbucketResult<()> {
 
 /// Now as Bitbucket writes times, so it compares with them as text.
 fn now_iso() -> String {
-    let secs = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|since| since.as_secs())
-        .unwrap_or(0);
-    let days = secs / 86_400;
-    let (hour, minute, second) = (secs % 86_400 / 3600, secs % 3600 / 60, secs % 60);
-    let (year, month, day) = civil_from_days(days as i64);
-    format!("{year:04}-{month:02}-{day:02}T{hour:02}:{minute:02}:{second:02}.000000+00:00")
-}
-
-/// The calendar date `days` after 1970-01-01, by Howard Hinnant's algorithm.
-fn civil_from_days(days: i64) -> (i64, u32, u32) {
-    let z = days + 719_468;
-    let era = z.div_euclid(146_097);
-    let doe = z.rem_euclid(146_097);
-    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let day = (doy - (153 * mp + 2) / 5 + 1) as u32;
-    let month = if mp < 10 { mp + 3 } else { mp - 9 } as u32;
-    let year = yoe + era * 400 + i64::from(month <= 2);
-    (year, month, day)
+    time::OffsetDateTime::now_utc()
+        .format(time::macros::format_description!(
+            "[year]-[month]-[day]T[hour]:[minute]:[second].000000+00:00"
+        ))
+        .unwrap_or_default()
 }
 
 #[cfg(test)]
@@ -820,9 +803,8 @@ mod tests {
 
     #[test]
     fn now_is_written_the_way_bitbucket_writes_times() {
-        assert_eq!(civil_from_days(0), (1970, 1, 1));
-        assert_eq!(civil_from_days(20_736), (2026, 10, 10));
-        assert_eq!(civil_from_days(11_017), (2000, 3, 1));
-        assert_eq!(now_iso().len(), "2026-10-10T00:00:00.000000+00:00".len());
+        let now = now_iso();
+        assert!(now.ends_with(".000000+00:00"), "{now}");
+        assert_eq!(now.len(), "2026-10-10T00:00:00.000000+00:00".len());
     }
 }

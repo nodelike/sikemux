@@ -1,18 +1,17 @@
 import { useState } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text } from 'react-native';
 import { useAuth } from '@clerk/expo';
 
 import { AccountProblem, restoreAccount } from '@/account/api';
 import { signOutHere } from '@/account/leave';
 import { retryRegistration } from '@/account/session';
 import { Button } from '@/ui/controls';
-import { Screen, useBottomGap } from '@/ui/screen';
+import { PromptScreen } from '@/ui/prompt';
 import { type Palette, typeFor, useStyles } from '@/ui/theme';
 
 /** Signed in to an account that was deleted but can still be restored. */
 export function RestoreAccount({ deletesAt }: { deletesAt: string }) {
   const styles = useStyles(makeStyles);
-  const bottom = useBottomGap();
   const { getToken, signOut } = useAuth();
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string>();
@@ -31,31 +30,34 @@ export function RestoreAccount({ deletesAt }: { deletesAt: string }) {
   };
 
   return (
-    <Screen>
-      <View style={styles.block}>
-        <Text style={styles.title}>Your account is being deleted</Text>
-        <Text style={styles.body}>
-          It will be deleted for good on <Text style={styles.ink}>{day}</Text>. Restore it to keep using Sikemux. Your devices were signed
-          out, so each one signs in again.
-        </Text>
-        {problem ? <Text style={styles.problem}>{problem}</Text> : null}
-      </View>
-      <View style={[styles.footer, { paddingBottom: bottom }]}>
-        <Button kind="primary" title="Restore account" busy={busy} disabled={busy} onPress={() => void restore()} />
-        <Button title="Sign out" disabled={busy} onPress={() => void signOutHere(() => signOut(), { confirmed: true })} />
-      </View>
-    </Screen>
+    <PromptScreen
+      icon="IconHourglass"
+      title="Your account is being deleted"
+      detail={
+        <>
+          It will be deleted for good on <Text style={styles.ink}>{day}</Text>.
+        </>
+      }
+      actions={
+        <>
+          <Button kind="primary" title="Restore account" busy={busy} disabled={busy} onPress={() => void restore()} />
+          <Button
+            title="Sign out"
+            icon="IconLogOut"
+            disabled={busy}
+            onPress={() => void signOutHere(() => signOut(), { confirmed: true })}
+          />
+        </>
+      }>
+      {problem ? <Text style={styles.problem}>{problem}</Text> : null}
+    </PromptScreen>
   );
 }
 
 const makeStyles = (colors: Palette) => {
   const type = typeFor(colors);
   return StyleSheet.create({
-    block: { flex: 1, justifyContent: 'center', paddingHorizontal: 32, paddingBottom: 120 },
-    title: { ...type.title, fontSize: 22, textAlign: 'center' },
-    body: { ...type.body, textAlign: 'center', marginTop: 10 },
     ink: { color: colors.ink },
     problem: { ...type.meta, color: colors.danger, textAlign: 'center', marginTop: 12 },
-    footer: { paddingHorizontal: 16, paddingTop: 12, gap: 10 },
   });
 };

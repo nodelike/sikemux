@@ -57,7 +57,6 @@ afterEach(cleanup);
 describe("the release list", () => {
     it("sends the rest to the host once it has read as many as it reads", async () => {
         await renderReleases(Array.from({ length: 100 }, (_, index) => release(100 - index)));
-        expect(within(list()).getByText("Newest 100")).toBeTruthy();
         fireEvent.click(screen.getByRole("button", { name: "Older releases on Test host" }));
         expect(shell.openUrl).toHaveBeenCalledWith("https://github.com/nodelike/sikemux/releases");
     });
@@ -91,16 +90,16 @@ describe("a release's files", () => {
         let saved: (value: SavedArtifact) => void = () => {};
         api.downloadAsset.mockReturnValue(new Promise((resolve) => (saved = resolve)));
         await renderReleases([withAssets]);
-        fireEvent.click(within(right()).getByRole("tab", { name: /Assets/ }));
-        const download = within(right()).getAllByRole("button", { name: "Download" })[0];
+        const download = within(right()).getByRole("button", { name: "sikemux_aarch64.dmg" });
         fireEvent.click(download);
         fireEvent.click(download);
         expect(api.downloadAsset).toHaveBeenCalledTimes(1);
         expect(api.downloadAsset).toHaveBeenCalledWith(repo, 11, "sikemux_aarch64.dmg");
-        expect(within(right()).getByRole("button", { name: "Saving…" })).toHaveProperty("disabled", true);
-        expect(within(right()).getByRole("button", { name: "Download" })).toHaveProperty("disabled", false);
+        expect(download).toHaveProperty("disabled", true);
+        expect(within(right()).getByText("Saving…")).toBeTruthy();
+        expect(within(right()).getByRole("button", { name: "sikemux.tar.gz" })).toHaveProperty("disabled", false);
         await act(async () => saved({ path: "/Downloads/sikemux_aarch64.dmg", bytes: 1 }));
         expect(toasts()).toContain("Saved sikemux_aarch64.dmg to /Downloads/sikemux_aarch64.dmg");
-        expect(within(right()).getAllByRole("button", { name: "Download" })).toHaveLength(2);
+        expect(download).toHaveProperty("disabled", false);
     });
 });

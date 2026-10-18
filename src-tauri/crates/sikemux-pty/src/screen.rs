@@ -1,7 +1,7 @@
 use std::collections::VecDeque;
 
 use crate::error::{PtyError, PtyResult};
-use crate::shell_protocol::{ShellMetadataSnapshot, ShellProtocolParser};
+use crate::shell_protocol::{ShellMetadataSnapshot, ShellProtocolParser, SshLink};
 
 // Scrollback held in the headless vt100 parser. This only has to cover what
 // a reattaching xterm replays; anything the user scrolled past before the
@@ -265,6 +265,7 @@ pub fn restored_parser(
     cols: u16,
     replay: &[u8],
     shell: Option<ShellMetadataSnapshot>,
+    ssh: Option<SshLink>,
     window_title: String,
 ) -> SemanticParser {
     let mut parser = SemanticParser::new_with_callbacks(
@@ -276,7 +277,7 @@ pub fn restored_parser(
     parser.process(replay);
     let callbacks = parser.callbacks_mut();
     callbacks.window_title = window_title;
-    callbacks.shell = shell.map(ShellProtocolParser::restored);
+    callbacks.shell = shell.map(|shell| ShellProtocolParser::restored(shell, ssh));
     parser
 }
 
@@ -311,7 +312,7 @@ mod tests {
         };
         let replay = super::replay_snapshot(&mut original).unwrap();
         let mut restored =
-            super::restored_parser(5, 20, &replay, Some(shell.clone()), "Busy".into());
+            super::restored_parser(5, 20, &replay, Some(shell.clone()), None, "Busy".into());
 
         assert_eq!(restored.screen().contents(), original.screen().contents());
         assert_eq!(

@@ -7,12 +7,17 @@ import {
     Dropdown,
     EmptyState,
     IconCheck,
+    IconCheckCircle,
     IconCheckout,
     IconChevron,
+    IconCommit,
     IconExternal,
+    IconFile,
+    IconMerge,
     IconPlus,
     IconPullRequest,
     SkeletonRows,
+    StaleNotice,
     Tooltip,
 } from "../../plugin-api/ui";
 import type { GitCommit } from "../../api/git";
@@ -20,22 +25,20 @@ import { CommitReview } from "../../git/CommitReview";
 import { GitColumns } from "../../git/GitColumns";
 import { AuthorPicturesProvider, type AuthorPictures } from "../../git/AuthorAvatar";
 import { GitGraph } from "../../git/GitGraph";
-import { FoldPanel } from "../../git/FoldPanel";
 import { hostFileStatus } from "../../git/gitFileStatus";
 import { FileIcon } from "../../ui/FileIcon";
+import { SwipePages } from "../../ui/SwipePages";
 import { basename, dirname } from "../../lib/paths";
-import { requestOpenFile, setGitView } from "../../state/commands";
-import { useStore } from "../../state/store";
-import { DEFAULT_GIT_VIEW } from "../../state/types";
+import { requestOpenFile } from "../../state/commands";
 import { hostApi, failureMessage, type MergeMethod, type Pull, type RepoRef, type Run } from "../api";
-import { pullCommitsR, pullFilesR, pullR, pullReviewsR, pullsR, runsR, timelineR } from "../resources";
-import { checksSummary, isUnfinished, OUTCOME_LABEL, overallOutcome, type Outcome } from "../runStatus";
+import { pullCommitsR, pullCountsR, pullFilesR, pullR, pullReviewsR, pullsR, runsR, timelineR } from "../resources";
+import { checksSummary, isUnfinished, outcomeOf, overallOutcome, type Outcome } from "../runStatus";
 import { needsPull } from "../compose";
 import { compose, openRunFrom, setListState, showItem } from "../state";
 import { CommentThread, Face } from "./CommentThread";
-import { OutcomeIcon } from "./ActionsIcon";
-import { pullState } from "../project";
-import { Branch, Comments, Labels, StateMark, stateLabel, Who } from "./Bits";
+import { SectionIcon, StatusMark } from "./ActionsIcon";
+import { closedIssues, pullState } from "../project";
+import { Branch, Comments, Labels, ListTitle, ShellAccount, StateMark, Who } from "./Bits";
 import { useBusy } from "./hooks";
 import { useEvery, useNow } from "../../plugin-api/hooks";
 import { NewPullForm } from "./NewPullForm";
@@ -65,12 +68,16 @@ function PullHeadline({
     now,
     title,
     trailing,
+    meta,
     labels = false,
 }: {
     pull: Pull;
     now: number;
     title: ReactNode;
     trailing?: ReactNode;
+    /** Sits at the end of the line under the title, after its branches. */
+    meta?: ReactNode;
+    /** The open pull request's header: when it last changed and its labels, rather than the list's opened and updated. */
     labels?: boolean;
 }) {
     const state = pullState(pull);
@@ -80,67 +87,95 @@ function PullHeadline({
                 <Face login={pull.author} url={pull.avatarUrl} />
             </span>
             <span className="pr-headline-top">
-                <span className="gha-state-word pr-state" data-kind="pull" data-state={state}>
-                    {stateLabel("pull", state)}
-                </span>
+                <StateMark kind="pull" state={state} size={14} />
                 {title}
                 {trailing}
             </span>
             <span className="pr-headline-sub">
-                <span className="pr-headline-who">
-                    {pull.author ?? "someone"} · #{pull.number}
-                    <span className="pr-headline-ago">
-                        {labels ? ", updated " : " · "}
-                        {formatAgo(pull.updatedAt, now)}
+                {labels ? (
+                    <span className="pr-headline-who">
+                        {pull.author ?? "someone"} · #{pull.number}
+                        <span className="pr-headline-ago">, updated {formatAgo(pull.updatedAt, now)}</span>
                     </span>
-                </span>
+                ) : (
+                    <span className="pr-headline-who">
+                        #{pull.number} · {pull.author ?? "someone"} opened {formatAgo(pull.createdAt, now)}
+                        {formatAgo(pull.updatedAt, now) !== formatAgo(pull.createdAt, now) && <> · updated {formatAgo(pull.updatedAt, now)}</>}
+                    </span>
+                )}
                 {pull.head && <span className="pr-ref pr-ref-head">{pull.head}</span>}
                 {pull.head && pull.base && <span className="pr-ref-arrow">→</span>}
                 {pull.base && <span className="pr-ref">{pull.base}</span>}
                 {labels && <Labels labels={pull.labels} />}
+                {meta}
             </span>
         </>
     );
 }
 
 function PullCi({ runs }: { runs: readonly Run[] }) {
-    const outcome = overallOutcome(runs);
+    const overall = overallOutcome(runs);
+    // Nothing started yet reads apart from something running.
+    const outcome = overall === "running" && !runs.some((run) => outcomeOf(run) === "running") ? "queued" : overall;
     const summary = checksSummary(runs);
+    const passed = runs.filter((run) => ["success", "skipped"].includes(outcomeOf(run))).length;
     return (
         <Tooltip label={summary === "all passed" ? "All checks passed" : `Checks: ${summary}`}>
             <span className="pr-ci" data-outcome={outcome}>
-                <OutcomeIcon outcome={outcome} size={12} />
-                <span className="pr-ci-label">{OUTCOME_LABEL[outcome]}</span>
+                <StatusMark outcome={outcome} size={13} />
+                <span className="pr-ci-count">
+                    {passed}/{runs.length}
+                </span>
             </span>
         </Tooltip>
     );
 }
 
-function PullRow({ pull, runs, now, onOpen }: { pull: Pull; runs: readonly Run[] | undefined; now: number; onOpen: () => void }) {
-    const ci = runs ? <PullCi runs={runs} /> : null;
+function PullRow({
+    repo,
+    pull,
+    recent,
+    active,
+    now,
+    onOpen,
+}: {
+    repo: RepoRef;
+    pull: Pull;
+    /** Its commit's runs among the repository's latest, when they are there. */
+    recent: readonly Run[] | undefined;
+    active: boolean;
+    now: number;
+    onOpen: () => void;
+}) {
+    // An older pull request's commit is past the repository's latest runs, so it asks for its own, as its page does.
+    const own = useResourceEnabled(active && !recent && !!pull.headSha, runsR, { ...repo, headSha: pull.headSha ?? "", perPage: 30 });
+    const runs = recent ?? own.data?.runs;
+    const ci = runs?.length ? <PullCi runs={runs} /> : null;
+    const issues = useMemo(() => closedIssues(pull.body), [pull.body]);
     return (
         <button type="button" className="pr-row pr-headline" onClick={onOpen}>
             <PullHeadline
                 pull={pull}
                 now={now}
                 title={<span className="pr-headline-title">{pull.title}</span>}
-                trailing={
-                    <>
-                        {ci}
-                        <Comments count={pull.comments ?? 0} />
-                    </>
-                }
+                meta={ci && <span className="pr-ci-meta">{ci}</span>}
             />
-            <span className="pr-row-ci">{ci}</span>
-            <span className="pr-row-reviewers">
-                {pull.reviewers.map((login) => (
-                    <Face key={login} login={login} url={pull.avatars[login] ?? null} />
-                ))}
-            </span>
-            <span className="pr-row-comments">
+            <span className="pr-row-side">
+                {pull.reviewers.length > 0 && (
+                    <span className="pr-row-reviewers" title={`Reviewers: ${pull.reviewers.join(", ")}`}>
+                        {pull.reviewers.map((login) => (
+                            <Face key={login} login={login} url={pull.avatars[login] ?? null} />
+                        ))}
+                    </span>
+                )}
+                {issues.length > 0 && (
+                    <span className="pr-row-issues" title={`Closes ${issues.map((number) => `#${number}`).join(", ")}`}>
+                        <SectionIcon section="issues" size={13} />
+                        {issues.length}
+                    </span>
+                )}
                 <Comments count={pull.comments ?? 0} />
             </span>
-            <span className="pr-row-updated">{formatAgo(pull.updatedAt, now)}</span>
         </button>
     );
 }
@@ -183,7 +218,7 @@ function MergePart({ outcome, title, detail }: { outcome: Outcome; title: string
     return (
         <div className="gha-merge-part">
             <div className="gha-merge-row">
-                <OutcomeIcon outcome={outcome} size={12} />
+                <StatusMark outcome={outcome} size={14} />
                 <span className="gha-merge-title">{title}</span>
                 {detail && <span className="gha-merge-detail">{detail}</span>}
             </div>
@@ -198,7 +233,6 @@ function MergeBox({
     reviewed,
     active,
     onOpenRun,
-    checkout,
 }: {
     repo: RepoRef;
     pull: Pull;
@@ -206,8 +240,6 @@ function MergeBox({
     reviewed: boolean;
     active: boolean;
     onOpenRun: (runId: string) => void;
-    /** Checking the branch out here, beside Close. */
-    checkout?: ReactNode;
 }) {
     const host = useHost();
     const { pulls } = host.capabilities;
@@ -338,7 +370,6 @@ function MergeBox({
                     </>
                 )}
                 <span className="gha-page-spacer" />
-                {checkout}
                 <button type="button" className="gha-btn danger" disabled={busy} onClick={() => runBusy(setState)}>
                     Close
                 </button>
@@ -347,76 +378,38 @@ function MergeBox({
     );
 }
 
-function CheckoutButton({ cwd, repo, pull, current }: { cwd: string; repo: RepoRef; pull: Pull; current: string | null }) {
+/** Checks the pull request's branch out in this project, one of the side panel's actions. */
+function CheckoutButton({ cwd, repo, pull, current }: { cwd: string | null; repo: RepoRef; pull: Pull; current: string | null }) {
     const host = useHost();
     const [busy, runBusy] = useBusy();
     const local = localBranchOf(pull, repo);
-    if (local && local === current) {
-        return (
-            <span className="gha-checked-out" title={`${local} is checked out in this project`}>
-                <IconCheck size={12} /> Checked out
-            </span>
-        );
-    }
-    if (!isOwnBranch(pull, repo) && !host.pullHeadRef) return null;
+    const here = !!local && local === current;
+    const can = !!cwd && pull.state === "open" && (isOwnBranch(pull, repo) || !!host.pullHeadRef);
     return (
-        <Tooltip label={`Check out ${local ?? "the branch"} in this project`}>
+        <Tooltip
+            label={
+                here
+                    ? `${local} is checked out in this project`
+                    : can
+                      ? `Check out ${local ?? "the branch"} in this project`
+                      : "Only an open pull request in this project's repository can be checked out"
+            }>
             <button
                 type="button"
-                className="gha-btn"
-                disabled={busy}
+                className="git-btn"
+                disabled={busy || here || !can}
                 onClick={() =>
+                    cwd &&
                     runBusy(() =>
                         checkoutPull(cwd, host, repo, pull)
                             .then(() => notify("success", `Checked out #${pull.number}`))
                             .catch(swallow("check out the pull request")),
                     )
                 }>
-                <IconCheckout size={12} /> {busy ? "Checking out…" : "Check out"}
+                {here ? <IconCheck size={13} /> : <IconCheckout size={13} />}
+                {here ? "Checked out" : busy ? "Checking out…" : "Check out"}
             </button>
         </Tooltip>
-    );
-}
-
-/** The top of an open pull request's column, where Changes has its commit box: what it is and what stands between it and merged. */
-function PullCard({
-    repo,
-    cwd,
-    projectBranch,
-    pull,
-    verdict,
-    reviewed,
-    active,
-    onClose,
-    onOpenRun,
-}: {
-    repo: RepoRef;
-    cwd: string | null;
-    projectBranch: string | null;
-    pull: Pull;
-    verdict: string | null;
-    reviewed: boolean;
-    active: boolean;
-    onClose: () => void;
-    onOpenRun: (runId: string) => void;
-}) {
-    return (
-        <>
-            <button type="button" className="pr-back" onClick={onClose}>
-                <IconChevron size={11} /> Pull requests
-            </button>
-            <div className="pr-card">
-                <MergeBox
-                    repo={repo}
-                    pull={pull}
-                    verdict={verdict}
-                    reviewed={reviewed}
-                    active={active}
-                    onOpenRun={onOpenRun}
-                    checkout={cwd && pull.state === "open" ? <CheckoutButton cwd={cwd} repo={repo} pull={pull} current={projectBranch} /> : null}
-                />
-            </div>
-        </>
     );
 }
 
@@ -438,40 +431,50 @@ function PullFileRows({
     const list = files.data ?? [];
     const added = list.reduce((sum, file) => sum + file.additions, 0);
     const removed = list.reduce((sum, file) => sum + file.deletions, 0);
+    const [folded, setFolded] = useState(false);
     return (
         <div className="git-list pr-files">
             <div className="git-group git-file-group">
-                <span className="git-label">Files</span>
-                {list.length > 0 && <span className="git-count">{list.length}</span>}
+                <button type="button" className="git-group-toggle" aria-expanded={!folded} onClick={() => setFolded((was) => !was)}>
+                    <IconChevron size={13} className="git-group-chev" />
+                    <span className="git-group-icon">
+                        <IconFile size={13} />
+                    </span>
+                    <span className="git-group-name">Files</span>
+                </button>
                 {list.length > 0 && (
                     <span className="gha-diffstat pr-files-stat">
                         <span className="gha-add">+{added.toLocaleString()}</span>
                         <span className="gha-del">−{removed.toLocaleString()}</span>
                     </span>
                 )}
+                {list.length > 0 && <span className="git-group-count">{list.length}</span>}
             </div>
             {files.status === "loading" && !files.data && <SkeletonRows rows={3} label="Loading files" />}
-            {list.map((file) => {
-                const badge = hostFileStatus(file.status);
-                const dir = dirname(file.path);
-                return (
-                    <button
-                        key={file.path}
-                        type="button"
-                        className={`git-row git-file-row${focus === file.path ? " sel" : ""}`}
-                        title={file.path}
-                        onClick={() => onFocus(file.path)}>
-                        <FileIcon name={basename(file.path)} size={14} />
-                        <span className="git-row-name">
-                            {basename(file.path)}
-                            {dir && <span className="git-row-dir">{dir}</span>}
-                        </span>
-                        <span className={`git-status git-${badge.cls}`} title={badge.label}>
-                            {badge.letter}
-                        </span>
-                    </button>
-                );
-            })}
+            {!folded &&
+                list.map((file, index) => {
+                    const badge = hostFileStatus(file.status);
+                    const dir = dirname(file.path);
+                    return (
+                        <button
+                            key={file.path}
+                            type="button"
+                            className={`git-row git-tree-row git-file-row${focus === file.path ? " sel" : ""}`}
+                            data-first={index === 0 ? "" : undefined}
+                            data-last={index === list.length - 1 ? "" : undefined}
+                            title={file.path}
+                            onClick={() => onFocus(file.path)}>
+                            <FileIcon name={basename(file.path)} size={14} />
+                            <span className="git-row-name">
+                                {basename(file.path)}
+                                {dir && <span className="git-row-dir">{dir}</span>}
+                            </span>
+                            <span className={`git-status git-${badge.cls}`} title={badge.label}>
+                                {badge.letter}
+                            </span>
+                        </button>
+                    );
+                })}
         </div>
     );
 }
@@ -573,7 +576,6 @@ export function PullRight({
                         number={found.number}
                         active={active}
                         now={now}
-                        withoutCommits
                         opening={{
                             key: "opening",
                             author: found.author,
@@ -610,22 +612,18 @@ export function PullRight({
 
 /** A pull request's commits, as the git pane's own history: newest first, one lane, the same rows. */
 function PullHistory({
-    paneId,
     repo,
     number,
     active,
     selected,
     onSelect,
 }: {
-    paneId: string;
     repo: RepoRef;
     number: number;
     active: boolean;
     selected: string | null;
     onSelect: (sha: string | null) => void;
 }) {
-    const open = useStore((s) => s.gitViews[paneId]?.historyOpen ?? DEFAULT_GIT_VIEW.historyOpen);
-    const height = useStore((s) => s.gitViews[paneId]?.historyHeight ?? null);
     const host = useHost();
     const commits = useResourceEnabled(active, pullCommitsR, repo, number);
     const now = useNow(false);
@@ -654,40 +652,29 @@ function PullHistory({
     }, [commits.data, now]);
     const index = selected ? rows.findIndex((row) => row.full_hash === selected) : -1;
     return (
-        <FoldPanel
-            label="Commits"
-            count={rows.length}
-            summary={rows[0]?.subject ?? null}
-            open={open}
-            height={height}
-            onToggle={() => {
-                if (open) onSelect(null);
-                setGitView(paneId, { historyOpen: !open });
-            }}
-            onResize={(next) => setGitView(paneId, { historyHeight: next })}>
-            <div className="git-list">
-                {commits.status === "loading" && !commits.data ? (
-                    <SkeletonRows rows={4} label="Loading commits" />
-                ) : (
-                    <AuthorPicturesProvider value={pictures}>
-                        <GitGraph
-                            commits={rows}
-                            selectedIndex={index}
-                            focused={index >= 0}
-                            range={null}
-                            onSelect={(i) => onSelect(rows[i]?.full_hash ?? null)}
-                            onActivate={() => {}}
-                        />
-                    </AuthorPicturesProvider>
-                )}
-            </div>
-        </FoldPanel>
+        <div className="git-list">
+            {commits.status === "loading" && !commits.data ? (
+                <SkeletonRows rows={4} label="Loading commits" />
+            ) : (
+                <AuthorPicturesProvider value={pictures}>
+                    <GitGraph
+                        commits={rows}
+                        selectedIndex={index}
+                        focused={index >= 0}
+                        range={null}
+                        onSelect={(i) => onSelect(rows[i]?.full_hash ?? null)}
+                        onActivate={() => {}}
+                    />
+                </AuthorPicturesProvider>
+            )}
+        </div>
     );
 }
 
-/** An open pull request, laid out like Changes: its card, its files, then its conversation and commits folding beneath. */
+type SidePage = "files" | "commits" | "merge";
+
+/** An open pull request's side panel, laid out like the git pane's: what it is and its actions, then its files, commits and merge as pages. */
 function PullColumn({
-    paneId,
     repo,
     cwd,
     projectBranch,
@@ -700,15 +687,16 @@ function PullColumn({
     onClose,
     onOpenRun,
 }: DetailProps & {
-    paneId: string;
     focus: string | null;
     commit: string | null;
     onFocus: (path: string) => void;
     onCommit: (sha: string | null) => void;
     onClose: () => void;
 }) {
+    const host = useHost();
     const pull = useResourceEnabled(active, pullR, repo, number);
     const reviews = useResourceEnabled(active, pullReviewsR, repo, number);
+    const [page, setPage] = useState<SidePage>("files");
     if (pull.status === "loading" && !pull.data) return <SkeletonRows rows={8} label="Loading pull request" />;
     if (!pull.data) {
         return (
@@ -717,23 +705,69 @@ function PullColumn({
     }
     const found = pull.data;
     const reviewList = reviews.data ?? [];
-    const verdict = reviewVerdict(reviewList);
-    return (
-        <>
-            <PullCard
+    const merge = (
+        <div className="pr-card">
+            <MergeBox
                 repo={repo}
-                cwd={cwd}
-                projectBranch={projectBranch}
                 pull={found}
-                verdict={verdict}
+                verdict={reviewVerdict(reviewList)}
                 reviewed={reviewList.length > 0}
                 active={active}
-                onClose={onClose}
                 onOpenRun={onOpenRun}
             />
-            <PullFileRows repo={repo} number={number} active={active} focus={focus} onFocus={onFocus} />
-            <PullHistory paneId={paneId} repo={repo} number={number} active={active} selected={commit} onSelect={onCommit} />
-        </>
+        </div>
+    );
+    const open = found.state === "open";
+    return (
+        <div className="git-side">
+            <div className="git-side-head">
+                <div className="git-side-title">
+                    <Tooltip label="Back to the pull requests">
+                        <button type="button" className="git-foot-btn icon pr-back-btn" aria-label="Back to the pull requests" onClick={onClose}>
+                            <IconChevron size={11} />
+                        </button>
+                    </Tooltip>
+                    <StateMark kind="pull" state={pullState(found)} size={14} />
+                    <span className="pr-side-number">#{found.number}</span>
+                    <span className="gha-page-spacer" />
+                    <ShellAccount />
+                </div>
+                <div className="git-btn-group git-side-actions pr-side-actions" role="group" aria-label="Pull request">
+                    <CheckoutButton cwd={cwd} repo={repo} pull={found} current={projectBranch} />
+                    <button type="button" className="git-btn" onClick={() => void openUrl(found.url).catch(swallow(`open ${host.name}`))}>
+                        <IconExternal size={13} />
+                        {host.name}
+                    </button>
+                    <button
+                        type="button"
+                        className={`git-btn${open && !found.draft && found.mergeState !== "dirty" ? " primary" : ""}`}
+                        onClick={() => setPage("merge")}>
+                        <IconMerge size={13} />
+                        {open ? "Merge" : pullState(found) === "merged" ? "Merged" : "Closed"}
+                    </button>
+                </div>
+            </div>
+            <SwipePages
+                label="Pull request"
+                current={page}
+                onChange={(id) => setPage(id as SidePage)}
+                pages={[
+                    {
+                        id: "files",
+                        label: "Files",
+                        icon: <IconFile size={14} />,
+                        content: <PullFileRows repo={repo} number={number} active={active} focus={focus} onFocus={onFocus} />,
+                    },
+                    {
+                        id: "commits",
+                        label: "Commits",
+                        icon: <IconCommit size={14} />,
+                        content: <PullHistory repo={repo} number={number} active={active} selected={commit} onSelect={onCommit} />,
+                    },
+                    { id: "merge", label: "Checks and merge", icon: <IconCheckCircle size={14} />, content: merge },
+                ]}
+            />
+        </div>
     );
 }
 
@@ -753,6 +787,7 @@ interface Props {
 export function PullsView({ paneId, repo, listState, item, composing, projectBranch, cwd, login, active }: Props) {
     const listing = item === null && !composing;
     const pulls = useResourceEnabled(active, pullsR, repo, listState);
+    const counts = useResourceEnabled(active && item === null, pullCountsR, repo).data;
     const open = useResourceEnabled(active && listing && !!projectBranch, pullsR, repo, "open");
     const recentRuns = useResourceEnabled(active && listing, runsR, { ...repo, perPage: 100 });
     const runsBySha = useMemo(() => {
@@ -789,7 +824,7 @@ export function PullsView({ paneId, repo, listState, item, composing, projectBra
     const list =
         pulls.status === "loading" && !pulls.data ? (
             <SkeletonRows rows={8} label="Loading pull requests" />
-        ) : pulls.error ? (
+        ) : pulls.error && !pulls.data ? (
             <EmptyState
                 title="Could not read pull requests"
                 message={failureMessage(pulls.error)}
@@ -798,8 +833,10 @@ export function PullsView({ paneId, repo, listState, item, composing, projectBra
             />
         ) : (
             <div className="gha-list pr-list">
+                <StaleNotice handle={pulls} />
                 <div className="gha-list-head">
-                    <div className="gha-chips">
+                    <ListTitle section="pulls" />
+                    <div className="gha-chips gha-seg" role="group" aria-label="Which to list">
                         {LIST_STATES.map((state) => (
                             <button
                                 key={state}
@@ -808,6 +845,9 @@ export function PullsView({ paneId, repo, listState, item, composing, projectBra
                                 data-on={listState === state ? "1" : "0"}
                                 onClick={() => setListState(paneId, "pulls", state)}>
                                 {state === "all" ? "All" : state === "open" ? "Open" : "Closed"}
+                                {counts && state !== "all" && (
+                                    <span className="gha-chip-count">{counts[state as "open" | "closed"].toLocaleString()}</span>
+                                )}
                             </button>
                         ))}
                     </div>
@@ -817,6 +857,7 @@ export function PullsView({ paneId, repo, listState, item, composing, projectBra
                             <IconPlus size={13} />
                         </button>
                     </Tooltip>
+                    <ShellAccount />
                 </div>
                 {offer && projectBranch && (
                     <div className="gha-callout">
@@ -832,18 +873,13 @@ export function PullsView({ paneId, repo, listState, item, composing, projectBra
                     <EmptyState icon={<IconPullRequest size={20} />} message={`No ${listState === "all" ? "" : listState} pull requests.`} />
                 ) : (
                     <div className="pr-rows">
-                        <div className="pr-cols" aria-hidden="true">
-                            <span>Pull request</span>
-                            <span>CI</span>
-                            <span>Reviewers</span>
-                            <span>Comments</span>
-                            <span>Updated</span>
-                        </div>
                         {rows.map((pull) => (
                             <PullRow
                                 key={pull.number}
+                                repo={repo}
                                 pull={pull}
-                                runs={pull.headSha ? runsBySha.get(pull.headSha) : undefined}
+                                recent={pull.headSha ? runsBySha.get(pull.headSha) : undefined}
+                                active={active}
                                 now={now}
                                 onOpen={() => showItem(paneId, pull.number)}
                             />
@@ -857,7 +893,6 @@ export function PullsView({ paneId, repo, listState, item, composing, projectBra
 
     const left = (
         <PullColumn
-            paneId={paneId}
             repo={repo}
             cwd={cwd}
             projectBranch={projectBranch}

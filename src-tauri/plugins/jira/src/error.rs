@@ -6,11 +6,16 @@ use sikemux_plugin_api::PluginError;
 pub enum JiraError {
     Unconfigured,
     Auth(String),
-    Http { status: u16, message: String },
+    Http {
+        status: u16,
+        message: String,
+    },
     BadArg(String),
     NotFound(String),
     Keychain(String),
     Transport(String),
+    /// The service could not be reached at all, such as when the Mac is offline.
+    Unreachable(sikemux_plugin_api::Unreachable),
     Response(String),
 }
 
@@ -24,6 +29,9 @@ impl fmt::Display for JiraError {
             Self::NotFound(message) => formatter.write_str(message),
             Self::Keychain(message) => write!(formatter, "keychain: {message}"),
             Self::Transport(message) => write!(formatter, "jira: {message}"),
+            Self::Unreachable(kind) => formatter.write_str(
+                &sikemux_plugin_api::network::unreachable_message(*kind, "Jira"),
+            ),
             Self::Response(message) => write!(formatter, "jira: unexpected response: {message}"),
         }
     }
@@ -31,6 +39,10 @@ impl fmt::Display for JiraError {
 
 impl From<reqwest::Error> for JiraError {
     fn from(error: reqwest::Error) -> Self {
+        if let Some(kind) = sikemux_plugin_api::unreachable(&error) {
+            eprintln!("jira: {error}");
+            return Self::Unreachable(kind);
+        }
         Self::Transport(error.to_string())
     }
 }
@@ -51,6 +63,7 @@ impl From<JiraError> for PluginError {
             JiraError::BadArg(_) => PluginError::new("bad-params", message),
             JiraError::NotFound(_) => PluginError::new("not-found", message),
             JiraError::Keychain(_) => PluginError::new("keychain", message),
+            JiraError::Unreachable(kind) => PluginError::unreachable(kind, "Jira"),
             JiraError::Transport(_) => PluginError::new("jira", message),
             JiraError::Response(_) => PluginError::new("response", message),
         }

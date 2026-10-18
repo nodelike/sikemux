@@ -5,7 +5,7 @@ import { IconRun, IconWarning, SkeletonRows } from "../../../plugin-api/ui";
 import { failureMessage, rundeckApi, type JobDetail, type JobOption, type PlanResult } from "../api";
 import * as cmd from "../state";
 import type { JobRef } from "../state";
-import { rndExecutionsR, rndJobDetailR, rndJobsR, rndPlanR } from "../resources";
+import { rndExecutionsR, rndJobDetailR, rndJobsR, rndPlanR, useBranchOptions } from "../resources";
 import { branchOf, branchOptionName, envOf, isLiveStatus, isProdTarget, localDateTimeToIso, qualifiedName } from "../shape";
 import { watchRun } from "../runWatch";
 import { useDebounced } from "../../../plugin-api/hooks";
@@ -14,6 +14,8 @@ import { RundeckAdvanced, type AdvancedRun } from "./RundeckAdvanced";
 import { RundeckOptionsForm } from "./RundeckOptionsForm";
 import { RundeckPlan } from "./RundeckPlan";
 import { FolderChip, Header, levelCrumbs } from "./parts";
+import { usualSeconds } from "./runStats";
+import { formatDuration } from "../../../plugin-api/format";
 
 interface Props {
     paneId: string;
@@ -24,7 +26,7 @@ interface Props {
 export function RundeckDeploy({ paneId, level, active }: Props) {
     const detail = useResourceEnabled(active, rndJobDetailR, level.jobId);
     const jobs = useResourceEnabled(active, rndJobsR, level.project);
-    const branchOptions = cmd.rundeckSettings.useSelect((s) => s.branchOptions);
+    const branchOptions = useBranchOptions();
     const permalink = jobs.data?.find((job) => job.id === level.jobId)?.permalink ?? null;
     const fallback = useMemo(() => (detail.data ? null : fallbackDetail(level, branchOptions)), [detail.data, level, branchOptions]);
 
@@ -110,7 +112,7 @@ interface FormProps extends Props {
 }
 
 function RunForm({ paneId, level, active, detail, permalink, children }: FormProps) {
-    const branchOptions = cmd.rundeckSettings.useSelect((s) => s.branchOptions);
+    const branchOptions = useBranchOptions();
     const isProd = cmd.rundeckSettings.useSelect((s) => isProdTarget(level.project, level.group, s.prodEnvs));
     const repoPath = level.repoPath ?? "";
     const branchKey = useMemo(
@@ -132,6 +134,8 @@ function RunForm({ paneId, level, active, detail, permalink, children }: FormPro
     const [error, setError] = useState<string | null>(null);
 
     const branch = branchKey ? (values[branchKey] ?? "").trim() : "";
+    const history = useResourceEnabled(active, rndExecutionsR, level.jobId, level.project, 30);
+    const usual = useMemo(() => usualSeconds(history.data ?? [], Date.now()), [history.data]);
     const settledBranch = useDebounced(branch, 400);
     const planRequest = useMemo(
         () => ({
@@ -140,9 +144,8 @@ function RunForm({ paneId, level, active, detail, permalink, children }: FormPro
             service: qualifiedName(level.name, level.group),
             targetBranch: settledBranch,
             repoPath,
-            branchOptions,
         }),
-        [level.jobId, level.project, level.name, level.group, settledBranch, repoPath, branchOptions],
+        [level.jobId, level.project, level.name, level.group, settledBranch, repoPath],
     );
     const plan = useResourceEnabled(active && runsBranch && !!settledBranch, rndPlanR, planRequest);
     const planReady = !runsBranch || (plan.status === "ok" && plan.data?.target_branch === branch);
@@ -220,7 +223,8 @@ function RunForm({ paneId, level, active, detail, permalink, children }: FormPro
     };
 
     const canSubmit = !busy && detail.execution_enabled && planReady;
-    const label = busy ? "Starting…" : isProd ? (runsBranch ? "Deploy to production" : "Run in production") : runsBranch ? "Deploy" : "Run";
+    const verb = runsBranch ? (branch ? `Deploy ${branch}` : "Deploy") : "Run";
+    const label = busy ? "Starting…" : isProd ? `${verb} to production` : verb;
 
     return (
         <form
@@ -286,6 +290,7 @@ function RunForm({ paneId, level, active, detail, permalink, children }: FormPro
                 )}
 
                 <div className="rnd-form-foot">
+                    {usual !== null && <span className="rnd-form-usual">Usually takes {formatDuration(usual * 1000)}</span>}
                     <button type="button" className="rnd-btn lg" onClick={() => cmd.rundeckPop(paneId)} disabled={busy}>
                         Cancel
                     </button>
@@ -313,8 +318,8 @@ function BranchPicks({
     branch: string;
     onPick: (branch: string) => void;
 }) {
-    const branchOptions = cmd.rundeckSettings.useSelect((s) => s.branchOptions);
-    const execs = useResourceEnabled(active, rndExecutionsR, level.jobId, level.project, 25);
+    const branchOptions = useBranchOptions();
+    const execs = useResourceEnabled(active, rndExecutionsR, level.jobId, level.project, 30);
     const picks: { name: string; note?: string }[] = [];
     const add = (name: string | null | undefined, note?: string) => {
         if (!name) return;

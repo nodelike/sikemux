@@ -1,19 +1,27 @@
 import { useCallback, useEffect, useRef, useState, type Dispatch } from "react";
+import { errorText } from "../lib/format";
 import { acpApi, type AcpEvent, type AcpStartResponse } from "../api/acp";
 import type { Agent, AgentPermissionMode, ProviderProfile } from "../state/types";
 import * as cmd from "../state/commands";
 import { getState } from "../state/store";
-import { acpAccount, fallbackAccounts } from "../agents/accounts";
+import { acpAccount, takeMove } from "../agents/accounts";
 import { noteSignedOut } from "../agents/statusRefresh";
 import { swallow } from "../state/toast";
 import type { FoldMemory } from "./longText";
 import { chatActions } from "./acpEvents";
+import { earlierMessages, PAGE_TURNS, reachesSubagent } from "./earlier";
 import { effectiveMode as permissionModeOf } from "../agents/agentLaunch";
 import { afterSessionEnd, sessionEndOf, type Recovery } from "./sessionRecovery";
 import { claimChat } from "./chatClaims";
 import type { ChatAction, ChatState } from "./types";
 
 const UPDATE_FLUSH_FALLBACK_MS = 250;
+
+/* Where paging back through a chat the core sent only the end of goes next,
+   and what subagents said since, which an earlier page's subagents play on into. */
+type History = { cursor: { feed: string; before: number } | null; pages: number; held: ChatAction[] };
+
+export type EarlierTurns = "none" | "idle" | "loading" | "failed";
 
 export function useAcpSession({
     active,
@@ -37,7 +45,6 @@ export function useAcpSession({
     const [restartKey, setRestartKey] = useState(0);
     const [recovery, setRecovery] = useState<Recovery | null>(null);
     const recoveryRef = useRef<Recovery | null>(null);
-    const lastResumeAtRef = useRef<number | null>(null);
     const queuedUpdatesRef = useRef<[string, Record<string, unknown>][]>([]);
     const updateFrameRef = useRef<number | null>(null);
     const updateTimerRef = useRef<number | null>(null);
@@ -55,6 +62,8 @@ export function useAcpSession({
     /* True while a resumed or reattached session is sending its history back,
        which ends when starting or attaching it answers. */
     const [replaying, setReplaying] = useState(false);
+    const historyRef = useRef<History | null>(null);
+    const [earlier, setEarlier] = useState<EarlierTurns>("none");
     const environmentKeys = JSON.stringify(profile?.environmentKeys ?? []);
     const permissionMode = permissionModeOf(agent);
 
@@ -68,7 +77,6 @@ export function useAcpSession({
     }, [connection, updateRecovery]);
 
     const retry = useCallback(() => {
-        lastResumeAtRef.current = Date.now();
         updateRecovery(agentRef.current.resumeId ? { phase: "resuming" } : null);
         setRestartKey((value) => value + 1);
     }, [updateRecovery]);
@@ -79,6 +87,7 @@ export function useAcpSession({
         let mounted = true;
         const reattaching = reattachingRef.current;
         reattachingRef.current = false;
+        takeMove(agent.id, undefined);
         const hold = Boolean(agentRef.current.resumeId) || reattaching;
         dispatch({ type: "reset", hold });
         setReplaying(hold);
@@ -89,6 +98,8 @@ export function useAcpSession({
         setAppliedPermissionMode(null);
         setChangingPermissions(false);
         sessionIdRef.current = null;
+        historyRef.current = { cursor: null, pages: 0, held: [] };
+        setEarlier("none");
 
         const flushUpdates = () => {
             if (updateFrameRef.current !== null) {
@@ -112,26 +123,10 @@ export function useAcpSession({
             if (!document.hidden && updateFrameRef.current === null) updateFrameRef.current = window.requestAnimationFrame(flushUpdates);
         };
 
-        /* An agent that dies under the chat — a crash, a rate limit, a laptop
-           waking up — comes back on its saved session. */
         const noteEnd = (event: AcpEvent) => {
             const end = sessionEndOf(event);
-            if (!end) return;
-            const now = Date.now();
-            const next = afterSessionEnd({
-                end,
-                resumeId: agentRef.current.resumeId,
-                resuming: recoveryRef.current?.phase === "resuming",
-                lastResumeAt: lastResumeAtRef.current,
-                now,
-            });
-            if (next === "resume") {
-                lastResumeAtRef.current = now;
-                updateRecovery({ phase: "resuming" });
-                setRestartKey((value) => value + 1);
-            } else if (next === "give-up") {
+            if (end && afterSessionEnd(end) === "give-up")
                 updateRecovery({ phase: "failed", detail: typeof event.payload.message === "string" ? event.payload.message : null });
-            }
         };
 
         /* The chat already runs on the new account, so the agent is taken up
@@ -157,7 +152,10 @@ export function useAcpSession({
                 sessionIdRef.current = event.payload.sessionId;
             if (event.kind === "turn_started" && sessionIdRef.current && agentRef.current.resumeId !== sessionIdRef.current)
                 cmd.attachAgentSession(agent.id, sessionIdRef.current);
-            for (const action of chatActions(event)) {
+            const actions = chatActions(event);
+            const history = historyRef.current;
+            if (history) for (const action of actions) if (reachesSubagent(action, sessionIdRef.current)) history.held.push(action);
+            for (const action of actions) {
                 if (action.type === "session_update") {
                     const { update } = action;
                     if (update.sessionUpdate === "account_switched" && typeof update.account === "string") noteAccount(update.account);
@@ -192,15 +190,18 @@ export function useAcpSession({
                 if (!mounted) return;
                 let response: AcpStartResponse;
                 let appliedMode: AgentPermissionMode;
+                const history = historyRef.current;
+                if (attached.status === "live" && attached.olderBefore !== null && history) {
+                    history.cursor = { feed: attached.feed, before: attached.olderBefore };
+                    history.held = history.held.filter((action) => reachesSubagent(action, attached.start.sessionId));
+                    setEarlier("idle");
+                } else historyRef.current = null;
                 if (attached.status === "live") {
                     response = attached.start;
                     appliedMode = attached.permissionMode;
                     if (attached.turned && current.resumeId !== response.sessionId) cmd.attachAgentSession(current.id, response.sessionId);
                 } else {
-                    if (attached.status === "restart") await acpApi.stop(current.id);
-                    if (!mounted) return;
                     appliedMode = permissionModeOf(current);
-                    const { providerProfiles, accountAutoSwitch } = getState();
                     const account = profileRef.current;
                     response = await acpApi.start({
                         agentId: current.id,
@@ -214,7 +215,7 @@ export function useAcpSession({
                         effort: current.effort,
                         environmentKeys: JSON.parse(environmentKeys) as string[],
                         account: account ? acpAccount(account) : undefined,
-                        fallbacks: fallbackAccounts(account, providerProfiles, accountAutoSwitch),
+                        modelProvider: current.modelProvider,
                     });
                 }
                 if (!mounted) return;
@@ -228,7 +229,7 @@ export function useAcpSession({
                 if (!controller.signal.aborted && mounted) {
                     flushUpdates();
                     setReplaying(false);
-                    const message = error instanceof Error ? error.message : String(error);
+                    const message = errorText(error);
                     dispatch({ type: "error", message });
                     if (recoveryRef.current?.phase === "resuming") updateRecovery({ phase: "failed", detail: message });
                 }
@@ -237,6 +238,7 @@ export function useAcpSession({
         lifecycleRef.current = lifecycle;
         return () => {
             mounted = false;
+            historyRef.current = null;
             setReplaying(false);
             sessionIdRef.current = null;
             if (updateFrameRef.current !== null) window.cancelAnimationFrame(updateFrameRef.current);
@@ -245,6 +247,7 @@ export function useAcpSession({
             updateTimerRef.current = null;
             queuedUpdatesRef.current = [];
             controller.abort();
+            if (takeMove(agent.id, agentRef.current.profileId)) reattachingRef.current = true;
             lifecycleRef.current = reattachingRef.current ? lifecycle : lifecycle.finally(() => acpApi.stop(agent.id).catch(() => {}));
         };
     }, [
@@ -252,6 +255,7 @@ export function useAcpSession({
         agent.id,
         agent.type,
         agent.profileId,
+        agent.modelProvider,
         agent.executablePath,
         cwd,
         profile?.configPath,
@@ -283,12 +287,49 @@ export function useAcpSession({
                 if (sessionIdRef.current !== sessionId) return;
                 if (permissionModeOf(agentRef.current) === permissionMode)
                     cmd.setAgentPermissionMode(agent.id, appliedPermissionMode as NonNullable<Agent["permissionMode"]>);
-                onError(error instanceof Error ? error.message : String(error));
+                onError(errorText(error));
             })
             .finally(() => {
                 if (sessionIdRef.current === sessionId) setChangingPermissions(false);
             });
     }, [agent.id, connection, permissionMode, appliedPermissionMode, changingPermissions, onError]);
 
-    return { agentRef, sessionIdRef, recovery, retry, replaying, changingPermissions, appliedPermissionMode, permissionMode };
+    const loadEarlier = useCallback(() => {
+        const history = historyRef.current;
+        const cursor = history?.cursor;
+        if (!history || !cursor || earlier === "loading") return;
+        setEarlier("loading");
+        acpApi.history(agent.id, cursor.feed, cursor.before, PAGE_TURNS).then(
+            (page) => {
+                if (historyRef.current !== history) return;
+                history.pages += 1;
+                const actions = page.events.flatMap(chatActions);
+                dispatch({ type: "earlier", messages: earlierMessages({ number: history.pages, actions }, history.held) });
+                if (page.olderBefore === null) {
+                    historyRef.current = null;
+                    setEarlier("none");
+                    return;
+                }
+                history.cursor = { feed: cursor.feed, before: page.olderBefore };
+                history.held.unshift(...actions.filter((action) => reachesSubagent(action, sessionIdRef.current)));
+                setEarlier("idle");
+            },
+            () => {
+                if (historyRef.current === history) setEarlier("failed");
+            },
+        );
+    }, [agent.id, dispatch, earlier]);
+
+    return {
+        agentRef,
+        sessionIdRef,
+        recovery,
+        retry,
+        replaying,
+        changingPermissions,
+        appliedPermissionMode,
+        permissionMode,
+        earlier,
+        loadEarlier,
+    };
 }

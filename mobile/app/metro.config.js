@@ -19,6 +19,7 @@ if (process.env.SIKEMUX_SHOWCASE) {
     'expo-file-system': path.join(mocks, 'expo-file-system.ts'),
     'expo-secure-store': path.join(mocks, 'expo-secure-store.ts'),
     'expo-device': path.join(showcase, 'expo-device.ts'),
+    'expo-media-library': path.join(showcase, 'expo-media-library.ts'),
     'expo-notifications': path.join(mocks, 'expo-notifications.ts'),
     '@react-native-masked-view/masked-view': path.join(showcase, 'masked-view.tsx'),
     '@clerk/expo': path.join(showcase, 'clerk.ts'),

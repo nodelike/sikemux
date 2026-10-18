@@ -22,6 +22,10 @@ const coreHandlersPath = resolve(
   root,
   "src-tauri/crates/sikemux-core/src/server/harness.rs",
 );
+const cliProtocolPath = resolve(
+  root,
+  "src-tauri/crates/sikemux-core/src/cli/protocol.rs",
+);
 const check = process.argv.includes("--check");
 
 const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
@@ -93,10 +97,31 @@ const coreDispatch = coreSource.slice(
   coreSource.indexOf("async fn dispatch("),
   coreSource.indexOf("\n}\n", coreSource.indexOf("async fn dispatch(")),
 );
+// The core may also look at a browser or simulator call on its way to the window.
+// Plugin tools are offered per plugin at run time, so `PLUGIN_METHODS` lists their methods.
+const coreHandled = handlersIn(
+  coreDispatch,
+  /((?:"[a-z.]+"\s*\|\s*)*"[a-z.]+")\s*=>/gu,
+  "",
+);
+const pluginMethods = handlersIn(
+  await readFile(cliProtocolPath, "utf8"),
+  /PLUGIN_METHODS: &\[&str\] = &\[([^\]]*)\]/gu,
+  "",
+);
+for (const method of pluginMethods) coreHandled.delete(method);
+for (const method of coreHandled) {
+  if (!method.startsWith("browser.") && !method.startsWith("sim.")) continue;
+  if (!methods.includes(method))
+    throw new Error(
+      `the core's harness dispatch handles ${method}, which no tool exposes`,
+    );
+  coreHandled.delete(method);
+}
 compare(
   harnessMethods,
   new Set([
-    ...handlersIn(coreDispatch, /((?:"[a-z.]+"\s*\|\s*)*"[a-z.]+")\s*=>/gu, ""),
+    ...coreHandled,
     ...handlersIn(
       await readFile(windowHandlersPath, "utf8"),
       /case ("[a-z]+\.[a-z]+"):/gu,

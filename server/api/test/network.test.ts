@@ -23,6 +23,7 @@ describe("GET /v1/network", () => {
       ],
       minimumVersions: {
         macos: { nightly: "0.0.0", stable: "0.0.0" },
+        linux: { nightly: "0.0.0", stable: "0.0.0" },
         ios: { nightly: "0.0.0", stable: "0.0.0" },
         android: { nightly: "0.0.0", stable: "0.0.0" },
       },
@@ -61,6 +62,7 @@ describe("GET /v1/network", () => {
       ],
       minimumVersions: {
         macos: { nightly: "0.0.0", stable: "0.5.0" },
+        linux: { nightly: "0.0.0", stable: "0.0.0" },
         ios: { nightly: "0.2.0-nightly.4", stable: "0.0.0" },
         android: { nightly: "0.0.0", stable: "0.0.0" },
       },

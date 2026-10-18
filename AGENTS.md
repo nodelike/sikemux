@@ -35,6 +35,23 @@
 - When a change breaks an existing test, decide whether the behaviour it pins was meant
   to change. Update the test only if so; otherwise fix the code.
 
+## Speed and size
+
+- What a person feels must never get visibly worse: startup, typing, scrolling,
+  opening a pane, a terminal under heavy output. Making any of it faster is
+  always welcome.
+- It must feel fast under stress, not only when idle: many agents streaming at
+  once, terminals flooding, a large repository, a long chat, a busy machine.
+  Time changes in those conditions, since that is where slowness shows first.
+- Size and speed trade against each other; make that trade only where nobody can
+  feel it. Build cold code for size and keep hot paths (terminal output,
+  serialization, search, git) at full speed. Measure both sides before choosing.
+- `pnpm perf:budget` (the bundle) and `pnpm perf` (timings in WebKit) are for
+  measuring, not gates: neither runs in CI or `pnpm check`. Run them when a
+  change touches startup or a hot path.
+- A change that adds weight (a dependency, a font, an image, a crate in the
+  core) says what it costs the DMG.
+
 ## Releasing
 
 - Follow `docs/releasing.md`. Releases publish only from the Release workflow, started by
@@ -87,8 +104,10 @@
 - Migrations in `server/api/migrations` are never edited once merged. A change that
   removes something comes in two steps: stop using it in one release, drop it in a later
   one, so a rollback always finds the schema it expects.
-- Merging to `main` deploys anything under `server/` to production. Do not run
-  `server/deploy` scripts against citadel yourself; ask first.
+- Merging to `main` deploys anything under `server/` to production. You may push it,
+  run `server/deploy` scripts against citadel, and set up its config without asking,
+  after `agentctl guard` passes. Never print secrets, and ask first before anything
+  destructive or irreversible, such as dropping data or deleting accounts.
 
 ## Brand assets
 
@@ -98,6 +117,8 @@
     transparent PNG at 64, 256 and 1024.
   - `brand/icon/`: the mark on the dark app gradient, or the purple "Sikemux Dev" one,
     with rounded or square corners, as SVG and PNG at 256 and 1024.
+  - `brand/wordmark/`: the name lettered in Figtree as the site's nav sets it, alone or beside
+    the mark, in white, black, or purple mark with white name, as SVG and PNG at 2048 wide.
   - `brand/macos/`: the real Dock icon (Liquid Glass) at 128 to 1024.
   - `brand/social/avatar-400.png`: profile picture.
 - The source is `src-tauri/icons/sikemux.icon`. After changing it, run `pnpm brand` to
@@ -114,6 +135,9 @@
   root (`python3 -m http.server`) and opening `/src-tauri/notch/design/screens.html`.
 - Its icons come from `src/ui/Icons.tsx`, the agent marks and `brand/`. After changing one it
   uses, run `node scripts/generate-notch-icons.mjs`; the release checks fail on a stale copy.
+- Its agent rows are laid out like the app's tab rail rows (`src/rail/AllProjectsAgents.tsx`):
+  the task with how long ago, the project, then the name, counts and state together at the end.
+  When the rail's row changes, change the island's and its design to match.
 - `swift run --package-path src-tauri/notch notch-snapshots <dir>` renders every state to PNGs,
   for comparing with the design.
 
@@ -134,13 +158,17 @@
   change adds, removes or renames something the site describes, say so, so the site
   can be updated.
 
+## Docs
+
+- The user docs for docs.sikemux.com live in `docs-site/`, a Fumadocs site on Astro with
+  its own package, dark only in sikemux.com's palette. `pnpm dev` there serves them.
+- A change that adds, removes or renames something users see updates its page in
+  `docs-site/src/content/docs/` in the same commit.
+- The pages under `reference/` are generated: run `pnpm docs:reference` after changing
+  a default shortcut, the CLI's help or `browser/tools.json`. CI fails while they are
+  out of date.
+
 ## UI rules
 
-- Never mark a selected, focused or active item with a coloured bar down its left
-  edge (an inset `box-shadow`, `border-left` or pseudo-element stripe). On a rounded
-  row the bar bends around the corner and looks broken. Show selection with a tinted
-  border and background on the whole item instead.
-- Do not mix rounded and square shapes in one group. Every `<button>` gets
-  `--radius-2` from `modern-shell.css`, so never put buttons inside a square box
-  with dividers between them. Give each item its own border and corner, with a gap
-  between items.
+- Follow `DESIGN.md`. It is short on purpose: keep it to principles and tokens,
+  and change it in the same commit when the look moves on.

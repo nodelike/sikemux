@@ -1,16 +1,29 @@
 //! Who is on the other end of a connection, and what each request needs from
-//! them. The app on this host may do anything. A paired device does what it
-//! is approved for at the moment it asks, and never touches the core itself.
+//! them. The app on this host may do anything. Any other program here, such as
+//! the CLI or an agent's shell, may read and stop the core and set up a host
+//! with no window, but not act as the person. A paired device does what it is
+//! approved for at the moment it asks, and never touches the core itself. One
+//! with full control that joined through this host's own account is the person,
+//! as the app is: it lets devices in, links hosts, adds projects and agent
+//! accounts, shares chats and commits, so a host with no window is run from it.
 
 use crate::protocol::{DeviceAccess, Request};
 
 use super::{CoreError, CoreResult};
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub(crate) enum Peer {
-    /// The app or the CLI, over the core's own socket.
+    /// Sikemux's own window or notch, over the core's socket, as the code
+    /// signature of the program on the other end shows.
+    App,
+    /// Any other program on this host, over the core's socket.
     Local,
     Device {
+        id: String,
+    },
+    /// A shared chat's link to its viewers, inside the core. It only reads
+    /// the chat it shares, and is refused every request.
+    Share {
         id: String,
     },
 }
@@ -19,13 +32,25 @@ pub(crate) enum Peer {
 pub(crate) enum Needs {
     Watch,
     Full,
+    Person,
     Local,
 }
 
+/// What a paired device may do now.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct Standing {
+    pub access: DeviceAccess,
+    /// It joined through the account this host is signed in to.
+    pub owners: bool,
+}
+
 pub(crate) const LOCAL_ONLY: &str = "only Sikemux on this host can do that";
+pub(crate) const APP_ONLY: &str = "only Sikemux's own window or notch can do that";
 pub(crate) const WATCH_ONLY: &str =
     "this device can watch and answer permission requests, not drive sessions";
 pub(crate) const UNPAIRED: &str = "this device is no longer paired with this host";
+pub(crate) const OWNER_ONLY: &str =
+    "only a device on this host's account with full control can do that";
 
 pub(crate) fn needs(request: &Request) -> Needs {
     match request {
@@ -65,7 +90,8 @@ pub(crate) fn needs(request: &Request) -> Needs {
         | Request::AcpSetPermissionMode { .. }
         | Request::AcpSetConfig { .. }
         | Request::StartChat { .. }
-        | Request::ResumeChat { .. } => Needs::Full,
+        | Request::ResumeChat { .. }
+        | Request::AcpSwitchAccount { .. } => Needs::Full,
         Request::Configure { .. }
         | Request::ListManifests
         | Request::ReloadManifests
@@ -84,26 +110,104 @@ pub(crate) fn needs(request: &Request) -> Needs {
         | Request::AllowDevices { .. }
         | Request::SignRegistration { .. }
         | Request::SetOwner { .. }
-        | Request::PublishWorkspace { .. }
         | Request::PublishAgents { .. }
         | Request::PublishRecent { .. }
         | Request::PublishOnScreen { .. }
         | Request::WatchView
         | Request::FocusAgent { .. }
         | Request::PublishPalette { .. }
-        | Request::PublishBackdrop { .. }
-        | Request::AcpSwitchAccount { .. } => Needs::Local,
+        | Request::PublishBackdrop { .. } => Needs::Local,
+    }
+}
+
+/// What this host has set up, which decides what a program other than the app
+/// may still do to set it up.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct Setup {
+    pub signed_in: bool,
+    pub paired: bool,
+}
+
+/// Whether only Sikemux's own window or notch may send `request` from this
+/// host. A host with no window is set up from a terminal, which cannot be told
+/// from an agent's shell: `sikemux login` while no account owns it,
+/// `logout`, and `pair` until its first device is in.
+pub(crate) fn for_person(request: &Request, setup: Setup) -> bool {
+    match request {
+        Request::Call { method, .. } => super::calls::for_person(method),
+        Request::SetOwner { owner: None } => false,
+        Request::SetOwner { owner: Some(_) } | Request::SignRegistration { .. } => setup.signed_in,
+        Request::AnswerPairing { .. } => setup.paired,
+        Request::List
+        | Request::Attach { .. }
+        | Request::Detach { .. }
+        | Request::Subscribe { .. }
+        | Request::TaskOutput { .. }
+        | Request::ShellAtPrompt { .. }
+        | Request::AcpList
+        | Request::AcpAttach { .. }
+        | Request::AcpHistory { .. }
+        | Request::AcpDetach { .. }
+        | Request::BackdropImage
+        | Request::Workspace
+        | Request::Attentions
+        | Request::Host
+        | Request::WatchView
+        | Request::RemoteStatus
+        | Request::ListManifests
+        | Request::ExplainAgentDetection { .. }
+        | Request::StopAll
+        | Request::Shutdown { .. }
+        | Request::Unpair
+        | Request::SetNotifications { .. }
+        | Request::ClearNotifications
+        | Request::SetForeground { .. } => false,
+        Request::Spawn { .. }
+        | Request::Resize { .. }
+        | Request::Kill { .. }
+        | Request::ResetModes { .. }
+        | Request::AcpStart { .. }
+        | Request::AcpPrompt { .. }
+        | Request::AcpEdit { .. }
+        | Request::AcpSteer { .. }
+        | Request::AttachFile { .. }
+        | Request::AcpCancel { .. }
+        | Request::AcpStopTask { .. }
+        | Request::AcpStop { .. }
+        | Request::AcpSetPermissionMode { .. }
+        | Request::AcpSetConfig { .. }
+        | Request::AcpWake { .. }
+        | Request::AcpPermissionReply { .. }
+        | Request::AcpSwitchAccount { .. }
+        | Request::StartChat { .. }
+        | Request::ResumeChat { .. }
+        | Request::Configure { .. }
+        | Request::ReloadManifests
+        | Request::RegisterWindow
+        | Request::HarnessAwaitingTrust { .. }
+        | Request::HarnessStopRuns { .. }
+        | Request::PluginsChanged
+        | Request::FocusAgent { .. }
+        | Request::SetRemoteAccess { .. }
+        | Request::SetDeviceAccess { .. }
+        | Request::RevokeDevice { .. }
+        | Request::AllowDevices { .. }
+        | Request::PublishAgents { .. }
+        | Request::PublishRecent { .. }
+        | Request::PublishOnScreen { .. }
+        | Request::PublishPalette { .. }
+        | Request::PublishBackdrop { .. } => true,
     }
 }
 
 impl Peer {
     pub(crate) fn is_local(&self) -> bool {
-        matches!(self, Peer::Local)
+        matches!(self, Peer::App | Peer::Local)
     }
 
     pub(crate) fn device_id(&self) -> Option<String> {
         match self {
-            Peer::Local => None,
+            Peer::App | Peer::Local | Peer::Share { .. } => None,
             Peer::Device { id } => Some(id.clone()),
         }
     }
@@ -113,16 +217,21 @@ impl Peer {
     }
 }
 
-/// `access` is what the device may do now: `None` once it is unpaired.
-pub(crate) fn permit(peer: &Peer, access: Option<DeviceAccess>, needs: Needs) -> CoreResult<()> {
+/// `standing` is what the device may do now: `None` once it is unpaired.
+pub(crate) fn permit(peer: &Peer, standing: Option<Standing>, needs: Needs) -> CoreResult<()> {
     if peer.is_local() {
         return Ok(());
     }
-    match (access, needs) {
-        (None, _) => Err(CoreError::from(UNPAIRED)),
-        (Some(_), Needs::Local) => Err(CoreError::from(LOCAL_ONLY)),
-        (Some(DeviceAccess::Watch), Needs::Full) => Err(CoreError::from(WATCH_ONLY)),
-        (Some(_), _) => Ok(()),
+    let Some(Standing { access, owners }) = standing else {
+        return Err(CoreError::from(UNPAIRED));
+    };
+    match needs {
+        Needs::Local => Err(CoreError::from(LOCAL_ONLY)),
+        Needs::Person if !owners || access != DeviceAccess::Full => {
+            Err(CoreError::from(OWNER_ONLY))
+        }
+        Needs::Full if access == DeviceAccess::Watch => Err(CoreError::from(WATCH_ONLY)),
+        _ => Ok(()),
     }
 }
 
@@ -137,8 +246,15 @@ mod tests {
         Peer::Device { id: "phone".into() }
     }
 
-    fn refusal(access: Option<DeviceAccess>, request: &Request) -> String {
-        permit(&device(), access, needs(request))
+    fn standing(access: DeviceAccess) -> Option<Standing> {
+        Some(Standing {
+            access,
+            owners: false,
+        })
+    }
+
+    fn refusal(standing: Option<Standing>, request: &Request) -> String {
+        permit(&device(), standing, needs(request))
             .unwrap_err()
             .to_string()
     }
@@ -150,7 +266,7 @@ mod tests {
             Request::RegisterWindow,
             Request::Kill { id: SESSION },
         ] {
-            assert!(permit(&Peer::Local, None, needs(&request)).is_ok());
+            assert!(permit(&Peer::App, None, needs(&request)).is_ok());
         }
     }
 
@@ -185,7 +301,7 @@ mod tests {
             },
             Request::PublishRecent { chats: Vec::new() },
         ] {
-            assert_eq!(refusal(Some(DeviceAccess::Full), &request), LOCAL_ONLY);
+            assert_eq!(refusal(standing(DeviceAccess::Full), &request), LOCAL_ONLY);
         }
     }
 
@@ -196,7 +312,7 @@ mod tests {
             request_id: "r".into(),
             option_id: None,
         };
-        let watch = Some(DeviceAccess::Watch);
+        let watch = standing(DeviceAccess::Watch);
         assert!(permit(&device(), watch, needs(&permission)).is_ok());
         assert!(permit(&device(), watch, needs(&Request::Attach { id: SESSION })).is_ok());
         for request in [
@@ -228,7 +344,7 @@ mod tests {
 
     #[test]
     fn a_device_with_full_control_drives_sessions() {
-        let full = Some(DeviceAccess::Full);
+        let full = standing(DeviceAccess::Full);
         assert!(permit(&device(), full, needs(&Request::Kill { id: SESSION })).is_ok());
     }
 

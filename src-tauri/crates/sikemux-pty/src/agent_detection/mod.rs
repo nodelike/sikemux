@@ -36,6 +36,7 @@ const BUNDLED_MANIFESTS: &[(AgentKind, &str)] = &[
     (AgentKind::OpenCode, include_str!("manifests/opencode.json")),
     (AgentKind::Omp, include_str!("manifests/omp.json")),
     (AgentKind::Grok, include_str!("manifests/grok.json")),
+    (AgentKind::Muse, include_str!("manifests/muse.json")),
 ];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

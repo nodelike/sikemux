@@ -10,7 +10,7 @@ const h = vi.hoisted(() => ({
 
 vi.mock("../state/resources", async (original) => ({
     ...(await original<typeof import("../state/resources")>()),
-    useResourceEnabled: () => h.overview,
+    useCachedResourceEnabled: () => h.overview,
 }));
 vi.mock("./DiffEditor", () => ({ invalidateDiffContentCache: vi.fn() }));
 vi.mock("./CommitReview", () => ({
@@ -31,16 +31,16 @@ afterEach(cleanup);
 it("reviews a commit when one was asked for, even while the changes load", () => {
     h.overview = { ...h.overview, status: "loading", data: undefined };
     setState({ diffTarget: { "/repo": { kind: "commit", rev: "abc123", subject: "fix things" } } });
-    render(<DiffPane cwd="/repo" active />);
+    render(<DiffPane cwd="/repo" visible />);
     expect(screen.getByText("commit abc123 fix things")).toBeInTheDocument();
 });
 
 it("opens on the file that was asked for, or the first change when that file has none", () => {
     setState({ diffTarget: { "/repo": { kind: "worktree", path: "b.ts" } } });
-    const { rerender } = render(<DiffPane cwd="/repo" active />);
+    const { rerender } = render(<DiffPane cwd="/repo" visible />);
     expect(screen.getByText("2 files, focused on b.ts")).toBeInTheDocument();
 
     act(() => setState({ diffTarget: { "/repo": { kind: "worktree", path: "gone.ts" } } }));
-    rerender(<DiffPane cwd="/repo" active />);
+    rerender(<DiffPane cwd="/repo" visible />);
     expect(screen.getByText("2 files, focused on a.ts")).toBeInTheDocument();
 });

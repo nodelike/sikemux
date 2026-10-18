@@ -29,13 +29,13 @@ const MAX_HEIGHT: u32 = 4000;
 reaches the app, its storage or another window. */
 const SANDBOX: &str = "sandbox allow-scripts allow-forms";
 
-const BASE_CSS: &str = "html{background:var(--background,Canvas);color:var(--foreground,CanvasText);font-family:var(--font-sans,system-ui);font-size:14px;line-height:1.5;-webkit-font-smoothing:antialiased;-webkit-text-size-adjust:100%}html[data-sikemux-framed]{background:transparent;scrollbar-width:none}html[data-sikemux-framed]::-webkit-scrollbar{display:none}body{margin:0}code,kbd,pre,samp{font-family:var(--font-mono,ui-monospace)}";
+const BASE_CSS: &str = "html{background:var(--background,Canvas);color:var(--foreground,CanvasText);font-family:var(--font-sans,system-ui);font-size:14px;line-height:1.5;-webkit-font-smoothing:antialiased;-webkit-text-size-adjust:100%}html[data-sikemux-framed]{background:transparent;overflow:hidden!important}body{margin:0}code,kbd,pre,samp{font-family:var(--font-mono,ui-monospace)}";
 
 /* Speaks the MCP Apps messages (JSON-RPC over postMessage) between a framed
 page and the chat: the chat sends theme changes, the page reports its height
 and hands over the links the person clicks. A wheel turned over the page that
 nothing in it can scroll goes to the chat too, which never sees it otherwise. */
-const BOOTSTRAP: &str = r#"(()=>{const root=document.documentElement;if(window.parent===window)return;root.setAttribute("data-sikemux-framed","");const theme=document.getElementById("sikemux-theme");const post=(message)=>window.parent.postMessage({jsonrpc:"2.0",...message},"*");let links=0;window.addEventListener("message",(event)=>{const data=event.data;if(event.source!==window.parent||!data||data.jsonrpc!=="2.0"||data.method!=="ui/notifications/host-context-changed")return;const variables=data.params&&data.params.styles&&data.params.styles.variables;if(!variables||typeof variables!=="object")return;let css=":root{color-scheme:"+(data.params.theme==="light"?"light":"dark")+";";for(const name in variables)if(/^--[a-z0-9-]+$/.test(name))css+=name+":"+String(variables[name]).replace(/[;{}<>]/g,"")+";";theme.textContent=css+"}";});document.addEventListener("click",(event)=>{const link=event.isTrusted&&event.composedPath().find((target)=>target instanceof Element&&target.matches("a[href]"));if(!link)return;let url;try{url=new URL(link.getAttribute("href"),document.baseURI);}catch{return;}if(!/^https?:$/.test(url.protocol))return;event.preventDefault();post({id:"sikemux-link-"+(++links),method:"ui/open-link",params:{url:url.href}});},true);let reported=0;const report=()=>{const height=Math.ceil(root.getBoundingClientRect().height);if(height===reported)return;reported=height;post({method:"ui/notifications/size-changed",params:{height}});};const observer=new ResizeObserver(report);observer.observe(root);document.addEventListener("DOMContentLoaded",()=>{if(document.body)observer.observe(document.body);report();});window.addEventListener("load",report);const scrollsItself=(node,down)=>{for(;node instanceof Element;node=node.parentElement){const style=getComputedStyle(node).overflowY;const scroller=node===root||((style==="auto"||style==="scroll")&&node!==document.body);if(scroller&&(down?node.scrollTop+node.clientHeight<node.scrollHeight-1:node.scrollTop>0))return true;}return false;};window.addEventListener("wheel",(event)=>{if(event.ctrlKey||Math.abs(event.deltaY)<=Math.abs(event.deltaX)||scrollsItself(event.target,event.deltaY>0))return;event.preventDefault();const scale=event.deltaMode===1?16:event.deltaMode===2?window.innerHeight:1;post({method:"sikemux/wheel",params:{deltaY:event.deltaY*scale}});},{passive:false});})();"#;
+const BOOTSTRAP: &str = r#"(()=>{const root=document.documentElement;if(window.parent===window)return;root.setAttribute("data-sikemux-framed","");const theme=document.getElementById("sikemux-theme");const post=(message)=>window.parent.postMessage({jsonrpc:"2.0",...message},"*");let links=0;window.addEventListener("message",(event)=>{const data=event.data;if(event.source!==window.parent||!data||data.jsonrpc!=="2.0"||data.method!=="ui/notifications/host-context-changed")return;const variables=data.params&&data.params.styles&&data.params.styles.variables;if(!variables||typeof variables!=="object")return;let css=":root{color-scheme:"+(data.params.theme==="light"?"light":"dark")+";";for(const name in variables)if(/^--[a-z0-9-]+$/.test(name))css+=name+":"+String(variables[name]).replace(/[;{}<>]/g,"")+";";theme.textContent=css+"}";});document.addEventListener("click",(event)=>{const link=event.isTrusted&&event.composedPath().find((target)=>target instanceof Element&&target.matches("a[href]"));if(!link)return;let url;try{url=new URL(link.getAttribute("href"),document.baseURI);}catch{return;}if(!/^https?:$/.test(url.protocol))return;event.preventDefault();post({id:"sikemux-link-"+(++links),method:"ui/open-link",params:{url:url.href}});},true);let reported=0;const report=()=>{const height=Math.ceil(root.getBoundingClientRect().height);if(height===reported)return;reported=height;post({method:"ui/notifications/size-changed",params:{height}});};const observer=new ResizeObserver(report);observer.observe(root);document.addEventListener("DOMContentLoaded",()=>{if(document.body)observer.observe(document.body);report();});window.addEventListener("load",report);const scrollsItself=(node,down)=>{for(;node instanceof Element;node=node.parentElement){const style=getComputedStyle(node).overflowY;const scroller=(style==="auto"||style==="scroll")&&node!==document.body&&node!==root;if(scroller&&(down?node.scrollTop+node.clientHeight<node.scrollHeight-1:node.scrollTop>0))return true;}return false;};window.addEventListener("wheel",(event)=>{if(event.ctrlKey||Math.abs(event.deltaY)<=Math.abs(event.deltaX)||scrollsItself(event.target,event.deltaY>0))return;event.preventDefault();const scale=event.deltaMode===1?16:event.deltaMode===2?window.innerHeight:1;post({method:"sikemux/wheel",params:{deltaY:event.deltaY*scale}});},{passive:false});})();"#;
 
 static LOCAL_FILE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(
@@ -283,7 +283,7 @@ pub fn handle<R: Runtime>(
             .then(|| pages_dir(&app).ok())
             .flatten()
             .and_then(|dir| std::fs::read_to_string(dir.join(format!("{id}.html"))).ok());
-        responder.respond(match page {
+        let response = match page {
             Some(page) => Response::builder()
                 .header(header::CONTENT_TYPE, "text/html; charset=utf-8")
                 .header(header::CONTENT_SECURITY_POLICY, SANDBOX)
@@ -291,7 +291,8 @@ pub fn handle<R: Runtime>(
                 .body(app.state::<Pages>().themed(&page).into_bytes())
                 .expect("static page headers"),
             None => status(StatusCode::NOT_FOUND),
-        });
+        };
+        crate::preview::respond_on_main_thread(&app, responder, response);
     });
 }
 

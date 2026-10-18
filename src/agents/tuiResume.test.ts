@@ -6,7 +6,7 @@ import { getState, setState } from "../state/store";
 import type { Agent } from "../state/types";
 import { withAgents } from "../test/agents";
 import { isResumableSession, spawnedThisPage, takeResumableSession } from "../terminal/sessionResume";
-import { RESUME_WINDOW_MS } from "../chat/sessionRecovery";
+import { RESUME_WINDOW_MS } from "./tuiRecovery";
 import { noteTerminalExit, relaunchTuiAgent, resetTuiResumeForTests, tuiResumeView, type TuiResumeDeps, type TuiSpawnRequest } from "./tuiResume";
 
 const initial = getState();

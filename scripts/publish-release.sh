@@ -30,20 +30,31 @@ shopt -s nullglob
 DMGS=("$BUNDLE"/dmg/*.dmg)
 VOICES=("$ROOT"/src-tauri/binaries/sikemux-voice-*)
 SIMS=("$ROOT"/src-tauri/binaries/sikemux-sim-*)
+DEBS=("$BUNDLE"/deb/*.deb)
+RPMS=("$BUNDLE"/rpm/*.rpm)
+APPIMAGES=("$BUNDLE"/appimage/*.AppImage)
+HOSTS=("$ROOT"/src-tauri/target/host/sikemux-host-"$VERSION"-linux-*.tar.gz)
 shopt -u nullglob
 [[ ${#DMGS[@]} -eq 1 ]] || fail "expected exactly one DMG, found ${#DMGS[@]}"
 [[ ${#VOICES[@]} -eq 1 ]] || fail "expected exactly one voice helper, found ${#VOICES[@]}"
 [[ ${#SIMS[@]} -eq 1 ]] || fail "expected exactly one simulator helper, found ${#SIMS[@]}"
+[[ ${#DEBS[@]} -eq 1 ]] || fail "expected exactly one deb, found ${#DEBS[@]}"
+[[ ${#RPMS[@]} -eq 1 ]] || fail "expected exactly one rpm, found ${#RPMS[@]}"
+[[ ${#APPIMAGES[@]} -eq 1 ]] || fail "expected exactly one AppImage, found ${#APPIMAGES[@]}"
+[[ ${#HOSTS[@]} -eq 2 ]] || fail "expected the x86_64 and aarch64 host cores, found ${#HOSTS[@]}"
 DMG="${DMGS[0]}"
 VOICE="${VOICES[0]}"
 SIM="${SIMS[0]}"
-for file in "$DMG" "$TAR" "$SIG" "$VOICE" "$SIM" "$MANIFEST"; do
+DEB="${DEBS[0]}"
+RPM="${RPMS[0]}"
+APPIMAGE="${APPIMAGES[0]}"
+for file in "$DMG" "$TAR" "$SIG" "$VOICE" "$SIM" "$DEB" "$RPM" "$APPIMAGE" "${HOSTS[@]}" "$MANIFEST"; do
   [[ -s "$file" ]] || fail "$file is missing or empty"
 done
 [[ "$(node -p "require('$MANIFEST').version")" == "$VERSION" ]] || fail "$MANIFEST is not for v$VERSION"
 
-STABLE_GH_CMD=(gh release create "v$VERSION" --verify-tag --title "v$VERSION" --notes "$NOTES" "$DMG" "$TAR" "$SIG" "$VOICE" "$SIM" "$MANIFEST")
-NIGHTLY_GH_CMD=(gh release create "v$VERSION" --verify-tag --title "v$VERSION" --notes "$NOTES" --prerelease "$DMG" "$TAR" "$SIG" "$VOICE" "$SIM")
+STABLE_GH_CMD=(gh release create "v$VERSION" --verify-tag --title "v$VERSION" --notes "$NOTES" "$DMG" "$TAR" "$SIG" "$VOICE" "$SIM" "$DEB" "$RPM" "$APPIMAGE" "${HOSTS[@]}" "$MANIFEST")
+NIGHTLY_GH_CMD=(gh release create "v$VERSION" --verify-tag --title "v$VERSION" --notes "$NOTES" --prerelease "$DMG" "$TAR" "$SIG" "$VOICE" "$SIM" "$DEB" "$RPM" "$APPIMAGE" "${HOSTS[@]}")
 POINTER_NOTES="Update feed for the nightly channel.
 
 The installable build for this feed is [v$VERSION](https://github.com/nodelike/sikemux/releases/tag/v$VERSION).

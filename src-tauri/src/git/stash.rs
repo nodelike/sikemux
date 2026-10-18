@@ -1,6 +1,6 @@
 use serde::Serialize;
 
-use super::{git_ok, run_blocking};
+use super::{git_ok, open_repo, run_blocking};
 
 #[derive(Serialize, Clone)]
 pub struct GitStash {
@@ -22,26 +22,25 @@ pub struct GitStash {
 #[tauri::command]
 pub async fn git_stash_list(repo: String) -> Result<Vec<GitStash>, String> {
     run_blocking(move || -> Result<Vec<GitStash>, String> {
-        // Format chosen so we don't depend on lazy field parsing — `%gd` is
-        // the selector (`stash@{N}`), `%gs` is the message. We compute branch
-        // from the message prefix (`WIP on <branch>:` / `On <branch>:`).
-        let out = git_ok(&repo, &["stash", "list", "--format=%H%x09%gd%x09%gs"])?;
-        let mut entries = Vec::new();
-        for (idx, line) in out.lines().enumerate() {
-            let mut parts = line.splitn(3, '\t');
-            let sha = parts.next().unwrap_or("").to_string();
-            let refname = parts.next().unwrap_or("").to_string();
-            let message = parts.next().unwrap_or("").to_string();
-            let branch = parse_stash_branch(&message);
-            entries.push(GitStash {
-                index: idx,
-                sha,
-                refname,
-                branch,
-                message,
-            });
-        }
-        Ok(entries)
+        let repo = open_repo(&repo)?;
+        let Ok(reflog) = repo.reflog("refs/stash") else {
+            return Ok(Vec::new());
+        };
+        Ok(reflog
+            .iter()
+            .enumerate()
+            .map(|(index, entry)| {
+                let message =
+                    String::from_utf8_lossy(entry.message_bytes().unwrap_or_default()).into_owned();
+                GitStash {
+                    index,
+                    sha: entry.id_new().to_string(),
+                    refname: format!("stash@{{{index}}}"),
+                    branch: parse_stash_branch(&message),
+                    message,
+                }
+            })
+            .collect())
     })
     .await
 }

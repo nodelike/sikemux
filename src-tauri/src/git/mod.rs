@@ -1,3 +1,4 @@
+pub mod agents;
 pub mod ai;
 mod ai_provider;
 pub mod blame;
@@ -52,6 +53,43 @@ async fn git_walk_permit() -> Result<tokio::sync::SemaphorePermit<'static>, Stri
         .acquire()
         .await
         .map_err(|e| e.to_string())
+}
+
+/// Walks being worked out, by what they answer.
+type Flights<T> = std::sync::Mutex<
+    std::collections::HashMap<String, Arc<tokio::sync::OnceCell<Result<T, String>>>>,
+>;
+
+/// What `key` names, worked out once however many ask while it is under way.
+async fn shared<T: Clone>(
+    flights: &Flights<T>,
+    key: String,
+    work: impl std::future::Future<Output = Result<T, String>>,
+) -> Result<T, String> {
+    let lock = || {
+        flights
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    };
+    let flight = lock().entry(key.clone()).or_default().clone();
+    let result = flight.get_or_init(|| work).await.clone();
+    let mut flights = lock();
+    if flights
+        .get(&key)
+        .is_some_and(|current| Arc::ptr_eq(current, &flight))
+    {
+        flights.remove(&key);
+    }
+    result
+}
+
+/// A watched repo's walks are shared only with requests made at the same
+/// generation, so none gets an answer from before a change it was told of.
+fn flight_key(repo: &str, watched: Option<&(String, u64)>) -> String {
+    match watched {
+        Some((key, generation)) => format!("{generation}:{key}"),
+        None => repo.to_owned(),
+    }
 }
 
 fn open_repo(path: &str) -> Result<Repository, String> {

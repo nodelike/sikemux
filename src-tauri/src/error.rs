@@ -30,6 +30,9 @@ pub enum AppError {
     #[error("http: {0}")]
     Http(String),
 
+    #[error("{}", sikemux_plugin_api::network::unreachable_message(*.0, "the server"))]
+    Unreachable(sikemux_plugin_api::Unreachable),
+
     #[error("{plugin}: {error}")]
     Plugin {
         plugin: String,
@@ -74,6 +77,10 @@ pub enum AppError {
 
 impl From<reqwest::Error> for AppError {
     fn from(e: reqwest::Error) -> Self {
+        if let Some(kind) = sikemux_plugin_api::unreachable(&e) {
+            eprintln!("http: {e}");
+            return AppError::Unreachable(kind);
+        }
         AppError::Http(e.to_string())
     }
 }
@@ -145,6 +152,7 @@ impl AppError {
             AppError::Lsp(_) => "lsp",
             AppError::LspServerMissing { .. } => "lsp-server-missing",
             AppError::Http(_) => "http",
+            AppError::Unreachable(kind) => sikemux_plugin_api::network::category(*kind),
             AppError::Plugin { .. } => "plugin",
             AppError::BadArg(_) | AppError::BadArgText(_) => "bad-arg",
             AppError::Pty(_) => "pty",
@@ -183,6 +191,10 @@ mod tests {
         assert_eq!(AppError::Pty("x".into()).category(), "pty");
         assert_eq!(AppError::Watch("x".into()).category(), "watch");
         assert_eq!(AppError::State("x".into()).category(), "state");
+        assert_eq!(
+            AppError::Unreachable(sikemux_plugin_api::Unreachable::Offline).category(),
+            "offline"
+        );
     }
 
     #[test]

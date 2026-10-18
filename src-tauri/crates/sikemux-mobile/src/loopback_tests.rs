@@ -5,7 +5,7 @@ use std::time::Instant;
 
 use serde_json::json;
 use sikemux_core::client::{probe, CoreClient};
-use sikemux_core::protocol::{BuildIdentity, ChatLauncher, ProjectInfo};
+use sikemux_core::protocol::BuildIdentity;
 use sikemux_core::server::{self, ServerConfig};
 
 use super::*;
@@ -171,21 +171,6 @@ fn block_on<T>(work: impl std::future::Future<Output = T>) -> T {
         .block_on(work)
 }
 
-fn launcher() -> ChatLauncher {
-    ChatLauncher {
-        id: "opencode".into(),
-        provider: "opencode".into(),
-        label: "OpenCode".into(),
-        program: "/bin/true".into(),
-        args: Vec::new(),
-        env: Default::default(),
-        permission_mode: "default".into(),
-        account: None,
-        fallbacks: Vec::new(),
-        status: None,
-    }
-}
-
 #[test]
 fn a_phone_hears_the_mac_s_view_and_asks_it_typed_questions() {
     let core_key = SecretKey::generate();
@@ -201,14 +186,11 @@ fn a_phone_hears_the_mac_s_view_and_asks_it_typed_questions() {
             .await
             .expect("the phone connects");
 
-        let project = ProjectInfo {
-            id: "p".into(),
-            name: "Project".into(),
-            path: std::env::temp_dir(),
-        };
-        app.publish_workspace(vec![project], vec![launcher()])
-            .await
-            .expect("publish");
+        let workspace = serde_json::json!({
+            "projects": [{ "id": "p", "name": "Project", "path": std::env::temp_dir() }],
+            "permissionMode": "bypass",
+        });
+        app.call("setWorkspace", workspace).await.expect("publish");
         let deadline = Instant::now() + WAIT;
         while !views.views.lock().unwrap().iter().any(|view| {
             view.workspace
@@ -330,6 +312,9 @@ fn closing_a_connection_fails_what_waits_on_it_and_tells_the_app_nothing_more() 
     let core = start_core(&core_key, Some(&phone_key));
     block_on(async {
         let (app, _events) = CoreClient::connect(&core.socket).await.expect("app");
+        app.register_window()
+            .await
+            .expect("the app opens its window");
         let addr = core_addr(&app).await;
         app.publish_agents(
             vec![sikemux_core::protocol::PublishedChat {

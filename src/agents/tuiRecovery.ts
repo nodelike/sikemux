@@ -1,4 +1,4 @@
-import { RESUME_WINDOW_MS } from "../chat/sessionRecovery";
+export const RESUME_WINDOW_MS = 30_000;
 
 /** How a terminal agent's process ended, as the core reports it. */
 export interface AgentProcessExit {
@@ -37,8 +37,8 @@ export function readAgentExit(exit: AgentProcessExit): AgentExitReading {
     return "crashed";
 }
 
-/* The same rules as a chat's: a second death soon after a resume is a crash
-   loop, so the choice goes to the person. */
+/* A second death soon after a resume is a crash loop, so the choice goes to
+   the person. */
 export function afterAgentExit({
     exit,
     resumeId,

@@ -6,6 +6,9 @@ import { useLive } from '@/devices/hub';
 /** The host whose chat is on the screen, for fetching the files its messages carried. */
 export const HostContext = createContext('');
 
+/** A shared chat's pictures, from the computer that shared it, as data URIs. */
+export const SharedFilesContext = createContext<((path: string) => Promise<string | null>) | null>(null);
+
 /** Fetches in flight, so a file shown twice is asked for once. */
 const fetching = new Map<string, Promise<string>>();
 /** When fetching each file last failed; rows are drawn again as the transcript scrolls, and asking each time would not help. */
@@ -22,6 +25,28 @@ function saved(core: string, path: string): File {
 
 /** A file on the host, copied to this phone once and answered with where it is here. */
 export function useHostFile(path: string, wanted: boolean): string | undefined {
+  const shared = useContext(SharedFilesContext);
+  const fromShare = useSharedFile(shared, path, wanted);
+  const fromHost = useFileOnHost(shared ? '' : path, wanted && !shared);
+  return shared ? fromShare : fromHost;
+}
+
+function useSharedFile(read: ((path: string) => Promise<string | null>) | null, path: string, wanted: boolean): string | undefined {
+  const [uri, setUri] = useState<string>();
+  useEffect(() => {
+    if (!read || !wanted || uri) return;
+    let current = true;
+    void read(path).then((found) => {
+      if (current && found) setUri(found);
+    });
+    return () => {
+      current = false;
+    };
+  }, [read, path, wanted, uri]);
+  return uri;
+}
+
+function useFileOnHost(path: string, wanted: boolean): string | undefined {
   const core = useContext(HostContext);
   const live = useLive(core);
   const connection = live.status === 'open' ? live.connection : undefined;

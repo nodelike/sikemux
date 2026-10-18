@@ -34,8 +34,8 @@ describe("new tab palette", () => {
     it("numbers the destinations a project can open", () => {
         render(<NewTabPalette />);
 
-        expect(labels()).toEqual(["Terminal", "Agent", "Browser", "Files", "Git", "Search"]);
-        expect(screen.getAllByRole("button").map((row) => row.querySelector("kbd")?.textContent)).toEqual(["1", "2", "3", "4", "5", "6"]);
+        expect(labels()).toEqual(["Terminal", "Agent", "Browser", "Files", "Git", "Search", "Board"]);
+        expect(screen.getAllByRole("button").map((row) => row.querySelector("kbd")?.textContent)).toEqual(["1", "2", "3", "4", "5", "6", "7"]);
     });
 
     it("opens a terminal on 1 and closes itself", () => {

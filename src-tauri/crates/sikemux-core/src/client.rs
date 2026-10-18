@@ -5,14 +5,16 @@ use std::fs::OpenOptions;
 use std::io::{self, Write};
 use std::os::unix::fs::OpenOptionsExt;
 use std::os::unix::net::UnixStream as StdUnixStream;
+#[cfg(not(target_os = "macos"))]
 use std::os::unix::process::CommandExt;
 use std::path::Path;
+#[cfg(not(target_os = "macos"))]
 use std::process::Stdio;
 use std::time::{Duration, Instant};
 
 pub use sikemux_client::client::*;
 
-use crate::protocol::frozen::{FrozenReply, FrozenRequest};
+use crate::frozen::{FrozenReply, FrozenRequest};
 use crate::protocol::{
     encode_frozen, read_frame_sync, BuildIdentity, FrameKind, ServerMessage, PROTOCOL_VERSION,
 };
@@ -92,7 +94,7 @@ pub fn await_upgrade(
 }
 
 /// Like [`await_upgrade`] for an upgrade the core deferred: it goes on
-/// answering as the old build until its chat turns end.
+/// answering as the old build until its chats can be carried over.
 pub fn await_deferred_upgrade(
     socket: &Path,
     pid: u32,
@@ -157,11 +159,16 @@ fn start_detached(socket: &Path, binary: &Path, log: &Path, args: &[OsString]) -
         .mode(0o600)
         .open(log)?;
     let mut command = sikemux_process::user_environment::command(binary);
+    command.arg("core").arg("--socket").arg(socket).args(args);
+    #[cfg(target_os = "macos")]
+    return spawn_responsible(&command, &log);
+    #[cfg(not(target_os = "macos"))]
+    return spawn_double_forked(command, log);
+}
+
+#[cfg(not(target_os = "macos"))]
+fn spawn_double_forked(mut command: std::process::Command, log: std::fs::File) -> io::Result<()> {
     command
-        .arg("core")
-        .arg("--socket")
-        .arg(socket)
-        .args(args)
         .stdin(Stdio::null())
         .stdout(log.try_clone()?)
         .stderr(log);
@@ -182,6 +189,116 @@ fn start_detached(socket: &Path, binary: &Path, log: &Path, args: &[OsString]) -
         });
     }
     command.spawn()?.wait()?;
+    Ok(())
+}
+
+#[cfg(target_os = "macos")]
+extern "C" {
+    fn responsibility_spawnattrs_setdisclaim(
+        attrs: *mut libc::posix_spawnattr_t,
+        disclaim: libc::c_int,
+    ) -> libc::c_int;
+}
+
+/// macOS charges a permission such as Screen Recording to the process
+/// responsible for the one asking. Without this, every shell and agent the
+/// core starts answers for itself, and the person's grant to Sikemux never
+/// reaches them.
+#[cfg(target_os = "macos")]
+fn spawn_responsible(command: &std::process::Command, log: &std::fs::File) -> io::Result<()> {
+    use std::collections::BTreeMap;
+    use std::ffi::{CString, OsStr};
+    use std::os::fd::AsRawFd;
+    use std::os::unix::ffi::OsStrExt;
+
+    const POSIX_SPAWN_SETSID: libc::c_int = 0x0400;
+
+    let c_string = |value: &OsStr| CString::new(value.as_bytes()).map_err(io::Error::other);
+    let program = c_string(command.get_program())?;
+    let args = std::iter::once(command.get_program())
+        .chain(command.get_args())
+        .map(c_string)
+        .collect::<io::Result<Vec<_>>>()?;
+    let mut variables: BTreeMap<OsString, OsString> = std::env::vars_os().collect();
+    for (key, value) in command.get_envs() {
+        match value {
+            Some(value) => variables.insert(key.to_owned(), value.to_owned()),
+            None => variables.remove(key),
+        };
+    }
+    let environment = variables
+        .into_iter()
+        .map(|(mut entry, value)| {
+            entry.push("=");
+            entry.push(value);
+            c_string(&entry)
+        })
+        .collect::<io::Result<Vec<_>>>()?;
+    let pointers = |strings: &[CString]| {
+        strings
+            .iter()
+            .map(|string| string.as_ptr().cast_mut())
+            .chain(std::iter::once(std::ptr::null_mut()))
+            .collect::<Vec<_>>()
+    };
+    let (argv, envp) = (pointers(&args), pointers(&environment));
+    let check = |code: libc::c_int| match code {
+        0 => Ok(()),
+        code => Err(io::Error::from_raw_os_error(code)),
+    };
+
+    let mut pid: libc::pid_t = 0;
+    // SAFETY: the attributes and file actions are initialised before use and
+    // destroyed once; every pointer handed to posix_spawn points into the
+    // vectors above, which outlive the call, and both lists end in null.
+    let spawned = unsafe {
+        let mut attrs: libc::posix_spawnattr_t = std::ptr::null_mut();
+        let mut actions: libc::posix_spawn_file_actions_t = std::ptr::null_mut();
+        check(libc::posix_spawnattr_init(&mut attrs))?;
+        check(libc::posix_spawn_file_actions_init(&mut actions))?;
+        let spawned = (|| {
+            check(libc::posix_spawnattr_setflags(
+                &mut attrs,
+                (POSIX_SPAWN_SETSID | libc::POSIX_SPAWN_CLOEXEC_DEFAULT) as libc::c_short,
+            ))?;
+            check(responsibility_spawnattrs_setdisclaim(&mut attrs, 1))?;
+            check(libc::posix_spawn_file_actions_addopen(
+                &mut actions,
+                0,
+                c"/dev/null".as_ptr(),
+                libc::O_RDONLY,
+                0,
+            ))?;
+            for fd in [1, 2] {
+                check(libc::posix_spawn_file_actions_adddup2(
+                    &mut actions,
+                    log.as_raw_fd(),
+                    fd,
+                ))?;
+            }
+            check(libc::posix_spawn(
+                &mut pid,
+                program.as_ptr(),
+                &actions,
+                &attrs,
+                argv.as_ptr(),
+                envp.as_ptr(),
+            ))
+        })();
+        libc::posix_spawn_file_actions_destroy(&mut actions);
+        libc::posix_spawnattr_destroy(&mut attrs);
+        spawned
+    };
+    spawned?;
+    // The core outlives the caller as a rule; while the caller runs, this
+    // collects its exit so it never lingers as a zombie.
+    std::thread::spawn(move || {
+        let mut status = 0;
+        // SAFETY: waitpid writes one int status into `status`.
+        while unsafe { libc::waitpid(pid, &mut status, 0) } < 0
+            && io::Error::last_os_error().kind() == io::ErrorKind::Interrupted
+        {}
+    });
     Ok(())
 }
 

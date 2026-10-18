@@ -8,6 +8,9 @@ use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use futures_util::{SinkExt, StreamExt};
+use time::format_description::well_known::Rfc3339;
+use time::macros::format_description;
+use time::OffsetDateTime;
 use tokio::net::TcpStream;
 use tokio::sync::{watch, Notify};
 use tokio_websockets::{ClientBuilder, Connector, MaybeTlsStream, Message, WebSocketStream};
@@ -191,74 +194,27 @@ impl Outbox {
 
 /// `2026-10-03T00:00:30.000Z` for milliseconds since the Unix epoch.
 pub fn rfc3339(ms: u64) -> String {
-    let days = (ms / 86_400_000) as i64;
-    let in_day = ms % 86_400_000;
-    let z = days + 719_468;
-    let era = z.div_euclid(146_097);
-    let day_of_era = z.rem_euclid(146_097);
-    let year_of_era =
-        (day_of_era - day_of_era / 1460 + day_of_era / 36_524 - day_of_era / 146_096) / 365;
-    let day_of_year = day_of_era - (365 * year_of_era + year_of_era / 4 - year_of_era / 100);
-    let shifted_month = (5 * day_of_year + 2) / 153;
-    let day = day_of_year - (153 * shifted_month + 2) / 5 + 1;
-    let month = if shifted_month < 10 {
-        shifted_month + 3
-    } else {
-        shifted_month - 9
-    };
-    let year = year_of_era + era * 400 + i64::from(month <= 2);
-    format!(
-        "{year:04}-{month:02}-{day:02}T{:02}:{:02}:{:02}.{:03}Z",
-        in_day / 3_600_000,
-        in_day / 60_000 % 60,
-        in_day / 1000 % 60,
-        in_day % 1000
-    )
+    let at = OffsetDateTime::UNIX_EPOCH + time::Duration::milliseconds(ms as i64);
+    at.format(format_description!(
+        "[year]-[month]-[day]T[hour]:[minute]:[second].[subsecond digits:3]Z"
+    ))
+    .unwrap_or_default()
 }
 
-/// Milliseconds since the Unix epoch for a UTC time like the server writes,
-/// `2026-10-03T00:00:30.000Z`, with or without the fraction.
+/// Milliseconds since the Unix epoch for an RFC 3339 time such as the server
+/// writes, `2026-10-03T00:00:30.000Z`.
 pub fn parse_rfc3339(text: &str) -> Option<u64> {
-    let text = text.strip_suffix('Z')?;
-    let (date, time) = text.split_once('T')?;
-    let number = |part: &str| -> Option<i64> {
-        part.bytes()
-            .all(|byte| byte.is_ascii_digit())
-            .then(|| part.parse().ok())?
-    };
-    let mut date = date.splitn(3, '-').map(number);
-    let (year, month, day) = (date.next()??, date.next()??, date.next()??);
-    let (time, fraction) = time.split_once('.').unwrap_or((time, ""));
-    let mut time = time.splitn(3, ':').map(number);
-    let (hour, minute, second) = (time.next()??, time.next()??, time.next()??);
-    if !(1..=12).contains(&month)
-        || !(1..=31).contains(&day)
-        || hour > 23
-        || minute > 59
-        || second > 60
-    {
-        return None;
-    }
-    let millis = if fraction.is_empty() {
-        0
-    } else {
-        let digits: String = fraction.chars().chain("00".chars()).take(3).collect();
-        number(fraction)?;
-        number(&digits)?
-    };
-    let year = year - i64::from(month <= 2);
-    let era = year.div_euclid(400);
-    let year_of_era = year.rem_euclid(400);
-    let shifted_month = (month + 9) % 12;
-    let day_of_year = (153 * shifted_month + 2) / 5 + day - 1;
-    let day_of_era = year_of_era * 365 + year_of_era / 4 - year_of_era / 100 + day_of_year;
-    let days = era * 146_097 + day_of_era - 719_468;
-    let ms = ((days * 24 + hour) * 60 + minute) * 60_000 + second * 1000 + millis;
-    u64::try_from(ms).ok()
+    let at = OffsetDateTime::parse(text, &Rfc3339).ok()?;
+    u64::try_from(at.unix_timestamp_nanos() / 1_000_000).ok()
 }
 
 /// `base` is the accounts API, `http(s)://host`.
 pub fn url(base: &str) -> String {
+    socket_url(base, "/v1/live")
+}
+
+/// The WebSocket at `path` on the accounts API at `base`.
+pub fn socket_url(base: &str, path: &str) -> String {
     let base = base.trim_end_matches('/');
     let base = if let Some(rest) = base.strip_prefix("https://") {
         format!("wss://{rest}")
@@ -267,7 +223,7 @@ pub fn url(base: &str) -> String {
     } else {
         base.to_owned()
     };
-    format!("{base}/v1/live")
+    format!("{base}{path}")
 }
 
 /// Keeps the connection while [`Account::want`] asks for one. `changed`
@@ -304,13 +260,15 @@ pub async fn run<A: Account>(
                 if gone.is_err() {
                     return;
                 }
+                // Something changed, such as the network coming back: start the backoff over.
+                failures = 0;
             }
         }
     }
 }
 
 /// Full jitter: anywhere from nothing to the doubled delay, capped.
-fn backoff(failures: u32) -> Duration {
+pub(crate) fn backoff(failures: u32) -> Duration {
     let ceiling = BACKOFF_BASE
         .saturating_mul(1u32 << failures.saturating_sub(1).min(16))
         .min(BACKOFF_CAP);
@@ -326,7 +284,7 @@ enum Ended {
     },
 }
 
-type Socket = WebSocketStream<MaybeTlsStream<TcpStream>>;
+pub(crate) type Socket = WebSocketStream<MaybeTlsStream<TcpStream>>;
 
 fn connector() -> &'static Connector {
     static CONNECTOR: OnceLock<Connector> = OnceLock::new();
@@ -336,7 +294,7 @@ fn connector() -> &'static Connector {
     })
 }
 
-async fn connect(url: &str) -> Option<Socket> {
+pub(crate) async fn connect(url: &str) -> Option<Socket> {
     let builder = ClientBuilder::new().uri(url).ok()?.connector(connector());
     match tokio::time::timeout(CONNECT_TIMEOUT, builder.connect()).await {
         Ok(Ok((socket, _))) => Some(socket),

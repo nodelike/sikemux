@@ -155,7 +155,6 @@ export function Welcome() {
           <Text style={styles.markText}>Sikemux</Text>
         </View>
         <Text style={styles.title}>Your agents,{'\n'}on your phone.</Text>
-        <Text style={styles.body}>Watch them work, answer what they ask, and start new chats from anywhere.</Text>
       </View>
       <View style={[styles.actions, { paddingBottom: bottom }]}>
         {APPLE ? (
@@ -203,7 +202,6 @@ const styles = StyleSheet.create({
   markLine: { flexDirection: 'row', alignItems: 'center', gap: 9 },
   markText: { fontFamily: fonts.uiSemibold, fontSize: 15, color: colors.ink, letterSpacing: -0.2 },
   title: { marginTop: 18, fontFamily: fonts.uiSemibold, fontSize: 34, lineHeight: 37, letterSpacing: -1.2, color: colors.ink },
-  body: { ...type.body, fontSize: 16, lineHeight: 24, marginTop: 12, maxWidth: 300 },
   actions: { paddingHorizontal: 16, paddingTop: 28, gap: 12 },
   provider: { backgroundColor: colors.raised },
   problem: { ...type.meta, color: colors.danger, textAlign: 'center' },

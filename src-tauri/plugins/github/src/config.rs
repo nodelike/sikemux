@@ -12,8 +12,14 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::{GithubError, GithubResult};
 
+/// A development build keeps entries of its own, so it never spends or replaces the
+/// installed app's sign-in.
 #[cfg(not(test))]
-pub const TOKEN_SERVICE: &str = "sikemux-github-token";
+pub const TOKEN_SERVICE: &str = if cfg!(debug_assertions) {
+    "sikemux-github-token-dev"
+} else {
+    "sikemux-github-token"
+};
 /// Tests keep to an entry of their own, so they never replace or delete a real token.
 #[cfg(test)]
 pub const TOKEN_SERVICE: &str = "sikemux-github-token-test";

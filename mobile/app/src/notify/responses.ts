@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { router, type Href } from 'expo-router';
 import * as Notifications from 'expo-notifications';
 
@@ -63,6 +63,21 @@ function respond(response: Notifications.NotificationResponse) {
   if (!tap) return;
   if (tap.path) router.push(tap.path as Href);
   if (tap.answer) answerTask(tap.answer).catch((error: unknown) => console.warn('sikemux: could not answer from the notification', error));
+}
+
+/** Calls `onArrive` when a card of `kind` from `host` arrives while the app is open. */
+export function useCardArrivals(host: string, kind: string, onArrive: () => void) {
+  const latest = useRef(onArrive);
+  useEffect(() => {
+    latest.current = onArrive;
+  });
+  useEffect(() => {
+    const listener = Notifications.addNotificationReceivedListener((notification) => {
+      const card = cardInfo(cardData(notification.request));
+      if (card?.host === host && card.kind === kind) latest.current();
+    });
+    return () => listener.remove();
+  }, [host, kind]);
 }
 
 /**

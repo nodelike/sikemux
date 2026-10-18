@@ -118,7 +118,7 @@
 }
 .panel-abtn:hover:not(:disabled) {
     color: var(--text-primary);
-    border-color: var(--border-selected);
+    border-color: var(--border-strong);
 }
 .panel-abtn:disabled {
     opacity: 0.45;
@@ -136,6 +136,7 @@
     font-family: var(--kbd);
     font-size: 8px;
     color: var(--text-tertiary);
+    border-radius: var(--radius-1);
 }
 .panel-abtn:hover:not(:disabled) .panel-akbd {
     color: var(--text-secondary);
@@ -151,6 +152,7 @@
 /* ---- Empty state -------------------------------------------------------- */
 .empty-state {
     display: flex;
+    flex: 1;
     flex-direction: column;
     align-items: center;
     justify-content: center;
@@ -159,26 +161,34 @@
     text-align: center;
     color: var(--text-tertiary);
 }
+.rail-scroll > .empty-state {
+    min-height: 100%;
+}
 .empty-state-media {
     display: grid;
     place-items: center;
-    width: 28px;
-    height: 28px;
     margin-bottom: var(--space-0);
-    border-radius: var(--radius-sm);
-    color: var(--text-secondary);
-    background: color-mix(in srgb, var(--text-tertiary) 12%, transparent);
+    color: var(--text-tertiary);
+    opacity: 0.7;
 }
 .empty-state-title {
     font-family: var(--ui);
     font-size: 12.5px;
-    font-weight: 600;
+    font-weight: var(--weight-medium);
     color: var(--text-secondary);
 }
 .empty-state-msg {
     max-width: 34ch;
     font-size: var(--text-2xs);
     line-height: 1.5;
+}
+.empty-state-msg kbd {
+    padding: 1px 5px;
+    border-radius: var(--radius-1);
+    background: color-mix(in oklab, var(--ink) 6%, transparent);
+    color: var(--text-secondary);
+    font-family: var(--ui);
+    font-size: var(--text-2xs);
 }
 .empty-state-action {
     margin-top: var(--space-1);
@@ -194,8 +204,8 @@
 }
 .empty-state-action:hover {
     color: var(--text-primary);
-    border-color: var(--border-selected);
-    background: var(--surface-selected);
+    border-color: var(--border-strong);
+    background: var(--surface-hover);
 }
 
 .empty-stage {
@@ -232,8 +242,8 @@
 }
 .empty-stage-move:hover {
     color: var(--text-primary);
-    border-color: var(--border-selected);
-    background: var(--surface-selected);
+    border-color: var(--border-strong);
+    background: var(--surface-hover);
 }
 .empty-stage-move kbd {
     color: var(--text-tertiary);
@@ -246,7 +256,6 @@
 }
 .empty-state.tone-error .empty-state-media {
     color: var(--danger);
-    background: color-mix(in srgb, var(--danger) 14%, transparent);
 }
 .empty-state.tone-error .empty-state-title {
     color: var(--danger);
@@ -254,6 +263,7 @@
 
 /* One-line form for the rails, where the block form would dwarf its group. */
 .empty-state.inline {
+    flex: none;
     flex-direction: row;
     justify-content: flex-start;
     gap: var(--space-1h);
@@ -277,4 +287,68 @@
 .empty-state.inline.interactive:hover {
     color: var(--text-primary);
     background: var(--surface-hover);
+}
+
+/* Pages side by side in one track that a swipe or the icons at their foot
+   slide along. Pages off to the side are not painted until something moves
+   the track. */
+.swipe-pages {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+}
+.swipe-pager {
+    flex: 1;
+    min-height: 0;
+    overflow: clip;
+}
+.swipe-track {
+    display: flex;
+    height: 100%;
+    will-change: transform;
+}
+.swipe-page {
+    display: flex;
+    flex-direction: column;
+    flex: 0 0 100%;
+    min-width: 0;
+    min-height: 0;
+}
+/* Side by side mid-swipe, the pages part on a hairline, and the outer pages close on one when pulled past the end. */
+.swipe-page {
+    box-shadow: -1px 0 0 var(--border);
+}
+.swipe-page:last-child {
+    box-shadow:
+        -1px 0 0 var(--border),
+        1px 0 0 var(--border);
+}
+.swipe-pager:not([data-moving]) .swipe-page:not(.is-current) {
+    visibility: hidden;
+}
+.swipe-switch {
+    display: flex;
+    flex: none;
+    justify-content: center;
+    gap: var(--space-1);
+    padding: var(--space-1) var(--space-2);
+    border-top: 1px solid var(--border);
+}
+.swipe-switch button {
+    display: inline-grid;
+    place-items: center;
+    width: 32px;
+    height: var(--control-hit);
+    color: var(--text-tertiary);
+    transition:
+        color var(--dur-1) linear,
+        background-color var(--dur-1) linear;
+}
+.swipe-switch button:hover {
+    color: var(--text-primary);
+}
+.swipe-switch button[aria-selected="true"] {
+    background: var(--surface-chosen);
+    color: var(--text-primary);
 }

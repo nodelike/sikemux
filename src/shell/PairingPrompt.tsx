@@ -15,17 +15,44 @@ export function pairingNotification(request: PendingDevice): { title: string; bo
     };
 }
 
-function usePendingDevices(hasFocus: () => boolean): [readonly PendingDevice[], (next: Promise<RemoteStatus>) => Promise<void>] {
-    const [pending, setPending] = useState<readonly PendingDevice[]>([]);
+/** The notification for another host on the account that asks to link while Sikemux is in the background. */
+export function linkNotification(request: PendingDevice): { title: string; body: string } {
+    return {
+        title: `${request.name || "Another computer"} wants to link with this computer`,
+        body: "Its agents could start agents here. Allow or decline it in Sikemux.",
+    };
+}
+
+interface Pending {
+    phones: readonly PendingDevice[];
+    links: readonly PendingDevice[];
+}
+
+function usePendingDevices(hasFocus: () => boolean): [Pending, (next: Promise<RemoteStatus>) => Promise<void>] {
+    const [phones, setPhones] = useState<readonly PendingDevice[]>([]);
+    const [links, setLinks] = useState<readonly PendingDevice[]>([]);
     const announced = useRef(new Set<string>());
     useEffect(() => {
         const controller = new AbortController();
         const show = (status: RemoteStatus) => {
-            if (!controller.signal.aborted) setPending(status.pending);
+            if (!controller.signal.aborted) setPhones(status.pending);
         };
+        const readLinks = () =>
+            void remoteApi
+                .pairing()
+                .then((pairing) => {
+                    if (!controller.signal.aborted) setLinks(pairing.pendingLinks);
+                })
+                .catch(swallow("link requests"));
         remoteApi
-            .subscribe(show, controller.signal)
-            .then(() => remoteApi.status())
+            .subscribe((status) => {
+                show(status);
+                readLinks();
+            }, controller.signal)
+            .then(() => {
+                readLinks();
+                return remoteApi.status();
+            })
             .then(show)
             .catch((error: unknown) => {
                 if (!controller.signal.aborted) swallow("pairing requests")(error);
@@ -33,34 +60,42 @@ function usePendingDevices(hasFocus: () => boolean): [readonly PendingDevice[], 
         return () => controller.abort();
     }, []);
     useEffect(() => {
-        const fresh = pending.filter((request) => !announced.current.has(request.id));
-        announced.current = new Set(pending.map((request) => request.id));
+        const waiting = [
+            ...phones.map((request) => ({ request, word: pairingNotification })),
+            ...links.map((request) => ({ request, word: linkNotification })),
+        ];
+        const fresh = waiting.filter(({ request }) => !announced.current.has(request.id));
+        announced.current = new Set(waiting.map(({ request }) => request.id));
         if (fresh.length === 0 || hasFocus()) return;
         getCurrentWindow().requestUserAttention(UserAttentionType.Critical).catch(swallow("bounce dock icon"));
-        for (const request of fresh) {
-            const { title, body } = pairingNotification(request);
+        for (const { request, word } of fresh) {
+            const { title, body } = word(request);
             postNotification(title, body).catch(swallow("pairing notification"));
         }
-    }, [pending, hasFocus]);
+    }, [phones, links, hasFocus]);
     const answer = async (next: Promise<RemoteStatus>) => {
         try {
-            setPending((await next).pending);
+            setPhones((await next).pending);
         } catch (error) {
             reportError("Pairing")(error);
         }
     };
-    return [pending, answer];
+    return [{ phones, links }, answer];
+}
+
+function oldestOf(requests: readonly PendingDevice[]): PendingDevice | null {
+    return requests.reduce<PendingDevice | null>((first, request) => (!first || request.expiresAt < first.expiresAt ? request : first), null);
 }
 
 const documentHasFocus = () => document.hasFocus();
 
 /**
- * Asks about the phone that has waited longest, over the whole window, since a phone gives up
+ * Asks about the phone or host that has waited longest, over the whole window, since each gives up
  * after two minutes. The next one waiting follows once it is answered. Right after signing in, it
  * first asks once about every phone already on the account, including any of them already waiting.
  */
 export function PairingPrompt({ hasFocus = documentHasFocus }: { hasFocus?: () => boolean }) {
-    const [pending, answer] = usePendingDevices(hasFocus);
+    const [{ phones: pending, links }, answer] = usePendingDevices(hasFocus);
     const phones = useAccount((s) => s.phonesToAllow);
     if (phones.length > 0) {
         const keys = new Set(phones.map((phone) => phone.key));
@@ -77,7 +112,19 @@ export function PairingPrompt({ hasFocus = documentHasFocus }: { hasFocus?: () =
             </Suspense>
         );
     }
-    const oldest = pending.reduce<PendingDevice | null>((first, request) => (!first || request.expiresAt < first.expiresAt ? request : first), null);
+    const oldest = oldestOf(pending);
+    const link = oldestOf(links);
+    if (link && (!oldest || link.expiresAt < oldest.expiresAt)) {
+        return (
+            <Suspense fallback={null}>
+                <ConnectTakeover
+                    key={link.id}
+                    question={{ kind: "link", request: link }}
+                    onAnswer={(allow) => answer(remoteApi.answerPairing(link.id, allow, "full"))}
+                />
+            </Suspense>
+        );
+    }
     if (!oldest) return null;
     return (
         <Suspense fallback={null}>

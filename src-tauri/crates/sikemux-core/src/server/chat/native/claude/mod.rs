@@ -12,16 +12,20 @@ use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use tokio::task::JoinHandle;
+use tokio::sync::mpsc;
 use uuid::Uuid;
 
+use crate::launch::providers::ROUTED_ENV;
 use crate::protocol::ChatLaunch;
 
-use super::process::{Process, Writer};
+use super::super::Respond;
+use super::process::{Lines, Process, Reading, Released, Writer};
 use super::session::{Backend, Opened, Prompt, Sink};
 use control::Control;
-use reader::{Reader, Shared, Turn};
+use reader::{Asking, Reader, ReaderState, Shared, Turn};
+pub(crate) use replay::transcript_path;
 
 /// Where a session starts: a new one under a chosen id, or a saved one.
 enum Start<'a> {
@@ -33,14 +37,24 @@ enum Start<'a> {
 struct Running {
     process: Process,
     control: Control,
-    reader: JoinHandle<()>,
-    task_stops: tokio::sync::mpsc::UnboundedSender<String>,
+    asking: Asking,
+    reading: Reading<Reader>,
+    task_stops: mpsc::UnboundedSender<String>,
 }
 
-impl Drop for Running {
-    fn drop(&mut self) {
-        self.reader.abort();
-    }
+/// What a Claude chat hands a core that takes it over.
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ClaudeState {
+    control: Vec<(String, Value)>,
+    shared: Shared,
+    reader: ReaderState,
+    launch: ChatLaunch,
+    session_id: String,
+    models: Vec<Value>,
+    model: String,
+    effort: String,
+    aliases: HashMap<String, String>,
 }
 
 pub(crate) struct Claude {
@@ -179,8 +193,6 @@ impl Claude {
             "--allow-dangerously-skip-permissions",
             "--thinking-display",
             "summarized",
-            "--disallowedTools",
-            "AskUserQuestion",
         ]
         .into_iter()
         .map(str::to_owned)
@@ -201,9 +213,8 @@ impl Claude {
             ("CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS", "1"),
         ]
         .map(|(key, value)| (key.to_owned(), value.to_owned()));
-        let (process, writer, mut lines) = Process::spawn(launch, args, env)?;
+        let (process, writer, lines) = Process::spawn(launch, args, env)?;
         let control = Control::new(writer);
-        let (task_stops, mut stopped) = tokio::sync::mpsc::unbounded_channel::<String>();
         let mut reader = Reader::new(
             sink.clone(),
             control.clone(),
@@ -214,22 +225,13 @@ impl Claude {
         if let Some(model) = model {
             reader.note_model(model);
         }
-        let reading = tokio::spawn(async move {
-            loop {
-                tokio::select! {
-                    message = lines.next() => match message {
-                        Some(message) => reader.handle(message),
-                        None => break,
-                    },
-                    Some(task) = stopped.recv() => reader.task_stopped(&task),
-                }
-            }
-            reader.close();
-        });
+        let asking = reader.asking();
+        let (reading, task_stops) = Reading::start(reader, lines);
         let running = Running {
             process,
             control: control.clone(),
-            reader: reading,
+            asking,
+            reading,
             task_stops,
         };
         let initialized = tokio::select! {
@@ -256,6 +258,19 @@ impl Claude {
 
     fn writer(&self) -> &Writer {
         self.running.control.writer()
+    }
+
+    /// Asks Claude for a short name for a new chat from its first message, as
+    /// Claude Code names its own, while the first turn runs.
+    fn name_chat(&self, first: &str) {
+        let description: String = first.chars().take(1_000).collect();
+        if description.trim().chars().count() < 10 {
+            return;
+        }
+        let _ = self.running.control.send_for(
+            json!({ "subtype": "generate_session_title", "description": description, "persist": true }),
+            json!({ "title": true }),
+        );
     }
 
     fn options(&self) -> Value {
@@ -297,6 +312,32 @@ impl Claude {
         self.aliases.insert(message_id.to_owned(), uuid.clone());
         uuid
     }
+
+    fn inject(&self, prompt: Prompt) -> Result<String, String> {
+        let content = content(&prompt)?;
+
+        let uuid = Uuid::new_v4().to_string();
+        {
+            let Ok(mut shared) = self.shared.lock() else {
+                return Err("The chat's state is unavailable".into());
+            };
+            if shared.turn.is_none() {
+                return Ok("promptRequired".into());
+            }
+            shared.sent.insert(uuid.clone());
+            if let Some(turn) = shared.turn.as_mut() {
+                turn.messages.insert(uuid.clone());
+                turn.waiting.insert(uuid.clone());
+                if prompt.letter {
+                    turn.letters.insert(uuid.clone(), prompt.text.clone());
+                }
+            }
+        }
+        // Claude Code takes it in after the turn's next tool call, or once the turn ends.
+        self.writer()
+            .send(&user_message(&uuid, content, Some("next")))?;
+        Ok("injected".into())
+    }
 }
 
 impl Backend for Claude {
@@ -314,11 +355,12 @@ impl Backend for Claude {
         // Claude takes a moment to start, so the saved chat is read and
         // replayed while it does.
         let replaying = launch.resume_id.is_some().then(|| {
-            let (dir, id, cwd, sink) = (
+            let (dir, id, cwd, sink, shared) = (
                 config_dir(launch),
                 session_id.clone(),
                 launch.cwd.clone(),
                 sink.clone(),
+                shared.clone(),
             );
             tokio::task::spawn_blocking(move || -> Result<Option<String>, String> {
                 let loaded = || sink.update(&id, json!({ "sessionUpdate": "history_loaded" }));
@@ -326,7 +368,12 @@ impl Backend for Claude {
                     loaded();
                     return Ok(None);
                 };
-                let records = replay::with_subagents(&path, replay::read_chain(&path)?);
+                let records = replay::with_subagents(&path, replay::read_history(&path)?);
+                // Claude Code drops a message under an id its transcript already
+                // has, so a prompt sent again after a restart needs a new one.
+                if let Ok(mut shared) = shared.lock() {
+                    shared.sent.extend(replay::user_message_ids(&records));
+                }
                 for (session, update) in replay::replay(&records, &id, &cwd) {
                     sink.update(&session, update);
                 }
@@ -356,11 +403,16 @@ impl Backend for Claude {
             Some(replaying) => replaying.await.map_err(|error| error.to_string())??,
             None => None,
         };
+        let routed = launch.env.contains_key(ROUTED_ENV);
         let mut models: Vec<Value> = initialized
             .get("models")
             .and_then(Value::as_array)
+            .filter(|_| !routed)
             .cloned()
             .unwrap_or_default();
+        if let Some(wanted) = wanted.as_deref().filter(|_| routed) {
+            config::provider_model(&mut models, wanted);
+        }
         // Without a choice of its own the chat runs what the person's Claude
         // settings name, and the pickers say so.
         let settings = running
@@ -446,15 +498,15 @@ impl Backend for Claude {
     async fn prompt(&mut self, turn: u64, prompt: Prompt) -> Result<(), String> {
         let content = content(&prompt)?;
         let uuid = self.uuid_for(prompt.message_id.as_deref());
+        let mut first = false;
         if let Ok(mut shared) = self.shared.lock() {
-            if let Some(untitled) = shared.untitled.as_mut().filter(|said| said.is_empty()) {
-                untitled.push_str(&prompt.text);
-            }
+            first = shared.untitled.take().is_some();
             shared.sent.insert(uuid.clone());
             shared.turn = Some(Turn {
                 number: turn,
                 messages: HashSet::from([uuid.clone()]),
                 waiting: HashSet::new(),
+                letters: HashMap::new(),
                 cancelled: false,
                 failure: None,
             });
@@ -464,30 +516,17 @@ impl Backend for Claude {
             if let Ok(mut shared) = self.shared.lock() {
                 shared.turn = None;
             }
+        } else if first {
+            self.name_chat(&prompt.text);
         }
         sent
     }
 
-    async fn steer(&mut self, prompt: Prompt) -> Result<String, String> {
-        let content = content(&prompt)?;
-        let uuid = Uuid::new_v4().to_string();
-        {
-            let Ok(mut shared) = self.shared.lock() else {
-                return Err("The chat's state is unavailable".into());
-            };
-            if shared.turn.is_none() {
-                return Ok("promptRequired".into());
-            }
-            shared.sent.insert(uuid.clone());
-            if let Some(turn) = shared.turn.as_mut() {
-                turn.messages.insert(uuid.clone());
-                turn.waiting.insert(uuid.clone());
-            }
-        }
-        // Claude Code takes it in after the turn's next tool call, or once the turn ends.
-        self.writer()
-            .send(&user_message(&uuid, content, Some("next")))?;
-        Ok("injected".into())
+    fn steer(
+        &mut self,
+        prompt: Prompt,
+    ) -> impl std::future::Future<Output = Result<String, String>> + Send + 'static {
+        std::future::ready(self.inject(prompt))
     }
 
     async fn cancel(&mut self) -> Result<(), String> {
@@ -526,6 +565,9 @@ impl Backend for Claude {
     async fn set_config(&mut self, config_id: &str, value: &str) -> Result<Value, String> {
         match config_id {
             "model" => {
+                if self.launch.env.contains_key(ROUTED_ENV) {
+                    config::provider_model(&mut self.models, value);
+                }
                 if !config::offers_model(&self.models, value) {
                     return Err(format!("Invalid value for config option model: {value}"));
                 }
@@ -562,7 +604,7 @@ impl Backend for Claude {
         Ok(())
     }
 
-    async fn rewind(&mut self, message_id: &str) -> Result<(), String> {
+    async fn rewind(&mut self, message_id: &str) -> Result<Option<String>, String> {
         let uuid = self
             .aliases
             .get(message_id)
@@ -591,7 +633,7 @@ impl Backend for Claude {
         }
         let rewound = self.running.control.request(request).await?;
         if rewound.get("rewound").and_then(Value::as_bool) == Some(true) {
-            return Ok(());
+            return Ok(None);
         }
         Err(match rewound.get("reason").and_then(Value::as_str) {
             Some("target_not_found") => "That message is no longer part of this chat".into(),
@@ -607,6 +649,83 @@ impl Backend for Claude {
 
     async fn closed(&self) -> String {
         self.running.process.ended().await
+    }
+
+    fn pid(&self) -> u32 {
+        self.running.process.pid()
+    }
+
+    async fn release(self) -> Result<(Value, Released), String> {
+        let Self {
+            launch,
+            running,
+            shared: _,
+            session_id,
+            models,
+            model,
+            effort,
+            aliases,
+        } = self;
+        let Running {
+            process,
+            control,
+            asking: _,
+            reading,
+            task_stops: _,
+        } = running;
+        let (reader, lines) = reading.stop().await.ok_or("Claude stopped")?;
+        let (reader, shared) = reader.into_state();
+        let shared =
+            std::mem::take(&mut *shared.lock().map_err(|_| "Claude's state is unavailable")?);
+        let state = ClaudeState {
+            control: control.state(),
+            shared,
+            reader,
+            launch,
+            session_id,
+            models,
+            model,
+            effort,
+            aliases,
+        };
+        let state = serde_json::to_value(state).map_err(|error| error.to_string())?;
+        let released = process.release(lines).await?;
+        Ok((state, released))
+    }
+
+    fn adopt(
+        _launch: &ChatLaunch,
+        sink: Sink,
+        state: Value,
+        (process, writer, lines): (Process, Writer, Lines),
+    ) -> Result<Self, String> {
+        let state: ClaudeState =
+            serde_json::from_value(state).map_err(|error| error.to_string())?;
+        let control = Control::restored(writer, state.control);
+        let shared = Arc::new(Mutex::new(state.shared));
+        let reader = Reader::restored(sink, control.clone(), shared.clone(), state.reader);
+        let asking = reader.asking();
+        let (reading, task_stops) = Reading::start(reader, lines);
+        Ok(Self {
+            launch: state.launch,
+            running: Running {
+                process,
+                control,
+                asking,
+                reading,
+                task_stops,
+            },
+            shared,
+            session_id: state.session_id,
+            models: state.models,
+            model: state.model,
+            effort: state.effort,
+            aliases: state.aliases,
+        })
+    }
+
+    fn responder(&self, reply: Value) -> Respond {
+        self.running.asking.responder(reply)
     }
 }
 
@@ -642,6 +761,7 @@ mod tests {
                 title: "X-1".into(),
                 text: "the issue".into(),
             }],
+            letter: false,
         };
         let content = content(&prompt).unwrap();
         let texts: Vec<&str> = content

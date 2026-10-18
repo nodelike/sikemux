@@ -8,4 +8,5 @@ let agentNames: [String: String] = [
     "opencode": "OpenCode",
     "omp": "OMP",
     "grok": "Grok",
+    "muse": "Muse",
 ]

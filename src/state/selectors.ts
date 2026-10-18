@@ -6,7 +6,7 @@ import { collectPanes, openSides } from "./layout";
 import { relativePath } from "../lib/paths";
 
 export const selectSessionIds = (state: StoreState): readonly string[] => state.sessionOrder;
-export const selectFocusMode = (state: Pick<StoreState, "sideRailOpen" | "agentRailOpen">): boolean => !state.sideRailOpen && !state.agentRailOpen;
+export const selectFocusMode = (state: Pick<StoreState, "sideRailOpen" | "tabRailOpen">): boolean => !state.sideRailOpen && !state.tabRailOpen;
 
 export const selectSession =
     (sessionId: string) =>
@@ -44,15 +44,6 @@ export function agentDisplayOf(state: Pick<StoreState, "agentActivity" | "agentS
 }
 
 /**
- * Every agent across every project that stopped to ask the user something. The
- * rail lists these together because a blocked agent in a project you are not
- * looking at is exactly the one you cannot see.
- */
-export function agentsAwaitingInput(state: OpenAgentsState & Pick<StoreState, "agentActivity">): OpenAgent[] {
-    return [...openAgents(state)].filter(({ agentId }) => agentDisplay(state.agentActivity[agentId]?.state).group === "blocked");
-}
-
-/**
  * The agents a session holds, in strip order. An agent is a window whose one
  * pane carries its id, so this is a read over the windows, not a second list.
  */
@@ -80,9 +71,11 @@ export function agentPaneId(win: Window): string | null {
  * title, else the name it opened with. A renamed tab's name belongs to the terminal it opened with.
  */
 export function terminalLabel(win: Window | undefined, pane: PaneNode, titles: Readonly<Record<string, string | undefined>>): string {
+    /* The title such a terminal reports is the local shell that runs its command, not anything a person named. */
+    if (pane.startup) return win?.customName || win?.name || pane.title;
     const home = win?.role === "term" ? collectPanes(win.root).find((candidate) => candidate.kind === "terminal") : undefined;
     if (win?.customName && home?.id === pane.id) return win.customName;
-    return titles[pane.id] || pane.title || win?.name || "terminal";
+    return titles[pane.id] || pane.title || win?.name || "Terminal";
 }
 
 /** The open project in this folder. */

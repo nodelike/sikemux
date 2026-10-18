@@ -23,8 +23,8 @@ use iroh::{Endpoint, EndpointAddr, RelayMode};
 use sikemux_core::accounts::network;
 use sikemux_core::client::{ClientEvent, CoreClient};
 use sikemux_core::protocol::{
-    BackdropImage, ChatLaunch, ChatLauncher, DeviceAccess, Event, LaunchIdentity, ProjectInfo,
-    PublishedChat, PublishedRecent, SpawnTarget, TerminalSpawn,
+    BackdropImage, ChatLaunch, DeviceAccess, Event, LaunchIdentity, PublishedChat, PublishedRecent,
+    SpawnTarget, TerminalSpawn,
 };
 use sikemux_core::remote::{self, SecretKey};
 
@@ -97,26 +97,21 @@ fn fake_agent() -> Result<std::path::PathBuf, Failure> {
 
 async fn publish(socket: &Path) -> Result<(), Failure> {
     let (client, _events) = CoreClient::connect(socket).await?;
-    let launcher = ChatLauncher {
-        id: "opencode".into(),
-        provider: "opencode".into(),
-        label: "OpenCode".into(),
-        program: fake_agent()?,
-        args: vec!["acp".into()],
-        env: Default::default(),
-        permission_mode: "workspace-write".into(),
-        account: None,
-        fallbacks: Vec::new(),
-        status: None,
-    };
-    let project = ProjectInfo {
-        id: "tmp".into(),
-        name: "tmp".into(),
-        path: std::env::temp_dir(),
-    };
-    client
-        .publish_workspace(vec![project], vec![launcher])
-        .await?;
+    let accounts = serde_json::json!({
+        "profiles": [{
+            "id": "fake",
+            "name": "Fake",
+            "provider": "opencode",
+            "accent": "#a277ff",
+            "executablePath": fake_agent()?,
+        }],
+    });
+    client.call("setAgentAccounts", accounts).await?;
+    let workspace = serde_json::json!({
+        "projects": [{ "id": "tmp", "name": "tmp", "path": std::env::temp_dir() }],
+        "permissionMode": "workspace-write",
+    });
+    client.call("setWorkspace", workspace).await?;
     println!("published the fake agent");
     Ok(())
 }
@@ -124,7 +119,7 @@ async fn publish(socket: &Path) -> Result<(), Failure> {
 async fn chat(socket: &Path, prompt: &str) -> Result<(), Failure> {
     let (client, _events) = CoreClient::connect(socket).await?;
     let (agent, _start) = client
-        .start_chat("opencode".into(), "tmp".into(), None)
+        .start_chat("opencode:fake".into(), "tmp".into(), None)
         .await?;
     println!("chat {agent}");
     if !prompt.is_empty() {
@@ -145,7 +140,7 @@ async fn recent(socket: &Path, titles: &[&str]) -> Result<(), Failure> {
         .iter()
         .enumerate()
         .map(|(index, title)| PublishedRecent {
-            launcher: "opencode".into(),
+            launcher: "opencode:fake".into(),
             provider: "opencode".into(),
             session_id: format!("saved-{index}"),
             title: (*title).into(),

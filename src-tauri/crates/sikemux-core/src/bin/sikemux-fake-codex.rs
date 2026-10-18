@@ -29,6 +29,7 @@ struct Codex {
     next_request: AtomicU64,
     interrupted: AtomicBool,
     home: PathBuf,
+    skill_roots: Mutex<Vec<PathBuf>>,
 }
 
 fn uuid() -> String {
@@ -288,6 +289,26 @@ impl Codex {
                 self.interrupted.store(true, Ordering::Release);
                 self.reply(id, json!({}));
             }
+            "skills/extraRoots/set" => {
+                let roots = params["extraRoots"].as_array().cloned().unwrap_or_default();
+                *self.skill_roots.lock().unwrap() =
+                    roots.iter().filter_map(Value::as_str).map(PathBuf::from).collect();
+                self.reply(id, json!({}));
+            }
+            "skills/list" => {
+                let skills: Vec<Value> = self
+                    .skill_roots
+                    .lock()
+                    .unwrap()
+                    .iter()
+                    .filter_map(|root| std::fs::read_dir(root).ok())
+                    .flatten()
+                    .flatten()
+                    .filter(|entry| entry.path().join("SKILL.md").is_file())
+                    .map(|entry| json!({ "name": entry.file_name().to_string_lossy(), "description": "A Sikemux skill" }))
+                    .collect();
+                self.reply(id, json!({ "data": [{ "cwd": "/", "skills": skills, "errors": [] }] }));
+            }
             "turn/steer" => self.reply(id, json!({ "turnId": params["expectedTurnId"] })),
             "thread/revert" => {
                 let before = params["beforeTurnId"].as_str().unwrap_or_default();
@@ -317,6 +338,7 @@ fn main() {
         next_request: AtomicU64::new(0),
         interrupted: AtomicBool::new(false),
         home,
+        skill_roots: Mutex::new(Vec::new()),
     });
     for line in std::io::stdin().lock().lines() {
         let Ok(line) = line else {

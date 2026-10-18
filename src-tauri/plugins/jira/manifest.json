@@ -8,10 +8,12 @@
       "name": "jira_search",
       "row": {"verb": "search", "kind": "search", "icon": "search", "target": ["{jql}"], "detail": ["{site}"]},
       "method": "search",
-      "description": "Find Jira issues with JQL, e.g. 'assignee = currentUser() AND sprint in openSprints()'. Returns key, summary, status, priority, assignee and sprint.",
+      "description": "Find Jira issues with JQL, e.g. 'assignee = currentUser() AND sprint in openSprints()'. Returns key, summary, status, priority, assignee, sprint, last update.",
       "properties": {
         "jql": { "type": "string" },
         "limit": { "type": "integer", "maximum": 100, "description": "Default 20." },
+        "comments": { "type": "boolean", "description": "Include each issue's latest 5 comments: author, time and markdown body. JQL cannot filter by commenter; narrow by time (updated >= -1d) and read these." },
+        "next": { "type": "string", "description": "The next value a previous search returned, to get the following page." },
         "site": { "type": "string", "description": "Site host, e.g. acme.atlassian.net. Default: the first signed-in site." }
       },
       "required": ["jql"]
@@ -20,7 +22,7 @@
       "name": "jira_issue",
       "row": {"verb": "read", "kind": "read", "icon": "issue", "target": ["{key}"], "detail": ["{site}"]},
       "method": "issue",
-      "description": "One Jira issue by key (ABC-123): its fields, description and comments as markdown, and the transitions it can take next.",
+      "description": "One Jira issue by key (ABC-123): its fields, description and comments as markdown, its recent field changes, and the transitions it can take next.",
       "properties": {
         "key": { "type": "string" },
         "site": { "type": "string" }

@@ -13,6 +13,8 @@ export type AuditAction =
   | "push.enabled"
   | "push.disabled"
   | "join.issued"
+  | "host_sign_in.approved"
+  | "host_sign_in.refused"
   | "account.deletion_requested"
   | "account.deleted_in_clerk"
   | "account.restored"

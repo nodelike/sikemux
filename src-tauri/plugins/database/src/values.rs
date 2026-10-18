@@ -119,11 +119,7 @@ pub fn real(value: f64) -> Value {
 
 /// Binary data as the start of its hex, with its full size.
 pub fn blob(bytes: &[u8]) -> Value {
-    let shown: String = bytes
-        .iter()
-        .take(BLOB_PREVIEW_BYTES)
-        .map(|byte| format!("{byte:02x}"))
-        .collect();
+    let shown = hex::encode(bytes.get(..BLOB_PREVIEW_BYTES).unwrap_or(bytes));
     if bytes.len() > BLOB_PREVIEW_BYTES {
         Value::String(format!("\\x{shown}… ({} bytes)", bytes.len()))
     } else {

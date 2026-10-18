@@ -104,6 +104,8 @@
      * hovered row is what made the rails read as decorated rather than dense. */
     --surface-hover: color-mix(in oklab, var(--ink) 6%, transparent);
     --surface-active: color-mix(in oklab, var(--ink) 10%, transparent);
+    /* The row or tab you are on: a step above hover, in the same neutral ink. */
+    --surface-chosen: color-mix(in oklab, var(--ink) 9%, transparent);
     /* The one place a row is allowed to take the accent: current selection. */
     --surface-selected: color-mix(in oklab, var(--acc) 14%, transparent);
 
@@ -157,7 +159,7 @@
      * existing sheets get the new geometry without touching every rule.
      */
     --radius-1: 4px; /* badges, chips, dots, the smallest controls */
-    --radius-2: 6px; /* buttons, inputs, rows, tabs — the default */
+    --radius-2: 5px; /* buttons, inputs, rows, tabs — the default */
     --radius-3: 10px; /* rails, panels, cards */
     --radius-4: 14px; /* palettes, dialogs, anything that floats */
     --radius-full: 999px;
@@ -237,7 +239,7 @@
      *
      * The art layer behind the whole shell. `--backdrop-image` is `none` until
      * something sets it, so the shader alone is the default and an image is
-     * strictly additive. See DESIGN.md § Backdrop.
+     * strictly additive.
      */
     --layer-menu: 1200;
     --layer-tooltip: 1300;

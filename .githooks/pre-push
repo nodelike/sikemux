@@ -12,6 +12,4 @@ while read -r _ local_sha _ remote_sha; do
     ranges+=("origin/main..$local_sha")
   fi
 done <<<"$refs"
-"$root/scripts/commit-credits.sh" "${ranges[@]}" || exit 1
-
-printf '%s\n' "$refs" | exec "$root/scripts/pre-push.sh" "$@"
+exec "$root/scripts/commit-credits.sh" "${ranges[@]}"

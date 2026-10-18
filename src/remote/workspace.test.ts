@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Agent, ProviderProfile, Session } from "../state/types";
-import { remoteChats, remoteRecent, remoteWorkspace } from "./workspace";
+import { chatLaunchers, remoteChats, remoteProjects, remoteRecent } from "./workspace";
 
 function project(id: string, cwd: string): Session {
     return { id, name: cwd.split("/").at(-1) ?? id, kind: "project", cwd, pinned: false, activeWindowId: `${id}-window` };
@@ -16,44 +16,22 @@ function profile(id: string, name: string, provider: ProviderProfile["provider"]
     return { id, name, provider, accent: "#fff", configPath: `~/.${id}`, environmentKeys: ["ANTHROPIC_API_KEY"] };
 }
 
-describe("remoteWorkspace", () => {
+describe("remoteProjects", () => {
     it("offers the open local projects in tab order and never an SSH host", () => {
-        const { projects } = remoteWorkspace(sessions, ["b", "ssh", "a"], [], "bypass");
-        expect(projects).toEqual([
+        expect(remoteProjects(sessions, ["b", "ssh", "a"])).toEqual([
             { id: "b", name: "site", path: "/Users/me/site" },
             { id: "a", name: "sikemux", path: "/Users/me/sikemux" },
         ]);
     });
+});
 
-    it("offers each chat agent once, or once per profile, with the default permission mode it supports", () => {
+describe("chatLaunchers", () => {
+    it("names each chat agent once, or once per profile", () => {
         const profiles = [profile("work", "Work", "claude"), profile("home", "Home", "claude"), profile("cx", "Default", "codex")];
-        const { launchers } = remoteWorkspace(sessions, [], profiles, "bypass");
-        const byId = Object.fromEntries(launchers.map((launcher) => [launcher.id, launcher]));
-        expect(Object.keys(byId).sort()).toEqual(["claude:home", "claude:work", "codex:cx", "grok", "hermes", "omp", "opencode"]);
-        expect(byId["claude:work"]).toMatchObject({
-            provider: "claude",
-            label: "Claude · Work",
-            configPath: "~/.work",
-            environmentKeys: ["ANTHROPIC_API_KEY"],
-        });
-        expect(byId["codex:cx"].label).toBe("Codex");
-        expect(byId["opencode"].permissionMode).toBe("workspace-write");
-        expect(byId["grok"].permissionMode).toBe("bypass");
-    });
-
-    it("tells devices whether each launcher's agent is signed in, by profile", () => {
-        const profiles = [profile("work", "Work", "claude"), profile("home", "Home", "claude")];
-        const catalog = [
-            { type: "claude", label: "Claude", command: "claude", configPath: "~/.work", status: { state: "signedOut" } },
-            { type: "claude", label: "Claude", command: "claude", configPath: "~/.home", status: { state: "ready", account: null } },
-            { type: "opencode", label: "OpenCode", command: "opencode", status: { state: "unknown" } },
-        ] as unknown as Parameters<typeof remoteWorkspace>[4];
-        const { launchers } = remoteWorkspace(sessions, [], profiles, "bypass", catalog);
-        const byId = Object.fromEntries(launchers.map((launcher) => [launcher.id, launcher]));
-        expect(byId["claude:work"].status).toBe("signedOut");
-        expect(byId["claude:home"].status).toBe("ready");
-        expect(byId["opencode"].status).toBe("unknown");
-        expect(byId["hermes"].status).toBeUndefined();
+        const byId = Object.fromEntries(chatLaunchers(profiles).map((launcher) => [launcher.id, launcher.label]));
+        expect(Object.keys(byId).sort()).toEqual(["claude:home", "claude:work", "codex:cx", "grok", "hermes", "muse", "omp", "opencode"]);
+        expect(byId["claude:work"]).toBe("Claude · Work");
+        expect(byId["codex:cx"]).toBe("Codex");
     });
 });
 

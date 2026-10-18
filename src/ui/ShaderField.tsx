@@ -1,7 +1,9 @@
-import { createContext, useContext, useEffect, useRef, type RefObject } from "react";
+import { createContext, useContext, useEffect, useRef, useState, type RefObject } from "react";
 import { usePaneImageState } from "../lib/paneImage";
 import { useShaderField } from "../hooks/useShaderField";
 import { reviveShaderField, type ShaderFieldPreset } from "../lib/shaderField";
+import { whenStageStill } from "../state/nativeViews";
+import { useStore } from "../state/store";
 
 /**
  * An empty element for a Paper Shaders field to paint into.
@@ -36,6 +38,16 @@ export function ShaderField({
     );
 }
 
+/** Whether the pane around draws no picture of its own and leaves one to a screen inside it, as a plugin's pane does for its sign-in. */
+export const ScreenFieldContext = createContext(false);
+
+/** The pane's picture behind one screen of a pane that draws none of its own. */
+export function ScreenField() {
+    const wanted = useContext(ScreenFieldContext);
+    const paneShader = useStore((s) => s.paneShader);
+    return wanted ? <PaneField enabled={paneShader} /> : null;
+}
+
 /** Whether the screen a pane sits on is on the stage, standing still or sliding. */
 export const PanePaintedContext = createContext(true);
 
@@ -49,8 +61,12 @@ export const PanePaintedContext = createContext(true);
 export function PaneField({ enabled }: { enabled: boolean }) {
     const { image, loading } = usePaneImageState();
     const painted = useContext(PanePaintedContext);
-    const shown = useRef(false);
-    if (painted) shown.current = true;
+    // Starting a field stalls a frame, so a screen's first slide onto the stage goes without it until the slide lands.
+    const [shown, setShown] = useState(false);
+    useEffect(() => {
+        if (!painted || shown) return;
+        return whenStageStill(() => setShown(true));
+    }, [painted, shown]);
     const field = image ? "image" : "ambient";
     const host = useRef<HTMLDivElement | null>(null);
     useEffect(() => {
@@ -61,7 +77,7 @@ export function PaneField({ enabled }: { enabled: boolean }) {
             hostRef={host}
             preset={field}
             className={`pane-field pane-field-${field}`}
-            enabled={enabled && shown.current && !loading}
+            enabled={enabled && shown && !loading}
             image={image}
         />
     );

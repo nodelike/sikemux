@@ -1,12 +1,14 @@
 import { useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow, UserAttentionType } from "@tauri-apps/api/window";
+import { blockingQuestion } from "./agentQuestions";
 import { agentDisplay } from "../state/agentStatus";
 import { openAgents } from "../state/selectors";
 import { swallow } from "../state/toast";
 import { getState, setState, useStore, type StoreState } from "../state/store";
 
-type AgentView = Pick<StoreState, "sessionOrder" | "sessions" | "windows" | "windowsBySession" | "agents" | "agentActivity">;
+type AgentView = Pick<StoreState, "sessionOrder" | "sessions" | "windows" | "windowsBySession" | "agents" | "agentActivity"> &
+    Partial<Pick<StoreState, "agentQuestions">>;
 
 export interface AgentAlert {
     agentId: string;
@@ -39,7 +41,10 @@ export function newAgentAlerts(previous: AgentView, next: AgentView): AgentAlert
         const now = next.agentActivity[agentId]?.backendState;
         const before = previous.agentActivity[agentId]?.backendState;
         if (now === before) continue;
-        if (now === "blocked") alerts.push({ agentId, title: `${agent.title} needs your input`, body: session.name });
+        const question = blockingQuestion(next.agentQuestions ?? [], agentId);
+        if (now === "blocked" && question) alerts.push({ agentId, title: `${question.name} asks you`, body: question.text });
+        else if (now === "blocked") alerts.push({ agentId, title: `${agent.title} needs your input`, body: session.name });
+        else if (previous.agentActivity[agentId]?.reported !== undefined) continue;
         else if (now === "idle" && (before === "working" || before === "blocked"))
             alerts.push({ agentId, title: `${agent.title} finished`, body: session.name });
     }
@@ -66,9 +71,7 @@ export function playBip(): void {
 }
 
 export async function postNotification(title: string, body: string, agentId?: string): Promise<void> {
-    if ((await invoke<string>("plugin:notification|request_permission")) !== "granted") return;
-    if (agentId) await invoke("notify_agent", { agentId, title, body });
-    else await invoke("plugin:notification|notify", { options: { title, body } });
+    await invoke("post_notification", { title, body, agentId });
     playBip();
 }
 

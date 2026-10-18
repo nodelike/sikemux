@@ -1,9 +1,6 @@
 //! Whether anybody is using this host, so phones are told only while nobody
 //! is.
 
-/// Untouched this long, the host counts as away.
-pub(crate) const AWAY_AFTER_SECONDS: f64 = 120.0;
-
 pub(crate) trait Presence: Send + Sync {
     /// `None` when this host cannot tell, which counts as away.
     fn away(&self) -> Option<bool>;
@@ -15,7 +12,7 @@ pub(crate) struct SystemPresence;
 impl Presence for SystemPresence {
     fn away(&self) -> Option<bool> {
         let locked = mac::screen_locked()?;
-        Some(locked || mac::idle_seconds() >= AWAY_AFTER_SECONDS)
+        Some(locked || mac::idle_seconds() >= mac::AWAY_AFTER_SECONDS)
     }
 }
 
@@ -29,6 +26,9 @@ impl Presence for SystemPresence {
 #[cfg(target_os = "macos")]
 mod mac {
     use std::ffi::{c_char, c_void};
+
+    /// Untouched this long, the host counts as away.
+    pub(super) const AWAY_AFTER_SECONDS: f64 = 120.0;
 
     const COMBINED_SESSION_STATE: i32 = 0;
     const ANY_INPUT_EVENT: u32 = u32::MAX;

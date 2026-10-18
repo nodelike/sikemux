@@ -15,17 +15,22 @@ use tokio::sync::watch;
 use tokio::time::Instant;
 
 use crate::cli::protocol::{
-    is_browser_method, is_plugin_method, is_sim_method, validate_harness, HarnessRequest,
-    PLUGINS_CHANGED_METHOD, SIM_CANCEL_METHOD, SIM_OFFERED_METHOD,
+    is_browser_method, is_sim_method, validate_harness, HarnessRequest, COMMIT_FOOTER_METHOD,
+    GIT_GUARD_METHOD, PLUGINS_CHANGED_METHOD, SIM_CANCEL_METHOD, SIM_OFFERED_METHOD,
+    TOOLS_MANIFEST_METHOD,
 };
 use crate::harness::command::{command_cwd, command_label, command_task_id, COMMAND_TASK_PREFIX};
-use crate::harness::journal::{JournalRecord, Journals};
+use crate::harness::journal::{EventsPage, JournalRecord, Journals};
 use crate::harness::runs::{CommandLaunch, Launch, Run, RunStatus, Runs, RunsRecord};
 use crate::protocol::{RunSelector, SessionId, TaskSessionInfo, WindowCall};
 
 use super::connection::blocking;
+use super::messages::{self, Mailbox};
+use super::questions::{self, Questions};
 use super::window::{self, Call};
+use super::{board, follow, saved, spawn};
 use super::{session, Core};
+use crate::skills;
 
 /// MCP hosts give up on a tool call after about a minute, so a start answers
 /// well before that with whatever state it reached.
@@ -49,6 +54,15 @@ const PLUGIN_SETTLE: Duration = Duration::from_secs(1);
 const MAX_SAFE_INTEGER: u64 = 9_007_199_254_740_991;
 const TOOL_CALLS_FILE: &str = "agent-tool-calls.json";
 const WINDOW_GONE: &str = "Sikemux's window closed before it answered";
+/// Tools that act as the agent calling them, so a call from outside every
+/// agent's processes is refused rather than answered for no one.
+const AGENT_METHODS: [&str; 6] = ["agent.", "board.", "git.", "review.", "browser.", "sim."];
+/// What a reviewer Auto started blind may not do: start agents, read saved
+/// sessions, who wrote what, or the board, any of which could show it the
+/// builder's side.
+const BLIND_REFUSED: [&str; 4] = ["agent.spawn", "agent.sessions", "agent.wrote", "board."];
+/// What agents do goes in the same journal as tasks, for `agent_wait` alone.
+pub(crate) const AGENT_EVENT: &str = "agent.";
 
 const WINDOW_CLOSED_NOTE: &str = "Sikemux's window is closed, so this lists only the runs you started and the event cursor. Panes, the tasks in sikemux.json and listening ports need the window open.";
 const AWAITING_TRUST_NOTE: &str = "Waiting for the person to trust this project's sikemux.json in Sikemux. Call task_start again with the same idempotencyKey, or events_wait with this executionId, to see when it starts.";
@@ -130,15 +144,23 @@ pub(crate) struct Harness {
     state: Mutex<State>,
     changes: watch::Sender<u64>,
     tool_calls: Option<PathBuf>,
+    /// The app data folder, which holds the skills library.
+    pub(crate) data_dir: Option<PathBuf>,
     waits: AtomicUsize,
     plugins: watch::Sender<u64>,
     plugin_waits: AtomicUsize,
+    /// Messages between agents waiting for their turn to end.
+    pub(crate) mailbox: Mailbox,
+    /// Questions agents asked that wait on an answer.
+    pub(crate) questions: Questions,
+    pub(crate) spawning: spawn::Spawning,
 }
 
 impl Harness {
-    /// Journals and the tool-call tally go under `data_dir`; without one they
-    /// live in memory, or not at all.
-    pub(crate) fn new(data_dir: Option<&Path>) -> Self {
+    /// Journals, the tool-call tally, and the messages and questions between
+    /// agents go under `data_dir`; without one they live in memory, or not at
+    /// all. Messages and questions of agents `known` does not hold are dropped.
+    pub(crate) fn new(data_dir: Option<&Path>, known: impl Fn(&str) -> bool) -> Self {
         Self {
             state: Mutex::new(State {
                 runs: Runs::default(),
@@ -147,9 +169,13 @@ impl Harness {
             }),
             changes: watch::channel(0).0,
             tool_calls: data_dir.map(|dir| dir.join(TOOL_CALLS_FILE)),
+            data_dir: data_dir.map(Path::to_path_buf),
             waits: AtomicUsize::new(0),
             plugins: watch::channel(0).0,
             plugin_waits: AtomicUsize::new(0),
+            mailbox: Mailbox::new(data_dir, &known),
+            questions: Questions::new(data_dir, &known),
+            spawning: spawn::Spawning::default(),
         }
     }
 
@@ -189,24 +215,40 @@ impl Harness {
     }
 
     /// A missing `code` means the status could not be read, which counts as a
-    /// failure.
-    pub(crate) fn session_exited(&self, id: SessionId, code: Option<u32>, signal: Option<String>) {
+    /// failure. Returns the run when it failed on its own and an agent started it.
+    pub(crate) fn session_exited(
+        &self,
+        id: SessionId,
+        code: Option<u32>,
+        signal: Option<String>,
+    ) -> Option<FailedRun> {
         self.change(|state| {
-            let Some(run) = state.runs.by_pty_mut(id) else {
-                return;
-            };
+            let run = state.runs.by_pty_mut(id)?;
             let code = code.unwrap_or(1);
             run.exit_code = Some(code);
-            run.signal = signal;
+            run.signal = signal.clone();
             let next = match run.status {
-                RunStatus::Stopped => return,
+                RunStatus::Stopped => return None,
                 RunStatus::Stopping => RunStatus::Stopped,
                 _ if code == 0 => RunStatus::Completed,
                 _ => RunStatus::Failed,
             };
+            let failed = (next == RunStatus::Failed)
+                .then(|| run.agent_id.clone())
+                .flatten()
+                .map(|agent_id| FailedRun {
+                    agent_id,
+                    execution_id: run.execution_id.clone(),
+                    label: run.label.clone().unwrap_or_else(|| run.task_id.clone()),
+                    reason: match &signal {
+                        Some(signal) => format!("it stopped from signal {signal}"),
+                        None => format!("it exited with code {code}"),
+                    },
+                });
             let execution_id = run.execution_id.clone();
             state.set_status(&execution_id, next);
-        });
+            failed
+        })
     }
 
     pub(crate) fn record(&self) -> HarnessRecord {
@@ -240,6 +282,36 @@ impl Harness {
             for execution_id in cut_short {
                 state.set_status(&execution_id, RunStatus::Failed);
             }
+        });
+    }
+
+    /// One of the few waits the core holds open at once, or an error when
+    /// they are all taken.
+    pub(crate) fn wait_slot(&self) -> Result<WaitSlot<'_>, String> {
+        if self.waits.fetch_add(1, Ordering::AcqRel) >= MAX_WAITS {
+            self.waits.fetch_sub(1, Ordering::AcqRel);
+            return Err("Too many event waits".into());
+        }
+        Ok(WaitSlot(&self.waits))
+    }
+
+    /// Changes whenever a project's journal does.
+    pub(crate) fn subscribe(&self) -> watch::Receiver<u64> {
+        self.changes.subscribe()
+    }
+
+    pub(crate) fn journal_cursor(&self, project: &str) -> u64 {
+        self.read(|state| state.journals.cursor(project))
+    }
+
+    pub(crate) fn journal_since(&self, project: &str, after: u64) -> Result<EventsPage, String> {
+        self.read(|state| state.journals.since(project, after, None))
+    }
+
+    /// Something happened to an agent, which `agent_wait` hears of.
+    pub(crate) fn note_agent(&self, project: &str, kind: &str, agent_id: &str) {
+        self.change(|state| {
+            state.journals.append_agent(project, kind, agent_id);
         });
     }
 
@@ -327,7 +399,6 @@ fn purpose(method: &str) -> &'static str {
         "task.start" | "task.restart" => "start tasks",
         method if is_browser_method(method) => "use the browser",
         method if is_sim_method(method) => "drive the iOS Simulator",
-        method if is_plugin_method(method) => "use plugin tools",
         _ => "use this tool",
     }
 }
@@ -357,18 +428,55 @@ async fn answer_of(
 }
 
 async fn forward(core: &Core, request: HarnessRequest) -> Result<Value, String> {
-    let method = request.method.clone();
-    let call = core
-        .window
-        .call(WindowCall::Harness { request }, purpose(&method), false)?;
-    answer_of(core, call, WINDOW_REPLY_TIMEOUT, no_answer(&method)).await
+    let call = core.window.call(
+        WindowCall::Harness {
+            request: serde_json::to_value(&request).map_err(|error| error.to_string())?,
+        },
+        purpose(&request.method),
+        false,
+    )?;
+    answer_of(core, call, WINDOW_REPLY_TIMEOUT, no_answer(&request.method)).await
 }
 
-/// Answers one tool call. The call is counted whether or not it succeeds.
-pub(crate) async fn call(core: &Arc<Core>, request: HarnessRequest) -> Result<Value, String> {
+/// Answers one tool call from the client at `peer` on the tool endpoint's
+/// `port`, as the agent whose processes hold that connection, whatever agent
+/// it names, or as a commit the core runs. The call is counted whether or not
+/// it succeeds.
+pub(crate) async fn call(
+    core: &Arc<Core>,
+    mut request: HarnessRequest,
+    peer: std::net::SocketAddr,
+    port: u16,
+) -> Result<Value, String> {
     validate_harness(&request)?;
+    let grant = if request.method == COMMIT_FOOTER_METHOD {
+        tokio::task::spawn_blocking(move || super::callers::take_commit_grant(peer, port))
+            .await
+            .ok()
+            .flatten()
+    } else {
+        None
+    };
+    request.agent_id = match grant {
+        Some(_) => None,
+        None => tokio::task::spawn_blocking(move || super::callers::identify(peer, port))
+            .await
+            .ok()
+            .flatten(),
+    };
+    if request.agent_id.is_none()
+        && grant.is_none()
+        && AGENT_METHODS
+            .iter()
+            .any(|prefix| request.method.starts_with(prefix))
+    {
+        return Err(format!(
+            "{} works only for an agent Sikemux started, and this call came from outside every agent's processes; start this agent from Sikemux again",
+            request.method.replace('.', "_")
+        ));
+    }
     let tool = tool_name(&request);
-    let result = dispatch(core, request).await;
+    let result = dispatch(core, request, grant).await;
     if let (Some(tool), Some(path)) = (tool, core.harness.tool_calls.clone()) {
         let succeeded = result.is_ok();
         tokio::task::spawn_blocking(move || record_tool_call(&path, &tool, succeeded));
@@ -376,7 +484,14 @@ pub(crate) async fn call(core: &Arc<Core>, request: HarnessRequest) -> Result<Va
     result
 }
 
-async fn dispatch(core: &Arc<Core>, mut request: HarnessRequest) -> Result<Value, String> {
+async fn dispatch(
+    core: &Arc<Core>,
+    mut request: HarnessRequest,
+    grant: Option<super::callers::CommitGrant>,
+) -> Result<Value, String> {
+    if request.method == TOOLS_MANIFEST_METHOD {
+        return crate::cli::manifest::served();
+    }
     let project = request.project.clone();
     request.project = tokio::task::spawn_blocking(move || std::fs::canonicalize(project))
         .await
@@ -384,6 +499,19 @@ async fn dispatch(core: &Arc<Core>, mut request: HarnessRequest) -> Result<Value
         .map_err(|error| error.to_string())?
         .to_string_lossy()
         .into_owned();
+    if let Some(agent_id) = &request.agent_id {
+        messages::used_tool(core, agent_id, &request.method.replace('.', "_"));
+        if core.names.is_blind(agent_id)
+            && BLIND_REFUSED
+                .iter()
+                .any(|refused| request.method.starts_with(refused))
+        {
+            return Err(format!(
+                "You review a card blind for Auto, so {} is not yours to use; judge the change from the card, the diff and your folder",
+                request.method.replace('.', "_")
+            ));
+        }
+    }
     match request.method.as_str() {
         "task.read" => task_read(core, &request).await,
         "task.stop" => {
@@ -397,7 +525,34 @@ async fn dispatch(core: &Arc<Core>, mut request: HarnessRequest) -> Result<Value
                 .map(|run| with_fields(&run, json!({})))
         }
         "events.wait" => events_wait(core, &request).await,
+        "agent.list" => messages::list(core, &request).await,
+        "agent.send" => messages::send(core, &request).await,
+        "agent.spawn" => spawn::spawn(core, &request).await,
+        "agent.sessions" => saved::find(core, &request).await,
+        "agent.ask" => questions::ask(core, &request).await,
+        "agent.read" => follow::read(core, &request).await,
+        "agent.wait" => follow::wait(core, &request).await,
+        "agent.wrote" => super::who_wrote::tool(core, &request).await,
+        "board.add" => board::add(core, &request).await,
+        "board.list" => board::list(core, &request).await,
+        "board.claim" => board::claim(core, &request).await,
+        "board.update" => board::update(core, &request).await,
+        "review.verdict" => board::verdict(core, &request).await,
+        "git.commit" => super::edits::commit::call(core, &request).await,
+        COMMIT_FOOTER_METHOD => super::edits::footer::call(core, &request, grant).await,
+        GIT_GUARD_METHOD => super::edits::guard::call(core, &request).await,
+        "browser.record" => {
+            let agent_id = request.agent_id.clone();
+            let answer = forward(core, request).await?;
+            if let Some(agent_id) = agent_id {
+                super::inbox::recorded(core, &agent_id, &answer);
+            }
+            Ok(answer)
+        }
         PLUGINS_CHANGED_METHOD => plugins_wait(&core.harness, &request.params).await,
+        "plugins.tools" => super::plugins::agent_tools(&request.project).await,
+        "plugins.call" => super::plugins::call_agent_tool(&request.params).await,
+        "skills.manage" => skills_call(core, &request).await,
         "task.start" => task_start(core, &request, false).await,
         "task.restart" => task_start(core, &request, true).await,
         "workspace.inspect" => {
@@ -454,6 +609,61 @@ async fn dispatch(core: &Arc<Core>, mut request: HarnessRequest) -> Result<Value
     }
 }
 
+const SKILL_LOADS: &str =
+    "Start a new agent session to load it. Claude lists it as /sikemux:<name>.";
+
+async fn skills_call(core: &Core, request: &HarnessRequest) -> Result<Value, String> {
+    let data_dir = core
+        .harness
+        .data_dir
+        .clone()
+        .ok_or("Skills need Sikemux's data folder, and this core was started without one")?;
+    let params = request.params.clone();
+    blocking(move || Ok(skills_answer(&data_dir, &params)))
+        .await
+        .map_err(|error| error.to_string())?
+}
+
+fn skills_answer(data_dir: &Path, params: &Value) -> Result<Value, String> {
+    match required_text(params, "action")? {
+        "list" => Ok(json!({
+            "library": skills::library(data_dir),
+            "skills": skills::list(data_dir),
+        })),
+        "create" => {
+            let body = match params.get("body") {
+                None | Some(Value::Null) => "",
+                Some(Value::String(body)) => body.as_str(),
+                Some(_) => return Err("body must be text".into()),
+            };
+            let skill = skills::create(
+                data_dir,
+                required_text(params, "name")?,
+                required_text(params, "description")?,
+                body,
+            )?;
+            Ok(json!({ "skill": skill, "note": SKILL_LOADS }))
+        }
+        "install" => {
+            let source = required_text(params, "source")?;
+            let skill = if source.starts_with('/') {
+                skills::install_folder(data_dir, Path::new(source))?
+            } else {
+                skills::install_git(data_dir, source, text(params, "subfolder")?)?
+            };
+            Ok(json!({ "skill": skill, "note": SKILL_LOADS }))
+        }
+        "remove" => {
+            let name = required_text(params, "name")?;
+            skills::remove(data_dir, name)?;
+            Ok(json!({ "removed": name }))
+        }
+        other => Err(format!(
+            "action must be list, create, install or remove, not {other}"
+        )),
+    }
+}
+
 async fn read_output(core: &Core, id: SessionId, query: OutputQuery) -> Result<OutputPage, String> {
     let session = core
         .session(id)
@@ -505,7 +715,7 @@ async fn task_read(core: &Core, request: &HarnessRequest) -> Result<Value, Strin
     Ok(with_fields(&run, fields))
 }
 
-struct WaitSlot<'a>(&'a AtomicUsize);
+pub(crate) struct WaitSlot<'a>(&'a AtomicUsize);
 
 impl Drop for WaitSlot<'_> {
     fn drop(&mut self) {
@@ -525,16 +735,14 @@ async fn events_wait(core: &Core, request: &HarnessRequest) -> Result<Value, Str
     let timeout = integer(params, "timeoutMs", MAX_WAIT_MS, MAX_WAIT_MS, 0)?;
     let execution_id = text(params, "executionId")?;
     let harness = &core.harness;
-    if harness.waits.fetch_add(1, Ordering::AcqRel) >= MAX_WAITS {
-        harness.waits.fetch_sub(1, Ordering::AcqRel);
-        return Err("Too many event waits".into());
-    }
-    let _slot = WaitSlot(&harness.waits);
+    let _slot = harness.wait_slot()?;
     let deadline = Instant::now() + Duration::from_millis(timeout);
     loop {
         let mut changed = harness.changes.subscribe();
-        let page =
+        let mut page =
             harness.read(|state| state.journals.since(&request.project, after, execution_id))?;
+        page.events
+            .retain(|entry| !entry.kind.starts_with(AGENT_EVENT));
         if !page.events.is_empty() || page.truncated || Instant::now() >= deadline {
             let events: Vec<Value> = page
                 .events
@@ -845,11 +1053,13 @@ async fn task_start(
             execution_id,
             forwarded,
         } => {
-            match core.window.call(
-                WindowCall::Harness { request: forwarded },
-                "start tasks",
-                false,
-            ) {
+            let call = serde_json::to_value(&forwarded)
+                .map_err(|error| error.to_string())
+                .and_then(|request| {
+                    core.window
+                        .call(WindowCall::Harness { request }, "start tasks", false)
+                });
+            match call {
                 Ok(call) => {
                     let following = core.clone();
                     let id = execution_id.clone();
@@ -969,7 +1179,13 @@ async fn output_appears(
 /// method. Listing plugin tools is not a call.
 fn tool_name(request: &HarnessRequest) -> Option<String> {
     match request.method.as_str() {
-        "plugins.tools" | PLUGINS_CHANGED_METHOD | SIM_OFFERED_METHOD | SIM_CANCEL_METHOD => None,
+        "plugins.tools"
+        | PLUGINS_CHANGED_METHOD
+        | TOOLS_MANIFEST_METHOD
+        | COMMIT_FOOTER_METHOD
+        | GIT_GUARD_METHOD
+        | SIM_OFFERED_METHOD
+        | SIM_CANCEL_METHOD => None,
         "plugins.call" => request
             .params
             .get("tool")
@@ -1011,9 +1227,63 @@ fn add_tool_call(path: &Path, tool: &str, succeeded: bool) -> std::io::Result<()
     std::fs::write(path, serde_json::to_vec_pretty(&tallies)?)
 }
 
+/// A run an agent started that ended with an error nobody asked for.
+pub(crate) struct FailedRun {
+    agent_id: String,
+    execution_id: String,
+    label: String,
+    reason: String,
+}
+
+/// Tells the agent its run died, so a crashed dev server does not go unnoticed
+/// while the agent works on something else.
+pub(crate) fn tell_agent_run_failed(core: &Core, run: FailedRun) {
+    let (Some(core), Ok(runtime)) = (core.arc(), tokio::runtime::Handle::try_current()) else {
+        return;
+    };
+    let text = format!(
+        "Your task \"{}\" (executionId {}) stopped: {}. Read its output with task_read, fix the cause, and start it again with task_start.",
+        run.label, run.execution_id, run.reason
+    );
+    runtime.spawn(async move {
+        let _ = super::messages::from_sikemux(&core, run.agent_id, text).await;
+    });
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_skills_tool_creates_lists_and_removes_in_the_library() {
+        let data =
+            std::env::temp_dir().join(format!("sikemux-harness-skills-{}", uuid::Uuid::new_v4()));
+        let answer = |params: Value| skills_answer(&data, &params);
+        let created = answer(json!({
+            "action": "create",
+            "name": "deploy-preview",
+            "description": "Deploys a preview",
+            "body": "Run make preview.",
+        }))
+        .unwrap();
+        assert_eq!(created["skill"]["name"], "deploy-preview");
+        assert!(created["note"].as_str().unwrap().contains("/sikemux:"));
+
+        let listed = answer(json!({ "action": "list" })).unwrap();
+        assert_eq!(listed["skills"][0]["description"], "Deploys a preview");
+
+        let refused = answer(json!({ "action": "create", "name": "Bad Name", "description": "x" }));
+        assert!(refused.unwrap_err().contains("not a skill name"));
+        assert!(answer(json!({ "action": "install", "source": "relative/path" })).is_err());
+        assert!(answer(json!({ "action": "rename" })).is_err());
+
+        answer(json!({ "action": "remove", "name": "deploy-preview" })).unwrap();
+        assert_eq!(
+            answer(json!({ "action": "list" })).unwrap()["skills"],
+            json!([])
+        );
+        std::fs::remove_dir_all(&data).unwrap();
+    }
 
     fn request(method: &str, params: Value) -> HarnessRequest {
         HarnessRequest {
@@ -1041,7 +1311,7 @@ mod tests {
 
     #[tokio::test(start_paused = true)]
     async fn a_plugin_wait_answers_at_once_unless_it_has_seen_the_latest_change() {
-        let harness = Harness::new(None);
+        let harness = Harness::new(None, |_| true);
         assert_eq!(
             plugins_wait(&harness, &json!({})).await,
             Ok(json!({ "version": 0 }))
@@ -1094,7 +1364,7 @@ mod tests {
 
     #[test]
     fn task_ids_and_commands_are_resolved_before_anything_starts() {
-        let harness = Harness::new(None);
+        let harness = Harness::new(None, |_| true);
         let resolve = |params: Value, restart: bool| {
             harness.read(|state| launch_target(state, "/one", &params, restart))
         };
@@ -1128,7 +1398,7 @@ mod tests {
 
     #[test]
     fn a_run_follows_its_session_and_says_how_it_ended() {
-        let harness = Harness::new(None);
+        let harness = Harness::new(None, |_| true);
         harness.change(|state| {
             state
                 .runs

@@ -64,9 +64,9 @@ export function useTrackedItems(cwd: string, enabled: boolean): TrackedList {
         if (!repo || !host) return { state: "unavailable", message: "This project has no remote on a code host" };
         if (!status.data) return status.error ? { state: "unavailable", message: failureMessage(status.error) } : { state: "loading" };
         if (!signedIn) return { state: "unavailable", message: `Sign in to ${host.name} in the Git pane to pick from its issues` };
+        if (pulls.data && (!withIssues || issues.data)) return { state: "ready", repo, items: trackedItems(issues.data?.issues ?? [], pulls.data) };
         if (error) return { state: "unavailable", message: failureMessage(error) };
-        if (!pulls.data || (withIssues && !issues.data)) return { state: "loading" };
-        return { state: "ready", repo, items: trackedItems(issues.data?.issues ?? [], pulls.data) };
+        return { state: "loading" };
     }, [cwd, found.loading, repo, host, status.data, status.error, signedIn, error, pulls.data, withIssues, issues.data]);
 }
 

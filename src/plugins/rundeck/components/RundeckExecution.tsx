@@ -5,14 +5,17 @@ import { IconCheck, IconClock, IconClose, IconExternal, IconFetch, IconGit, Icon
 import { failureMessage, rundeckApi, type RundeckStep } from "../api";
 import * as cmd from "../state";
 import type { JobRef } from "../state";
-import { rndJobDetailR } from "../resources";
+import { rndExecutionsR, rndJobDetailR, useBranchOptions } from "../resources";
 import { useWatchingRun, watchRun } from "../runWatch";
 import { branchOf, displayStatus, duration, formatTime, isLiveStatus } from "../shape";
 import { executionProgress } from "./executionProgress";
+import { statusKind } from "./branchStyle";
 import { useNow } from "../../../plugin-api/hooks";
+import { formatDuration } from "../../../plugin-api/format";
 import { reusableOptions } from "./options";
 import { RundeckLogView } from "./RundeckLogView";
 import { useExecutionStreams } from "./useExecutionStreams";
+import { usualSeconds } from "./runStats";
 import { FolderChip, Header, Status, levelCrumbs } from "./parts";
 
 interface Props {
@@ -35,7 +38,8 @@ const STEP_STATE: Record<string, { cls: "pending" | "running" | "ok" | "fail" | 
 export function RundeckExecution({ paneId, level, active }: Props) {
     const { execution, state, terminal, watchErr, logs } = useExecutionStreams(level.executionId, active);
     const detail = useResourceEnabled(active, rndJobDetailR, level.jobId);
-    const branchOptions = cmd.rundeckSettings.useSelect((s) => s.branchOptions);
+    const history = useResourceEnabled(active, rndExecutionsR, level.jobId, level.project, 30);
+    const branchOptions = useBranchOptions();
     const [stepFilter, setStepFilter] = useState<string | null>(null);
     const [aborting, setAborting] = useState(false);
     const [abortErr, setAbortErr] = useState<string | null>(null);
@@ -87,6 +91,9 @@ export function RundeckExecution({ paneId, level, active }: Props) {
 
     const runWord = branch ? "Deploy" : "Run";
     const doneSteps = progress?.completed ?? 0;
+    const usual = useMemo(() => usualSeconds(history.data ?? [], Date.now()), [history.data]);
+    const elapsed = started ? Math.max(0, (now - Date.parse(started)) / 1000) : null;
+    const left = live && usual !== null && elapsed !== null ? usual - elapsed : null;
 
     return (
         <div className="rnd-main">
@@ -150,6 +157,7 @@ export function RundeckExecution({ paneId, level, active }: Props) {
             <div className="rnd-exec-top">
                 {steps.length > 0 && (
                     <div className="rnd-progress">
+                        <span className={`rnd-progress-pct ${statusKind(rawStatus)}`}>{progress ? `${progress.percent}%` : "—"}</span>
                         <div
                             className="rnd-progress-track"
                             role="progressbar"
@@ -161,7 +169,17 @@ export function RundeckExecution({ paneId, level, active }: Props) {
                                 <i key={stepKey(step, i)} className={stepUi(step).cls} />
                             ))}
                         </div>
-                        <span className="rnd-progress-copy">{progress ? `${progress.completed} of ${progress.total} steps` : "Syncing steps"}</span>
+                        <span className="rnd-progress-copy">
+                            {progress ? `${progress.completed} of ${progress.total} steps` : "Syncing steps"}
+                            {left !== null && (left > 0 ? ` · about ${formatDuration(left * 1000)} left` : " · taking longer than usual")}
+                        </span>
+                        <div className="rnd-progress-labels" aria-hidden="true">
+                            {steps.map((step, i) => (
+                                <span key={stepKey(step, i)} className={stepUi(step).cls === "running" ? "on" : undefined}>
+                                    {stepLabel(i)}
+                                </span>
+                            ))}
+                        </div>
                     </div>
                 )}
                 <div className="rnd-metas">

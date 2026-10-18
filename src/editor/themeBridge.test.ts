@@ -1,6 +1,7 @@
 import { EditorState } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import { expect, it, vi } from "vitest";
+import { THEMES } from "../themes";
 import { applyTheme, currentTheme, refreshViewTheme, registerView } from "../themes/bus";
 import { themeCompartmentExtension } from "./themeBridge";
 
@@ -14,7 +15,7 @@ it("reuses theme extensions across warm tabs and refreshes a stale tab once", ()
         refreshViewTheme(view);
     }
     expect(dispatch).not.toHaveBeenCalled();
-    applyTheme(currentTheme().id);
+    applyTheme(THEMES.find((theme) => theme.dark !== currentTheme().dark)!.id);
     refreshViewTheme(view);
     expect(dispatch).toHaveBeenCalledTimes(1);
     refreshViewTheme(view);

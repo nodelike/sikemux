@@ -1,4 +1,4 @@
-import { resource } from "../../plugin-api/resources";
+import { peekResource, resource, useResource } from "../../plugin-api/resources";
 import {
     rundeckApi,
     type JobDetail,
@@ -8,11 +8,13 @@ import {
     type OptionValue,
     type PlanRequest,
     type PlanResult,
+    type ProjectExecutions,
     type RundeckExecution,
     type RundeckJob,
     type RundeckProject,
     type RundeckStatus,
 } from "./api";
+import { DEFAULT_BRANCH_OPTIONS } from "./shape";
 
 export const rndStatusR = resource({
     kind: "rnd.status",
@@ -52,13 +54,13 @@ export const rndOptionValuesR = resource({
 
 export const rndMatrixR = resource({
     kind: "rnd.matrix",
-    fetch: (project: string, branchOptions: string[]): Promise<MatrixResult> => rundeckApi.branchesMatrix(project, branchOptions),
+    fetch: (project: string): Promise<MatrixResult> => rundeckApi.branchesMatrix(project),
     staleAfterMs: 30_000,
 });
 
 export const rndJobCellsR = resource({
     kind: "rnd.jobCells",
-    fetch: (jobs: RundeckJob[], branchOptions: string[]): Promise<MatrixCell[]> => rundeckApi.jobCells(jobs, branchOptions),
+    fetch: (jobs: RundeckJob[]): Promise<MatrixCell[]> => rundeckApi.jobCells(jobs),
     staleAfterMs: 30_000,
 });
 
@@ -68,8 +70,26 @@ export const rndExecutionsR = resource({
     staleAfterMs: 15_000,
 });
 
+export const rndProjectExecutionsR = resource({
+    kind: "rnd.projectExecutions",
+    fetch: (project: string, max: number): Promise<ProjectExecutions> => rundeckApi.projectExecutions(project, max, 0),
+    staleAfterMs: 15_000,
+});
+
 export const rndPlanR = resource({
     kind: "rnd.plan",
     fetch: (request: PlanRequest): Promise<PlanResult> => rundeckApi.plan(request),
     staleAfterMs: 10_000,
 });
+
+const rndBranchOptionsR = resource({
+    kind: "rnd.branchOptions",
+    fetch: (): Promise<string[]> => rundeckApi.branchOptions(),
+});
+
+/** Job options that hold the git branch, as the plugin keeps them. */
+export function useBranchOptions(): string[] {
+    return useResource(rndBranchOptionsR).data ?? DEFAULT_BRANCH_OPTIONS;
+}
+
+export const branchOptionsNow = (): string[] => peekResource(rndBranchOptionsR) ?? DEFAULT_BRANCH_OPTIONS;

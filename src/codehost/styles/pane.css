@@ -1,5 +1,5 @@
 .gha-pane {
-    --gha-tint: color-mix(in oklab, var(--ink) 3%, transparent);
+    --gha-tint: color-mix(in srgb, var(--s-raised) 55%, var(--s-sunken));
     --gha-rule: color-mix(in oklab, var(--ink) 7%, transparent);
     display: flex;
     flex-direction: column;

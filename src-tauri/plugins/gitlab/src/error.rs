@@ -7,13 +7,20 @@ pub enum GitlabError {
     Unconfigured,
     Auth(String),
     Forbidden(String),
-    RateLimited { resets_in_secs: u64 },
-    Http { status: u16, message: String },
+    RateLimited {
+        resets_in_secs: u64,
+    },
+    Http {
+        status: u16,
+        message: String,
+    },
     BadArg(String),
     NotFound(String),
     Unsupported(&'static str),
     Keychain(String),
     Transport(String),
+    /// The service could not be reached at all, such as when the Mac is offline.
+    Unreachable(sikemux_plugin_api::Unreachable),
     Response(String),
 }
 
@@ -36,6 +43,9 @@ impl fmt::Display for GitlabError {
             Self::Unsupported(what) => write!(formatter, "GitLab cannot {what}"),
             Self::Keychain(message) => write!(formatter, "keychain: {message}"),
             Self::Transport(message) => write!(formatter, "gitlab: {message}"),
+            Self::Unreachable(kind) => formatter.write_str(
+                &sikemux_plugin_api::network::unreachable_message(*kind, "GitLab"),
+            ),
             Self::Response(message) => {
                 write!(formatter, "gitlab: unexpected response: {message}")
             }
@@ -47,6 +57,10 @@ impl fmt::Display for GitlabError {
 /// be sent, such as a DNS or certificate failure, is further down the chain.
 impl From<reqwest::Error> for GitlabError {
     fn from(error: reqwest::Error) -> Self {
+        if let Some(kind) = sikemux_plugin_api::unreachable(&error) {
+            eprintln!("gitlab: {error}");
+            return Self::Unreachable(kind);
+        }
         let mut message = error.to_string();
         let mut cause = std::error::Error::source(&error);
         while let Some(next) = cause {
@@ -82,6 +96,7 @@ impl From<GitlabError> for PluginError {
             GitlabError::NotFound(_) => PluginError::new("not-found", message).with_status(404),
             GitlabError::Unsupported(_) => PluginError::new("unsupported", message),
             GitlabError::Keychain(_) => PluginError::new("keychain", message),
+            GitlabError::Unreachable(kind) => PluginError::unreachable(kind, "GitLab"),
             GitlabError::Transport(_) => PluginError::new("gitlab", message),
             GitlabError::Response(_) => PluginError::new("response", message),
         }

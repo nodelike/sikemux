@@ -68,8 +68,8 @@
 }
 .ed-viewer-actions button:hover:not(:disabled) {
     color: var(--text-primary);
-    border-color: var(--border-selected);
-    background: var(--surface-selected);
+    border-color: var(--border-strong);
+    background: var(--surface-hover);
 }
 .ed-viewer-actions button:disabled {
     opacity: 0.45;
@@ -112,13 +112,6 @@
 }
 .ed-viewer-audio {
     width: min(520px, 100%);
-}
-.ed-viewer-frame {
-    flex: 1 1 auto;
-    min-height: 0;
-    width: 100%;
-    border: 0;
-    background: transparent;
 }
 .ed-viewer-font {
     align-items: flex-start;

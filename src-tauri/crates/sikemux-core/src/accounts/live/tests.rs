@@ -337,6 +337,25 @@ async fn a_host_over_the_servers_limits_waits_out_the_minute() {
 }
 
 #[tokio::test]
+async fn the_network_coming_back_cuts_a_waiting_host_short() {
+    let server = Server::new().await;
+    let account = Fake::new(Want::Stay);
+    let (task, changed) = spawn(&account, &server);
+    let mut peer = server.greet(&account).await;
+    peer.ready(0).await;
+    peer.close(4429).await;
+
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    changed.send(()).unwrap();
+    let back = tokio::time::timeout(Duration::from_secs(5), server.greet(&account)).await;
+    assert!(
+        back.is_ok(),
+        "the host waits out its backoff instead of connecting now"
+    );
+    task.abort();
+}
+
+#[tokio::test]
 async fn signing_out_sends_leave_once_the_server_is_ready() {
     let server = Server::new().await;
     let account = Fake::new(Want::Stay);

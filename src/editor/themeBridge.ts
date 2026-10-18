@@ -2,29 +2,24 @@ import { Compartment, type Extension } from "@codemirror/state";
 import type { EditorView } from "@codemirror/view";
 import type { Theme } from "../themes";
 import { currentTheme, setEditorThemeBridge } from "../themes/bus";
-import { buildEditorThemeExtensions, buildIndentMarkerExtensions } from "./themeExtensions";
+import { buildEditorThemeExtensions, indentMarkerExtensions } from "./themeExtensions";
 
 const themeCompartment = new Compartment();
-const indentCompartment = new Compartment();
+const darkTheme = buildEditorThemeExtensions(true);
+const lightTheme = buildEditorThemeExtensions(false);
 
-let editorTheme: Extension = buildEditorThemeExtensions(currentTheme());
-let indentTheme: Extension = buildIndentMarkerExtensions(currentTheme());
+let editorTheme: Extension = currentTheme().dark ? darkTheme : lightTheme;
 
 export function themeCompartmentExtension(opts: { indentMarkers?: boolean } = {}): Extension {
-    return [themeCompartment.of(editorTheme), ...(opts.indentMarkers === false ? [] : [indentCompartment.of(indentTheme)])];
+    return [themeCompartment.of(editorTheme), ...(opts.indentMarkers === false ? [] : [indentMarkerExtensions])];
 }
 
 function pushThemeOnto(view: EditorView): void {
-    const effects = [];
-    if (themeCompartment.get(view.state) !== editorTheme) effects.push(themeCompartment.reconfigure(editorTheme));
-    const indent = indentCompartment.get(view.state);
-    if (indent !== undefined && indent !== indentTheme) effects.push(indentCompartment.reconfigure(indentTheme));
-    if (effects.length) view.dispatch({ effects });
+    if (themeCompartment.get(view.state) !== editorTheme) view.dispatch({ effects: themeCompartment.reconfigure(editorTheme) });
 }
 
 function rebuild(theme: Theme): void {
-    editorTheme = buildEditorThemeExtensions(theme);
-    indentTheme = buildIndentMarkerExtensions(theme);
+    editorTheme = theme.dark ? darkTheme : lightTheme;
 }
 
 // The theme bus holds every live editor but must not drag CodeMirror into the

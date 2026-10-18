@@ -3,17 +3,39 @@
 //! it reads the rest from here, a page of whole turns at a time.
 
 use std::fs::{self, File, OpenOptions};
-use std::io::{self, Read, Seek, SeekFrom, Write};
+use std::io::{self, BufRead, BufReader, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
+
+use serde::{Deserialize, Serialize};
 
 use crate::protocol::{ChatEvent, ChatEventKind};
 
 /// Past this the oldest half of the file goes, so a chat that never ends
 /// cannot fill the disk. Its earliest turns are then out of reach.
-pub(crate) const MAX_HISTORY_BYTES: u64 = 256 * 1024 * 1024;
+pub(crate) const MAX_HISTORY_BYTES: u64 = 512 * 1024 * 1024;
+
+/// One line of the file: an event and where it stands, so a core that
+/// starts after this one can read the file back.
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct Line<E> {
+    index: u64,
+    starts_turn: bool,
+    point: bool,
+    event: E,
+}
+
+/// An event read back from a file an earlier core left.
+pub(crate) struct Recovered {
+    pub index: u64,
+    pub starts_turn: bool,
+    pub point: bool,
+    pub bytes: usize,
+    pub event: ChatEvent,
+}
 
 /// An event a page can start from.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 struct Point {
     index: u64,
     offset: u64,
@@ -32,20 +54,43 @@ pub(crate) struct History {
     points: Vec<Point>,
 }
 
+/// A history file let go of whole, for a core that takes the chat over to
+/// go on writing.
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct HistoryState {
+    path: PathBuf,
+    bytes: u64,
+    max_bytes: u64,
+    first: u64,
+    next: u64,
+    points: Vec<Point>,
+}
+
 /// Events from before some index, and where the page before them starts.
 #[derive(Debug, Default, PartialEq)]
 pub(crate) struct Page {
     pub events: Vec<ChatEvent>,
     pub older_before: Option<u64>,
+    /// The index of the page's first event.
+    pub first: u64,
 }
 
-/// Removes what an earlier core left, which no chat of this one reads.
-pub(crate) fn clear(dir: &Path) {
+/// Removes what an earlier core left, but for the files of chats `keep`
+/// names, which this core took over.
+pub(crate) fn clear(dir: &Path, keep: &[String]) {
     let Ok(entries) = fs::read_dir(dir) else {
         return;
     };
     for entry in entries.flatten() {
-        let _ = fs::remove_file(entry.path());
+        let path = entry.path();
+        let kept = path
+            .file_stem()
+            .and_then(|stem| stem.to_str())
+            .is_some_and(|stem| keep.iter().any(|name| name == stem));
+        if !kept {
+            let _ = fs::remove_file(path);
+        }
     }
 }
 
@@ -79,6 +124,124 @@ impl History {
         }
     }
 
+    /// Goes on writing the file an earlier core left when it stopped, telling
+    /// `each` every event in it, oldest first. A line that core was cut off
+    /// writing is dropped.
+    pub(crate) fn recover(
+        dir: &Path,
+        name: &str,
+        max_bytes: u64,
+        mut each: impl FnMut(Recovered),
+    ) -> Self {
+        let path = dir.join(format!("{name}.jsonl"));
+        let file = match OpenOptions::new().read(true).write(true).open(&path) {
+            Ok(file) => file,
+            Err(error) => {
+                if error.kind() != io::ErrorKind::NotFound {
+                    eprintln!(
+                        "sikemux core: a chat's history at {} could not be read again: {error}",
+                        path.display()
+                    );
+                }
+                return Self::open(dir, name, max_bytes);
+            }
+        };
+        let mut history = Self {
+            path,
+            file: None,
+            bytes: 0,
+            max_bytes,
+            first: 0,
+            next: 0,
+            points: Vec::new(),
+        };
+        let mut reader = BufReader::new(&file);
+        let mut line = Vec::new();
+        loop {
+            line.clear();
+            let read = match reader.read_until(b'\n', &mut line) {
+                Ok(read) if line.last() == Some(&b'\n') => read,
+                _ => break,
+            };
+            let Ok(kept) = serde_json::from_slice::<Line<ChatEvent>>(&line) else {
+                break;
+            };
+            let offset = history.bytes;
+            if offset == 0 {
+                history.first = kept.index;
+            }
+            if kept.point || offset == 0 {
+                history.points.push(Point {
+                    index: kept.index,
+                    offset,
+                    starts_turn: kept.starts_turn || offset == 0,
+                });
+            }
+            history.bytes += read as u64;
+            history.next = kept.index + 1;
+            each(Recovered {
+                index: kept.index,
+                starts_turn: kept.starts_turn,
+                point: kept.point,
+                bytes: read,
+                event: kept.event,
+            });
+        }
+        drop(reader);
+        let mut file = file;
+        let cut = file
+            .set_len(history.bytes)
+            .and_then(|()| file.seek(SeekFrom::Start(history.bytes)).map(drop));
+        history.file = Some(file);
+        if let Err(error) = cut {
+            history.fail(&error);
+        }
+        history
+    }
+
+    /// Lets go of the file without removing it.
+    pub(crate) fn release(mut self) -> HistoryState {
+        let file = self.file.take();
+        let state = HistoryState {
+            path: self.path.clone(),
+            bytes: if file.is_some() { self.bytes } else { 0 },
+            max_bytes: self.max_bytes,
+            first: self.first,
+            next: self.next,
+            points: std::mem::take(&mut self.points),
+        };
+        if file.is_none() {
+            let _ = fs::remove_file(&self.path);
+        }
+        state
+    }
+
+    /// Goes on writing a file an earlier core let go of.
+    pub(crate) fn reopen(state: HistoryState) -> Self {
+        let file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(&state.path)
+            .and_then(|mut file| file.seek(SeekFrom::Start(state.bytes)).map(|_| file))
+            .inspect_err(|error| {
+                eprintln!(
+                    "sikemux core: a chat's history at {} was not kept through the update: {error}",
+                    state.path.display()
+                )
+            })
+            .ok();
+        let kept = file.is_some();
+        Self {
+            path: state.path,
+            file,
+            bytes: if kept { state.bytes } else { 0 },
+            max_bytes: state.max_bytes,
+            first: state.first,
+            next: state.next,
+            points: if kept { state.points } else { Vec::new() },
+        }
+    }
+
     /// The index of the oldest event a page can still return.
     pub(crate) fn first(&self) -> Option<u64> {
         self.file.as_ref().map(|_| self.first)
@@ -91,7 +254,12 @@ impl History {
         if self.bytes == 0 {
             self.first = index;
         }
-        let Ok(mut line) = serde_json::to_vec(event) else {
+        let Ok(mut line) = serde_json::to_vec(&Line {
+            index,
+            starts_turn,
+            point,
+            event,
+        }) else {
             return;
         };
         line.push(b'\n');
@@ -198,6 +366,23 @@ impl History {
         self.next = index;
     }
 
+    /// The newest event that starts a page and that `picks`, by its index.
+    pub(crate) fn find(&self, picks: impl Fn(&ChatEvent) -> bool) -> Option<u64> {
+        self.file.as_ref()?;
+        let mut reader = BufReader::new(File::open(&self.path).ok()?);
+        let mut line = Vec::new();
+        for point in self.points.iter().rev() {
+            reader.seek(SeekFrom::Start(point.offset)).ok()?;
+            line.clear();
+            reader.read_until(b'\n', &mut line).ok()?;
+            if serde_json::from_slice::<Line<ChatEvent>>(&line).is_ok_and(|line| picks(&line.event))
+            {
+                return Some(point.index);
+            }
+        }
+        None
+    }
+
     /// Whole turns from before the event at `before`, as many as `turns`
     /// while they stay under `max_bytes`. A turn too big for a page on its
     /// own comes in pieces. Permission requests are left out: they were
@@ -243,12 +428,14 @@ impl History {
         let events = text
             .split(|byte| *byte == b'\n')
             .filter(|line| !line.is_empty())
-            .filter_map(|line| serde_json::from_slice::<ChatEvent>(line).ok())
+            .filter_map(|line| serde_json::from_slice::<Line<ChatEvent>>(line).ok())
+            .map(|line| line.event)
             .filter(|event| event.kind != ChatEventKind::PermissionRequest)
             .collect();
         Ok(Page {
             events,
             older_before: (chosen > 0).then_some(start.index),
+            first: start.index,
         })
     }
 }

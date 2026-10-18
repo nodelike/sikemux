@@ -5,7 +5,7 @@ import type {
   IpcTransport,
   IpcUnsubscribe,
 } from "../src/api/transport";
-import type { GitCommit, GitOverview } from "../src/api/git";
+import type { CommitOwner, GitCommit, GitOverview } from "../src/api/git";
 import {
   AGENT_SCRIPTS,
   AGENT_USAGE,
@@ -13,9 +13,11 @@ import {
   MODEL_OPTIONS,
   SAVED_SESSIONS,
 } from "./world/agents";
-import { BRANCHES, GIT_STATUS } from "./world/git";
+import { BRANCHES, FILE_DIFFS, GIT_STATUS } from "./world/git";
 import { RUNDECK, rundeckStream } from "./world/rundeck";
 import { GITHUB } from "./world/github";
+import { JIRA } from "./world/jira";
+import { VERCEL } from "./world/vercel";
 import { SIGNOZ, signozTail } from "./world/signoz";
 import { AWS, awsLogLines } from "./world/aws";
 import { demoActivity } from "./world/activity";
@@ -33,7 +35,10 @@ import {
   SIKEMUX,
 } from "./world/projects";
 import { terminalReplay } from "./world/terminals";
-import { demoSnapshot } from "./world/workspace";
+import { PtyOutput, type PtyChannel } from "./ptyOutput";
+import { AGENTS, demoSnapshot } from "./world/workspace";
+import { DEMO_BOARD, DEMO_MESSAGES } from "./world/board";
+import type { BoardCard } from "../src/agents/agentBoard";
 
 type Args = Record<string, unknown>;
 type Handler = (args: Args) => unknown;
@@ -57,15 +62,10 @@ interface RecentRequest {
   exclude: { agent: string; id: string }[];
 }
 
-// The demo's saved chats all belong to the sikemux project.
 function recentPage(request: RecentRequest) {
   const rows = request.providers
     .flatMap(({ agent }) =>
-      (SAVED_SESSIONS[agent] ?? []).map((row) => ({
-        ...row,
-        agent,
-        project: SIKEMUX,
-      })),
+      (SAVED_SESSIONS[agent] ?? []).map((row) => ({ ...row, agent })),
     )
     .filter((row) => request.projects.includes(row.project))
     .filter(
@@ -86,6 +86,49 @@ function recentPage(request: RecentRequest) {
     sessions,
     next: end < rows.length ? { atMs: 0, agent: "", key: String(end) } : null,
   };
+}
+
+/** The core's session search, by title anywhere and by words that start a word in what was said. */
+function sessionSearch({
+  query,
+  limit = 8,
+}: {
+  query: string;
+  limit?: number;
+}) {
+  const needle = query.trim().toLowerCase();
+  const words = needle
+    .split(/[^\p{L}\p{N}]+/u)
+    .filter((word) => word.length > 1);
+  const startsWord = (text: string, word: string) =>
+    new RegExp(
+      `(^|[^\\p{L}\\p{N}])${word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`,
+      "u",
+    ).test(text);
+  return Object.entries(SAVED_SESSIONS)
+    .flatMap(([cli, rows]) => rows.map((row) => ({ ...row, cli })))
+    .map((row) => {
+      const title = row.title.toLowerCase();
+      const said = (row.said ?? "").toLowerCase();
+      const inTitle = title.includes(needle)
+        ? startsWord(title, needle)
+          ? 2
+          : 1
+        : 0;
+      const inSaid = words.filter((word) => startsWord(said, word)).length;
+      return { row, rank: inTitle * 10 + inSaid };
+    })
+    .filter(({ rank }) => rank > 0)
+    .sort((a, b) => b.rank - a.rank || b.row.mtime - a.row.mtime)
+    .slice(0, limit)
+    .map(({ row }) => ({
+      cli: row.cli,
+      sessionId: row.id,
+      title: row.title,
+      project: row.project,
+      activeAt: row.mtime * 1000,
+      snippets: row.said ? [row.said] : [],
+    }));
 }
 
 const SIM_DEVICE = {
@@ -119,6 +162,57 @@ function recorded(
   }));
 }
 
+/** Commits agents made, by their place in the history, with the agents their signed footers name. */
+const AGENT_COMMITS: Record<number, CommitOwner[]> = {
+  0: [
+    {
+      name: AGENTS.rail.name,
+      cli: AGENTS.rail.type,
+      model: "opus",
+      chat: AGENTS.rail.id,
+      title: AGENTS.rail.title,
+      open: AGENTS.rail.id,
+      sessionId: AGENTS.rail.resumeId,
+    },
+  ],
+  2: [
+    {
+      name: AGENTS.replay.name,
+      cli: AGENTS.replay.type,
+      chat: AGENTS.replay.id,
+      title: AGENTS.replay.title,
+      open: AGENTS.replay.id,
+      sessionId: AGENTS.replay.resumeId,
+    },
+    {
+      name: "Sable",
+      cli: "claude",
+      chat: "agent-sable",
+      title: "Release notes for v0.4.1",
+      sessionId: "s-c3",
+    },
+  ],
+  5: [
+    {
+      name: "Juniper",
+      cli: "claude",
+      chat: "agent-juniper",
+      title: "Split the Rundeck matrix into its own pane",
+      sessionId: "s-c1",
+    },
+  ],
+};
+const commitOwners = new Map<string, CommitOwner[]>();
+
+function signedByAgents(log: GitCommit[]): GitCommit[] {
+  return log.map((commit, index) => {
+    const owners = AGENT_COMMITS[index];
+    if (!owners) return commit;
+    commitOwners.set(commit.full_hash, owners);
+    return { ...commit, footer: true };
+  });
+}
+
 export class ShowcaseBackend implements IpcTransport {
   readonly unhandled = new Map<string, number>();
   private readonly listeners = new Map<
@@ -126,6 +220,7 @@ export class ShowcaseBackend implements IpcTransport {
     Set<IpcEventListener<unknown>>
   >();
   private readonly handlers = new Map<string, Handler>();
+  private readonly outputs = new Map<string, PtyOutput>();
   private sequence = 0;
 
   constructor() {
@@ -160,6 +255,10 @@ export class ShowcaseBackend implements IpcTransport {
     this.handlers.set(command, handler);
   }
 
+  terminalOutput(paneId: string): PtyOutput | undefined {
+    return this.outputs.get(paneId);
+  }
+
   private registerAll(): void {
     const constant = (value: unknown) => () => value;
 
@@ -181,6 +280,7 @@ export class ShowcaseBackend implements IpcTransport {
           ["bruno", "Bruno"],
           ["github", "GitHub"],
           ["database", "Database"],
+          ["vercel", "Vercel"],
         ].map(([id, name]) => ({
           id: `sikemux.${id}`,
           name,
@@ -251,7 +351,6 @@ export class ShowcaseBackend implements IpcTransport {
       "lsp_stop",
       "pty_resize",
       "pty_write",
-      "pty_ack",
       "pty_unsubscribe",
       "sim_watch_read",
       "sim_unwatch",
@@ -311,7 +410,7 @@ export class ShowcaseBackend implements IpcTransport {
     this.on("git_file_at", async ({ repo, path }) =>
       server("read_file", { path: `${repo}/${path}` }).catch(() => ""),
     );
-    this.on("git_file_diff", constant([]));
+    this.on("git_file_diff", ({ path }) => FILE_DIFFS[path as string] ?? []);
     this.on("git_blame", constant({ commits: [], lines: [] }));
 
     this.on("git_overview", async ({ repo }) => {
@@ -327,10 +426,23 @@ export class ShowcaseBackend implements IpcTransport {
           current: name === status.branch,
           upstream: name === status.branch ? status.upstream : null,
         })),
-        log: await server("git_log", { project: project.name, count: 80 }),
+        log: signedByAgents(
+          await server<GitCommit[]>("git_log", {
+            project: project.name,
+            count: 80,
+          }),
+        ),
       };
       return overview;
     });
+    this.on("git_commit_owners", ({ commits }) =>
+      Object.fromEntries(
+        (commits as string[]).flatMap((hash) => {
+          const owners = commitOwners.get(hash);
+          return owners ? [[hash, owners]] : [];
+        }),
+      ),
+    );
     this.on("git_status", ({ repo }) => GIT_STATUS[repo as string]);
     this.on(
       "git_remotes",
@@ -390,8 +502,10 @@ export class ShowcaseBackend implements IpcTransport {
       });
       return id;
     });
-    this.on("pty_attach", ({ id }) => {
+    this.on("pty_attach", ({ id, onEvent }) => {
       const pane = ptyPanes.get(id as number);
+      if (pane?.paneId)
+        this.outputs.set(pane.paneId, new PtyOutput(onEvent as PtyChannel));
       const replay = new TextEncoder().encode(
         terminalReplay(pane?.paneId, pane?.cwd ?? null),
       );
@@ -404,44 +518,116 @@ export class ShowcaseBackend implements IpcTransport {
       out.set(replay, 4 + header.length);
       return out.buffer;
     });
+    this.on("pty_ack", ({ id, bytes }) => {
+      const paneId = ptyPanes.get(id as number)?.paneId;
+      if (paneId) this.outputs.get(paneId)?.ack(bytes as number);
+    });
 
     this.on("available_agents", constant(AVAILABLE_AGENTS));
-    this.on(
-      "agent_sessions",
-      ({ agent }) => SAVED_SESSIONS[agent as string] ?? [],
+    this.on("agent_sessions", ({ agent, cwd }) =>
+      (SAVED_SESSIONS[agent as string] ?? []).filter(
+        (row) => row.project === cwd,
+      ),
     );
     this.on("agent_recent_sessions", ({ request }) =>
       recentPage(request as RecentRequest),
     );
-    this.on("agent_usage", ({ agent, configPath }) => {
-      const usage = AGENT_USAGE[agent as keyof typeof AGENT_USAGE] ?? null;
-      const peak =
-        OTHER_ACCOUNTS[String(configPath).split("/").pop() ?? ""]?.used;
-      if (!usage || peak === undefined) return usage;
-      return {
-        ...usage,
-        windows: usage.windows.map((window, index) => ({
-          ...window,
-          usedPercent: index === 0 ? peak : Math.round(peak / 2),
-        })),
-      };
+    this.on("agent_accounts_call", ({ method, params }) => {
+      const { provider, configPath } = (params ?? {}) as Args;
+      const account = OTHER_ACCOUNTS[String(configPath).split("/").pop() ?? ""];
+      if (method === "agentUsage") {
+        const usage = AGENT_USAGE[provider as keyof typeof AGENT_USAGE] ?? null;
+        if (!usage || !account) return usage;
+        return {
+          ...usage,
+          windows: usage.windows.map((window, index) => ({
+            ...window,
+            usedPercent:
+              index === 0 ? account.used : Math.round(account.used / 2),
+          })),
+        };
+      }
+      if (method === "agentAccountStatus")
+        return {
+          signedIn: true,
+          name: null,
+          email: account?.email ?? "edon@acme.dev",
+          plan: null,
+          organization: null,
+          method: "subscription",
+          sessions: `/demo/${String(provider)}/sessions`,
+        };
+      return null;
     });
     this.on("model_providers", () => []);
-    this.on("agent_account_status", ({ agent, configPath }) => ({
-      signedIn: true,
-      name: null,
-      email:
-        OTHER_ACCOUNTS[String(configPath).split("/").pop() ?? ""]?.email ??
-        "edon@acme.dev",
-      plan: null,
-      organization: null,
-      method: "subscription",
-      sessions: `/demo/${String(agent)}/sessions`,
-    }));
     this.on("acp_attach", () => ({ status: "missing" }));
     this.on("acp_list", () => []);
     this.on("pty_sessions", () => []);
     this.on("listening_ports", () => []);
+    const demoNames = new Map<string, string>(
+      Object.values(AGENTS).map((agent) => [agent.id, agent.name]),
+    );
+    const spareNames = ["Lark", "Fern", "Quartz", "Dune", "Pika", "Aster"];
+    this.on("agent_name_call", ({ method, params }) => {
+      if (method === "agentsInApp") return null;
+      if (method === "agentSessions")
+        return sessionSearch(params as { query: string; limit?: number });
+      const { agentId, name } = params as { agentId: string; name?: string };
+      if (method === "renameAgent" && name) demoNames.set(agentId, name);
+      if (!demoNames.has(agentId))
+        demoNames.set(
+          agentId,
+          spareNames[demoNames.size % spareNames.length] ?? "Lark",
+        );
+      return {
+        agentId,
+        name: demoNames.get(agentId),
+        project: SIKEMUX,
+        parent: null,
+      };
+    });
+    this.on("inbox_call", ({ method, params }) => {
+      if (method === "agentMessages")
+        return {
+          project: (params as { project: string }).project,
+          entries: DEMO_MESSAGES,
+        };
+      return {
+        items: [],
+        working: 0,
+        away: false,
+        agentMessages: {},
+        collisions: {},
+        remoteAgents: [],
+      };
+    });
+    let board = DEMO_BOARD;
+    this.on("agent_board_call", ({ method, params }) => {
+      const { id, status } = (params ?? {}) as {
+        id?: number;
+        status?: BoardCard["status"];
+      };
+      const changes = status ? { status } : {};
+      if (method === "boards") return [board];
+      if (method === "boardUpdate")
+        board = {
+          ...board,
+          cards: board.cards.map((card) =>
+            card.id === id ? { ...card, ...changes } : card,
+          ) as typeof board.cards,
+        };
+      if (method === "boardSettings")
+        board = {
+          ...board,
+          settings: { ...board.settings, ...(params as object) },
+        };
+      if (method === "boardRemove")
+        board = {
+          ...board,
+          cards: board.cards.filter((card) => card.id !== id),
+        };
+      return board;
+    });
     this.on("acp_start", ({ agentId, provider }) =>
       this.startAgent(agentId as string, provider as string),
     );
@@ -453,6 +639,8 @@ export class ShowcaseBackend implements IpcTransport {
       "sikemux.bruno": { send: () => CHECKOUT_RESPONSE },
       "sikemux.github": GITHUB,
       "sikemux.database": DATABASE,
+      "sikemux.jira": JIRA,
+      "sikemux.vercel": VERCEL,
     };
     this.on("plugin_call", ({ plugin, method, params }) => {
       const answer = plugins[plugin as string]?.[method as string];

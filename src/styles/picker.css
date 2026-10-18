@@ -21,6 +21,7 @@
 
 .agent-palette-stage .picker {
     max-width: calc(100% - 32px);
+    border-radius: var(--radius-4);
 }
 
 .session-switcher-backdrop {
@@ -44,6 +45,7 @@
     border: 1px solid var(--border);
     box-shadow: var(--shadow-4);
     backdrop-filter: blur(20px) saturate(1.4);
+    border-radius: var(--radius-4);
 }
 
 .session-switcher-head,
@@ -89,8 +91,7 @@
 
 .session-switcher-item.selected {
     color: var(--text-primary);
-    background: var(--surface-selected);
-    border-color: var(--border-selected);
+    background: var(--surface-chosen);
 }
 
 .session-switcher-icon {
@@ -107,10 +108,6 @@
 .session-switcher-icon.project,
 .session-switcher-icon.bruno {
     color: var(--live);
-}
-
-.session-switcher-icon.aws {
-    color: var(--brand-aws);
 }
 
 .session-switcher-copy {
@@ -233,9 +230,8 @@
     text-align: left;
 }
 .picker-item.sel {
-    background: var(--surface-selected);
+    background: var(--surface-chosen);
     color: var(--text-primary);
-    box-shadow: inset 0 0 0 1px var(--border-selected);
 }
 .agent-palette .picker-item:disabled {
     cursor: not-allowed;
@@ -342,6 +338,7 @@
     color: var(--text-secondary);
     white-space: nowrap;
     text-transform: lowercase;
+    border-radius: var(--radius-1);
 }
 .picker-tag.proj {
     grid-column: 1;
@@ -477,8 +474,8 @@
 }
 
 .new-tab-item.sel .new-tab-key {
-    border-color: var(--border-selected);
-    color: var(--acc);
+    border-color: var(--border-strong);
+    color: var(--text-primary);
 }
 
 .new-tab-icon {

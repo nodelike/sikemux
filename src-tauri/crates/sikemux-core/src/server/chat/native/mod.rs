@@ -1,11 +1,14 @@
-//! Agents the core speaks to in their own protocol rather than ACP: Claude
-//! Code over its stream-json control protocol and Codex over its app server.
-//! Both tell the chat the same ACP-shaped session updates every other agent
-//! does, so the app reads them alike.
+//! The chat agents the core starts and speaks to: Claude Code over its
+//! stream-json control protocol, Codex over its app server, Muse Code over its
+//! session protocol, and every other agent over ACP. Each tells the chat the
+//! same ACP-shaped session updates, so the app reads them alike.
 
+mod acp;
 mod claude;
 mod codex;
 mod json;
+mod muse;
+mod patch;
 mod process;
 mod rpc;
 mod session;
@@ -17,8 +20,17 @@ use tokio::sync::mpsc;
 
 use crate::protocol::ChatLaunch;
 
-use super::rebind::{Outcome, Rebind};
+use super::rebind::Outcome;
 use super::{Chat, ChatCommand};
+
+pub(crate) use claude::transcript_path as claude_transcript;
+pub(crate) use process::{kill_group, AgentRecord, Released};
+pub(crate) use session::{Adopted, Begin, Handed, SessionState};
+
+/// Stops an agent that was let go of but that no core will take up.
+pub(crate) fn kill_agent(pid: u32) {
+    process::kill_and_reap(pid);
+}
 
 /// What a client rebuilding a chat needs to tell its turns apart: when a
 /// replayed update first happened, in Unix milliseconds, and whether it began
@@ -62,14 +74,17 @@ fn file_link(name: Option<&str>, uri: &str) -> String {
 pub(super) enum Kind {
     Claude,
     Codex,
+    Muse,
+    Acp,
 }
 
 impl Kind {
-    pub fn of(provider: &str) -> Option<Self> {
+    pub fn of(provider: &str) -> Self {
         match provider {
-            "claude" => Some(Self::Claude),
-            "codex" => Some(Self::Codex),
-            _ => None,
+            "claude" => Self::Claude,
+            "codex" => Self::Codex,
+            "muse" => Self::Muse,
+            _ => Self::Acp,
         }
     }
 }
@@ -79,10 +94,12 @@ pub(super) async fn run(
     chat: Arc<Chat>,
     launch: ChatLaunch,
     commands: &mut mpsc::UnboundedReceiver<ChatCommand>,
-    rebind: Option<Box<Rebind>>,
+    begin: Begin,
 ) -> Result<Outcome, String> {
     match kind {
-        Kind::Claude => session::run::<claude::Claude>(chat, launch, commands, rebind).await,
-        Kind::Codex => session::run::<codex::Codex>(chat, launch, commands, rebind).await,
+        Kind::Claude => session::run::<claude::Claude>(chat, launch, commands, begin).await,
+        Kind::Codex => session::run::<codex::Codex>(chat, launch, commands, begin).await,
+        Kind::Muse => session::run::<muse::Muse>(chat, launch, commands, begin).await,
+        Kind::Acp => session::run::<acp::Acp>(chat, launch, commands, begin).await,
     }
 }

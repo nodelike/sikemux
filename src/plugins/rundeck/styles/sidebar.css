@@ -99,8 +99,7 @@
 }
 .rnd-tree-item.on,
 .rnd-tree-row:hover .rnd-tree-item.on {
-    background: var(--surface-selected);
-    border-color: var(--border-selected);
+    background: var(--surface-chosen);
     color: var(--text-primary);
 }
 .rnd-tree-row:focus-visible .rnd-tree-item {
@@ -152,7 +151,7 @@ button.rnd-tree-twist:hover {
     color: var(--text-tertiary);
 }
 .rnd-tree-item.on .rnd-tree-icon {
-    color: var(--acc);
+    color: var(--text-primary);
 }
 .rnd-tree-name {
     flex: 1 1 auto;
@@ -208,6 +207,7 @@ button.rnd-tree-twist:hover {
     transition:
         background var(--dur-1) linear,
         border-color var(--dur-1) linear;
+    border-radius: var(--radius-3);
 }
 .rnd-conn:hover,
 .rnd-conn.open {

@@ -1,9 +1,8 @@
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { extensionOf } from "../../languages";
+import { IMAGE_EXTS } from "../../lib/imagePaths";
 
-export type ViewerKind = "image" | "video" | "audio" | "pdf" | "font" | "document" | "binary";
-
-const IMAGE_EXTS = ["png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "ico", "avif", "tif", "tiff", "heic", "heif"];
+export type ViewerKind = "image" | "video" | "audio" | "font" | "document" | "binary";
 
 /* Extensions that are never text, so the editor goes straight to a viewer
    instead of reading them first. Anything not named here that turns out not
@@ -35,18 +34,18 @@ const UNPLAYABLE_VIDEO = new Set(["video/x-matroska", "video/x-msvideo"]);
 
 export const extname = extensionOf;
 
-export function isImagePath(path: string | null | undefined): boolean {
-    return !!path && IMAGE_EXTS.includes(extname(path));
-}
-
 export function isPreviewPath(path: string | null | undefined): boolean {
     return !!path && PREVIEW_EXTS.has(extname(path));
 }
 
 export function viewerKind(mime: string): ViewerKind {
-    if (DOCUMENT_MIMES.has(mime) || mime.startsWith("application/vnd.openxmlformats-") || mime.startsWith("application/vnd.oasis.opendocument."))
+    if (
+        mime === "application/pdf" ||
+        DOCUMENT_MIMES.has(mime) ||
+        mime.startsWith("application/vnd.openxmlformats-") ||
+        mime.startsWith("application/vnd.oasis.opendocument.")
+    )
         return "document";
-    if (mime === "application/pdf") return "pdf";
     if (mime.startsWith("image/")) return "image";
     if (mime.startsWith("audio/")) return "audio";
     if (mime.startsWith("video/")) return UNPLAYABLE_VIDEO.has(mime) ? "binary" : "video";

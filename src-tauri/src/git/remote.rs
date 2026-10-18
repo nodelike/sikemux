@@ -129,119 +129,29 @@ pub struct GitRemote {
     pub url: String,
 }
 
-/// `git remote -v` shape: `<name>\t<url> (fetch|push)` per line. We keep
-/// only the fetch URL since that's authoritative for branch listing.
+/// Each remote with its fetch URL, by name.
 #[tauri::command]
 pub async fn git_remotes(repo: String) -> Result<Vec<GitRemote>, String> {
     run_blocking(move || -> Result<Vec<GitRemote>, String> {
-        let out = git_ok(&repo, &["remote", "-v"])?;
-        let mut seen: std::collections::HashMap<String, String> = Default::default();
-        for line in out.lines() {
-            // Format: "origin\tgit@github.com:foo/bar.git (fetch)"
-            let mut parts = line.split('\t');
-            let name = parts.next().unwrap_or("").trim().to_string();
-            let rest = parts.next().unwrap_or("");
-            if name.is_empty() || rest.is_empty() {
-                continue;
-            }
-            // Only keep fetch URLs.
-            let is_fetch = rest.trim_end().ends_with("(fetch)");
-            if !is_fetch {
-                continue;
-            }
-            let url = rest
-                .rsplit_once(' ')
-                .map(|(url, _)| url)
-                .unwrap_or("")
-                .trim()
-                .to_string();
-            if !url.is_empty() {
-                seen.insert(name, url);
-            }
-        }
-        let mut list: Vec<GitRemote> = seen
-            .into_iter()
-            .map(|(name, url)| GitRemote { name, url })
+        let repo = open_repo(&repo)?;
+        let names = repo.remotes().map_err(|e| e.message().to_string())?;
+        let mut list: Vec<GitRemote> = names
+            .iter()
+            .flatten()
+            .flatten()
+            .filter_map(|name| {
+                let remote = repo.find_remote(name).ok()?;
+                let url = remote.url().ok()?.trim();
+                (!url.is_empty()).then(|| GitRemote {
+                    name: name.to_string(),
+                    url: url.to_string(),
+                })
+            })
             .collect();
         list.sort_by(|a, b| a.name.cmp(&b.name));
         Ok(list)
     })
     .await
-}
-
-/// The URL of every remote of the repository `path` is in; none outside one.
-pub fn remote_urls(path: &str) -> Vec<String> {
-    let Ok(repo) = open_repo(path) else {
-        return Vec::new();
-    };
-    let Ok(names) = repo.remotes() else {
-        return Vec::new();
-    };
-    names
-        .iter()
-        .filter_map(|name| name.ok().flatten())
-        .filter_map(|name| {
-            let remote = repo.find_remote(name).ok()?;
-            remote.url().ok().map(str::to_owned)
-        })
-        .map(|url| with_real_ssh_host(&url, ssh_hostname))
-        .collect()
-}
-
-/// A remote such as `git@github-work:org/repo` names a host alias from
-/// ~/.ssh/config; this swaps in the host it stands for, so a plugin can tell
-/// which service the remote lives on.
-fn with_real_ssh_host(remote_url: &str, resolve: impl Fn(&str) -> Option<String>) -> String {
-    if let Ok(mut parsed) = url::Url::parse(remote_url) {
-        if !matches!(parsed.scheme(), "ssh" | "git+ssh") {
-            return remote_url.to_owned();
-        }
-        let Some(real) = parsed.host_str().and_then(&resolve) else {
-            return remote_url.to_owned();
-        };
-        return match parsed.set_host(Some(&real)) {
-            Ok(()) => parsed.into(),
-            Err(_) => remote_url.to_owned(),
-        };
-    }
-    let Some((user_host, path)) = remote_url.split_once(':') else {
-        return remote_url.to_owned();
-    };
-    if user_host.contains('/') {
-        return remote_url.to_owned();
-    }
-    let (user, host) = match user_host.rsplit_once('@') {
-        Some((user, host)) => (Some(user), host),
-        None => (None, user_host),
-    };
-    let Some(real) = resolve(host) else {
-        return remote_url.to_owned();
-    };
-    match user {
-        Some(user) => format!("{user}@{real}:{path}"),
-        None => format!("{real}:{path}"),
-    }
-}
-
-/// `ssh -G` prints the settings ssh would use for a host without connecting.
-fn ssh_hostname(host: &str) -> Option<String> {
-    if host.starts_with('-') {
-        return None;
-    }
-    let output = sikemux_process::user_environment::command("ssh")
-        .args(["-G", host])
-        .stdin(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .output()
-        .ok()?;
-    if !output.status.success() {
-        return None;
-    }
-    String::from_utf8_lossy(&output.stdout)
-        .lines()
-        .find_map(|line| line.strip_prefix("hostname "))
-        .map(str::to_owned)
-        .filter(|real| real != host)
 }
 
 #[tauri::command]
@@ -530,50 +440,6 @@ pub async fn git_set_upstream(
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn an_ssh_host_alias_is_replaced_by_the_host_it_stands_for() {
-        let resolve = |host: &str| (host == "github-work").then(|| "github.com".to_owned());
-        assert_eq!(
-            with_real_ssh_host("git@github-work:org/repo.git", resolve),
-            "git@github.com:org/repo.git"
-        );
-        assert_eq!(
-            with_real_ssh_host("ssh://git@github-work/org/repo.git", resolve),
-            "ssh://git@github.com/org/repo.git"
-        );
-        for untouched in [
-            "git@bitbucket.org:team/repo.git",
-            "https://github-work/org/repo.git",
-            "/local/path/repo.git",
-        ] {
-            assert_eq!(with_real_ssh_host(untouched, resolve), untouched);
-        }
-    }
-
-    #[test]
-    fn remote_urls_are_read_from_anywhere_inside_the_repository() {
-        let repo = tempfile::tempdir().expect("tempdir");
-        let git = git2::Repository::init(repo.path()).expect("init");
-        git.remote("origin", "git@github.com:nodelike/sikemux.git")
-            .expect("origin");
-        git.remote("mirror", "https://bitbucket.org/team/sikemux.git")
-            .expect("mirror");
-        let inside = repo.path().join("src");
-        std::fs::create_dir(&inside).expect("subdirectory");
-
-        let mut urls = remote_urls(&inside.to_string_lossy());
-        urls.sort();
-        assert_eq!(
-            urls,
-            [
-                "git@github.com:nodelike/sikemux.git",
-                "https://bitbucket.org/team/sikemux.git"
-            ]
-        );
-        let outside = tempfile::tempdir().expect("tempdir");
-        assert!(remote_urls(&outside.path().to_string_lossy()).is_empty());
-    }
 
     #[test]
     fn a_fetched_ref_part_cannot_smuggle_an_option_or_a_second_refspec() {

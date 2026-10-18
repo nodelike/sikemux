@@ -153,6 +153,8 @@ pub enum NotificationKind {
     Finished,
     /// An agent reported an error or stopped unexpectedly.
     Problem,
+    /// A device asks to pair with the host; tapping opens where it is let in.
+    Pairing,
     /// Removes the card with the same `collapseId`; shows nothing.
     Clear,
 }
@@ -180,7 +182,7 @@ pub enum NotificationCategory {
 impl NotificationKind {
     pub fn channel(self) -> Option<NotificationChannel> {
         match self {
-            Self::Permission | Self::Input => Some(NotificationChannel::NeedsYou),
+            Self::Permission | Self::Input | Self::Pairing => Some(NotificationChannel::NeedsYou),
             Self::Finished => Some(NotificationChannel::Finished),
             Self::Problem => Some(NotificationChannel::Problems),
             Self::Clear => None,

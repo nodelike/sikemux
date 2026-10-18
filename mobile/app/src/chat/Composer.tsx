@@ -1,5 +1,5 @@
-import { memo, useMemo, useRef, useState, type ReactNode } from 'react';
-import { ActivityIndicator, PanResponder, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { memo, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react';
+import { ActivityIndicator, PanResponder, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import MaskedView from '@react-native-masked-view/masked-view';
 import Svg, { Circle, Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
@@ -20,7 +20,7 @@ import { Sheet } from '@/ui/Sheet';
 import { brand, fonts, type Palette, useColors, useStyles } from '@/ui/theme';
 import { ComposerAttachments } from './Attachments';
 import { ComposerInput } from './ComposerInput';
-import { pickFiles, pickPhotos } from './pick';
+import { AttachSheet } from './AttachSheet';
 import { MAX_ATTACHMENTS, type Attachment, type ChatSession } from './session';
 import { useDraft } from './useChat';
 import { matchingCommands } from './commands';
@@ -361,41 +361,32 @@ function ConfigSheet({
   );
 }
 
-export type Source = 'photos' | 'files';
+export type ComposerQuestion = {
+  name: string;
+  cli: string;
+  text: string;
+  onRemove: () => void;
+  onAnswer: (text: string) => Promise<boolean>;
+};
 
-/** Where a message's photos and files come from. */
-export function AttachSheet({
-  visible,
-  onClose,
-  onPick,
-  onDismiss,
-}: {
-  visible: boolean;
-  onClose: () => void;
-  onPick: (source: Source) => void;
-  onDismiss: () => void;
-}) {
+function AnsweringChip({ question }: { question: ComposerQuestion }) {
   const colors = useColors();
   const styles = useStyles(makeStyles);
-  const sources: { source: Source; label: string; icon: 'IconImage' | 'IconFile' }[] = [
-    { source: 'photos', label: 'Photos', icon: 'IconImage' },
-    { source: 'files', label: 'Files', icon: 'IconFile' },
-  ];
   return (
-    <Sheet visible={visible} onClose={onClose} onDismiss={onDismiss}>
-      <View style={styles.sources}>
-        {sources.map(({ source, label, icon }) => (
-          <Pressable
-            key={source}
-            onPress={() => onPick(source)}
-            style={({ pressed }) => [styles.source, pressed && { backgroundColor: colors.active }]}
-            accessibilityRole="button">
-            <Icon name={icon} size={19} color={colors.ink} />
-            <Text style={styles.sourceText}>{label}</Text>
-          </Pressable>
-        ))}
-      </View>
-    </Sheet>
+    <View style={styles.answering}>
+      <AgentIcon provider={question.cli} size={13} />
+      <Text style={styles.answeringText} numberOfLines={1}>
+        Answering {question.name} · {question.text}
+      </Text>
+      <Pressable
+        onPress={question.onRemove}
+        hitSlop={8}
+        style={styles.answeringX}
+        accessibilityRole="button"
+        accessibilityLabel={`Stop answering ${question.name}`}>
+        <Icon name="IconClose" size={10} color={colors.ground} />
+      </Pressable>
+    </View>
   );
 }
 
@@ -421,6 +412,8 @@ export const Composer = memo(function Composer({
   attachments,
   strip,
   onRecent,
+  question,
+  inputRef,
 }: {
   session: ChatSession;
   provider: string;
@@ -446,16 +439,20 @@ export const Composer = memo(function Composer({
   strip: ReactNode;
   /** Pulling an empty composer up opens what was sent before; absent when nothing was. */
   onRecent?: () => void;
+  /** The question an agent asked that whatever is sent answers. */
+  question?: ComposerQuestion | null;
+  /** Lets the screen hand the keyboard to the composer. */
+  inputRef?: RefObject<TextInput | null>;
 }) {
   const colors = useColors();
   const styles = useStyles(makeStyles);
   const draft = useDraft(session);
   const [adding, setAdding] = useState(false);
-  const source = useRef<Source | null>(null);
   const uploading = attachments.some((attachment) => attachment.upload === 'sending');
   const room = MAX_ATTACHMENTS - attachments.length;
   const [focused, setFocused] = useState(false);
-  const input = useRef<TextInput>(null);
+  const ownInput = useRef<TextInput>(null);
+  const input = inputRef ?? ownInput;
   const [sheet, setSheet] = useState(false);
   const typing = useKeyboardShown();
   const configs = sessionConfigs(setup);
@@ -484,9 +481,7 @@ export const Composer = memo(function Composer({
         {dock ?? strip}
         <View style={[styles.composer, styles.watch]}>
           <Icon name="IconEye" size={17} color={colors.inkDim} />
-          <Text style={styles.watchText}>
-            Watching. This phone can answer permission requests on {hostName}; the host can give it full access.
-          </Text>
+          <Text style={styles.watchText}>Watching</Text>
         </View>
       </SafeAreaView>
     );
@@ -503,7 +498,8 @@ export const Composer = memo(function Composer({
       return;
     }
     haptics.tap();
-    void session.send(text).then((sent) => {
+    const sending = question ? session.answerWith(text, question.onAnswer) : session.send(text);
+    void sending.then((sent) => {
       if (!sent) return;
       // Clearing the state alone leaves text the keyboard is still composing.
       input.current?.clear();
@@ -512,22 +508,10 @@ export const Composer = memo(function Composer({
     });
   };
 
-  const pick = (from: Source) => {
-    const picking = from === 'photos' ? pickPhotos(room) : pickFiles(room);
+  const attach = (picking: Promise<Attachment[]>) => {
     picking
       .then(session.attach)
       .catch((error: unknown) => session.report(`could not pick: ${error instanceof Error ? error.message : String(error)}`));
-  };
-  // iOS shows a picker only once the sheet over the screen has gone.
-  const choose = (from: Source) => {
-    setAdding(false);
-    if (Platform.OS === 'ios') source.current = from;
-    else pick(from);
-  };
-  const dismissed = () => {
-    const from = source.current;
-    source.current = null;
-    if (from) pick(from);
   };
 
   return (
@@ -536,6 +520,7 @@ export const Composer = memo(function Composer({
       <Commands matches={matches} onPick={(name) => session.setDraft(`/${name} `)} />
       {dock || matches.length ? null : strip}
       <View style={[styles.composer, focused && { borderColor: colors.borderSelected }]} {...pullUp.panHandlers}>
+        {question ? <AnsweringChip question={question} /> : null}
         {attachments.length ? <ComposerAttachments attachments={attachments} onRemove={session.removeAttachment} onRetry={send} /> : null}
         <ComposerInput
           ref={input}
@@ -616,7 +601,7 @@ export const Composer = memo(function Composer({
           )}
         </View>
       </View>
-      <AttachSheet visible={adding} onClose={() => setAdding(false)} onPick={choose} onDismiss={dismissed} />
+      <AttachSheet visible={adding} room={room} onClose={() => setAdding(false)} onAttach={attach} />
       <ConfigSheet
         visible={sheet}
         onClose={() => setSheet(false)}
@@ -677,6 +662,24 @@ const makeStyles = (colors: Palette) => {
   return StyleSheet.create({
     wrap: { paddingHorizontal: 10, paddingTop: 8, paddingBottom: 6 },
     composer: { padding: 6, borderRadius: 16, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.composer },
+    answering: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      alignSelf: 'flex-start',
+      gap: 7,
+      maxWidth: '100%',
+      margin: 4,
+      marginBottom: 2,
+      paddingVertical: 6,
+      paddingLeft: 9,
+      paddingRight: 6,
+      borderRadius: 9,
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.sunken,
+    },
+    answeringText: { flexShrink: 1, fontFamily: fonts.ui, fontSize: 12, color: colors.inkDim },
+    answeringX: { width: 20, height: 20, borderRadius: 10, backgroundColor: colors.ink, alignItems: 'center', justifyContent: 'center' },
     bar: { flexDirection: 'row', alignItems: 'center', gap: 2, paddingTop: 6 },
     add: { width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center' },
     yolo: { flexDirection: 'row', alignItems: 'center', gap: 4, height: 34, paddingHorizontal: 8, borderRadius: 7 },
@@ -750,19 +753,6 @@ const makeStyles = (colors: Palette) => {
     commandName: { fontFamily: fonts.mono, fontSize: 13, color: colors.accent },
     commandText: { flex: 1, fontFamily: fonts.ui, fontSize: 13, color: colors.tertiary },
 
-    sources: { gap: 8, paddingBottom: 4 },
-    source: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 12,
-      minHeight: 52,
-      paddingHorizontal: 14,
-      borderRadius: 14,
-      borderWidth: 1,
-      borderColor: colors.border,
-      backgroundColor: colors.raised,
-    },
-    sourceText: { fontFamily: fonts.uiMedium, fontSize: 15.5, color: colors.ink },
     sheetHead: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 4 },
     sheetTitle: { fontFamily: fonts.uiSemibold, fontSize: 17, letterSpacing: -0.35, color: colors.ink },
     sheetLabel: {

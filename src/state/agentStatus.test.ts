@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { acknowledgeAgentState, agentDisplay, reduceAgentState, rollupAgentDisplays, sortByAttention, type AgentStateEvent } from "./agentStatus";
+import { acknowledgeAgentState, agentDisplay, reduceAgentState, rollupAgentDisplays, type AgentStateEvent } from "./agentStatus";
 
 const event = (state: AgentStateEvent["state"], sequence: number): AgentStateEvent => ({
     agentId: "a",
@@ -41,28 +41,5 @@ describe("semantic agent presentation", () => {
         expect(agentDisplay("idle", { tasks: 2, subagents: 1 })).toMatchObject({ group: "idle", tasks: 2, subagents: 1 });
         expect(agentDisplay("done", { tasks: 1 }).group).toBe("done");
         expect(agentDisplay(undefined).group).toBe("idle");
-    });
-
-    it("orders open agents by what needs attention, then by when they last ran", () => {
-        const at = (state: AgentStateEvent["state"], workedAt: number, settledAt: number) => {
-            const worked = reduceAgentState(undefined, event("working", 1), true, workedAt)!;
-            return state === "working" ? worked : reduceAgentState(worked, event(state, 2), false, settledAt)!;
-        };
-        const activity = {
-            stale: at("idle", 10, 11),
-            fresh: at("idle", 50, 51),
-            finished: at("idle", 5, 6),
-            asking: at("blocked", 1, 2),
-            running: at("working", 3, 3),
-        };
-        const acknowledged = {
-            ...activity,
-            finished: acknowledgeAgentState(activity.finished),
-            fresh: acknowledgeAgentState(activity.fresh),
-            stale: acknowledgeAgentState(activity.stale),
-        };
-        const ids = ["never", "stale", "finished", "fresh", "running", "asking", "shell"].map((id) => ({ id }));
-        expect(sortByAttention(ids, activity).map((a) => a.id)).toEqual(["asking", "running", "fresh", "stale", "finished", "never", "shell"]);
-        expect(sortByAttention(ids, acknowledged).map((a) => a.id)).toEqual(["asking", "running", "fresh", "stale", "finished", "never", "shell"]);
     });
 });

@@ -113,11 +113,10 @@
 .terminal-find button:hover,
 .terminal-find button.active {
     color: var(--ink);
-    background: var(--acc-soft);
+    background: var(--surface-chosen);
 }
 
 .terminal-find button.active {
-    box-shadow: inset 0 0 0 1px var(--acc-line);
 }
 
 .terminal-menu-scrim {
@@ -133,12 +132,13 @@
     min-width: 190px;
     padding: 5px;
     font-family: var(--mono);
+    border-radius: var(--radius-4);
 }
 
 .terminal-menu button {
     display: flex;
     align-items: center;
-    justify-content: space-between;
+    gap: 8px;
     width: 100%;
     min-height: 27px;
     padding: 0 8px;
@@ -152,7 +152,7 @@
 }
 
 .terminal-menu button:hover:not(:disabled) {
-    background: var(--acc-soft);
+    background: var(--surface-hover);
 }
 
 .terminal-menu button:disabled {
@@ -161,6 +161,7 @@
 }
 
 .terminal-menu kbd {
+    margin-left: auto;
     color: var(--ink-faint);
     font: 9px var(--mono);
 }

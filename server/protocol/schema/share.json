@@ -1,0 +1,557 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "share.json",
+  "$defs": {
+    "ShareId": {
+      "description": "A shared chat's id: 16 random bytes the host picks, in unpadded base64url.",
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{22}$"
+    },
+    "Sealed": {
+      "description": "What the host sealed for the share's viewers: a 12-byte nonce, then AES-256-GCM ciphertext and tag, in unpadded base64url. The key lives only in the share's link, so the server cannot read it.",
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]+$",
+      "maxLength": 6000000
+    },
+    "ShareSeq": {
+      "description": "A frame's place in its share. The host numbers frames from 1, one higher each time.",
+      "type": "integer",
+      "minimum": 1
+    },
+    "ShareViewerId": {
+      "description": "One viewer's connection, as the server names it to the host.",
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{1,32}$"
+    },
+    "ShareRole": {
+      "description": "A host publishes its shared chats; a viewer watches one.",
+      "type": "string",
+      "enum": ["host", "viewer"]
+    },
+    "ShareEndReason": {
+      "description": "Why a share ended: the host stopped it or its chat ended, or it ran past its expiry.",
+      "type": "string",
+      "enum": ["stopped", "expired"]
+    },
+    "ShareRefusal": {
+      "description": "Why the server would not open a share: the account has as many open as it may, the id is taken, or the expiry is not between now and seven days from now.",
+      "type": "string",
+      "enum": ["limit", "exists", "expiry"]
+    },
+    "ShareFrame": {
+      "description": "One sealed frame of a share. A snapshot holds the whole chat as it stands, so a viewer starts over from it and the frames before it are no longer needed.",
+      "type": "object",
+      "properties": {
+        "seq": {
+          "$ref": "#/$defs/ShareSeq"
+        },
+        "snapshot": {
+          "type": "boolean"
+        },
+        "sealed": {
+          "$ref": "#/$defs/Sealed"
+        }
+      },
+      "required": ["seq", "snapshot", "sealed"],
+      "additionalProperties": false
+    },
+    "ShareChallenge": {
+      "description": "The server's first message on every share connection: a one-time value a host's hello signs.",
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "challenge"
+        },
+        "nonce": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "expiresAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["type", "nonce", "expiresAt"],
+      "additionalProperties": false
+    },
+    "ShareHello": {
+      "description": "The first message on a share connection. A host sends its key and its Ed25519 signature over the UTF-8 text `sikemux-share|<nonce>|<key>`. A viewer sends a Clerk token from the web app, the phone or the Mac, the share it wants, and the last frame it holds, if any.",
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "hello"
+        },
+        "role": {
+          "$ref": "#/$defs/ShareRole"
+        },
+        "key": {
+          "$ref": "devices.json#/$defs/DeviceKey"
+        },
+        "signature": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{128}$"
+        },
+        "token": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "share": {
+          "$ref": "#/$defs/ShareId"
+        },
+        "since": {
+          "$ref": "#/$defs/ShareSeq"
+        }
+      },
+      "required": ["type", "role"],
+      "additionalProperties": false
+    },
+    "ShareOpen": {
+      "description": "Host only: start a share. The server answers opened or refused.",
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "open"
+        },
+        "share": {
+          "$ref": "#/$defs/ShareId"
+        },
+        "expiresAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["type", "share", "expiresAt"],
+      "additionalProperties": false
+    },
+    "SharePublish": {
+      "description": "Host only: the share's next frame, for every viewer now and later.",
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "publish"
+        },
+        "share": {
+          "$ref": "#/$defs/ShareId"
+        },
+        "frame": {
+          "$ref": "#/$defs/ShareFrame"
+        }
+      },
+      "required": ["type", "share", "frame"],
+      "additionalProperties": false
+    },
+    "ShareAnswer": {
+      "description": "Host only: the sealed answer to one viewer's question.",
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "answer"
+        },
+        "share": {
+          "$ref": "#/$defs/ShareId"
+        },
+        "viewer": {
+          "$ref": "#/$defs/ShareViewerId"
+        },
+        "sealed": {
+          "$ref": "#/$defs/Sealed"
+        }
+      },
+      "required": ["type", "share", "viewer", "sealed"],
+      "additionalProperties": false
+    },
+    "ShareClose": {
+      "description": "Host only: end a share for good. Its viewers are told it was stopped.",
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "close"
+        },
+        "share": {
+          "$ref": "#/$defs/ShareId"
+        }
+      },
+      "required": ["type", "share"],
+      "additionalProperties": false
+    },
+    "ShareAuth": {
+      "description": "Viewer only: a fresh Clerk token for the same user, sent before ready.authExpiresAt.",
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "auth"
+        },
+        "token": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        }
+      },
+      "required": ["type", "token"],
+      "additionalProperties": false
+    },
+    "SharePong": {
+      "description": "The answer to ping.",
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "pong"
+        }
+      },
+      "required": ["type"],
+      "additionalProperties": false
+    },
+    "ShareReady": {
+      "description": "The hello was accepted. A viewer is sent the frames it does not hold next, from the latest snapshot on.",
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "ready"
+        },
+        "heartbeatMs": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "expiresAt": {
+          "description": "Viewer only: when the share ends.",
+          "type": "string",
+          "format": "date-time"
+        },
+        "hostOnline": {
+          "description": "Viewer only: whether the sharing host is connected.",
+          "type": "boolean"
+        },
+        "authExpiresAt": {
+          "description": "Viewer only: send a fresh token in an auth message before this.",
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["type", "heartbeatMs"],
+      "additionalProperties": false
+    },
+    "ShareOpened": {
+      "description": "To the host: the share is open and viewers may join.",
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "opened"
+        },
+        "share": {
+          "$ref": "#/$defs/ShareId"
+        }
+      },
+      "required": ["type", "share"],
+      "additionalProperties": false
+    },
+    "ShareRefused": {
+      "description": "To the host: the share was not opened.",
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "refused"
+        },
+        "share": {
+          "$ref": "#/$defs/ShareId"
+        },
+        "reason": {
+          "$ref": "#/$defs/ShareRefusal"
+        }
+      },
+      "required": ["type", "share", "reason"],
+      "additionalProperties": false
+    },
+    "ShareViewers": {
+      "description": "To the host: how many viewers a share has now.",
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "viewers"
+        },
+        "share": {
+          "$ref": "#/$defs/ShareId"
+        },
+        "count": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": ["type", "share", "count"],
+      "additionalProperties": false
+    },
+    "ShareWantsSnapshot": {
+      "description": "To the host: the server let go of the share's frames, so the next frame it publishes must be a snapshot.",
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "snapshot"
+        },
+        "share": {
+          "$ref": "#/$defs/ShareId"
+        }
+      },
+      "required": ["type", "share"],
+      "additionalProperties": false
+    },
+    "ShareFrames": {
+      "description": "To a viewer: frames in order. One with snapshot set replaces everything before it.",
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "frames"
+        },
+        "frames": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ShareFrame"
+          }
+        }
+      },
+      "required": ["type", "frames"],
+      "additionalProperties": false
+    },
+    "ShareAnswered": {
+      "description": "To a viewer: the host's sealed answer to one of its questions.",
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "answer"
+        },
+        "sealed": {
+          "$ref": "#/$defs/Sealed"
+        }
+      },
+      "required": ["type", "sealed"],
+      "additionalProperties": false
+    },
+    "ShareHost": {
+      "description": "To a viewer: the sharing host connected or went away. Questions wait for it.",
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "host"
+        },
+        "online": {
+          "type": "boolean"
+        }
+      },
+      "required": ["type", "online"],
+      "additionalProperties": false
+    },
+    "ShareEnded": {
+      "description": "The share ended. The server closes a viewer's connection with ShareCloseCode ended after it.",
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "ended"
+        },
+        "share": {
+          "$ref": "#/$defs/ShareId"
+        },
+        "reason": {
+          "$ref": "#/$defs/ShareEndReason"
+        }
+      },
+      "required": ["type", "share", "reason"],
+      "additionalProperties": false
+    },
+    "SharePing": {
+      "description": "Answer with pong.",
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "ping"
+        }
+      },
+      "required": ["type"],
+      "additionalProperties": false
+    },
+    "ShareBye": {
+      "description": "The server is restarting and closes with ShareCloseCode restarting after it. Reconnect no sooner than reconnectAfterMs.",
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "bye"
+        },
+        "reconnectAfterMs": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": ["type", "reconnectAfterMs"],
+      "additionalProperties": false
+    },
+    "ShareCloseCode": {
+      "description": "Why the server closed a share connection, as the WebSocket close code.",
+      "type": "integer",
+      "oneOf": [
+        {
+          "const": 4400,
+          "title": "badMessage",
+          "description": "Something the protocol does not allow was sent. Reconnect with backoff."
+        },
+        {
+          "const": 4401,
+          "title": "unauthenticated",
+          "description": "The hello did not prove who is connecting, or the viewer's sign-in expired."
+        },
+        {
+          "const": 4404,
+          "title": "notFound",
+          "description": "No share has this id. Do not reconnect."
+        },
+        {
+          "const": 4408,
+          "title": "helloTimeout",
+          "description": "No hello came within 10 seconds of the challenge. Reconnect with backoff."
+        },
+        {
+          "const": 4409,
+          "title": "replaced",
+          "description": "A newer connection for the same host took over."
+        },
+        {
+          "const": 4410,
+          "title": "ended",
+          "description": "The share ended, after an ended message. Do not reconnect."
+        },
+        {
+          "const": 4429,
+          "title": "overLimit",
+          "description": "Over a limit: too many messages, viewers or failed hellos. Wait at least 30 seconds."
+        },
+        {
+          "const": 1011,
+          "title": "serverError",
+          "description": "Something failed on the server. Reconnect with backoff."
+        },
+        {
+          "const": 1012,
+          "title": "restarting",
+          "description": "The server is restarting, after a bye message. Reconnect no sooner than its reconnectAfterMs."
+        },
+        {
+          "const": 1013,
+          "title": "overloaded",
+          "description": "The server has too many connections, or the connection stopped reading. Reconnect with backoff."
+        }
+      ]
+    },
+    "ShareClientMessage": {
+      "description": "What a host or a viewer sends on a share connection.",
+      "type": "object",
+      "oneOf": [
+        {
+          "$ref": "#/$defs/ShareHello"
+        },
+        {
+          "$ref": "#/$defs/ShareOpen"
+        },
+        {
+          "$ref": "#/$defs/SharePublish"
+        },
+        {
+          "$ref": "#/$defs/ShareAnswer"
+        },
+        {
+          "$ref": "#/$defs/ShareClose"
+        },
+        {
+          "$ref": "#/$defs/ShareAsk"
+        },
+        {
+          "$ref": "#/$defs/ShareAuth"
+        },
+        {
+          "$ref": "#/$defs/SharePong"
+        }
+      ],
+      "discriminator": {
+        "propertyName": "type"
+      }
+    },
+    "ShareServerMessage": {
+      "description": "What the server sends on a share connection.",
+      "type": "object",
+      "oneOf": [
+        {
+          "$ref": "#/$defs/ShareChallenge"
+        },
+        {
+          "$ref": "#/$defs/ShareReady"
+        },
+        {
+          "$ref": "#/$defs/ShareOpened"
+        },
+        {
+          "$ref": "#/$defs/ShareRefused"
+        },
+        {
+          "$ref": "#/$defs/ShareViewers"
+        },
+        {
+          "$ref": "#/$defs/ShareAsked"
+        },
+        {
+          "$ref": "#/$defs/ShareWantsSnapshot"
+        },
+        {
+          "$ref": "#/$defs/ShareFrames"
+        },
+        {
+          "$ref": "#/$defs/ShareAnswered"
+        },
+        {
+          "$ref": "#/$defs/ShareHost"
+        },
+        {
+          "$ref": "#/$defs/ShareEnded"
+        },
+        {
+          "$ref": "#/$defs/SharePing"
+        },
+        {
+          "$ref": "#/$defs/ShareBye"
+        }
+      ],
+      "discriminator": {
+        "propertyName": "type"
+      }
+    },
+    "ShareAsk": {
+      "description": "Viewer only: a sealed question for the host, such as the chat's turns before some event or a picture pasted into it. The host answers with answer.",
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "ask"
+        },
+        "sealed": {
+          "$ref": "#/$defs/Sealed"
+        }
+      },
+      "required": ["type", "sealed"],
+      "additionalProperties": false
+    },
+    "ShareAsked": {
+      "description": "To the host: a viewer's sealed question. Answer it with answer, naming the viewer.",
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "ask"
+        },
+        "share": {
+          "$ref": "#/$defs/ShareId"
+        },
+        "viewer": {
+          "$ref": "#/$defs/ShareViewerId"
+        },
+        "sealed": {
+          "$ref": "#/$defs/Sealed"
+        }
+      },
+      "required": ["type", "share", "viewer", "sealed"],
+      "additionalProperties": false
+    }
+  }
+}

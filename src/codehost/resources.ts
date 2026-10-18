@@ -25,6 +25,8 @@ import {
     type RateLimit,
     type Workflow,
 } from "./types";
+import type { WorkflowFiles } from "./jobGraph";
+import { calledPath, readJobs } from "./workflowJobs";
 import { hostApi, type HostAccount, type HostAccountEntry, type ThreadOf } from "./registry";
 
 export const hostStatusR = resource({
@@ -105,6 +107,38 @@ export const workflowFileR = resource({
     staleAfterMs: 10 * 60_000,
 });
 
+/** The jobs of a run's workflow file and of every file it calls, as they were at the run's commit. */
+export const workflowJobsR = resource({
+    kind: "host.workflowJobs",
+    fetch: async (repo: RepoRef, path: string, gitRef: string): Promise<WorkflowFiles> => {
+        const read = hostApi(repo.provider).workflowFileAt;
+        const files: WorkflowFiles = {};
+        if (!read) return files;
+        let pending = [path];
+        for (let depth = 0; depth < 4 && pending.length > 0; depth += 1) {
+            const texts = await Promise.all(
+                pending.map((each) =>
+                    read(repo, each, gitRef)
+                        .then((file) => file.text)
+                        .catch(() => null),
+                ),
+            );
+            const next = new Set<string>();
+            pending.forEach((each, index) => {
+                const jobs = readJobs(texts[index] ?? "");
+                files[each] = jobs;
+                for (const job of jobs ?? []) {
+                    const called = job.uses ? calledPath(job.uses) : null;
+                    if (called && !(called in files)) next.add(called);
+                }
+            });
+            pending = [...next];
+        }
+        return files;
+    },
+    staleAfterMs: 60 * 60_000,
+});
+
 export const artifactsR = resource({
     kind: "host.artifacts",
     fetch: (repo: RepoRef, runId: string): Promise<Artifact[]> => hostApi(repo.provider).artifacts(repo, runId),
@@ -126,6 +160,12 @@ export const runAttemptR = resource({
 export const pullsR = resource({
     kind: "host.pulls",
     fetch: (repo: RepoRef, state: string): Promise<Pull[]> => hostApi(repo.provider).pulls(repo, state),
+    staleAfterMs: 60_000,
+});
+
+export const pullCountsR = resource({
+    kind: "host.pullCounts",
+    fetch: (repo: RepoRef): Promise<{ open: number; closed: number } | null> => hostApi(repo.provider).pullCounts?.(repo) ?? Promise.resolve(null),
     staleAfterMs: 60_000,
 });
 
@@ -169,6 +209,12 @@ export const pullReviewsR = resource({
 export const issuesR = resource({
     kind: "host.issues",
     fetch: (repo: RepoRef, state: string, page: number): Promise<IssuePage> => hostApi(repo.provider).issues(repo, state, page),
+    staleAfterMs: 60_000,
+});
+
+export const issueCountsR = resource({
+    kind: "host.issueCounts",
+    fetch: (repo: RepoRef): Promise<{ open: number; closed: number } | null> => hostApi(repo.provider).issueCounts?.(repo) ?? Promise.resolve(null),
     staleAfterMs: 60_000,
 });
 

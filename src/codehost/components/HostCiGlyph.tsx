@@ -6,7 +6,7 @@ import { openGitArea } from "../../state/commands";
 import { useHostRepo } from "../project";
 import { hostStatusR, runsR } from "../resources";
 import { isUnfinished, outcomeOf, OUTCOME_LABEL } from "../runStatus";
-import { OutcomeIcon } from "./ActionsIcon";
+import { StatusMark } from "./ActionsIcon";
 import { useEvery } from "../../plugin-api/hooks";
 import "../topbar.css";
 import { formatAgo } from "../../lib/format";
@@ -36,7 +36,7 @@ function HostCiGlyph({ hostId, projectCwd }: PluginTopBarProps & { hostId: strin
     return (
         <Tooltip label={label}>
             <button type="button" className="gha-topbar" data-outcome={outcome} onClick={() => openGitArea("actions")} aria-label={label}>
-                <OutcomeIcon outcome={outcome} size={12} />
+                <StatusMark outcome={outcome} size={12} />
                 <span className="gha-topbar-number">#{latest.runNumber}</span>
             </button>
         </Tooltip>

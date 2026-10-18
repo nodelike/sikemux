@@ -265,6 +265,23 @@ async fn a_chat_starts_and_streams_a_turn() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn a_chat_knows_how_its_agent_can_be_signed_in() {
+    let core = TestCore::start();
+    let (client, _chat) = core.connect().await;
+    let start = client
+        .acp_start(chat_launch("agent-sign-in", "workspace-write"))
+        .await
+        .expect("start");
+    assert_eq!(
+        start.capabilities["signInMethods"],
+        json!([
+            { "kind": "terminal", "id": "fake-login", "name": "Log in", "description": null, "args": ["login"], "env": [] },
+            { "kind": "agent", "id": "fake-key", "name": "API key", "description": "Use a key from the environment" },
+        ])
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn a_prompt_turned_away_mid_turn_is_not_kept() {
     let core = TestCore::start();
     let (sender, mut heard) = core.connect().await;
@@ -525,23 +542,48 @@ async fn stopping_a_chat_ends_it() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn an_agent_that_dies_says_it_exited() {
+async fn an_agent_that_dies_carries_on_until_it_has_died_too_often() {
     let core = TestCore::start();
     let (client, mut chat) = core.connect().await;
-    client
-        .acp_start(chat_launch("agent-h", "workspace-write"))
-        .await
-        .expect("start");
-    client
-        .acp_prompt(
-            "agent-h".into(),
-            None,
-            "exit 3".into(),
-            Vec::new(),
-            Vec::new(),
-        )
-        .await
-        .expect("prompt");
+    let history = tempfile::tempdir().expect("history");
+    let mut launch = chat_launch("agent-h", "workspace-write");
+    launch.env.insert(
+        "FAKE_ACP_DIR".into(),
+        history.path().to_string_lossy().into_owned(),
+    );
+    client.acp_start(launch).await.expect("start");
+    for restart in 0..4 {
+        client
+            .acp_prompt(
+                "agent-h".into(),
+                None,
+                "exit 3".into(),
+                Vec::new(),
+                Vec::new(),
+            )
+            .await
+            .expect("prompt");
+        if restart == 3 {
+            break;
+        }
+        chat.until(|event| {
+            updates(std::slice::from_ref(event)).iter().any(|update| {
+                update["update"]["title"]
+                    == "This agent stopped while it was working, and was started again"
+            })
+        })
+        .await;
+        chat.until(|event| {
+            event.kind == ChatEventKind::TurnCompleted && event.payload["stopReason"] == "end_turn"
+        })
+        .await;
+        assert!(
+            chat.text()
+                .contains("Your process stopped while you were working"),
+            "{}",
+            chat.text()
+        );
+    }
     let ended = chat
         .until(|event| {
             event.kind == ChatEventKind::Status
@@ -594,11 +636,68 @@ fn account_launch(agent_id: &str, history: &std::path::Path, limited: &str) -> C
     launch
 }
 
+/// Lets chats of the fake agent move to another account at a usage limit.
+async fn switch_at_limit(client: &CoreClient) {
+    let book = json!({ "profiles": [], "selected": {}, "autoSwitch": { "opencode": true } });
+    client
+        .call("setAgentAccounts", book)
+        .await
+        .expect("the accounts");
+}
+
 fn turns_completed(events: &[ChatEvent]) -> usize {
     events
         .iter()
         .filter(|event| event.kind == ChatEventKind::TurnCompleted)
         .count()
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_agent_signs_in_by_its_own_method_and_the_refused_prompt_goes_again() {
+    let core = TestCore::start();
+    let (client, mut chat) = core.connect().await;
+    let history = tempfile::tempdir().expect("history");
+    let sign_in = history.path().join("signed-in");
+    std::fs::write(&sign_in, "").expect("sign out");
+    let mut launch = account_launch("agent-auth", history.path(), "");
+    launch.env.insert(
+        "FAKE_ACP_SIGN_IN".into(),
+        sign_in.to_string_lossy().into_owned(),
+    );
+    client.acp_start(launch).await.expect("start");
+    client
+        .acp_prompt(
+            "agent-auth".into(),
+            None,
+            "who".into(),
+            Vec::new(),
+            Vec::new(),
+        )
+        .await
+        .expect("prompt");
+    let refused = chat.until_kind(ChatEventKind::Error).await;
+    assert_eq!(refused.payload["failure"]["kind"], "signIn", "{refused:?}");
+
+    let unknown = client
+        .call(
+            "authenticateChat",
+            json!({ "agentId": "agent-auth", "methodId": "nope" }),
+        )
+        .await;
+    assert!(unknown.is_err(), "{unknown:?}");
+    client
+        .call(
+            "authenticateChat",
+            json!({ "agentId": "agent-auth", "methodId": "fake-key" }),
+        )
+        .await
+        .expect("authenticate");
+    client
+        .call("retryFailed", json!({ "agentId": "agent-auth" }))
+        .await
+        .expect("retry");
+    chat.until_kind(ChatEventKind::TurnCompleted).await;
+    assert_eq!(chat.text(), "account personal");
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -643,6 +742,7 @@ async fn a_sign_in_made_elsewhere_reaches_the_chat_on_its_next_prompt() {
 async fn a_chat_that_runs_out_carries_on_with_the_next_account() {
     let core = TestCore::start();
     let (client, mut chat) = core.connect().await;
+    switch_at_limit(&client).await;
     let history = tempfile::tempdir().expect("history");
     let mut launch = account_launch("agent-l", history.path(), "personal");
     launch.fallbacks = vec![account("work", "Work")];
@@ -682,6 +782,7 @@ async fn a_chat_that_runs_out_carries_on_with_the_next_account() {
 async fn a_chat_out_of_accounts_says_so_and_takes_one_the_person_picks() {
     let core = TestCore::start();
     let (client, mut chat) = core.connect().await;
+    switch_at_limit(&client).await;
     let history = tempfile::tempdir().expect("history");
     let mut launch = account_launch("agent-m", history.path(), "personal,work");
     launch.fallbacks = vec![account("work", "Work")];

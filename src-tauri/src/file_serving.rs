@@ -156,7 +156,9 @@ pub fn percent_decode(segment: &str) -> Option<String> {
     let mut at = 0;
     while at < bytes.len() {
         if bytes[at] == b'%' {
-            let hex = segment.get(at + 1..at + 3)?;
+            let hex = segment
+                .get(at + 1..at + 3)
+                .filter(|hex| hex.bytes().all(|byte| byte.is_ascii_hexdigit()))?;
             out.push(u8::from_str_radix(hex, 16).ok()?);
             at += 3;
         } else {
@@ -205,5 +207,6 @@ mod tests {
         assert_eq!(percent_decode("a%20b"), Some("a b".into()));
         assert_eq!(percent_decode("%2FUsers%2Fme"), Some("/Users/me".into()));
         assert_eq!(percent_decode("%zz"), None);
+        assert_eq!(percent_decode("%+f"), None);
     }
 }

@@ -47,13 +47,16 @@
     font: 10px var(--mono);
     cursor: pointer;
 }
-.chat-find button:hover:not(:disabled),
+.chat-find button:hover:not(:disabled) {
+    color: var(--ink);
+    background: var(--surface-hover);
+}
+
 .chat-find button.active {
     color: var(--ink);
-    background: var(--acc-soft);
+    background: var(--surface-chosen);
 }
 .chat-find button.active {
-    box-shadow: inset 0 0 0 1px var(--acc-line);
 }
 .chat-find button:disabled {
     opacity: 0.4;

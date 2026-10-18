@@ -1,8 +1,9 @@
 import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AcpAttachment, AcpEvent } from "../api/acp";
+import { moveChat } from "../agents/accounts";
 import { resetResourcesForTests } from "../state/resources";
-import type { Agent } from "../state/types";
+import type { Agent, ProviderProfile } from "../state/types";
 import { AgentChatPane } from "./AgentChatPane";
 import { chatClaimed } from "./chatClaims";
 
@@ -11,10 +12,14 @@ const mocks = vi.hoisted(() => ({
     attach: vi.fn(),
     start: vi.fn(async () => ({ sessionId: "session-new", capabilities: {}, setup: {} })),
     stop: vi.fn(async () => {}),
+    switchAccount: vi.fn(async () => {}),
     attachAgentSession: vi.fn(),
+    setAgentAccount: vi.fn(),
 }));
 
-vi.mock("../api/agents", () => ({ agentApi: { sessionContext: async () => null, available: async () => [] } }));
+vi.mock("../api/agents", () => ({
+    agentApi: { sessionContext: async () => null, available: async () => [], account: async () => ({ signedIn: true, sessions: null }) },
+}));
 vi.mock("../api/fs", () => ({ fsapi: { pathKinds: async (paths: string[]) => paths.map(() => null) } }));
 vi.mock("../api/git", () => ({ git: { worktrees: async () => [], overview: async () => ({ status: { branch: "main" } }) } }));
 vi.mock("../api/acp", () => ({
@@ -26,6 +31,7 @@ vi.mock("../api/acp", () => ({
         attach: mocks.attach,
         start: mocks.start,
         stop: mocks.stop,
+        switchAccount: mocks.switchAccount,
         setPermissionMode: vi.fn(async () => {}),
         setConfig: vi.fn(),
         prompt: vi.fn(async () => {}),
@@ -37,6 +43,7 @@ vi.mock("../api/acp", () => ({
 }));
 vi.mock("../state/commands", () => ({
     attachAgentSession: mocks.attachAgentSession,
+    setAgentAccount: mocks.setAgentAccount,
     setAgentPermissionMode: vi.fn(),
     setAgentModelPreferences: vi.fn(),
     setAgentTitle: vi.fn(),
@@ -47,7 +54,6 @@ vi.mock("../state/commands", () => ({
     setAgentWorktree: vi.fn(),
     setAgentWorktreeDefault: vi.fn(),
 }));
-vi.mock("@tauri-apps/plugin-dialog", () => ({ open: vi.fn(async () => null) }));
 
 const agent: Agent = {
     id: "agent-kept",
@@ -66,6 +72,8 @@ const live: AcpAttachment = {
     permissionMode: "workspace-write",
     running: true,
     turned: true,
+    feed: "feed-1",
+    olderBefore: null,
 };
 
 function emit(kind: AcpEvent["kind"], payload: Record<string, unknown> = {}) {
@@ -114,6 +122,11 @@ const showsText = (text: string) => waitFor(() => expect(transcript()).toContain
 
 function renderPane() {
     const view = render(<AgentChatPane agent={agent} cwd="/repo" active visible onBusyChange={() => {}} />);
+    measure();
+    return view;
+}
+
+function measure() {
     const scroller = document.querySelector(".chat-scroll") as HTMLElement;
     for (const [name, size] of [
         ["offsetWidth", 600],
@@ -124,7 +137,6 @@ function renderPane() {
     const target: Element = scroller;
     const entries = [{ target } as ResizeObserverEntry];
     act(() => resizeWatchers.get(scroller)?.forEach((callback) => callback(entries, {} as ResizeObserver)));
-    return view;
 }
 
 beforeEach(() => {
@@ -165,14 +177,6 @@ describe("AgentChatPane with a chat the core kept", () => {
         expect(mocks.stop).not.toHaveBeenCalled();
     });
 
-    it("starts again from the provider's history when the core kept too much to replay", async () => {
-        mocks.attach.mockResolvedValue({ status: "restart" });
-        renderPane();
-        await waitFor(() => expect(mocks.start).toHaveBeenCalledWith(expect.objectContaining({ resumeId: "session-old" })));
-        expect(mocks.stop).toHaveBeenCalledWith(agent.id);
-        expect(mocks.stop.mock.invocationCallOrder[0]).toBeLessThan(mocks.start.mock.invocationCallOrder[0]);
-    });
-
     it("takes the chat up again when the core comes back with it, without stopping it", async () => {
         mocks.attach.mockImplementation(async () => {
             replayKeptChat();
@@ -195,5 +199,26 @@ describe("AgentChatPane with a chat the core kept", () => {
         await waitFor(() => expect(mocks.attach).toHaveBeenCalled());
         view.unmount();
         await waitFor(() => expect(mocks.stop).toHaveBeenCalledWith(agent.id));
+    });
+
+    it("takes a chat moved to another account up where it is, mid-turn, without stopping it", async () => {
+        mocks.attach.mockImplementation(async () => {
+            replayKeptChat();
+            return live;
+        });
+        const view = renderPane();
+        await showsText("Still working on it");
+
+        const work: ProviderProfile = { id: "work", name: "Work", provider: "claude", accent: "#000", configPath: "~/.claude-work" };
+        moveChat(agent, work);
+        await waitFor(() => expect(mocks.setAgentAccount).toHaveBeenCalledWith(agent.id, "work"));
+        expect(mocks.switchAccount).toHaveBeenCalledWith(agent.id, "claude", { id: "work", label: "Work", configPath: "~/.claude-work" });
+        view.rerender(<AgentChatPane agent={{ ...agent, profileId: "work" }} profile={work} cwd="/repo" active visible onBusyChange={() => {}} />);
+        measure();
+
+        await waitFor(() => expect(mocks.attach).toHaveBeenCalledTimes(2));
+        await showsText("Still working on it");
+        expect(mocks.stop).not.toHaveBeenCalled();
+        expect(mocks.start).not.toHaveBeenCalled();
     });
 });

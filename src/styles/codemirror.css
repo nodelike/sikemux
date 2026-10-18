@@ -10,6 +10,10 @@
     display: block;
     flex: none;
 }
+.theme-light .theme-icon-dark,
+:root:not(.theme-light) .theme-icon-light {
+    display: none;
+}
 
 .tree-row.git-m,
 .git-status.git-m,
@@ -173,7 +177,7 @@
 }
 
 .cm-peek {
-    border: 1px solid var(--border-selected);
+    border: 1px solid var(--border);
     border-radius: var(--radius-2);
     overflow: hidden;
     margin: 6px 0;

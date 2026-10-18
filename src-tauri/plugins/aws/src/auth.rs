@@ -1,6 +1,7 @@
 // Profile discovery and identity/SSO-login surface.
 //
 //   profiles     — parse ~/.aws/{config,credentials}, classify
+//   resolve      — which profile and region an agent's call runs as
 //   identity     — `sts get-caller-identity`, 60s per-process cache
 //   sso_login    — `aws sso login` (spawn-and-wait)
 
@@ -12,8 +13,10 @@ use std::time::{Duration, Instant};
 
 use serde::Serialize;
 
-use crate::common::{classify_cli_err, run_aws_cli_async};
-use crate::error::AwsError;
+use sikemux_plugin_api::PluginContext;
+
+use crate::common::{classify_cli_err, run_aws_cli_async, Target};
+use crate::error::{AwsError, AwsResult};
 
 // ============================================================
 // profile discovery
@@ -120,6 +123,62 @@ fn classify(p: &HashMap<String, String>) -> AwsKind {
     }
 }
 
+/// Whether this computer looks set up for AWS at all, so agents elsewhere are not offered the tools.
+pub(crate) fn aws_in_use() -> bool {
+    use sikemux_process::user_environment::{find_executable, var};
+    [config_path(), credentials_path()]
+        .into_iter()
+        .flatten()
+        .any(|path| path.exists())
+        || var("AWS_PROFILE").is_some()
+        || var("AWS_ACCESS_KEY_ID").is_some()
+        || find_executable(&crate::common::aws_bin()).is_some()
+}
+
+#[derive(Serialize)]
+pub struct AwsSetup {
+    cli: bool,
+    homebrew: bool,
+}
+
+/// What the pane needs before it can offer profiles: the CLI, and Homebrew to install it with.
+pub(crate) fn setup() -> AwsSetup {
+    use sikemux_process::user_environment::find_executable;
+    let bin = crate::common::aws_bin();
+    AwsSetup {
+        cli: std::path::Path::new(&bin).is_file() || find_executable(&bin).is_some(),
+        homebrew: find_executable("brew").is_some(),
+    }
+}
+
+/// The profile and region a call runs as: the one asked for, else the one
+/// agents start on, else `default`. Several others and no choice is an error
+/// that lists them.
+pub(crate) async fn resolve(ctx: &PluginContext, asked: Target) -> AwsResult<Target> {
+    let known = profiles().await;
+    let names = || known.iter().map(|p| p.name.clone()).collect::<Vec<_>>();
+    let env = |name| sikemux_process::user_environment::var(name).filter(|v| !v.is_empty());
+    let profile = match asked.profile {
+        Some(profile) if known.iter().any(|p| p.name == profile) => Some(profile),
+        Some(profile) => return Err(AwsError::UnknownProfile(profile, names())),
+        None => match crate::agent_profile::agent_profile(ctx, None) {
+            Some(picked) => picked.profile,
+            None if known.iter().any(|p| p.name == "default") => Some("default".to_string()),
+            None if known.is_empty() => return Err(AwsError::NoProfiles),
+            None => return Err(AwsError::ChooseProfile(names())),
+        },
+    };
+    let region = asked
+        .region
+        .or_else(|| {
+            let name = profile.as_deref()?;
+            known.iter().find(|p| p.name == name)?.region.clone()
+        })
+        .or_else(|| env("AWS_REGION"))
+        .or_else(|| env("AWS_DEFAULT_REGION"));
+    Ok(Target { profile, region })
+}
+
 pub(crate) async fn profiles() -> Vec<AwsProfile> {
     tokio::task::spawn_blocking(read_aws_profiles)
         .await
@@ -178,6 +237,14 @@ fn read_aws_profiles() -> Vec<AwsProfile> {
     out
 }
 
+/// Every profile's name, read now rather than on the async runtime.
+pub(crate) fn profile_names() -> Vec<String> {
+    read_aws_profiles()
+        .into_iter()
+        .map(|profile| profile.name)
+        .collect()
+}
+
 // ============================================================
 // caller identity (cached)
 // ============================================================
@@ -222,12 +289,8 @@ pub(crate) async fn identity(profile: String, force: bool) -> AwsIdentity {
         }
     }
 
-    let id = match run_aws_cli_async(
-        &["sts", "get-caller-identity", "--output", "json"],
-        Some(&profile),
-    )
-    .await
-    {
+    let target = Target::named(&profile);
+    let id = match run_aws_cli_async(&["sts", "get-caller-identity"], &target).await {
         Err(AwsError::CliMissing(msg)) => AwsIdentity {
             arn: None,
             account: None,
@@ -260,9 +323,9 @@ pub(crate) async fn identity(profile: String, force: bool) -> AwsIdentity {
             }
         }
         Ok((false, _, stderr)) => {
-            let status = match classify_cli_err(&stderr) {
-                AwsError::TokenExpired => AwsStatus::Expired,
-                AwsError::NoCredentials => AwsStatus::NoCredentials,
+            let status = match classify_cli_err(&stderr, &target) {
+                AwsError::TokenExpired(_) => AwsStatus::Expired,
+                AwsError::NoCredentials(_) => AwsStatus::NoCredentials,
                 _ => AwsStatus::Error,
             };
             AwsIdentity {
@@ -303,7 +366,8 @@ pub struct AwsLoginResult {
 }
 
 pub(crate) async fn sso_login(profile: String) -> AwsLoginResult {
-    let r = run_aws_cli_async(&["sso", "login"], Some(&profile)).await;
+    let target = Target::named(&profile);
+    let r = run_aws_cli_async(&["sso", "login"], &target).await;
     // Drop the cached "expired" identity so the next identity call doesn't
     // lie about state.
     if let Ok(mut cache) = id_cache().lock() {

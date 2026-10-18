@@ -119,38 +119,6 @@
 
 /* ---- Marks -------------------------------------------------------------- */
 
-.gha-outcome {
-    display: inline-flex;
-    align-items: center;
-    flex: 0 0 auto;
-    color: var(--text-disabled);
-}
-.gha-outcome[data-outcome="success"] {
-    color: var(--live);
-}
-.gha-outcome[data-outcome="failure"] {
-    color: var(--danger);
-}
-.gha-outcome[data-outcome="running"] {
-    color: var(--warn);
-    animation: gha-pulse 1.6s var(--ease-in-out) infinite;
-}
-.gha-outcome[data-outcome="blocked"] {
-    color: var(--warn);
-}
-.gha-outcome:is([data-outcome="queued"], [data-outcome="skipped"], [data-outcome="cancelled"], [data-outcome="unknown"]) {
-    color: var(--text-tertiary);
-}
-@keyframes gha-pulse {
-    50% {
-        opacity: 0.35;
-    }
-}
-@media (prefers-reduced-motion: reduce) {
-    .gha-outcome[data-outcome="running"] {
-        animation: none;
-    }
-}
 .gha-tag {
     display: inline-flex;
     align-items: center;

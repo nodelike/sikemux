@@ -121,6 +121,8 @@ export interface CodeHostApi {
     jobSummary(repo: RepoRef, checkRunId: string): Promise<JobSummary | null>;
     runTiming(repo: RepoRef, runId: string): Promise<RunTiming>;
     workflowFile(repo: RepoRef, workflowId: string): Promise<WorkflowFile>;
+    /** A workflow file by its path at a commit, for hosts whose runs can call other workflow files. */
+    workflowFileAt?(repo: RepoRef, path: string, gitRef: string): Promise<WorkflowFile>;
     artifacts(repo: RepoRef, runId: string): Promise<Artifact[]>;
     pendingApprovals(repo: RepoRef, runId: string): Promise<PendingApproval[]>;
     dispatch(repo: RepoRef, workflowId: string, gitRef: string, inputs: Record<string, string>): Promise<void>;
@@ -135,6 +137,10 @@ export interface CodeHostApi {
     watch(repo: RepoRef, runId: string, handlers: PluginStreamHandlers<RunTick>): PluginStream;
 
     pulls(repo: RepoRef, state: string): Promise<Pull[]>;
+    /** How many pull requests the repository has open and closed, for hosts that can count them cheaply. */
+    pullCounts?(repo: RepoRef): Promise<{ open: number; closed: number }>;
+    /** How many issues the repository has open and closed, for hosts that can count them cheaply. */
+    issueCounts?(repo: RepoRef): Promise<{ open: number; closed: number }>;
     pull(repo: RepoRef, number: number): Promise<Pull>;
     pullFiles(repo: RepoRef, number: number): Promise<ChangedFile[]>;
     pullCommits(repo: RepoRef, number: number): Promise<PullCommit[]>;

@@ -125,6 +125,33 @@ pub struct TimelineItem {
     pub message: Option<String>,
     /// Who or what the event was about: a requested reviewer, a label, a new title.
     pub subject: Option<String>,
+    /// The issue or pull request that mentioned this one, for a cross-reference.
+    pub source: Option<Source>,
+}
+
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct Source {
+    pub number: u64,
+    pub pull: bool,
+    /// `open` or `closed`; a merged pull request also says when.
+    pub state: Option<String>,
+    pub merged: bool,
+    pub repo: Option<String>,
+}
+
+fn source(row: &Value) -> Option<Source> {
+    let issue = row.get("source")?.get("issue")?;
+    let pull = issue.get("pull_request");
+    Some(Source {
+        number: issue.get("number")?.as_u64()?,
+        pull: pull.is_some(),
+        state: text(issue, &["state"]),
+        merged: pull
+            .and_then(|pull| pull.get("merged_at"))
+            .is_some_and(|at| !at.is_null()),
+        repo: text(issue, &["repository", "full_name"]),
+    })
 }
 
 fn text(value: &Value, path: &[&str]) -> Option<String> {
@@ -173,6 +200,7 @@ impl From<Value> for TimelineItem {
                     &["source", "issue", "title"],
                 ],
             ),
+            source: source(&row),
         }
     }
 }

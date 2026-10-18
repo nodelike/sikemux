@@ -79,7 +79,7 @@ export function AccountSignIn({
                     {state.message}
                 </span>
             )}
-            <button type="button" className={buttonClass} onClick={start}>
+            <button type="button" className={buttonClass ? `${buttonClass} primary` : undefined} onClick={start}>
                 {state?.phase === "failed" ? "Try again" : label}
             </button>
         </span>

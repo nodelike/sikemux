@@ -9,6 +9,7 @@ import {
     type ReactNode,
 } from "react";
 import { createPortal } from "react-dom";
+import { useSideScroll } from "../hooks/useSideScroll";
 import * as cmd from "../state/commands";
 import { confirmDialog, promptDialog } from "../state/dialog";
 import { SPACE_ICONS, type SpaceIcon } from "../state/projectSpaces";
@@ -30,6 +31,7 @@ import {
     IconLaptop,
     IconLeaf,
     IconMusic,
+    IconPencil,
     IconPlus,
     IconRocket,
     IconStack,
@@ -37,8 +39,9 @@ import {
     IconTerminal,
     IconTrash,
     IconUser,
+    IconWrench,
 } from "../ui/Icons";
-import { TreeContextMenu, type CtxItem } from "./FileTree";
+import { TreeContextMenu, useFloatingPosition, type CtxItem } from "./FileTree";
 
 const GLYPHS: Record<SpaceIcon, ComponentType<{ size?: number }>> = {
     folder: IconFolder,
@@ -102,8 +105,8 @@ export function SpaceSwitch({ spaces, activeSpaceId }: { spaces: readonly Projec
         return rect ? { x: rect.left, y: rect.bottom + 4, width: rect.width } : { x: 0, y: 0 };
     };
     const sharedItems: CtxItem[] = [
-        { label: "New Space…", run: () => void newSpace() },
-        { label: "Edit Spaces…", run: () => setOverlay({ kind: "editor", at: editorAt() }) },
+        { label: "New Space…", icon: <IconPlus size={13} />, run: () => void newSpace() },
+        { label: "Edit Spaces…", icon: <IconWrench size={13} />, run: () => setOverlay({ kind: "editor", at: editorAt() }) },
     ];
     const menuFor = (event: ReactMouseEvent, space?: ProjectSpace) => {
         event.preventDefault();
@@ -111,13 +114,13 @@ export function SpaceSwitch({ spaces, activeSpaceId }: { spaces: readonly Projec
         const at = { x: event.clientX, y: event.clientY };
         const items: CtxItem[] = space
             ? [
-                  { label: "Rename…", run: () => renameSpace(space) },
-                  { label: "Change Icon…", run: () => setOverlay({ kind: "icons", at, spaceId: space.id }) },
-                  ...(space.icon ? [{ label: "Remove Icon", run: () => cmd.setSpaceIcon(space.id, "") }] : []),
+                  { label: "Rename…", icon: <IconPencil size={13} />, run: () => renameSpace(space) },
+                  { label: "Change Icon…", icon: <IconPencil size={13} />, run: () => setOverlay({ kind: "icons", at, spaceId: space.id }) },
+                  ...(space.icon ? [{ label: "Remove Icon", icon: <IconTrash size={13} />, run: () => cmd.setSpaceIcon(space.id, "") }] : []),
                   { sep: true },
                   ...sharedItems,
                   { sep: true },
-                  { label: "Delete Space…", danger: true, run: () => deleteSpace(space) },
+                  { label: "Delete Space…", icon: <IconTrash size={13} />, danger: true, run: () => deleteSpace(space) },
               ]
             : sharedItems;
         setOverlay({ kind: "menu", at, items });
@@ -175,16 +178,7 @@ function SpaceTrack({
     activeSpaceId: string | null;
     onMenu: (event: ReactMouseEvent, space?: ProjectSpace) => void;
 }) {
-    const trackRef = useRef<HTMLDivElement>(null);
-    const [clipped, setClipped] = useState({ start: false, end: false });
-
-    const measure = () => {
-        const track = trackRef.current;
-        if (!track) return;
-        const start = track.scrollLeft > 1;
-        const end = track.scrollLeft + track.clientWidth < track.scrollWidth - 1;
-        setClipped((was) => (was.start === start && was.end === end ? was : { start, end }));
-    };
+    const { ref: trackRef, className: scrollClass, measure } = useSideScroll<HTMLDivElement>();
 
     useLayoutEffect(() => {
         const track = trackRef.current;
@@ -196,25 +190,7 @@ function SpaceTrack({
             else if (right > track.scrollLeft + track.clientWidth) track.scrollLeft = right - track.clientWidth;
         }
         measure();
-    }, [activeSpaceId, spaces]);
-
-    useEffect(() => {
-        const track = trackRef.current;
-        if (!track) return;
-        const observer = new ResizeObserver(measure);
-        observer.observe(track);
-        // A mouse wheel only scrolls up and down, so it moves the track sideways instead.
-        const onWheel = (event: WheelEvent) => {
-            if (event.deltaX !== 0 || track.scrollWidth <= track.clientWidth) return;
-            event.preventDefault();
-            track.scrollLeft += event.deltaY;
-        };
-        track.addEventListener("wheel", onWheel, { passive: false });
-        return () => {
-            observer.disconnect();
-            track.removeEventListener("wheel", onWheel);
-        };
-    }, []);
+    }, [activeSpaceId, spaces, measure, trackRef]);
 
     const option = (space: ProjectSpace | null) => {
         const id = space?.id ?? null;
@@ -236,7 +212,7 @@ function SpaceTrack({
     return (
         <div
             ref={trackRef}
-            className={`space-track${clipped.start ? " clipped-start" : ""}${clipped.end ? " clipped-end" : ""}`}
+            className={`space-track ${scrollClass}`}
             role="radiogroup"
             aria-label="Projects shown"
             onScroll={measure}
@@ -261,18 +237,7 @@ function Popover({
     children: ReactNode;
 }) {
     const ref = useRef<HTMLDivElement>(null);
-    const [pos, setPos] = useState({ left: at.x, top: at.y });
-
-    useLayoutEffect(() => {
-        const el = ref.current;
-        if (!el) return;
-        const rect = el.getBoundingClientRect();
-        const pad = 6;
-        setPos({
-            left: Math.max(pad, Math.min(at.x, window.innerWidth - rect.width - pad)),
-            top: Math.max(pad, Math.min(at.y, window.innerHeight - rect.height - pad)),
-        });
-    }, [at.x, at.y]);
+    const pos = useFloatingPosition(ref, at.x, at.y);
 
     useEffect(() => {
         const onKey = (event: KeyboardEvent) => {

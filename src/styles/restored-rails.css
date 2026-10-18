@@ -1,11 +1,13 @@
-.workspace-rail.agent-rail {
+.workspace-rail.tab-rail {
     flex-direction: column;
     min-width: 240px;
 }
-.agent-rail > .rail-scroll {
+/* The scrollbar's room is kept even with nothing to scroll, so the rows never
+   change width when a list grows past it. */
+.tab-rail .swipe-page > .rail-scroll {
     flex: 1;
     min-height: 0;
-    overflow-y: auto;
+    overflow-y: scroll;
 }
 /*
  * The project navigator is a tree, not a list of pills.
@@ -15,7 +17,8 @@
  * the icon. The tick and the indent are what say "child of", and a filled pill
  * at this depth reads as a peer of the project rather than a part of it.
  */
-.side-rail .proj-children {
+.side-rail .proj-children,
+.tab-rail .agent-tree {
     padding: 2px 6px 2px 0;
     margin-left: 20px;
     border-left: 0;
@@ -24,7 +27,8 @@
    stops halfway down, at its own tick — that is the elbow. One border on the
    container instead would run the line past the last child, with nothing to
    say the tree had ended. */
-.side-rail .proj-child::before {
+.side-rail .proj-child::before,
+.tab-rail .agent-tree .proj-child::before {
     content: "";
     position: absolute;
     top: 0;
@@ -33,7 +37,8 @@
     width: 1px;
     background: var(--tree-spine);
 }
-.side-rail .proj-child:last-child::before {
+.side-rail .proj-child:last-child::before,
+.tab-rail .agent-tree .proj-child:last-child::before {
     bottom: auto;
     box-sizing: border-box;
     width: 9px;
@@ -43,10 +48,12 @@
     border-bottom: 1px solid var(--tree-tick);
     border-bottom-left-radius: 4px;
 }
-.side-rail .proj-child:last-child .proj-child-tick {
+.side-rail .proj-child:last-child .proj-child-tick,
+.tab-rail .agent-tree .proj-child:last-child .proj-child-tick {
     background: none;
 }
-.side-rail .proj-child {
+.side-rail .proj-child,
+.tab-rail .agent-tree .proj-child {
     position: relative;
     width: 100%;
     min-height: 25px;
@@ -60,7 +67,8 @@
     text-align: left;
     cursor: pointer;
 }
-.side-rail .proj-child:hover {
+.side-rail .proj-child:hover,
+.tab-rail .agent-tree .proj-child:hover {
     background: transparent;
     color: var(--ink);
 }
@@ -78,7 +86,8 @@
     flex-shrink: 0;
     background: var(--tree-tick);
 }
-.side-rail .proj-child .proj-child-ic {
+.side-rail .proj-child .proj-child-ic,
+.tab-rail .agent-tree .proj-child .proj-child-ic {
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -89,11 +98,9 @@
     border-radius: 0;
     background: transparent;
 }
+/* A child's name always reads in full; the marks beside it give way instead. */
 .side-rail .proj-child-label {
-    flex: 1;
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
+    flex: 0 0 auto;
     white-space: nowrap;
     font-size: calc(12.5px * var(--ui-text-scale, 1));
     letter-spacing: 0.01em;
@@ -111,6 +118,21 @@
     align-items: center;
     flex-shrink: 0;
 }
+/* The marks take the room left beside the name and show as many as fit,
+   counting the rest; FittedIcons in SideRail.tsx measures it. */
+.side-rail .proj-child .proj-child-icons {
+    flex: 1 1 0;
+    justify-content: flex-end;
+    min-width: 0;
+    overflow: hidden;
+}
+.proj-child-icons-more {
+    flex: none;
+    margin-left: 4px;
+    color: var(--text-tertiary);
+    font-size: var(--text-3xs);
+    font-variant-numeric: tabular-nums;
+}
 .proj-pip {
     display: inline-flex;
     align-items: center;
@@ -120,9 +142,18 @@
     flex-shrink: 0;
 }
 
+.proj-pip-term {
+    color: var(--live);
+}
+
 /* Agent glyphs are drawn with room around them inside the 20px box; pull them together. */
 .proj-pip + .proj-pip {
     margin-left: -6px;
+}
+
+/* Buddies fill their box edge to edge, so they need a deeper pull to stack the same way. */
+.proj-pip + .proj-pip.buddy-mark {
+    margin-left: -10px;
 }
 
 .side-rail .proj-child:hover .proj-child-kbd {

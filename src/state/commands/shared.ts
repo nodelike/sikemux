@@ -7,7 +7,7 @@ import { emit } from "../bus";
 import { getState, mutate, setState, type StoreState } from "../store";
 import { deskEditorId } from "../desks";
 import { notify, reportError } from "../toast";
-import { confirmDialog } from "../dialog";
+import { choiceDialog, confirmDialog } from "../dialog";
 import { editorPaneOf, projectSessionId } from "../selectors";
 import { isAgentBusy } from "../agentStatus";
 import { collectPanes, makePane, newId } from "../layout";
@@ -205,6 +205,57 @@ export function guardCloseAgents(agentIds: readonly string[], title: string, pro
         title,
         proceed,
     );
+}
+
+/** The open agents these agents started, and the ones those started, leaving out the agents themselves. */
+function workersOf(agentIds: readonly string[]): string[] {
+    const agents = Object.values(getState().agents);
+    const team = new Set(agentIds);
+    const workers: string[] = [];
+    for (let found = true; found;) {
+        found = false;
+        for (const agent of agents) {
+            if (!agent.lead || !team.has(agent.lead) || team.has(agent.id)) continue;
+            team.add(agent.id);
+            workers.push(agent.id);
+            found = true;
+        }
+    }
+    return workers;
+}
+
+function listed(names: readonly string[]): string {
+    const shown = names.slice(0, 3);
+    if (names.length > 3) shown.push(`${names.length - 3} more`);
+    return shown.length > 1 ? `${shown.slice(0, -1).join(", ")} and ${shown[shown.length - 1]}` : shown[0];
+}
+
+/**
+ * Closing agents' tabs stops them. When they started others, one question asks whether those stop too or keep
+ * running on their own; otherwise it asks only when one of them is busy.
+ */
+export function guardCloseLeads(agentIds: readonly string[], title: string, proceed: (stop: readonly string[]) => void): void {
+    const workers = workersOf(agentIds);
+    if (workers.length === 0) {
+        guardCloseAgents(agentIds, title, () => proceed([]));
+        return;
+    }
+    const { agents, agentActivity } = getState();
+    const label = (id: string) => agents[id]?.name ?? agents[id]?.title ?? "agent";
+    const leads = agentIds.filter((id) => workers.some((worker) => agents[worker]?.lead === id)).map(label);
+    const busy = agentIds.filter((id) => isAgentBusy(agentActivity[id])).map(label);
+    const one = workers.length === 1;
+    const working =
+        busy.length > 0 ? `${listed(busy)} ${busy.length === 1 ? "is" : "are"} working and ${busy.length === 1 ? "stops" : "stop"} with it. ` : "";
+    void choiceDialog({
+        title: `Stop ${leads.length === 1 ? `${leads[0]}'s agents` : "their agents"} too?`,
+        body: `${working}${listed(workers.map(label))} ${one ? "was" : "were"} started by ${leads.join(" and ")}. Stop ${one ? "it" : "them"}, or keep ${one ? "it" : "them"} running on ${one ? "its" : "their"} own.`,
+        otherLabel: one ? "Keep it" : "Keep them",
+        confirmLabel: one ? "Stop it" : "Stop them",
+        destructive: true,
+    }).then((choice) => {
+        if (choice) proceed(choice === "confirm" ? workers : []);
+    });
 }
 
 /** Closing whatever holds these agents stops them, so it asks first. */

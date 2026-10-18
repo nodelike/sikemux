@@ -83,6 +83,27 @@ not become a remote shell on someone's Mac. This decision keeps that rule.
   it. Removing a phone from elsewhere also revokes the Clerk session that registered it, and
   deleting an account deletes the user in Clerk; deleted accounts are erased 30 days later.
 
+- 2026-10-14: A host with no browser, such as a Linux box reached over SSH, signs in by code,
+  as in OAuth's device grant. `sikemux login` asks the API for a secret code and a short
+  user code, shows the user code and a link, and asks every five seconds for at most ten
+  minutes. The person opens the link on app.sikemux.com, or enters the code in the phone app,
+  checks the host's name and approves it. The host then gets the account and a fresh challenge,
+  signs it as any device registers, and is on the account. It keeps no sign-in token: its core
+  already proves itself with its key on the live connection. The API stores only a hash of the
+  secret code. Clerk offers no device grant; RFC 8628's own polling is used because an
+  unregistered host has no live connection to be told on, and it asks only while someone is
+  signing it in. The user code is eight of twenty consonants, good for ten minutes, and
+  lookups are limited per account, so guessing one is out of reach.
+- 2026-10-14: A host without a window still asks before letting each device in, but someone
+  other than the person at the host may answer: a device already paired with full control that
+  joined through the host's own account. The host remembers which account each device's
+  ticket named and checks it against its owner on every request, so a stolen account or a
+  compromised server still cannot let a device in, and a host signed in to another account
+  stops taking answers from the old one's phones. Such a device reaches the pairing requests
+  and the paired devices through the core's `pairing`, `answerPairing` and `changeDevice`
+  calls. The first device on a host with no window is answered in its terminal by
+  `sikemux login` or `sikemux pair`.
+
 ## Alternatives considered
 
 - **Bonjour on the local network only.** Needs no server, but finds a Mac only on the same

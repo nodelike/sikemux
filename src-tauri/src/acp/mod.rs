@@ -4,17 +4,19 @@
 //! forwards every command to the core. The core's events come back on its
 //! connection and reach the page as `acp_event`.
 
-use std::collections::{BTreeMap, HashMap, HashSet};
-use std::path::{Path, PathBuf};
+use std::collections::{HashMap, HashSet};
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use sikemux_core::acp::{bounded_text, native};
+use sikemux_core::acp::bounded_text;
+use sikemux_core::agent_accounts;
 use sikemux_core::client::{ClientError, CoreClient, Reply};
+use sikemux_core::launch::{AgentLaunch, AgentSpec};
 use sikemux_core::protocol::{
     ChatAccount, ChatAttachment, ChatContext, ChatEvent, ChatEventKind, ChatInfo, ChatLaunch,
-    ChatLauncher, ChatStart, Request, Response,
+    ChatStart, Request, Response,
 };
 use tauri::{AppHandle, Emitter, Manager, State};
 
@@ -59,12 +61,29 @@ impl StreamMark {
 pub struct AcpManager {
     /// Launches being prepared, which a stop cancels. The id tells a launch
     /// from a later one for the same agent.
-    preparing: dashmap::DashMap<String, uuid::Uuid>,
+    preparing: Mutex<HashMap<String, uuid::Uuid>>,
     /// The chats this app shows, which hear the core's events for them.
     shown: Mutex<HashMap<String, StreamMark>>,
 }
 
 impl AcpManager {
+    fn preparing(&self) -> std::sync::MutexGuard<'_, HashMap<String, uuid::Uuid>> {
+        self.preparing
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    /// Ends `launch_id`'s preparation, and says whether it was still going,
+    /// that is, whether no stop came for it.
+    fn finish_preparing(&self, agent_id: &str, launch_id: uuid::Uuid) -> bool {
+        let mut preparing = self.preparing();
+        let current = preparing.get(agent_id) == Some(&launch_id);
+        if current {
+            preparing.remove(agent_id);
+        }
+        current
+    }
+
     fn show(&self, agent_id: &str, mark: StreamMark, streaming: bool) {
         mark.set(streaming);
         if let Ok(mut shown) = self.shown.lock() {
@@ -183,8 +202,8 @@ fn replay(app: &AppHandle, agent_id: &str, events: Vec<ChatEvent>) {
     flush(&mut updates);
 }
 
-/// The core went away and came back: the same core still runs every chat
-/// the page shows, which it attaches to again; a new core has none of them.
+/// The core went away and came back, still running the chats it lists or
+/// having taken them up again, which the page attaches to again.
 pub(crate) async fn reconnected(app: &AppHandle, client: Option<&Arc<CoreClient>>) {
     let Some(manager) = app.try_state::<AcpManager>() else {
         return;
@@ -217,71 +236,6 @@ pub(crate) async fn reconnected(app: &AppHandle, client: Option<&Arc<CoreClient>
     }
 }
 
-/// What starts an agent: a program, its arguments and the environment it
-/// gets on top of the core's.
-struct Program {
-    program: PathBuf,
-    args: Vec<String>,
-    env: BTreeMap<String, String>,
-}
-
-/// The account directory the agent keeps its sign-in and sessions in: the
-/// profile's, or one the person chose in their shell profile, which their
-/// terminal agents use too.
-fn account_environment(
-    provider: &str,
-    config_path: Option<&str>,
-) -> Result<BTreeMap<String, String>, String> {
-    if let Some(path) = config_path {
-        bounded_text("config path", path, 4_096)?;
-    }
-    Ok(
-        crate::agents::accounts::account_environment(provider, config_path)
-            .into_iter()
-            .collect(),
-    )
-}
-
-fn native_program(executable: &Path, arguments: &[&str], environment_keys: &[String]) -> Program {
-    Program {
-        program: executable.to_path_buf(),
-        args: arguments
-            .iter()
-            .map(|argument| (*argument).to_owned())
-            .collect(),
-        env: forwarded_environment(environment_keys),
-    }
-}
-
-fn with_user_path(env: &mut BTreeMap<String, String>) {
-    if let Some(path) = crate::system::child_path() {
-        env.insert("PATH".into(), path);
-    }
-}
-
-/// The variables the person's profile names, with the values their shell
-/// gives them, since the core may have started before they were set.
-fn forwarded_environment(environment_keys: &[String]) -> BTreeMap<String, String> {
-    let mut seen = HashSet::new();
-    let mut env = BTreeMap::new();
-    for key in environment_keys.iter().take(64) {
-        if !seen.insert(key) || !valid_environment_key(key) {
-            continue;
-        }
-        if let Some(value) = sikemux_pty::user_shell::user_variable(key) {
-            env.insert(key.clone(), value);
-        }
-    }
-    env
-}
-
-fn valid_environment_key(key: &str) -> bool {
-    let mut chars = key.chars();
-    matches!(chars.next(), Some('_' | 'A'..='Z' | 'a'..='z'))
-        && chars.all(|ch| matches!(ch, '_' | 'A'..='Z' | 'a'..='z' | '0'..='9'))
-        && key.len() <= 128
-}
-
 /// One of the person's accounts, as the page names it.
 #[derive(Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -292,36 +246,12 @@ pub struct AccountRequest {
 }
 
 fn chat_account(provider: &str, account: &AccountRequest) -> ChatAccount {
-    if let Some(kind) = crate::agents::accounts::kind(provider) {
-        crate::agents::accounts::link_shared(kind, account.config_path.as_deref());
-    }
-    ChatAccount {
-        id: account.id.clone(),
-        label: account.label.clone(),
-        env: crate::agents::accounts::account_environment(provider, account.config_path.as_deref())
-            .into_iter()
-            .collect(),
-    }
-}
-
-/// The accounts a chat on `config_path` may move to: only those that keep
-/// chats where it does, since a chat moves by being loaded from there.
-fn fallback_accounts(
-    provider: &str,
-    config_path: Option<&str>,
-    fallbacks: &[AccountRequest],
-) -> Vec<ChatAccount> {
-    fallbacks
-        .iter()
-        .filter(|fallback| {
-            crate::agents::accounts::sessions_shared(
-                provider,
-                config_path,
-                fallback.config_path.as_deref(),
-            )
-        })
-        .map(|fallback| chat_account(provider, fallback))
-        .collect()
+    agent_accounts::chat_account(
+        provider,
+        &account.id,
+        &account.label,
+        account.config_path.as_deref(),
+    )
 }
 
 fn failure(error: ClientError) -> String {
@@ -332,77 +262,39 @@ async fn core(pty: &PtyManager) -> Result<Arc<CoreClient>, String> {
     pty.client().await.map_err(|error| error.to_string())
 }
 
-async fn prepare(
-    agent_id: &str,
-    provider: &str,
-    config_path: Option<&str>,
-    executable_path: Option<&str>,
-    environment_keys: &[String],
-) -> Result<Program, String> {
-    let agent_executable =
-        crate::agents::resolve_agent_executable(provider, executable_path).await?;
-    let mut program = native_program(
-        &agent_executable,
-        native::arguments(provider).unwrap_or_default(),
-        environment_keys,
+/// How the app starts `spec` as a chat, on `model_provider` when one is named,
+/// with the skills library and, for Hermes and Grok, a private home of its own.
+async fn chat_launch(
+    app: &AppHandle,
+    agent_id: Option<&str>,
+    spec: &AgentSpec,
+    model_provider: Option<String>,
+    model: Option<String>,
+) -> Result<AgentLaunch, String> {
+    if let Some(path) = spec.config_path.as_deref() {
+        bounded_text("config path", path, 4_096)?;
+    }
+    let program = spec.program().await?;
+    let providers = crate::model_providers::wiring(&spec.provider, model_provider, model).await?;
+    let mut launch = spec.chat(
+        program,
+        providers,
+        crate::browser::agents::skills_data_dir(app).as_deref(),
     );
-    program
-        .env
-        .extend(account_environment(provider, config_path)?);
-    program
-        .env
-        .extend(crate::model_providers::environment(provider).await);
-    program
-        .env
-        .insert(crate::ports::AGENT_ID_ENV.into(), agent_id.to_owned());
-    with_user_path(&mut program.env);
-    Ok(program)
-}
-
-/// One way to start a chat agent that the app offers paired devices.
-pub(crate) struct LauncherSpec {
-    pub id: String,
-    pub provider: String,
-    pub label: String,
-    pub config_path: Option<String>,
-    pub executable_path: Option<String>,
-    pub environment_keys: Vec<String>,
-    pub permission_mode: String,
-    /// The agent's status as the app last saw it, passed on to devices.
-    pub status: Option<String>,
-}
-
-/// What [`acp_start`] would run for `spec`, for the core to start without
-/// the window.
-pub(crate) async fn launcher(spec: LauncherSpec) -> Result<ChatLauncher, String> {
-    let executable =
-        crate::agents::resolve_agent_executable(&spec.provider, spec.executable_path.as_deref())
-            .await?;
-    let mut program = native_program(
-        &executable,
-        native::arguments(&spec.provider).unwrap_or_default(),
-        &spec.environment_keys,
-    );
-    program.env.extend(account_environment(
-        &spec.provider,
-        spec.config_path.as_deref(),
-    )?);
-    program
-        .env
-        .extend(crate::model_providers::environment(&spec.provider).await);
-    with_user_path(&mut program.env);
-    Ok(ChatLauncher {
-        id: spec.id,
-        provider: spec.provider,
-        label: spec.label,
-        program: program.program,
-        args: program.args,
-        env: program.env,
-        permission_mode: spec.permission_mode,
-        account: None,
-        fallbacks: Vec::new(),
-        status: spec.status,
-    })
+    if let Some(agent_id) = agent_id {
+        launch
+            .env
+            .insert(crate::ports::AGENT_ID_ENV.into(), agent_id.to_owned());
+        crate::browser::agents::chat_home(
+            app,
+            agent_id,
+            &spec.provider,
+            &launch.program,
+            &mut launch.env,
+        )
+        .await;
+    }
+    Ok(launch)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -422,27 +314,24 @@ pub async fn acp_start(
     effort: Option<String>,
     environment_keys: Vec<String>,
     account: Option<AccountRequest>,
-    fallbacks: Option<Vec<AccountRequest>>,
+    model_provider: Option<String>,
 ) -> Result<ChatStart, String> {
     bounded_text("agent id", &agent_id, MAX_AGENT_ID)?;
     bounded_text("provider", &provider, 64)?;
     bounded_text("working directory", &cwd, 4_096)?;
     let launch_id = uuid::Uuid::new_v4();
-    manager.preparing.insert(agent_id.clone(), launch_id);
-    let prepared = prepare(
-        &agent_id,
-        &provider,
-        config_path.as_deref(),
-        executable_path.as_deref(),
-        &environment_keys,
-    )
-    .await;
-    let program = match prepared {
-        Ok(program) => program,
+    manager.preparing().insert(agent_id.clone(), launch_id);
+    let spec = AgentSpec {
+        provider: provider.clone(),
+        executable_path,
+        config_path: config_path.clone(),
+        environment_keys,
+    };
+    let prepared = chat_launch(&app, Some(&agent_id), &spec, model_provider, model.clone()).await;
+    let prepared = match prepared {
+        Ok(prepared) => prepared,
         Err(error) => {
-            manager
-                .preparing
-                .remove_if(&agent_id, |_, id| *id == launch_id);
+            manager.finish_preparing(&agent_id, launch_id);
             return Err(error);
         }
     };
@@ -459,9 +348,9 @@ pub async fn acp_start(
         agent_id: agent_id.clone(),
         provider: provider.clone(),
         cwd: PathBuf::from(&cwd),
-        program: program.program,
-        args: program.args,
-        env: program.env,
+        program: prepared.program,
+        args: prepared.args,
+        env: prepared.env,
         mcp_servers,
         resume_id: resume_id.clone(),
         permission_mode,
@@ -470,11 +359,7 @@ pub async fn acp_start(
         account: account
             .as_ref()
             .map(|account| chat_account(&provider, account)),
-        fallbacks: fallback_accounts(
-            &provider,
-            config_path.as_deref(),
-            fallbacks.as_deref().unwrap_or_default(),
-        ),
+        fallbacks: Vec::new(),
     };
     let client = core(&pty).await?;
     let started = client
@@ -491,10 +376,7 @@ pub async fn acp_start(
         .map_err(failure)?;
     // A stop that came while the launch was prepared reaches the core after
     // the start, whichever of the two it raced.
-    let stopped = manager
-        .preparing
-        .remove_if(&agent_id, |_, id| *id == launch_id)
-        .is_none();
+    let stopped = !manager.finish_preparing(&agent_id, launch_id);
     if stopped {
         let _ = client.acp_stop(agent_id).await;
         return Err("ACP session stopped before initialization completed".into());
@@ -533,13 +415,25 @@ pub async fn acp_start(
 )]
 pub enum Attachment {
     Live {
-        start: ChatStart,
+        start: Box<ChatStart>,
         permission_mode: String,
         running: bool,
         turned: bool,
+        /// The core's run of this chat, which paging back names.
+        feed: String,
+        /// Set when the replay holds only the chat's last turns: the event
+        /// before which `acp_history` pages back.
+        older_before: Option<u64>,
     },
     Missing,
-    Restart,
+}
+
+/// Turns from before what the page shows, and where the page before them starts.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatHistory {
+    events: Vec<ChatEvent>,
+    older_before: Option<u64>,
 }
 
 /// Takes up a chat the core already runs, if it runs one for this agent.
@@ -574,20 +468,23 @@ pub async fn acp_attach(
                             running,
                             turned,
                             replay: events,
-                            ..
+                            mark,
+                            older_before,
                         } => {
                             replay(&replaying, &replay_agent, events);
                             Attachment::Live {
-                                start: *start,
+                                start,
                                 permission_mode,
                                 running,
                                 turned,
+                                feed: mark.feed,
+                                older_before,
                             }
                         }
                         ChatAttachment::Missing => Attachment::Missing,
-                        // Only an attach that names a mark is resumed, and this one names none.
+                        // Only an attach that names a mark is resumed, and the core no longer restarts chats.
                         ChatAttachment::Restart | ChatAttachment::Resumed { .. } => {
-                            Attachment::Restart
+                            return Err(ClientError::UnexpectedReply)
                         }
                     })
                 }
@@ -610,6 +507,28 @@ pub async fn acp_attach(
         );
     }
     Ok(attachment)
+}
+
+/// The chat's turns before event `before` of its run `feed`, for a page shown
+/// only the chat's end.
+#[tauri::command]
+pub async fn acp_history(
+    pty: State<'_, PtyManager>,
+    agent_id: String,
+    feed: String,
+    before: u64,
+    turns: u32,
+) -> Result<ChatHistory, String> {
+    bounded_text("agent id", &agent_id, MAX_AGENT_ID)?;
+    let (events, older_before) = core(&pty)
+        .await?
+        .acp_history(agent_id, feed, before, turns)
+        .await
+        .map_err(failure)?;
+    Ok(ChatHistory {
+        events,
+        older_before,
+    })
 }
 
 /// Moves a running chat to another account, on the same session.
@@ -755,7 +674,7 @@ pub async fn acp_stop(
     pty: State<'_, PtyManager>,
     agent_id: String,
 ) -> Result<(), String> {
-    manager.preparing.remove(&agent_id);
+    manager.preparing().remove(&agent_id);
     manager.forget(&agent_id);
     core(&pty).await?.acp_stop(agent_id).await.map_err(failure)
 }
@@ -763,46 +682,6 @@ pub async fn acp_stop(
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn a_profile_names_the_agents_account_directory() {
-        for (provider, key) in [("codex", "CODEX_HOME"), ("claude", "CLAUDE_CONFIG_DIR")] {
-            let env = account_environment(provider, Some("/profile")).unwrap();
-            assert_eq!(env.get(key).map(String::as_str), Some("/profile"));
-        }
-        assert!(account_environment("opencode", Some("/profile"))
-            .unwrap()
-            .is_empty());
-    }
-
-    #[test]
-    fn native_agents_run_their_own_binary_in_acp_mode() {
-        let program = native_program(
-            Path::new("/bin/grok"),
-            native::arguments("grok").unwrap(),
-            &[],
-        );
-        assert_eq!(program.program, Path::new("/bin/grok"));
-        assert_eq!(program.args, ["agent", "--no-leader", "stdio"]);
-    }
-
-    #[test]
-    fn only_named_valid_variables_are_forwarded() {
-        let env = forwarded_environment(&["PATH".into(), "PATH".into(), "BAD-KEY".into()]);
-        assert_eq!(env.keys().collect::<Vec<_>>(), ["PATH"]);
-    }
-
-    #[test]
-    fn config_files_name_their_directory() {
-        assert_eq!(
-            sikemux_pty::launch::account_dir("/home/me/.codex/config.toml"),
-            Path::new("/home/me/.codex")
-        );
-        assert_eq!(
-            sikemux_pty::launch::account_dir("/home/me/.claude"),
-            Path::new("/home/me/.claude")
-        );
-    }
 
     #[test]
     fn every_event_kind_keeps_the_name_the_page_reads() {
@@ -823,14 +702,16 @@ mod tests {
     #[test]
     fn an_attachment_reads_as_the_page_expects() {
         let live = Attachment::Live {
-            start: ChatStart {
+            start: Box::new(ChatStart {
                 session_id: "s".into(),
                 capabilities: json!({}),
                 setup: json!({}),
-            },
+            }),
             permission_mode: "bypass".into(),
             running: true,
             turned: false,
+            feed: "f".into(),
+            older_before: Some(7),
         };
         assert_eq!(
             serde_json::to_value(live).unwrap(),
@@ -840,11 +721,9 @@ mod tests {
                 "permissionMode": "bypass",
                 "running": true,
                 "turned": false,
+                "feed": "f",
+                "olderBefore": 7,
             })
-        );
-        assert_eq!(
-            serde_json::to_value(Attachment::Restart).unwrap(),
-            json!({ "status": "restart" })
         );
     }
 }

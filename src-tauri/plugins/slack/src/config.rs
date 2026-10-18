@@ -8,8 +8,14 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::{SlackError, SlackResult};
 
+/// A development build keeps entries of its own, so it never spends or replaces the
+/// installed app's sign-in.
 #[cfg(not(test))]
-const TOKEN_SERVICE: &str = "sikemux-slack-token";
+const TOKEN_SERVICE: &str = if cfg!(debug_assertions) {
+    "sikemux-slack-token-dev"
+} else {
+    "sikemux-slack-token"
+};
 /// Tests keep to an entry of their own, so they never replace or delete a real token.
 #[cfg(test)]
 const TOKEN_SERVICE: &str = "sikemux-slack-token-test";

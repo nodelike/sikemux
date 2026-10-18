@@ -1,5 +1,6 @@
 {
   "macos": { "nightly": "0.0.0", "stable": "0.0.0" },
+  "linux": { "nightly": "0.0.0", "stable": "0.0.0" },
   "ios": { "nightly": "0.0.0", "stable": "0.0.0" },
   "android": { "nightly": "0.0.0", "stable": "0.0.0" }
 }

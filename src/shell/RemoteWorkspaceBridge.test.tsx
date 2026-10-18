@@ -62,10 +62,10 @@ describe("RemoteWorkspaceBridge", () => {
         });
         await settle();
         expect(publish).toHaveBeenCalledTimes(2);
-        const after = publish.mock.calls[1][0] as { projects: { path: string }[]; launchers: { id: string }[] };
+        const after = publish.mock.calls[1][0] as { projects: { path: string }[]; permissionMode: string };
         expect(after.projects.length).toBe(before.projects.length + 1);
         expect(after.projects.map((project) => project.path)).toContain("/Users/me/new-project");
-        expect(after.launchers.map((launcher) => launcher.id)).toContain("opencode");
+        expect(after.permissionMode).toBe(getState().defaultAgentPermissionMode);
     });
 
     it("publishes what the person named their agents and which one is on screen", async () => {

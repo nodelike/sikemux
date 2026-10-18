@@ -7,6 +7,7 @@
     --brand-opencode: #a78bfa;
     --brand-omp: #f97316;
     --brand-grok: #fcfcfc;
+    --brand-muse: #0081fb;
 }
 .agent-glyph.claude {
     color: var(--brand-claude);
@@ -29,6 +30,9 @@
 .agent-glyph.grok {
     color: var(--brand-grok);
 }
+.agent-glyph.muse {
+    color: var(--brand-muse);
+}
 .agent-dormant-notch.claude {
     background: var(--brand-claude);
 }
@@ -50,26 +54,8 @@
 .agent-dormant-notch.grok {
     background: var(--brand-grok);
 }
-.agent-header-btn.claude {
-    --agent-provider: var(--brand-claude);
-}
-.agent-header-btn.codex {
-    --agent-provider: var(--brand-codex);
-}
-.agent-header-btn.hermes {
-    --agent-provider: var(--brand-hermes);
-}
-.agent-header-btn.pi {
-    --agent-provider: var(--brand-pi);
-}
-.agent-header-btn.opencode {
-    --agent-provider: var(--brand-opencode);
-}
-.agent-header-btn.omp {
-    --agent-provider: var(--brand-omp);
-}
-.agent-header-btn.grok {
-    --agent-provider: var(--brand-grok);
+.agent-dormant-notch.muse {
+    background: var(--brand-muse);
 }
 .agent-usage.claude {
     --usage-fill: var(--brand-claude);
@@ -92,6 +78,9 @@
 .agent-usage.grok {
     --usage-fill: var(--brand-grok);
 }
+.agent-usage.muse {
+    --usage-fill: var(--brand-muse);
+}
 .desk.claude {
     --desk-agent: var(--brand-claude);
 }
@@ -113,6 +102,9 @@
 .desk.grok {
     --desk-agent: var(--brand-grok);
 }
+.desk.muse {
+    --desk-agent: var(--brand-muse);
+}
 .proj-pip-claude {
     color: var(--brand-claude);
 }
@@ -133,4 +125,7 @@
 }
 .proj-pip-grok {
     color: var(--brand-grok);
+}
+.proj-pip-muse {
+    color: var(--brand-muse);
 }

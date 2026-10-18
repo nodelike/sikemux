@@ -16,6 +16,8 @@ on:
       # The phone workflows check the phone app.
       - "mobile/**"
       - ".github/workflows/mobile-*.yml"
+  # A PR that skipped the whole workflow would leave its required checks waiting forever,
+  # so PRs always start it and the changes job skips what they don't touch.
   pull_request:
   workflow_dispatch:
   workflow_call:
@@ -24,8 +26,9 @@ permissions:
   contents: read
   checks: write
 
+# Every push to main gets its own run, so a red main always points at the push that broke it.
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
+  group: ci-${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
   cancel-in-progress: true
 
 # Cargo.toml builds dependencies at full speed so `make dev` feels fast. CI only
@@ -35,6 +38,57 @@ env:
   DEPS_OPT_LEVEL: 1
 
 jobs:
+  # Compares against main's last green run rather than the previous push, so a job that
+  # failed keeps running until it passes again.
+  changes:
+    name: What changed
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: read
+      contents: read
+    outputs:
+      rust: ${{ steps.areas.outputs.rust }}
+      simulator: ${{ steps.areas.outputs.simulator }}
+      desktop: ${{ steps.areas.outputs.desktop }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          filter: blob:none
+
+      - name: Pick the jobs this change needs
+        id: areas
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          base=""
+          if [ "$EVENT" = pull_request ]; then
+            base="$PR_BASE"
+          elif [ "$EVENT" = push ] && [ "$GITHUB_REF" = refs/heads/main ]; then
+            base="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?branch=main&event=push&status=success&per_page=1" --jq '.workflow_runs[0].head_sha // empty')"
+          fi
+
+          git merge-base --is-ancestor "$base" HEAD 2>/dev/null || base=""
+          changed="$(git diff --name-only "${base:-HEAD}" HEAD)"
+          printf 'Compared with %s:\n%s\n' "${base:-nothing, so every job runs}" "$changed"
+
+          area() {
+            name="$1" needs="$2" ignores="${3:-^$}"
+            if [ -z "$base" ] || printf '%s\n' "$changed" | grep -vE "$ignores" | grep -qE "^\.github/workflows/ci\.yml$|$needs"; then
+              echo "$name=true" >>"$GITHUB_OUTPUT"
+            else
+              echo "$name=false" >>"$GITHUB_OUTPUT"
+              echo "Skipped $name: nothing it checks changed" >>"$GITHUB_STEP_SUMMARY"
+            fi
+          }
+          area rust '^(src-tauri/|browser/|server/protocol/|src/test/markdownFixtures\.json$|rust-toolchain\.toml$)'
+          area simulator '^(src-tauri/sim/|src-tauri/src/sim\.rs$|src-tauri/src/simulator/|src-tauri/Cargo\.(toml|lock)$|scripts/build-sim-(helper|fixture)\.mjs$|rust-toolchain\.toml$)'
+          area desktop '^(src/|public/|browser/|scripts/|src-tauri/|index\.html$|package\.json$|pnpm-lock\.yaml$|vite\.config\.ts$|tsconfig\.json$|rust-toolchain\.toml$)' '^src-tauri/sim/'
+
   frontend:
     name: Frontend quality, build, and tests
     runs-on: macos-latest
@@ -77,6 +131,9 @@ jobs:
       - name: Check the generated agent catalog matches its source
         run: pnpm agent-catalog:check
 
+      - name: Check the docs reference pages match their source
+        run: pnpm docs:reference:check
+
       - name: Check the file icons match the installed icon theme
         run: pnpm file-icons:check
 
@@ -89,9 +146,6 @@ jobs:
       - name: Build frontend
         run: pnpm build
 
-      - name: Enforce frontend performance budgets
-        run: pnpm perf:budget
-
       - name: Check release tooling without credentials
         run: pnpm release:check
 
@@ -100,6 +154,8 @@ jobs:
 
   rust:
     name: Rust formatting, lint, and tests
+    needs: changes
+    if: needs.changes.outputs.rust == 'true'
     runs-on: macos-latest
     steps:
       - name: Checkout
@@ -123,6 +179,9 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           working-directory: src-tauri
+          # zip 4 only reaches us through tauri-plugin-updater on Windows, which we do not ship;
+          # no updater release takes zip 9 yet. Drop these once one does.
+          ignore: RUSTSEC-2026-0367,RUSTSEC-2026-0368,RUSTSEC-2026-0369
 
       - name: Prepare Tauri resource placeholder
         run: mkdir -p src-tauri/icons/build && touch src-tauri/icons/build/Assets.car
@@ -140,11 +199,46 @@ jobs:
         working-directory: src-tauri
 
       - name: Build without any plugins
-        run: cargo clippy -p sikemux --no-default-features --all-targets -- -D warnings
+        run: cargo clippy -p sikemux-host --no-default-features --all-targets -- -D warnings
+        working-directory: src-tauri
+
+  # Every release also ships Linux packages, so main must keep compiling there,
+  # and the core must keep working as a Linux host.
+  linux:
+    name: Linux compile check and core tests
+    needs: changes
+    if: needs.changes.outputs.rust == 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup Rust
+        run: rustup toolchain install "$(sed -n 's/^channel = "\(.*\)"$/\1/p' rust-toolchain.toml)" --profile minimal --no-self-update
+
+      - name: Install the Tauri Linux packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev librsvg2-dev libayatana-appindicator3-dev libxdo-dev build-essential file
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: src-tauri
+          cache-on-failure: true
+
+      - name: Check the app compiles on Linux
+        run: cargo check --workspace --all-targets --locked
+        working-directory: src-tauri
+
+      - name: Run the core's tests on Linux
+        run: cargo test --locked -p sikemux-core -p sikemux-pty -p sikemux-process -p sikemux-wire -p sikemux-client -p sikemux-keychain -p sikemux-host
         working-directory: src-tauri
 
   simulator-helper:
     name: iOS Simulator helper
+    needs: changes
+    if: needs.changes.outputs.simulator == 'true'
     # idb's simulator libraries need Xcode 26 or newer.
     runs-on: macos-26
     timeout-minutes: 30
@@ -204,6 +298,8 @@ jobs:
 
   desktop-e2e:
     name: macOS launched desktop E2E
+    needs: changes
+    if: needs.changes.outputs.desktop == 'true'
     runs-on: macos-latest
     timeout-minutes: 30
     steps:

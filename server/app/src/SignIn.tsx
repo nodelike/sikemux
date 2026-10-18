@@ -10,7 +10,7 @@ import {
   GoogleMark,
   Logo,
 } from "./icons.tsx";
-import { rememberReturn } from "./navigation.ts";
+import { isSharePath, rememberReturn } from "./navigation.ts";
 
 /** Why an emailed code is asked for: a browser new to the account, a new account, or a new password. */
 type CodePurpose = "trust" | "verify" | "reset";
@@ -37,6 +37,13 @@ const CODE_DETAIL: Record<CodePurpose, string> = {
   verify: "to confirm the address is yours",
   reset: "so you can choose a new password",
 };
+
+/** On a shared chat's page a finished sign-in stays there, where the chat then opens, instead of going to the account pages. */
+function staying() {
+  return isSharePath(location.pathname) || location.pathname === "/host"
+    ? { navigate: () => undefined }
+    : undefined;
+}
 
 export function SignIn({ ready }: { ready: boolean }) {
   const { signIn } = useSignIn();
@@ -87,7 +94,8 @@ export function SignIn({ ready }: { ready: boolean }) {
   };
 
   const afterPassword = async () => {
-    if (signIn.status === "complete") return check(await signIn.finalize());
+    if (signIn.status === "complete")
+      return check(await signIn.finalize(staying()));
     if (
       signIn.status === "needs_client_trust" ||
       signIn.status === "needs_second_factor"
@@ -151,7 +159,7 @@ export function SignIn({ ready }: { ready: boolean }) {
       try {
         if (purpose === "trust") {
           check(await signIn.mfa.verifyEmailCode({ code: typed }));
-          return check(await signIn.finalize());
+          return check(await signIn.finalize(staying()));
         }
         if (purpose === "reset") {
           check(
@@ -164,7 +172,7 @@ export function SignIn({ ready }: { ready: boolean }) {
           throw new Error(
             "The account needs more than this page asks for; try again.",
           );
-        check(await signUp.finalize());
+        check(await signUp.finalize(staying()));
       } catch (error) {
         setCode("");
         throw error;

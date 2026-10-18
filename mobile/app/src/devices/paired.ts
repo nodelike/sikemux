@@ -1,10 +1,10 @@
 import { File, Paths } from 'expo-file-system';
 
-import type { BuildChannel } from '@/core/protocol';
+import type { BuildChannel, DeviceAccess } from '@/core/protocol';
 import type { DeviceKind } from '@/ui/Icon';
 import { readWhole, writeWhole } from './disk';
 
-export type Access = 'full' | 'watch';
+export type Access = DeviceAccess;
 
 /** A computer this phone paired with, known by its core's key. */
 export type PairedDevice = {

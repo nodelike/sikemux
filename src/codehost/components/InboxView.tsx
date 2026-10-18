@@ -1,16 +1,16 @@
 import { useState } from "react";
-import { GitColumns } from "../../git/GitColumns";
 import { notify, openUrl, reportError, swallow } from "../../plugin-api/host";
 import { invalidate, useResourceEnabled } from "../../plugin-api/resources";
-import { Checkbox, EmptyState, IconCheck, SkeletonRows } from "../../plugin-api/ui";
+import { Checkbox, EmptyState, IconCheck, SkeletonRows, StaleNotice } from "../../plugin-api/ui";
 import { failureMessage, type Notification, type RepoRef } from "../api";
-import { inboxR } from "../resources";
+import { hostStatusR, inboxR } from "../resources";
 import { useAccount, useHost } from "../registry";
 import { useBusy } from "./hooks";
 import { useNow } from "../../plugin-api/hooks";
 import { IssueDetail } from "./IssuesView";
 import { PullRight, type PullTab } from "./PullsView";
 import { formatAgo } from "../../lib/format";
+import "../codehost.css";
 
 const REASON: Record<string, string> = {
     review_requested: "Review requested",
@@ -47,8 +47,10 @@ function Row({ item, now, on, onOpen }: { item: Notification; now: number; on: b
 }
 
 /** A pull request or an issue reads in full, whichever repository it is in; anything else opens on the host. */
-function NotificationRight({ item, login, active }: { item: Notification; login: string | null; active: boolean }) {
+export function InboxDetail({ item, active }: { item: Notification; active: boolean }) {
     const host = useHost();
+    const account = useAccount();
+    const login = useResourceEnabled(active, hostStatusR, host.id, account).data?.login ?? null;
     const [tab, setTab] = useState<PullTab>("conversation");
     const [owner, name] = item.repo.split("/");
     const repo: RepoRef = { provider: host.id, owner, name };
@@ -69,11 +71,7 @@ function NotificationRight({ item, login, active }: { item: Notification; login:
         );
     }
     if (item.number !== null && item.kind === "Issue") {
-        return (
-            <div className="issue-page">
-                <IssueDetail repo={repo} number={item.number} active={active} />
-            </div>
-        );
+        return <IssueDetail repo={repo} number={item.number} active={active} />;
     }
     return (
         <EmptyState
@@ -89,15 +87,16 @@ function NotificationRight({ item, login, active }: { item: Notification; login:
 }
 
 interface Props {
-    paneId: string;
-    login: string | null;
+    /** The notification open beside the list. */
+    shownId: string | null;
+    onOpen: (item: Notification) => void;
     active: boolean;
 }
 
-export function InboxView({ paneId, login, active }: Props) {
+/** The signed-in account's notifications, newest first; opening an unread one marks it read. */
+export function InboxList({ shownId, onOpen, active }: Props) {
     const host = useHost();
     const [all, setAll] = useState(false);
-    const [shown, setShown] = useState<Notification | null>(null);
     const account = useAccount();
     const inbox = useResourceEnabled(active, inboxR, host.id, account, all);
     const now = useNow(false);
@@ -108,7 +107,7 @@ export function InboxView({ paneId, login, active }: Props) {
 
     const refresh = () => invalidate((kind) => kind === "host.inbox");
     const open = (item: Notification) => {
-        setShown(item);
+        onOpen(item);
         if (!item.unread) return;
         void host.api.markRead(account, item.id).then(refresh).catch(swallow("mark it read"));
     };
@@ -123,44 +122,38 @@ export function InboxView({ paneId, login, active }: Props) {
                 .catch(reportError("Could not clear the inbox")),
         );
 
-    const left =
-        inbox.status === "loading" && !inbox.data ? (
-            <SkeletonRows rows={8} label="Loading notifications" />
-        ) : inbox.error ? (
+    if (inbox.status === "loading" && !inbox.data) return <SkeletonRows rows={8} label="Loading notifications" />;
+    if (inbox.error && !inbox.data) {
+        return (
             <EmptyState
                 title="Could not read notifications"
                 message={failureMessage(inbox.error)}
                 tone="error"
                 action={{ label: "Try again", onClick: () => void inbox.refresh() }}
             />
-        ) : (
-            <div className="gha-list pr-list">
-                <div className="gha-list-head">
-                    <Checkbox checked={all} onChange={setAll}>
-                        Include read
-                    </Checkbox>
-                    <span className="gha-dim">
-                        {unread} unread
-                        {unread > 0 && (
-                            <button type="button" className="gha-link" disabled={busy} onClick={readEverything}>
-                                Mark all read
-                            </button>
-                        )}
-                    </span>
-                </div>
-                {rows.length === 0 ? (
-                    <EmptyState icon={<IconCheck size={20} />} title="Nothing waiting" message="No notifications." />
-                ) : (
-                    rows.map((item) => <Row key={item.id} item={item} now={now} on={item.id === shown?.id} onOpen={() => open(item)} />)
-                )}
-            </div>
         );
-
-    const right = shown ? (
-        <NotificationRight key={shown.id} item={shown} login={login} active={active} />
-    ) : (
-        <EmptyState icon={<IconCheck size={20} />} message="Pick a notification to read it." />
+    }
+    return (
+        <div className="gha-list pr-list">
+            <StaleNotice handle={inbox} />
+            <div className="gha-list-head">
+                <Checkbox checked={all} onChange={setAll}>
+                    Include read
+                </Checkbox>
+                <span className="gha-dim">
+                    {unread} unread
+                    {unread > 0 && (
+                        <button type="button" className="gha-link" disabled={busy} onClick={readEverything}>
+                            Mark all read
+                        </button>
+                    )}
+                </span>
+            </div>
+            {rows.length === 0 ? (
+                <EmptyState icon={<IconCheck size={20} />} title="Nothing waiting" message="No notifications." />
+            ) : (
+                rows.map((item) => <Row key={item.id} item={item} now={now} on={item.id === shownId} onOpen={() => open(item)} />)
+            )}
+        </div>
     );
-
-    return <GitColumns paneId={paneId} left={left} right={<div className="git-right-review">{right}</div>} />;
 }

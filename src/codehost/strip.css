@@ -1,9 +1,11 @@
-/* The git pane's one navigation: a slim column of icons down the pane's left edge. */
+/* The git pane's one navigation: a header across the top that names every screen. */
 .git-shell {
     display: flex;
+    flex-direction: column;
     flex: 1 1 auto;
     min-height: 0;
     width: 100%;
+    container: git-shell / inline-size;
 }
 .git-shell-main {
     display: flex;
@@ -17,84 +19,63 @@
     height: auto;
     min-height: 0;
 }
-.git-rail {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: var(--space-1);
-    flex: 0 0 auto;
-    width: 44px;
-    padding: var(--space-2) 0;
-    border-right: 1px solid var(--border);
-    background: var(--s-sunken);
+
+.git-nav-signin {
+    height: 28px;
+    padding: 0 10px;
+    gap: var(--space-1h);
 }
-.git-rail-btn {
+.git-nav-account {
     position: relative;
+    display: flex;
+    flex: none;
+}
+.git-nav-avatar {
     display: grid;
     place-items: center;
-    width: 32px;
-    height: 32px;
+    width: 28px;
+    height: 28px;
+    padding: 0;
     border: 1px solid transparent;
+    border-radius: var(--radius-full);
     background: none;
     color: var(--text-tertiary);
     cursor: pointer;
-    transition:
-        color var(--dur-1),
-        background var(--dur-1);
 }
-.git-rail-btn:hover {
-    background: var(--surface-hover);
+.git-nav-avatar:hover {
+    border-color: var(--border-strong);
     color: var(--text-secondary);
 }
-.git-rail-btn[data-on="1"] {
-    border-color: var(--border-selected);
-    background: var(--surface-selected);
-    color: var(--acc);
-}
-.git-rail-btn:focus-visible {
+.git-nav-avatar:focus-visible {
     box-shadow: var(--focus-ring);
     outline: none;
 }
-.git-rail-count {
-    position: absolute;
-    top: -3px;
-    right: -4px;
-    min-width: 15px;
-    height: 15px;
-    padding: 0 4px;
+.git-nav-avatar .gha-avatar {
+    width: 24px;
+    height: 24px;
     border-radius: var(--radius-full);
-    display: grid;
-    place-items: center;
     background: var(--gray-400);
-    color: var(--text-primary);
-    font-family: var(--mono);
-    font-size: 9px;
-    line-height: 1;
 }
-.git-rail-sep {
+.git-side-title .git-nav-avatar {
+    width: 24px;
+    height: 24px;
+}
+.git-side-title .git-nav-avatar .gha-avatar {
     width: 20px;
-    height: 1px;
-    margin: var(--space-1) 0;
-    background: var(--border);
+    height: 20px;
 }
-.git-rail-foot {
-    position: relative;
-    margin-top: auto;
+.git-side-title .git-nav-signin {
+    height: 26px;
 }
-.git-rail-account .gha-avatar {
-    width: 22px;
-    height: 22px;
-    border-radius: var(--radius-full);
-    background: var(--gray-400);
-}
-.git-rail-menu {
+.git-nav-menu {
     position: absolute;
-    left: calc(100% + 6px);
-    bottom: 0;
-    top: auto;
+    top: calc(100% + 6px);
+    right: 0;
+    bottom: auto;
+    left: auto;
     min-width: 230px;
 }
-.git-rail-repo {
+.git-nav-repo {
     margin-top: 2px;
     font-family: var(--mono);
     color: var(--text-secondary);
@@ -136,7 +117,7 @@
     height: 18px;
     padding: 0 var(--space-1h);
     border: 1px solid color-mix(in oklab, var(--live) 34%, transparent);
-    border-radius: var(--radius-full);
+    border-radius: var(--radius-2);
     background: color-mix(in oklab, var(--live) 10%, transparent);
     color: var(--live);
     font: inherit;

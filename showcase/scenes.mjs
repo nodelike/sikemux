@@ -10,6 +10,77 @@ const openWindow = (page, sessionId, windowId) =>
     [sessionId, windowId],
   );
 
+/* The composer's tag menu over the demo repo's open issues and pull requests. `loading` holds them back. */
+const composerScene = async (page, write, { loading = false } = {}) => {
+  await openWindow(page, "s-sikemux", "w-tab-rail");
+  await run(
+    page,
+    ({ loading }) => {
+      const backend = showcase.backend;
+      const base = backend.handlers.get("plugin_call");
+      const template = base({ plugin: "sikemux.github", method: "pulls", params: { state: "open" } })[0];
+      const ago = (minutes) => new Date(Date.now() - minutes * 60_000).toISOString();
+      const url = (kind, number) => `https://github.com/nodelike/sikemux/${kind}/${number}`;
+      const issue = (number, title, minutes) => ({
+        number,
+        title,
+        body: "",
+        state: "open",
+        stateReason: null,
+        author: "nodelike",
+        avatarUrl: null,
+        createdAt: ago(minutes),
+        updatedAt: ago(minutes),
+        closedAt: null,
+        comments: 0,
+        labels: [],
+        assignees: [],
+        url: url("issues", number),
+      });
+      const pull = (number, title, minutes, draft = false) => ({
+        ...template,
+        number,
+        title,
+        draft,
+        createdAt: ago(minutes),
+        updatedAt: ago(minutes),
+        url: url("pull", number),
+      });
+      const issues = [
+        issue(135, "Agents: a draft survives switching between GUI and TUI", 40),
+        issue(133, "Composer: tag issues, pull requests, agents and files inline", 90),
+        issue(115, "Epic: desktop UI on GPUI for speed and memory", 600),
+        issue(110, "Phone: hold sends while disconnected and say when the phone is the one offline", 900),
+      ];
+      const pulls = [
+        pull(136, "feat(chat): a draft survives switching an agent between its chat and its TUI", 30),
+        pull(134, "feat(agents): Sign in from Settings and the agent palette", 200, true),
+        pull(131, "fix(rail): picking an account switches its chats too", 400),
+      ];
+      const never = new Promise(() => {});
+      backend.on("plugin_call", (args) => {
+        if (args.plugin === "sikemux.github" && args.method === "issues")
+          return loading ? never : { issues, total: issues.length, nextPage: null };
+        if (args.plugin === "sikemux.github" && args.method === "pulls")
+          return loading ? never : args.params?.state === "closed" ? [] : pulls;
+        return base(args);
+      });
+    },
+    { loading },
+  );
+  const box = page.locator('[role="textbox"][aria-label="Message agent"]:visible').first();
+  await box.click();
+  await write(box);
+  await page.waitForTimeout(500);
+};
+
+const composerCrop = {
+  composer: {
+    selector: ".agent-chat-pane",
+    region: { left: 0, top: 0.6, width: 1, height: 0.4 },
+  },
+};
+
 export const README_SCREENSHOTS = {
   "hero-framed": "sikemux-hero.png",
   "files-focus": "project-editor-view.png",
@@ -52,7 +123,7 @@ export const SCENES = [
     name: "agents-all-projects",
     settle: 1200,
     setup: async (page) => {
-      await openWindow(page, "s-sikemux", "w-agent-rail");
+      await openWindow(page, "s-sikemux", "w-tab-rail");
       await run(page, () => {
         const state = (kind, minutesAgo) => ({
           state: kind,
@@ -65,11 +136,11 @@ export const SCENES = [
           confidence: "high",
           reason: "",
         });
-        showcase.cmd.setAgentRailAllAgents(true);
-        showcase.cmd.setAgentRailScope("all");
+        showcase.cmd.setTabRailAllAgents(true);
+        showcase.cmd.setTabRailScope("all");
         showcase.store.setState({
           agentActivity: {
-            "agent-rail": state("working", 0),
+            "tab-rail": state("working", 0),
             "agent-replay": state("blocked", 3),
             "agent-hero": state("done", 12),
             "agent-palette": state("working", 1),
@@ -127,7 +198,7 @@ export const SCENES = [
   {
     name: "command-deck",
     setup: async (page) => {
-      await openWindow(page, "s-sikemux", "w-agent-rail");
+      await openWindow(page, "s-sikemux", "w-tab-rail");
       await run(page, () => showcase.cmd.openCommandPalette());
     },
     crops: { deck: "[role=dialog]" },
@@ -202,6 +273,35 @@ export const SCENES = [
         region: { left: 0.1486, top: 0.0019, width: 0.8500, height: 0.5205 },
       },
     },
+  },
+  {
+    name: "jira",
+    settle: 1400,
+    setup: async (page) => {
+      await openWindow(page, "s-jira", "w-jira");
+      await page.waitForTimeout(500);
+      await run(page, async () => {
+        const jira = await import("/src/plugins/jira/state.ts");
+        jira.updateJiraView("p-jira", { list: { kind: "mine" }, issue: "ORB-212" });
+      });
+    },
+    crops: { stage: ".stage" },
+  },
+  {
+    name: "jira-board",
+    settle: 1400,
+    setup: async (page) => {
+      await openWindow(page, "s-jira", "w-jira");
+      await page.waitForTimeout(500);
+      await run(page, async () => {
+        const jira = await import("/src/plugins/jira/state.ts");
+        jira.updateJiraView("p-jira", {
+          list: { kind: "board", id: 7, name: "Orbit board" },
+          issue: null,
+        });
+      });
+    },
+    crops: { stage: ".stage" },
   },
   {
     name: "github-run",
@@ -363,7 +463,7 @@ export const SCENES = [
   {
     name: "accounts",
     setup: async (page) => {
-      await openWindow(page, "s-sikemux", "w-agent-rail");
+      await openWindow(page, "s-sikemux", "w-tab-rail");
       await page.click(".agent-account-switch");
       await page.waitForTimeout(600);
     },
@@ -375,7 +475,85 @@ export const SCENES = [
   },
   {
     name: "projects-rail",
-    setup: (page) => openWindow(page, "s-sikemux", "w-agent-rail"),
+    setup: (page) => openWindow(page, "s-sikemux", "w-tab-rail"),
     crops: { rail: ".side-rail" },
+  },
+  ...["available", "downloading", "error"].map((state) => ({
+    name: `update-${state}`,
+    setup: async (page) => {
+      await openWindow(page, "s-sikemux", "w-tab-rail");
+      await run(
+        page,
+        (state) =>
+          showcase.store.setState({
+            pendingUpdate: {
+              version: "0.5.3-nightly.7",
+              currentVersion: "0.5.3-nightly.6",
+              notes: null,
+              date: null,
+              credits: null,
+              state,
+              error: state === "error" ? "the download was cut short" : null,
+              downloadedBytes: state === "downloading" ? 9_800_000 : 0,
+              totalBytes: state === "downloading" ? 16_000_000 : null,
+            },
+          }),
+        state,
+      );
+    },
+    crops: { rail: ".side-rail" },
+  })),
+  {
+    name: "composer-pulls",
+    setup: (page) => composerScene(page, (box) => box.pressSequentially("Land !13")),
+    crops: composerCrop,
+  },
+  {
+    name: "composer-loading",
+    setup: (page) =>
+      composerScene(page, (box) => box.pressSequentially("Fix #"), { loading: true }),
+    crops: composerCrop,
+  },
+  {
+    name: "composer-agents",
+    setup: (page) => composerScene(page, (box) => box.pressSequentially("ask @")),
+    crops: composerCrop,
+  },
+  {
+    name: "composer-buddies",
+    setup: (page) =>
+      composerScene(page, async (box) => {
+        await run(page, () => showcase.store.setState({ buddies: true }));
+        await box.pressSequentially("ask @Ma");
+        await page.waitForTimeout(400);
+        await box.press("Enter");
+        await box.pressSequentially("then @");
+      }),
+    crops: composerCrop,
+  },
+  {
+    name: "composer-files",
+    setup: (page) => composerScene(page, (box) => box.pressSequentially("check +app")),
+    crops: {
+      composer: { ...composerCrop.composer, region: { left: 0, top: 0.4, width: 1, height: 0.6 } },
+    },
+  },
+  {
+    name: "composer-tags",
+    setup: (page) =>
+      composerScene(page, async (box) => {
+        const pick = async (text) => {
+          await box.pressSequentially(text);
+          await page.waitForTimeout(400);
+          await box.press("Enter");
+        };
+        await pick("Land !13");
+        await pick("so it closes #13");
+        await pick("then ask @Ma");
+        await pick("to check +app");
+        await box.press("Backspace");
+        await box.press("Backspace");
+      }),
+    crops: composerCrop,
   },
 ];

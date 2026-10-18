@@ -9,7 +9,8 @@ export const setHome = (home: string): void => setState({ home });
 export const setLastSessionId = (id: string): void => setState({ lastSessionId: id });
 export const setTerminalTitle = (paneId: string, title: string): void =>
     setState((s) => ({ terminalTitles: { ...s.terminalTitles, [paneId]: title } }));
-export const openPicker = (mode: PickerMode = "all"): void => setState({ pickerOpen: true, pickerMode: mode });
+export const openPicker = (mode: PickerMode = "all"): void => setState({ pickerOpen: true, pickerMode: mode, pickerMovingAgentId: null });
+export const openMoveToProject = (agentId: string): void => setState({ pickerOpen: true, pickerMode: "projects", pickerMovingAgentId: agentId });
 export const closePicker = (): void => setState({ pickerOpen: false });
 // The agent picker is project-scoped and opens over the agent view.
 export const openAgentPalette = (): void => {
@@ -32,6 +33,8 @@ export const forceCloseAgentPalette = (): void => setState({ agentPaletteOpen: f
 export const openCommandPalette = (): void => setState({ commandPaletteOpen: true });
 export const closeCommandPalette = (): void => setState({ commandPaletteOpen: false });
 export const toggleCommandPalette = (): void => setState((s) => ({ commandPaletteOpen: !s.commandPaletteOpen }));
+export const openThemePalette = (): void => setState({ themePaletteOpen: true, commandPaletteOpen: false });
+export const closeThemePalette = (): void => setState({ themePaletteOpen: false });
 export const openOnboarding = (): void => setState({ onboardingOpen: true, diagnosticsOpen: false, whatsNewOpen: false });
 export const closeOnboarding = (complete = true): void => setState({ onboardingOpen: false, ...(complete ? { onboardingComplete: true } : {}) });
 export const openDiagnostics = (): void => setState({ diagnosticsOpen: true, onboardingOpen: false, whatsNewOpen: false });
@@ -53,11 +56,11 @@ export const closeSettings = (): void => setState({ settingsOpen: false });
 export const toggleSettings = (): void => setState((s) => ({ settingsOpen: !s.settingsOpen }));
 
 export const toggleSideRail = (): void => setState((s) => ({ sideRailOpen: !s.sideRailOpen }));
-export const toggleAgentRail = (): void => setState((s) => ({ agentRailOpen: !s.agentRailOpen }));
+export const toggleTabRail = (): void => setState((s) => ({ tabRailOpen: !s.tabRailOpen }));
 export const setRailWidth = (edge: RailEdge, px: number): void =>
-    setState(edge === "start" ? { sideRailWidth: clampRailWidth(edge, px) } : { agentRailWidth: clampRailWidth(edge, px) });
+    setState(edge === "start" ? { sideRailWidth: clampRailWidth(edge, px) } : { tabRailWidth: clampRailWidth(edge, px) });
 export const toggleZen = (): void =>
     setState((s) => {
         const showRails = selectFocusMode(s);
-        return { sideRailOpen: showRails, agentRailOpen: showRails };
+        return { sideRailOpen: showRails, tabRailOpen: showRails };
     });

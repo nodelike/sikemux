@@ -9,11 +9,9 @@ use serde::Serialize;
 use tauri::async_runtime::spawn_blocking;
 use tauri::{AppHandle, Emitter};
 
-use super::config::{agent_config_root, grok_root, hermes_root, omp_session_dirs};
-use super::sessions::claude::claude_project_dir;
-use super::sessions::opencode::opencode_data_dirs;
-use super::sessions::pi::pi_session_dir;
+use super::config::{agent_config_root, grok_root, hermes_root, muse_data_root, omp_session_dirs};
 use super::AgentKind;
+use sikemux_core::sessions::{claude_project_dir, opencode_data_dirs, pi_session_dir};
 
 #[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
@@ -122,6 +120,12 @@ fn agent_watch_dirs(
         AgentKind::Grok => {
             if let Some(root) = grok_root() {
                 push_existing_or_parent(&mut out, root.join("sessions"), RecursiveMode::Recursive);
+            }
+        }
+        // Muse indexes every session in one database beside the sessions.
+        AgentKind::Muse => {
+            if let Some(root) = muse_data_root() {
+                push_existing_or_parent(&mut out, root, RecursiveMode::NonRecursive);
             }
         }
     }

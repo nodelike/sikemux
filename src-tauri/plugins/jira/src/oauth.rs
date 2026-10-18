@@ -26,7 +26,11 @@ const TOKEN_URL: &str = "https://auth.atlassian.com/oauth/token";
 const SITES_URL: &str = "https://api.atlassian.com/oauth/token/accessible-resources";
 /// A site signed in through the browser is reached here, by its id, rather than at its own host.
 pub const API_URL: &str = "https://api.atlassian.com/ex/jira";
-const SCOPES: &str = "read:jira-work write:jira-work read:jira-user offline_access";
+/// Boards are Jira Software's API, which a browser sign-in reaches only through its own scopes.
+const SCOPES: &str = "read:jira-work write:jira-work read:jira-user \
+    read:board-scope:jira-software read:board-scope.admin:jira-software \
+    read:sprint:jira-software read:issue:jira-software read:project:jira \
+    read:issue-details:jira read:jql:jira read:filter:jira offline_access";
 const EXPIRY_MARGIN: Duration = Duration::from_secs(60);
 
 pub fn available() -> bool {
@@ -205,6 +209,21 @@ pub async fn access_token(site: &Site) -> JiraResult<String> {
     Ok(token)
 }
 
+/// Jira refused `rejected`, so it is dropped and a fresh one fetched. A request that
+/// already renewed it in the meantime is answered with that one rather than refreshing again.
+pub async fn renew(site: &Site, rejected: &str) -> JiraResult<String> {
+    {
+        let mut held = ACCESS.lock().await;
+        if held
+            .get(&site.account_id)
+            .is_some_and(|access| access.token == rejected)
+        {
+            held.remove(&site.account_id);
+        }
+    }
+    access_token(site).await
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -215,8 +234,9 @@ mod tests {
         let state = new_state()?;
         let url = authorize_url(&state);
         assert!(url.starts_with("https://auth.atlassian.com/authorize?audience=api.atlassian.com&"));
-        assert!(url
-            .contains("scope=read%3Ajira-work+write%3Ajira-work+read%3Ajira-user+offline_access"));
+        assert!(url.contains("scope=read%3Ajira-work+write%3Ajira-work+read%3Ajira-user+"));
+        assert!(url.contains("+read%3Aboard-scope%3Ajira-software+"));
+        assert!(url.contains("+offline_access&"));
         assert!(url.contains("redirect_uri=http%3A%2F%2Flocalhost%3A47123%2Fjira%2Fcallback"));
         assert!(url.ends_with(&format!("state={state}")));
         Ok(())

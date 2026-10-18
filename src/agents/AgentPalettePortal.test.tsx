@@ -13,7 +13,7 @@ describe("AgentPalettePortal", () => {
         render(
             <>
                 <aside data-testid="project-rail" />
-                <aside data-testid="agent-rail" />
+                <aside data-testid="tab-rail" />
                 <main className="stage" data-testid="stage" />
                 <AgentPalettePortal />
             </>,
@@ -22,6 +22,6 @@ describe("AgentPalettePortal", () => {
         const stage = screen.getByTestId("stage");
         expect(within(stage).getByTestId("agent-picker")).toBeInTheDocument();
         expect(screen.getByTestId("project-rail")).not.toContainElement(screen.getByTestId("agent-picker"));
-        expect(screen.getByTestId("agent-rail")).not.toContainElement(screen.getByTestId("agent-picker"));
+        expect(screen.getByTestId("tab-rail")).not.toContainElement(screen.getByTestId("agent-picker"));
     });
 });

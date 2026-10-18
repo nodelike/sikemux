@@ -7,6 +7,12 @@ calling the API, then asks its owner to allow the phone. The ticket only says th
 the host share an account; it never lets a phone in by itself. A host listens only while it
 is signed in: signing in turns remote access on and signing out turns it off.
 
+A host links with another host the same way. The Mac app asks the same route, with its own
+sign-in, for a ticket naming its host where the phone would be; the route signs one for the
+Mac app's sign-in only when that key is one of the account's hosts, and for a phone's only
+when it is one of its phones. The host hands it over in a `join` ask over ALPN
+`sikemux/link/1`, and the other host's owner allows the link once (ADR 0013).
+
 ## What runs
 
 | Piece               | Where                                                 |

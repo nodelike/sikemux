@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { fsapi } from "../api/fs";
-import { isImagePath, previewUrl } from "../editor/viewers/fileKinds";
-import { fileUriToPath } from "../lib/paths";
+import { previewUrl } from "../editor/viewers/fileKinds";
+import { isImagePath } from "../lib/imagePaths";
+import { useRemoteOrigin, type RemoteOrigin } from "./origin";
 
 const MAX_CACHED = 12;
 /* A preview is only ever drawn a few hundred pixels wide, so a picture bigger
@@ -90,17 +91,6 @@ function loadPreview(path: string): Promise<string | null> {
     return request;
 }
 
-export function localPath(uri: string | null | undefined): string | null {
-    if (!uri) return null;
-    if (!uri.startsWith("file://")) return uri.startsWith("/") ? uri : null;
-    return fileUriToPath(uri);
-}
-
-export function localImagePath(uri: string | null | undefined): string | null {
-    const path = localPath(uri);
-    return path && isImagePath(path) ? path : null;
-}
-
 /** What the preview cache is holding, in characters. */
 export function previewCacheBytes(): number {
     return cachedBytes;
@@ -115,14 +105,39 @@ export async function readImageSource(path: string): Promise<string | null> {
     }
 }
 
+/* Pictures from another computer, by where they came from, so two shared chats never mix theirs. */
+const remotePreviews = new WeakMap<RemoteOrigin, Map<string, string | null>>();
+
+function useRemotePreview(origin: RemoteOrigin | null, image: string | null): string | null {
+    const held = origin && image ? remotePreviews.get(origin)?.get(image) : undefined;
+    const [loaded, setLoaded] = useState<{ path: string; src: string | null } | null>(null);
+    useEffect(() => {
+        if (!origin || !image || held !== undefined) return;
+        let live = true;
+        void origin.readImage(image).then((src) => {
+            const kept = remotePreviews.get(origin) ?? new Map<string, string | null>();
+            kept.set(image, src);
+            remotePreviews.set(origin, kept);
+            if (live) setLoaded({ path: image, src });
+        });
+        return () => {
+            live = false;
+        };
+    }, [origin, image, held]);
+    if (!image) return null;
+    return held ?? (loaded?.path === image ? loaded.src : null);
+}
+
 /** Reads a local image as a data URL; null while it loads and if it cannot be shown. */
 export function useImagePreview(path: string | null): string | null {
+    const origin = useRemoteOrigin();
     const image = path && isImagePath(path) ? path : null;
+    const remote = useRemotePreview(origin, image);
     /* Read from the cache on the first render, so a row the transcript mounts
        again is drawn at its full height straight away rather than growing. */
     const [loaded, setLoaded] = useState(() => (image && previews.has(image) ? { path: image, src: previews.get(image) ?? null } : null));
     useEffect(() => {
-        if (!image) return;
+        if (!image || origin) return;
         if (previews.has(image)) {
             const src = previews.get(image) ?? null;
             setLoaded((current) => (current?.path === image && current.src === src ? current : { path: image, src }));
@@ -135,7 +150,8 @@ export function useImagePreview(path: string | null): string | null {
         return () => {
             live = false;
         };
-    }, [image]);
+    }, [image, origin]);
     if (!image) return null;
+    if (origin) return remote;
     return loaded?.path === image ? loaded.src : (previews.get(image) ?? null);
 }

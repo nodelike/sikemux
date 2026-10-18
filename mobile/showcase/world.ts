@@ -80,6 +80,8 @@ const MODELS: Record<string, unknown[]> = {
 
 export type DemoChat = {
   agentId: string;
+  /** What the host's core named the agent. */
+  name: string;
   provider: string;
   title: string;
   project: string;
@@ -89,11 +91,14 @@ export type DemoChat = {
   history: Update[];
   /** A permission the agent is waiting on, shown on the phone as a card to answer. */
   asking?: { title: string; command: string };
+  /** What it left when its last turn ended. */
+  handoff?: { answer: string; files: string[]; recording?: number };
 };
 
 export const CHATS: DemoChat[] = [
   {
     agentId: 'chat-dark-mode',
+    name: 'Otter',
     provider: 'claude',
     title: 'Add dark mode to settings',
     project: 'p-shop',
@@ -113,6 +118,7 @@ export const CHATS: DemoChat[] = [
   },
   {
     agentId: 'chat-login',
+    name: 'Maple',
     provider: 'codex',
     title: 'Fix the login form on small screens',
     project: 'p-shop',
@@ -131,7 +137,23 @@ export const CHATS: DemoChat[] = [
     ],
   },
   {
+    agentId: 'chat-login-check',
+    name: 'Wren',
+    provider: 'claude',
+    title: 'Check the login form at every phone size',
+    project: 'p-shop',
+    running: true,
+    permissionMode: 'bypass',
+    history: [
+      user('Open the login page at 320, 375 and 430 wide and tell me whether anything is cut off.'),
+      tool('fetch', 'Open the login page at 320px'),
+      say('At 320px the button fits, but the "Forgot password" link wraps under it. Checking 375 and 430 next.'),
+      tool('fetch', 'Open the login page at 375px', 'in_progress'),
+    ],
+  },
+  {
     agentId: 'chat-release',
+    name: 'Birch',
     provider: 'hermes',
     title: 'Write the release notes',
     project: 'p-site',
@@ -147,6 +169,7 @@ export const CHATS: DemoChat[] = [
   },
   {
     agentId: 'chat-refunds',
+    name: 'Flint',
     provider: 'claude',
     title: 'Add refunds to the payments API',
     project: 'p-api',
@@ -154,6 +177,181 @@ export const CHATS: DemoChat[] = [
     asleep: true,
     permissionMode: 'default',
     history: [user('Add a refunds endpoint with tests.'), say('Added `POST /refunds` with validation and six tests. All of them pass.')],
+    handoff: {
+      answer: 'Added `POST /refunds` with validation and six tests. All of them pass.',
+      files: ['src/refunds/route.ts', 'src/refunds/validate.ts', 'test/refunds.test.ts'],
+      recording: 14,
+    },
+  },
+];
+
+/** Questions agents put to the person, as the host's questions call lists them. */
+export const QUESTIONS = [
+  {
+    id: 'q-release',
+    agentId: 'chat-release',
+    name: 'Birch',
+    cli: 'hermes',
+    project: `${HOME}/marketing-site`,
+    asked: 'Should the notes call out the new prices, or leave them for the blog post?',
+    text: 'Should the notes call out the new prices, or leave them for the blog post?',
+    choices: [
+      { label: 'Call them out', detail: 'one line under Faster checkout' },
+      { label: 'Leave them', detail: 'the blog post covers them' },
+    ],
+    blocked: true,
+    assumption: null,
+    secret: false,
+    at: Date.now() - 120_000,
+    lead: null,
+    via: null,
+    passed: false,
+    ticket: 'SITE-41',
+  },
+  {
+    id: 'q-widths',
+    agentId: 'chat-login-check',
+    name: 'Wren',
+    cli: 'claude',
+    project: `${HOME}/acme-shop`,
+    asked: 'Which phone widths should I check?',
+    text: 'Which phone widths should I check?',
+    choices: [],
+    blocked: false,
+    assumption: '320, 375 and 430 points cover the phones we support',
+    secret: false,
+    at: Date.now() - 60_000,
+    lead: null,
+    via: null,
+    passed: false,
+  },
+];
+
+const card = (fields: Record<string, unknown>) => ({
+  details: '',
+  owner: null,
+  ownerName: null,
+  ownerCli: null,
+  team: null,
+  teamName: null,
+  parent: null,
+  dependsOn: [],
+  waitsOn: [],
+  createdBy: null,
+  createdByName: 'You',
+  result: null,
+  ticket: null,
+  auto: null,
+  at: Date.now() - 86_400_000,
+  updatedAt: Date.now() - 3_600_000,
+  ...fields,
+});
+
+const jira = (key: string, source: string) => ({ key, source, provider: 'jira' });
+
+/** Each project's board, as the host's boards call lists them. */
+export const BOARDS = [
+  {
+    project: `${HOME}/acme-shop`,
+    settings: {
+      auto: false,
+      slots: 3,
+      launcher: null,
+      model: null,
+      finish: 'merge',
+      check: null,
+      statuses: { progress: 'In Progress', done: 'Done' },
+    },
+    running: 0,
+    autoNote: null,
+    cards: [
+      card({
+        id: 1,
+        title: 'Dark mode in settings',
+        status: 'progress',
+        owner: 'chat-dark-mode',
+        ownerName: 'Otter',
+        ownerCli: 'claude',
+        team: 'chat-dark-mode',
+        teamName: 'Otter',
+        ticket: jira('SHOP-12', 'Story'),
+        updatedAt: Date.now() - 600_000,
+      }),
+      card({
+        id: 2,
+        title: 'Fix the login form on small phones',
+        status: 'progress',
+        owner: 'chat-login',
+        ownerName: 'Maple',
+        ownerCli: 'codex',
+        team: 'chat-login',
+        teamName: 'Maple',
+        ticket: jira('SHOP-14', 'Bug'),
+        updatedAt: Date.now() - 300_000,
+      }),
+      card({
+        id: 3,
+        title: 'Check the login form at every phone size',
+        status: 'progress',
+        owner: 'chat-login-check',
+        ownerName: 'Wren',
+        ownerCli: 'claude',
+        team: 'chat-login',
+        teamName: 'Maple',
+        parent: 2,
+        createdBy: 'chat-login',
+        createdByName: 'Maple',
+        updatedAt: Date.now() - 200_000,
+      }),
+      card({
+        id: 4,
+        title: 'Remember the theme on every device',
+        status: 'open',
+        dependsOn: [1],
+        waitsOn: [1],
+        ticket: jira('SHOP-15', 'Story'),
+      }),
+      card({
+        id: 5,
+        title: 'Move checkout totals into the order service',
+        status: 'done',
+        owner: 'chat-gone',
+        ownerName: 'Comet',
+        ownerCli: 'claude',
+        team: 'chat-gone',
+        teamName: 'Comet',
+        ticket: jira('SHOP-9', 'Story'),
+        updatedAt: Date.now() - 10_800_000,
+      }),
+    ],
+  },
+  {
+    project: `${HOME}/marketing-site`,
+    settings: {
+      auto: false,
+      slots: 3,
+      launcher: null,
+      model: null,
+      finish: 'merge',
+      check: null,
+      statuses: { progress: 'In Progress', done: 'Done' },
+    },
+    running: 0,
+    autoNote: null,
+    cards: [
+      card({
+        id: 1,
+        title: 'Release notes for this week',
+        status: 'progress',
+        owner: 'chat-release',
+        ownerName: 'Birch',
+        ownerCli: 'hermes',
+        team: 'chat-release',
+        teamName: 'Birch',
+        ticket: jira('SITE-41', 'Story'),
+      }),
+      card({ id: 2, title: 'Blog post on the new prices', status: 'open' }),
+    ],
   },
 ];
 
@@ -207,3 +405,24 @@ export function permissionPayload(chat: DemoChat): Record<string, unknown> | und
 export function setupOf(chat: DemoChat) {
   return { configOptions: MODELS[chat.provider] ?? [] };
 }
+
+const MINUTE = 60_000;
+const logged = (ago: number, from: string, to: string, kind: string, outcome: string) => ({
+  at: Date.now() - ago * MINUTE,
+  from,
+  kind,
+  to,
+  outcome,
+});
+
+/** acme-shop's log of messages between its agents, newest first. */
+export const MESSAGES = [
+  logged(1, 'chat-dark-mode', 'chat-refunds', 'message', 'steered'),
+  logged(3, 'chat-login-check', 'chat-dark-mode', 'question', 'waiting'),
+  logged(6, 'chat-login', 'chat-refunds', 'answer', 'delivered'),
+  logged(9, 'chat-refunds', 'chat-dark-mode', 'report', 'newTurn'),
+  logged(14, 'chat-login', 'chat-refunds', 'answer', 'waiting'),
+  logged(22, 'chat-dark-mode', 'chat-login-check', 'message', 'dropped'),
+  logged(31, 'chat-dark-mode', 'chat-login-check', 'message', 'waiting'),
+  logged(52, 'chat-dark-mode', 'chat-login', 'message', 'refused'),
+];

@@ -1,3 +1,7 @@
+:root {
+    --jira-blue: #7aa7f5;
+}
+
 .jira-status {
     padding: 1px 6px;
     border-radius: var(--radius-1);
@@ -9,8 +13,8 @@
 }
 
 .jira-status-indeterminate {
-    color: var(--text-primary);
-    background: color-mix(in oklab, var(--acc) 22%, transparent);
+    color: var(--jira-blue);
+    background: color-mix(in oklab, var(--jira-blue) 16%, transparent);
 }
 
 .jira-status-done {
@@ -18,22 +22,39 @@
     background: color-mix(in oklab, var(--live) 16%, transparent);
 }
 
-.jira-topbar {
-    display: inline-flex;
-    align-items: center;
-    gap: 5px;
-    padding: 2px 6px;
-    border-radius: var(--radius-2);
+.jira-key {
+    font-family: var(--mono);
     font-size: var(--text-xs);
-    color: var(--text-secondary);
 }
 
-.jira-topbar:hover {
-    color: var(--text-primary);
+/* The issue's status is the button that moves it, drawn as the same lozenge as everywhere else. */
+.dd-btn.jira-status-button {
+    width: fit-content;
+    height: 28px;
+    gap: 6px;
+    padding: 0 8px 0 10px;
+    border-color: transparent;
+    font-weight: 600;
+    color: var(--text-secondary);
     background: var(--surface-hover);
 }
 
-.jira-key {
-    font-family: var(--mono);
+.dd-btn.jira-status-button.jira-status-indeterminate {
+    color: var(--jira-blue);
+    background: color-mix(in oklab, var(--jira-blue) 16%, transparent);
+}
+
+.dd-btn.jira-status-button.jira-status-done {
+    color: var(--live);
+    background: color-mix(in oklab, var(--live) 16%, transparent);
+}
+
+.dd-btn.jira-status-button:hover:not(:disabled) {
+    filter: brightness(1.2);
+}
+
+.dd-item-label.jira-status {
+    flex: none;
+    padding: 2px 7px;
     font-size: var(--text-xs);
 }

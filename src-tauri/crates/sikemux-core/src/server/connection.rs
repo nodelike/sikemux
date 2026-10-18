@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -20,8 +20,8 @@ use super::host;
 use super::prepare::{prepare_task, prepare_terminal};
 use super::session::{self, PendingStart};
 use super::{
-    agent, attachments, chat, harness, remote, upgrade, window, workspace, Core, CoreError,
-    CoreResult,
+    agent, attachments, chat, harness, local_peer, messages, remote, upgrade, window, workspace,
+    Core, CoreError, CoreResult,
 };
 
 pub(crate) type ClientId = u64;
@@ -59,6 +59,33 @@ impl ClientConn {
     #[cfg(test)]
     pub(crate) fn set_foreground(&self, foreground: bool) {
         self.foreground.store(foreground, Ordering::Release);
+    }
+
+    /// A client inside the core, such as a shared chat's link, that reads the
+    /// frames sent to it from `frames` itself. The core does not list it, so
+    /// it hears only what it attaches to.
+    pub(crate) fn inside(
+        core: &Core,
+        peer: Peer,
+    ) -> (Arc<Self>, mpsc::UnboundedReceiver<Arc<[u8]>>) {
+        let (frames, queue) = mpsc::unbounded_channel();
+        let client = Arc::new(Self {
+            id: core.next_client_id.fetch_add(1, Ordering::Relaxed),
+            peer,
+            frames,
+            queued: AtomicUsize::new(0),
+            closed: AtomicBool::new(false),
+            kick: Notify::new(),
+            subscriptions: Mutex::new(HashSet::new()),
+            watches_view: AtomicBool::new(false),
+            foreground: AtomicBool::new(true),
+        });
+        (client, queue)
+    }
+
+    /// The reader of a client [`inside`](Self::inside) the core took a frame.
+    pub(crate) fn took(&self, bytes: usize) {
+        self.queued.fetch_sub(bytes, Ordering::AcqRel);
     }
 
     /// A client with nobody on the other end, registered with the core.
@@ -197,7 +224,7 @@ async fn handshake(
     let frame = match tokio::time::timeout(HANDSHAKE_TIMEOUT, read_frame(reader)).await {
         Ok(Ok(Some(frame))) if frame.kind == FrameKind::Control => frame,
         Ok(Ok(Some(frame))) if frame.kind == FrameKind::Frozen && peer.is_local() => {
-            upgrade::answer(core, &frame.payload, writer).await;
+            upgrade::answer(core, peer, &frame.payload, writer).await;
             return false;
         }
         _ => return false,
@@ -252,8 +279,9 @@ async fn handshake(
 }
 
 pub(crate) async fn serve_local(core: Arc<Core>, stream: UnixStream) {
+    let peer = local_peer::identify(&stream).await;
     let (read_half, write_half) = stream.into_split();
-    serve_client(core, Peer::Local, Box::new(read_half), Box::new(write_half)).await;
+    serve_client(core, peer, Box::new(read_half), Box::new(write_half)).await;
 }
 
 pub(crate) async fn serve_client(
@@ -360,11 +388,19 @@ async fn read_requests(
                     client.respond(request_id, Err(refused));
                     continue;
                 }
+                if client.peer == Peer::Local {
+                    client.respond(request_id, Err(access::APP_ONLY.into()));
+                    continue;
+                }
                 let Some(target) = core.session(id) else {
                     client.respond(request_id, Err("invalid argument: pty not found".into()));
                     continue;
                 };
                 agent::note_input(core, &target, bytes);
+                if let Some(agent) = target.agent.as_ref().filter(|_| agent::submits_line(bytes)) {
+                    core.harness.questions.typed(agent.agent_id());
+                    messages::worked(core, agent.agent_id());
+                }
                 let reply_to = client.clone();
                 session::queue_input(
                     &target,
@@ -411,6 +447,10 @@ async fn run_requests(
         }
         if let Err(refused) = core.permit(&client.peer, access::needs(&request)) {
             client.respond(request_id, Err(refused));
+            continue;
+        }
+        if client.peer == Peer::Local && access::for_person(&request, core.remote.setup()) {
+            client.respond(request_id, Err(access::APP_ONLY.into()));
             continue;
         }
         match request {
@@ -481,6 +521,7 @@ async fn run_requests(
             }
             Request::RegisterWindow => {
                 core.window.register(client.clone());
+                core.agents_changed();
                 client.respond(request_id, Ok(Response::Done));
             }
             Request::HarnessAwaitingTrust { execution_id } => {
@@ -650,7 +691,7 @@ async fn run_requests(
             }
             Request::AcpWake { agent_id } => {
                 tokio::spawn(async move {
-                    let result = workspace::wake_chat(&core, agent_id).await;
+                    let result = workspace::wake_chat(&core, Some(&client), agent_id).await;
                     client.respond(request_id, result);
                 });
             }
@@ -736,7 +777,7 @@ async fn run_requests(
             }
             Request::Call { method, params } => {
                 tokio::spawn(async move {
-                    let result = calls::call(core, &method, params).await;
+                    let result = calls::call(core, &client, &method, params).await;
                     client.respond(request_id, result.map(|result| Response::Called { result }));
                 });
             }
@@ -757,7 +798,12 @@ async fn run_requests(
                 client.respond(request_id, result.map(|()| Response::Done));
             }
             Request::AcpStop { agent_id } => {
-                core.chats.stop(&agent_id);
+                if let Some(chat) = core.chats.get(&agent_id) {
+                    core.workspaces.note_stopping(&chat);
+                }
+                if core.chats.stop(&agent_id) {
+                    core.note_agent_gone(&agent_id);
+                }
                 client.respond(request_id, Ok(Response::Done));
             }
             Request::AcpSetPermissionMode { agent_id, mode } => {
@@ -793,13 +839,6 @@ async fn run_requests(
                         status: Box::new(status),
                     }),
                 );
-            }
-            Request::PublishWorkspace {
-                projects,
-                launchers,
-            } => {
-                let result = core.workspaces.publish(projects, launchers);
-                client.respond(request_id, result.map(|()| Response::Done));
             }
             Request::PublishBackdrop { texture, image } => {
                 let result = core.workspaces.publish_backdrop(texture, image);
@@ -843,7 +882,9 @@ async fn run_requests(
             Request::SetNotifications { key_id, key, prefs } => {
                 let result = match &client.peer {
                     Peer::Device { id } => core.remote.set_notifications(id, key_id, &key, prefs),
-                    Peer::Local => Err("only a paired phone can ask for notifications".into()),
+                    Peer::App | Peer::Local | Peer::Share { .. } => {
+                        Err("only a paired phone can ask for notifications".into())
+                    }
                 };
                 if result.is_ok() {
                     remote::announce(&core);
@@ -853,7 +894,9 @@ async fn run_requests(
             Request::ClearNotifications => {
                 let result = match &client.peer {
                     Peer::Device { id } => core.remote.clear_notifications(id),
-                    Peer::Local => Err("only a paired phone has notifications to stop".into()),
+                    Peer::App | Peer::Local | Peer::Share { .. } => {
+                        Err("only a paired phone has notifications to stop".into())
+                    }
                 };
                 if result.is_ok() {
                     remote::announce(&core);
@@ -866,6 +909,7 @@ async fn run_requests(
             }
             Request::WatchView => {
                 client.watches_view.store(true, Ordering::Release);
+                core.view_watched.notify_one();
                 client.respond(request_id, Ok(Response::Done));
                 core.send_device_view(&client);
             }
@@ -1030,13 +1074,45 @@ async fn spawn(
 ) -> CoreResult<PendingStart> {
     blocking(move || {
         let mut prepared = match *target {
-            SpawnTarget::Terminal(spawn) => prepare_terminal(&launch, spawn)?,
-            SpawnTarget::Task { request } => prepare_task(&launch, request)?,
+            SpawnTarget::Terminal(mut spawn) => {
+                let folder = spawn.cwd.clone().or_else(|| {
+                    spawn
+                        .context
+                        .as_ref()
+                        .and_then(|context| context.project.clone())
+                        .filter(|project| !project.is_empty())
+                });
+                if let Some(folder) = &folder {
+                    give_agent_environment(&core, folder, &mut spawn.env);
+                }
+                let prepared = prepare_terminal(&launch, spawn)?;
+                let owner = &prepared.owner;
+                if let (Some(agent_id), Some(folder)) = (&owner.agent_id, folder) {
+                    core.name_agent(
+                        agent_id,
+                        std::path::Path::new(&folder),
+                        owner.agent_type.as_deref(),
+                        None,
+                    );
+                }
+                prepared
+            }
+            SpawnTarget::Task { mut request } => {
+                give_agent_environment(&core, &request.cwd, &mut request.env);
+                prepare_task(&launch, request)?
+            }
         };
         prepared.owner.started_by = started_by;
         session::spawn_session(&core, prepared)
     })
     .await
+}
+
+fn give_agent_environment(core: &Core, folder: &str, env: &mut HashMap<String, String>) {
+    let given = super::plugins::agent_environment(core, std::path::Path::new(folder));
+    for (key, value) in given {
+        env.entry(key).or_insert(value);
+    }
 }
 
 async fn shutdown(core: Arc<Core>, client: Arc<ClientConn>, request_id: RequestId, stop_all: bool) {

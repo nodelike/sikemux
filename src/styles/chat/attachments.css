@@ -37,7 +37,7 @@
 .chat-image-button {
     display: block;
     max-width: 100%;
-    border-radius: var(--radius-panel);
+    border-radius: var(--radius-2);
     cursor: zoom-in;
 }
 
@@ -119,6 +119,6 @@
 }
 
 .chat-attachment-file:hover {
-    border-color: var(--border-selected);
-    background: color-mix(in srgb, var(--acc) 7%, var(--void));
+    border-color: var(--border-strong);
+    background: var(--surface-hover);
 }

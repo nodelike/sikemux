@@ -31,6 +31,10 @@
     pointer-events: none;
 }
 
+.agent-surface-header button {
+    border-radius: var(--radius-full);
+}
+
 .agent-surface-name,
 .agent-surface-controls {
     display: flex;
@@ -73,19 +77,22 @@
     color: var(--ink);
     font-family: var(--ui);
     font-size: var(--text-sm);
-    font-weight: var(--weight-semibold);
+    font-weight: var(--weight-medium);
     letter-spacing: var(--tracking-tight);
     text-overflow: ellipsis;
     white-space: nowrap;
+}
+
+.agent-surface-title .agent-label-name {
+    font-size: var(--text-xs);
 }
 
 .agent-surface-menu {
     display: grid;
     place-items: center;
     flex: none;
-    width: 22px;
+    width: 24px;
     height: 24px;
-    margin-left: -2px;
     padding: 0;
     border: 1px solid transparent;
     background: transparent;
@@ -123,6 +130,7 @@
     transition:
         color 100ms,
         background 100ms;
+    border-radius: var(--radius-full);
 }
 
 .agent-view-switch button:hover:not(:disabled) {
@@ -139,16 +147,28 @@
     opacity: 0.42;
 }
 
+.agent-surface-end {
+    display: flex;
+    flex: none;
+    align-items: center;
+    gap: 6px;
+    margin-left: auto;
+}
+
 .agent-desk-open {
     display: inline-flex;
+    flex: none;
     align-items: center;
     justify-content: center;
-    width: var(--control-h);
-    height: var(--control-h);
+    width: var(--agent-pill-h);
+    height: var(--agent-pill-h);
     padding: 0;
-    border: 1px solid transparent;
-    background: transparent;
+    border: 1px solid var(--border);
+    background: color-mix(in srgb, var(--void) 62%, transparent);
+    -webkit-backdrop-filter: blur(14px) saturate(1.2);
+    backdrop-filter: blur(14px) saturate(1.2);
     color: var(--ink-faint);
+    pointer-events: auto;
     transition:
         color 100ms,
         border-color 100ms,
@@ -156,14 +176,13 @@
 }
 
 .agent-desk-open:hover {
-    background: var(--surface-hover);
+    background: linear-gradient(var(--surface-hover), var(--surface-hover)), color-mix(in srgb, var(--void) 62%, transparent);
     color: var(--text-primary);
 }
 
 .agent-desk-open[aria-pressed="true"] {
-    border-color: var(--border-selected);
-    background: var(--surface-selected);
-    color: var(--acc);
+    background: linear-gradient(var(--surface-chosen), var(--surface-chosen)), color-mix(in srgb, var(--void) 62%, transparent);
+    color: var(--text-primary);
 }
 
 .yolo-toggle {

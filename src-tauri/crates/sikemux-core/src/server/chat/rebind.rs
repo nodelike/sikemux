@@ -2,6 +2,7 @@
 //! own ran out of usage, or after a sign-in, with the prompt that failed sent
 //! again once the agent is back.
 
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 use crate::acp::account::{self, SignIn};
@@ -9,17 +10,23 @@ use crate::acp::SessionEnd;
 use crate::protocol::{ChatAccount, ChatContext, ChatLaunch};
 
 use super::super::connection::ClientId;
+use super::super::Core;
+use super::Chat;
 
 /// How a connection ended: the chat's session is over, or its agent is to be
 /// started again under it.
 pub(super) enum Outcome {
     Ended(SessionEnd),
     Rebind(Box<Rebind>),
+    /// The agent was let go of, still running, for a core that replaces
+    /// this one to take up.
+    Released,
 }
 
 /// A prompt to send again once the agent is back.
-#[derive(Clone)]
-pub(super) struct Replay {
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct Replay {
     /// Who sent it, while nobody else has been told it was sent.
     pub announce: Option<ClientId>,
     pub message_id: Option<String>,
@@ -86,6 +93,32 @@ pub(super) fn on_account(provider: &str, launch: &ChatLaunch, account: &ChatAcco
         }
     }
     moved
+}
+
+/// Names, from the accounts the core keeps, the account `launch` runs on and
+/// the person's others it may move to, where the launch does not say.
+pub(super) fn name_accounts(core: &Core, launch: &mut ChatLaunch) {
+    if !launch.fallbacks.is_empty() {
+        return;
+    }
+    let Some(book) = core.workspaces.accounts() else {
+        return;
+    };
+    let folder = account::directory_variable(&launch.provider)
+        .and_then(|variable| launch.env.get(variable))
+        .map(String::as_str);
+    let (current, others) = book.chat_accounts(&launch.provider, folder);
+    launch.account = launch.account.take().or(current);
+    launch.fallbacks = others;
+}
+
+/// Whether the person lets a chat of this agent move to another account
+/// when its own runs out of usage.
+pub(super) fn switches_at_limit(chat: &Chat) -> bool {
+    chat.core
+        .upgrade()
+        .and_then(|core| core.workspaces.accounts())
+        .is_some_and(|book| book.auto_switch.get(chat.provider()) == Some(&true))
 }
 
 /// The first account to move to that has usage left to try and is signed in.

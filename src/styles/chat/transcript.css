@@ -69,6 +69,74 @@
     font-size: calc(13.5px * var(--chat-text-em, 1));
 }
 
+.chat-message.agent-letter {
+    padding-top: 17px;
+    padding-bottom: 10px;
+}
+
+.chat-letter-from,
+.chat-ask-who {
+    display: flex;
+    align-items: center;
+    color: var(--ink-dim);
+    font-size: var(--text-2xs);
+}
+
+.chat-letter-from {
+    gap: 8px;
+    margin-bottom: 4px;
+    line-height: 1.4;
+}
+
+.chat-ask-who {
+    gap: 7px;
+    height: 22px;
+    margin-bottom: 2px;
+}
+
+.chat-letter-from b,
+.chat-ask-who b {
+    color: var(--ink);
+    font-weight: 600;
+}
+
+.chat-letter-from > .agent-glyph,
+.chat-ask-who > .agent-glyph {
+    flex: none;
+}
+
+.chat-letter-rule {
+    flex: 1;
+    height: 1px;
+    background: var(--line);
+}
+
+.chat-message.agent-letter .chat-markdown + .chat-letter-from {
+    margin-top: 14px;
+}
+
+.chat-ask-text {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+
+.chat-ask-answered {
+    margin-top: 6px;
+    color: var(--ink-dim);
+    font-size: var(--text-xs);
+}
+
+.chat-ask-answer {
+    color: var(--ink);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+
+.chat-letter-answer + .chat-letter-from,
+.chat-markdown + .chat-letter-answer {
+    margin-top: 14px;
+}
+
 .chat-message-content {
     flex: 1 1 auto;
     min-width: 0;
@@ -77,6 +145,17 @@
     line-height: 1.65;
     user-select: text;
     cursor: auto;
+}
+
+/* The row's own padding is the gap between messages, so a thought or tool line
+   at either end of one does not add its margin to it. */
+.chat-message-content > .chat-thought:first-child,
+.chat-message-content > .chat-tools:first-child {
+    margin-top: 0;
+}
+.chat-message-content > .chat-thought:last-child,
+.chat-message-content > .chat-tools:last-child {
+    margin-bottom: 0;
 }
 
 /* A strip that appeared on hover would resize the row under the pointer, so
@@ -107,60 +186,6 @@
     width: 24px;
     height: 24px;
     color: var(--ink-dim);
-}
-
-.chat-message-editor {
-    display: flex;
-    flex-direction: column;
-    align-items: flex-end;
-    gap: 8px;
-    width: 80%;
-    margin-left: auto;
-}
-
-.chat-message-editor textarea {
-    box-sizing: border-box;
-    width: 100%;
-    max-height: 320px;
-    padding: 8px 12px;
-    border: 1px solid var(--acc-line);
-    border-radius: var(--radius-3);
-    background: color-mix(in srgb, var(--rail-2) 72%, transparent);
-    color: var(--ink);
-    font: inherit;
-    font-size: calc(13.5px * var(--chat-text-em, 1));
-    line-height: 1.65;
-    resize: none;
-    outline: none;
-}
-
-.chat-message-editor-actions {
-    display: flex;
-    gap: 8px;
-}
-
-.chat-message-editor-actions button {
-    height: 26px;
-    padding: 0 11px;
-    border: 1px solid var(--line);
-    background: var(--rail-2);
-    color: var(--ink-dim);
-    font-size: calc(10.5px * var(--chat-text-em, 1));
-}
-
-.chat-message-editor-actions button:hover:not(:disabled) {
-    border-color: var(--acc-line);
-    color: var(--ink);
-}
-
-.chat-message-editor-actions button.primary {
-    border-color: var(--acc-line);
-    background: color-mix(in srgb, var(--acc) 18%, transparent);
-    color: var(--ink);
-}
-
-.chat-message-editor-actions button:disabled {
-    opacity: 0.45;
 }
 
 .chat-message-time {
@@ -221,7 +246,7 @@
 
 .chat-markdown :not(pre) > code {
     padding: 1px 4px;
-    border-radius: var(--radius-xs);
+    border-radius: var(--radius-1);
     background: var(--acc-soft);
     color: color-mix(in srgb, var(--acc) 74%, var(--ink));
     font-size: 0.88em;
@@ -329,8 +354,9 @@
 
 .chat-table {
     overflow-x: auto;
-    border: 1px solid var(--border, var(--line));
+    border: 1px solid color-mix(in srgb, var(--line) 80%, transparent);
     border-radius: var(--radius-2);
+    background: color-mix(in srgb, var(--rail-2) 72%, transparent);
 }
 
 .chat-table table {
@@ -359,12 +385,10 @@
     border-bottom: 0;
 }
 
-/* The band is an ink tint, not a dark wash: the pane is transparent, and a
-   wash only reads as a header on the nights the wallpaper is dark. The label
-   keeps a step below the cells — the uppercase tracking costs legibility, so
-   it stays a size the reader can still take in. */
+/* The label keeps a step below the cells: the uppercase tracking costs
+   legibility, so it stays a size the reader can still take in. */
 .chat-table th {
-    background: color-mix(in oklab, var(--ink) 6%, transparent);
+    background: color-mix(in oklab, var(--ink) 4%, transparent);
     border-bottom-color: color-mix(in oklab, var(--ink) 18%, transparent);
     color: var(--text-secondary, var(--ink));
     font-size: var(--text-xs);
@@ -477,11 +501,17 @@
     display: block;
     height: 1px;
     margin-top: 4px;
-    background: var(--line);
+    background: color-mix(in oklab, var(--ink) 14%, transparent);
 }
 
-.chat-work-calls {
-    color: var(--ink-faint);
+.chat-work-mark {
+    display: grid;
+    flex: none;
+}
+
+.chat-work .chat-tools-sum {
+    color: color-mix(in oklab, var(--ink) 60%, var(--ink-dim));
+    font-weight: var(--weight-medium);
 }
 
 .chat-work-dot {
@@ -501,4 +531,30 @@
 
 .chat-plan[open] summary {
     margin-bottom: 8px;
+}
+
+.chat-earlier {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-2);
+    min-height: 1px;
+    padding: var(--space-1) 0 var(--space-3);
+    color: var(--text-tertiary);
+    font-family: var(--ui);
+    font-size: var(--text-xs);
+}
+
+.chat-earlier button {
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--text-secondary);
+    font: inherit;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+}
+
+.chat-earlier button:hover {
+    color: var(--text-primary);
 }

@@ -3,72 +3,106 @@
         {
             "type": "claude",
             "label": "Claude",
+            "about": "Anthropic's coding agent",
             "command": "claude",
             "brand": "#d97757",
             "accounts": true,
             "usage": true,
             "deletableChats": true,
-            "bypass": true
+            "bypass": true,
+            "install": "curl -fsSL https://claude.ai/install.sh | bash",
+            "login": ["auth", "login"]
         },
         {
             "type": "codex",
             "label": "Codex",
+            "about": "OpenAI's coding agent",
             "command": "codex",
             "brand": "#7a9dff",
             "accounts": true,
             "usage": true,
             "deletableChats": true,
-            "bypass": true
+            "bypass": true,
+            "install": "curl -fsSL https://chatgpt.com/codex/install.sh | sh",
+            "login": ["login"]
         },
         {
             "type": "hermes",
             "label": "Hermes",
+            "about": "Nous Research's coding agent",
             "command": "hermes",
             "brand": "#e0a050",
             "accounts": false,
             "usage": false,
             "deletableChats": false,
-            "bypass": true
+            "bypass": true,
+            "install": "curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash",
+            "login": ["model"]
         },
         {
             "type": "pi",
             "label": "Pi",
+            "about": "A minimal terminal coding agent",
             "command": "pi",
             "brand": "#7dd3fc",
             "accounts": false,
             "usage": false,
             "deletableChats": false,
-            "bypass": false
+            "bypass": false,
+            "install": "curl -fsSL https://pi.dev/install.sh | sh",
+            "login": null
         },
         {
             "type": "opencode",
             "label": "OpenCode",
+            "about": "An open-source agent for many model providers",
             "command": "opencode",
             "brand": "#a78bfa",
             "accounts": false,
             "usage": false,
             "deletableChats": false,
-            "bypass": false
+            "bypass": false,
+            "install": "curl -fsSL https://opencode.ai/install | bash",
+            "login": ["auth", "login"]
         },
         {
             "type": "omp",
             "label": "OMP",
+            "about": "oh-my-pi, a terminal coding agent",
             "command": "omp",
             "brand": "#f97316",
             "accounts": false,
             "usage": false,
             "deletableChats": false,
-            "bypass": true
+            "bypass": true,
+            "install": "curl -fsSL https://omp.sh/install | sh",
+            "login": ["login"]
         },
         {
             "type": "grok",
             "label": "Grok",
+            "about": "xAI's coding agent",
             "command": "grok",
             "brand": "#fcfcfc",
             "accounts": false,
             "usage": false,
             "deletableChats": false,
-            "bypass": true
+            "bypass": true,
+            "install": "curl -fsSL https://x.ai/cli/install.sh | bash",
+            "login": ["login"]
+        },
+        {
+            "type": "muse",
+            "label": "Muse",
+            "about": "Meta's coding agent",
+            "command": "muse",
+            "brand": "#0081fb",
+            "accounts": false,
+            "usage": false,
+            "deletableChats": false,
+            "bypass": true,
+            "install": null,
+            "login": null
         }
     ]
 }

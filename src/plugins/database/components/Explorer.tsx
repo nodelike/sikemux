@@ -1,6 +1,22 @@
 import { useState, type MouseEvent, type ReactNode } from "react";
 import { useResourceEnabled } from "../../../plugin-api/resources";
-import { ContextMenu, IconChevron, IconFolder, type ContextMenuItem } from "../../../plugin-api/ui";
+import {
+    ContextMenu,
+    IconChevron,
+    IconClock,
+    IconCode,
+    IconCopy,
+    IconEye,
+    IconFile,
+    IconFolder,
+    IconInfo,
+    IconPencil,
+    IconPlug,
+    IconPlus,
+    IconPower,
+    IconRefresh,
+    type ContextMenuItem,
+} from "../../../plugin-api/ui";
 import { failureMessage, type Connected, type DatabaseProfile, type DatabaseTable } from "../api";
 import { addressOf, defaultSchema, engineLabel } from "../profileForm";
 import { databaseSchemasR, databaseTableR, databaseTablesR } from "../resources";
@@ -147,14 +163,16 @@ function ConnectionNode({ profile, connected, tree }: { profile: DatabaseProfile
         else if (!connecting) void connect();
     };
     const items: ContextMenuItem[] = [
-        connected ? { label: "Disconnect", run: () => void tree.actions.disconnect(profile) } : { label: "Connect", run: () => void connect() },
-        { label: "New console", disabled: !connected, run: () => tree.actions.newConsole(profile) },
-        { label: "History", run: () => tree.actions.history(profile) },
-        { label: "Refresh", disabled: !connected, run: () => tree.actions.refresh(profile) },
+        connected
+            ? { label: "Disconnect", icon: <IconPower size={13} />, run: () => void tree.actions.disconnect(profile) }
+            : { label: "Connect", icon: <IconPlug size={13} />, run: () => void connect() },
+        { label: "New console", icon: <IconPlus size={13} />, disabled: !connected, run: () => tree.actions.newConsole(profile) },
+        { label: "History", icon: <IconClock size={13} />, run: () => tree.actions.history(profile) },
+        { label: "Refresh", icon: <IconRefresh size={13} />, disabled: !connected, run: () => tree.actions.refresh(profile) },
         { sep: true },
-        { label: "Properties", run: () => tree.actions.properties(profile) },
-        { label: "Edit connection…", run: () => tree.actions.edit(profile) },
-        { label: "Copy name", run: () => tree.actions.copy(profile.name, "name") },
+        { label: "Properties", icon: <IconInfo size={13} />, run: () => tree.actions.properties(profile) },
+        { label: "Edit connection…", icon: <IconPencil size={13} />, run: () => tree.actions.edit(profile) },
+        { label: "Copy name", icon: <IconCopy size={13} />, run: () => tree.actions.copy(profile.name, "name") },
     ];
 
     return (
@@ -220,9 +238,9 @@ function SchemaNode({ profile, schema, tree }: { profile: DatabaseProfile; schem
                 onClick={() => tree.onToggle(key)}
                 onContextMenu={(event) =>
                     tree.menu(event, [
-                        { label: "New console", run: () => tree.actions.newConsole(profile) },
-                        { label: "Refresh", run: () => tree.actions.refresh(profile) },
-                        { label: "Copy name", run: () => tree.actions.copy(schema, "schema name") },
+                        { label: "New console", icon: <IconPlus size={13} />, run: () => tree.actions.newConsole(profile) },
+                        { label: "Refresh", icon: <IconRefresh size={13} />, run: () => tree.actions.refresh(profile) },
+                        { label: "Copy name", icon: <IconCopy size={13} />, run: () => tree.actions.copy(schema, "schema name") },
                     ])
                 }
             />
@@ -312,13 +330,21 @@ function TableNode({ profile, schema, table, tree }: { profile: DatabaseProfile;
                 onDoubleClick={() => actions.queryTable(profile, schema, table.name, true)}
                 onContextMenu={(event) =>
                     tree.menu(event, [
-                        { label: "Open", run: () => actions.openTable(profile, schema, table.name) },
-                        { label: "Preview rows", run: () => actions.queryTable(profile, schema, table.name, true) },
-                        { label: "Query this table", run: () => actions.queryTable(profile, schema, table.name, false) },
-                        { label: open ? "Hide columns" : "Show columns", run: () => tree.onToggle(key) },
+                        { label: "Open", icon: <IconFile size={13} />, run: () => actions.openTable(profile, schema, table.name) },
+                        { label: "Preview rows", icon: <IconEye size={13} />, run: () => actions.queryTable(profile, schema, table.name, true) },
+                        {
+                            label: "Query this table",
+                            icon: <IconCode size={13} />,
+                            run: () => actions.queryTable(profile, schema, table.name, false),
+                        },
+                        { label: open ? "Hide columns" : "Show columns", icon: <IconChevron size={13} />, run: () => tree.onToggle(key) },
                         { sep: true },
-                        { label: "Copy name", run: () => actions.copy(table.name, "table name") },
-                        { label: "Copy qualified name", run: () => actions.copy(`${schema}.${table.name}`, "qualified name") },
+                        { label: "Copy name", icon: <IconCopy size={13} />, run: () => actions.copy(table.name, "table name") },
+                        {
+                            label: "Copy qualified name",
+                            icon: <IconCopy size={13} />,
+                            run: () => actions.copy(`${schema}.${table.name}`, "qualified name"),
+                        },
                     ])
                 }
             />
@@ -347,7 +373,9 @@ function ColumnNodes({ profile, schema, table, tree }: { profile: DatabaseProfil
                             detail={<span className="db-node-type">{column.type}</span>}
                             title={`${column.name} ${column.type}${column.nullable ? "" : " not null"}${column.primaryKey ? ", primary key" : ""}`}
                             onContextMenu={(event) =>
-                                tree.menu(event, [{ label: "Copy name", run: () => tree.actions.copy(column.name, "column name") }])
+                                tree.menu(event, [
+                                    { label: "Copy name", icon: <IconCopy size={13} />, run: () => tree.actions.copy(column.name, "column name") },
+                                ])
                             }
                         />
                     </li>

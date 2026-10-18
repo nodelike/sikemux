@@ -1,0 +1,457 @@
+use std::fs;
+use std::io::{BufRead, BufReader};
+use std::path::{Path, PathBuf};
+
+use rayon::prelude::*;
+use serde_json::Value;
+
+use super::recent::{Found, Hit, Listed, PageScan};
+use super::rename::append_line;
+use super::roots::agent_config_root;
+use super::search::Prose;
+use super::AgentSession;
+use super::{
+    cached_title, condense, push_texts, read_prefix, read_suffix, stamped_transcripts,
+    text_from_content, title_cache_stamp, FileCache, TitleCacheStamp,
+    MAX_AGENT_TRANSCRIPTS_INSPECTED,
+};
+
+// ---- claude — ~/.claude/projects/<cwd-dashed>/<uuid>.jsonl --------------
+const MAX_PROJECT_DIR_NAME: usize = 200;
+
+/// Claude Code turns every character of the cwd that is not an ASCII letter or digit into
+/// `-`, counting UTF-16 units, and cuts names past 200 characters before adding a hash.
+pub fn claude_project_dir(root: &Path, cwd: &str) -> PathBuf {
+    let projects = root.join("projects");
+    let mut name = String::new();
+    for c in cwd.chars() {
+        if c.is_ascii_alphanumeric() {
+            name.push(c);
+        } else {
+            name.extend(std::iter::repeat_n('-', c.len_utf16()));
+        }
+    }
+    if name.len() <= MAX_PROJECT_DIR_NAME {
+        return projects.join(name);
+    }
+    let prefix = format!("{}-", &name[..MAX_PROJECT_DIR_NAME]);
+    fs::read_dir(&projects)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|entry| entry.path())
+        .find(|path| {
+            path.file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| name.starts_with(&prefix))
+        })
+        .unwrap_or_else(|| projects.join(prefix))
+}
+
+/// A session's transcript, looked up in its project's folder first and then in every project.
+pub(crate) fn claude_transcript(root: &Path, cwd: &str, session_id: &str) -> PathBuf {
+    let file_name = format!("{session_id}.jsonl");
+    let expected = claude_project_dir(root, cwd).join(&file_name);
+    if expected.is_file() {
+        return expected;
+    }
+    fs::read_dir(root.join("projects"))
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|entry| entry.path().join(&file_name))
+        .find(|path| path.is_file())
+        .unwrap_or(expected)
+}
+
+pub(super) fn claude_sessions(cwd: &str, config_path: Option<&str>) -> Vec<AgentSession> {
+    let Some(root) = agent_config_root("claude", config_path) else {
+        return Vec::new();
+    };
+    let dir = claude_project_dir(&root, cwd);
+    let Ok(entries) = fs::read_dir(&dir) else {
+        return Vec::new();
+    };
+    let mut paths = stamped_transcripts(
+        entries
+            .flatten()
+            .map(|e| e.path())
+            .filter(|p| p.extension().and_then(|e| e.to_str()) == Some("jsonl")),
+    );
+    paths.truncate(MAX_AGENT_TRANSCRIPTS_INSPECTED);
+    // Titles come from reading each transcript, so fan the per-file work out
+    // across rayon's pool instead of scanning sessions one at a time.
+    let mut out: Vec<AgentSession> = paths
+        .par_iter()
+        .filter_map(|(path, stamp)| {
+            let id = path.file_stem().and_then(|s| s.to_str())?;
+            let title = cached_title(path, *stamp, || claude_title(path))?;
+            Some(AgentSession {
+                id: id.to_string(),
+                title,
+                mtime: stamp.unix_secs(),
+            })
+        })
+        .collect();
+    out.sort_by_key(|item| std::cmp::Reverse(item.mtime));
+    out
+}
+
+/// Each project has its own transcript folder, so only the projects asked for are read.
+pub(super) fn claude_recent(scan: &PageScan<'_>, config_path: Option<&str>) -> Vec<Hit> {
+    let Some(root) = agent_config_root("claude", config_path) else {
+        return Vec::new();
+    };
+    let folders: Vec<(PathBuf, Option<String>)> = match scan.projects() {
+        Some(projects) => projects
+            .map(|project| (claude_project_dir(&root, project), Some(project.clone())))
+            .collect(),
+        None => fs::read_dir(root.join("projects"))
+            .into_iter()
+            .flatten()
+            .flatten()
+            .map(|entry| (entry.path(), None))
+            .collect(),
+    };
+    let mut listed = Vec::new();
+    for (folder, project) in folders {
+        let Ok(entries) = fs::read_dir(folder) else {
+            continue;
+        };
+        for path in entries
+            .flatten()
+            .map(|entry| entry.path())
+            .filter(|path| path.extension().and_then(|e| e.to_str()) == Some("jsonl"))
+        {
+            let stamp = title_cache_stamp(&path);
+            listed.push(Listed {
+                at_ms: stamp.unix_millis(),
+                key: path.to_string_lossy().into_owned(),
+                item: (path, stamp, project.clone()),
+            });
+        }
+    }
+    scan.collect(listed, |(path, stamp, project)| {
+        let id = path.file_stem().and_then(|s| s.to_str())?;
+        let title = cached_title(path, *stamp, || claude_title(path))?;
+        let project = match project {
+            Some(project) => project.clone(),
+            None => claude_cwd(path, *stamp)?,
+        };
+        Some(Found {
+            project,
+            session: AgentSession {
+                id: id.to_string(),
+                title,
+                mtime: stamp.unix_secs(),
+            },
+            place: Some(path.clone()),
+        })
+    })
+}
+
+/// The folder a session ran in, which its project folder's name keeps only lossily.
+fn claude_cwd(path: &Path, stamp: TitleCacheStamp) -> Option<String> {
+    static FOLDERS: FileCache = FileCache::new();
+    FOLDERS.get_or(path, stamp, || {
+        let file = fs::File::open(path).ok()?;
+        BufReader::new(file)
+            .lines()
+            .take(40)
+            .map_while(Result::ok)
+            .filter(|line| line.contains("\"cwd\""))
+            .find_map(|line| {
+                serde_json::from_str::<Value>(&line)
+                    .ok()?
+                    .get("cwd")?
+                    .as_str()
+                    .map(str::to_owned)
+            })
+    })
+}
+
+#[derive(Default)]
+struct ClaudeTitles {
+    custom: Option<String>,
+    ai: Option<String>,
+    first_user: Option<String>,
+    /// Text Claude Code wrote into the conversation itself, such as a message
+    /// relayed from another session. It names a session only when nothing was typed.
+    first_harness: Option<String>,
+}
+
+impl ClaudeTitles {
+    /// `custom-title` is what `/rename` and the Claude desktop app write, so it
+    /// outranks the title Claude generates for itself.
+    fn resolve(self) -> Option<String> {
+        self.custom
+            .or(self.ai)
+            .or(self.first_user)
+            .or(self.first_harness)
+    }
+}
+
+/// Pull a stored title out of one transcript line. Both kinds are appended as the
+/// session grows, so the last one wins.
+fn scan_claude_title_line(line: &str, titles: &mut ClaudeTitles) {
+    if line.contains("\"type\":\"custom-title\"") {
+        if let Ok(v) = serde_json::from_str::<Value>(line) {
+            if let Some(t) = v
+                .get("customTitle")
+                .and_then(|t| t.as_str())
+                .and_then(condense)
+            {
+                titles.custom = Some(t);
+            }
+        }
+    } else if line.contains("\"type\":\"ai-title\"") {
+        if let Ok(v) = serde_json::from_str::<Value>(line) {
+            if let Some(t) = v.get("aiTitle").and_then(|t| t.as_str()).and_then(condense) {
+                titles.ai = Some(t);
+            }
+        }
+    }
+}
+
+/// As above, plus `first_user` (first write wins) for sessions with no stored title.
+fn scan_claude_line(line: &str, titles: &mut ClaudeTitles) {
+    scan_claude_title_line(line, titles);
+    if titles.first_user.is_none() && line.contains("\"type\":\"user\"") {
+        if let Ok(v) = serde_json::from_str::<Value>(line) {
+            if v.get("type").and_then(|t| t.as_str()) == Some("user") {
+                let text = v
+                    .get("message")
+                    .and_then(|m| m.get("content"))
+                    .and_then(text_from_content)
+                    .and_then(|text| condense(&text));
+                if v.get("isMeta").and_then(Value::as_bool) == Some(true) {
+                    titles.first_harness = titles.first_harness.take().or(text);
+                } else {
+                    titles.first_user = text;
+                }
+            }
+        }
+    }
+}
+
+/// Names a session the way Claude's `/rename` does.
+pub(super) fn rename_claude_session(
+    path: &Path,
+    session_id: &str,
+    name: &str,
+) -> Result<(), String> {
+    let line = format!(
+        r#"{{"type":"custom-title","customTitle":{},"sessionId":{}}}"#,
+        Value::from(name),
+        Value::from(session_id),
+    );
+    append_line(path, &line)
+}
+
+// Bound the per-file read: the first user prompt sits near the top and Claude
+// emits `ai-title` entries continuously (so the freshest title sits at the end),
+// which lets us skip the middle of multi-MB transcripts.
+pub(super) const CLAUDE_HEAD_BYTES: u64 = 128 * 1024;
+pub(super) const CLAUDE_TAIL_BYTES: u64 = 128 * 1024;
+
+fn claude_title(path: &Path) -> Option<String> {
+    // Cheap substring guards keep us from JSON-parsing every line.
+    let mut file = fs::File::open(path).ok()?;
+    let len = file.metadata().ok()?.len();
+
+    let mut titles = ClaudeTitles::default();
+
+    // Head: captures the first user prompt and any early title. For small
+    // transcripts this covers the whole file, keeping the result exact.
+    let head = read_prefix(&mut file, CLAUDE_HEAD_BYTES.min(len))?;
+    for line in head.lines() {
+        scan_claude_line(line, &mut titles);
+    }
+
+    // Tail: the freshest title lives at the end of large transcripts. Skip the
+    // first (likely partial) line.
+    if len > CLAUDE_HEAD_BYTES {
+        if let Some(tail) = read_suffix(&mut file, len.saturating_sub(CLAUDE_TAIL_BYTES)) {
+            for line in tail.lines().skip(1) {
+                scan_claude_title_line(line, &mut titles);
+            }
+        }
+    }
+
+    titles.resolve()
+}
+
+/// Lines the CLI wrote itself: injected context, subagents' turns, the summary
+/// a compacted session starts from, and API errors.
+const ASIDES: [&str; 4] = [
+    "isMeta",
+    "isSidechain",
+    "isCompactSummary",
+    "isApiErrorMessage",
+];
+
+/// What one transcript line adds to what the person and Claude wrote: typed
+/// prompts and Claude's replies, never tool calls, their output or thinking.
+pub(super) fn claude_prose(line: &str, prose: &mut Prose) {
+    let user = line.contains("\"type\":\"user\"");
+    if user && line.contains("\"tool_result\"") {
+        return;
+    }
+    let replied = line.contains("\"type\":\"assistant\"") && line.contains("\"type\":\"text\"");
+    if !user && !replied {
+        return;
+    }
+    let Ok(value) = serde_json::from_str::<Value>(line) else {
+        return;
+    };
+    let kind = value.get("type").and_then(Value::as_str);
+    let aside = |key: &str| value.get(key).and_then(Value::as_bool) == Some(true);
+    if !matches!(kind, Some("user" | "assistant")) || ASIDES.into_iter().any(aside) {
+        return;
+    }
+    let Some(content) = value
+        .get("message")
+        .and_then(|message| message.get("content"))
+    else {
+        return;
+    };
+    push_texts(content, prose);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{claude_project_dir, claude_sessions, CLAUDE_HEAD_BYTES};
+
+    #[test]
+    fn project_folders_dash_every_character_claude_code_does() {
+        let root = std::path::Path::new("/c");
+        assert_eq!(
+            claude_project_dir(root, "/Users/me/.superset/my_repo v2"),
+            root.join("projects/-Users-me--superset-my-repo-v2")
+        );
+    }
+
+    #[test]
+    fn claude_sessions_omit_titleless_command_artifacts() {
+        let root = tempfile::tempdir().unwrap();
+        let sessions_dir = root.path().join("projects").join("-repo");
+        std::fs::create_dir_all(&sessions_dir).unwrap();
+        std::fs::write(
+            sessions_dir.join("conversation.jsonl"),
+            "{\"type\":\"user\",\"message\":{\"content\":\"Fix top bar overlaps\"}}\n",
+        )
+        .unwrap();
+        std::fs::write(
+            sessions_dir.join("usage-command.jsonl"),
+            "{\"type\":\"user\",\"message\":{\"content\":\"<command-name>/usage</command-name>\"}}\n",
+        )
+        .unwrap();
+        std::fs::write(
+            sessions_dir.join("cancelled-resume.jsonl"),
+            "{\"type\":\"system\",\"subtype\":\"local_command\",\"content\":\"<command-name>/resume</command-name>\"}\n",
+        )
+        .unwrap();
+
+        let sessions = claude_sessions("/repo", root.path().to_str());
+        assert_eq!(sessions.len(), 1);
+        assert_eq!(sessions[0].id, "conversation");
+        assert_eq!(sessions[0].title, "Fix top bar overlaps");
+    }
+
+    #[test]
+    fn claude_titles_skip_text_the_harness_wrote_before_the_first_prompt() {
+        let root = tempfile::tempdir().unwrap();
+        let sessions_dir = root.path().join("projects").join("-repo");
+        std::fs::create_dir_all(&sessions_dir).unwrap();
+        let skill = "{\"type\":\"user\",\"isMeta\":true,\"message\":{\"content\":\"Base directory for this skill: /skills/x\"}}\n";
+        std::fs::write(
+            sessions_dir.join("typed.jsonl"),
+            format!(
+                "{skill}{{\"type\":\"user\",\"message\":{{\"content\":\"Polish the rail\"}}}}\n"
+            ),
+        )
+        .unwrap();
+        std::fs::write(
+            sessions_dir.join("relayed.jsonl"),
+            "{\"type\":\"user\",\"isMeta\":true,\"message\":{\"content\":\"Another Claude session sent a message\"}}\n",
+        )
+        .unwrap();
+
+        let sessions = claude_sessions("/repo", root.path().to_str());
+        let title = |id: &str| {
+            sessions
+                .iter()
+                .find(|s| s.id == id)
+                .map(|s| s.title.as_str())
+        };
+        assert_eq!(title("typed"), Some("Polish the rail"));
+        assert_eq!(
+            title("relayed"),
+            Some("Another Claude session sent a message")
+        );
+    }
+
+    #[test]
+    fn claude_titles_prefer_the_stored_title_over_the_generated_one() {
+        let root = tempfile::tempdir().unwrap();
+        let sessions_dir = root.path().join("projects").join("-repo");
+        std::fs::create_dir_all(&sessions_dir).unwrap();
+        std::fs::write(
+            sessions_dir.join("renamed.jsonl"),
+            concat!(
+                "{\"type\":\"user\",\"message\":{\"content\":\"Rate this ContentIQ project codebase\"}}\n",
+                "{\"type\":\"ai-title\",\"aiTitle\":\"Codebase rating\"}\n",
+                "{\"type\":\"custom-title\",\"customTitle\":\"ContentIQ codebase quality assessment\"}\n",
+            ),
+        )
+        .unwrap();
+        std::fs::write(
+            sessions_dir.join("generated.jsonl"),
+            concat!(
+                "{\"type\":\"user\",\"message\":{\"content\":\"check jira whats amitoj working on?\"}}\n",
+                "{\"type\":\"ai-title\",\"aiTitle\":\"Amitoj work status\"}\n",
+            ),
+        )
+        .unwrap();
+        std::fs::write(
+            sessions_dir.join("untitled.jsonl"),
+            "{\"type\":\"user\",\"message\":{\"content\":\"What happens in this stage?\"}}\n",
+        )
+        .unwrap();
+
+        let sessions = claude_sessions("/repo", root.path().to_str());
+        let title = |id: &str| {
+            sessions
+                .iter()
+                .find(|session| session.id == id)
+                .map(|session| session.title.as_str())
+        };
+
+        assert_eq!(
+            title("renamed"),
+            Some("ContentIQ codebase quality assessment")
+        );
+        assert_eq!(title("generated"), Some("Amitoj work status"));
+        assert_eq!(title("untitled"), Some("What happens in this stage?"));
+    }
+
+    #[test]
+    fn claude_titles_find_a_rename_past_the_head_of_a_long_transcript() {
+        let root = tempfile::tempdir().unwrap();
+        let sessions_dir = root.path().join("projects").join("-repo");
+        std::fs::create_dir_all(&sessions_dir).unwrap();
+
+        let mut transcript =
+            String::from("{\"type\":\"user\",\"message\":{\"content\":\"Handoff details\"}}\n");
+        while transcript.len() < (CLAUDE_HEAD_BYTES as usize) + 4096 {
+            transcript.push_str("{\"type\":\"assistant\",\"message\":{\"content\":\"filler\"}}\n");
+        }
+        transcript
+            .push_str("{\"type\":\"custom-title\",\"customTitle\":\"SwishX ContentIQ V2 manual test pass\"}\n");
+        std::fs::write(sessions_dir.join("long.jsonl"), transcript).unwrap();
+
+        let sessions = claude_sessions("/repo", root.path().to_str());
+        assert_eq!(sessions.len(), 1);
+        assert_eq!(sessions[0].title, "SwishX ContentIQ V2 manual test pass");
+    }
+}

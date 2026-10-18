@@ -1,0 +1,40 @@
+---
+title: Hermes
+description: "Nous Research's Hermes agent in Sikemux: install, choosing a model, chats and skills."
+---
+
+Hermes is the coding agent from Nous Research.
+
+## At a glance
+
+| | |
+|---|---|
+| Command | `hermes` |
+| Chat in Sikemux | Yes, and its own TUI |
+| Permission modes | Normal and YOLO |
+| Effort levels | none, minimal, low, medium, high, xhigh, max, ultra |
+| Several accounts | No |
+
+## Install
+
+```bash
+curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash
+```
+
+It installs to `~/.local/bin/hermes` and brings its own Python.
+
+## Sign in
+
+Hermes is set up by choosing its provider and model:
+
+```bash
+hermes model
+```
+
+Hermes has no sign-in check Sikemux can ask, so Sikemux marks it signed out only when a chat is refused for want of a sign-in. The chat then offers **Sign in to Hermes**.
+
+## How Sikemux runs it
+
+A chat runs `hermes acp`. Hermes lists its models with the session, and the chat's model picker shows them.
+
+Hermes runs in a private home that Sikemux prepares for it. That's how it gets the Sikemux skills library and the check that stops sweeping `git` commands in a shared checkout, without anything being written to your own Hermes folders.

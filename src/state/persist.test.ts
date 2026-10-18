@@ -95,6 +95,26 @@ describe("frontend persistence", () => {
         expect(raw).not.toContain("externalPty");
     });
 
+    it("keeps pinned chats across a restart, and drops ones it cannot read", async () => {
+        invoke.mockResolvedValue(undefined);
+        cmd.pinChat({ agent: "claude", id: "s-1", title: "Release checklist", project: "/work/demo" });
+        cmd.pinChat({ agent: "claude", id: "s-1", title: "Again", project: "/work/demo" });
+        await expect(flushPersist()).resolves.toBe(true);
+        const saved = JSON.parse(invoke.mock.calls.at(-1)![1].data as string);
+        expect(saved.prefs.pinnedChats).toEqual([{ agent: "claude", id: "s-1", title: "Release checklist", project: "/work/demo" }]);
+
+        setState({ pinnedChats: [] });
+        saved.prefs.pinnedChats.push({ agent: "nobody", id: "x", title: "x", project: "/x" }, { agent: "codex", id: "", title: "y", project: "/y" });
+        expect(applyHydrate(JSON.stringify(saved))).toBe("applied");
+        expect(getState().pinnedChats).toEqual([{ agent: "claude", id: "s-1", title: "Release checklist", project: "/work/demo" }]);
+
+        cmd.retitlePinnedChat("claude", "s-1", "Release");
+        cmd.unpinChat("claude", "missing");
+        expect(getState().pinnedChats.map((pin) => pin.title)).toEqual(["Release"]);
+        cmd.unpinChat("claude", "s-1");
+        expect(getState().pinnedChats).toEqual([]);
+    });
+
     it("classifies hydration before persistence can overwrite protected state", () => {
         setState({ themeId: "unchanged" });
 
@@ -105,7 +125,7 @@ describe("frontend persistence", () => {
         expect(
             applyHydrate(
                 JSON.stringify({
-                    version: 20,
+                    version: 22,
                     sessions: [],
                     itemStates: {},
                 }),
@@ -177,18 +197,18 @@ describe("frontend persistence", () => {
     });
 
     it("persists rail visibility by role", async () => {
-        setState({ sideRailOpen: false, agentRailOpen: true });
+        setState({ sideRailOpen: false, tabRailOpen: true });
         invoke.mockResolvedValue(undefined);
 
         await expect(flushPersist()).resolves.toBe(true);
         const saved = JSON.parse(invoke.mock.calls[0][1].data as string);
-        expect(saved.prefs).toMatchObject({ sideRailOpen: false, agentRailOpen: true });
+        expect(saved.prefs).toMatchObject({ sideRailOpen: false, tabRailOpen: true });
         expect(saved.prefs).not.toHaveProperty("leftRailOpen");
         expect(saved.prefs).not.toHaveProperty("rightRailOpen");
 
-        setState({ sideRailOpen: true, agentRailOpen: false });
+        setState({ sideRailOpen: true, tabRailOpen: false });
         applyHydrate(JSON.stringify(saved));
-        expect(getState()).toMatchObject({ sideRailOpen: false, agentRailOpen: true });
+        expect(getState()).toMatchObject({ sideRailOpen: false, tabRailOpen: true });
     });
 
     it("remembers which projects may start language servers", async () => {
@@ -263,17 +283,17 @@ describe("frontend persistence", () => {
     });
 
     it("persists rail widths and pulls stored ones back inside their bounds", async () => {
-        setState({ sideRailWidth: 320, agentRailWidth: 400 });
+        setState({ sideRailWidth: 320, tabRailWidth: 400 });
         invoke.mockResolvedValue(undefined);
 
         await expect(flushPersist()).resolves.toBe(true);
         const saved = JSON.parse(invoke.mock.calls[0][1].data as string);
-        expect(saved.prefs).toMatchObject({ sideRailWidth: 320, agentRailWidth: 400 });
+        expect(saved.prefs).toMatchObject({ sideRailWidth: 320, tabRailWidth: 400 });
 
         saved.prefs.sideRailWidth = 20;
-        saved.prefs.agentRailWidth = 9000;
+        saved.prefs.tabRailWidth = 9000;
         applyHydrate(JSON.stringify(saved));
-        expect(getState()).toMatchObject({ sideRailWidth: 180, agentRailWidth: 560 });
+        expect(getState()).toMatchObject({ sideRailWidth: 180, tabRailWidth: 560 });
     });
 
     it("never persists or hydrates live agent commands", async () => {
@@ -619,30 +639,38 @@ describe("frontend persistence", () => {
         expect(getState().agents[agents.grok.id]).toMatchObject({ type: "grok", effort: "minimal", launchState: "dormant" });
     });
 
-    it("persists non-secret provider profiles and defensively hydrates selections", async () => {
+    it("leaves provider profiles to the core and defensively hydrates the ones it keeps", async () => {
         setState({
-            providerProfiles: [
-                {
-                    id: "codex-work",
-                    name: "Codex Work",
-                    provider: "codex",
-                    accent: "#ABCDEF",
-                    executablePath: "/opt/bin/codex",
-                    configPath: "/safe/config.toml",
-                    environmentKeys: ["OPENAI_API_KEY", "OPENAI_API_KEY", "bad-key"],
-                    apiKey: "must-not-persist",
-                } as never,
-            ],
-            selectedProviderProfileIds: { codex: "codex-work", claude: "missing" },
+            providerProfiles: [{ id: "codex-work", name: "Codex Work", provider: "codex", accent: "#abcdef" }],
+            selectedProviderProfileIds: { codex: "codex-work" },
             defaultAgentPermissionMode: "full-access",
         });
         invoke.mockResolvedValue(undefined);
 
         expect(await flushPersist()).toBe(true);
-        const raw = invoke.mock.calls[0][1].data as string;
-        expect(raw).not.toContain("must-not-persist");
-        const saved = JSON.parse(raw);
-        expect(saved.prefs.providerProfiles).toEqual([
+        const saved = JSON.parse(invoke.mock.calls[0][1].data as string);
+        expect(saved.prefs.providerProfiles).toBeUndefined();
+        expect(saved.prefs.selectedProviderProfileIds).toBeUndefined();
+        expect(saved.prefs.defaultAgentPermissionMode).toBe("workspace-write");
+
+        const kept = {
+            id: "codex-work",
+            name: "Codex Work",
+            provider: "codex",
+            accent: "#ABCDEF",
+            executablePath: "/opt/bin/codex",
+            configPath: "/safe/config.toml",
+            environmentKeys: ["OPENAI_API_KEY", "OPENAI_API_KEY", "bad-key"],
+            apiKey: "must-not-hydrate",
+        };
+        const bad = { id: "bad", name: "Bad", provider: "unknown", accent: "red", token: "do-not-hydrate" };
+        saved.prefs.defaultAgentPermissionMode = "unbounded";
+        applyHydrate(JSON.stringify(saved), {
+            profiles: [kept, bad] as never,
+            selected: { codex: "codex-work", claude: "bad", unknown: "codex-work" } as never,
+            autoSwitch: {},
+        });
+        expect(getState().providerProfiles).toEqual([
             {
                 id: "codex-work",
                 name: "Codex Work",
@@ -653,17 +681,9 @@ describe("frontend persistence", () => {
                 environmentKeys: ["OPENAI_API_KEY"],
             },
         ]);
-        expect(saved.prefs.selectedProviderProfileIds).toEqual({ codex: "codex-work" });
-        expect(saved.prefs.defaultAgentPermissionMode).toBe("workspace-write");
-
-        saved.prefs.providerProfiles.push({ id: "bad", name: "Bad", provider: "unknown", accent: "red", token: "do-not-hydrate" });
-        saved.prefs.selectedProviderProfileIds = { codex: "codex-work", claude: "bad", unknown: "codex-work" };
-        saved.prefs.defaultAgentPermissionMode = "unbounded";
-        applyHydrate(JSON.stringify(saved));
-        expect(getState().providerProfiles).toEqual(saved.prefs.providerProfiles.slice(0, 1));
         expect(getState().selectedProviderProfileIds).toEqual({ codex: "codex-work" });
         expect(getState().defaultAgentPermissionMode).toBe("workspace-write");
-        expect(JSON.stringify(getState().providerProfiles)).not.toContain("do-not-hydrate");
+        expect(JSON.stringify(getState().providerProfiles)).not.toContain("hydrate");
     });
 
     it("adopts the current default safety boundary for snapshots saved before the migration", async () => {
@@ -759,7 +779,7 @@ describe("frontend persistence", () => {
 
         await expect(flushPersist()).resolves.toBe(true);
         const saved = JSON.parse(invoke.mock.calls[0][1].data as string);
-        expect(saved.version).toBe(19);
+        expect(saved.version).toBe(21);
         expect(saved.editorViews).toBeUndefined();
         expect(saved.itemStates).toEqual({
             [editorPane.id]: {
@@ -899,7 +919,7 @@ describe("frontend persistence", () => {
         const migrated = invoke.mock.calls[0][1].data as string;
         expect(migrated).not.toContain("legacy-secret");
         expect(migrated).not.toContain("agentBookmarks");
-        expect(JSON.parse(migrated).version).toBe(19);
+        expect(JSON.parse(migrated).version).toBe(21);
     });
 
     /*
@@ -932,7 +952,7 @@ describe("frontend persistence", () => {
         invoke.mockResolvedValue(undefined);
         expect(await flushPersist()).toBe(true);
         const saved = JSON.parse(invoke.mock.calls[0][1].data as string);
-        expect(saved.version).toBe(19);
+        expect(saved.version).toBe(21);
         expect(saved.agents.map((agent: { id: string }) => agent.id)).toEqual(["a1", "a2"]);
         expect(saved).not.toHaveProperty("agentsBySession");
         expect(saved.sessions[0]).not.toHaveProperty("view");
@@ -987,7 +1007,6 @@ describe("frontend persistence", () => {
             activeProject: "channeliq",
             activeGroup: "dev",
             prodEnvs: ["prod"],
-            branchOptions: ["BRANCH", "GIT_BRANCH", "GIT_REF", "REF"],
             deployTargets: {},
             treeHidden: false,
             notifyWhenDone: true,

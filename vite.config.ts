@@ -26,12 +26,14 @@ function chunkName(id: string): string | undefined {
   // them unassigned lets Rolldown split each grammar into its own
   // chunk. Every other @shikijs/* package (core, the two engines,
   // vscode-textmate) is the highlighter's static dependency graph,
-  // not a per-language import, so it stays folded into it.
+  // not a per-language import, so it stays folded into it, and so do
+  // the regex packages the JavaScript engine is built on.
   if (packagePath.startsWith("@shikijs/langs/")) return undefined;
   if (
     packagePath.startsWith("@shikijs/") ||
     packagePath.startsWith("shiki/") ||
-    packagePath.startsWith("oniguruma")
+    packagePath.startsWith("oniguruma") ||
+    packagePath.startsWith("regex")
   ) {
     return "highlighter";
   }
@@ -63,18 +65,24 @@ function chunkName(id: string): string | undefined {
   // Only the editable diff uses the merge view, so it rides in that
   // lazy chunk rather than in every editor's language pack.
   if (codemirrorPackage === "@codemirror/merge") return undefined;
-  // The bare "codemirror" meta-package (basicSetup) statically pulls
-  // in both @codemirror/search (langs) and the core packages above.
-  // Grouping it with langs keeps the edge one-directional: langs
-  // already depends on core, so this doesn't add a second direction
-  // between the two chunks.
+  // Each language is imported on its own when a file needs it, so
+  // grouping them would make every editor load all of them.
+  if (
+    codemirrorPackage.startsWith("@codemirror/lang-") ||
+    codemirrorPackage === "@codemirror/legacy-modes" ||
+    codemirrorPackage.startsWith("@lezer/")
+  ) {
+    return undefined;
+  }
+  // The bare "codemirror" meta-package (basicSetup) pulls in search
+  // and the core packages above; it depends on core, never the other
+  // way, so the two chunks don't import each other.
   if (
     codemirrorPackage.startsWith("@codemirror/") ||
-    codemirrorPackage.startsWith("@lezer/") ||
     codemirrorPackage.startsWith("@replit/") ||
     codemirrorPackage === "codemirror"
   ) {
-    return "codemirror-langs";
+    return "codemirror-setup";
   }
   // Keep the opt-in renderer out of the default startup path. The
   // dynamic import in useXterm loads this chunk only when the WebGL
@@ -109,6 +117,10 @@ export default defineConfig({
         find: /^shiki\/(wasm|engine\/oniguruma)$/,
         replacement: resolve("src/vendor/oniguruma.ts"),
       },
+      {
+        find: /^hast-util-to-html$/,
+        replacement: resolve("src/vendor/hastToHtml.ts"),
+      },
     ],
   },
   define: {
@@ -116,11 +128,6 @@ export default defineConfig({
     WorkerGlobalScope: "globalThis.WorkerGlobalScope",
   },
   build: {
-    // esbuild 0.25 syntax minification can remove xterm's local const-enum
-    // declaration while retaining an assignment to it. The resulting production
-    // bundle throws on terminal mode queries and permanently stalls xterm's write
-    // queue. Terser preserves the declaration and keeps the bundle fully minified.
-    minify: "terser",
     chunkSizeWarningLimit: 900,
     rolldownOptions: {
       output: {
@@ -137,9 +144,6 @@ export default defineConfig({
   },
   worker: {
     format: "es",
-    // With build.minify set to terser, Vite 8 leaves the worker bundle's
-    // whitespace in. The worker never loads xterm, so Oxc is safe for it.
-    rolldownOptions: { output: { minify: true } },
   },
   server: {
     port: 1420,

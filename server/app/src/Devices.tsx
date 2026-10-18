@@ -18,6 +18,7 @@ export type Load =
 
 const PLATFORMS: Record<Device["platform"], string> = {
   macos: "macOS",
+  linux: "Linux",
   ios: "iOS",
   android: "Android",
 };

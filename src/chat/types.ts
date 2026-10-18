@@ -64,6 +64,19 @@ export interface AcpAsyncTask {
     usage?: { totalTokens: number; toolUses: number; durationMs: number };
     /** The subagent that started it, when the chat itself did not. */
     owner?: string;
+    /** The agents a workflow has started so far. */
+    agents?: AcpWorkflowAgent[];
+}
+
+export interface AcpWorkflowAgent {
+    index: number;
+    label: string;
+    state: "queued" | "running" | "completed" | "failed";
+    phase?: string;
+    activity?: string;
+    error?: string;
+    tokens?: number;
+    toolCalls?: number;
 }
 
 /* A subagent runs as its own ACP session, so its transcript is kept whole
@@ -75,6 +88,7 @@ export interface AcpSubagent {
     state: "running" | "completed" | "failed" | "cancelled" | "disconnected";
     messages: ChatMessage[];
     nextId: number;
+    tokens?: number;
 }
 
 /* What a background task left behind once it ended, kept in the transcript
@@ -83,6 +97,9 @@ export interface AcpTaskNotice {
     name: string;
     state: "completed" | "failed" | "stopped";
     summary?: string;
+    taskType?: string;
+    /* A subagent's notice shows that subagent's own card. */
+    subagent?: string;
 }
 
 /** Something the agent tells the person outside its reply, like a model fallback. */
@@ -99,11 +116,15 @@ export interface AccountMove {
     reason: "limit" | "chosen";
 }
 
-/** Why the last turn failed, when it was the account's doing. */
+/** Why the last turn failed, when it was the account's or the network's doing. */
 export interface ChatFailure {
-    kind: "signIn" | "limit" | "other";
+    kind: "signIn" | "limit" | "network" | "other";
+    /** What the agent itself said, behind the plain words. */
+    details?: string;
     /** The profile id of the account it failed on. */
     account: string | null;
+    /** When the core sends the stopped prompt again, once a usage limit resets, in Unix milliseconds. */
+    resumesAt?: number;
 }
 
 export type ChatPart =
@@ -171,8 +192,12 @@ export interface ChatState {
     nextId: number;
     revision: number;
     awaitingReplay: boolean;
+    /* The host no longer keeps the turns before the first one shown. */
+    earlierLost: boolean;
     /* A turn has begun and its first message has not arrived yet. */
     turnOpening: { at: number | null } | null;
+    /* The agent is retrying a request the network or its service failed. */
+    retrying: { attempt: number | null; connection: boolean } | null;
 }
 
 export type ChatAction =
@@ -182,13 +207,15 @@ export type ChatAction =
     | { type: "ready"; capabilities: Record<string, unknown>; setup: Record<string, unknown> }
     | { type: "local_prompt"; text: string; paths: string[]; context?: SentContext[]; messageId?: string; at?: number }
     | { type: "rewind"; messageId: string }
+    | { type: "earlier"; messages: ChatMessage[] }
     | { type: "session_update"; sessionId: string; update: Record<string, unknown> }
     | { type: "saved_usage"; usage: ContextUsage }
     | { type: "turn_started"; at?: number }
     | { type: "turn_completed"; stopReason?: string; at?: number }
     | { type: "permission_requested"; request: AcpPermissionRequest }
     | { type: "permission_cleared"; requestId: string }
-    | { type: "error"; message: string; failure?: ChatFailure };
+    | { type: "error"; message: string; failure?: ChatFailure }
+    | { type: "dismiss_error" };
 
 /* One run of a code fence that reads as one colour, and the lines they make up.
    A run with nothing set is plain text, which keeps the colour the stylesheet

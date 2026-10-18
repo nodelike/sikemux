@@ -242,8 +242,10 @@ fn ensure_utf8_locale(environment: &mut HashMap<String, String>) {
         .iter()
         .any(|key| environment.get(*key).is_some_and(|value| !value.is_empty()));
     if !has_locale {
-        // Older macOS releases ship no C.UTF-8 locale.
-        let lang = if std::path::Path::new("/usr/share/locale/C.UTF-8").exists() {
+        // Older macOS releases ship no C.UTF-8 locale; Linux C libraries always have it.
+        let lang = if cfg!(target_os = "linux")
+            || std::path::Path::new("/usr/share/locale/C.UTF-8").exists()
+        {
             "C.UTF-8"
         } else {
             "en_US.UTF-8"

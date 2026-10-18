@@ -1,5 +1,10 @@
 import type { PromptContext } from "../api/acp";
 
+/** Where an `@` mention of another agent points; the message's own text already shows the mention. */
+export const MENTION_URI = "sikemux://agent/";
+
+export const isMention = (uri: string): boolean => uri.startsWith(MENTION_URI);
+
 /** What a sent message keeps of a context item: enough to name it, not its whole text. */
 export type SentContext = Pick<PromptContext, "uri" | "title">;
 

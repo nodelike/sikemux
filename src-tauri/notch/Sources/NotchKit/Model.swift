@@ -2,11 +2,12 @@ import Foundation
 
 struct DeviceView: Decodable, Equatable {
     let workspace: Workspace
-    let sessions: [SessionInfo]
     let chats: [ChatInfo]
+    let sessions: [SessionInfo]
     let attentions: [Attention]
+    let inbox: Inbox
 
-    static let empty = DeviceView(workspace: Workspace(projects: [], launchers: []), sessions: [], chats: [], attentions: [])
+    static let empty = DeviceView(workspace: Workspace(projects: [], launchers: []), chats: [], sessions: [], attentions: [], inbox: Inbox(items: [], working: 0))
 }
 
 struct Workspace: Decodable, Equatable {
@@ -29,47 +30,36 @@ struct Launcher: Decodable, Equatable {
     let effort: ConfigSelect?
 }
 
-struct SessionInfo: Decodable, Equatable {
-    let id: UInt64
-    let kind: String
-    let running: Bool
-    let project: String?
-    let agentId: String?
-    let agentType: String?
-    let agentState: String?
-    let title: String?
-    let unread: Bool
-    let activeAt: Double?
-    let group: AgentState?
-    let status: AgentStatus?
-    let attentionRank: Int?
-}
-
+/// An open chat, and what it still has going, which the inbox does not say.
 struct ChatInfo: Decodable, Equatable {
     let agentId: String
+    let name: String?
     let provider: String
     let title: String?
     let cwd: String
-    let state: String
-    let running: Bool
-    let pendingPermissions: [String]
+    /// Its place among the open agents, in the order the app's rail lists them: 0 first.
+    let attentionRank: Int?
     let subagents: Int
     let tasks: Int
-    let permissionMode: String
-    let asleep: Bool
-    let unread: Bool
-    let activeAt: Double?
-    let group: AgentState
-    let status: AgentStatus
-    let attentionRank: Int
+    /// The attempt the agent is retrying a failed request on, 0 when it did not say.
+    let reconnecting: Int?
+}
+
+/// A terminal, which is an open agent when it carries one.
+struct SessionInfo: Decodable, Equatable {
+    let id: UInt64
+    let running: Bool
+    let project: String?
+    let agentId: String?
+    let agentName: String?
+    let agentType: String?
+    let title: String?
+    let attentionRank: Int?
 }
 
 struct Attention: Decodable, Equatable {
     let id: String
     let agentId: String
-    let provider: String
-    let cwd: String
-    let at: Double
     let choices: PermissionChoices
 }
 
@@ -82,30 +72,90 @@ struct PermissionChoices: Decodable, Equatable {
     let title: String?
 }
 
-/// The group the core puts an agent in, most in need of the person first.
-enum AgentState: String, Decodable {
-    case blocked, working, done, idle
+/// What waits on the person and what is under way, in the order the core ranks it.
+struct Inbox: Decodable, Equatable {
+    let items: [InboxItem]
+    /// Agents at work now, listed or not.
+    let working: Int
+
+    init(items: [InboxItem], working: Int) {
+        self.items = items
+        self.working = working
+    }
+
+    /// An item this build cannot read, such as one in a tier added later, is left out rather than losing the whole view.
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        items = try container.decode([Readable].self, forKey: .items).compactMap(\.item)
+        working = try container.decode(Int.self, forKey: .working)
+    }
+
+    private enum CodingKeys: String, CodingKey { case items, working }
+
+    private struct Readable: Decodable {
+        let item: InboxItem?
+        init(from decoder: Decoder) throws { item = try? InboxItem(from: decoder) }
+    }
 }
 
-/// What the core says an agent is doing: its group, or why it is not running.
-enum AgentStatus: String, Decodable {
-    case blocked, working, done, idle, asleep, stopped, starting
+struct InboxItem: Decodable, Equatable, Identifiable {
+    enum Tier: String, Decodable {
+        case needs, review, finished, progress
+        /// An open agent the inbox has nothing on; the island lists it all the same.
+        case idle
+    }
 
-    /// The word for an agent that is not running, which its group does not say.
-    var word: String? {
-        switch self {
-        case .asleep: "Sleeping"
-        case .stopped: "Stopped"
-        case .starting: "Starting"
-        default: nil
+    enum Kind: String, Decodable {
+        case permission, question, input, held, assumption, pullRequest, changes, failed, finished, working
+        /// One added after this build; its tier still places it.
+        case other
+
+        init(from decoder: Decoder) throws {
+            self = Kind(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .other
         }
     }
+
+    struct Card: Decodable, Equatable {
+        let title: String
+    }
+
+    let id: String
+    let tier: Tier
+    let kind: Kind
+    let agentId: String?
+    /// What the core calls the agent, such as Otter.
+    let name: String?
+    let cli: String?
+    let project: String?
+    let title: String?
+    /// What is needed or what happened, in the words the app and phones use.
+    let what: String
+    let detail: String?
+    let at: Double
+    /// The agent's terminal; none for a chat.
+    let session: UInt64?
+    let card: Card?
+    let requestId: String?
+    let questionId: String?
+    let url: String?
+}
+
+/// The marks beside a row and in the closed island's right wing.
+enum Mark: Hashable {
+    case needs, working, done, failed, idle
 }
 
 /// One group on the closed island's right wing.
 enum Rollup: Hashable {
-    case state(AgentState)
-    case stillRunning
+    case mark(Mark)
+    case subagents
+    case shells
+
+    /// Totals show their count even at one; a state shows it only past one.
+    func showsCount(_ count: Int) -> Bool {
+        if case .mark = self { return count > 1 }
+        return true
+    }
 }
 
 /// A permission an agent waits on, with the person's choices.
@@ -117,25 +167,69 @@ struct Ask: Equatable {
     let allowOnce: String?
     let allowAlways: String?
     let reject: String?
+
+    init(_ attention: Attention) {
+        let choices = attention.choices
+        attentionId = attention.id
+        command = choices.command ?? choices.title ?? "a tool"
+        isCommand = choices.command != nil
+        allowOnce = choices.allowOnce
+        allowAlways = choices.allowAlways
+        reject = choices.reject
+    }
 }
 
-/// One row of the island: an agent and what it needs from the person.
-struct AgentItem: Identifiable, Equatable {
+/// A question an agent put to the person or its lead, as the core lists it.
+struct AgentQuestion: Decodable, Equatable {
     let id: String
-    let provider: String
-    let title: String
-    let project: String
-    let state: AgentState
-    let status: AgentStatus
-    let subagents: Int
-    /// Shells and monitors it still has going.
-    let tasks: Int
-    /// A chat agent can be answered from the notch; a terminal agent only in Sikemux.
-    let isChat: Bool
-    let ask: Ask?
+    let text: String
+    let choices: [QuestionChoice]
+    /// The lead it went to first, once it reached the person.
+    let via: String?
+    /// That lead passed it on itself rather than leaving it unanswered.
+    let passed: Bool
 
-    /// Subagents, shells or monitors still going once its turn is over.
-    var background: Bool { subagents > 0 || tasks > 0 }
+    /// Why it reached the person rather than its lead.
+    var why: String? {
+        via.map { passed ? "\($0) didn't know" : "\($0) didn't answer" }
+    }
+}
+
+struct QuestionChoice: Decodable, Equatable {
+    let label: String
+}
+
+/// One row of the island: an inbox item with what the notch adds to it.
+struct Entry: Identifiable, Equatable {
+    let item: InboxItem
+    let project: String
+    /// Subagents, and shells or monitors, its agent still has going.
+    let subagents: Int
+    let tasks: Int
+    let ask: Ask?
+    var question: AgentQuestion? = nil
+    /// The attempt its agent is retrying a failed request on, 0 when it did not say.
+    var reconnecting: Int? = nil
+
+    var id: String { item.id }
+    var provider: String { item.cli ?? "" }
+    var title: String { item.title ?? item.card?.title ?? item.what }
+    var isChat: Bool { item.agentId != nil && item.session == nil && item.cli != nil }
+    var since: Date? { item.at > 0 ? Date(timeIntervalSince1970: item.at / 1000) : nil }
+
+    var mark: Mark {
+        switch item.tier {
+        case .needs: .needs
+        case .progress: .working
+        case .review, .finished: item.kind == .failed ? .failed : .done
+        case .idle: .idle
+        }
+    }
+
+    /// What the item says, and for a question why it reached the person rather than its lead.
+    var what: String {
+        [item.what, question?.why].compactMap { $0 }.joined(separator: " · ")
+    }
 }
 
 func agentName(_ provider: String) -> String {
@@ -151,54 +245,47 @@ extension DeviceView {
         return URL(fileURLWithPath: value).lastPathComponent
     }
 
-    /// Every agent open in the app, in the core's order: most in need of the person first.
-    var agents: [AgentItem] {
-        var items: [(agent: AgentItem, rank: Int)] = []
-        // A sleeping chat is still open in the app; it starts again when opened there.
-        for chat in chats {
-            items.append((AgentItem(
-                id: chat.agentId,
-                provider: chat.provider,
-                title: chat.title ?? "New \(agentName(chat.provider)) chat",
-                project: projectName(chat.cwd),
-                state: chat.group,
-                status: chat.status,
-                subagents: chat.subagents,
-                tasks: chat.tasks,
-                isChat: true,
-                ask: attentions.first { $0.agentId == chat.agentId }.map(Self.ask)
-            ), chat.attentionRank))
+    /// Every open agent once, in the app rail's order, each with what the inbox says about it and the question it asks
+    /// from `questions`. Agents on other hosts the inbox lists follow; items that are not about an agent are left out.
+    func entries(_ questions: [AgentQuestion]) -> [Entry] {
+        let open = chats.map { (agentId: $0.agentId, rank: $0.attentionRank) }
+            + sessions.compactMap { session in
+                session.running ? session.agentId.map { (agentId: $0, rank: session.attentionRank) } : nil
+            }
+        let ranked = open.enumerated()
+            .sorted { ($0.element.rank ?? Int.max, $0.offset) < ($1.element.rank ?? Int.max, $1.offset) }
+            .map(\.element.agentId)
+        let listed = Set(ranked)
+        var seen = Set<String>()
+        let others = inbox.items.compactMap(\.agentId).filter { !listed.contains($0) && seen.insert($0).inserted }
+        return (ranked + others).compactMap { agentId in
+            guard let item = inbox.items.first(where: { $0.agentId == agentId }) ?? idleItem(agentId) else { return nil }
+            let chat = chats.first { $0.agentId == agentId }
+            return Entry(
+                item: item,
+                project: projectName(item.project),
+                subagents: chat?.subagents ?? 0,
+                tasks: chat?.tasks ?? 0,
+                ask: attentions.first { $0.id == item.requestId }.map(Ask.init),
+                question: questions.first { $0.id == item.questionId },
+                reconnecting: chat?.reconnecting
+            )
         }
-        for session in sessions {
-            guard let agentId = session.agentId, let rank = session.attentionRank,
-                  let state = session.group, let status = session.status
-            else { continue }
-            let provider = session.agentType ?? "agent"
-            items.append((AgentItem(
-                id: agentId,
-                provider: provider,
-                title: session.title ?? agentName(provider),
-                project: projectName(session.project),
-                state: state,
-                status: status,
-                subagents: 0,
-                tasks: 0,
-                isChat: false,
-                ask: nil
-            ), rank))
-        }
-        return items.sorted { $0.rank < $1.rank }.map(\.agent)
     }
 
-    private static func ask(_ attention: Attention) -> Ask {
-        let choices = attention.choices
-        return Ask(
-            attentionId: attention.id,
-            command: choices.command ?? choices.title ?? "a tool",
-            isCommand: choices.command != nil,
-            allowOnce: choices.allowOnce,
-            allowAlways: choices.allowAlways,
-            reject: choices.reject
+    private func idleItem(_ agentId: String) -> InboxItem? {
+        if let chat = chats.first(where: { $0.agentId == agentId }) {
+            return InboxItem(
+                id: "agent:\(agentId)", tier: .idle, kind: .other, agentId: agentId, name: chat.name, cli: chat.provider,
+                project: chat.cwd, title: chat.title ?? "New \(agentName(chat.provider)) chat", what: "", detail: nil, at: 0,
+                session: nil, card: nil, requestId: nil, questionId: nil, url: nil
+            )
+        }
+        guard let session = sessions.first(where: { $0.agentId == agentId }) else { return nil }
+        return InboxItem(
+            id: "agent:\(agentId)", tier: .idle, kind: .other, agentId: agentId, name: session.agentName,
+            cli: session.agentType, project: session.project, title: session.title, what: "", detail: nil, at: 0,
+            session: session.id, card: nil, requestId: nil, questionId: nil, url: nil
         )
     }
 }

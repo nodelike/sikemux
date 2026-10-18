@@ -179,38 +179,36 @@ export function NewPullForm({ paneId, repo, cwd, head: startingHead, active, onC
                 </div>
             )}
             <div className="git-compose">
-                <div className="git-compose-well">
-                    <input
-                        className="pr-new-title"
-                        value={title}
-                        onChange={(event) => setTitle(event.target.value)}
-                        onKeyDown={onKeyDown}
-                        placeholder="Title"
-                        aria-label="Title"
-                        spellCheck={false}
-                    />
-                    <textarea
-                        ref={bodyRef}
-                        className="git-compose-message pr-new-body"
-                        value={body}
-                        onChange={(event) => setBody(event.target.value)}
-                        onKeyDown={onKeyDown}
-                        placeholder="What changed, and why"
-                        aria-label="Description"
-                        rows={3}
-                    />
-                    <div className="git-compose-foot">
-                        {host.capabilities.pulls.draft && (
-                            <Checkbox checked={draft} onChange={setDraft}>
-                                Draft
-                            </Checkbox>
-                        )}
-                        <Tooltip label={`${openLabel} (${PRIMARY_SHORTCUT}⏎)`}>
-                            <button type="button" className="git-compose-commit" disabled={!ready} onClick={() => void create()}>
-                                {openLabel}
-                            </button>
-                        </Tooltip>
-                    </div>
+                <input
+                    className="pr-new-title"
+                    value={title}
+                    onChange={(event) => setTitle(event.target.value)}
+                    onKeyDown={onKeyDown}
+                    placeholder="Title"
+                    aria-label="Title"
+                    spellCheck={false}
+                />
+                <textarea
+                    ref={bodyRef}
+                    className="git-compose-message pr-new-body"
+                    value={body}
+                    onChange={(event) => setBody(event.target.value)}
+                    onKeyDown={onKeyDown}
+                    placeholder="What changed, and why"
+                    aria-label="Description"
+                    rows={3}
+                />
+                <div className="git-compose-foot">
+                    {host.capabilities.pulls.draft && (
+                        <Checkbox checked={draft} onChange={setDraft}>
+                            Draft
+                        </Checkbox>
+                    )}
+                    <Tooltip label={`${openLabel} (${PRIMARY_SHORTCUT}⏎)`}>
+                        <button type="button" className="git-compose-commit" disabled={!ready} onClick={() => void create()}>
+                            {openLabel}
+                        </button>
+                    </Tooltip>
                 </div>
             </div>
             {compareKey && !compared && <SkeletonRows rows={3} label="Loading files" />}

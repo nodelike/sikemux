@@ -10,16 +10,20 @@ import {
   DeleteAccountIntro,
 } from "./DeleteAccount.tsx";
 import { Devices, useDevices } from "./Devices.tsx";
+import { HOST, HostApproval } from "./HostApproval.tsx";
 import { Logo } from "./icons.tsx";
 import { useLive } from "./live.ts";
 import { RestoreAccount, useAccountState } from "./RestoreAccount.tsx";
 import {
   appReturn,
   DELETE_ACCOUNT,
+  isSharePath,
   takeReturn,
+  takeShareReturn,
   usePath,
 } from "./navigation.ts";
 import { SignIn } from "./SignIn.tsx";
+import "./app.css";
 
 /** The deleted page's address, carrying when the account is deleted for good so it survives signing out. */
 function deletedPage(deletesAt?: string): string {
@@ -58,12 +62,24 @@ export function App() {
           ? "Delete your account · Sikemux"
           : path === CONSENT
             ? "Sign in on your computer · Sikemux"
-            : signedIn
-              ? "Your devices · Sikemux"
-              : "Sign in · Sikemux";
+            : path === HOST
+              ? "Add a host · Sikemux"
+              : signedIn
+                ? "Your devices · Sikemux"
+                : "Sign in · Sikemux";
   }, [path, signedIn, showDeleted]);
 
-  const afterSignIn = () => go(takeReturn(), { replace: true });
+  useEffect(() => {
+    if (!signedIn || path === "/sso-callback") return;
+    const share = takeShareReturn();
+    if (share) location.replace(share);
+  }, [signedIn, path]);
+
+  const afterSignIn = () => {
+    const to = takeReturn();
+    if (isSharePath(to)) location.replace(to);
+    else go(to, { replace: true });
+  };
   const returning = isLoaded && isSignedIn ? appReturn() : null;
 
   useEffect(() => {
@@ -105,6 +121,10 @@ export function App() {
         ) : path === CONSENT ? (
           <main className="center">
             {signedIn ? <Consent /> : <SignIn ready={isLoaded} />}
+          </main>
+        ) : path === HOST ? (
+          <main className="center">
+            {signedIn ? <HostApproval /> : <SignIn ready={isLoaded} />}
           </main>
         ) : signedIn ? (
           <Account

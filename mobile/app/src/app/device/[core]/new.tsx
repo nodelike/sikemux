@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState } from 'react';
-import { KeyboardAvoidingView, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { KeyboardAvoidingView, Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router, useLocalSearchParams } from 'expo-router';
 import { File } from 'expo-file-system';
@@ -7,15 +7,19 @@ import type { ConnectionLike } from '@sikemux/native';
 
 import { composerPlaceholder } from '@mac/chat/chatStatus';
 import { ComposerAttachments } from '@/chat/Attachments';
-import { AttachSheet, YoloToggle, type Source } from '@/chat/Composer';
+import { ChatTitle } from '@/chat/ChatTitle';
+import { AttachSheet } from '@/chat/AttachSheet';
+import { YoloToggle } from '@/chat/Composer';
 import { ComposerInput } from '@/chat/ComposerInput';
-import { pickFiles, pickPhotos } from '@/chat/pick';
 import { MAX_ATTACHMENT_BYTES, MAX_ATTACHMENTS, type Attachment } from '@/chat/session';
 import type { LauncherInfo } from '@/core/protocol';
 import { problem as problemOf, useLive } from '@/devices/hub';
+import { chatTitle } from '@/devices/words';
 import { ProjectSheet } from '@/devices/ProjectSheet';
 import { haptics } from '@/ui/haptics';
+import { AgentFace } from '@/ui/Buddy';
 import { AgentIcon, Icon } from '@/ui/Icon';
+import { type Glyph, PromptGlyph } from '@/ui/prompt';
 import { Nav, Screen, useKeyboardShown } from '@/ui/screen';
 import { Working } from '@/ui/status';
 import { Sheet, SheetLabel } from '@/ui/Sheet';
@@ -78,7 +82,6 @@ export default function NewChat() {
   const [draft, setDraft] = useState('');
   const [sheet, setSheet] = useState<'agent' | 'project' | 'attach'>();
   const [attachments, setAttachments] = useState<Attachment[]>([]);
-  const source = useRef<Source | null>(null);
   const [starting, setStarting] = useState(false);
   const [problem, setProblem] = useState<string>();
   const [started, setStarted] = useState<string>();
@@ -97,15 +100,17 @@ export default function NewChat() {
   const blocked =
     live.status !== 'open'
       ? live.snapshot
-        ? 'Reconnecting to the host… The chat starts once it answers.'
+        ? 'Reconnecting to the host…'
         : 'Not connected to the host yet.'
       : workspace && !project
-        ? 'Open a project in Sikemux on the host to start a chat in it.'
+        ? 'No open projects on the host.'
         : undefined;
+  const noAgents = Boolean(workspace && !workspace.launchers.length);
+  const absent: Glyph | undefined = noAgents ? 'IconAgent' : live.status === 'open' && workspace && !project ? 'IconFolder' : undefined;
   const busy = useRef(false);
 
-  const pick = (from: Source) => {
-    (from === 'photos' ? pickPhotos(room) : pickFiles(room))
+  const attach = (picking: Promise<Attachment[]>) => {
+    picking
       .then((picked) => {
         const tooBig = picked.filter((attachment) => attachment.size > MAX_ATTACHMENT_BYTES);
         if (tooBig.length) {
@@ -116,17 +121,6 @@ export default function NewChat() {
         setAttachments((now) => [...now, ...fits].slice(0, MAX_ATTACHMENTS));
       })
       .catch((error: unknown) => setProblem(`Could not pick: ${error instanceof Error ? error.message : String(error)}`));
-  };
-  // iOS shows a picker only once the sheet over the screen has gone.
-  const choose = (from: Source) => {
-    setSheet(undefined);
-    if (Platform.OS === 'ios') source.current = from;
-    else pick(from);
-  };
-  const dismissed = () => {
-    const from = source.current;
-    source.current = null;
-    if (from) pick(from);
   };
 
   const upload = async (connection: ConnectionLike, agentId: string): Promise<string[]> => {
@@ -163,7 +157,7 @@ export default function NewChat() {
         setStarted(agentId);
       }
       await live.connection.prompt(agentId, text, await upload(live.connection, agentId));
-      router.replace(`/device/${core}/chat/${agentId}`);
+      router.replace({ pathname: '/device/[core]/chat/[agent]', params: { core, agent: agentId, started: '1' } });
     } catch (error) {
       busy.current = false;
       haptics.failure();
@@ -174,14 +168,16 @@ export default function NewChat() {
 
   return (
     <Screen>
-      <Nav back="Cancel" title="New chat" />
+      <Nav title={launcher ? <ChatTitle provider={launcher.provider} title={chatTitle({ provider: launcher.provider })} /> : undefined} />
       <KeyboardAvoidingView style={{ flex: 1 }} behavior="padding">
         <View style={styles.welcome}>
-          {launcher ? <AgentIcon provider={launcher.provider} size={40} /> : null}
-          <Text style={styles.welcomeTitle}>{project?.name ?? 'New chat'}</Text>
-          {workspace && !workspace.launchers.length ? (
-            <Text style={[type.meta, { textAlign: 'center' }]}>Open Sikemux on the host so it can offer its agents.</Text>
+          {absent ? (
+            <PromptGlyph icon={absent} small />
+          ) : launcher ? (
+            <AgentFace agentId={project?.id} provider={launcher.provider} size={38} logoSize={40} />
           ) : null}
+          <Text style={styles.welcomeTitle}>{project?.name ?? 'New chat'}</Text>
+          {noAgents ? <Text style={[type.meta, { textAlign: 'center' }]}>No agents on the host.</Text> : null}
           {problem ? <Text style={styles.problem}>{problem}</Text> : null}
           {!problem && blocked ? (
             <Text style={[type.meta, { textAlign: 'center' }]} accessibilityLiveRegion="polite">
@@ -261,7 +257,7 @@ export default function NewChat() {
           </View>
         </SafeAreaView>
       </KeyboardAvoidingView>
-      <AttachSheet visible={sheet === 'attach'} onClose={() => setSheet(undefined)} onPick={choose} onDismiss={dismissed} />
+      <AttachSheet visible={sheet === 'attach'} room={room} onClose={() => setSheet(undefined)} onAttach={attach} />
       <AgentSheet
         visible={sheet === 'agent'}
         onClose={() => setSheet(undefined)}
@@ -295,8 +291,6 @@ const makeStyles = (colors: Palette) => {
       justifyContent: 'center',
       gap: 12,
       paddingHorizontal: 28,
-      borderTopWidth: 1,
-      borderTopColor: colors.border,
     },
     welcomeTitle: { fontFamily: fonts.uiSemibold, fontSize: 20, letterSpacing: -0.55, color: colors.ink },
     problem: { fontFamily: fonts.ui, fontSize: 13.5, color: colors.danger, textAlign: 'center' },

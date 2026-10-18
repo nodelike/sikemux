@@ -46,7 +46,7 @@ describe("Tooltip", () => {
             fireEvent.mouseEnter(screen.getByRole("button", { name: "zen" }));
             expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
 
-            act(() => vi.advanceTimersByTime(400));
+            act(() => vi.advanceTimersByTime(1000));
             expect(screen.getByRole("tooltip")).toHaveTextContent("Focus mode");
         } finally {
             vi.useRealTimers();

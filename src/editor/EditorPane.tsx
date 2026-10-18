@@ -50,7 +50,7 @@ import { EditorFindBar } from "./EditorFindBar";
 import { EditorInsights } from "./EditorInsights";
 import { PaneField } from "../ui/ShaderField";
 import { basename, dirname, isPathWithin, joinPath, normalizePath } from "../lib/paths";
-import { localPath } from "../chat/imagePreview";
+import { localPath } from "../lib/imagePaths";
 import { safeWebUrl } from "../lib/urls";
 import { keybindingLabelForAction } from "../commands/keybindings";
 
@@ -844,6 +844,7 @@ export function EditorPane({
                         savedRef.current.set(path, fresh);
                         cacheState(path, makeState(path, fresh));
                     }
+                    setMarkdownPreview((preview) => (preview?.path === path ? { path, content: fresh } : preview));
                 }
             } finally {
                 running = false;

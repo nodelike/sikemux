@@ -36,6 +36,40 @@ function withoutTimes(value: unknown): unknown {
 }
 
 describe("chat reducer", () => {
+    it("keeps a network failure with what the agent said, and lets the person dismiss it", () => {
+        const failed = chatReducer(initialChatState, {
+            type: "error",
+            message: "Lost the connection to the model provider",
+            failure: { kind: "network", account: null, details: "API Error: Connection error." },
+        });
+        expect(failed.failure?.kind).toBe("network");
+        const dismissed = chatReducer(failed, { type: "dismiss_error" });
+        expect(dismissed.error).toBeNull();
+        expect(dismissed.failure).toBeNull();
+    });
+
+    it("holds the agent's retries until it streams again or the turn ends", () => {
+        const retry = (failure: Record<string, unknown>) => ({
+            sessionUpdate: "session_info_update",
+            _meta: { jetbrains: { air: { version: 1, sessionFailure: { id: "t:retry", category: "connection", title: "x", ...failure } } } },
+        });
+        const idle = update(initialChatState, retry({ severity: "warning", attempt: 1 }));
+        expect(idle.retrying).toBeNull();
+
+        const running = chatReducer(initialChatState, { type: "turn_started" });
+        const retrying = update(running, retry({ severity: "warning", attempt: 2 }));
+        expect(retrying.retrying).toEqual({ attempt: 2, connection: true });
+        expect(update(running, retry({ severity: "warning" })).retrying).toEqual({ attempt: null, connection: true });
+        expect(update(running, retry({ severity: "error", attempt: 2 })).retrying).toBeNull();
+        expect(update(running, retry({ severity: "warning", attempt: 1, category: "service" })).retrying).toEqual({ attempt: 1, connection: false });
+        expect(update(retrying, { sessionUpdate: "session_info_update", title: "Fix login" }).retrying).toEqual({ attempt: 2, connection: true });
+
+        const streaming = update(retrying, { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "Back" } });
+        expect(streaming.retrying).toBeNull();
+        expect(chatReducer(retrying, { type: "turn_completed" }).retrying).toBeNull();
+        expect(chatReducer(retrying, { type: "error", message: "Connection error" }).retrying).toBeNull();
+    });
+
     it("rebuilds from a core's replay, with streamed text joined, the transcript a watching client built", () => {
         const say = (kind: string, text: string) => ({ sessionUpdate: kind, content: { type: "text", text } });
         const tool = { sessionUpdate: "tool_call", toolCallId: "call-1", title: "Read file", status: "in_progress" };
@@ -405,7 +439,7 @@ describe("chat reducer", () => {
         expect(finished.messages.at(-1)?.parts.at(-1)).toEqual({
             id: "notice-task-1",
             kind: "notice",
-            notice: { name: "pnpm test", state: "completed", summary: "12 files passed" },
+            notice: { name: "pnpm test", state: "completed", summary: "12 files passed", taskType: "shell" },
         });
     });
 
@@ -911,16 +945,16 @@ describe("chat reducer", () => {
         expect(runningSubagents(done.messages)).toEqual([]);
     });
 
-    it("stops a subagent when its agent goes away or starts again", () => {
+    it("leaves ending a subagent to the host when its agent goes away or starts again", () => {
         const spawned = update(initialChatState, { sessionUpdate: "subagent_spawned", subagentSessionId: "sub-1" });
         const wrote = update(spawned, { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "Looking" } }, "sub-1");
         const ended = chatReducer(wrote, { type: "turn_completed", stopReason: "end_turn" });
 
         for (const state of ["stopped", "error", "starting"] as const) {
-            const part = chatReducer(ended, { type: "status", state }).messages[0].parts[0];
-            if (part.kind !== "subagent") throw new Error("expected a subagent");
-            expect(part.subagent.state).toBe("cancelled");
+            expect(runningSubagents(chatReducer(ended, { type: "status", state }).messages)).toHaveLength(1);
         }
+        const gone = update(ended, { sessionUpdate: "subagent_state_update", subagentSessionId: "sub-1", state: "disconnected" });
+        expect(runningSubagents(gone.messages)).toEqual([]);
     });
 
     it("keeps a subagent's transcript as is when its session sends an update it cannot place", () => {

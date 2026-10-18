@@ -11,49 +11,73 @@
 .gha-annotations {
     display: flex;
     flex-direction: column;
-    gap: var(--space-1);
-    margin-bottom: var(--space-2);
 }
-.gha-annotations > .gha-callout {
-    align-items: flex-start;
-    justify-content: flex-start;
-    gap: var(--space-2);
-    padding: var(--space-1h) var(--space-2);
-}
-.gha-annotation-level {
-    flex: 0 0 auto;
-    font-size: var(--text-3xs);
-    font-weight: var(--weight-semibold);
-    letter-spacing: var(--tracking-label);
-    text-transform: uppercase;
-    color: var(--text-tertiary);
-}
-.gha-callout[data-tone="danger"] .gha-annotation-level {
-    color: var(--danger);
-}
-.gha-callout[data-tone="warn"] .gha-annotation-level {
-    color: var(--warn);
-}
-.gha-annotation-body {
+.gha-annotation {
     display: flex;
-    flex-direction: column;
-    gap: 1px;
-    min-width: 0;
-}
-.gha-annotation-title {
-    font-size: var(--text-2xs);
-    font-weight: var(--weight-medium);
+    align-items: flex-start;
+    gap: var(--space-2);
+    padding: var(--space-2) var(--space-4) var(--space-2) calc(16px + var(--space-2));
+    font-size: var(--text-xs);
+    line-height: 1.45;
     color: var(--text-primary);
 }
-.gha-annotation-message {
-    font-size: var(--text-xs);
+.gha-annotation + .gha-annotation {
+    border-top: 1px solid var(--border);
+}
+.gha-annotation-icon {
+    display: inline-flex;
+    align-items: center;
+    flex: none;
+    height: 1lh;
     color: var(--text-secondary);
+}
+.gha-annotation[data-level="warning"] > .gha-annotation-icon {
+    color: var(--warn);
+}
+.gha-annotation[data-level="failure"] > .gha-annotation-icon {
+    color: var(--danger);
+}
+.gha-annotation-text {
+    flex: 1 1 auto;
+    min-width: 0;
     white-space: pre-wrap;
     word-break: break-word;
 }
+.gha-annotation-title {
+    font-weight: var(--weight-medium);
+}
 .gha-annotation-place {
+    flex: none;
+    max-width: 40%;
+    padding: 0;
+    border: 0;
+    background: none;
+    font-size: var(--text-2xs);
+    line-height: inherit;
+    color: var(--text-tertiary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+button.gha-annotation-place {
+    cursor: pointer;
+}
+button.gha-annotation-place:hover {
+    color: var(--text-primary);
+    text-decoration: underline;
+}
+.gha-annotation-more {
+    width: 100%;
+    border: 0;
+    background: none;
+    font: inherit;
     font-size: var(--text-2xs);
     color: var(--text-tertiary);
+    text-align: left;
+    cursor: pointer;
+}
+.gha-annotation-more:hover {
+    color: var(--text-primary);
 }
 
 /* ---- Artifacts and approvals -------------------------------------------- */

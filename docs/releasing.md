@@ -7,9 +7,9 @@ make preflight
 git tag v0.4.1 && git push origin v0.4.1
 ```
 
-`make preflight` runs the two checks the pre-push hook does not: it launches the real app the way CI's desktop E2E job does, and builds the DMG against its size limit. Either failing would otherwise surface only in the Release run.
+Pushes run no checks locally; CI checks every push to `main`, so tag only a commit whose CI run is green. `make preflight` launches the real app the way CI's desktop E2E job does and builds the DMG against its size limit, which otherwise surfaces only in the Release run.
 
-A run is titled with its tag, so the approval names what it will publish, and it stops if the tag disagrees with `package.json`. The workflow reads the version from `package.json` and builds and verifies with `scripts/release.sh` while the full CI suite runs. Once both pass, `scripts/publish-release.sh` publishes the build. A prerelease version goes to the nightly channel and any other version to stable. Only one release runs at a time, and each run keeps its built artifacts.
+A run is titled with its tag, so the approval names what it will publish, and it stops if the tag disagrees with `package.json`. The workflow reads the version from `package.json` and builds and verifies with `scripts/release.sh` while the full CI suite runs. Beside it, `pnpm build:linux` builds the x86_64 `.deb`, `.rpm` and `.AppImage` on Ubuntu 24.04. They carry no updater signature, because the update feed lists only macOS builds. Once the builds and the checks pass, `scripts/publish-release.sh` publishes them together. A prerelease version goes to the nightly channel and any other version to stable. Only one release runs at a time, and each run keeps its built artifacts.
 
 If a release fails before it publishes, fix it and move the tag onto the fix. Only the owner can move a release tag, and moving it starts a fresh run:
 
@@ -48,7 +48,7 @@ A nightly is a prerelease of the next stable release. After a stable `0.x.y`, `m
 A nightly that has been in use becomes stable without anything newer from `main`. On `release/<major.minor>`:
 
 1. A merge commit whose content is exactly that nightly's tagged commit.
-2. A commit that sets the stable version in `package.json`, `src-tauri/tauri.conf.json`, `src-tauri/Cargo.toml` and the `sikemux` entry in `src-tauri/Cargo.lock`, and writes `RELEASE_NOTES.md` for everything since the last stable release.
+2. A commit that sets the stable version in `package.json`, `src-tauri/tauri.conf.json`, `[workspace.package]` in `src-tauri/Cargo.toml` and the `sikemux` and `sikemux-host` entries in `src-tauri/Cargo.lock`, and writes `RELEASE_NOTES.md` for everything since the last stable release.
 3. The `v<version>` tag on that commit.
 
 None of this lands on `main`. Commits made to `main` meanwhile stay out of the release.
@@ -75,8 +75,8 @@ from=$(git show "${merge}:package.json" | sed -n 's/.*"version": "\(.*\)".*/\1/p
 put() { git update-index --cacheinfo "100644,$(git hash-object -w --stdin),$1"; }
 git show "${merge}:package.json" | sed "s/\"version\": \"${from}\"/\"version\": \"${version}\"/" | put package.json
 git show "${merge}:src-tauri/tauri.conf.json" | sed "s/\"version\": \"${from}\"/\"version\": \"${version}\"/" | put src-tauri/tauri.conf.json
-git show "${merge}:src-tauri/Cargo.toml" | sed "3s/\"${from}\"/\"${version}\"/" | put src-tauri/Cargo.toml
-git show "${merge}:src-tauri/Cargo.lock" | awk -v from="${from}" -v to="${version}" 'prev=="name = \"sikemux\"" && $0=="version = \""from"\"" {print "version = \""to"\""; prev=$0; next} {print; prev=$0}' | put src-tauri/Cargo.lock
+git show "${merge}:src-tauri/Cargo.toml" | sed "s/^version = \"${from}\"$/version = \"${version}\"/" | put src-tauri/Cargo.toml
+git show "${merge}:src-tauri/Cargo.lock" | awk -v from="${from}" -v to="${version}" '(prev=="name = \"sikemux\"" || prev=="name = \"sikemux-host\"") && $0=="version = \""from"\"" {print "version = \""to"\""; prev=$0; next} {print; prev=$0}' | put src-tauri/Cargo.lock
 put RELEASE_NOTES.md < /path/to/notes.md
 bump=$(git commit-tree "$(git write-tree)" -p "${merge}" -m "chore(release): prepare v${version}")
 rm -f "${GIT_INDEX_FILE}"; unset GIT_INDEX_FILE
@@ -127,7 +127,7 @@ Every phone release needs its notes in `mobile/RELEASE_NOTES.md`, committed befo
 | `ANDROID_UPLOAD_PASSWORD` | secret | its password, which is also the key's own password                                            |
 | `PLAY_SERVICE_ACCOUNT`    | secret | the `sikemux-play-release` service account's JSON key, allowed to release in the Play Console |
 
-The same run builds the iPhone app on a macOS runner and sends it to TestFlight, as build number the version code above. Xcode signs it with the App Store Connect API key: it makes or fetches the distribution certificate and the profiles for the app and its notification extension itself. Internal testers get each build once Apple has processed it. The run then waits for that processing, sets "What to Test" from `mobile/RELEASE_NOTES.md`, adds the build to the external `Testers` group and submits it for beta review (`mobile/app/scripts/testflight-release.mjs`), so external testers get every nightly and stable build once Apple approves it. A stable build is then submitted for App Store review by hand.
+The same run builds the iPhone app on a macOS runner and sends it to TestFlight, as build number the version code above. Xcode signs it with the App Store Connect API key: it makes or fetches the distribution certificate and the profiles for the app and its notification extension itself. A fresh runner has no development certificate, so Xcode makes one each run; the run first revokes the ones earlier runs made, named "Created via API", before Apple's certificate limit refuses a new one. Internal testers get each build once Apple has processed it. The run then waits for that processing, sets "What to Test" from `mobile/RELEASE_NOTES.md`, adds the build to the external `Testers` group and submits it for beta review (`mobile/app/scripts/testflight-release.mjs`), so external testers get every nightly and stable build once Apple approves it. A stable build is then submitted for App Store review by hand.
 
 The app brings its own standard encryption (TLS and QUIC from rustls) and is not sold in France. For that answer, standard algorithms in addition to Apple's and no sale in France, App Store Connect records a build as using no non-exempt encryption, so the app says so itself with `ITSAppUsesNonExemptEncryption` set to false and builds skip the question. Selling in France needs a French encryption declaration first, and then the key changes to the code App Store Connect gives for it.
 

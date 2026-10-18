@@ -38,7 +38,7 @@
     text-transform: uppercase;
 }
 
-/* The app's list row, at the app's list-row size. See DESIGN.md § Rows. */
+/* The app's list row, at the app's list-row size. */
 .settings-rail-item {
     display: flex;
     align-items: center;
@@ -65,8 +65,7 @@
     color: var(--text-primary);
 }
 .settings-rail-item.active {
-    background: var(--surface-selected);
-    border-color: var(--border-selected);
+    background: var(--surface-chosen);
     color: var(--text-primary);
 }
 .settings-rail-item:focus-visible {
@@ -161,7 +160,7 @@
     border-top: 1px solid var(--border);
 }
 .settings-result.active {
-    background: var(--surface-selected);
+    background: var(--surface-chosen);
     color: var(--text-primary);
 }
 .settings-result.active .settings-rail-icon {

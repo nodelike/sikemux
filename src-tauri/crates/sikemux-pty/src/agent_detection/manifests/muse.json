@@ -1,0 +1,48 @@
+{
+  "schemaVersion": 1,
+  "id": "muse",
+  "version": "2026.10.13.1",
+  "rules": [
+    {
+      "id": "permission_prompt",
+      "state": "blocked",
+      "priority": 950,
+      "region": "bottomNonEmptyLines(16)",
+      "visibleBlocker": true,
+      "gate": {
+        "any": [
+          { "contains": ["allow once", "reject"] },
+          { "contains": ["allow for this session", "reject"] },
+          { "contains": ["allow once", "deny"] }
+        ]
+      }
+    },
+    {
+      "id": "working_hint",
+      "state": "working",
+      "priority": 700,
+      "region": "bottomNonEmptyLines(8)",
+      "visibleWorking": true,
+      "gate": {
+        "any": [
+          { "contains": ["esc to interrupt"] },
+          { "contains": ["ctrl+c to interrupt"] }
+        ]
+      }
+    },
+    {
+      "id": "input_prompt",
+      "state": "idle",
+      "priority": 400,
+      "region": "bottomNonEmptyLines(6)",
+      "visibleIdle": true,
+      "gate": {
+        "lineRegex": ["^\\s*[❯>›]\\s*$"],
+        "not": [
+          { "contains": ["allow once"] },
+          { "contains": ["esc to interrupt"] }
+        ]
+      }
+    }
+  ]
+}

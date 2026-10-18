@@ -557,6 +557,7 @@ describe("purging", () => {
       events: 1,
       removedDevices: 1,
       audit: 1,
+      shares: 0,
       challenges: 1,
     });
     const { rows } = await database.pool.query(

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ProjectPage } from "./ProjectPage";
 import { sendTestNotification } from "../agents/agentNotifications";
 import type { KeyboardEvent as ReactKeyboardEvent, ReactNode } from "react";
 import { invokeCommand as invoke } from "../api/invoke";
@@ -18,7 +19,8 @@ import {
     type KeybindingOverrides,
 } from "../commands/keybindings";
 import { settingsApi } from "../api/settings";
-import { isUpdateBusy, updateCheckLabel } from "../api/updater";
+import { openInBrowser } from "../api/releases";
+import { isUpdateBusy, RELEASES_URL, updateCheckLabel, UPDATES_IN_APP } from "../api/updater";
 import { prettyPath } from "../lib/paths";
 import { IS_MACOS, PRIMARY_SHORTCUT } from "../lib/platform";
 import { notify, reportError } from "../state/toast";
@@ -37,6 +39,7 @@ import {
     IconContrast,
     IconEditor,
     IconFolder,
+    IconGit,
     IconGlobe,
     IconPlug,
     IconPhone,
@@ -51,11 +54,12 @@ import {
 import { Dropdown } from "../ui/Dropdown";
 import { Checkbox, Slider, Switch } from "../ui/Controls";
 import { Tooltip } from "../ui/Tooltip";
+import { PaneField } from "../ui/ShaderField";
 import type { CommandContext, CustomCommand, CustomCommandPlacement } from "../commands/registry";
 import type { AgentProvider, ProjectRoot, ProviderProfile } from "../state/types";
 import { AGENT_PERMISSION_COPY, AGENT_PERMISSION_MODES } from "../agents/agentLaunch";
 import { providerAccent } from "../agents/agentProfiles";
-import { ACCOUNT_AGENT_TYPES, agentLabel, hasAccounts } from "../agents/catalog";
+import { hasAccounts } from "../agents/catalog";
 import {
     searchSettings,
     SETTINGS_GROUPS,
@@ -69,14 +73,18 @@ import { useBuiltPlugins } from "../plugins/enabled";
 import { frontendPlugin, pluginSurface } from "../plugins/registry";
 import { ActivityPage } from "../shell/ActivityPage";
 import { DevicesPage } from "./DevicesPage";
+import { SkillsSection } from "./SkillsSection";
 import { ModelProvidersSection } from "./ModelProvidersSection";
+import { AgentSetupSection } from "./AgentSetupSection";
 import { AccountsSections } from "./AccountsSection";
 import { SettingsPage, SettingsRow, SettingsRows, SettingsSection } from "./SettingsLayout";
+import { BuddySettings } from "../buddies/BuddySettings";
 import { useVoice, type VoiceState } from "../voice/dictation";
 import "../styles/settings.css";
 
 const PAGE_ICONS: Record<SettingsPageId, ReactNode> = {
     general: <IconFolder size={13} />,
+    project: <IconGit size={13} />,
     appearance: <IconContrast size={13} />,
     keybindings: <IconCommand size={13} />,
     activity: <IconActivity size={13} />,
@@ -114,6 +122,7 @@ export function SettingsPanel() {
     const cloudBrowserShortcut = useStore((s) => s.cloudBrowserShortcut);
     const keybindingOverrides = useStore((s) => s.keybindingOverrides);
     const home = useStore((s) => s.home);
+    const paneShader = useStore((s) => s.paneShader);
     const page = useStore((s) => s.settingsPage);
     const target = useStore((s) => s.settingsTarget);
     const settingsBinding = resolvedKeybinding(keybindingOverrides, "settings.toggle");
@@ -282,6 +291,7 @@ export function SettingsPanel() {
                 </aside>
 
                 <div className="settings-main">
+                    <PaneField enabled={paneShader} />
                     <header className="settings-topbar">
                         <span className="settings-topbar-title">{searching ? "Search" : SETTINGS_PAGE_NAMES[page]}</span>
                         <button
@@ -301,6 +311,7 @@ export function SettingsPanel() {
                             <>
                                 {page === "general" && <GeneralPage projectRoots={projectRoots} home={home} pretty={pretty} />}
 
+                                {page === "project" && <ProjectPage />}
                                 {page === "appearance" && <AppearancePage themeId={themeId} windowOpacity={windowOpacity} windowBlur={windowBlur} />}
 
                                 {page === "keybindings" && (
@@ -505,8 +516,8 @@ function AgentsPage() {
     const restore = useStore((s) => s.restoreAgentTabs);
     const notifications = useStore((s) => s.agentNotifications);
     const density = useStore((s) => s.railDensity);
+    const midTurnSend = useStore((s) => s.midTurnSend);
     const profiles = useStore((s) => s.providerProfiles);
-    const selectedProfiles = useStore((s) => s.selectedProviderProfileIds);
     const defaultPermissionMode = useStore((s) => s.defaultAgentPermissionMode);
     const [draft, setDraft] = useState<ProviderProfile>(
         () =>
@@ -522,6 +533,8 @@ function AgentsPage() {
         setDraft({ id: `profile-${Date.now().toString(36)}`, name: "", provider: "claude", accent: providerAccent("claude"), environmentKeys: [] });
     return (
         <SettingsPage>
+            <AgentSetupSection />
+
             <SettingsSection
                 title="Launch boundary"
                 meta={AGENT_PERMISSION_COPY[defaultPermissionMode].label}
@@ -644,28 +657,11 @@ function AgentsPage() {
                         </div>
                     </div>
                 </div>
-
-                <SettingsRows>
-                    {ACCOUNT_AGENT_TYPES.map((type) => (
-                        <SettingsRow key={type} label={`${agentLabel(type)} default`} desc={`The profile a new ${type} session launches with.`} wide>
-                            <Dropdown
-                                className="settings-dd"
-                                label={`${type} default`}
-                                value={selectedProfiles[type] ?? ""}
-                                options={profiles
-                                    .filter((profile) => profile.provider === type)
-                                    .map((profile) => ({
-                                        value: profile.id,
-                                        label: profile.name,
-                                    }))}
-                                onChange={(value) => cmd.selectProviderProfile(type, value)}
-                            />
-                        </SettingsRow>
-                    ))}
-                </SettingsRows>
             </SettingsSection>
 
             <ModelProvidersSection />
+
+            <SkillsSection />
 
             <SettingsSection title="Sessions">
                 <SettingsRows>
@@ -690,6 +686,18 @@ function AgentsPage() {
                             </button>
                         }
                     />
+                    <SettingsRow label="Sending while an agent works" desc={`What ↵ does mid-turn. ${PRIMARY_SHORTCUT}↵ does the other.`} wide>
+                        <Dropdown
+                            className="settings-dd"
+                            label="sending while an agent works"
+                            value={midTurnSend}
+                            options={[
+                                { value: "steer", label: "Steer", detail: "The agent reads it in the running turn" },
+                                { value: "queue", label: "Queue", detail: "It waits until the turn ends" },
+                            ]}
+                            onChange={(value) => cmd.setMidTurnSend(value as "steer" | "queue")}
+                        />
+                    </SettingsRow>
                     <SettingsRow label="Rail density" desc="Compact fits more sessions while keeping every state symbol visible." wide>
                         <Dropdown
                             className="settings-dd"
@@ -818,26 +826,41 @@ function AboutPage() {
         <SettingsPage>
             <SettingsSection title="Updates">
                 <SettingsRows>
-                    <SettingsRow
-                        label="Channel"
-                        desc="Stable follows the latest signed release; nightly the newest build, prerelease or stable."
-                        wide>
-                        <Dropdown
-                            className="settings-dd"
-                            label="update channel"
-                            value={updateChannel}
-                            options={[
-                                { value: "stable", label: "Stable", detail: "Latest signed release" },
-                                { value: "nightly", label: "Nightly", detail: "Newest signed build, prerelease or stable" },
-                            ]}
-                            onChange={(value) => cmd.setUpdateChannel(value as "stable" | "nightly")}
-                        />
-                    </SettingsRow>
-                    <SettingsRow label="Last checked" desc={lastUpdateCheck ? updateCheckLabel(lastUpdateCheck) : "Not checked yet this session."}>
-                        <button className="settings-btn" disabled={isUpdateBusy(pendingUpdate?.state)} onClick={() => void cmd.checkForUpdates()}>
-                            Check now
-                        </button>
-                    </SettingsRow>
+                    {UPDATES_IN_APP ? (
+                        <>
+                            <SettingsRow
+                                label="Channel"
+                                desc="Stable follows the latest signed release; nightly the newest build, prerelease or stable."
+                                wide>
+                                <Dropdown
+                                    className="settings-dd"
+                                    label="update channel"
+                                    value={updateChannel}
+                                    options={[
+                                        { value: "stable", label: "Stable", detail: "Latest signed release" },
+                                        { value: "nightly", label: "Nightly", detail: "Newest signed build, prerelease or stable" },
+                                    ]}
+                                    onChange={(value) => cmd.setUpdateChannel(value as "stable" | "nightly")}
+                                />
+                            </SettingsRow>
+                            <SettingsRow
+                                label="Last checked"
+                                desc={lastUpdateCheck ? updateCheckLabel(lastUpdateCheck) : "Not checked yet this session."}>
+                                <button
+                                    className="settings-btn"
+                                    disabled={isUpdateBusy(pendingUpdate?.state)}
+                                    onClick={() => void cmd.checkForUpdates()}>
+                                    Check now
+                                </button>
+                            </SettingsRow>
+                        </>
+                    ) : (
+                        <SettingsRow label="New versions" desc="Linux builds do not update themselves yet. Download each new release from GitHub.">
+                            <button className="settings-btn" onClick={() => void openInBrowser(RELEASES_URL).catch(reportError("open releases"))}>
+                                Open releases
+                            </button>
+                        </SettingsRow>
+                    )}
                 </SettingsRows>
             </SettingsSection>
 
@@ -1227,6 +1250,7 @@ function AppearancePage({ themeId, windowOpacity, windowBlur }: AppearancePagePr
     const uiTextScale = useStore((state) => state.uiTextScale);
     const paneShader = useStore((state) => state.paneShader);
     const paneImage = useStore((state) => state.paneImage);
+    const paneStrength = useStore((state) => state.paneStrength);
     const home = useStore((state) => state.home);
     const customThemes = useStore((s) => s.customThemes);
     const [edit, setEdit] = useState<ThemeEdit | null>(null);
@@ -1361,8 +1385,16 @@ function AppearancePage({ themeId, windowOpacity, windowBlur }: AppearancePagePr
                             </button>
                         </div>
                     </SettingsRow>
+                    <SettingsRow label="Pane strength" desc="How strongly the texture or picture shows. 1.00 is the default.">
+                        <div className="settings-knob">
+                            <Slider label="Pane strength" min={0} max={2} step={0.05} value={paneStrength} onChange={cmd.setPaneStrength} />
+                            <NumberField value={paneStrength} onCommit={cmd.setPaneStrength} format={(v) => v.toFixed(2)} />
+                        </div>
+                    </SettingsRow>
                 </SettingsRows>
             </SettingsSection>
+
+            <BuddySettings />
 
             {IS_MACOS && (
                 <SettingsSection title="Window">

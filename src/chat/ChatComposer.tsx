@@ -1,18 +1,18 @@
-import { lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
-import { open } from "@tauri-apps/plugin-dialog";
+import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from "react";
+import { errorText } from "../lib/format";
+import { dialogsApi } from "../api/dialogs";
 import { ComposerPickers } from "./ComposerPickers";
 import type { SessionConfig } from "./sessionConfig";
-import { basename, dirname, joinPath } from "../lib/paths";
+import { basename, joinPath } from "../lib/paths";
 import { animate } from "../lib/motion";
 import { hasPrimaryModifier, PRIMARY_SHORTCUT } from "../lib/platform";
 import { registerPathDrop } from "../state/dropRegistry";
 import { registerTextInsert } from "../state/textInsertRegistry";
 import type { Agent, ProviderProfile } from "../state/types";
 import * as cmd from "../state/commands";
-import { IconArrowUp, IconClose, IconFolder, IconPlus } from "../ui/Icons";
-import { FileIcon, FileTypeIcon } from "../ui/FileIcon";
-import { useResourceEnabled } from "../state/resources";
-import { filesListR } from "../state/resources.defs";
+import { useStore } from "../state/store";
+import { IconArrowUp, IconClose, IconPlus } from "../ui/Icons";
+import { FileTypeIcon } from "../ui/FileIcon";
 import { usePathRoots } from "./FileRef";
 import { useImagePreview } from "./imagePreview";
 import { YoloToggle } from "./YoloToggle";
@@ -22,17 +22,31 @@ import { finishDictationInto, useVoice, writesInto } from "../voice/dictation";
 import { ContextMeter } from "./ContextMeter";
 import { imagesInClipboard, savePastedClipboard } from "./pasteImage";
 import { arrowsBrowse, recallPrompt, type HistoryPosition } from "./promptHistory";
-import { commandMatches, entryName, mergePaths, projectEntries, rankEntries, removeToken, tokenAt, type ProjectEntry } from "./composerInput";
+import { hasTag, MAX_MENU_ENTRIES, mergePaths, removeToken, tagBefore, tokenAt, type ComposerTrigger, type ProjectEntry } from "./composerInput";
 import { canSwitchMode } from "../agents/agentLaunch";
+import { AgentMark } from "../agents/AgentMark";
 import { receiveForAgent } from "../agents/agentInbox";
 import type { AcpAvailableCommand, ChatState, ContextUsage } from "./types";
 import type { OutgoingMessage } from "./queuedMessages";
+import { registerComposer } from "./draftHandoff";
 import type { PromptContext } from "../api/acp";
 import type { RepoRef } from "../codehost/types";
 import type { TrackedItem, TrackedKind } from "../codehost/tracked";
 import type { TrackedMatches } from "./TrackedSource";
 import { ContextMark } from "./ContextChip";
 import { contextChip } from "./promptContext";
+import { mentionContext, useMates, type Mate } from "./agentMentions";
+import type { EarlierChat } from "./earlierChats";
+import { ComposerBuddy } from "../buddies/Buddy";
+import ComposerMenu, { type MenuKeys, type MenuPick } from "./ComposerMenu";
+import DictationPreview from "./DictationPreview";
+import DraftEditor, { type DraftBox, type DraftChip } from "./DraftEditor";
+
+/** Puts the caret at `at`; the editor holds it until the new draft is laid out. */
+function caretTo(editor: RefObject<DraftBox | null>, at: number) {
+    editor.current?.focus();
+    editor.current?.setSelectionRange(at, at);
+}
 
 function ComposerAttachment({ path, onRemove }: { path: string; onRemove: () => void }) {
     const preview = useImagePreview(path);
@@ -46,53 +60,24 @@ function ComposerAttachment({ path, onRemove }: { path: string; onRemove: () => 
     );
 }
 
-interface MenuRow {
-    key: string;
-    content: ReactNode;
-    choose: () => void;
-}
-
-interface ComposerMenuModel {
-    label: string;
-    heading: string;
-    aside: string;
-    variant: "commands" | "entries";
-    rows: MenuRow[];
-    empty: string | null;
-}
-
-function ComposerMenu({ menu, selected }: { menu: ComposerMenuModel; selected: number }) {
-    return (
-        <div className={`chat-slash-menu ${menu.variant}`} role="listbox" aria-label={menu.label}>
-            <div className="chat-slash-heading">
-                <span>{menu.heading}</span>
-                <span>{menu.aside}</span>
-            </div>
-            {menu.rows.length === 0 && menu.empty && <div className="chat-slash-empty">{menu.empty}</div>}
-            {menu.rows.map((row, index) => (
-                <button
-                    key={row.key}
-                    type="button"
-                    role="option"
-                    aria-selected={index === selected}
-                    className={index === selected ? "selected" : ""}
-                    onMouseDown={(event) => event.preventDefault()}
-                    onClick={row.choose}>
-                    {row.content}
-                </button>
-            ))}
-        </div>
-    );
-}
-
-const MAX_ENTRIES = 8;
-
-/** An item to hand over with the message. One picked with `#` is read in full only when the message is sent. */
+/**
+ * An item to hand over with the message. One picked with `#` is read in full only when the message is sent, and an
+ * earlier chat picked with `@` is opened again only then.
+ */
 interface ComposerContext {
     uri: string;
     title: string;
     text: string | null;
     tracked: { repo: RepoRef; kind: TrackedKind; number: number } | null;
+    earlier?: EarlierChat;
+    /** How it is written in the draft; it goes with the message only while that is still there. */
+    tag?: string;
+}
+
+/** A project file picked with `+`, attached while its tag is still in the draft. */
+interface FileTag {
+    tag: string;
+    path: string;
 }
 
 function mergeContext(current: ComposerContext[], incoming: readonly ComposerContext[]): ComposerContext[] {
@@ -101,6 +86,8 @@ function mergeContext(current: ComposerContext[], incoming: readonly ComposerCon
 
 function readContext(item: ComposerContext): Promise<PromptContext> {
     if (item.text !== null) return Promise.resolve({ uri: item.uri, title: item.title, text: item.text });
+    const { earlier } = item;
+    if (earlier) return import("./earlierChats").then(({ wakeEarlier }) => wakeEarlier(earlier));
     if (!item.tracked) return Promise.reject(new Error(`${item.title} has nothing to send`));
     const { repo, kind, number } = item.tracked;
     return Promise.all([import("../codehost/tracked"), import("../codehost/api")]).then(([{ loadTrackedContext }, { failureMessage }]) =>
@@ -113,23 +100,72 @@ function readContext(item: ComposerContext): Promise<PromptContext> {
 const TrackedSource = lazy(() => import("./TrackedSource"));
 const WorktreeToggle = lazy(() => import("./ChatWorktree").then(({ WorktreeToggle }) => ({ default: WorktreeToggle })));
 
-function ComposerContextChip({ item, onRemove }: { item: ComposerContext; onRemove: () => void }) {
-    const chip = contextChip(item);
-    const name = chip.number ? `#${chip.number}` : chip.title;
+function Chip({
+    title,
+    mark,
+    kind,
+    label,
+    removeLabel,
+    onRemove,
+    answering = false,
+}: {
+    title: string;
+    mark: ReactNode;
+    kind?: string;
+    label: ReactNode;
+    removeLabel: string;
+    onRemove: () => void;
+    answering?: boolean;
+}) {
     return (
-        <span className="chat-context-chip" title={item.uri}>
-            <span className="chat-context-mark" data-kind={chip.kind ?? "other"}>
-                <ContextMark kind={chip.kind} size={14} />
+        <span className={`chat-context-chip${answering ? " answering" : ""}`} title={title}>
+            <span className="chat-context-mark" data-kind={kind}>
+                {mark}
             </span>
-            <span>
-                {chip.number && <span className="chat-context-number">#{chip.number} </span>}
-                {chip.title}
-            </span>
-            <button type="button" aria-label={`Remove ${name}`} onClick={onRemove}>
+            <span>{label}</span>
+            <button type="button" aria-label={removeLabel} onClick={onRemove}>
                 <IconClose size={11} />
             </button>
         </span>
     );
+}
+
+function ComposerContextChip({ item, onRemove }: { item: ComposerContext; onRemove: () => void }) {
+    if (item.earlier) {
+        const { agent, title } = item.earlier.chat;
+        return (
+            <Chip
+                title="Sending this opens the chat again under a new name and tells the agent who it is"
+                mark={<AgentMark cli={agent} />}
+                label={title}
+                removeLabel={`Remove ${title}`}
+                onRemove={onRemove}
+            />
+        );
+    }
+    const chip = contextChip(item);
+    return (
+        <Chip
+            title={item.uri}
+            mark={<ContextMark kind={chip.kind} size={14} />}
+            kind={chip.kind ?? "other"}
+            label={
+                <>
+                    {chip.number && <span className="chat-context-number">#{chip.number} </span>}
+                    {chip.title}
+                </>
+            }
+            removeLabel={`Remove ${chip.number ? `#${chip.number}` : chip.title}`}
+            onRemove={onRemove}
+        />
+    );
+}
+
+export interface ComposerAnswering {
+    name: string;
+    cli: string;
+    question: string;
+    onRemove: () => void;
 }
 
 /* The composer keeps the draft to itself: a keystroke redraws these few rows
@@ -160,6 +196,8 @@ export function ChatComposer({
     onConfig,
     history,
     worktree,
+    answering,
+    onQuestionKey,
 }: {
     agent: Agent;
     profile?: ProviderProfile;
@@ -186,33 +224,47 @@ export function ChatComposer({
     onConfig: (config: SessionConfig, value: string) => void;
     history: readonly string[];
     worktree?: { state: WorktreeSwitchState; toggle: () => void };
+    /** The question an agent asked that whatever is sent answers. */
+    answering?: ComposerAnswering | null;
+    /** A key pressed in the empty box while the agent waits on questions; true when it did something with it. */
+    onQuestionKey?: (key: string, primary: boolean) => boolean;
 }) {
     const [draft, setDraft] = useState("");
+    const draftNow = useRef(draft);
+    draftNow.current = draft;
+    useEffect(
+        () =>
+            registerComposer(agent.id, {
+                take: () => {
+                    const taken = draftNow.current;
+                    draftNow.current = "";
+                    setDraft("");
+                    return taken;
+                },
+                put: (text) => setDraft((now) => (now.trim() ? `${now}\n${text}` : text)),
+            }),
+        [agent.id],
+    );
     const [historyPosition, setHistoryPosition] = useState<HistoryPosition | null>(null);
     const recalledCaret = useRef<"start" | "end" | null>(null);
     const [caret, setCaret] = useState(0);
     const [attachments, setAttachments] = useState<string[]>([]);
     const [contexts, setContexts] = useState<ComposerContext[]>([]);
+    const [fileTags, setFileTags] = useState<FileTag[]>([]);
     const [reading, setReading] = useState(false);
     const [menuSelection, setMenuSelection] = useState(0);
     const [menuDismissed, setMenuDismissed] = useState(false);
-    const editorRef = useRef<HTMLTextAreaElement>(null);
+    const editorRef = useRef<DraftBox>(null);
     const { cwd } = usePathRoots();
 
-    /* The field grows with what is typed until it reaches its CSS max-height,
-       and scrolls from there. */
+    // A recalled message opens with the caret where the next arrow press keeps browsing.
     useLayoutEffect(() => {
         const editor = editorRef.current;
-        if (!editor) return;
-        editor.style.height = "auto";
-        editor.style.height = `${editor.scrollHeight}px`;
-        // A recalled message opens with the caret where the next arrow press keeps browsing.
-        if (recalledCaret.current) {
-            const at = recalledCaret.current === "start" ? 0 : draft.length;
-            editor.setSelectionRange(at, at);
-            setCaret(at);
-            recalledCaret.current = null;
-        }
+        if (!editor || !recalledCaret.current) return;
+        const at = recalledCaret.current === "start" ? 0 : draft.length;
+        editor.setSelectionRange(at, at);
+        setCaret(at);
+        recalledCaret.current = null;
     }, [draft]);
 
     useEffect(() => {
@@ -241,10 +293,7 @@ export function ChatComposer({
             const next = text ? `${current.trimEnd()}${current.trim() ? "\n\n" : ""}${text}` : current;
             setDraft(next);
             setCaret(next.length);
-            window.requestAnimationFrame(() => {
-                editorRef.current?.focus();
-                editorRef.current?.setSelectionRange(next.length, next.length);
-            });
+            caretTo(editorRef, next.length);
         });
     }, [agent.id, visible]);
 
@@ -260,10 +309,7 @@ export function ChatComposer({
             const at = before.length + inserted.length;
             setDraft(`${before}${inserted}${after}`);
             setCaret(at);
-            window.requestAnimationFrame(() => {
-                editor.focus();
-                editor.setSelectionRange(at, at);
-            });
+            caretTo(editorRef, at);
         });
     }, [paneRef]);
 
@@ -285,17 +331,25 @@ export function ChatComposer({
         return () => window.cancelAnimationFrame(frame);
     }, [connection, paneRef, visible]);
 
-    const token = menuDismissed ? null : tokenAt(draft, caret);
+    const mates = useMates(agent.id);
+    const chips: DraftChip[] = [
+        ...contexts.flatMap((item) =>
+            item.tag && item.tracked ? [{ text: item.tag, kind: item.tracked.kind, label: contextChip(item).title }] : [],
+        ),
+        ...fileTags.map((file) => ({ text: file.tag, kind: "file" as const, label: basename(file.path) })),
+        ...mates.map((mate) => ({ text: `@${mate.name}`, kind: "agent" as const, agent: mate })),
+    ];
+    const tagTexts = chips.map((chip) => chip.text);
+    const typed = menuDismissed ? null : tokenAt(draft, caret);
+    // A finished tag is not a search: the menu stays shut when the caret lands right after one.
+    const token = typed && !tagTexts.includes(`${typed.trigger}${typed.needle}`) ? typed : null;
+    const sentContexts = contexts.filter((item) => !item.tag || hasTag(draft, item.tag));
+    const sentFiles = fileTags.filter((file) => hasTag(draft, file.tag));
 
     const placeCaret = (position: number) => {
         setCaret(position);
         setMenuDismissed(true);
-        window.requestAnimationFrame(() => {
-            const editor = editorRef.current;
-            if (!editor) return;
-            editor.focus();
-            editor.setSelectionRange(position, position);
-        });
+        caretTo(editorRef, position);
     };
 
     const takeToken = () => {
@@ -305,19 +359,8 @@ export function ChatComposer({
         placeCaret(next.caret);
     };
 
-    const slashCommands = useMemo(() => {
-        return token?.trigger === "/" ? commandMatches(commands, token.needle) : [];
-    }, [commands, token?.trigger, token?.needle]);
-
-    const files = useResourceEnabled(token?.trigger === "@" && !!cwd, filesListR, cwd);
-    const entries = useMemo(() => projectEntries(files.data ?? []), [files.data]);
-    const entryMatches = useMemo(
-        () => (token?.trigger === "@" ? rankEntries(token.needle, entries, MAX_ENTRIES) : []),
-        [entries, token?.trigger, token?.needle],
-    );
-
     const [trackedList, setTrackedList] = useState<TrackedMatches>({ state: "loading" });
-    const trackedMatches = token?.trigger === "#" && trackedList.state === "ready" ? trackedList.matches : [];
+    const menuKeys = useRef<MenuKeys | null>(null);
 
     const selectCommand = (command: AcpAvailableCommand) => {
         if (!token) return;
@@ -327,104 +370,79 @@ export function ChatComposer({
         placeCaret(token.start + written.length);
     };
 
-    const selectEntry = (entry: ProjectEntry) => {
+    const selectMate = (mate: Mate) => {
+        if (!token) return;
+        const written = `@${mate.name} `;
+        setDraft(`${draft.slice(0, token.start)}${written}${draft.slice(caret).replace(/^ /, "")}`);
+        placeCaret(token.start + written.length);
+    };
+
+    const selectEarlier = (earlier: EarlierChat, uri: string) => {
         takeToken();
-        setAttachments((current) => mergePaths(current, [joinPath(cwd, entry.path)]));
+        setContexts((current) => mergeContext(current, [{ uri, title: earlier.chat.title, text: null, tracked: null, earlier }]));
         onError(null);
     };
 
-    const selectTracked = (item: TrackedItem) => {
-        if (trackedList.state !== "ready") return;
-        takeToken();
+    /** Writes a picked item over the token being typed, as a tag followed by a space. */
+    const writeTag = (tag: string) => {
+        if (!token) return;
+        setDraft(`${draft.slice(0, token.start)}${tag} ${draft.slice(caret).replace(/^ /, "")}`);
+        placeCaret(token.start + tag.length + 1);
+        onError(null);
+    };
+
+    const selectEntry = (entry: ProjectEntry) => {
+        const path = joinPath(cwd, entry.path);
+        const named = `+${entry.path.replace(/\/$/, "").split("/").pop()}`;
+        const clash = fileTags.some((file) => file.tag === named && file.path !== path);
+        const tag = clash ? `+${entry.path.replace(/\/$/, "")}` : named;
+        writeTag(tag);
+        setFileTags((current) => [...current.filter((file) => file.tag !== tag), { tag, path }]);
+    };
+
+    const selectTracked = (item: TrackedItem, repo: RepoRef) => {
+        const tag = `${item.kind === "pull" ? "!" : "#"}${item.number}`;
+        writeTag(tag);
         const chosen = {
             uri: item.url,
             title: `#${item.number} ${item.title}`,
             text: null,
-            tracked: { repo: trackedList.repo, kind: item.kind, number: item.number },
+            tracked: { repo, kind: item.kind, number: item.number },
+            tag,
         };
         setContexts((current) => mergeContext(current, [chosen]));
-        onError(null);
     };
 
-    const menu: ComposerMenuModel | null =
-        token?.trigger === "/" && slashCommands.length > 0
-            ? {
-                  label: "Session commands",
-                  heading: "Session commands",
-                  aside: "ACP",
-                  variant: "commands",
-                  empty: null,
-                  rows: slashCommands.map((command) => ({
-                      key: command.name,
-                      choose: () => selectCommand(command),
-                      content: (
-                          <>
-                              <code>/{command.name}</code>
-                              <span>{command.description}</span>
-                              {command.input?.hint && <em>{command.input.hint}</em>}
-                          </>
-                      ),
-                  })),
-              }
-            : token?.trigger === "@" && cwd
-              ? {
-                    label: "Project files",
-                    heading: "Files and folders",
-                    aside: "attach",
-                    variant: "entries",
-                    empty: files.data === undefined ? "Reading the project…" : "Nothing in the project matches",
-                    rows: entryMatches.map((entry) => ({
-                        key: entry.path,
-                        choose: () => selectEntry(entry),
-                        content: (
-                            <>
-                                <span className="chat-menu-mark">
-                                    {entry.folder ? <IconFolder size={13} /> : <FileIcon name={entryName(entry)} size={13} />}
-                                </span>
-                                <code>{entryName(entry)}</code>
-                                <span>{dirname(entry.path.replace(/\/$/, "")) || "."}</span>
-                            </>
-                        ),
-                    })),
-                }
-              : token?.trigger === "#"
-                ? {
-                      label: "Issues and pull requests",
-                      heading: "Issues and pull requests",
-                      aside: trackedList.state === "ready" ? `${trackedList.repo.owner}/${trackedList.repo.name}` : "",
-                      variant: "entries",
-                      empty:
-                          trackedList.state === "loading"
-                              ? "Reading open issues and pull requests…"
-                              : trackedList.state === "unavailable"
-                                ? trackedList.message
-                                : "No open issue or pull request matches",
-                      rows: trackedMatches.map((item) => ({
-                          key: `${item.kind}-${item.number}`,
-                          choose: () => selectTracked(item),
-                          content: (
-                              <>
-                                  <span className="chat-menu-mark" data-kind={item.kind}>
-                                      <ContextMark kind={item.kind} size={13} />
-                                  </span>
-                                  <code>#{item.number}</code>
-                                  <span>{item.title}</span>
-                              </>
-                          ),
-                      })),
-                  }
-                : null;
-    const menuRows = menu?.rows ?? [];
-    const selected = Math.min(menuSelection, Math.max(0, menuRows.length - 1));
+    /** Moves the search to another prefix, keeping what was typed after it. */
+    const switchScope = (trigger: ComposerTrigger) => {
+        if (!token || token.trigger === trigger) return;
+        setDraft(`${draft.slice(0, token.start)}${trigger}${draft.slice(token.start + 1)}`);
+        setMenuSelection(0);
+        caretTo(editorRef, caret);
+    };
+
+    const pick = (choice: MenuPick) => {
+        if (choice.kind === "command") selectCommand(choice.command);
+        else if (choice.kind === "mate") selectMate(choice.mate);
+        else if (choice.kind === "earlier") selectEarlier(choice.earlier, choice.uri);
+        else if (choice.kind === "entry") selectEntry(choice.entry);
+        else selectTracked(choice.item, choice.repo);
+    };
 
     const blocked = changingConfig || changingPermissions || !permissionApplied || worktree?.state.kind === "preparing";
-    const drafted = Boolean(draft.trim()) || attachments.length > 0 || contexts.length > 0;
+    const drafted = Boolean(draft.trim()) || attachments.length > 0 || sentContexts.length > 0;
 
     // Send and stop are one button: when it changes job, the new icon turns in rather than swapping in place.
     const dictating = useVoice(
         (state) => (state.phase === "listening" || state.phase === "transcribing") && writesInto(state.target, paneRef.current),
     );
+    const heard = useVoice((state) =>
+        (state.phase === "listening" || state.phase === "transcribing") && writesInto(state.target, paneRef.current) ? state.partial : "",
+    );
     const stopping = running && !drafted && !dictating;
+    useEffect(() => {
+        if (dictating) editorRef.current?.focus();
+    }, [dictating]);
     const sendButton = useRef<HTMLButtonElement>(null);
     const wasStopping = useRef(stopping);
     useLayoutEffect(() => {
@@ -443,6 +461,7 @@ export function ChatComposer({
     }, [stopping]);
 
     const canSteerQueued = running && steerable && queuedCount > 0;
+    const steersByDefault = useStore((s) => s.midTurnSend) === "steer";
 
     const clear = () => {
         setDraft("");
@@ -450,6 +469,7 @@ export function ChatComposer({
         setMenuSelection(0);
         setAttachments([]);
         setContexts([]);
+        setFileTags([]);
         setMenuDismissed(false);
         setHistoryPosition(null);
     };
@@ -470,43 +490,78 @@ export function ChatComposer({
         }
         const text = draft.trim();
         if (!drafted || blocked || reading) return;
-        const paths = attachments;
-        if (contexts.every((item) => item.text !== null)) {
-            if (onSend({ text, paths, context: contexts.map((item) => ({ uri: item.uri, title: item.title, text: item.text ?? "" })) }, steerNow))
-                clear();
+        const paths = mergePaths(
+            attachments,
+            sentFiles.map((file) => file.path),
+        );
+        const mentioned = mentionContext(text, mates);
+        if (sentContexts.every((item) => item.text !== null)) {
+            const context = [...sentContexts.map((item) => ({ uri: item.uri, title: item.title, text: item.text ?? "" })), ...mentioned];
+            if (onSend({ text, paths, context }, steerNow)) clear();
             return;
         }
         setReading(true);
-        void Promise.all(contexts.map(readContext))
+        void Promise.all(sentContexts.map(readContext))
             .then((context) => {
-                if (onSend({ text, paths, context }, steerNow)) clear();
+                if (onSend({ text, paths, context: [...context, ...mentioned] }, steerNow)) clear();
             })
-            .catch((failure: unknown) => onError(failure instanceof Error ? failure.message : String(failure)))
+            .catch((failure: unknown) => onError(errorText(failure)))
             .finally(() => setReading(false));
     };
 
     const chooseFiles = async () => {
         try {
-            const selection = await open({ multiple: true, directory: false });
-            if (!selection) return;
-            setAttachments((current) => mergePaths(current, Array.isArray(selection) ? selection : [selection]));
+            const selection = await dialogsApi.pickFiles();
+            if (selection.length === 0) return;
+            setAttachments((current) => mergePaths(current, selection));
             window.requestAnimationFrame(() => editorRef.current?.focus());
         } catch (failure) {
-            onError(failure instanceof Error ? failure.message : String(failure));
+            onError(errorText(failure));
         }
     };
 
     return (
         <div className="chat-composer">
-            {token?.trigger === "#" && (
+            {(token?.trigger === "#" || token?.trigger === "!") && (
                 <Suspense fallback={null}>
-                    <TrackedSource cwd={cwd} needle={token.needle} limit={MAX_ENTRIES} onMatches={setTrackedList} />
+                    <TrackedSource
+                        cwd={cwd}
+                        kind={token.trigger === "#" ? "issue" : "pull"}
+                        needle={token.needle}
+                        limit={MAX_MENU_ENTRIES}
+                        onMatches={setTrackedList}
+                    />
                 </Suspense>
             )}
-            {menu && <ComposerMenu menu={menu} selected={selected} />}
+            {token && (
+                <ComposerMenu
+                    token={token}
+                    agentId={agent.id}
+                    cwd={cwd}
+                    commands={commands}
+                    mates={mates}
+                    taken={contexts.map((item) => item.uri)}
+                    tracked={trackedList}
+                    selected={menuSelection}
+                    keys={menuKeys}
+                    onPick={pick}
+                    onScope={switchScope}
+                    peek={<ComposerBuddy agent={agent} />}
+                />
+            )}
             <div className="chat-field">
-                {(attachments.length > 0 || contexts.length > 0) && (
+                {(attachments.length > 0 || contexts.some((item) => !item.tag) || answering) && (
                     <div className="chat-attachments">
+                        {answering && (
+                            <Chip
+                                answering
+                                title={answering.question}
+                                mark={<AgentMark cli={answering.cli} />}
+                                label={`Answering ${answering.name} · ${answering.question}`}
+                                removeLabel="Stop answering"
+                                onRemove={answering.onRemove}
+                            />
+                        )}
                         {attachments.map((path) => (
                             <ComposerAttachment
                                 key={path}
@@ -514,29 +569,31 @@ export function ChatComposer({
                                 onRemove={() => setAttachments((current) => current.filter((candidate) => candidate !== path))}
                             />
                         ))}
-                        {contexts.map((item) => (
-                            <ComposerContextChip
-                                key={item.uri}
-                                item={item}
-                                onRemove={() => setContexts((current) => current.filter((candidate) => candidate.uri !== item.uri))}
-                            />
-                        ))}
+                        {contexts
+                            .filter((item) => !item.tag)
+                            .map((item) => (
+                                <ComposerContextChip
+                                    key={item.uri}
+                                    item={item}
+                                    onRemove={() => setContexts((current) => current.filter((candidate) => candidate.uri !== item.uri))}
+                                />
+                            ))}
                     </div>
                 )}
-                <textarea
-                    ref={editorRef}
+                <DraftEditor
+                    box={editorRef}
                     value={draft}
-                    aria-label="Message agent"
-                    placeholder={placeholder}
-                    rows={2}
-                    onChange={(event) => {
-                        setDraft(event.target.value);
-                        setCaret(event.target.selectionStart);
+                    chips={chips}
+                    label="Message agent"
+                    placeholder={heard ? "" : placeholder}
+                    onChange={(value, at) => {
+                        setDraft(value);
+                        setCaret(at);
                         setMenuSelection(0);
                         setMenuDismissed(false);
                         onError(null);
                     }}
-                    onSelect={(event) => setCaret(event.currentTarget.selectionStart)}
+                    onCaret={setCaret}
                     onPaste={(event) => {
                         if (imagesInClipboard(event.clipboardData).length > 0) event.preventDefault();
                         void savePastedClipboard(event.clipboardData)
@@ -545,43 +602,67 @@ export function ChatComposer({
                                 setAttachments((current) => mergePaths(current, paths));
                                 onError(null);
                             })
-                            .catch((failure) => onError(failure instanceof Error ? failure.message : String(failure)));
+                            .catch((failure) => onError(errorText(failure)));
                     }}
                     onKeyDown={(event) => {
+                        const box = editorRef.current;
+                        if (!box) return;
+                        if (event.key === "Backspace" && !event.shiftKey && !event.altKey && !event.metaKey && !event.ctrlKey) {
+                            const start = box.selectionStart === box.selectionEnd ? tagBefore(box.value, box.selectionStart, tagTexts) : null;
+                            if (start !== null) {
+                                event.preventDefault();
+                                box.setSelectionRange(start, box.selectionStart);
+                                return;
+                            }
+                        }
+                        const menu = token && menuKeys.current;
                         if (menu) {
                             if (event.key === "Escape") {
                                 event.preventDefault();
                                 setMenuDismissed(true);
                                 return;
                             }
-                            if (menuRows.length > 0 && !event.nativeEvent.isComposing) {
+                            if (menu.count > 0 && !event.nativeEvent.isComposing) {
                                 if (event.key === "ArrowDown") {
                                     event.preventDefault();
-                                    setMenuSelection((current) => (current + 1) % menuRows.length);
+                                    setMenuSelection((current) => (current + 1) % menu.count);
                                     return;
                                 }
                                 if (event.key === "ArrowUp") {
                                     event.preventDefault();
-                                    setMenuSelection((current) => (current - 1 + menuRows.length) % menuRows.length);
+                                    setMenuSelection((current) => (current - 1 + menu.count) % menu.count);
                                     return;
                                 }
                                 if (event.key === "Tab" || event.key === "Enter") {
                                     event.preventDefault();
-                                    menuRows[selected].choose();
+                                    menu.choose(Math.min(menuSelection, menu.count - 1));
                                     return;
                                 }
                             }
                         }
                         const plainKey = !event.shiftKey && !event.altKey && !event.metaKey && !event.ctrlKey && !event.nativeEvent.isComposing;
-                        // As in an agent's terminal, Escape stops the turn it is running; whatever is typed stays.
-                        if (event.key === "Escape" && running && plainKey) {
+                        const primary = hasPrimaryModifier(event.nativeEvent);
+                        const questionKey = (plainKey || (primary && !event.shiftKey && !event.altKey)) && !drafted;
+                        if (questionKey && onQuestionKey?.(event.key, primary)) {
                             event.preventDefault();
-                            onStop();
                             return;
+                        }
+                        // Escape first lets go of a selection. It stops a running turn only from an empty box, so a half-written message never stops the agent.
+                        if (event.key === "Escape" && plainKey) {
+                            if (box.selectionStart !== box.selectionEnd) {
+                                event.preventDefault();
+                                box.setSelectionRange(box.selectionEnd, box.selectionEnd);
+                                return;
+                            }
+                            if (running && !drafted) {
+                                event.preventDefault();
+                                onStop();
+                                return;
+                            }
                         }
                         const direction = event.key === "ArrowUp" ? "older" : event.key === "ArrowDown" ? "newer" : null;
                         if (direction && plainKey) {
-                            const { value } = event.currentTarget;
+                            const { value } = box;
                             const recalled = arrowsBrowse(value, history, historyPosition, direction)
                                 ? recallPrompt(history, historyPosition, value, direction)
                                 : null;
@@ -600,10 +681,12 @@ export function ChatComposer({
                                 onSteerQueued();
                                 return;
                             }
-                            send(hasPrimaryModifier(event.nativeEvent));
+                            if (finishDictationInto(paneRef.current)) return;
+                            send(hasPrimaryModifier(event.nativeEvent) !== steersByDefault);
                         }
                     }}
                 />
+                {heard && <DictationPreview draft={draft} caret={caret} heard={heard} editor={editorRef} />}
             </div>
             {error && <div className="chat-composer-error">{error}</div>}
             <div className="chat-composer-bar">
@@ -629,10 +712,12 @@ export function ChatComposer({
                     profile={profile}
                     setup={setup}
                     agentLocked={agentLocked}
+                    running={running}
+                    moveDisabled={connection !== "ready" || changingPermissions || changingConfig}
                     disabled={connection !== "ready" || running || changingPermissions || changingConfig || awaitingPermission}
-                    onAgent={(type, profileId) => {
+                    onAgent={(type, profileId, model, modelProvider) => {
                         if (agentLocked || running || awaitingPermission) return;
-                        cmd.configureEmptyAgent(agent.id, type, profileId);
+                        cmd.configureEmptyAgent(agent.id, type, profileId, model, modelProvider);
                     }}
                     onConfig={onConfig}
                 />
@@ -653,11 +738,13 @@ export function ChatComposer({
                             canSteerQueued
                                 ? `${PRIMARY_SHORTCUT}↵ steers ${queuedCount === 1 ? "the queued message" : "every queued message"} into this turn`
                                 : running && steerable
-                                  ? `Queues behind this turn — ${PRIMARY_SHORTCUT}↵ steers into it`
+                                  ? steersByDefault
+                                      ? `Steers into this turn — ${PRIMARY_SHORTCUT}↵ queues behind it`
+                                      : `Queues behind this turn — ${PRIMARY_SHORTCUT}↵ steers into it`
                                   : undefined
                         }
                         disabled={blocked || reading || (!drafted && !dictating)}
-                        onClick={() => send()}>
+                        onClick={() => send(steersByDefault)}>
                         <IconArrowUp size={15} />
                     </button>
                 )}

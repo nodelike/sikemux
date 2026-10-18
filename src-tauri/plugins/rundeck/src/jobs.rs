@@ -9,7 +9,7 @@ use serde_json::{Map, Value};
 
 use crate::error::{RundeckError, RundeckResult};
 
-use crate::client::{get_json, get_json_at_version, seg, JOB_DEFINITION_API_VERSION};
+use crate::client::{get_json, get_json_at_version, seg, Session, JOB_DEFINITION_API_VERSION};
 use crate::config;
 
 #[derive(Serialize, Clone, Debug, PartialEq)]
@@ -187,9 +187,10 @@ fn parse_job_detail(definition: &Value) -> RundeckResult<JobDetail> {
     })
 }
 
-pub async fn job_detail(job_id: String) -> RundeckResult<JobDetail> {
+pub async fn job_detail(session: &Session, job_id: String) -> RundeckResult<JobDetail> {
     let id = seg(&job_id)?;
     let definition: Value = get_json_at_version(
+        session,
         JOB_DEFINITION_API_VERSION,
         &format!("/job/{id}"),
         &[("format", "json".into())],
@@ -200,10 +201,34 @@ pub async fn job_detail(job_id: String) -> RundeckResult<JobDetail> {
         detail.id = job_id;
     }
     if detail.project.is_empty() {
-        let info: Value = get_json(&format!("/job/{id}/info"), &[]).await?;
+        let info: Value = get_json(session, &format!("/job/{id}/info"), &[]).await?;
         detail.project = text(&info, "project").unwrap_or_default();
     }
     Ok(detail)
+}
+
+/// Every job in the project with its definition, in one request.
+pub async fn definitions(session: &Session, project: &str) -> RundeckResult<Vec<JobDetail>> {
+    let definitions: Value = get_json_at_version(
+        session,
+        JOB_DEFINITION_API_VERSION,
+        &format!("/project/{}/jobs/export", seg(project)?),
+        &[("format", "json".into())],
+    )
+    .await?;
+    let Value::Array(items) = definitions else {
+        return Ok(Vec::new());
+    };
+    Ok(items
+        .iter()
+        .filter_map(|item| parse_job_detail(item).ok())
+        .map(|mut detail| {
+            if detail.project.is_empty() {
+                detail.project = project.to_string();
+            }
+            detail
+        })
+        .collect())
 }
 
 // ---- remote option values -------------------------------------------------

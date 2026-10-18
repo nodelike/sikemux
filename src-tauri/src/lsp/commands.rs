@@ -4,7 +4,7 @@ use serde_json::json;
 use tauri::AppHandle;
 use tokio::task;
 
-use super::discovery::install_gopls;
+use super::discovery::{install_gopls, install_jdtls};
 use super::documents::{
     change_document, change_document_incremental, open_document, restore_last_change,
 };
@@ -37,6 +37,9 @@ pub async fn lsp_languages() -> AppResult<Vec<String>> {
 pub async fn lsp_install_server(language: String) -> AppResult<String> {
     match language.as_str() {
         "go" => task::spawn_blocking(install_gopls)
+            .await
+            .map_err(|e| AppError::Lsp(format!("join: {e}")))?,
+        "java" => task::spawn_blocking(install_jdtls)
             .await
             .map_err(|e| AppError::Lsp(format!("join: {e}")))?,
         _ => Err(AppError::Lsp(format!(

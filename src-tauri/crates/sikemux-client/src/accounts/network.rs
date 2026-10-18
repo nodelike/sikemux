@@ -246,6 +246,7 @@ mod tests {
             relays,
             minimum_versions: crate::accounts::protocol::MinimumVersions {
                 macos: versions("0.0.0", "0.0.0"),
+                linux: versions("0.0.0", "0.0.0"),
                 ios: versions("0.0.0", "0.0.0"),
                 android: versions("0.0.0", "0.0.0"),
             },

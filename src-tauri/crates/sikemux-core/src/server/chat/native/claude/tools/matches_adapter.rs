@@ -11,6 +11,16 @@ fn fixture() -> Value {
     serde_json::from_str(text).expect("fixture parses")
 }
 
+/// The adapter also sent a result's pictures in `rawOutput`; Sikemux sends
+/// them only in `content`.
+pub(crate) fn without_pictures(update: &Value) -> Value {
+    let mut update = update.clone();
+    if let Some(raw_output) = update.get_mut("rawOutput") {
+        *raw_output = tools::without_pictures(raw_output.take());
+    }
+    update
+}
+
 fn cases<'a>(fixture: &'a Value, key: &str) -> &'a Vec<Value> {
     fixture[key].as_array().expect("case list")
 }
@@ -65,7 +75,8 @@ fn tool_results_match_adapter() {
             cwd,
         );
         assert_eq!(
-            actual, case["expected"],
+            actual,
+            without_pictures(&case["expected"]),
             "result of {name}: {}",
             case["result"]
         );

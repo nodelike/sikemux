@@ -1,7 +1,7 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { confirmDialog, copyText, notify, openUrl, reportError, swallow } from "../../plugin-api/host";
 import { invalidate } from "../../plugin-api/resources";
-import { Tooltip } from "../../plugin-api/ui";
+import { IconCopy, IconExternal, IconRotate, IconTrash, Tooltip } from "../../plugin-api/ui";
 import { hostApi, type RepoRef, type Run } from "../api";
 import { useHost } from "../registry";
 import { isUnfinished } from "../runStatus";
@@ -69,6 +69,28 @@ export function RunMenu({ run, repo, canWrite, onDeleted }: Props) {
             .catch(reportError("Could not delete the run"));
     };
 
+    const deletable = canWrite && ci.deleteRuns && finished;
+    const items: { label: string; icon: ReactNode; danger?: boolean; run: () => Promise<void> }[] = [
+        ...(canWrite && ci.debugLogs && finished
+            ? [{ label: "Re-run all with debug logs", icon: <IconRotate size={13} />, run: rerunWithDebug }]
+            : []),
+        {
+            label: "Copy link",
+            icon: <IconCopy size={13} />,
+            run: () =>
+                copyText(run.url)
+                    .then(() => notify("success", "Copied the link"))
+                    .catch(swallow("copy the link")),
+        },
+        { label: `Open on ${host.name}`, icon: <IconExternal size={13} />, run: () => openUrl(run.url).catch(swallow(`open ${host.name}`)) },
+        ...(deletable
+            ? [
+                  { label: "Delete all logs", icon: <IconTrash size={13} />, danger: true, run: deleteLogs },
+                  { label: "Delete run", icon: <IconTrash size={13} />, danger: true, run: deleteRun },
+              ]
+            : []),
+    ];
+
     return (
         <span className="gha-menu-anchor">
             <Tooltip label="More">
@@ -90,41 +112,17 @@ export function RunMenu({ run, repo, canWrite, onDeleted }: Props) {
                         role="menu"
                         aria-label="Run actions"
                         onKeyDown={(event) => event.key === "Escape" && setOpen(false)}>
-                        {canWrite && ci.debugLogs && finished && (
-                            <button type="button" className="env-dd-item" role="menuitem" onClick={() => act(rerunWithDebug)}>
-                                Re-run all with debug logs
+                        {items.map((item) => (
+                            <button
+                                key={item.label}
+                                type="button"
+                                className={`env-dd-item${item.danger ? " danger" : ""}`}
+                                role="menuitem"
+                                onClick={() => act(item.run)}>
+                                <span className="tree-ctx-icon">{item.icon}</span>
+                                {item.label}
                             </button>
-                        )}
-                        <button
-                            type="button"
-                            className="env-dd-item"
-                            role="menuitem"
-                            onClick={() =>
-                                act(() =>
-                                    copyText(run.url)
-                                        .then(() => notify("success", "Copied the link"))
-                                        .catch(swallow("copy the link")),
-                                )
-                            }>
-                            Copy link
-                        </button>
-                        <button
-                            type="button"
-                            className="env-dd-item"
-                            role="menuitem"
-                            onClick={() => act(() => openUrl(run.url).catch(swallow(`open ${host.name}`)))}>
-                            Open on {host.name}
-                        </button>
-                        {canWrite && ci.deleteRuns && finished && (
-                            <>
-                                <button type="button" className="env-dd-item danger" role="menuitem" onClick={() => act(deleteLogs)}>
-                                    Delete all logs
-                                </button>
-                                <button type="button" className="env-dd-item danger" role="menuitem" onClick={() => act(deleteRun)}>
-                                    Delete run
-                                </button>
-                            </>
-                        )}
+                        ))}
                     </div>
                 </>
             )}

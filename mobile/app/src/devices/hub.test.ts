@@ -53,6 +53,7 @@ const VIEW = {
   chats: [],
   attentions: [],
   recent: [],
+  inbox: { items: [], working: 0 },
 };
 
 let hub: Hub;

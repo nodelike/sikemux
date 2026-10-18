@@ -154,7 +154,8 @@ label.devices-row {
     display: block;
 }
 
-.devices-phones {
+.devices-phones,
+.devices-hosts {
     display: flex;
     flex-direction: column;
     gap: var(--space-3);

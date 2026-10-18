@@ -1,12 +1,11 @@
-import { useEffect, useState } from "react";
-import { subscribeTheme } from "../themes/bus";
+import { useState } from "react";
 
 /**
  * Whether anyone has given the shell a photographic ground.
  *
  * `--backdrop-image` is a customization hook rather than a setting — it is set
- * from CSS, by a theme or by hand on `:root` — so the only way to know is to
- * read the value back. Worth asking, because the element that paints it carries
+ * from CSS on `:root`, never by a theme — so the only way to know is to read
+ * the value back, once. Worth asking, because the element that paints it carries
  * a blur and a mask, which is a full-window composited layer for a picture that
  * is `none` in every shipped build.
  */
@@ -16,7 +15,6 @@ function backdropImageSet(): boolean {
 }
 
 export function useBackdropImage(): boolean {
-    const [present, setPresent] = useState(backdropImageSet);
-    useEffect(() => subscribeTheme(() => setPresent(backdropImageSet())), []);
+    const [present] = useState(backdropImageSet);
     return present;
 }

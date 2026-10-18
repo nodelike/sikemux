@@ -10,5 +10,6 @@ export {
     type PluginSurface,
     type PluginTopBarProps,
 } from "../plugins/registry";
+export { signInOf, type PluginSignIn } from "./signInState";
 export { createPluginBackend, isPluginFailure, type PluginBackend, type PluginStream, type PluginStreamHandlers } from "./backend";
 export { definePluginSettings, type PluginSettings } from "./settings";

@@ -41,8 +41,7 @@
 
 .editor-insights-header button.active {
     color: var(--text-primary);
-    border-color: var(--border-selected);
-    background: var(--surface-selected);
+    background: var(--surface-chosen);
 }
 
 .editor-insights-header button span {
@@ -87,7 +86,7 @@
 
 .editor-insights-row:hover,
 .editor-insights-row:focus-visible {
-    background: var(--surface-selected);
+    background: var(--surface-hover);
     color: var(--text-primary);
     outline: none;
 }

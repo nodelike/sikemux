@@ -51,12 +51,7 @@ export function RundeckLogin({ initialUrl = "", initialUser = "", initialAllowIn
                 mark={<IconRundeck size={26} />}
                 title="Connect Rundeck"
                 lede="Run jobs and follow their logs for this project, right beside your changes."
-                foot={
-                    <>
-                        {mode === "password" ? "Your password is used once to mint an API token. " : ""}The token lives in <code>~/.rd-config</code>{" "}
-                        and is shared with the <code>rnd</code> CLI.
-                    </>
-                }>
+                foot={<>{mode === "password" ? "Your password is used once to mint an API token. " : ""}The token is kept in your Keychain.</>}>
                 <div className="signin-modes" role="radiogroup" aria-label="Sign-in method">
                     <ModeChip mode="password" current={mode} onPick={setMode}>
                         Password

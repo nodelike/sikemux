@@ -17,7 +17,7 @@ afterEach(() => {
  * scoped to this theme's own class on the editor counts.
  */
 function gutterBackground(theme: Theme): string {
-    view = new EditorView({ state: EditorState.create({ doc: "x", extensions: buildEditorThemeExtensions(theme) }), parent: document.body });
+    view = new EditorView({ state: EditorState.create({ doc: "x", extensions: buildEditorThemeExtensions(theme.dark) }), parent: document.body });
     const rules = Array.from(document.querySelectorAll("style")).flatMap((style) => Array.from(style.sheet?.cssRules ?? []));
     const ours = rules.filter(
         (rule): rule is CSSStyleRule =>

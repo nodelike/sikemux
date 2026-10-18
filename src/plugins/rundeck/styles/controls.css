@@ -19,6 +19,7 @@
         background var(--dur-1) linear,
         border-color var(--dur-1) linear,
         color var(--dur-1) linear;
+    border-radius: var(--radius-2);
 }
 .rnd-btn:hover:not(:disabled) {
     background: var(--surface-hover);

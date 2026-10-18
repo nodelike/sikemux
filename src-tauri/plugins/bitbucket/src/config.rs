@@ -9,8 +9,14 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::{BitbucketError, BitbucketResult};
 
+/// A development build keeps entries of its own, so it never spends or replaces the
+/// installed app's sign-in.
 #[cfg(not(test))]
-const TOKEN_SERVICE: &str = "sikemux-bitbucket-token";
+const TOKEN_SERVICE: &str = if cfg!(debug_assertions) {
+    "sikemux-bitbucket-token-dev"
+} else {
+    "sikemux-bitbucket-token"
+};
 /// Tests keep to an entry of their own, so they never replace or delete a real token.
 #[cfg(test)]
 const TOKEN_SERVICE: &str = "sikemux-bitbucket-token-test";

@@ -1,7 +1,17 @@
 import { agentApi, type AgentInfo, type AgentSession, type AgentUsage, type AgentAccountStatus } from "../api/agents";
 import type { AgentRuntimeProfile } from "../agents/agentProfiles";
 import { filesApi } from "../api/files";
-import { git, type DiscoveredRepo, type GitOverview, type GitRemote, type GitRemoteBranch, type GitStash, type GitWorktree } from "../api/git";
+import {
+    git,
+    type ChangeOwners,
+    type CommitOwner,
+    type DiscoveredRepo,
+    type GitOverview,
+    type GitRemote,
+    type GitRemoteBranch,
+    type GitStash,
+    type GitWorktree,
+} from "../api/git";
 import { settingsApi, type ProjectEntry } from "../api/settings";
 import { sshApi, type SshHost } from "../api/ssh";
 import type { AgentType, ProjectRoot } from "./types";
@@ -11,6 +21,19 @@ export const gitOverviewR = resource({
     kind: "git.overview",
     fetch: (repo: string): Promise<GitOverview> => git.overview(repo),
     staleAfterMs: 5_000,
+});
+
+export const gitChangeOwnersR = resource({
+    kind: "git.changeOwners",
+    fetch: (repo: string, staged: boolean): Promise<ChangeOwners> => git.changeOwners(repo, staged),
+    staleAfterMs: 5_000,
+});
+
+/** `commits` is a comma-joined list of full hashes, so one fetch covers every footer in view. */
+export const gitCommitOwnersR = resource({
+    kind: "git.commitOwners",
+    fetch: (repo: string, commits: string): Promise<Record<string, CommitOwner[]>> => git.commitOwners(repo, commits.split(",")),
+    staleAfterMs: 30_000,
 });
 
 export const gitDiscoveredReposR = resource({
@@ -51,14 +74,13 @@ export const agentCatalogR = resource({
 
 export const agentUsageR = resource({
     kind: "agents.usage",
-    fetch: (type: AgentType, executablePath?: string, configPath?: string): Promise<AgentUsage> => agentApi.usage(type, executablePath, configPath),
+    fetch: (type: AgentType, configPath?: string): Promise<AgentUsage> => agentApi.usage(type, configPath),
     staleAfterMs: 5 * 60_000,
 });
 
 export const agentAccountR = resource({
     kind: "agents.account",
-    fetch: (type: AgentType, executablePath?: string, configPath?: string): Promise<AgentAccountStatus> =>
-        agentApi.account(type, executablePath, configPath),
+    fetch: (type: AgentType, configPath?: string): Promise<AgentAccountStatus> => agentApi.account(type, configPath),
     staleAfterMs: 60_000,
 });
 

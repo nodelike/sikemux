@@ -8,11 +8,10 @@ use std::collections::{BTreeMap, HashMap};
 use std::io::{self, Read};
 use std::path::PathBuf;
 
-use crate::cli::{CliOpenRequest, HarnessRequest};
 use crate::pty::agent_detection::{DetectionExplain, ManifestReloadReport};
 use crate::pty::launch::{PtyContext, PtyDirectCommand};
 use crate::pty::output_log::{OutputPage, OutputQuery};
-use crate::pty::shell_protocol::{PtyShellMetadataEvent, ShellMetadataSnapshot};
+use crate::pty::shell_protocol::{PtyShellMetadataEvent, ShellMetadataSnapshot, SshLink};
 use crate::pty::task::{TaskSource, TaskSpawnRequest};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -49,7 +48,8 @@ pub enum FrameKind {
     /// Client to core, a write: request id (u64 BE), session id (u64 BE), then
     /// the bytes for the terminal. Answered like any other request.
     Input = 3,
-    /// See [`frozen`]: sent instead of a hello, and answered once.
+    /// A request every core answers, whatever protocol version it speaks:
+    /// sent instead of a hello, and answered once.
     Frozen = 0x46,
 }
 
@@ -62,106 +62,6 @@ impl FrameKind {
             3 => Some(Self::Input),
             0x46 => Some(Self::Frozen),
             _ => None,
-        }
-    }
-}
-
-/// Requests every core answers, whatever protocol version it speaks, so an app
-/// can ask a core it cannot otherwise talk to to replace itself or stop.
-///
-/// The shape of everything in this module is fixed for good: a client sends
-/// one [`FrameKind::Frozen`] frame holding a [`FrozenRequest`] as its first
-/// frame, the core answers with one [`FrameKind::Frozen`] frame holding a
-/// [`FrozenReply`], and closes the connection. Add new requests as new `op`
-/// values; never change or remove a field.
-pub mod frozen {
-    use std::path::PathBuf;
-
-    use serde::{Deserialize, Serialize};
-
-    use super::BuildIdentity;
-
-    /// The format of the state a core hands to its replacement. A core only
-    /// replaces itself with a binary that reads its format.
-    pub const RESUME_FORMAT: u32 = 4;
-
-    /// Every hand-over format a core of this build takes over from.
-    pub const READS_FORMATS: [u32; 4] = [1, 2, 3, RESUME_FORMAT];
-
-    /// The argument that makes a core binary print its [`UpgradeInfo`].
-    pub const UPGRADE_INFO_ARG: &str = "--upgrade-info";
-
-    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-    #[serde(tag = "op", rename_all = "camelCase", rename_all_fields = "camelCase")]
-    pub enum FrozenRequest {
-        /// Replace this core with `binary` in the same process, keeping every
-        /// session.
-        Upgrade { binary: PathBuf },
-        /// Stop every session and exit.
-        StopEverything,
-    }
-
-    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-    #[serde(
-        tag = "status",
-        rename_all = "camelCase",
-        rename_all_fields = "camelCase"
-    )]
-    pub enum FrozenReply {
-        Accepted,
-        Refused {
-            message: String,
-        },
-        /// The core replaces itself later, once the chat turns it is running
-        /// end, and goes on serving until then.
-        Deferred {
-            message: String,
-        },
-    }
-
-    /// What `<binary> core --upgrade-info` prints, as one JSON object.
-    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-    #[serde(rename_all = "camelCase")]
-    pub struct UpgradeInfo {
-        pub version: String,
-        pub commit: String,
-        pub built_at: u64,
-        pub source: String,
-        /// The oldest hand-over format the binary takes over from. Cores
-        /// that predate `reads_formats` compare their own format with this.
-        pub resume_format: u32,
-        #[serde(default)]
-        pub reads_formats: Vec<u32>,
-    }
-
-    impl UpgradeInfo {
-        pub fn of(build: &BuildIdentity) -> Self {
-            Self {
-                version: build.version.clone(),
-                commit: build.commit.clone(),
-                built_at: build.built_at,
-                source: build.source.clone(),
-                resume_format: READS_FORMATS[0],
-                reads_formats: READS_FORMATS.to_vec(),
-            }
-        }
-
-        /// Whether the binary takes over from a core writing `format`.
-        pub fn reads(&self, format: u32) -> bool {
-            if self.reads_formats.is_empty() {
-                self.resume_format == format
-            } else {
-                self.reads_formats.contains(&format)
-            }
-        }
-
-        pub fn build(&self) -> BuildIdentity {
-            BuildIdentity {
-                version: self.version.clone(),
-                commit: self.commit.clone(),
-                built_at: self.built_at,
-                source: self.source.clone(),
-            }
         }
     }
 }
@@ -440,14 +340,6 @@ pub enum Request {
     AllowDevices {
         devices: Vec<AllowedDevice>,
     },
-    /// The projects the app has open and how it starts each chat agent,
-    /// replacing what it published before. Kept in memory only, since a
-    /// launcher's environment may hold secrets; the app publishes again
-    /// whenever it connects.
-    PublishWorkspace {
-        projects: Vec<ProjectInfo>,
-        launchers: Vec<ChatLauncher>,
-    },
     /// What the app draws behind its panes, so devices draw the same.
     /// Replaces what it published before.
     PublishBackdrop {
@@ -715,6 +607,9 @@ pub enum AgentStatus {
 #[serde(rename_all = "camelCase")]
 pub struct ChatInfo {
     pub agent_id: String,
+    /// What the core calls the agent, such as Otter.
+    #[serde(default)]
+    pub name: Option<String>,
     pub provider: String,
     /// What the agent named the session, once it has.
     pub title: Option<String>,
@@ -729,12 +624,19 @@ pub struct ChatInfo {
     /// Background shells and monitors still running for it.
     #[serde(default)]
     pub tasks: u32,
+    /// The agent is retrying a request that got no answer over the network:
+    /// the attempt it is on, or 0 when it did not say.
+    #[serde(default)]
+    pub reconnecting: Option<u32>,
     /// The paired device that started it. The app started the rest.
     pub started_by: Option<String>,
     /// The app's launcher a device started it with.
     pub launcher: Option<String>,
     pub permission_mode: String,
     pub model: Option<String>,
+    /// The provider its turns are paid with, in place of the agent's own account.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_provider: Option<String>,
     pub effort: Option<String>,
     /// The app stopped its agent while idle; `AcpWake` starts it again.
     pub asleep: bool,
@@ -765,7 +667,8 @@ pub struct RunSelector {
     pub agent_id: Option<String>,
 }
 
-/// Something only the app's window can do, asked of it by the core.
+/// Something only the app's window can do, asked of it by the core. Requests
+/// are the core's CLI requests as JSON, so changing those leaves this crate alone.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(
     tag = "kind",
@@ -774,12 +677,12 @@ pub struct RunSelector {
 )]
 pub enum WindowCall {
     Harness {
-        request: HarnessRequest,
+        request: Value,
     },
     /// The CLI's `open`. The answer lists what opened; a waiting call is
     /// later followed by [`ClientMessage::WindowOpenClosed`].
     Open {
-        request: CliOpenRequest,
+        request: Value,
     },
 }
 
@@ -994,26 +897,6 @@ pub struct ProjectInfo {
     pub id: String,
     pub name: String,
     pub path: PathBuf,
-}
-
-/// How the app starts one kind of chat agent, short of the agent's own id.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ChatLauncher {
-    pub id: String,
-    pub provider: String,
-    pub label: String,
-    pub program: PathBuf,
-    pub args: Vec<String>,
-    pub env: BTreeMap<String, String>,
-    pub permission_mode: String,
-    #[serde(default)]
-    pub account: Option<ChatAccount>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub fallbacks: Vec<ChatAccount>,
-    /// Whether the agent is ready, signed out, missing or broken, as the app last saw it.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub status: Option<String>,
 }
 
 /// What a device learns about a launcher: never its program or environment.
@@ -1340,6 +1223,9 @@ pub struct SessionInfo {
     pub project: Option<String>,
     pub pane_id: Option<String>,
     pub agent_id: Option<String>,
+    /// What the core calls an agent terminal's agent, such as Otter.
+    #[serde(default)]
+    pub agent_name: Option<String>,
     pub agent_type: Option<String>,
     pub task_execution_id: Option<String>,
     /// The last state published for an agent terminal.
@@ -1368,6 +1254,9 @@ pub struct SessionInfo {
     pub status: Option<AgentStatus>,
     #[serde(default)]
     pub attention_rank: Option<u32>,
+    /// For an SSH terminal, where its connection last stood.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ssh: Option<SshLink>,
 }
 
 /// A task's launch request without its environment.
@@ -1393,6 +1282,18 @@ pub struct SessionExit {
     pub signal: Option<String>,
 }
 
+/// What happened to this host's network.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum NetworkChange {
+    Online,
+    Offline,
+    /// Still online, over a different interface.
+    Changed,
+    /// The Mac woke from sleep.
+    Woke,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(
     tag = "kind",
@@ -1411,6 +1312,12 @@ pub enum Event {
     /// The app's `pty_shell_metadata` payload, with `ptyId` holding the
     /// session id.
     ShellMetadata(PtyShellMetadataEvent<SessionId>),
+    /// An SSH terminal connected, started connecting or gave up. Sent only
+    /// to clients on this host.
+    SshLink {
+        id: SessionId,
+        link: SshLink,
+    },
     /// A task session has new output to page through with `TaskOutput`.
     TaskOutput {
         id: SessionId,
@@ -1437,6 +1344,11 @@ pub enum Event {
     /// Sent only to clients on this host.
     Remote {
         status: RemoteStatus,
+    },
+    /// The network came back, went away or changed, or the computer woke.
+    /// Sent only to clients on this host.
+    Network {
+        change: NetworkChange,
     },
     /// An agent started waiting on a person. Every client on this host hears
     /// it, whether or not it shows that agent; devices see it in their view.
@@ -1474,6 +1386,10 @@ pub struct DeviceView {
     /// Saved chats the app lists as recent, newest first, none of them open.
     #[serde(default)]
     pub recent: Vec<RecentInfo>,
+    /// What waits on the person, ranked, as the core's inbox JSON. Kept as
+    /// JSON so a change to its shape reaches phones over the air.
+    #[serde(default)]
+    pub inbox: Value,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -1701,6 +1617,7 @@ mod tests {
             chats: Vec::new(),
             attentions: Vec::new(),
             recent: Vec::new(),
+            inbox: Value::Null,
         })
         .unwrap();
         view.as_object_mut().unwrap().remove("recent");

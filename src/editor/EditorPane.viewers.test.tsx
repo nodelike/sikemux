@@ -14,7 +14,6 @@ vi.mock("@tauri-apps/api/event", () => ({ listen: vi.fn(async () => () => {}) })
 vi.mock("./EditorFindBar", () => ({ EditorFindBar: () => null }));
 
 const initial = getState();
-const url = (path: string) => `preview://localhost/${encodeURIComponent(path)}`;
 
 Range.prototype.getClientRects = () => [] as unknown as DOMRectList;
 Range.prototype.getBoundingClientRect = () => new DOMRect();
@@ -50,11 +49,11 @@ describe("EditorPane viewers", () => {
         return render(<EditorPane paneId="pane" cwd="/repo" active visible showInsights={false} />);
     };
 
-    it("shows a PDF from the preview scheme without reading it as text", async () => {
+    it("shows a PDF in the native document view without reading it as text", async () => {
         files["/repo/spec.pdf"] = { mime: "application/pdf", size: 2048, modified: 1 };
         open("/repo/spec.pdf");
 
-        await waitFor(() => expect(screen.getByTitle("spec.pdf")).toHaveAttribute("src", expect.stringContaining(url("/repo/spec.pdf"))));
+        await waitFor(() => expect(invoke).toHaveBeenCalledWith("document_preview_show", expect.objectContaining({ path: "/repo/spec.pdf" })));
         expect(invoke.mock.calls.some(([command]) => command === "read_file_versioned")).toBe(false);
     });
 

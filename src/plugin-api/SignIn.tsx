@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { failureMessage, SignInCancelled, type BrowserSignIn } from "./backend";
+import { ScreenField } from "../ui/ShaderField";
 import "./signin.css";
 
 /** How a plugin's status says the sign-in it holds stopped working. */
@@ -99,6 +100,7 @@ interface SignInScreenProps {
 export function SignInScreen({ mark, title, lede, foot, children }: SignInScreenProps) {
     return (
         <div className="signin-screen">
+            <ScreenField />
             <div className="signin">
                 <span className="signin-mark">{mark}</span>
                 <h2 className="signin-title">{title}</h2>

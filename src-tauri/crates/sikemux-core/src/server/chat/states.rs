@@ -3,6 +3,7 @@
 
 use std::collections::VecDeque;
 
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 /// How work an agent reported on ended.
@@ -171,6 +172,7 @@ pub(crate) fn first_text(candidates: &[Option<&str>]) -> Option<String> {
 
 /// What a subagent said before its card was put in the chat, kept until it
 /// is. Past this many, the oldest go: the newest settle what the card shows.
+#[derive(Serialize, Deserialize)]
 pub(crate) struct Held<T> {
     items: VecDeque<T>,
 }

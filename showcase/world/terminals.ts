@@ -40,17 +40,17 @@ const DEV = lines(
   `    ${c.green("Finished")} \`dev\` profile in 11.02s`,
   `     ${c.green("Running")} \`target/debug/sikemux\``,
   `${c.dim("9:40:07")} ${c.cyan("[vite]")} ${c.green("hmr")} ${c.dim("/src/styles/modern-shell.css")}`,
-  `${c.dim("9:40:19")} ${c.cyan("[vite]")} ${c.green("hmr")} ${c.dim("/src/rail/AgentRail.tsx")}`,
+  `${c.dim("9:40:19")} ${c.cyan("[vite]")} ${c.green("hmr")} ${c.dim("/src/rail/TabRail.tsx")}`,
 );
 
 const TEST = lines(
   title("vitest"),
-  `${prompt("~/code/sikemux", "main", "!3?1")}pnpm test src/rail/AgentRail`,
+  `${prompt("~/code/sikemux", "main", "!3?1")}pnpm test src/rail/TabRail`,
   "",
   ` ${c.bold(c.cyan("RUN"))}  ${c.cyan("v4.1.10")} ${c.dim("~/code/sikemux")}`,
   "",
-  ` ${c.green("✓")} AgentRail.test.tsx ${c.dim("(24 tests)")} ${c.yellow("311ms")}`,
-  ` ${c.green("✓")} AgentRailRows.test.tsx ${c.dim("(9 tests)")} ${c.dim("88ms")}`,
+  ` ${c.green("✓")} TabRail.test.tsx ${c.dim("(24 tests)")} ${c.yellow("311ms")}`,
+  ` ${c.green("✓")} TabRailRows.test.tsx ${c.dim("(9 tests)")} ${c.dim("88ms")}`,
   ` ${c.green("✓")} agentActivity.test.ts ${c.dim("(17 tests)")} ${c.dim("42ms")}`,
   "",
   ` ${c.dim("Test Files")}  ${c.bold(c.green("3 passed"))} ${c.dim("(3)")}`,
@@ -71,10 +71,10 @@ const GIT = lines(
   `${c.yellow("f4c21b8")} perf(pty): replay as one buffer`,
   `${prompt("~/code/sikemux", "main", "!3?1")}git status -sb`,
   `${c.green("## main")}...${c.red("origin/main")} [ahead ${c.green("2")}]`,
-  ` ${c.red("M")} src/rail/AgentRail.tsx`,
+  ` ${c.red("M")} src/rail/TabRail.tsx`,
   `${c.green("M")}  src/styles/modern-shell.css`,
   ` ${c.red("M")} src/styles/tokens.css`,
-  `${c.red("??")} src/rail/AgentRailDensity.tsx`,
+  `${c.red("??")} src/rail/TabRailDensity.tsx`,
   prompt("~/code/sikemux", "main", "!3?1"),
 );
 

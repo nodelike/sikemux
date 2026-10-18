@@ -2,13 +2,19 @@ import { useEffect, useState } from "react";
 import { exit } from "@tauri-apps/plugin-process";
 import { remoteApi, type UpdateRequired } from "../api/remote";
 import { openInBrowser } from "../api/releases";
-import { checkForUpdate, checkForUpdateNow, installPendingUpdate, isUpdateBusy, updateStatusLabel } from "../api/updater";
+import {
+    checkForUpdate,
+    checkForUpdateNow,
+    installPendingUpdate,
+    isUpdateBusy,
+    RELEASES_URL,
+    UPDATES_IN_APP,
+    updateStatusLabel,
+} from "../api/updater";
 import { useOccludeNativeViews } from "../state/nativeViews";
 import { canFlushPersist, flushPersist } from "../state/persist";
 import { useStore } from "../state/store";
 import { swallow } from "../state/toast";
-
-const RELEASES = "https://github.com/nodelike/sikemux/releases";
 
 function useUpdateRequired(): UpdateRequired | null {
     const [required, setRequired] = useState<UpdateRequired | null>(null);
@@ -46,7 +52,7 @@ function Prompt({ required }: { required: UpdateRequired }) {
     const checked = useStore((s) => s.lastUpdateCheck);
     useOccludeNativeViews(true);
     useEffect(() => {
-        void checkForUpdate();
+        if (UPDATES_IN_APP) void checkForUpdate();
     }, []);
 
     const busy = pending ? isUpdateBusy(pending.state) : false;
@@ -67,7 +73,7 @@ function Prompt({ required }: { required: UpdateRequired }) {
                         <button
                             type="button"
                             className="update-required-link"
-                            onClick={() => void openInBrowser(RELEASES).catch(swallow("open releases"))}>
+                            onClick={() => void openInBrowser(RELEASES_URL).catch(swallow("open releases"))}>
                             See every release
                         </button>
                     </p>
@@ -76,7 +82,11 @@ function Prompt({ required }: { required: UpdateRequired }) {
                     <button type="button" onClick={() => void quit()} disabled={busy}>
                         Quit Sikemux
                     </button>
-                    {pending ? (
+                    {!UPDATES_IN_APP ? (
+                        <button type="button" className="primary" onClick={() => void openInBrowser(RELEASES_URL).catch(swallow("open releases"))}>
+                            Download the new version
+                        </button>
+                    ) : pending ? (
                         <button type="button" className="primary" onClick={() => void installPendingUpdate()} disabled={busy}>
                             {busy || pending.state === "error" ? updateStatusLabel(pending) : `Update to v${pending.version}`}
                         </button>

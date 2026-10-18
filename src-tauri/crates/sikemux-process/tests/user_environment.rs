@@ -27,6 +27,7 @@ fn source() -> UserEnvironment {
             ("PATH".to_string(), user_path()),
             ("SIKEMUX_TEST_TOKEN".to_string(), token.to_string()),
         ]),
+        shell: HashMap::new(),
     }
 }
 

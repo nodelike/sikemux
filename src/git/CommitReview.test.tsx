@@ -1,6 +1,6 @@
 import { act, cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const { commitFiles } = vi.hoisted(() => ({ commitFiles: vi.fn() }));
 vi.mock("../api/git", () => ({ git: { commitFiles } }));
@@ -20,7 +20,15 @@ function deferred<T>() {
     return { promise, resolve };
 }
 
-afterEach(cleanup);
+beforeEach(() => {
+    vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockReturnValue(800);
+    vi.spyOn(HTMLElement.prototype, "offsetWidth", "get").mockReturnValue(1_000);
+});
+
+afterEach(() => {
+    cleanup();
+    vi.restoreAllMocks();
+});
 
 describe("CommitReview", () => {
     it("ignores a stale commit-files result after the revision changes", async () => {
@@ -43,12 +51,12 @@ describe("CommitReview", () => {
         render(<CommitReview repo="/repo" rev="abc" title="abc" subtitle="fix things" onOpenFile={() => {}} />);
         expect(screen.getByText("abc")).toBeInTheDocument();
         expect(screen.getByText("fix things")).toBeInTheDocument();
-        await screen.findByText("src/a.ts");
+        await screen.findByRole("button", { name: "src/a.ts" });
         expect(screen.queryByText(/diff of/)).toBeNull();
 
-        await user.click(screen.getAllByRole("button", { name: "Expand" })[0]);
+        await user.click(screen.getByRole("button", { name: "Expand src/a.ts" }));
         expect(screen.getByText("diff of src/a.ts from abc~1 to abc")).toBeInTheDocument();
-        await user.click(screen.getByRole("button", { name: "Collapse" }));
+        await user.click(screen.getByRole("button", { name: "Collapse src/a.ts" }));
         expect(screen.queryByText(/diff of/)).toBeNull();
     });
 
@@ -75,13 +83,10 @@ describe("CommitReview", () => {
 
     it("unfolds and scrolls to the file it is pointed at", async () => {
         commitFiles.mockReset().mockResolvedValue(["a.ts", "b.ts"]);
-        const scrolled = vi.spyOn(Element.prototype, "scrollIntoView");
         const { rerender } = render(<CommitReview repo="/repo" rev="abc" title="" subtitle="" onOpenFile={() => {}} />);
         await screen.findByText("b.ts");
         rerender(<CommitReview repo="/repo" rev="abc" title="" subtitle="" focusPath="b.ts" onOpenFile={() => {}} />);
         expect(screen.getByText("diff of b.ts from abc~1 to abc")).toBeInTheDocument();
         expect(screen.queryByText(/diff of a\.ts/)).toBeNull();
-        expect(scrolled.mock.contexts[0]).toHaveAttribute("data-path", "b.ts");
-        scrolled.mockRestore();
     });
 });

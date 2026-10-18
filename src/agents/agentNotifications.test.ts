@@ -5,11 +5,8 @@ import { withAgents } from "../test/agents";
 
 const notification = vi.hoisted(() => {
     const sent = vi.fn();
-    const state = { permission: "granted" };
-    const invoke = vi.fn(async (command: string, args?: { options?: { title: string; body: string } }) => {
-        if (command === "plugin:notification|request_permission") return state.permission;
-        if (command === "plugin:notification|notify") sent(args?.options);
-        if (command === "notify_agent") sent(args);
+    const invoke = vi.fn(async (command: string, args?: { title: string; body: string; agentId?: string }) => {
+        if (command === "post_notification") sent(args);
     });
     const bips = vi.fn();
     const node = () => ({
@@ -26,7 +23,7 @@ const notification = vi.hoisted(() => {
         createOscillator = node;
         createGain = node;
     }
-    return { sent, bips, state, invoke, AudioContext };
+    return { sent, bips, invoke, AudioContext };
 });
 vi.mock("@tauri-apps/api/core", () => ({ invoke: notification.invoke }));
 vi.stubGlobal("AudioContext", notification.AudioContext);
@@ -128,15 +125,6 @@ describe("notifying outside the app", () => {
         expect(appWindow.setBadgeCount).toHaveBeenLastCalledWith(1);
         expect(appWindow.requestUserAttention).not.toHaveBeenCalled();
         expect(notification.sent).not.toHaveBeenCalled();
-    });
-
-    it("asks macOS for permission and stays quiet when it is refused", async () => {
-        notification.state.permission = "denied";
-        setState({ agentActivity: { a1: activity("blocked") } });
-        await vi.waitFor(() => expect(notification.invoke).toHaveBeenCalledWith("plugin:notification|request_permission"));
-        expect(notification.sent).not.toHaveBeenCalled();
-        expect(notification.bips).not.toHaveBeenCalled();
-        notification.state.permission = "granted";
     });
 });
 

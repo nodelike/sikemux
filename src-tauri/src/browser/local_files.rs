@@ -63,6 +63,25 @@ impl LocalFiles {
         Ok(url.into())
     }
 
+    /// The file or folder a loopback address from [`Self::url_for`] shows.
+    pub fn path_of(&self, url: &str) -> Option<PathBuf> {
+        let url = Url::parse(url).ok()?;
+        if url.scheme() != "http" || url.host_str() != Some("127.0.0.1") {
+            return None;
+        }
+        let port = url.port()?;
+        let path = url.path().strip_prefix('/')?;
+        let (token, rest) = path.split_once('/').unwrap_or((path, ""));
+        let shares = self
+            .shares
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
+        let (root, _) = shares
+            .iter()
+            .find(|(_, share)| share.port == port && share.token == token)?;
+        Some(root.join(safe_relative(rest)?))
+    }
+
     fn share(&self, root: &Path) -> Result<Share, String> {
         let mut shares = self
             .shares

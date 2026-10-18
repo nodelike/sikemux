@@ -5,6 +5,7 @@ import { failureMessage, rundeckApi, type RundeckStatus } from "../api";
 import * as cmd from "../state";
 import { DEFAULT_BRANCH_OPTIONS, DEFAULT_PROD_ENVS, splitList } from "../shape";
 import { useMenuKeys } from "./hooks";
+import { useBranchOptions } from "../resources";
 import { hostFromUrl, Status } from "./parts";
 
 /** The server card at the foot of the sidebar; it opens the plugin's settings above itself. */
@@ -52,7 +53,7 @@ export function RundeckConnection({ status, onSignedOut }: { status: RundeckStat
 
 function SettingsForm({ onSignedOut }: { onSignedOut: () => void }) {
     const prodEnvs = cmd.rundeckSettings.useSelect((s) => s.prodEnvs);
-    const branchOptions = cmd.rundeckSettings.useSelect((s) => s.branchOptions);
+    const branchOptions = useBranchOptions();
     const notifyWhenDone = cmd.rundeckSettings.useSelect((s) => s.notifyWhenDone);
     const [signingOut, setSigningOut] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -86,10 +87,12 @@ function SettingsForm({ onSignedOut }: { onSignedOut: () => void }) {
                 help="Job options that hold the git branch, tried in order, in any case."
                 value={branchOptions}
                 fallback={DEFAULT_BRANCH_OPTIONS}
-                onCommit={(list) => {
-                    cmd.updateRundeckSettings({ branchOptions: list });
-                    invalidate((kind) => kind === "rnd.matrix" || kind === "rnd.jobCells" || kind === "rnd.plan");
-                }}
+                onCommit={(list) =>
+                    void rundeckApi
+                        .setBranchOptions(list)
+                        .then(() => invalidate((kind) => ["rnd.branchOptions", "rnd.matrix", "rnd.jobCells", "rnd.plan"].includes(kind)))
+                        .catch((e: unknown) => setError(failureMessage(e)))
+                }
             />
             <div className="rnd-field">
                 <Checkbox checked={notifyWhenDone} onChange={(on) => cmd.updateRundeckSettings({ notifyWhenDone: on })}>

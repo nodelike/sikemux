@@ -7,13 +7,14 @@ import { clampChatTextScale } from "../chat/textScale";
 import { clampEditorTextScale } from "../editor/textScale";
 import { isTheme } from "../themes";
 import { parseReleaseCredits } from "../api/releases";
+import type { AgentAccountBook } from "../api/agents";
 import { normaliseKeybindingOverrides } from "../commands/keybindings";
 import type { CommandContext, CustomCommand, CustomCommandPlacement } from "../commands/registry";
 import { registerCustomThemes } from "../themes/bus";
 import { effectiveMode, normalizePermissionMode } from "../agents/agentLaunch";
 import { ACCOUNT_AGENT_TYPES, AGENT_TYPES, hasAccounts, isAgentType } from "../agents/catalog";
 import { clampRailWidth } from "../lib/railWidths";
-import { mergePinnedIntoRoots, normaliseProjectRoots, pruneOnDemandWindows } from "./commands";
+import { clampPaneStrength, mergePinnedIntoRoots, normaliseProjectRoots, pruneOnDemandWindows } from "./commands";
 import { agentInWindow } from "./selectors";
 import { collectPanes, newId, removePane } from "./layout";
 import { BROWSER_ACTIVE, deskEditorId, deskView, fileKey, simulatorKey } from "./desks";
@@ -27,6 +28,7 @@ import { DEFAULT_SPACE_ICON, isSpaceIcon, spaceName, type SpaceIcon } from "./pr
 import { createWorkbenchItemRef, workbenchItemRegistry, workbenchItemRefFromPane, type BuiltinWorkbenchItemState } from "../workbench/registry";
 import type {
     Agent,
+    AgentBuddy,
     AgentPermissionMode,
     AgentWorktree,
     AgentProvider,
@@ -40,6 +42,7 @@ import type {
     PersistedPrefs,
     PersistedSession,
     PersistedSnapshot,
+    PinnedChat,
     ProjectSpace,
     ProviderProfile,
     ProviderProfileSelection,
@@ -49,6 +52,18 @@ import type {
     WindowRole,
 } from "./types";
 
+function isPinnedChat(value: unknown): value is PinnedChat {
+    return (
+        isRecord(value) &&
+        isAgentType(value.agent) &&
+        typeof value.id === "string" &&
+        value.id.length > 0 &&
+        typeof value.title === "string" &&
+        typeof value.project === "string" &&
+        value.project.length > 0
+    );
+}
+
 function deriveRole(w: Window): WindowRole {
     if (WINDOW_ROLES.has(w.role) || isPluginKind(w.role)) return w.role;
     if (w.name === "files") return "files";
@@ -57,7 +72,7 @@ function deriveRole(w: Window): WindowRole {
     return "named";
 }
 
-export const VERSION = 19;
+export const VERSION = 21;
 const MIN_SUPPORTED_VERSION = 3;
 const ONBOARDING_MIGRATION_VERSION = 6;
 const AGENT_PERMISSION_DEFAULT_MIGRATION_VERSION = 9;
@@ -71,6 +86,8 @@ const DESK_MIGRATION_VERSION = 16;
 const GITHUB_IN_GIT_PANE_MIGRATION_VERSION = 17;
 const CORE_SESSION_MIGRATION_VERSION = 18;
 const SPACE_ICON_MIGRATION_VERSION = 19;
+const PANE_TITLE_MIGRATION_VERSION = 20;
+const TAB_RAIL_MIGRATION_VERSION = 21;
 const RETRY_MS = 1500;
 let lastSaved = "";
 let activeSnapshot: string | null = null;
@@ -97,7 +114,12 @@ const PERSISTED_KEYS = [
     "customThemes",
     "uiTextScale",
     "paneShader",
+    "buddies",
+    "buddyPack",
+    "buddyShape",
+    "buddyMotion",
     "paneImage",
+    "paneStrength",
     "terminalFontSize",
     "chatTextScale",
     "editorTextScale",
@@ -107,9 +129,9 @@ const PERSISTED_KEYS = [
     "cloudBrowserShortcut",
     "keybindingOverrides",
     "sideRailOpen",
-    "agentRailOpen",
+    "tabRailOpen",
     "sideRailWidth",
-    "agentRailWidth",
+    "tabRailWidth",
     "pluginSettings",
     "disabledPlugins",
     "restoreAgentTabs",
@@ -124,9 +146,11 @@ const PERSISTED_KEYS = [
     "notificationsIntroduced",
     "keptRunningNoticeShown",
     "railDensity",
-    "agentRailAllAgents",
-    "accountAutoSwitch",
-    "agentRailScope",
+    "midTurnSend",
+    "tabRailAllAgents",
+    "tabRailScope",
+    "tabRailPage",
+    "pinnedChats",
     "onboardingComplete",
     "lastSeenVersion",
     "customCommands",
@@ -134,12 +158,11 @@ const PERSISTED_KEYS = [
     "shareUsageData",
     "lastReleaseNotes",
     "recentCommandKeys",
-    "providerProfiles",
-    "selectedProviderProfileIds",
     "defaultAgentPermissionMode",
     "lastAgentType",
     "languageServerTrust",
     "agentWorktreeDefaults",
+    "defaultGitRepos",
 ] as const satisfies readonly (keyof StoreState)[];
 type PersistedKey = (typeof PERSISTED_KEYS)[number];
 type SliceShot = { [K in PersistedKey]: StoreState[K] };
@@ -157,14 +180,18 @@ function slicesEqual(a: SliceShot, b: SliceShot): boolean {
 }
 
 function packPrefs(s: StoreState): PersistedPrefs {
-    const providerProfiles = normaliseProviderProfiles(s.providerProfiles, []);
     return {
         projectRoots: s.projectRoots,
         themeId: s.themeId,
         customThemes: s.customThemes,
         uiTextScale: s.uiTextScale,
         paneShader: s.paneShader,
+        buddies: s.buddies,
+        buddyPack: s.buddyPack,
+        buddyShape: s.buddyShape,
+        buddyMotion: s.buddyMotion,
         paneImage: s.paneImage,
+        paneStrength: s.paneStrength,
         terminalFontSize: s.terminalFontSize,
         chatTextScale: s.chatTextScale,
         editorTextScale: s.editorTextScale,
@@ -174,9 +201,9 @@ function packPrefs(s: StoreState): PersistedPrefs {
         cloudBrowserShortcut: s.cloudBrowserShortcut,
         keybindingOverrides: s.keybindingOverrides,
         sideRailOpen: s.sideRailOpen,
-        agentRailOpen: s.agentRailOpen,
+        tabRailOpen: s.tabRailOpen,
         sideRailWidth: s.sideRailWidth,
-        agentRailWidth: s.agentRailWidth,
+        tabRailWidth: s.tabRailWidth,
         pluginSettings: s.pluginSettings,
         disabledPlugins: [...s.disabledPlugins],
         restoreAgentTabs: s.restoreAgentTabs,
@@ -191,9 +218,11 @@ function packPrefs(s: StoreState): PersistedPrefs {
         notificationsIntroduced: s.notificationsIntroduced,
         keptRunningNoticeShown: s.keptRunningNoticeShown,
         railDensity: s.railDensity,
-        agentRailAllAgents: s.agentRailAllAgents,
-        accountAutoSwitch: s.accountAutoSwitch,
-        agentRailScope: s.agentRailScope,
+        midTurnSend: s.midTurnSend,
+        tabRailAllAgents: s.tabRailAllAgents,
+        tabRailScope: s.tabRailScope,
+        tabRailPage: s.tabRailPage,
+        pinnedChats: s.pinnedChats,
         onboardingComplete: s.onboardingComplete,
         lastSeenVersion: s.lastSeenVersion,
         customCommands: s.customCommands,
@@ -201,16 +230,15 @@ function packPrefs(s: StoreState): PersistedPrefs {
         shareUsageData: s.shareUsageData,
         lastReleaseNotes: s.lastReleaseNotes,
         recentCommandKeys: s.recentCommandKeys,
-        providerProfiles,
-        selectedProviderProfileIds: normaliseProviderProfileSelection(s.selectedProviderProfileIds, providerProfiles, {}),
         defaultAgentPermissionMode: s.defaultAgentPermissionMode === "bypass" ? "bypass" : "workspace-write",
         lastAgentType: s.lastAgentType,
         languageServerTrust: s.languageServerTrust,
         agentWorktreeDefaults: s.agentWorktreeDefaults,
+        defaultGitRepos: s.defaultGitRepos,
     };
 }
 
-const WINDOW_ROLES = new Set<WindowRole>(["term", "files", "git", "diff", "search", "ssh-config", "named", "agent"]);
+const WINDOW_ROLES = new Set<WindowRole>(["term", "files", "git", "diff", "search", "ssh-config", "named", "agent", "shared", "board"]);
 
 function normaliseSpaces(value: unknown): ProjectSpace[] {
     if (!Array.isArray(value)) return [];
@@ -415,6 +443,10 @@ function toPersistedAgent(value: unknown): PersistedAgent | null {
     const agent: PersistedAgent = { id: value.id, type: value.type as AgentType, title: value.title.slice(0, 200) };
     if (resumeId) agent.resumeId = resumeId;
     if (ptyId !== undefined) agent.ptyId = ptyId;
+    const name = boundedOptionalString(value.name, 64);
+    if (name) agent.name = name;
+    const lead = boundedOptionalString(value.lead, 200);
+    if (lead) agent.lead = lead;
     const requestedPermissionMode = isAgentPermissionMode(value.permissionMode)
         ? value.permissionMode
         : value.skipPermissions === true
@@ -433,12 +465,25 @@ function toPersistedAgent(value: unknown): PersistedAgent | null {
     if (executablePath) agent.executablePath = executablePath;
     if (cwd) agent.cwd = cwd;
     if (model) agent.model = model;
+    const modelProvider = boundedOptionalString(value.modelProvider, 100);
+    if (modelProvider) agent.modelProvider = modelProvider;
     if (typeof value.effort === "string" && AGENT_EFFORTS.has(value.effort)) agent.effort = value.effort as PersistedAgent["effort"];
     if (value.keepAlive === true) agent.keepAlive = true;
     if (value.renamed === true) agent.renamed = true;
     const worktree = toAgentWorktree(value.worktree);
     if (worktree) agent.worktree = worktree;
+    const buddy = toAgentBuddy(value.buddy);
+    if (buddy) agent.buddy = buddy;
     return agent;
+}
+
+function toAgentBuddy(value: unknown): AgentBuddy | null {
+    if (!isRecord(value) || !Number.isInteger(value.color) || (value.color as number) < 0 || (value.color as number) > 63) return null;
+    const buddy: AgentBuddy = { color: value.color as number };
+    const pack = boundedOptionalString(value.pack, 40);
+    const shape = boundedOptionalString(value.shape, 40);
+    if (pack && shape) Object.assign(buddy, { pack, shape });
+    return buddy;
 }
 
 function persistedSession(sess: Session): PersistedSession {
@@ -451,6 +496,8 @@ function persistedAgent(agent: Agent): PersistedAgent {
     return {
         id: agent.id,
         type: agent.type,
+        ...(agent.name ? { name: agent.name } : {}),
+        ...(agent.lead ? { lead: agent.lead } : {}),
         title: agent.title,
         resumeId: agent.resumeId,
         permissionMode,
@@ -459,11 +506,13 @@ function persistedAgent(agent: Agent): PersistedAgent {
         ...(agent.executablePath ? { executablePath: agent.executablePath } : {}),
         ...(agent.cwd ? { cwd: agent.cwd } : {}),
         ...(agent.model ? { model: agent.model } : {}),
+        ...(agent.modelProvider ? { modelProvider: agent.modelProvider } : {}),
         ...(agent.effort ? { effort: agent.effort } : {}),
         ...(agent.keepAlive ? { keepAlive: true } : {}),
         ...(agent.renamed ? { renamed: true } : {}),
         ...(agent.worktree ? { worktree: agent.worktree } : {}),
         ...(agent.ptyId !== undefined ? { ptyId: agent.ptyId } : {}),
+        ...(agent.buddy ? { buddy: agent.buddy } : {}),
     };
 }
 
@@ -709,6 +758,41 @@ function swapSpaceEmojiForIcons(decoded: Record<string, unknown>): void {
     }
 }
 
+const PANE_TITLE_RENAMES: Record<string, string> = {
+    shell: "Terminal",
+    editor: "Files",
+    git: "Git",
+    diff: "Diff",
+    search: "Search",
+    agent: "Agent",
+    desk: "Desk",
+    "shared chat": "Shared chat",
+};
+
+function capitalisePaneTitles(decoded: Record<string, unknown>): void {
+    const windowsBySession = isRecord(decoded.windowsBySession) ? decoded.windowsBySession : {};
+    for (const rows of Object.values(windowsBySession)) {
+        for (const row of Array.isArray(rows) ? rows : []) {
+            const pending: unknown[] = isRecord(row) ? [row.root] : [];
+            for (let node = pending.pop(); node !== undefined; node = pending.pop()) {
+                if (!isRecord(node)) continue;
+                if (node.type === "pane" && typeof node.title === "string") node.title = PANE_TITLE_RENAMES[node.title] ?? node.title;
+                if (Array.isArray(node.children)) pending.push(...node.children);
+            }
+        }
+    }
+}
+
+function renameAgentRailPrefs(decoded: Record<string, unknown>): void {
+    if (!isRecord(decoded.prefs)) return;
+    const prefs = decoded.prefs;
+    for (const key of Object.keys(prefs)) {
+        if (!key.startsWith("agentRail")) continue;
+        prefs[`tabRail${key.slice("agentRail".length)}`] = prefs[key];
+        delete prefs[key];
+    }
+}
+
 function closeGithubSessions(decoded: Record<string, unknown>): void {
     const sessions = Array.isArray(decoded.sessions) ? decoded.sessions : [];
     const closed = new Set(sessions.flatMap((row) => (isRecord(row) && row.kind === "sikemux.github:hub" ? [row.id] : [])));
@@ -893,6 +977,11 @@ function booleansByPath(value: unknown): Record<string, boolean> {
     return Object.fromEntries(Object.entries(value).filter((entry): entry is [string, boolean] => typeof entry[1] === "boolean"));
 }
 
+function stringsByPath(value: unknown): Record<string, string> {
+    if (!isRecord(value)) return {};
+    return Object.fromEntries(Object.entries(value).filter((entry): entry is [string, string] => typeof entry[1] === "string"));
+}
+
 function normalisePluginSettings(value: unknown): Record<string, unknown> {
     if (!isRecord(value)) return {};
     return Object.fromEntries(Object.entries(value).filter(([id]) => isPluginId(id)));
@@ -904,7 +993,18 @@ export function hydrationAllowsPersistence(result: HydrationResult): boolean {
     return result === "empty" || result === "applied";
 }
 
-export function applyHydrate(raw: string): HydrationResult {
+export function adoptAgentAccounts(book: AgentAccountBook): void {
+    const providerProfiles = normaliseProviderProfiles(book.profiles, []);
+    setState({
+        providerProfiles,
+        selectedProviderProfileIds: normaliseProviderProfileSelection(book.selected, providerProfiles, {}),
+        accountAutoSwitch: normaliseAccountAutoSwitch(book.autoSwitch),
+    });
+}
+
+/** Applies the saved workspace, after the agent accounts the core keeps, which restoring its agents needs. */
+export function applyHydrate(raw: string, accounts?: AgentAccountBook | null): HydrationResult {
+    if (accounts) adoptAgentAccounts(accounts);
     if (!raw) return "empty";
     let decoded: unknown;
     try {
@@ -926,6 +1026,8 @@ export function applyHydrate(raw: string): HydrationResult {
     if (decoded.version < GITHUB_IN_GIT_PANE_MIGRATION_VERSION) closeGithubSessions(decoded);
     if (decoded.version < CORE_SESSION_MIGRATION_VERSION) forgetCoreSessions(decoded);
     if (decoded.version < SPACE_ICON_MIGRATION_VERSION) swapSpaceEmojiForIcons(decoded);
+    if (decoded.version < PANE_TITLE_MIGRATION_VERSION) capitalisePaneTitles(decoded);
+    if (decoded.version < TAB_RAIL_MIGRATION_VERSION) renameAgentRailPrefs(decoded);
 
     const sessions: Record<string, Session> = {};
     for (const row of decoded.sessions) {
@@ -961,7 +1063,7 @@ export function applyHydrate(raw: string): HydrationResult {
     }
     const prefs = isRecord(decoded.prefs) ? decoded.prefs : {};
     const cur = getState();
-    const providerProfiles = normaliseProviderProfiles(prefs.providerProfiles, cur.providerProfiles);
+    const providerProfiles = cur.providerProfiles;
     const restoreAgentTabs = typeof prefs.restoreAgentTabs === "boolean" ? prefs.restoreAgentTabs : true;
     const spaces = normaliseSpaces(prefs.spaces);
     // Before v8 an agent sat beside its session rather than in a window, and
@@ -1114,7 +1216,12 @@ export function applyHydrate(raw: string): HydrationResult {
         customThemes: Array.isArray(prefs.customThemes) ? prefs.customThemes.filter(isTheme) : cur.customThemes,
         uiTextScale: typeof prefs.uiTextScale === "number" && [1, 1.1, 1.25].includes(prefs.uiTextScale) ? prefs.uiTextScale : cur.uiTextScale,
         paneShader: typeof prefs.paneShader === "boolean" ? prefs.paneShader : cur.paneShader,
+        buddies: typeof prefs.buddies === "boolean" ? prefs.buddies : cur.buddies,
+        buddyPack: boundedOptionalString(prefs.buddyPack, 40) ?? cur.buddyPack,
+        buddyShape: boundedOptionalString(prefs.buddyShape, 40) ?? cur.buddyShape,
+        buddyMotion: typeof prefs.buddyMotion === "boolean" ? prefs.buddyMotion : cur.buddyMotion,
         paneImage: typeof prefs.paneImage === "string" || prefs.paneImage === null ? prefs.paneImage : cur.paneImage,
+        paneStrength: typeof prefs.paneStrength === "number" ? clampPaneStrength(prefs.paneStrength) : cur.paneStrength,
         terminalFontSize: typeof prefs.terminalFontSize === "number" ? clampTerminalFontSize(prefs.terminalFontSize) : cur.terminalFontSize,
         chatTextScale: typeof prefs.chatTextScale === "number" ? clampChatTextScale(prefs.chatTextScale) : cur.chatTextScale,
         editorTextScale: typeof prefs.editorTextScale === "number" ? clampEditorTextScale(prefs.editorTextScale) : cur.editorTextScale,
@@ -1124,15 +1231,15 @@ export function applyHydrate(raw: string): HydrationResult {
         cloudBrowserShortcut: typeof prefs.cloudBrowserShortcut === "string" ? prefs.cloudBrowserShortcut : cur.cloudBrowserShortcut,
         keybindingOverrides: normaliseKeybindingOverrides(prefs.keybindingOverrides),
         sideRailOpen: typeof prefs.sideRailOpen === "boolean" ? prefs.sideRailOpen : cur.sideRailOpen,
-        agentRailOpen: typeof prefs.agentRailOpen === "boolean" ? prefs.agentRailOpen : cur.agentRailOpen,
+        tabRailOpen: typeof prefs.tabRailOpen === "boolean" ? prefs.tabRailOpen : cur.tabRailOpen,
         sideRailWidth:
             typeof prefs.sideRailWidth === "number" && Number.isFinite(prefs.sideRailWidth)
                 ? clampRailWidth("start", prefs.sideRailWidth)
                 : cur.sideRailWidth,
-        agentRailWidth:
-            typeof prefs.agentRailWidth === "number" && Number.isFinite(prefs.agentRailWidth)
-                ? clampRailWidth("end", prefs.agentRailWidth)
-                : cur.agentRailWidth,
+        tabRailWidth:
+            typeof prefs.tabRailWidth === "number" && Number.isFinite(prefs.tabRailWidth)
+                ? clampRailWidth("end", prefs.tabRailWidth)
+                : cur.tabRailWidth,
         pluginSettings: normalisePluginSettings(prefs.pluginSettings),
         disabledPlugins: Array.isArray(prefs.disabledPlugins) ? [...new Set(prefs.disabledPlugins.filter(isPluginId))] : [],
         restoreAgentTabs,
@@ -1147,9 +1254,11 @@ export function applyHydrate(raw: string): HydrationResult {
         notificationsIntroduced: prefs.notificationsIntroduced === true,
         keptRunningNoticeShown: prefs.keptRunningNoticeShown === true,
         railDensity: prefs.railDensity === "compact" || prefs.railDensity === "comfortable" ? prefs.railDensity : cur.railDensity,
-        agentRailAllAgents: prefs.agentRailAllAgents === true,
-        accountAutoSwitch: normaliseAccountAutoSwitch(prefs.accountAutoSwitch),
-        agentRailScope: prefs.agentRailScope === "all" ? "all" : "project",
+        midTurnSend: prefs.midTurnSend === "queue" ? "queue" : "steer",
+        tabRailAllAgents: prefs.tabRailAllAgents === true,
+        tabRailScope: prefs.tabRailScope === "all" ? "all" : "project",
+        tabRailPage: prefs.tabRailPage === "terminals" || prefs.tabRailPage === "files" ? prefs.tabRailPage : "agents",
+        pinnedChats: Array.isArray(prefs.pinnedChats) ? prefs.pinnedChats.filter(isPinnedChat) : [],
         onboardingComplete:
             typeof prefs.onboardingComplete === "boolean"
                 ? prefs.onboardingComplete
@@ -1172,12 +1281,6 @@ export function applyHydrate(raw: string): HydrationResult {
         recentCommandKeys: Array.isArray(prefs.recentCommandKeys)
             ? prefs.recentCommandKeys.filter((value): value is string => typeof value === "string").slice(0, 20)
             : [],
-        providerProfiles,
-        selectedProviderProfileIds: normaliseProviderProfileSelection(
-            prefs.selectedProviderProfileIds,
-            providerProfiles,
-            cur.selectedProviderProfileIds,
-        ),
         // Every save wrote this boundary out, so an older snapshot cannot say
         // whether it was chosen or just inherited. Adopt today's default once.
         defaultAgentPermissionMode:
@@ -1189,6 +1292,7 @@ export function applyHydrate(raw: string): HydrationResult {
         lastAgentType: isAgentType(prefs.lastAgentType) ? prefs.lastAgentType : null,
         languageServerTrust: booleansByPath(prefs.languageServerTrust),
         agentWorktreeDefaults: booleansByPath(prefs.agentWorktreeDefaults),
+        defaultGitRepos: stringsByPath(prefs.defaultGitRepos),
     });
     pruneOnDemandWindows();
     registerCustomThemes(getState().customThemes);

@@ -6,29 +6,22 @@
     background: color-mix(in srgb, var(--surface) calc(var(--window-opacity, 1) * 100%), transparent);
     border-right: 1px solid var(--border);
     overflow: hidden;
+    border-radius: var(--radius-3);
 }
 
-.agent-empty {
-    padding: 16px 14px;
-    color: var(--text-tertiary);
-    font-size: 11.5px;
-    line-height: 1.6;
-}
 .agent-row {
     width: 100%;
+    border-radius: var(--radius-2);
 }
 .agent-row-wrap {
     position: relative;
 }
-:root {
-    --brand-aws: #ff9900;
-    --brand-bitbucket: #2684ff;
-    --brand-gitlab: #fc6d26;
-}
 .agent-glyph {
     display: flex;
 }
-.agent-glyph.term,
+.agent-glyph.term {
+    color: var(--live);
+}
 .sess-icon.ssh {
     color: color-mix(in oklab, var(--cmd) 70%, var(--ink-dim));
 }
@@ -39,7 +32,10 @@
     color: color-mix(in oklab, var(--git-modified) 76%, var(--ink-dim));
 }
 .agent-glyph.git {
-    color: color-mix(in oklab, var(--git-added) 76%, var(--ink-dim));
+    color: var(--acc);
+}
+.agent-glyph.board {
+    color: color-mix(in oklab, var(--git-renamed) 76%, var(--ink));
 }
 .agent-title {
     flex: 1;
@@ -48,6 +44,60 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+}
+.agent-name {
+    color: var(--text-primary);
+    font-weight: var(--weight-semibold);
+}
+.agent-row .agent-name {
+    font-weight: var(--weight-medium);
+}
+.agent-name-sep {
+    margin: 0 5px;
+    color: var(--text-tertiary);
+}
+.agent-name-title {
+    color: var(--text-tertiary);
+    font-weight: var(--weight-normal);
+}
+.agent-surface-title .agent-name-title {
+    margin-left: 2px;
+}
+/* Title first, the agent's name dim after it: the same in tabs, rail rows and the header. */
+.agent-title:has(> .agent-label-name),
+.agent-surface-title:has(> .agent-label-name) {
+    display: flex;
+    align-items: baseline;
+    min-width: 0;
+}
+.agent-label-title {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.agent-label-name,
+.tab-note {
+    flex: none;
+    margin-left: var(--space-2);
+    color: var(--text-tertiary);
+    font-size: var(--text-2xs);
+    font-weight: var(--weight-normal);
+}
+/* A rail row's name sits with its counts and state at the row's end, centred on the same line as them. */
+.agent-row-name {
+    flex: none;
+    padding-inline: var(--space-2) var(--space-1);
+    color: var(--text-tertiary);
+    font-size: var(--text-2xs);
+    font-weight: var(--weight-normal);
+    line-height: 18px;
+}
+.agent-row.two-line > .agent-row-name,
+.agent-row.two-line > .work-counts {
+    height: 18px;
+}
+.tab.active .tab-note {
+    color: color-mix(in srgb, currentColor 62%, transparent);
 }
 .agent-rename {
     min-width: 0;
@@ -171,7 +221,7 @@
     display: inline-flex;
     align-items: center;
     gap: 3px;
-    color: var(--text-tertiary);
+    color: var(--text-secondary);
     font-size: 11px;
     font-weight: var(--weight-medium);
     line-height: 1;
@@ -180,14 +230,14 @@
 .subagent-count svg {
     fill: currentColor;
     stroke: none;
-    color: color-mix(in srgb, var(--live) 70%, var(--text-tertiary));
+    color: var(--live);
 }
 .shell-count svg {
-    color: color-mix(in srgb, var(--warn) 70%, var(--text-tertiary));
+    color: var(--warn);
 }
 .tab-wrap.active .work-count,
 .agent-row.active .work-count {
-    color: var(--text-secondary);
+    color: var(--text-primary);
 }
 @keyframes agent-activity-spin {
     to {
@@ -211,7 +261,7 @@
 }
 .agent-dormant-notch {
     grid-row: 1 / span 5;
-    background: var(--acc);
+    background: var(--border-strong);
 }
 .agent-dormant-kicker {
     color: var(--live);
@@ -229,39 +279,15 @@
     margin-top: 8px;
     padding: 7px 14px;
     border: 1px solid var(--acc);
-    color: var(--text-primary);
-    background: var(--surface-selected);
+    color: var(--on-accent);
+    background: var(--acc);
 }
 
-.env-dd {
-    position: relative;
-    flex: 0 1 auto;
-    min-width: 0;
-}
-.env-dd-btn {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    height: 24px;
-    max-width: 100%;
-    min-width: 0;
-    padding: 0 8px;
-    border: 1px solid var(--border);
-    background: var(--surface-raised);
-    color: var(--text-secondary);
-    font-size: var(--text-2xs);
-}
 .env-dd-label {
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-}
-.env-dd-btn > .env-dd-chev {
-    flex: 0 0 auto;
-}
-.env-dd-btn:hover {
-    color: var(--text-primary);
 }
 .env-dd-chev {
     color: var(--text-tertiary);
@@ -303,6 +329,7 @@
     padding: 4px;
     background: var(--surface-raised);
     border: 1px solid var(--border);
+    border-radius: var(--radius-4);
 }
 .env-dd-item {
     display: flex;
@@ -313,9 +340,10 @@
     padding: 0 9px;
     color: var(--text-secondary);
     font-size: var(--text-xs);
+    border-radius: var(--radius-2);
 }
 .env-dd-item:hover {
-    background: var(--surface-selected);
+    background: var(--surface-hover);
     color: var(--text-primary);
 }
 .env-dd-item.active {
@@ -338,53 +366,15 @@
     border-bottom: 1px solid var(--border);
     flex: 0 0 auto;
 }
-.agent-header-types,
 .agent-header-actions {
     display: flex;
     gap: 2px;
 }
-.agent-header-types {
-    flex: 1;
-}
-.agent-header-btn {
-    --agent-provider: var(--acc);
-    position: relative;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 32px;
-    height: 28px;
-    color: var(--text-tertiary);
-    transition:
-        color 0.12s,
-        background 0.12s;
-}
-.agent-header-btn:hover {
-    color: var(--text-primary);
-    background: var(--surface-raised);
-}
-.agent-header-btn:disabled {
-    opacity: 0.35;
-    cursor: default;
-}
-.agent-header-btn:disabled:hover {
-    color: var(--text-tertiary);
-    background: transparent;
-}
-.agent-header-btn.active {
-    color: var(--acc);
-    background: var(--surface-selected);
-}
-/* The all-agents tab leads the provider row, standing a little apart from it. */
-.agent-header-types > .all-agents {
-    margin-right: 6px;
-}
 
-/* This project or all projects: a hairline track with a neutral thumb that
-   slides to the chosen side. */
-.scope-track-row {
-    flex: 0 0 auto;
-    padding: var(--space-2) var(--space-1h) var(--space-1) var(--gutter-rail);
+/* This project, by name, or all projects: a hairline track over the open
+   agents with a neutral thumb that slides to the chosen side. */
+.workspace-rail.tab-rail .agent-actions + .scope-track {
+    margin-top: var(--space-2);
 }
 .scope-track {
     position: relative;
@@ -392,7 +382,7 @@
     grid-template-columns: 1fr 1fr;
     height: 30px;
     padding: 3px;
-    border-radius: calc(var(--radius-2) + 3px);
+    border-radius: var(--radius-2);
     box-shadow: inset 0 0 0 1px var(--border);
 }
 .scope-thumb {
@@ -401,7 +391,7 @@
     bottom: 3px;
     left: 3px;
     width: calc(50% - 3px);
-    border-radius: var(--radius-2);
+    border-radius: calc(var(--radius-2) - 2px);
     background: var(--surface-active);
     transition: transform 160ms cubic-bezier(0.2, 0.7, 0.3, 1);
 }
@@ -414,7 +404,9 @@
     align-items: center;
     justify-content: center;
     gap: 7px;
+    min-width: 0;
     height: 100%;
+    padding: 0 var(--space-2);
     background: transparent;
     color: var(--text-tertiary);
     font-family: var(--ui);
@@ -425,6 +417,15 @@
 .scope-track button:hover,
 .scope-track button[aria-selected="true"] {
     color: var(--text-primary);
+}
+.scope-track svg {
+    flex: none;
+}
+.scope-name {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 .scope-count {
     display: inline-grid;
@@ -444,6 +445,40 @@
         transition: none;
     }
 }
+.tab-rail .swipe-page .agent-header-top {
+    min-height: 28px;
+}
+/* Open files lead the project tree in the same scroll, and the tree's head
+   below them pins to the top once they have scrolled away. */
+.ed-tree-scroll:has(> .ed-tree-lead) {
+    padding-top: 0;
+}
+.ed-tree-lead {
+    margin-inline: -6px;
+    padding: var(--space-1) var(--gutter-rail) 0;
+}
+.ed-tree-lead + .ed-tree-head {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    margin: var(--space-2) -6px 0;
+    border-top: 1px solid var(--border);
+    background: color-mix(in srgb, var(--surface) calc(var(--window-opacity, 1) * 100%), transparent);
+}
+.rail-tab .agent-title {
+    flex: 0 1 auto;
+}
+.rail-file-folder {
+    flex: 1;
+    min-width: 0;
+    padding-left: var(--space-2);
+    overflow: hidden;
+    color: var(--text-tertiary);
+    font-size: var(--text-2xs);
+    text-align: right;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
 /* Provider plan telemetry — a branded readout that borrows the rail's
    group-head grammar, then answers “how much is left?” with a big tabular
    number and a ruler of ticks that matches the app's terminal grain. */
@@ -459,6 +494,7 @@
     /* Divides from the list above it now, not from the header above it. */
     border-top: 1px solid var(--border);
     background: color-mix(in srgb, var(--surface-raised) 52%, transparent);
+    border-radius: var(--radius-3);
 }
 .agent-usage-head {
     display: flex;
@@ -475,11 +511,18 @@
     color: var(--text-tertiary);
     background: transparent;
 }
+/* One line a limit: its name, a grey ruler, how much is used, when it resets. The ruler only
+   takes a colour once a limit is close to running out. */
 .agent-usage-row {
-    --usage-signal: var(--usage-fill);
+    --usage-signal: color-mix(in oklab, var(--ink) 62%, transparent);
+    display: grid;
+    grid-template-columns: 58px minmax(0, 1fr) 28px 42px;
+    align-items: center;
+    gap: 10px;
+    height: 18px;
 }
 .agent-usage-row + .agent-usage-row {
-    margin-top: 14px;
+    margin-top: 6px;
 }
 .agent-usage-row[data-tone="warm"] {
     --usage-signal: var(--warn);
@@ -487,69 +530,31 @@
 .agent-usage-row[data-tone="hot"] {
     --usage-signal: var(--danger);
 }
-.agent-usage-line {
-    display: flex;
-    align-items: baseline;
-    gap: 6px;
-    margin-bottom: 6px;
-    font-size: 10px;
-    line-height: 1;
-}
 .agent-usage-name {
     min-width: 0;
-    flex: 0 1 auto;
-    overflow: hidden;
-    color: var(--text-secondary);
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-/* Countdowns are short and never truncate — a long window name gives up its
-   width first, since the ellipsis still identifies it. */
-.agent-usage-reset {
-    min-width: 0;
-    flex: 1 0 auto;
     overflow: hidden;
     color: var(--text-tertiary);
-    font-size: var(--text-3xs);
-    font-variant-numeric: tabular-nums;
-    text-align: right;
+    font-size: var(--text-2xs);
     text-overflow: ellipsis;
     white-space: nowrap;
-}
-.agent-usage-gauge {
-    display: flex;
-    align-items: center;
-    gap: 10px;
 }
 .agent-usage-pct {
-    flex: 0 0 auto;
-    min-width: 38px;
-    color: var(--usage-signal);
-    font-size: 15px;
+    color: var(--text-primary);
+    font-size: var(--text-2xs);
     font-variant-numeric: tabular-nums;
-    font-weight: 620;
-    letter-spacing: -0.04em;
-    line-height: 1;
+    text-align: right;
 }
-.agent-usage-row[data-tone="steady"] .agent-usage-pct {
-    color: color-mix(in srgb, var(--usage-signal) 58%, var(--text-primary));
-}
-.agent-usage-pct i {
-    margin-left: 1px;
-    color: var(--text-tertiary);
-    font-size: var(--text-3xs);
-    font-style: normal;
-    font-weight: 400;
+.agent-usage-row:not([data-tone="steady"]) .agent-usage-pct {
+    color: var(--usage-signal);
 }
 /* Tick geometry is shared by track and fill, so lit and unlit ticks line up. */
 .agent-usage-track {
     position: relative;
-    flex: 1 1 auto;
-    height: 12px;
+    height: 10px;
     overflow: hidden;
     background-image: repeating-linear-gradient(
         90deg,
-        color-mix(in srgb, var(--text-tertiary) 30%, transparent) 0 var(--usage-cell),
+        color-mix(in oklab, var(--ink) 10%, transparent) 0 var(--usage-cell),
         transparent var(--usage-cell) var(--usage-pitch)
     );
 }
@@ -558,6 +563,14 @@
     inset: 0 auto 0 0;
     background-image: repeating-linear-gradient(90deg, var(--usage-signal) 0 var(--usage-cell), transparent var(--usage-cell) var(--usage-pitch));
     transition: width 0.32s cubic-bezier(0.2, 0.75, 0.2, 1);
+}
+.agent-usage-reset {
+    overflow: hidden;
+    color: var(--text-tertiary);
+    font-size: var(--text-3xs);
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+    white-space: nowrap;
 }
 .agent-usage-empty {
     color: var(--text-tertiary);
@@ -579,10 +592,7 @@
     margin-bottom: 8px;
 }
 .workspace-rail[data-density="compact"] .agent-usage-row + .agent-usage-row {
-    margin-top: 11px;
-}
-.workspace-rail[data-density="compact"] .agent-usage-pct {
-    font-size: 13.5px;
+    margin-top: 4px;
 }
 @media (prefers-reduced-motion: reduce) {
     .agent-usage-empty[data-loading="true"] {
@@ -616,15 +626,12 @@
     display: grid;
     flex: 0 0 auto;
     place-items: center;
-    width: 17px;
-    height: 17px;
-    border: 1px solid var(--border);
+    width: 18px;
+    height: 18px;
     border-radius: 50%;
-    color: var(--text-secondary);
-    font-family: var(--mono);
-    font-size: 7.5px;
-    font-weight: 500;
-    letter-spacing: 0;
+    color: var(--on-accent);
+    font-size: 9.5px;
+    font-weight: var(--weight-semibold);
     line-height: 1;
 }
 .agent-account-name {
@@ -658,30 +665,41 @@
     transform: rotate(-90deg);
 }
 
-/* The accounts open as wide as the limits they sit over. */
+/* The accounts open as wide as the limits they sit over: the initial, the name
+   over its email, how much it has used, a tick on the one new chats start on,
+   then its sign-out and remove. */
 .tree-ctx-menu.agent-account-menu {
     gap: 2px;
     font-family: inherit;
 }
 .agent-account-menu .tree-ctx-item {
-    gap: 8px;
-    padding: 6px;
-    border: 1px solid transparent;
+    gap: 10px;
+    padding: 6px 8px;
 }
 .agent-account-menu .tree-ctx-icon {
     margin-right: 0;
 }
+.agent-account-menu .tree-ctx-label {
+    color: var(--text-primary);
+    font-size: var(--text-xs);
+    font-weight: var(--weight-medium);
+}
+.agent-account-menu .tree-ctx-detail {
+    font-size: var(--text-2xs);
+    font-weight: var(--weight-normal);
+    white-space: nowrap;
+}
 .agent-account-menu .agent-account-mark {
     width: 22px;
     height: 22px;
-    font-size: 8.5px;
+    font-size: 10.5px;
 }
-.agent-account-menu .tree-ctx-item.selected .agent-account-mark {
-    border-color: var(--border-selected);
-    color: var(--text-primary);
-}
-.agent-account-menu .tree-ctx-label {
+.tree-ctx-detail {
+    flex: 1 1 auto;
+    min-width: 0;
     font-size: var(--text-2xs);
+    font-weight: var(--weight-normal);
+    white-space: nowrap;
 }
 .tree-ctx-detail {
     display: block;
@@ -692,10 +710,6 @@
 }
 .agent-account-menu .tree-ctx-hint {
     font-variant-numeric: tabular-nums;
-}
-.tree-ctx-menu.agent-account-menu .tree-ctx-item.selected {
-    border-color: var(--border-selected);
-    background: var(--surface-selected);
 }
 .agent-usage-link {
     padding: 0;
@@ -756,6 +770,7 @@
     padding: 0 10px;
     color: var(--text-tertiary);
     border-bottom: 1px solid var(--border);
+    border-radius: var(--radius-2);
 }
 .rail-search input {
     width: 100%;
@@ -792,7 +807,7 @@
     gap: 5px;
     height: 23px;
     padding: 0 10px;
-    border-radius: calc(var(--radius-control) - 1px);
+    border-radius: var(--radius-2);
     color: var(--text-secondary);
     font-family: var(--mono);
     font-size: 10px;
@@ -878,26 +893,338 @@
     height: 27px;
 }
 
-.agent-attention .panel-label {
-    color: var(--warn);
+/* New chat, terminal and browser sit right under the scope track, a short step above the first group. */
+/* New chat, terminal and browser and the scope track stay put; only the list
+   under them scrolls, starting a short step below the track. */
+.tab-rail-top {
+    flex: none;
+    padding: var(--space-1) var(--gutter-rail) 0;
 }
-.agent-row.attention {
+.tab-rail .swipe-page > .rail-scroll {
+    padding-top: var(--space-2);
+}
+.tab-rail .swipe-page > .rail-scroll[data-revealing="true"] {
+    opacity: 0;
+}
+.workspace-rail.tab-rail .swipe-page > .rail-scroll > :first-child,
+.workspace-rail.tab-rail .swipe-page > .rail-scroll > .agent-all-projects > :first-child {
+    margin-top: 0;
+}
+.agent-new-kbd {
+    flex: none;
+    font-family: var(--kbd);
+    font-size: var(--text-2xs);
+    color: var(--text-tertiary);
+}
+.workspace-rail.tab-rail .agent-actions + * {
+    margin-top: var(--space-4);
+}
+
+/* What an agent is tied to hangs off its row on the side rail's tree. The
+   tree's spine runs down from the agent's mark. */
+.tab-rail .agent-tree {
+    margin-left: 14px;
+    padding: 0 6px 2px 0;
+}
+/* A lead's workers sit flat right after it, and its tree line runs on through
+   each worker's mark, stopping short of the mark and of a selected row's box.
+   drawTeamLines in src/rail/teams.ts measures where. */
+.tab-rail .agent-tree.runs-on {
+    padding-bottom: 0;
+}
+.tab-rail .agent-tree.runs-on .proj-child:last-child::before {
+    bottom: 0;
+    width: 1px;
+    height: auto;
+    border: 0;
+    border-radius: 0;
+    background: var(--tree-spine);
+}
+.tab-rail .agent-tree.runs-on .proj-child:last-child .proj-child-tick {
+    background: var(--tree-tick);
+}
+.agent-all-projects {
+    display: contents;
+}
+
+.agent-row-wrap.chain::before,
+.agent-row-wrap.chain:not(.chain-last)::after,
+.agent-row-wrap.chain-head::after {
+    content: "";
+    position: absolute;
+    left: var(--cx, 22px);
+    z-index: 2;
+    width: 1px;
+    background: var(--tree-spine);
+    pointer-events: none;
+}
+.agent-row-wrap.chain::before {
+    top: -2px;
+    height: calc(var(--gt, 4px) + 2px);
+}
+.agent-row-wrap.chain:not(.chain-last)::after,
+.agent-row-wrap.chain-head::after {
+    top: var(--gb, 24px);
+    height: var(--down, 6px);
+}
+.agent-row-wrap:has(> .agent-tree) > .row-status,
+.agent-row-wrap:has(> .agent-tree) > .row-x,
+.agent-row-wrap:has(> .agent-tree) > .row-pin {
+    top: 14px;
+}
+.agent-tree .proj-child {
+    cursor: default;
+}
+.agent-row-text > .agent-title {
+    color: var(--text-primary);
+}
+.agent-row-text {
+    flex: 1;
+    min-width: 0;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+}
+.agent-row.two-line,
+.workspace-rail[data-density="compact"] .agent-row.two-line {
+    height: 40px;
+    align-items: flex-start;
+    padding-top: 4px;
+}
+.agent-row.two-line > .agent-glyph {
+    margin-top: -2px;
+}
+.agent-row.two-line .agent-title,
+.agent-row.two-line > .agent-ago {
+    line-height: 18px;
+}
+.agent-row-project {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 5px;
+    overflow: hidden;
+    color: var(--text-tertiary);
+    font-size: var(--text-2xs);
+    font-weight: var(--weight-normal);
+    line-height: 14px;
+    white-space: nowrap;
 }
-.agent-row.attention .agent-title {
+.agent-row-project > svg {
+    flex: none;
+    color: color-mix(in oklab, var(--live) 70%, var(--ink-dim));
+}
+.agent-row-project > span {
     min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
-/* Shrinks by `min-width: 0` rather than a percentage cap. A percentage
-   max-width on a flex item makes the row resolve its intrinsic width, which
-   is the expensive layout path this rail cannot afford. */
-.agent-attention-project {
-    flex: 0 1 auto;
+.agent-row-wrap:has(> .agent-row.two-line) > .row-status,
+.agent-row-wrap:has(> .agent-row.two-line) > .row-x,
+.agent-row-wrap:has(> .agent-row.two-line) > .row-pin {
+    top: 13px;
+}
+/* Joins the agent's mark to its tree; a team's line already does this through drawTeamLines. */
+.tab-rail .agent-row-wrap:not(.chain, .chain-head):has(> .agent-tree):not(:has(> .agent-row.active))::before {
+    content: "";
+    position: absolute;
+    top: 26px;
+    left: 14px;
+    width: 1px;
+    height: 2px;
+    background: var(--tree-spine);
+}
+.tab-rail .agent-row-wrap:not(.chain, .chain-head):has(> .agent-row.two-line):has(> .agent-tree)::before {
+    top: 25px;
+    height: 15px;
+}
+.agent-tree .agent-tree-items {
+    display: flex;
+    align-items: center;
+    min-width: 0;
+    overflow: hidden;
+    font-size: var(--text-xs);
+    white-space: nowrap;
+}
+.agent-tree-items > * + *::before {
+    content: "·";
+    display: inline-block;
+    margin: 0 6px;
+    color: var(--text-tertiary);
+}
+.agent-tree-items > :last-child {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.agent-tree-link {
+    flex: none;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    cursor: pointer;
+}
+.agent-tree-link:hover,
+.agent-tree-link:focus-visible {
+    color: var(--ink);
+    text-decoration: underline;
+    text-decoration-color: color-mix(in oklab, var(--ink) 40%, transparent);
+    text-underline-offset: 2px;
+}
+.agent-tree .agent-tree-mono {
+    font-family: var(--mono);
+    font-size: var(--text-2xs);
+}
+
+.agent-review {
+    position: fixed;
+    z-index: 60;
+    width: 360px;
+    padding: var(--space-2);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+    background: var(--surface-overlay);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-3);
+    box-shadow: var(--shadow-3);
+    font-size: var(--text-sm);
+    color: var(--text-secondary);
+}
+.agent-review-head {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: var(--space-1) var(--space-1) 0;
+}
+.agent-review-title {
+    flex: 1;
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    font-size: 10px;
+    font-weight: var(--weight-semibold);
+    color: var(--text-primary);
+}
+.agent-review-state {
+    font-size: var(--text-2xs);
     color: var(--text-tertiary);
+}
+.agent-review-state.blocked {
+    color: var(--warn);
+}
+.agent-review-state.working {
+    color: var(--live);
+}
+.agent-review-close {
+    width: 20px;
+    height: 20px;
+    padding: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    border: 0;
+    color: var(--text-tertiary);
+    cursor: pointer;
+}
+.agent-review-close:hover {
+    background: var(--surface-hover);
+    color: var(--text-primary);
+}
+.agent-review-branch,
+.agent-review-mono {
+    font-family: var(--mono);
+    font-size: var(--text-2xs);
+}
+.agent-review-branch {
+    padding: 0 var(--space-1);
+    color: var(--text-tertiary);
+}
+.agent-review-summary {
+    margin: var(--space-1) 0;
+    padding: var(--space-1h) var(--space-2);
+    background: var(--surface-raised);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-2);
+    color: var(--text-primary);
+    line-height: 1.4;
+}
+.agent-review-row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    min-height: 24px;
+    padding: 0 var(--space-1);
+}
+.agent-review-row.muted,
+.agent-review .muted {
+    color: var(--text-tertiary);
+}
+.agent-review-label {
+    width: 64px;
+    flex: 0 0 auto;
+    font-size: var(--text-xs);
+    color: var(--text-tertiary);
+}
+.agent-review-good,
+.agent-review-bad {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-1);
+}
+.agent-review-good {
+    color: var(--live);
+}
+.agent-review-bad {
+    color: var(--danger);
+}
+.agent-review-file {
+    height: 22px;
+    margin-left: calc(64px + var(--space-3));
+    padding: 0 var(--space-1);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    text-align: left;
+    background: transparent;
+    border: 0;
+    color: var(--text-secondary);
+    font-family: var(--mono);
+    font-size: var(--text-2xs);
+    cursor: pointer;
+}
+.agent-review-file:hover {
+    background: var(--surface-hover);
+    color: var(--text-primary);
+}
+.agent-review-actions {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: var(--space-1h);
+    padding-top: var(--space-2);
+    border-top: 1px solid var(--border);
+    margin-top: var(--space-1);
+}
+.agent-review-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-1);
+    height: 24px;
+    padding: 0 var(--space-2);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    color: var(--text-primary);
+    font-family: var(--ui);
+    font-size: var(--text-xs);
+    cursor: pointer;
+}
+.agent-review-btn:hover {
+    background: var(--surface-hover);
+}
+.agent-review-btn.primary {
+    background: var(--acc);
+    border-color: var(--acc);
+    color: var(--on-accent);
 }

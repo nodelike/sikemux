@@ -115,7 +115,7 @@ export function Consent() {
   );
 }
 
-function Panel({ children }: { children: ReactNode }) {
+export function Panel({ children }: { children: ReactNode }) {
   return (
     <section className="panel">
       <div className="brand">

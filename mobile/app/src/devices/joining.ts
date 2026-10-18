@@ -40,7 +40,7 @@ export class JoinFailed extends Error {
 export const APPROVAL_SECONDS = 120;
 
 export function expired(host: string): JoinFailure {
-  return { title: `${host} did not answer`, detail: 'It waits two minutes for someone to allow this phone.' };
+  return { title: `${host} did not answer`, detail: 'Nobody allowed this phone within two minutes.' };
 }
 
 /** Why the host refused a ticket, in the words sikemux_core::join::Refusal uses. */

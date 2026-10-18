@@ -2,7 +2,7 @@ import { useEffect, useRef, type RefObject } from "react";
 import { ENTER_GLYPH } from "../commands/keybindings";
 import { hasPrimaryModifier, PRIMARY_SHORTCUT } from "../lib/platform";
 import { useStore } from "../state/store";
-import { AgentIcon, IconAgent, IconCommand, IconCopy, IconExternal, IconGlobe, IconRun, IconWindow } from "../ui/Icons";
+import { AgentIcon, IconAgent, IconCopy, IconExternal, IconGlobe, IconRun, IconTerminal, IconWindow } from "../ui/Icons";
 import { ThemeIcon } from "../ui/FileIcon";
 import { Tooltip } from "../ui/Tooltip";
 import { copyPortUrl, openPortExternally, openPortOnDesk, revealPortOwner } from "./portActions";
@@ -47,7 +47,7 @@ function OwnerIcon({ owner }: { owner: ProjectPort["owner"] }) {
     if (agentType) return <AgentIcon type={agentType} size={11} className={`agent-glyph ${agentType}`} />;
     if (owner.kind === "task") return <IconRun size={11} />;
     if (owner.kind === "agent") return <IconAgent size={11} />;
-    return <IconCommand size={11} />;
+    return <IconTerminal size={11} />;
 }
 
 function PortRow({ port, deskAgent, deskTitle, close }: { port: ProjectPort; deskAgent: string | null; deskTitle: string; close: () => void }) {

@@ -83,7 +83,7 @@
 }
 .sp-chev.open {
     transform: rotate(90deg);
-    color: var(--acc);
+    color: var(--text-primary);
 }
 .sp-chev-spacer {
     flex: 0 0 14px;
@@ -211,8 +211,8 @@
     color: var(--text-primary);
 }
 .sp-toggle.on {
-    color: var(--acc);
-    border-bottom-color: var(--acc);
+    color: var(--text-primary);
+    border-bottom-color: var(--text-primary);
 }
 
 .sp-stats {
@@ -248,7 +248,7 @@
 
 .sp-replace-btn {
     background: transparent;
-    color: var(--acc);
+    color: var(--text-primary);
     border: 0;
     padding: 2px 0;
     font-family: var(--mono);
@@ -257,7 +257,7 @@
     text-transform: lowercase;
     letter-spacing: 0.04em;
     cursor: pointer;
-    border-bottom: 1px solid var(--border-selected);
+    border-bottom: 1px solid var(--border);
     transition:
         color 0.12s,
         border-color 0.12s,
@@ -417,12 +417,16 @@
         color 0.08s;
     align-items: center;
 }
+
+button.sp-msg {
+    border-radius: var(--radius-2);
+}
 .sp-msg:hover {
     background: rgba(255, 255, 255, 0.03);
     color: var(--text-primary);
 }
 .sp-msg.sel {
-    background: var(--surface-selected);
+    background: var(--surface-chosen);
     color: var(--text-primary);
 }
 .sp-msg-ln {
@@ -433,7 +437,7 @@
     font-size: 10px;
 }
 .sp-msg.sel .sp-msg-ln {
-    color: var(--acc);
+    color: var(--text-primary);
 }
 .sp-msg-tx {
     overflow: hidden;
@@ -725,8 +729,8 @@
     color: var(--text-primary);
 }
 .ed-findbar-toggle.on {
-    color: var(--acc);
-    border-bottom-color: var(--acc);
+    color: var(--text-primary);
+    border-bottom-color: var(--text-primary);
 }
 
 .ed-findbar-status {

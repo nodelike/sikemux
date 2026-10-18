@@ -1,27 +1,49 @@
 mod access;
 mod activity;
 mod agent;
+mod agent_accounts;
 mod attachments;
+mod board;
+mod callers;
 mod calls;
 mod chat;
+mod collisions;
 mod connection;
 mod display;
+mod edits;
 mod entry;
+mod follow;
 mod handover;
 mod harness;
 mod host;
+mod hosts;
+mod inbox;
 mod join;
+mod kept;
+mod local_peer;
+mod messages;
+mod names;
+mod network_watch;
 mod notify;
+pub mod plugins;
 mod prepare;
+mod questions;
 mod remote;
+mod saved;
 mod seen;
 mod session;
+mod share;
+mod spawn;
 mod tools;
+mod transcript;
 mod upgrade;
+mod wake;
+mod who_wrote;
 mod window;
 mod workspace;
 
 pub use entry::main;
+pub use host::{info as host_info, PLATFORM as HOST_PLATFORM};
 
 use std::collections::{HashMap, HashSet};
 use std::fs::{DirBuilder, File, OpenOptions};
@@ -29,7 +51,7 @@ use std::os::fd::AsRawFd;
 use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex, OnceLock, RwLock};
+use std::sync::{Arc, Mutex, OnceLock, RwLock, Weak};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use sikemux_pty::agent_detection::{ManifestRegistry, ManifestReloadReport};
@@ -254,6 +276,7 @@ pub(crate) struct Listening {
 }
 
 pub(crate) struct Core {
+    me: Weak<Core>,
     sessions: Mutex<HashMap<SessionId, Arc<Session>>>,
     next_session_id: AtomicU64,
     capacity: Arc<Capacity>,
@@ -277,9 +300,19 @@ pub(crate) struct Core {
     pub(crate) tools: Mutex<Option<tools::ToolEndpoint>>,
     pub(crate) chats: chat::Chats,
     pub(crate) remote: remote::Remote,
+    pub(crate) shares: share::Shares,
     pub(crate) workspaces: workspace::Workspaces,
     pub(crate) seen: seen::Seen,
+    /// Pokes the device view awake once something may be watching it.
+    pub(crate) view_watched: Notify,
+    pub(crate) names: names::Names,
+    pub(crate) boards: board::Boards,
+    pub(crate) edits: edits::Edits,
+    pub(crate) collisions: collisions::Collisions,
     pub(crate) notify: notify::Notifier,
+    pub(crate) inbox: inbox::Inbox,
+    /// Hosts linked with this one, and the agents of teams shared with them.
+    pub(crate) hosts: hosts::Hosts,
     /// The view paired devices were last sent, as sent.
     device_view: Mutex<Vec<u8>>,
 }
@@ -298,7 +331,12 @@ impl Core {
     fn new(build: BuildIdentity, data_dir: Option<&Path>) -> Result<Arc<Self>, ServerError> {
         let detection = ManifestRegistry::bundled()
             .map_err(|error| ServerError::Manifests(error.to_string()))?;
-        Ok(Arc::new(Self {
+        let names = names::Names::new(data_dir);
+        let hosts = hosts::Hosts::new(data_dir);
+        names.pin(hosts.team.ids());
+        let harness = harness::Harness::new(data_dir, |agent_id| names.get(agent_id).is_some());
+        Ok(Arc::new_cyclic(|me| Self {
+            me: me.clone(),
             sessions: Mutex::new(HashMap::new()),
             next_session_id: AtomicU64::new(first_session_id()),
             capacity: Arc::new(Capacity {
@@ -311,7 +349,7 @@ impl Core {
             build,
             detection: RwLock::new(detection),
             manifest_dir: Mutex::new(None),
-            harness: harness::Harness::new(data_dir),
+            harness,
             window: window::Window::new(first_session_id()),
             frozen: watch::channel(false).0,
             upgrading: std::sync::atomic::AtomicBool::new(false),
@@ -319,13 +357,26 @@ impl Core {
             launching: Gauge::default(),
             listening: OnceLock::new(),
             tools: Mutex::new(None),
-            chats: chat::Chats::new(data_dir.map(|dir| dir.join("chat-history"))),
+            chats: chat::Chats::new(data_dir),
             remote: remote::Remote::default(),
-            workspaces: workspace::Workspaces::default(),
+            shares: share::Shares::default(),
+            workspaces: workspace::Workspaces::new(data_dir),
             seen: seen::Seen::default(),
+            view_watched: Notify::new(),
+            names,
+            boards: board::Boards::new(data_dir),
+            edits: edits::Edits::new(data_dir, me.clone()),
+            collisions: collisions::Collisions::new(me.clone()),
             notify: notify::Notifier::default(),
+            inbox: inbox::Inbox::default(),
+            hosts,
             device_view: Mutex::new(Vec::new()),
         }))
+    }
+
+    /// This core, for work that outlives the call it starts in.
+    pub(crate) fn arc(&self) -> Option<Arc<Core>> {
+        self.me.upgrade()
     }
 
     pub(crate) fn is_frozen(&self) -> bool {
@@ -340,10 +391,6 @@ impl Core {
 
     pub(crate) fn manifest_dir(&self) -> Option<PathBuf> {
         self.manifest_dir.lock().ok().and_then(|dir| dir.clone())
-    }
-
-    pub(crate) fn has_local_client(&self) -> bool {
-        self.clients().iter().any(|client| client.peer.is_local())
     }
 
     fn clients(&self) -> Vec<Arc<ClientConn>> {
@@ -420,6 +467,43 @@ impl Core {
         shown
     }
 
+    /// Every chat and agent terminal running here.
+    pub(crate) fn running_agents(&self) -> HashSet<String> {
+        let mut running: HashSet<String> = self.chats.ids().into_iter().collect();
+        running.extend(self.all_sessions().iter().filter_map(|session| {
+            session
+                .agent
+                .as_ref()
+                .map(|agent| agent.agent_id().to_owned())
+        }));
+        running
+    }
+
+    /// The agent's name, given now when it has none. Reads and writes the
+    /// disk, so it belongs on a blocking thread.
+    pub(crate) fn name_agent(
+        &self,
+        agent_id: &str,
+        cwd: &Path,
+        provider: Option<&str>,
+        resume_id: Option<&str>,
+    ) -> names::AgentName {
+        let project = names::project_of(cwd, &self.workspaces.project_paths());
+        let (named, changed) = self.names.give(
+            names::Starting {
+                agent_id,
+                project,
+                provider,
+                resume_id,
+            },
+            self.running_agents(),
+        );
+        if changed {
+            self.publish_device_view();
+        }
+        named
+    }
+
     pub(crate) fn agent_session(&self, agent_id: &str) -> Option<Arc<Session>> {
         self.all_sessions().into_iter().find(|session| {
             session
@@ -488,12 +572,14 @@ impl Core {
             && self.clients.lock().is_ok_and(|clients| clients.is_empty())
             && self.running_sessions() == 0
             && self.chats.count() == 0
+            && !board::auto_has_work(self)
     }
 
     fn register_client(&self, client: Arc<ClientConn>) {
         if let Ok(mut clients) = self.clients.lock() {
             clients.insert(client.id, client);
         }
+        self.view_watched.notify_one();
     }
 
     fn unregister_client(&self, client: &ClientConn) {
@@ -540,11 +626,16 @@ impl Core {
         sessions.sort_by_key(|info| info.id);
         for info in &mut sessions {
             if let Some(agent_id) = &info.agent_id {
+                info.agent_name = self.names.name(agent_id);
                 info.title = self.workspaces.title(agent_id);
                 info.unread = self.seen.unread(agent_id);
                 info.active_at = self.seen.active_at(agent_id);
             }
-            display::show_session(info);
+            let asking = info
+                .agent_id
+                .as_deref()
+                .is_some_and(|agent_id| self.harness.questions.blocks_on_person(agent_id));
+            display::show_session(info, asking);
         }
         sessions
     }
@@ -554,30 +645,46 @@ impl Core {
     pub(crate) fn chat_infos(&self) -> Vec<crate::protocol::ChatInfo> {
         let mut chats = self.workspaces.listed(self.chats.list());
         for chat in &mut chats {
+            chat.name = self.names.name(&chat.agent_id);
             chat.pending_permissions.sort();
             chat.unread = self.seen.unread(&chat.agent_id);
             chat.active_at = self.seen.active_at(&chat.agent_id);
-            display::show_chat(chat);
+            let asking = self.harness.questions.blocks_on_person(&chat.agent_id);
+            display::show_chat(chat, asking);
         }
         chats.sort_by_key(|chat| std::cmp::Reverse(chat.active_at));
         chats
     }
 
-    fn device_view_frame(&self) -> Option<Vec<u8>> {
+    /// The chats and sessions, each agent numbered in the order it wants the
+    /// person.
+    pub(crate) fn ranked_infos(
+        &self,
+    ) -> (
+        Vec<crate::protocol::ChatInfo>,
+        Vec<crate::protocol::SessionInfo>,
+    ) {
         let mut sessions = self.session_infos();
         let mut chats = self.chat_infos();
         display::rank(&mut chats, &mut sessions, |agent_id| {
             self.seen.started_at(agent_id)
         });
+        (chats, sessions)
+    }
+
+    fn device_view_frame(&self) -> Option<Vec<u8>> {
+        let (chats, sessions) = self.ranked_infos();
         let mut attentions = self.chats.attentions();
         attentions.sort_by(|a, b| (a.at, &a.id).cmp(&(b.at, &b.id)));
         let recent = self.workspaces.recent(&chats);
+        let inbox = serde_json::to_value(inbox::view(self, &chats, &sessions)).ok()?;
         let view = DeviceView {
             workspace: self.workspaces.view(),
             sessions,
             chats,
             attentions,
             recent,
+            inbox,
         };
         encode_control(&ServerMessage::Event {
             event: Event::DeviceView { view },
@@ -587,12 +694,15 @@ impl Core {
 
     /// Sends every paired device what it shows of this host, when that changed
     /// since they were last sent it.
-    pub(crate) fn publish_device_view(&self) {
-        let devices: Vec<_> = self
-            .clients()
+    fn view_watchers(&self) -> Vec<Arc<ClientConn>> {
+        self.clients()
             .into_iter()
             .filter(|client| !client.peer.is_local() || client.watches_view())
-            .collect();
+            .collect()
+    }
+
+    pub(crate) fn publish_device_view(&self) {
+        let devices = self.view_watchers();
         if devices.is_empty() {
             return;
         }
@@ -654,11 +764,11 @@ impl Core {
     }
 
     pub(crate) fn permit(&self, peer: &access::Peer, needs: access::Needs) -> CoreResult<()> {
-        let device_access = match peer {
-            access::Peer::Local => None,
-            access::Peer::Device { id } => self.remote.access_of(id),
+        let standing = match peer {
+            access::Peer::App | access::Peer::Local | access::Peer::Share { .. } => None,
+            access::Peer::Device { id } => self.remote.standing_of(id),
         };
-        access::permit(peer, device_access, needs)
+        access::permit(peer, standing, needs)
     }
 
     pub(crate) fn schedule_task_output_notice(self: &Arc<Self>, id: SessionId, delay: Duration) {
@@ -816,12 +926,22 @@ async fn poll_sessions(core: Arc<Core>) {
 async fn device_views(core: Arc<Core>) {
     let mut ticker = tokio::time::interval(DEVICE_VIEW_INTERVAL);
     ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    let mut window = None;
     loop {
+        if core.view_watchers().is_empty() {
+            core.view_watched.notified().await;
+            ticker.reset();
+        }
         ticker.tick().await;
         let seen = core.seen.on_phones(core.on_phones());
         if !seen.is_empty() {
             let event = Event::AgentsSeen { agent_ids: seen };
             core.broadcast_to(&event, |client| client.peer.is_local());
+        }
+        let now = core.window.client_id();
+        if now != window {
+            window = now;
+            core.agents_changed();
         }
         core.publish_device_view();
     }
@@ -849,6 +969,8 @@ pub async fn serve(config: ServerConfig) -> Result<(), ServerError> {
         .await
         .map_err(std::io::Error::other)??;
     let core = Core::new(config.build.clone(), config.data_dir.as_deref())?;
+    chat::restore(&core);
+    core.chats.clear_history();
     if let Some(path) = config.cli_endpoint.clone() {
         match tools::ToolEndpoint::start(core.clone(), path).await {
             Ok(tools) => {
@@ -875,16 +997,53 @@ pub(crate) async fn run_core(
         listener_fd: listener.as_raw_fd(),
         lock_fd: lock.as_raw_fd(),
     });
+    local_peer::settle();
     listener.set_nonblocking(true)?;
     let listener = tokio::net::UnixListener::from_std(listener)?;
     remote::start(&core, &config).await;
+    core.chats.resets.arm_saved(&core);
+    if let Some(data_dir) = config.data_dir.as_deref() {
+        crate::git_guard::shim::install(data_dir, config.cli_endpoint.as_deref());
+        tokio::spawn(workspace::refresh_launchers(core.clone()));
+    }
     let mut terminate = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
     let mut interrupt = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt())?;
     let background = [
         tokio::spawn(poll_sessions(core.clone())),
         tokio::spawn(sweep(core.clone())),
         tokio::spawn(device_views(core.clone())),
+        tokio::spawn(wake::serve(
+            core.clone(),
+            |core| &core.harness.mailbox.wake,
+            messages::settle,
+        )),
+        tokio::spawn(wake::serve(
+            core.clone(),
+            |core| &core.harness.questions.wake,
+            questions::settle,
+        )),
+        tokio::spawn(wake::serve(
+            core.clone(),
+            |core| &core.boards.wake,
+            board::settle,
+        )),
+        tokio::spawn(wake::serve(
+            core.clone(),
+            |core| &core.collisions.wake,
+            collisions::settle,
+        )),
+        tokio::spawn(wake::serve(
+            core.clone(),
+            |core| &core.workspaces.wake,
+            |core| core.agents_changed(),
+        )),
+        tokio::spawn(wake::serve(
+            core.clone(),
+            |core| &core.hosts.wake,
+            hosts::settle,
+        )),
         tokio::spawn(notify::run(core.clone())),
+        tokio::spawn(network_watch::run(core.clone())),
     ];
     let mut shutdown = core.shutdown.subscribe();
     let mut frozen = core.frozen.subscribe();

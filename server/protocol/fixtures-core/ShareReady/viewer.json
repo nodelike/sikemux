@@ -1,0 +1,7 @@
+{
+  "type": "ready",
+  "heartbeatMs": 25000,
+  "expiresAt": "2026-10-14T10:00:00.000Z",
+  "hostOnline": true,
+  "authExpiresAt": "2026-10-13T10:01:00.000Z"
+}

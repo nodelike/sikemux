@@ -10,6 +10,7 @@ import { copyText } from "../lib/clipboard";
 import { basename } from "../lib/paths";
 import { reportError } from "../state/toast";
 import { problemDelivery, problemLocation } from "./problemDelivery";
+import { IconCopy, IconEditor, IconMessage } from "../ui/Icons";
 
 export type EditorInsightsTab = "problems" | "outline";
 
@@ -257,12 +258,17 @@ export function EditorInsights({ project, path, controller, visible, onNavigate,
                     items={[
                         {
                             label: "Go to Problem",
+                            icon: <IconEditor size={13} />,
                             run: () =>
                                 onNavigate(problemMenu.problem.path, problemMenu.problem.range.start.line, problemMenu.problem.range.start.character),
                         },
-                        { label: "Copy Message", run: () => void copyText(problemMenu.problem.message).catch(reportError("copy")) },
+                        {
+                            label: "Copy Message",
+                            icon: <IconCopy size={13} />,
+                            run: () => void copyText(problemMenu.problem.message).catch(reportError("copy")),
+                        },
                         { sep: true },
-                        { label: "Send to Agent…", run: () => setProblemMenu({ ...problemMenu, sending: true }) },
+                        { label: "Send to Agent…", icon: <IconMessage size={13} />, run: () => setProblemMenu({ ...problemMenu, sending: true }) },
                     ]}
                 />
             )}

@@ -425,6 +425,33 @@ describe("PtyLifecycleController process ownership", () => {
         expect(delivered).toHaveBeenCalledOnce();
     });
 
+    it("pastes a draft once without submitting it, so it waits at the prompt", async () => {
+        const timer = new FakeTimer();
+        const { fakes, options } = controllerOptions({ initialDraft: "line one\nline two\n", timer });
+        const controller = new PtyLifecycleController(options);
+
+        await controller.start();
+        expect(controller.getSnapshot().initialInput).toBe("scheduled");
+        timer.runAll();
+        await vi.waitFor(() => expect(controller.getSnapshot().initialInput).toBe("delivered"));
+        timer.runAll();
+
+        expect(fakes.write).toHaveBeenCalledOnce();
+        expect(fakes.write).toHaveBeenCalledWith(42, "\x1b[200~line one\nline two\x1b[201~");
+    });
+
+    it("submits the first task before pasting a draft after it", async () => {
+        const timer = new FakeTimer();
+        const { fakes, options } = controllerOptions({ initialInput: "Build it.", initialDraft: "and then this", timer });
+        const controller = new PtyLifecycleController(options);
+
+        await controller.start();
+        timer.runAll();
+        await vi.waitFor(() => expect(controller.getSnapshot().initialInput).toBe("delivered"));
+
+        expect(fakes.write).toHaveBeenCalledWith(42, "\x1b[200~Build it.\x1b[201~\r\x1b[200~and then this\x1b[201~");
+    });
+
     it("does not retry an ambiguous failed initial-input write", async () => {
         const timer = new FakeTimer();
         const writeError = new Error("bridge response lost");

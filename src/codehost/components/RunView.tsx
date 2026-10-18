@@ -1,20 +1,31 @@
 import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { GitColumns } from "../../git/GitColumns";
-import { FoldPanel } from "../../git/FoldPanel";
+import { SwipePages } from "../../ui/SwipePages";
 import { useVisibleStream } from "../../plugin-api/hooks";
 import { confirmDialog, copyText, notify, openUrl, reportError, swallow } from "../../plugin-api/host";
 import { invalidate, useResourceEnabled } from "../../plugin-api/resources";
-import { EmptyState, IconChevron, IconExternal, IconRefresh, SkeletonRows, Tooltip } from "../../plugin-api/ui";
+import {
+    EmptyState,
+    IconChevron,
+    IconClose,
+    IconDownload,
+    IconExternal,
+    IconRefresh,
+    IconWorkflow,
+    SkeletonRows,
+    Tooltip,
+} from "../../plugin-api/ui";
 import { hostApi, failureMessage, type Job, type RepoRef, type Run } from "../api";
 import { useHost } from "../registry";
 import { artifactsR, runAttemptR, runR, timingR } from "../resources";
 import { elapsedMs, eventLabel, failedStep, isUnfinished, outcomeOf, OUTCOME_LABEL, summaryJobs, watchIsNewer } from "../runStatus";
 import { closeRun, leaveRun, showJob, updateView, useHostView, type RunTab } from "../state";
-import { OutcomeIcon } from "./ActionsIcon";
+import { StatusMark } from "./ActionsIcon";
 import { Annotations } from "./Annotations";
 import { Approvals } from "./Approvals";
 import { Artifacts } from "./Artifacts";
-import { Branch, Who } from "./Bits";
+import { Face } from "./CommentThread";
+import { ShellAccount } from "./Bits";
 import { coarse, useBusy } from "./hooks";
 import { useNow } from "../../plugin-api/hooks";
 import { JobGraph } from "./JobGraph";
@@ -106,20 +117,29 @@ function useOpenRun(repo: RepoRef, runId: string, active: boolean): OpenRun {
 }
 
 /** The run's state and what can be done to it, where a pull request's merge box sits. */
-function RunCard({
+/**
+ * The head of an open run's side panel, like the git pane's: how it went, its number and branch with a way back, then
+ * its actions edge to edge, and what still waits on someone under them.
+ */
+function RunHead({
     repo,
     open,
     canWrite,
     active,
+    back,
+    onBack,
     onDeleted,
 }: {
     repo: RepoRef;
     open: OpenRun;
     canWrite: boolean;
     active: boolean;
+    back: string;
+    onBack: () => void;
     onDeleted: () => void;
 }) {
-    const { ci } = useHost().capabilities;
+    const host = useHost();
+    const { ci } = host.capabilities;
     const run = open.run as Run;
     const outcome = outcomeOf(run);
     const live = isUnfinished(run);
@@ -143,151 +163,134 @@ function RunCard({
         });
         if (sure) await act("Cancelled the run", "Could not cancel the run", () => hostApi(repo.provider).cancel(repo, run.id));
     };
+    const rerun = (failedOnly: boolean) =>
+        runBusy(() =>
+            act(
+                failedOnly ? "Re-running the failed jobs" : "Re-running every job",
+                failedOnly ? "Could not re-run the failed jobs" : "Could not re-run every job",
+                () => hostApi(repo.provider).rerun(repo, run.id, failedOnly),
+            ),
+        );
+    const failed = !live && outcome !== "success";
 
     return (
-        <div className="gha-merge-box">
-            <div className="gha-merge-part">
-                <div className="gha-merge-row">
-                    <OutcomeIcon outcome={outcome} size={12} />
-                    <span className="gha-merge-title">{OUTCOME_LABEL[outcome]}</span>
-                    <span className="gha-merge-detail">
-                        {formatDuration(took ?? elapsedMs(run.startedAt ?? run.createdAt, live ? null : run.updatedAt, open.now))}
-                    </span>
-                </div>
-                {open.moving && open.watchError && (
-                    <div className="gha-callout" data-tone="danger">
-                        {open.watchError}
-                    </div>
-                )}
-                {ci.attempts && open.latestAttempt > 1 && (
-                    <div className="gha-attempts">
-                        <span className="gha-dim">Attempts</span>
-                        {Array.from({ length: open.latestAttempt }, (_, index) => index + 1).map((number) => (
-                            <button
-                                key={number}
-                                type="button"
-                                className="gha-chip"
-                                data-on={(open.attempt ?? open.latestAttempt) === number ? "1" : "0"}
-                                onClick={() => open.setAttempt(number === open.latestAttempt ? null : number)}>
-                                #{number}
-                            </button>
-                        ))}
-                    </div>
-                )}
+        <div className="git-side-head">
+            <div className="git-side-title">
+                <Tooltip label={`Back to ${back}`}>
+                    <button type="button" className="git-foot-btn icon pr-back-btn" aria-label={`Back to ${back}`} onClick={onBack}>
+                        <IconChevron size={11} />
+                    </button>
+                </Tooltip>
+                <StatusMark outcome={outcome} size={15} />
+                <span className="pr-side-number">#{run.runNumber}</span>
+                {run.branch && <span className="pr-ref">{run.branch}</span>}
+                <span className="run-side-took" title={OUTCOME_LABEL[outcome]}>
+                    {formatDuration(took ?? elapsedMs(run.startedAt ?? run.createdAt, live ? null : run.updatedAt, open.now))}
+                </span>
+                <Tooltip label="Refresh">
+                    <button type="button" className="git-foot-btn icon" onClick={open.refresh} aria-label="Refresh run">
+                        <IconRefresh size={13} />
+                    </button>
+                </Tooltip>
+                <RunMenu run={run} repo={repo} canWrite={canWrite} onDeleted={onDeleted} />
+                <ShellAccount />
             </div>
-            {ci.approvals && <Approvals repo={repo} runId={run.id} status={run.status} conclusion={run.conclusion} active={active} />}
-            <div className="gha-merge-actions">
+            <div className="git-btn-group git-side-actions run-side-actions" role="group" aria-label="Run">
                 {canWrite && live && (
-                    <button type="button" className="gha-btn danger" disabled={busy} onClick={() => runBusy(cancel)}>
+                    <button type="button" className="git-btn danger" disabled={busy} onClick={() => runBusy(cancel)}>
+                        <IconClose size={13} />
                         Cancel run
                     </button>
                 )}
-                {canWrite && ci.rerunFailed && !live && outcome !== "success" && (
-                    <button
-                        type="button"
-                        className="gha-btn primary"
-                        disabled={busy}
-                        onClick={() =>
-                            runBusy(() =>
-                                act("Re-running the failed jobs", "Could not re-run the failed jobs", () =>
-                                    hostApi(repo.provider).rerun(repo, run.id, true),
-                                ),
-                            )
-                        }>
-                        Re-run failed jobs
+                {canWrite && !live && ci.rerunFailed && failed && (
+                    <button type="button" className="git-btn primary" disabled={busy} onClick={() => rerun(true)}>
+                        <IconRefresh size={13} />
+                        Re-run failed
                     </button>
                 )}
                 {canWrite && !live && (
-                    <button
-                        type="button"
-                        className="gha-btn"
-                        disabled={busy}
-                        onClick={() =>
-                            runBusy(() =>
-                                act("Re-running every job", "Could not re-run every job", () => hostApi(repo.provider).rerun(repo, run.id, false)),
-                            )
-                        }>
-                        Re-run all jobs
+                    <button type="button" className="git-btn" disabled={busy} onClick={() => rerun(false)}>
+                        <IconRefresh size={13} />
+                        Re-run all
                     </button>
                 )}
-                <span className="run-card-tools">
-                    <Tooltip label="Refresh">
-                        <button type="button" className="gha-icon-btn" onClick={open.refresh} aria-label="Refresh run">
-                            <IconRefresh size={13} />
-                        </button>
-                    </Tooltip>
-                    <RunMenu run={run} repo={repo} canWrite={canWrite} onDeleted={onDeleted} />
-                </span>
+                <button type="button" className="git-btn" onClick={() => void openUrl(run.url).catch(swallow(`open ${host.name}`))}>
+                    <IconExternal size={13} />
+                    {host.name}
+                </button>
             </div>
+            {open.moving && open.watchError && (
+                <div className="gha-callout" data-tone="danger">
+                    {open.watchError}
+                </div>
+            )}
+            {ci.attempts && open.latestAttempt > 1 && (
+                <div className="gha-attempts">
+                    <span className="gha-dim">Attempts</span>
+                    {Array.from({ length: open.latestAttempt }, (_, index) => index + 1).map((number) => (
+                        <button
+                            key={number}
+                            type="button"
+                            className="gha-chip"
+                            data-on={(open.attempt ?? open.latestAttempt) === number ? "1" : "0"}
+                            onClick={() => open.setAttempt(number === open.latestAttempt ? null : number)}>
+                            #{number}
+                        </button>
+                    ))}
+                </div>
+            )}
+            {ci.approvals && <Approvals repo={repo} runId={run.id} status={run.status} conclusion={run.conclusion} active={active} />}
         </div>
     );
 }
 
 /** The run's jobs as rows, like a pull request lists its files. */
 const JobRows = memo(function JobRows({ paneId, jobs, openJob, now }: { paneId: string; jobs: Job[]; openJob: string | null; now: number }) {
+    const [folded, setFolded] = useState(false);
     return (
         <div className="git-list pr-files">
             <div className="git-group git-file-group">
-                <span className="git-label">Jobs</span>
-                {jobs.length > 0 && <span className="git-count">{jobs.length}</span>}
+                <button type="button" className="git-group-toggle" aria-expanded={!folded} onClick={() => setFolded((was) => !was)}>
+                    <IconChevron size={13} className="git-group-chev" />
+                    <span className="git-group-icon">
+                        <IconWorkflow size={13} />
+                    </span>
+                    <span className="git-group-name">Jobs</span>
+                </button>
+                {jobs.length > 0 && <span className="git-group-count">{jobs.length}</span>}
             </div>
             {jobs.length === 0 && <div className="gha-side-empty">No jobs yet</div>}
-            {jobs.map((job) => {
-                const outcome = outcomeOf(job);
-                const stopped = failedStep(job);
-                return (
-                    <button
-                        key={job.id}
-                        type="button"
-                        className={`git-row git-file-row${openJob === job.id ? " sel" : ""}`}
-                        title={job.name}
-                        onClick={() => showJob(paneId, job.id)}>
-                        <OutcomeIcon outcome={outcome} size={12} />
-                        <span className="git-row-name">{job.name}</span>
-                        {stopped && <span className="gha-job-stopped">at {stopped.name}</span>}
-                        <span className="run-job-took">
-                            {outcome === "skipped"
-                                ? "skipped"
-                                : formatDuration(elapsedMs(job.startedAt, job.completedAt, job.completedAt ? coarse(now) : now))}
-                        </span>
-                    </button>
-                );
-            })}
+            {!folded &&
+                jobs.map((job, index) => {
+                    const outcome = outcomeOf(job);
+                    const stopped = failedStep(job);
+                    return (
+                        <button
+                            key={job.id}
+                            type="button"
+                            className={`git-row git-tree-row git-file-row run-job-row${openJob === job.id ? " sel" : ""}`}
+                            data-first={index === 0 ? "" : undefined}
+                            data-last={index === jobs.length - 1 ? "" : undefined}
+                            title={job.name}
+                            onClick={() => showJob(paneId, job.id)}>
+                            <StatusMark outcome={outcome} size={14} />
+                            <span className="git-row-name">{job.name}</span>
+                            {stopped && <span className="gha-job-stopped">at {stopped.name}</span>}
+                            <span className="run-job-took">
+                                {outcome === "skipped"
+                                    ? "skipped"
+                                    : formatDuration(elapsedMs(job.startedAt, job.completedAt, job.completedAt ? coarse(now) : now))}
+                            </span>
+                        </button>
+                    );
+                })}
         </div>
     );
 });
 
-/** The run's artifacts, folding at the foot of the left column. */
-function ArtifactsFold({ repo, run, active }: { repo: RepoRef; run: Run; active: boolean }) {
-    const { ci } = useHost().capabilities;
-    const [open, setOpen] = useState(false);
-    const [height, setHeight] = useState<number | null>(null);
-    const finished = run.status === "completed";
-    const artifacts = useResourceEnabled(active && ci.artifacts && finished, artifactsR, repo, run.id);
-    const count = artifacts.data?.length ?? 0;
-    if (count === 0) return null;
-    return (
-        <FoldPanel label="Artifacts" count={count} open={open} height={height} onToggle={() => setOpen((was) => !was)} onResize={setHeight}>
-            <Artifacts repo={repo} runId={run.id} active={active} />
-        </FoldPanel>
-    );
-}
-
-function StepRow({ step, now, onPick }: { step: Job["steps"][number]; now: number; onPick: (number: number) => void }) {
-    const outcome = outcomeOf(step);
-    return (
-        <button type="button" className="gha-step" data-outcome={outcome} onClick={() => onPick(step.number)} title="Show this step in the log">
-            <OutcomeIcon outcome={outcome} size={11} />
-            <span className="gha-step-name">{step.name}</span>
-            <span className="gha-dim">{formatDuration(elapsedMs(step.startedAt, step.completedAt, now))}</span>
-        </button>
-    );
-}
-
-/** One job's steps, what CI flagged in it and its log, under the job's own actions. */
+/** What CI flagged in one job and its log step by step, under the job's own actions. */
 function JobLogs({ repo, job, now, active, canWrite }: { repo: RepoRef; job: Job; now: number; active: boolean; canWrite: boolean }) {
     const host = useHost();
-    const [step, setStep] = useState<{ number: number } | null>(null);
     const [busy, runBusy] = useBusy();
     const rerun = (debug: boolean) =>
         runBusy(() =>
@@ -302,45 +305,35 @@ function JobLogs({ repo, job, now, active, canWrite }: { repo: RepoRef; job: Job
     return (
         <div className="run-logs">
             <div className="gha-job-actions">
-                <OutcomeIcon outcome={outcomeOf(job)} size={12} />
-                <span className="gha-comment-author">{job.name}</span>
-                {job.runner && <span className="gha-dim">on {job.runner}</span>}
+                <StatusMark outcome={outcomeOf(job)} size={14} />
+                <span className="gha-job-name">{job.name}</span>
+                {job.runner && <span className="gha-dim gha-job-runner">on {job.runner}</span>}
                 <span className="gha-page-spacer" />
                 {canWrite && host.capabilities.ci.rerunJob && job.status === "completed" && (
-                    <button type="button" className="gha-link" disabled={busy} onClick={() => rerun(false)}>
+                    <button type="button" className="git-foot-btn" disabled={busy} onClick={() => rerun(false)}>
+                        <IconRefresh size={13} />
                         Re-run this job
                     </button>
                 )}
                 {canWrite && host.capabilities.ci.rerunJob && host.capabilities.ci.debugLogs && job.status === "completed" && (
                     <button
                         type="button"
-                        className="gha-link"
+                        className="git-foot-btn"
                         disabled={busy}
                         onClick={() => rerun(true)}
                         title="Re-run with the runner's debug logging on">
-                        with debug logs
+                        With debug logs
                     </button>
                 )}
                 {job.url && (
-                    <button type="button" className="gha-link" onClick={() => void openUrl(job.url ?? "").catch(swallow(`open ${host.name}`))}>
-                        On {host.name}
+                    <button type="button" className="git-foot-btn" onClick={() => void openUrl(job.url ?? "").catch(swallow(`open ${host.name}`))}>
+                        <IconExternal size={13} />
+                        {host.name}
                     </button>
                 )}
             </div>
-            {job.steps.length > 0 && (
-                <div className="gha-steps">
-                    {job.steps.map((each) => (
-                        <StepRow
-                            key={`${each.number}-${each.name}`}
-                            step={each}
-                            now={each.completedAt ? coarse(now) : now}
-                            onPick={(number) => setStep({ number })}
-                        />
-                    ))}
-                </div>
-            )}
             {host.capabilities.ci.annotations && job.checkRunId !== null && <Annotations repo={repo} checkRunId={job.checkRunId} active={active} />}
-            <JobLogView repo={repo} job={job} active={active} step={step} />
+            <JobLogView repo={repo} job={job} now={now} active={active} />
         </div>
     );
 }
@@ -397,9 +390,11 @@ function RunSummary({
                 </div>
             )}
             <JobGraph
+                repo={repo}
                 run={run}
                 jobs={open.jobs}
                 now={open.now}
+                active={active}
                 openJob={openJob}
                 onOpen={pick}
                 fileShown={showFile}
@@ -438,45 +433,48 @@ function RunRight({
     return (
         <div className="pr-right">
             <div className="git-detail">
-                <div className="pr-title-row">
-                    <h2 className="git-detail-title">
-                        {run.title || run.name} <span className="pr-number">#{run.runNumber}</span>
-                    </h2>
-                    <Tooltip label={`Open on ${host.name}`}>
-                        <button
-                            type="button"
-                            className="gha-icon-btn"
-                            aria-label={`Open on ${host.name}`}
-                            onClick={() => void openUrl(run.url).catch(swallow(`open ${host.name}`))}>
-                            <IconExternal size={12} />
-                        </button>
-                    </Tooltip>
-                </div>
-                <div className="git-detail-meta">
-                    {run.actor && <Who login={run.actor} avatarUrl={run.avatarUrl} />}
-                    <span>
-                        {eventLabel(run.event)} {formatAgo(run.createdAt, open.now)}
+                <div className="pr-headline">
+                    <span className="pr-face">
+                        <Face login={run.actor} url={run.avatarUrl} />
                     </span>
-                    <Tooltip label="Copy the commit">
-                        <button
-                            type="button"
-                            className="gha-link gha-mono"
-                            onClick={() =>
-                                void copyText(run.sha)
-                                    .then(() => notify("success", `Copied ${run.shortSha}`))
-                                    .catch(swallow("copy the commit"))
-                            }>
-                            {run.shortSha}
-                        </button>
-                    </Tooltip>
-                    {run.branch && <Branch name={run.branch} />}
-                    {run.pullRequests.map((number) => (
-                        <span key={number} className="gha-item-number">
-                            #{number}
+                    <span className="pr-headline-top">
+                        <StatusMark outcome={outcomeOf(run)} size={16} />
+                        <h2 className="git-detail-title pr-headline-title">{run.title || run.name}</h2>
+                        <Tooltip label={`Open on ${host.name}`}>
+                            <button
+                                type="button"
+                                className="gha-icon-btn"
+                                aria-label={`Open on ${host.name}`}
+                                onClick={() => void openUrl(run.url).catch(swallow(`open ${host.name}`))}>
+                                <IconExternal size={12} />
+                            </button>
+                        </Tooltip>
+                    </span>
+                    <span className="pr-headline-sub">
+                        <span className="pr-headline-who">
+                            {run.name} #{run.runNumber} · {run.actor ?? "someone"} · {eventLabel(run.event).toLowerCase()}{" "}
+                            {formatAgo(run.createdAt, open.now)}
+                            {run.attempt > 1 ? ` · attempt ${run.attempt}` : ""}
                         </span>
-                    ))}
-                    {run.name !== run.title && <span>{run.name}</span>}
-                    {run.attempt > 1 && <span>attempt {run.attempt}</span>}
+                        <Tooltip label="Copy the commit">
+                            <button
+                                type="button"
+                                className="pr-ref gha-mono run-head-sha"
+                                onClick={() =>
+                                    void copyText(run.sha)
+                                        .then(() => notify("success", `Copied ${run.shortSha}`))
+                                        .catch(swallow("copy the commit"))
+                                }>
+                                {run.shortSha}
+                            </button>
+                        </Tooltip>
+                        {run.branch && <span className="pr-ref pr-ref-head">{run.branch}</span>}
+                        {run.pullRequests.map((number) => (
+                            <span key={number} className="pr-ref">
+                                #{number}
+                            </span>
+                        ))}
+                    </span>
                 </div>
                 <div className="git-detail-actions" role="tablist" aria-label="Run">
                     {tabs.map((each) => (
@@ -539,11 +537,17 @@ function OpenRunView({ paneId, repo, runId, openJob, active, canWrite }: Props) 
         updateView(paneId, openJob === null && failedJob !== null ? { pickFailed: false, job: failedJob, runTab: "logs" } : { pickFailed: false });
     }, [pickFailed, jobsRead, failedJob, openJob, paneId]);
 
+    const backTo = runFrom === null ? "the runs" : `#${runFrom}`;
     const back = (
         <button type="button" className="pr-back" onClick={() => leaveRun(paneId)}>
             <IconChevron size={11} /> {runFrom === null ? "Runs" : `#${runFrom}`}
         </button>
     );
+    const { ci } = useHost().capabilities;
+    const [page, setPage] = useState("jobs");
+    const finished = open.run?.status === "completed";
+    const artifacts = useResourceEnabled(active && ci.artifacts && finished, artifactsR, repo, open.run?.id ?? "");
+    const artifactCount = artifacts.data?.length ?? 0;
     if (open.loading && !open.run) return <GitColumns paneId={paneId} left={back} right={<SkeletonRows rows={8} label="Loading run" />} />;
     if (!open.run) {
         return (
@@ -569,16 +573,50 @@ function OpenRunView({ paneId, repo, runId, openJob, active, canWrite }: Props) 
         <GitColumns
             paneId={paneId}
             left={
-                <>
-                    {back}
-                    <div className="pr-card">
-                        <RunCard repo={repo} open={open} canWrite={canWrite} active={active} onDeleted={() => closeRun(paneId)} />
-                    </div>
-                    <JobRows paneId={paneId} jobs={open.jobs} openJob={openJob} now={open.now} />
-                    <ArtifactsFold repo={repo} run={open.run} active={active} />
-                </>
+                <div className="git-side">
+                    <RunHead
+                        repo={repo}
+                        open={open}
+                        canWrite={canWrite}
+                        active={active}
+                        back={backTo}
+                        onBack={() => leaveRun(paneId)}
+                        onDeleted={() => closeRun(paneId)}
+                    />
+                    <SwipePages
+                        label="Run"
+                        current={artifactCount > 0 ? page : "jobs"}
+                        onChange={setPage}
+                        pages={[
+                            {
+                                id: "jobs",
+                                label: "Jobs",
+                                icon: <IconWorkflow size={14} />,
+                                content: <JobRows paneId={paneId} jobs={open.jobs} openJob={openJob} now={open.now} />,
+                            },
+                            ...(artifactCount > 0
+                                ? [
+                                      {
+                                          id: "artifacts",
+                                          label: `Artifacts (${artifactCount})`,
+                                          icon: <IconDownload size={14} />,
+                                          content: (
+                                              <div className="git-list pr-files">
+                                                  <Artifacts repo={repo} runId={open.run.id} active={active} />
+                                              </div>
+                                          ),
+                                      },
+                                  ]
+                                : []),
+                        ]}
+                    />
+                </div>
             }
-            right={<RunRight paneId={paneId} repo={repo} open={open} openJob={openJob} tab={runTab} active={active} canWrite={canWrite} />}
+            right={
+                <div className="git-right-review">
+                    <RunRight paneId={paneId} repo={repo} open={open} openJob={openJob} tab={runTab} active={active} canWrite={canWrite} />
+                </div>
+            }
         />
     );
 }

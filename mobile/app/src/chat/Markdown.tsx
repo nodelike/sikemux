@@ -1,11 +1,18 @@
 import { Fragment, memo, useMemo, type ReactNode } from 'react';
 import { Linking, ScrollView, StyleSheet, Text, View, type StyleProp, type TextStyle } from 'react-native';
 
+import { fencedDiff } from '@mac/chat/diff';
+import { namesWholePath } from '@mac/chat/filePath';
+import { decodedFenceName } from '@mac/chat/transcript';
 import { safeWebUrl } from '@mac/lib/urls';
 import { CopyButton } from '@/ui/CopyButton';
 import { Icon } from '@/ui/Icon';
-import { fonts, italic, type Palette, useStyles } from '@/ui/theme';
+import { fonts, italic, type Palette, translucent, useColors, useStyles } from '@/ui/theme';
+import { DiffRow, SidewaysRows } from './Diff';
+import { FileRef, fileRuns, hostImagePath, LinkedImage, namesFile } from './FileRef';
+import { ImageViewerHost } from './ImageViewer';
 import { blocks, inlines, settledLength, type Block, type Inline } from './markdownBlocks';
+import type { Fading } from './reveal';
 
 /** A link the phone opens: the web links the Mac would open, and mail. */
 const openable = (url: string) => safeWebUrl(url) ?? (/^mailto:/i.test(url) ? url : null);
@@ -18,12 +25,27 @@ function Link({ url, children, styles }: { url: string; children: ReactNode; sty
   );
 }
 
-/** `code` as the Mac's purple chip, **bold** as semibold, links in the accent; everything else as written. */
-function renderInline(nodes: Inline[], styles: Styles): ReactNode[] {
+/** Prose with the files it names drawn as the Mac's file refs. */
+function proseRuns(text: string, key: number): ReactNode {
+  const runs = fileRuns(text);
+  if (runs.length === 1 && typeof runs[0] === 'string') return <Fragment key={key}>{text}</Fragment>;
+  return (
+    <Fragment key={key}>
+      {runs.map((run, index) => (typeof run === 'string' ? run : <FileRef key={index} raw={run.raw} label={run.raw} look="link" />))}
+    </Fragment>
+  );
+}
+
+/**
+ * `code` as the Mac's purple chip, **bold** as semibold, links in the accent, files as file refs and
+ * pictures on the host in place; everything else as written. A link's own words are left as written.
+ */
+function renderInline(nodes: Inline[], styles: Styles, paths = true): ReactNode[] {
   return nodes.map((node, index) => {
-    if (typeof node === 'string') return <Fragment key={index}>{node}</Fragment>;
+    if (typeof node === 'string') return paths ? proseRuns(node, index) : <Fragment key={index}>{node}</Fragment>;
     switch (node.kind) {
       case 'code':
+        if (namesWholePath(node.text) && namesFile(node.text)) return <FileRef key={index} raw={node.text} label={node.text} look="code" />;
         return (
           <Text key={index} style={styles.chip}>
             {node.text}
@@ -32,36 +54,66 @@ function renderInline(nodes: Inline[], styles: Styles): ReactNode[] {
       case 'bold':
         return (
           <Text key={index} style={styles.bold}>
-            {renderInline(node.children, styles)}
+            {renderInline(node.children, styles, paths)}
           </Text>
         );
       case 'italic':
         return (
           <Text key={index} style={italic}>
-            {renderInline(node.children, styles)}
+            {renderInline(node.children, styles, paths)}
           </Text>
         );
       case 'strike':
         return (
           <Text key={index} style={styles.strike}>
-            {renderInline(node.children, styles)}
+            {renderInline(node.children, styles, paths)}
           </Text>
         );
       case 'link': {
+        const label = renderInline(node.children, styles, false);
         const url = openable(node.url);
-        return url ? (
-          <Link key={index} url={url} styles={styles}>
-            {renderInline(node.children, styles)}
-          </Link>
-        ) : (
-          <Fragment key={index}>{renderInline(node.children, styles)}</Fragment>
-        );
+        if (url)
+          return (
+            <Link key={index} url={url} styles={styles}>
+              {label}
+            </Link>
+          );
+        const image = hostImagePath(node.url);
+        if (image) return <LinkedImage key={index} path={image} label={label} />;
+        if (namesWholePath(node.url)) return <FileRef key={index} raw={node.url} label={label} look="link" />;
+        return <Fragment key={index}>{label}</Fragment>;
       }
     }
   });
 }
 
 const inline = (text: string, styles: Styles) => renderInline(inlines(text), styles);
+
+/** A line whose newest words are still fading in: the settled start as markdown, then each word at its own strength. */
+function lineWithFading(text: string, fading: Fading | undefined, style: StyleProp<TextStyle>, styles: Styles): ReactNode {
+  const coming =
+    fading
+      ?.map((piece) => piece.text)
+      .join('')
+      .trimEnd() ?? '';
+  if (!fading?.length || !coming || !text.endsWith(coming)) return inline(text, styles);
+  const ink = StyleSheet.flatten(style)?.color;
+  let left = coming.length;
+  return (
+    <>
+      {inline(text.slice(0, text.length - coming.length), styles)}
+      {fading.map((piece, index) => {
+        const words = piece.text.slice(0, left);
+        left -= words.length;
+        return (
+          <Text key={index} style={typeof ink === 'string' && { color: translucent(ink, piece.opacity) }}>
+            {words.replace(/[*~]/g, '')}
+          </Text>
+        );
+      })}
+    </>
+  );
+}
 
 const HEADING_SIZES = [20, 18, 16.5];
 
@@ -73,6 +125,10 @@ const CELL_MIN = 56;
 const CELL_MAX = 240;
 
 const COPY_ROOM = 28;
+
+/* While a view around a scroller holds the touch, iOS won't let the scroller pan, so the
+   scroller's own content takes it before the message's press handler can. */
+const keepTouch = () => true;
 
 function columnWidths(block: Extract<Block, { kind: 'table' }>): number[] {
   return block.head.map((head, column) => {
@@ -118,7 +174,7 @@ function Table({ block, style, styles }: { block: Extract<Block, { kind: 'table'
   return (
     <View style={styles.table}>
       <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-        <View>
+        <View onStartShouldSetResponder={keepTouch}>
           <View style={[styles.row, styles.headRow]}>{block.head.map((text, column) => cell(text, column, true))}</View>
           {block.rows.map((row, index) => (
             <View key={index} style={[styles.row, index === block.rows.length - 1 && styles.lastRow]}>
@@ -128,6 +184,42 @@ function Table({ block, style, styles }: { block: Extract<Block, { kind: 'table'
         </View>
       </ScrollView>
       <CopyButton value={source} label="table" size={12} style={styles.tableCopy} />
+    </View>
+  );
+}
+
+/**
+ * A fence as the Mac draws it: a title bar with the file it quotes and its copy button, then the code,
+ * or a patch's rows tinted by sign with the changed words marked.
+ */
+function CodeBlock({ lang, text, styles }: { lang: string; text: string; styles: Styles }) {
+  const colors = useColors();
+  const patch = useMemo(() => (text ? fencedDiff(text, lang || undefined) : null), [text, lang]);
+  const name = lang ? decodedFenceName(lang) : '';
+  return (
+    <View style={styles.code}>
+      <View style={styles.codeTitle}>
+        {name ? <Icon name="IconFile" size={11} color={colors.inkFaint} /> : null}
+        <Text style={styles.codeName} numberOfLines={1}>
+          {name}
+        </Text>
+        <CopyButton value={text.replace(/\n$/, '')} label="code" size={12} />
+      </View>
+      {patch ? (
+        <SidewaysRows>
+          {patch.map((line, index) => (
+            <DiffRow key={index} line={line} numbered={false} />
+          ))}
+        </SidewaysRows>
+      ) : (
+        <ScrollView horizontal contentContainerStyle={styles.codePad} showsHorizontalScrollIndicator={false}>
+          <View onStartShouldSetResponder={keepTouch}>
+            <Text style={styles.codeText} selectable>
+              {text}
+            </Text>
+          </View>
+        </ScrollView>
+      )}
     </View>
   );
 }
@@ -155,19 +247,10 @@ function sameBlock(before: Block, after: Block): boolean {
 
 /** One block, drawn again only when its own text changes, so a streaming message redraws just its tail. */
 const BlockView = memo(
-  function BlockView({ block, style, styles }: { block: Block; style: StyleProp<TextStyle>; styles: Styles }) {
+  function BlockView({ block, style, styles, fading }: { block: Block; style: StyleProp<TextStyle>; styles: Styles; fading?: Fading }) {
     switch (block.kind) {
       case 'code':
-        return (
-          <View style={styles.code}>
-            <ScrollView horizontal contentContainerStyle={styles.codePad} showsHorizontalScrollIndicator={false}>
-              <Text style={styles.codeText} selectable>
-                {block.text}
-              </Text>
-            </ScrollView>
-            <CopyButton value={block.text} label="code" size={12} style={styles.codeCopy} />
-          </View>
-        );
+        return <CodeBlock lang={block.lang} text={block.text} styles={styles} />;
       case 'heading':
         return (
           <Text
@@ -181,7 +264,7 @@ const BlockView = memo(
             ]}
             accessibilityRole="header"
             selectable>
-            {inline(block.text, styles)}
+            {lineWithFading(block.text, fading, style, styles)}
           </Text>
         );
       case 'item':
@@ -195,7 +278,7 @@ const BlockView = memo(
               </View>
             )}
             <Text style={[style, { flex: 1 }, block.checked === true && styles.done]} selectable>
-              {inline(block.text, styles)}
+              {lineWithFading(block.text, fading, style, styles)}
             </Text>
           </View>
         );
@@ -212,29 +295,37 @@ const BlockView = memo(
       default:
         return (
           <Text style={style} selectable>
-            {inline(block.text, styles)}
+            {lineWithFading(block.text, fading, style, styles)}
           </Text>
         );
     }
   },
-  (before, after) => before.style === after.style && before.styles === after.styles && sameBlock(before.block, after.block),
+  (before, after) =>
+    before.style === after.style &&
+    before.styles === after.styles &&
+    before.fading === after.fading &&
+    sameBlock(before.block, after.block),
 );
 
-export function Markdown({ text, style }: { text: string; style: StyleProp<TextStyle> }) {
+/** Markdown text; `fading` is its end, still coming in, drawn fainter word by word. */
+export function Markdown({ text, style, fading }: { text: string; style: StyleProp<TextStyle>; fading?: Fading }) {
   const source = text.replace(/\r\n/g, '\n');
   const cut = settledLength(source);
-  return <Parsed settled={source.slice(0, cut)} tail={source.slice(cut)} style={style} />;
+  return <Parsed settled={source.slice(0, cut)} tail={source.slice(cut)} style={style} fading={fading} />;
 }
 
-function Parsed({ settled, tail, style }: { settled: string; tail: string; style: StyleProp<TextStyle> }) {
+function Parsed({ settled, tail, style, fading }: { settled: string; tail: string; style: StyleProp<TextStyle>; fading?: Fading }) {
   const styles = useStyles(makeStyles);
   const done = useMemo(() => blocks(settled), [settled]);
+  const all = [...done, ...blocks(tail)];
   return (
-    <View style={styles.stack}>
-      {[...done, ...blocks(tail)].map((block, index) => (
-        <BlockView key={index} block={block} style={style} styles={styles} />
-      ))}
-    </View>
+    <ImageViewerHost>
+      <View style={styles.stack}>
+        {all.map((block, index) => (
+          <BlockView key={index} block={block} style={style} styles={styles} fading={index === all.length - 1 ? fading : undefined} />
+        ))}
+      </View>
+    </ImageViewerHost>
   );
 }
 
@@ -246,9 +337,19 @@ const makeStyles = (colors: Palette) =>
     link: { color: colors.accent },
     item: { flexDirection: 'row', gap: 8, paddingLeft: 2 },
     marker: { color: colors.tertiary, minWidth: 14 },
-    code: { borderRadius: 8, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.sunken },
-    codePad: { padding: 10, paddingRight: 34 },
-    codeCopy: { position: 'absolute', top: 3, right: 3, backgroundColor: colors.sunken },
+    code: { borderRadius: 8, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.sunken, overflow: 'hidden' },
+    codeTitle: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+      height: 26,
+      paddingLeft: 10,
+      paddingRight: 1,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.border,
+    },
+    codeName: { flex: 1, fontFamily: fonts.mono, fontSize: 10.5, color: colors.inkFaint },
+    codePad: { paddingHorizontal: 12, paddingVertical: 9 },
     codeText: { fontFamily: fonts.mono, fontSize: 11.5, lineHeight: 17, color: colors.ink },
     strike: { textDecorationLine: 'line-through', color: colors.tertiary },
     box: {

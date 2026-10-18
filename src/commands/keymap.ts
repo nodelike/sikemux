@@ -53,6 +53,7 @@ function hasOpenModal(st: StoreState): boolean {
         st.agentPaletteOpen ||
         st.filePaletteOpen ||
         st.commandPaletteOpen ||
+        st.themePaletteOpen ||
         st.newTabPaletteOpen ||
         st.commandPopup !== null ||
         st.onboardingOpen ||
@@ -115,6 +116,9 @@ export function runKeybindingAction(action: KeybindingActionId, event: KeyboardE
         }
         case "settings.toggle":
             cmd.toggleSettings();
+            return true;
+        case "theme.switch":
+            cmd.openThemePalette();
             return true;
         case "view.focusMode":
             cmd.toggleZen();
@@ -294,6 +298,9 @@ export function runKeybindingAction(action: KeybindingActionId, event: KeyboardE
             return true;
         case "window.search":
             cmd.focusGlobalSearch();
+            return true;
+        case "window.board":
+            cmd.openBoard();
             return true;
     }
     return false;

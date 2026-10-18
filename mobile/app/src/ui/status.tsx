@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'react';
 import { Animated, Easing, StyleSheet, Text, View } from 'react-native';
 
+import type { AgentGroup } from '@/core/protocol';
+
 import { Icon } from './Icon';
 import { useAnimating } from './motion';
-import { fonts, type Palette, translucent, useColors, useStyles } from './theme';
+import { fonts, type Palette, useColors, useStyles } from './theme';
 
 function useLoop(still: boolean, duration: number, delay = 0) {
   const [value] = useState(() => new Animated.Value(0));
@@ -45,18 +47,41 @@ export function Working() {
   );
 }
 
-/** Something is waiting on the person: a white dot sending out a ring. */
+/** Rings a needs-you dot sends out when it appears, as the Mac rail's and the notch's do, before it goes still. */
+const PINGS = 2;
+
+function Ping({ delay }: { delay: number }) {
+  const styles = useStyles(makeStyles);
+  const animating = useAnimating();
+  const [phase] = useState(() => new Animated.Value(1));
+  useEffect(() => {
+    if (!animating) return;
+    phase.setValue(0);
+    const run = Animated.timing(phase, {
+      toValue: 1,
+      duration: 520,
+      delay,
+      easing: Easing.bezier(0.2, 0.6, 0.3, 1),
+      useNativeDriver: true,
+    });
+    run.start();
+    return () => run.stop();
+  }, [phase, delay, animating]);
+  const scale = phase.interpolate({ inputRange: [0, 1], outputRange: [0.6, 2.4] });
+  const opacity = phase.interpolate({ inputRange: [0, 1], outputRange: [0.9, 0] });
+  return <Animated.View style={[styles.ring, { transform: [{ scale }], opacity }]} />;
+}
+
+/** Something is waiting on the person: the Mac rail's amber dot, sending out two rings as it appears. */
 export function NeedsYou() {
   const colors = useColors();
   const styles = useStyles(makeStyles);
-  const animating = useAnimating();
-  const phase = useLoop(!animating, 2000);
-  const scale = phase.interpolate({ inputRange: [0, 1], outputRange: [0.6, 1.8] });
-  const opacity = phase.interpolate({ inputRange: [0, 1], outputRange: [0.9, 0] });
   return (
     <View style={styles.dotBox} accessible accessibilityLabel="Needs input">
-      <Animated.View style={[styles.ring, { transform: [{ scale }], opacity }]} />
-      <View style={[styles.dot, { backgroundColor: colors.ink }]} />
+      {Array.from({ length: PINGS }, (_, ring) => (
+        <Ping key={ring} delay={ring * 380} />
+      ))}
+      <View style={[styles.dot, { backgroundColor: colors.warn }]} />
     </View>
   );
 }
@@ -67,7 +92,7 @@ export function SubagentCount({ count }: { count: number }) {
   const styles = useStyles(makeStyles);
   return (
     <View style={styles.count} accessible accessibilityLabel={`${count} ${count === 1 ? 'subagent' : 'subagents'} running`}>
-      <Icon name="IconAgent" size={11} color={translucent(colors.live, 0.75)} filled />
+      <Icon name="IconAgent" size={11} color={colors.live} filled />
       <Text style={styles.countText}>{count}</Text>
     </View>
   );
@@ -82,10 +107,19 @@ export function ShellCount({ count }: { count: number }) {
       style={styles.count}
       accessible
       accessibilityLabel={`${count} ${count === 1 ? 'shell or monitor' : 'shells or monitors'} running`}>
-      <Icon name="IconCommand" size={11} color={translucent(colors.warn, 0.75)} />
+      <Icon name="IconCommand" size={11} color={colors.warn} />
       <Text style={styles.countText}>{count}</Text>
     </View>
   );
+}
+
+/** Where an agent's turn is, as the Mac rail marks it: squares while it works, a dot once something waits, nothing idle. */
+export function AgentState({ group }: { group: AgentGroup }) {
+  const colors = useColors();
+  if (group === 'working') return <Working />;
+  if (group === 'blocked') return <NeedsYou />;
+  if (group === 'done') return <Dot color={colors.accent} size={7} />;
+  return null;
 }
 
 export function Dot({ color, size = 8, hollow }: { color: string; size?: number; hollow?: boolean }) {
@@ -104,9 +138,9 @@ const makeStyles = (colors: Palette) => {
     loader: { width: 13, height: 13, flexDirection: 'row', flexWrap: 'wrap', gap: 2 },
     cell: { width: 3, height: 3, borderRadius: 0.6, backgroundColor: colors.live },
     dotBox: { width: 16, height: 16, alignItems: 'center', justifyContent: 'center' },
-    ring: { position: 'absolute', width: 16, height: 16, borderRadius: 8, borderWidth: 1.5, borderColor: colors.ink },
-    dot: { width: 8, height: 8, borderRadius: 4 },
+    ring: { position: 'absolute', width: 7, height: 7, borderRadius: 4, borderWidth: 1, borderColor: colors.warn },
+    dot: { width: 7, height: 7, borderRadius: 4 },
     count: { flexDirection: 'row', alignItems: 'center', gap: 3 },
-    countText: { fontFamily: fonts.uiMedium, fontSize: 12, color: colors.tertiary, fontVariant: ['tabular-nums'] },
+    countText: { fontFamily: fonts.uiMedium, fontSize: 12, color: colors.secondary, fontVariant: ['tabular-nums'] },
   });
 };

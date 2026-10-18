@@ -50,8 +50,9 @@ export function promptAction(payload: Record<string, unknown>): ChatAction | nul
 export function failureOf(event: Pick<AcpEvent, "payload">): ChatFailure | undefined {
     const failure = recordOf(event.payload.failure);
     const kind = failure?.kind;
-    if (kind !== "signIn" && kind !== "limit" && kind !== "other") return undefined;
-    return { kind, account: typeof failure?.account === "string" ? failure.account : null };
+    if (kind !== "signIn" && kind !== "limit" && kind !== "network" && kind !== "other") return undefined;
+    const details = typeof failure?.details === "string" && failure.details ? { details: failure.details } : {};
+    return { kind, account: typeof failure?.account === "string" ? failure.account : null, ...details };
 }
 
 /** What the chat's reducer makes of an event from the core, on the Mac and the phone alike. */

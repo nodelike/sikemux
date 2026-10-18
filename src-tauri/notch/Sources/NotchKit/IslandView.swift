@@ -5,7 +5,7 @@ import SwiftUI
 ///
 /// It is one shape whose width, height and corners spring together: the band
 /// beside the camera swaps what it shows in place, and the body below it
-/// arrives scaled from the top. Agent marks fly from the wings to their rows.
+/// arrives scaled from the top. Marks fly from the wings to their rows.
 struct IslandView: View {
     let store: NotchStore
     @Bindable var island: IslandModel
@@ -23,7 +23,7 @@ struct IslandView: View {
         .scaleEffect(island.pullScale, anchor: .top)
         .animation(.smooth, value: island.pull)
         .preferredColorScheme(.dark)
-        .onChange(of: store.agents) { _, agents in island.agentsChanged(agents) }
+        .onChange(of: store.entries) { _, entries in island.entriesChanged(entries) }
         .onChange(of: store.devices) { _, devices in island.devicesChanged(devices) }
     }
 
@@ -31,7 +31,7 @@ struct IslandView: View {
 
     private var shows: Bool {
         guard !island.hidden else { return false }
-        return geometry.hasNotch || !store.agents.isEmpty || island.mode != .closed
+        return geometry.hasNotch || !store.rollups.isEmpty || island.mode != .closed
     }
 
     private var expanded: Bool {
@@ -107,10 +107,10 @@ struct IslandView: View {
                 ClosedWings(store: store, geometry: geometry, marks: marks)
                     .transition(.inPlace)
             case .peekDone(let id):
-                FinishedWings(agent: store.agents.first { $0.id == id }, geometry: geometry, marks: marks)
+                FinishedWings(entry: store.entries.first { $0.id == id }, geometry: geometry, marks: marks)
                     .transition(.inPlace)
             case .peekAsk(let id):
-                AskHeader(agent: store.agents.first { $0.id == id }, geometry: geometry, marks: marks)
+                AskHeader(entry: store.entries.first { $0.id == id }, geometry: geometry, marks: marks)
                     .transition(.inPlace)
             case .connect:
                 Color.clear
@@ -140,7 +140,7 @@ struct IslandView: View {
     private var expandedBody: some View {
         switch island.mode {
         case .peekAsk(let id):
-            AskBody(store: store, island: island, agent: store.agents.first { $0.id == id })
+            AskBody(store: store, island: island, entry: store.entries.first { $0.id == id })
         case .connect(let id):
             ConnectCard(store: store, device: store.devices.first { $0.id == id })
         case .drop:
@@ -171,34 +171,28 @@ private struct BlurModifier: ViewModifier {
     func body(content: Content) -> some View { content.blur(radius: radius) }
 }
 
-/// Closed: the notch, with the marks of the running agents on its left and
-/// the state that matters most on its right.
+/// Closed: the notch, with the marks of the first items in the inbox on its left
+/// and how many are in each state on its right.
 struct ClosedWings: View {
     let store: NotchStore
     let geometry: NotchGeometry
     let marks: Namespace.ID
 
-    private var running: [AgentItem] { store.agents }
+    private var shown: [Entry] { store.entries }
 
     static let groupGap: CGFloat = 10
 
     /// Each wing as wide as what it holds, so a quiet right wing stays small
     /// and grows when a state mark arrives.
     static func widths(_ store: NotchStore) -> (left: CGFloat, right: CGFloat) {
-        let count = store.agents.count
-        guard count > 0 else { return (0, 0) }
-        let digit: CGFloat = 7.5
-        func digits(_ number: Int) -> CGFloat { CGFloat(String(number).count) * digit }
-        var left = 14 + 20 + CGFloat(min(count, 3) - 1) * 17 + 10
-        if count > 3 { left += 9 + 6.5 * CGFloat(String(count - 3).count + 1) }
         let rollups = store.rollups
-        let held: CGFloat
-        if rollups.isEmpty {
-            held = digits(count)
-        } else {
-            let groups = rollups.map { ($0.count > 1 ? digits($0.count) + 6 : 0) + 16 }
-            held = groups.reduce(0, +) + CGFloat(rollups.count - 1) * ClosedWings.groupGap
-        }
+        guard !rollups.isEmpty else { return (0, 0) }
+        let count = store.entries.count
+        var left: CGFloat = 0
+        if count > 0 { left = 14 + 20 + CGFloat(min(count, 3) - 1) * 17 + 10 }
+        if count > 3 { left += 9 + 6.5 * CGFloat(String(count - 3).count + 1) }
+        let groups = rollups.map { ($0.mark.showsCount($0.count) ? CGFloat(String($0.count).count) * 7.5 + 6 : 0) + 16 }
+        let held = groups.reduce(0, +) + CGFloat(rollups.count - 1) * ClosedWings.groupGap
         return (left, 10 + held + 14)
     }
 
@@ -219,12 +213,12 @@ struct ClosedWings: View {
         HStack(spacing: 0) {
             if wings.left > 0 {
                 HStack(spacing: -3) {
-                    ForEach(running.prefix(3)) { agent in
-                        AgentMark(provider: agent.provider, size: 20)
-                            .matchedGeometryEffect(id: agent.id, in: marks)
+                    ForEach(shown.prefix(3)) { entry in
+                        AgentMark(provider: entry.provider, size: 20)
+                            .matchedGeometryEffect(id: entry.id, in: marks)
                     }
-                    if running.count > 3 {
-                        Text("+\(running.count - 3)")
+                    if shown.count > 3 {
+                        Text("+\(shown.count - 3)")
                             .font(Theme.ui(10.5, .semibold))
                             .foregroundStyle(Theme.inkDim)
                             .padding(.leading, 9)
@@ -236,18 +230,15 @@ struct ClosedWings: View {
             Color.clear.frame(width: geometry.notchWidth)
             if wings.right > 0 {
                 HStack(spacing: Self.groupGap) {
-                    let rollups = store.rollups
-                    if rollups.isEmpty {
-                        Text("\(running.count)").font(Theme.ui(12, .semibold)).monospacedDigit().foregroundStyle(Theme.ink)
-                    }
-                    ForEach(rollups, id: \.mark) { group in
+                    ForEach(store.rollups, id: \.mark) { group in
                         HStack(spacing: 6) {
-                            if group.count > 1 {
+                            if group.mark.showsCount(group.count) {
                                 Text("\(group.count)").font(Theme.ui(12, .semibold)).monospacedDigit().foregroundStyle(Theme.ink)
                             }
                             switch group.mark {
-                            case .state(let state): StateMark(state: state)
-                            case .stillRunning: StillRunning()
+                            case .mark(let mark): StateMark(mark: mark)
+                            case .subagents: RunningGlyph(icon: Icons.agent, size: 10, colour: Theme.live)
+                            case .shells: RunningGlyph(icon: Icons.command, size: 11, colour: Theme.warn)
                             }
                         }
                     }
@@ -260,31 +251,31 @@ struct ClosedWings: View {
     }
 }
 
-/// A finished agent, for a moment, on either side of the notch.
+/// A finished turn, for a moment, on either side of the notch.
 struct FinishedWings: View {
     static let wing: CGFloat = 150
 
-    let agent: AgentItem?
+    let entry: Entry?
     let geometry: NotchGeometry
     let marks: Namespace.ID
 
     var body: some View {
         HStack(spacing: 0) {
             HStack(spacing: 8) {
-                if let agent {
-                    AgentMark(provider: agent.provider, size: 20).matchedGeometryEffect(id: agent.id, in: marks)
+                if let entry {
+                    AgentMark(provider: entry.provider, size: 20).matchedGeometryEffect(id: entry.id, in: marks)
                 }
-                Text("Finished").font(Theme.ui(12.5, .semibold)).foregroundStyle(Theme.ink)
+                Text(entry?.mark == .failed ? "Failed" : "Finished").font(Theme.ui(12.5, .semibold)).foregroundStyle(Theme.ink)
             }
             .padding(.leading, 14)
             .frame(width: Self.wing, alignment: .leading)
             Color.clear.frame(width: geometry.notchWidth)
             HStack(spacing: 6) {
-                Text(agent?.title ?? "")
+                Text(entry?.title ?? "")
                     .font(Theme.ui(12.5, .medium))
                     .foregroundStyle(Theme.inkDim)
                     .lineLimit(1)
-                StateMark(state: .done)
+                StateMark(mark: entry?.mark ?? .done)
             }
             .padding(.trailing, 14)
             .frame(width: Self.wing, alignment: .trailing)
@@ -309,51 +300,44 @@ struct HeaderBand<Leading: View, Trailing: View>: View {
     }
 }
 
-/// A permission request's band: the agent on the left of the camera, that it needs you on the right.
+/// What needs you, in the band: who asks on the left of the camera, that it needs you on the right.
 struct AskHeader: View {
-    let agent: AgentItem?
+    let entry: Entry?
     let geometry: NotchGeometry
     let marks: Namespace.ID
 
     var body: some View {
         HeaderBand(geometry: geometry) {
-            if let agent {
-                AgentMark(provider: agent.provider, size: 20).matchedGeometryEffect(id: agent.id, in: marks)
+            if let entry {
+                AgentMark(provider: entry.provider, size: 20).matchedGeometryEffect(id: entry.id, in: marks)
+                Text(entry.item.name ?? agentName(entry.provider)).font(Theme.ui(13, .semibold)).foregroundStyle(Theme.ink)
             }
-            Text(agent.map { agentName($0.provider) } ?? "").font(Theme.ui(13, .semibold)).foregroundStyle(Theme.ink)
         } trailing: {
             Text("Needs you").font(Theme.ui(12, .semibold)).foregroundStyle(Theme.warn)
-            StateMark(state: .blocked)
+            StateMark(mark: .needs)
         }
     }
 }
 
-/// A permission request, answered without opening the island.
+/// What needs you, answered without opening the island.
 struct AskBody: View {
     let store: NotchStore
     let island: IslandModel
-    let agent: AgentItem?
+    let entry: Entry?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            if let agent {
+            if let entry {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(agent.title).font(Theme.ui(13, .semibold)).foregroundStyle(Theme.ink).lineLimit(1)
-                    ProjectLabel(project: agent.project, suffix: suffix(agent.ask))
+                    Text(entry.title).font(Theme.ui(13, .semibold)).foregroundStyle(Theme.ink).lineLimit(1)
+                    ProjectLabel(project: entry.project, suffix: entry.what)
                 }
                 .padding(.top, 8)
-                if let ask = agent.ask {
-                    CommandText(ask: ask).padding(.top, 10)
-                }
-                AnswerButtons(store: store, island: island, agent: agent, height: 32).padding(.top, 10)
+                AskDetail(entry: entry).padding(.top, 10)
+                AnswerButtons(store: store, island: island, entry: entry, height: 32).padding(.top, 10)
             }
         }
         .padding(.bottom, 2)
-    }
-
-    private func suffix(_ ask: Ask?) -> String {
-        guard let ask else { return "needs you" }
-        return ask.isCommand ? "wants to run a command" : "asks to go ahead"
     }
 }
 
@@ -375,6 +359,25 @@ struct ProjectLabel: View {
     }
 }
 
+/// What it waits on: the command it wants to run, or the question or note in its own words.
+struct AskDetail: View {
+    let entry: Entry
+    var darker = false
+
+    var body: some View {
+        if let ask = entry.ask {
+            CommandText(ask: ask, darker: darker)
+        } else if let text = entry.question?.text ?? entry.item.detail {
+            Text(text)
+                .font(Theme.ui(13))
+                .foregroundStyle(Theme.ink)
+                .lineLimit(2)
+                .truncationMode(.tail)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+}
+
 struct CommandText: View {
     let ask: Ask
     var darker = false
@@ -392,15 +395,24 @@ struct CommandText: View {
     }
 }
 
-/// Deny, Always allow and Allow for a chat agent; Open in Sikemux for anything the notch cannot answer.
+/// Deny, Always allow and Allow for a permission; Open in Sikemux for anything the notch cannot answer.
 struct AnswerButtons: View {
     let store: NotchStore
     let island: IslandModel
-    let agent: AgentItem
+    let entry: Entry
     var height: CGFloat
 
     var body: some View {
-        if let ask = agent.ask, agent.isChat, store.settings.answerInNotch, ask.allowOnce != nil || ask.allowAlways != nil {
+        if let question = entry.question {
+            HStack(spacing: 8) {
+                if store.settings.answerInNotch, question.choices.count <= 2 {
+                    ForEach(Array(question.choices.enumerated()), id: \.offset) { index, choice in
+                        CapsuleButton(title: choice.label, height: height) { choose(question, index) }
+                    }
+                }
+                CapsuleButton(title: "Answer in Sikemux", primary: true, height: height) { store.open(entry) }
+            }
+        } else if let ask = entry.ask, store.settings.answerInNotch, ask.allowOnce != nil || ask.allowAlways != nil {
             HStack(spacing: 8) {
                 if let reject = ask.reject {
                     CapsuleButton(title: "Deny", height: height) { answer(ask, reject) }
@@ -413,12 +425,17 @@ struct AnswerButtons: View {
                 }
             }
         } else {
-            CapsuleButton(title: "Open in Sikemux", primary: true, height: height) { store.focus(agent.id) }
+            CapsuleButton(title: "Open in Sikemux", primary: true, height: height) { store.open(entry) }
         }
     }
 
     private func answer(_ ask: Ask, _ option: String) {
-        store.answer(ask, agentId: agent.id, optionId: option)
+        store.answer(ask, agentId: entry.item.agentId, optionId: option)
+        if case .peekAsk = island.mode { island.set(island.hovering ? .open : .closed) }
+    }
+
+    private func choose(_ question: AgentQuestion, _ choice: Int) {
+        store.answer(question, choice: choice)
         if case .peekAsk = island.mode { island.set(island.hovering ? .open : .closed) }
     }
 }

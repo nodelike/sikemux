@@ -1,0 +1,112 @@
+{
+  "id": "sikemux.vercel",
+  "name": "Vercel",
+  "version": "0.1.0",
+  "sikemux": ">=0.4",
+  "callTimeoutSecs": 60,
+  "tools": [
+    {
+      "name": "vercel_projects",
+      "row": {"verb": "list", "kind": "read", "icon": "folder", "target": ["{query}", "Vercel projects"], "detail": ["{team}"]},
+      "method": "projects",
+      "description": "Vercel projects, most recently changed first, each with its framework, git repository, production URL and the state of its production deployment.",
+      "properties": {
+        "query": { "type": "string", "description": "Words in the project's name." },
+        "team": { "type": "string", "description": "A team's slug or id. Default: the one chosen in Sikemux." }
+      }
+    },
+    {
+      "name": "vercel_deployments",
+      "row": {"verb": "list", "kind": "read", "icon": "rocket", "target": ["{project} deployments", "Vercel deployments"], "detail": ["{state}", "{target}"]},
+      "method": "deployments",
+      "description": "A project's deployments, newest first, each with its state, Production or Preview, branch, commit message, author, age and URL.",
+      "properties": {
+        "project": { "type": "string", "description": "The project's name or id. Without one, every project's." },
+        "target": { "type": "string", "enum": ["production", "preview"] },
+        "state": { "type": "string", "description": "BUILDING, ERROR, INITIALIZING, QUEUED, READY or CANCELED; several joined by commas." },
+        "branch": { "type": "string", "description": "Only deployments of this git branch." },
+        "limit": { "type": "integer", "description": "Default 20, at most 100." },
+        "team": { "type": "string" }
+      }
+    },
+    {
+      "name": "vercel_deployment",
+      "row": {"verb": "read", "kind": "read", "icon": "rocket", "target": ["{id}"]},
+      "method": "deployment",
+      "description": "One Vercel deployment: its state and any error, target, URL and aliases, git branch and commit, who made it, and its inspector link.",
+      "properties": {
+        "id": { "type": "string", "description": "A deployment id such as dpl_…, or its URL." },
+        "team": { "type": "string" }
+      },
+      "required": ["id"]
+    },
+    {
+      "name": "vercel_logs",
+      "row": {"verb": "read", "kind": "read", "icon": "log-lines", "target": ["{id} build log"]},
+      "method": "logs",
+      "description": "A deployment's build log, the last lines first cut to `tail`. Read it to find why a build failed.",
+      "properties": {
+        "id": { "type": "string", "description": "A deployment id such as dpl_…, or its URL." },
+        "tail": { "type": "integer", "description": "How many of the last lines. Default 200, at most 2000." },
+        "team": { "type": "string" }
+      },
+      "required": ["id"]
+    },
+    {
+      "name": "vercel_redeploy",
+      "row": {"verb": "redeploy", "kind": "execute", "icon": "refresh", "target": ["{id}"], "detail": ["{target}"]},
+      "method": "redeploy",
+      "description": "Build a deployment's source again as a new deployment, to the same target unless `target` says otherwise. Only when the person asked for it.",
+      "properties": {
+        "id": { "type": "string", "description": "The deployment to build again." },
+        "target": { "type": "string", "enum": ["production", "preview"] },
+        "team": { "type": "string" }
+      },
+      "required": ["id"]
+    },
+    {
+      "name": "vercel_promote",
+      "row": {"verb": "promote", "kind": "execute", "icon": "rocket", "target": ["{id}"]},
+      "method": "promote",
+      "description": "Make a ready deployment production without building it again. Promoting an older deployment rolls production back. Only when the person asked for it.",
+      "properties": {
+        "id": { "type": "string", "description": "The deployment to serve in production." },
+        "team": { "type": "string" }
+      },
+      "required": ["id"]
+    },
+    {
+      "name": "vercel_cancel",
+      "row": {"verb": "cancel", "kind": "execute", "icon": "stop", "target": ["{id}"]},
+      "method": "cancel",
+      "description": "Stop a deployment that is queued or building.",
+      "properties": {
+        "id": { "type": "string" },
+        "team": { "type": "string" }
+      },
+      "required": ["id"]
+    },
+    {
+      "name": "vercel_domains",
+      "row": {"verb": "list", "kind": "read", "icon": "globe", "target": ["{project} domains"]},
+      "method": "domains",
+      "description": "A project's domains, whether each is verified, and the branch or redirect each one serves.",
+      "properties": {
+        "project": { "type": "string", "description": "The project's name or id." },
+        "team": { "type": "string" }
+      },
+      "required": ["project"]
+    },
+    {
+      "name": "vercel_env",
+      "row": {"verb": "list", "kind": "read", "icon": "code", "target": ["{project} environment"]},
+      "method": "env",
+      "description": "The names of a project's environment variables, with the targets and branch each is set for. Their values are never given.",
+      "properties": {
+        "project": { "type": "string", "description": "The project's name or id." },
+        "team": { "type": "string" }
+      },
+      "required": ["project"]
+    }
+  ]
+}

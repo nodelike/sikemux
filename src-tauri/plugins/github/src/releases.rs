@@ -7,7 +7,7 @@ use sikemux_plugin_api::{PluginResult, StreamSink};
 
 use crate::artifacts;
 use crate::client;
-use crate::common::{login_of, ActorRow, RELEASE_PAGES};
+use crate::common::{avatar_of, login_of, ActorRow, RELEASE_PAGES};
 use crate::error::GithubResult;
 use crate::workflows::RepoRef;
 
@@ -56,6 +56,7 @@ pub struct Release {
     /// A draft has never been published, so it has only a creation time.
     pub published_at: Option<String>,
     pub author: Option<String>,
+    pub avatar_url: Option<String>,
     pub assets: Vec<Asset>,
     pub url: String,
 }
@@ -74,6 +75,7 @@ impl From<ReleaseRow> for Release {
             prerelease: row.prerelease,
             published_at: row.published_at.or(row.created_at),
             author: login_of(&row.author),
+            avatar_url: avatar_of(&row.author),
             assets: row
                 .assets
                 .into_iter()

@@ -142,7 +142,7 @@ describe("useXterm renderer boot", () => {
         } as unknown as NativePtyController;
 
         const view = render(<Harness controller={controller} onExit={onExit} />);
-        await act(async () => vi.advanceTimersByTimeAsync(0));
+        await act(async () => vi.advanceTimersByTimeAsync(50));
 
         expect(resize).toHaveBeenCalledWith(80, 24);
         expect(attach).not.toHaveBeenCalled();
@@ -205,7 +205,7 @@ describe("useXterm renderer boot", () => {
         } as unknown as NativePtyController;
 
         render(<Harness controller={controller} onExit={vi.fn()} />);
-        await act(async () => vi.advanceTimersByTimeAsync(0));
+        await act(async () => vi.advanceTimersByTimeAsync(50));
 
         const linkHandler = mocks.terminalOptions[0].linkHandler as { activate: (event: MouseEvent, text: string) => void };
         const click = () => new MouseEvent("click", { cancelable: true });

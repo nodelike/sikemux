@@ -1,6 +1,7 @@
 //! Codex asking before it acts, as the ACP permission requests its adapter
 //! sends, and the person's choice back as the answer Codex expects.
 
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 use super::items::strip_shell;
@@ -63,6 +64,7 @@ fn with_locations(tool_call: &mut Value, paths: Vec<String>) {
 }
 
 /// A question for the person, and how to tell Codex what they chose.
+#[derive(Serialize, Deserialize)]
 pub(super) struct Question {
     pub request: Value,
     answer: Answer,
@@ -73,6 +75,7 @@ pub(super) struct Question {
 /// An option's id, and the decision Codex is told when it is chosen.
 type Decision = (String, Value);
 
+#[derive(Serialize, Deserialize)]
 enum Answer {
     /// Each option stands for one decision.
     Decisions(Vec<Decision>, Value),

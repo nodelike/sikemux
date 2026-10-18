@@ -5,6 +5,7 @@ import type { TimelineItem } from "../api";
 
 const api = vi.hoisted(() => ({
     timeline: vi.fn(),
+    pullCommits: vi.fn(() => Promise.resolve([])),
     addComment: vi.fn(),
     reviewPull: vi.fn(),
     image: vi.fn(() => new Promise<string>(() => {})),

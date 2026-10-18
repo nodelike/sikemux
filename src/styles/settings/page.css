@@ -1,10 +1,16 @@
 /* ── main ───────────────────────────────────────────── */
 .settings-main {
+    position: relative;
+    isolation: isolate;
     display: flex;
     flex-direction: column;
     min-width: 0;
     min-height: 0;
     background: var(--s-sunken);
+}
+/* Only its top right corner meets the rounded edge of the settings pane. */
+.settings-main > .pane-field {
+    clip-path: inset(0 round 0 calc(var(--radius-3) - 1px) 0 0);
 }
 .settings-topbar {
     display: flex;

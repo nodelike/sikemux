@@ -7,19 +7,28 @@ import type { Agent, ProviderProfile, Session } from "../state/types";
 import { acpApi } from "../api/acp";
 import { agentSupportsChat } from "../agents/agentLaunch";
 import { TerminalPane } from "../terminal/TerminalPane";
+import { putDraft, takeDraft } from "./draftHandoff";
+import { promptDraft } from "../terminal/promptDraft";
+import { screenWithin } from "../state/terminalScreens";
 import { isResumableSession } from "../terminal/sessionResume";
-import { AgentIcon, IconAgent, IconCommand, IconMoreVertical, IconPanelRight, IconPlug } from "../ui/Icons";
+import { AgentBuddy } from "../buddies/Buddy";
+import { openBuddyPicker } from "../buddies/commands";
+import { AgentIcon, IconAgent, IconMoreVertical, IconPanelRight, IconPlug, IconTerminal } from "../ui/Icons";
 import { useStore } from "../state/store";
+import { agentDisplay } from "../state/agentStatus";
 import { shownDeskPaneId } from "../state/selectors";
 import { AgentTitleInput } from "../agents/AgentTitleInput";
+import { AgentLabel } from "../agents/AgentLabel";
 import { AgentContextMenu } from "../workspace/AgentContextMenu";
 import * as cmd from "../state/commands";
 import { useShortcutLabel, withShortcut } from "../commands/useShortcutLabel";
 import { AgentChatPane } from "./AgentChatPane";
+import { ResumeActions } from "./ResumeActions";
 import { showingChat } from "./chatViews";
 import { YoloToggle } from "./YoloToggle";
+import { ShareButton } from "../share/ShareControls";
 import { agentCwd, agentPtyContext } from "../agents/agentPtyContext";
-import { clearTuiRecovery, relaunchTuiAgent, useTuiResume } from "../agents/tuiResume";
+import { claimAgentTerminal, clearTuiRecovery, relaunchTuiAgent, useTuiResume } from "../agents/tuiResume";
 import "../styles/chat.css";
 
 type AgentView = "gui" | "tui";
@@ -43,7 +52,7 @@ function DeskButton({ agent }: { agent: Agent }) {
     );
 }
 
-function AgentMenuButton({ agent, session, onRename }: { agent: Agent; session: Session; onRename: () => void }) {
+function AgentMenuButton({ agent, session, onRetitle }: { agent: Agent; session: Session; onRetitle: () => void }) {
     const [anchor, setAnchor] = useState<{ x: number; y: number } | null>(null);
     return (
         <>
@@ -61,7 +70,7 @@ function AgentMenuButton({ agent, session, onRename }: { agent: Agent; session: 
                 <IconMoreVertical size={14} />
             </button>
             {anchor && (
-                <AgentContextMenu agent={agent} session={session} x={anchor.x} y={anchor.y} onClose={() => setAnchor(null)} onRename={onRename} />
+                <AgentContextMenu agent={agent} session={session} x={anchor.x} y={anchor.y} onClose={() => setAnchor(null)} onRetitle={onRetitle} />
             )}
         </>
     );
@@ -69,29 +78,13 @@ function AgentMenuButton({ agent, session, onRename }: { agent: Agent; session: 
 
 /* Matches the chat's failed-resume row, so both kinds of agent read the same. */
 function TuiRecoveryNotice({ agent, profile, cwd, detail }: { agent: Agent; profile?: ProviderProfile; cwd?: string; detail: string | null }) {
-    const startNewChat = () =>
-        cmd.addAgent(agent.type, undefined, undefined, {
-            permissionMode: agent.permissionMode,
-            profileId: agent.profileId,
-            detectedExecutablePath: profile?.executablePath || agent.executablePath,
-            cwd,
-        });
     return (
         <div className="agent-tui-recovery">
             <div className="chat-reconnect" role="status">
                 <IconPlug size={13} />
                 <span>Couldn&apos;t resume this agent</span>
                 {detail && <span className="chat-recovery-detail">{detail}</span>}
-                <div className="chat-connection-actions">
-                    <button type="button" onClick={() => void relaunchTuiAgent(agent.id, agent.ptyId)}>
-                        Retry
-                    </button>
-                    {agent.resumeId && (
-                        <button type="button" onClick={startNewChat}>
-                            Start new chat
-                        </button>
-                    )}
-                </div>
+                <ResumeActions agent={agent} profile={profile} cwd={cwd} retry="Retry" onRetry={() => void relaunchTuiAgent(agent.id, agent.ptyId)} />
             </div>
         </div>
     );
@@ -102,21 +95,29 @@ export function AgentSurface({ agent, session, profile, visible }: { agent: Agen
     /* A terminal agent that kept running while the app was closed comes back in its terminal. */
     const [view, setView] = useState<AgentView>(supportsGui && !isResumableSession(agent.ptyId) ? "gui" : "tui");
     const [switching, setSwitching] = useState(false);
+    /* What was typed in the chat when the agent moved to its TUI, left at the TUI's prompt. */
+    const [carried, setCarried] = useState("");
     const [chatBusy, setChatBusy] = useState(false);
+    const working = useStore((state) => agentDisplay(state.agentActivity[agent.id]?.state).group === "working");
+    const busy = chatBusy || working;
     const [renaming, setRenaming] = useState(false);
+    const buddies = useStore((state) => state.buddies);
     const { recovery, generation } = useTuiResume(agent.id);
     const cwd = agentCwd(agent, session);
 
+    const tuiLayer = useRef<HTMLDivElement>(null);
     const switchView = useCallback(
         async (next: AgentView) => {
-            if (next === view || switching || (view === "gui" && chatBusy)) return;
+            if (next === view || switching || busy) return;
             setSwitching(true);
+            setCarried(next === "tui" ? takeDraft(agent.id) : "");
+            if (next === "gui" && tuiLayer.current) putDraft(agent.id, promptDraft(screenWithin(tuiLayer.current)));
             if (view === "gui") await acpApi.stop(agent.id).catch(() => {});
             clearTuiRecovery(agent.id);
             setView(next);
             window.requestAnimationFrame(() => setSwitching(false));
         },
-        [agent.id, chatBusy, switching, view],
+        [agent.id, busy, switching, view],
     );
 
     /* The window layer stays mounted so a live agent keeps its process, so the
@@ -127,7 +128,6 @@ export function AgentSurface({ agent, session, profile, visible }: { agent: Agen
     useEffect(() => (guiActive ? showingChat(agent.id) : undefined), [agent.id, guiActive]);
 
     /* A terminal agent takes deliveries as typed text, the way a paste would arrive. */
-    const tuiLayer = useRef<HTMLDivElement>(null);
     const tuiShown = visible && view === "tui" && !switching;
     useEffect(() => {
         if (!tuiShown) return;
@@ -145,9 +145,20 @@ export function AgentSurface({ agent, session, profile, visible }: { agent: Agen
         <section className="agent-surface" data-view={view}>
             <header className="agent-surface-header">
                 <div className="agent-surface-name">
-                    <span className={`agent-surface-mark agent-glyph ${agent.type}`} aria-hidden="true">
-                        <AgentIcon type={agent.type} size={16} />
-                    </span>
+                    {buddies ? (
+                        <button
+                            type="button"
+                            className="agent-surface-mark agent-glyph buddy-mark"
+                            title="Change buddy"
+                            aria-label="Change buddy"
+                            onClick={() => openBuddyPicker(agent.id)}>
+                            <AgentBuddy agent={agent} size={17} />
+                        </button>
+                    ) : (
+                        <span className={`agent-surface-mark agent-glyph ${agent.type}`} aria-hidden="true">
+                            <AgentIcon type={agent.type} size={16} />
+                        </span>
+                    )}
                     {renaming ? (
                         <AgentTitleInput
                             title={agent.title}
@@ -157,43 +168,46 @@ export function AgentSurface({ agent, session, profile, visible }: { agent: Agen
                         />
                     ) : (
                         <span className="agent-surface-title" title={agent.title} onDoubleClick={() => setRenaming(true)}>
-                            {agent.title}
+                            <AgentLabel agent={agent} />
                         </span>
                     )}
-                    <AgentMenuButton agent={agent} session={session} onRename={() => setRenaming(true)} />
+                    {supportsGui && <ShareButton agent={agent} />}
+                    <AgentMenuButton agent={agent} session={session} onRetitle={() => setRenaming(true)} />
                 </div>
-                <div className="agent-surface-controls">
-                    {view === "tui" && recovery?.phase === "resuming" && (
-                        <span className="agent-surface-resuming" role="status">
-                            <span className="chat-activity-loader" aria-hidden="true" />
-                            Resuming…
-                        </span>
-                    )}
-                    {agent.worktree && (
-                        <Suspense fallback={null}>
-                            <WorktreeHeader agentId={agent.id} worktree={agent.worktree} visible={visible} />
-                        </Suspense>
-                    )}
-                    {view === "tui" && cmd.agentSupportsSkipPermissions(agent.type) && <YoloToggle agent={agent} relaunches />}
-                    <div className="agent-view-switch" role="group" aria-label="Agent view">
-                        <button
-                            type="button"
-                            aria-pressed={view === "gui"}
-                            disabled={!supportsGui || switching}
-                            title="Open the built-in agent chat"
-                            onClick={() => void switchView("gui")}>
-                            <IconAgent size={13} />
-                            <span>GUI</span>
-                        </button>
-                        <button
-                            type="button"
-                            aria-pressed={view === "tui"}
-                            disabled={switching || (view === "gui" && chatBusy)}
-                            title={chatBusy ? "Stop the current turn before opening TUI" : "Open native agent TUI"}
-                            onClick={() => void switchView("tui")}>
-                            <IconCommand size={13} />
-                            <span>TUI</span>
-                        </button>
+                <div className="agent-surface-end">
+                    <div className="agent-surface-controls">
+                        {view === "tui" && recovery?.phase === "resuming" && (
+                            <span className="agent-surface-resuming" role="status">
+                                <span className="chat-activity-loader" aria-hidden="true" />
+                                Resuming…
+                            </span>
+                        )}
+                        {agent.worktree && (
+                            <Suspense fallback={null}>
+                                <WorktreeHeader agentId={agent.id} worktree={agent.worktree} visible={visible} />
+                            </Suspense>
+                        )}
+                        {view === "tui" && cmd.agentSupportsSkipPermissions(agent.type) && <YoloToggle agent={agent} relaunches />}
+                        <div className="agent-view-switch" role="group" aria-label="Agent view">
+                            <button
+                                type="button"
+                                aria-pressed={view === "gui"}
+                                disabled={!supportsGui || switching || (view === "tui" && busy)}
+                                title={view === "tui" && busy ? "Wait for the agent to finish before opening GUI" : "Open the built-in agent chat"}
+                                onClick={() => void switchView("gui")}>
+                                <IconAgent size={13} />
+                                <span>GUI</span>
+                            </button>
+                            <button
+                                type="button"
+                                aria-pressed={view === "tui"}
+                                disabled={switching || (view === "gui" && busy)}
+                                title={view === "gui" && busy ? "Wait for the agent to finish before opening TUI" : "Open native agent TUI"}
+                                onClick={() => void switchView("tui")}>
+                                <IconTerminal size={13} />
+                                <span>TUI</span>
+                            </button>
+                        </div>
                     </div>
                     <DeskButton agent={agent} />
                 </div>
@@ -219,11 +233,13 @@ export function AgentSurface({ agent, session, profile, visible }: { agent: Agen
                             cwd={cwd}
                             startup={agent.startup}
                             directCommand={agent.directCommand}
+                            initialDraft={carried || undefined}
+                            onInitialInputDelivered={() => setCarried("")}
                             active={visible}
                             visible={visible}
                             spawnWhen={visible}
                             resumePtyId={agent.ptyId}
-                            onPtySession={(id) => cmd.setAgentPty(agent.id, id)}
+                            onPtySession={(id) => claimAgentTerminal(agent.id, id)}
                             context={agentPtyContext(agent, session)}
                         />
                         {recovery?.phase === "failed" && <TuiRecoveryNotice agent={agent} profile={profile} cwd={cwd} detail={recovery.detail} />}

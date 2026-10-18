@@ -26,29 +26,25 @@ import {
     type SplitSide,
 } from "../state/selectors";
 import { type CtxItem } from "../rail/FileTree";
-import { promptDialog } from "../state/dialog";
 import { ErrorBoundary } from "../ui/ErrorBoundary";
-import { PaneField, PanePaintedContext } from "../ui/ShaderField";
-import { agentMenu, renameAgentPrompt } from "./agentMenu";
+import { PaneField, PanePaintedContext, ScreenFieldContext } from "../ui/ShaderField";
+import { agentMenu, renameAgentNamePrompt, renameAgentPrompt } from "./agentMenu";
 import { TabBar, type TabDescriptor } from "./TabBar";
 import type { TabDragOut, TabPoint } from "./useTabReorder";
-import { AgentIcon, IconArrowUp, IconPlus, WindowIcon } from "../ui/Icons";
+import { AgentFace } from "../buddies/Buddy";
+import { IconArrowUp, IconClose, IconMove, IconPlus, WindowIcon } from "../ui/Icons";
+import { agentHandle } from "../agents/AgentLabel";
 import { AgentStateIndicator, BackgroundCounts, showsAgentState } from "../agents/AgentStateIndicator";
 import { renderWorkbenchItem } from "../workbench/renderers";
 import { PROJECT_SURFACES } from "../workbench/surfaces";
 import { FileIcon } from "../ui/FileIcon";
-import { fsapi } from "../api/fs";
 import { useStageMotion } from "../state/nativeViews";
-import { basename, relativePath } from "../lib/paths";
-import { FILE_MANAGER_NAME } from "../lib/platform";
+import { basename } from "../lib/paths";
 import { useShortcutLabel } from "../commands/useShortcutLabel";
-import { notify, reportError } from "../state/toast";
-import { copyText } from "../lib/clipboard";
 import { PAN_MS, panTransform, useWindowPan } from "./useWindowPan";
 import { useWheelPan } from "./useWheelPan";
 import { useDocumentSlide } from "./useDocumentSlide";
-
-const copyPath = (_path: string, text: string, label: string) => copyText(text).then(() => notify("success", `copied ${label}`), reportError("copy"));
+import { fileTabMenu, renameTerminalTab, windowTabMenu } from "./tabMenus";
 
 const FULL: Rect = { x: 0, y: 0, w: 1, h: 1 };
 
@@ -61,6 +57,8 @@ const CORE_PANE_ROLE: Record<CorePaneKind, WindowRole> = {
     agent: "agent",
     /* A desk is a pane beside its agent, not a window role of its own. */
     desk: "named",
+    shared: "shared",
+    board: "board",
 };
 
 const paneRole = (kind: PaneKind): WindowRole => (isPluginKind(kind) ? kind : CORE_PANE_ROLE[kind]);
@@ -138,9 +136,7 @@ export const Workspace = memo(function Workspace() {
                     <div
                         key={session.id}
                         ref={isActive ? pan.trackRef : undefined}
-                        className={`window-track${isActive && pan.panning ? " panning" : ""}${isActive && pan.sliding ? " sliding" : ""}${
-                            isActive && pan.returning ? " returning" : ""
-                        }`}
+                        className={`window-track${isActive && pan.panning ? " panning" : ""}${isActive && pan.sliding ? " sliding" : ""}`}
                         style={
                             {
                                 "--window-pan-ms": `${isActive ? pan.ms : PAN_MS}ms`,
@@ -205,18 +201,9 @@ const CORE_ROLE_LABEL: Record<Exclude<WindowRole, PluginKind>, string> = {
     "ssh-config": "SSH config",
     named: "Window",
     agent: "Agent",
+    shared: "Shared chat",
+    board: PROJECT_SURFACES.board.label,
 };
-
-async function renameTerminalTab(win: WindowT, titles: Readonly<Record<string, string>>): Promise<void> {
-    const home = collectPanes(win.root).find((pane) => pane.kind === "terminal");
-    const name = await promptDialog({
-        title: "Rename tab",
-        label: "Name",
-        initial: home ? terminalLabel(win, home, titles) : win.customName || win.name,
-        confirmLabel: "Rename",
-    });
-    if (name !== null) cmd.renameWindow(win.id, name);
-}
 
 const roleLabel = (role: WindowRole): string => (isPluginKind(role) ? (pluginSurface(role)?.title ?? role) : CORE_ROLE_LABEL[role]);
 
@@ -332,52 +319,6 @@ const WorkspaceTabsBar = memo(function WorkspaceTabsBar({ session }: { session: 
     const closeShortcut = useShortcutLabel("pane.close");
     const permissionsShortcut = useShortcutLabel("agent.permissions");
 
-    const windowMenu = (win: WindowT): CtxItem[] => {
-        const siblings = refs.flatMap((ref) => (ref.doc === undefined ? [windowsById[ref.id]] : [])).filter(Boolean) as WindowT[];
-        const others = siblings.filter((t) => t.id !== win.id && !t.fixed && t.role !== "agent");
-        const naming: CtxItem[] =
-            win.role === "term"
-                ? [
-                      { label: "Rename…", run: () => void renameTerminalTab(win, termTitles) },
-                      ...(win.customName ? [{ label: "Use Automatic Name", run: () => cmd.renameWindow(win.id, "") }] : []),
-                      { sep: true },
-                  ]
-                : [];
-        return [
-            ...naming,
-            { label: "Duplicate", run: () => cmd.duplicateWindow(win.id) },
-            { label: "Close", hint: closeShortcut, disabled: win.fixed, run: () => cmd.closeWindowById(win.id) },
-            { label: "Close Others", disabled: others.length === 0, run: () => cmd.closeWindowsById(others.map((t) => t.id)) },
-        ];
-    };
-
-    const fileMenu = (win: WindowT, doc: string): CtxItem[] => {
-        const open = editorViews[editorPaneOf(win, editorViews)]?.openTabs ?? [];
-        const dirty = new Set(dirtyEditorPaths[editorPaneOf(win, editorViews)] ?? []);
-        const index = open.indexOf(doc);
-        const close = (paths: string[]) => paths.forEach((path) => cmd.closeTab({ id: win.id, doc: path }));
-        const others = open.filter((path) => path !== doc);
-        const toLeft = index > 0 ? open.slice(0, index) : [];
-        const toRight = index >= 0 ? open.slice(index + 1) : [];
-        const saved = open.filter((path) => !dirty.has(path));
-        return [
-            { label: "Close", hint: closeShortcut, run: () => close([doc]) },
-            { label: "Close Others", disabled: others.length === 0, run: () => close(others) },
-            { label: "Close to the Left", disabled: toLeft.length === 0, run: () => close(toLeft) },
-            { label: "Close to the Right", disabled: toRight.length === 0, run: () => close(toRight) },
-            { label: "Close Saved", disabled: saved.length === 0, run: () => close(saved) },
-            { label: "Close All", run: () => close(open) },
-            { sep: true },
-            { label: "Copy Path", run: () => void copyPath(doc, doc, "path") },
-            {
-                label: "Copy Relative Path",
-                run: () => void copyPath(doc, relativePath(doc, session.cwd) ?? basename(doc), "relative path"),
-            },
-            { sep: true },
-            { label: `Reveal in ${FILE_MANAGER_NAME}`, run: () => void fsapi.revealInFinder(doc).catch(reportError("reveal")) },
-        ];
-    };
-
     const agentTabMenu = (agent: Agent): CtxItem[] => {
         const others = refs
             .flatMap((ref) => {
@@ -390,7 +331,7 @@ const WorkspaceTabsBar = memo(function WorkspaceTabsBar({ session }: { session: 
 
     const { tabs, paneOfTab } = useMemo(() => {
         const paneOfTab = new Map<string, { windowId: string; paneId: string }>();
-        const look = (pane: PaneNode, win: WindowT): Pick<TabDescriptor, "label" | "title" | "icon"> => {
+        const look = (pane: PaneNode, win: WindowT): Pick<TabDescriptor, "label" | "title" | "icon" | "note"> => {
             if (pane.kind === "terminal") {
                 const label = terminalLabel(win, pane, termTitles);
                 return {
@@ -405,14 +346,19 @@ const WorkspaceTabsBar = memo(function WorkspaceTabsBar({ session }: { session: 
             }
             if (pane.kind === "agent") {
                 const agent = agentsById[pane.id];
-                const label = agent?.title ?? pane.title;
+                const title = agent?.title ?? pane.title;
                 return {
-                    label,
-                    title: label,
+                    label: title,
+                    title,
+                    note: agent?.name && agentHandle(agent.name),
                     icon: agent ? (
-                        <span className={`agent-glyph ${agent.type}`}>
-                            <AgentIcon type={agent.type} size={19} />
-                        </span>
+                        <AgentFace
+                            agent={agent}
+                            size={20}
+                            logoSize={19}
+                            logoClass={`agent-glyph ${agent.type}`}
+                            buddyClass="agent-glyph buddy-mark"
+                        />
                     ) : undefined,
                 };
             }
@@ -462,10 +408,15 @@ const WorkspaceTabsBar = memo(function WorkspaceTabsBar({ session }: { session: 
                         label: agent.title,
                         title: agent.title,
                         active: key === activeKey,
+                        note: agent.name && agentHandle(agent.name),
                         icon: (
-                            <span className={`agent-glyph ${agent.type}`}>
-                                <AgentIcon type={agent.type} size={19} />
-                            </span>
+                            <AgentFace
+                                agent={agent}
+                                size={20}
+                                logoSize={19}
+                                logoClass={`agent-glyph ${agent.type}`}
+                                buddyClass="agent-glyph buddy-mark"
+                            />
                         ),
                         badge: display.subagents + display.tasks > 0 ? <BackgroundCounts display={display} /> : undefined,
                         accessory: showsAgentState(display) ? <AgentStateIndicator display={display} /> : undefined,
@@ -473,7 +424,8 @@ const WorkspaceTabsBar = memo(function WorkspaceTabsBar({ session }: { session: 
                 ];
             }
             const shown = collectPanes(win.root).find((pane) => pane.id === win.activePaneId);
-            const label = win.role === "term" && shown ? terminalLabel(win, shown, termTitles) : roleLabel(win.role);
+            const role = shown?.kind === "terminal" ? "term" : win.role;
+            const label = role === "term" && shown ? terminalLabel(win, shown, termTitles) : roleLabel(role);
             return [
                 {
                     id: key,
@@ -482,8 +434,8 @@ const WorkspaceTabsBar = memo(function WorkspaceTabsBar({ session }: { session: 
                     active: key === activeKey,
                     closable: !win.fixed,
                     icon: (
-                        <span className={`agent-glyph ${win.role}`}>
-                            <WindowIcon role={win.role} size={13} />
+                        <span className={`agent-glyph ${role}`}>
+                            <WindowIcon role={role} size={13} />
                         </span>
                     ),
                 },
@@ -605,7 +557,7 @@ const WorkspaceTabsBar = memo(function WorkspaceTabsBar({ session }: { session: 
                     const win = windowsById[refByKey.get(key)?.id ?? paneOfTab.get(key)?.windowId ?? ""];
                     if (win?.role === "term") void renameTerminalTab(win, termTitles);
                     const agent = agentInWindow(agentsById, win);
-                    if (agent) void renameAgentPrompt(agent);
+                    if (agent) void (agent.name ? renameAgentNamePrompt(agent) : renameAgentPrompt(agent));
                 }}
                 onClose={(key) => {
                     const ref = refByKey.get(key);
@@ -619,7 +571,14 @@ const WorkspaceTabsBar = memo(function WorkspaceTabsBar({ session }: { session: 
                     if (!ref && pane) {
                         const win = windowsById[pane.windowId];
                         const movable = !!win && !!paneToSeparate(win, getState(), pane.paneId);
-                        return [{ label: "Move Back to Tab Bar", disabled: !movable, run: () => cmd.separatePane(pane.windowId, pane.paneId) }];
+                        return [
+                            {
+                                label: "Move Back to Tab Bar",
+                                icon: <IconMove size={13} />,
+                                disabled: !movable,
+                                run: () => cmd.separatePane(pane.windowId, pane.paneId),
+                            },
+                        ];
                     }
                     if (!ref) return [];
                     const win = windowsById[ref.id];
@@ -627,14 +586,16 @@ const WorkspaceTabsBar = memo(function WorkspaceTabsBar({ session }: { session: 
                     const pluginDocs = ref.doc !== undefined ? pluginDocuments(win.role) : undefined;
                     if (ref.doc !== undefined && pluginDocs) {
                         const doc = ref.doc;
-                        return pluginDocs.menu ? [...pluginDocs.menu(win.activePaneId, doc)] : [{ label: "Close", run: () => cmd.closeTab(ref) }];
+                        return pluginDocs.menu
+                            ? [...pluginDocs.menu(win.activePaneId, doc)]
+                            : [{ label: "Close", icon: <IconClose size={13} />, run: () => cmd.closeTab(ref) }];
                     }
-                    if (ref.doc !== undefined) return fileMenu(win, ref.doc);
+                    if (ref.doc !== undefined) return fileTabMenu(session.cwd, win, ref.doc, closeShortcut);
                     if (win.role === "agent") {
                         const agent = agentInWindow(agentsById, win);
                         return agent ? withSeparate(win, agentTabMenu(agent)) : [];
                     }
-                    return withSeparate(win, windowMenu(win));
+                    return withSeparate(win, windowTabMenu(session.id, win, closeShortcut));
                 }}
                 onAdd={() => cmd.openNewTabPalette()}
                 addIcon={<IconPlus size={13} />}
@@ -754,13 +715,22 @@ const WindowLayer = memo(function WindowLayer({
                                 {/* The pane is a surface, so it carries its own texture — and only
                                     while its screen is on stage, so a screen off stage spends no
                                     WebGL context on a field nobody is looking at. The editor draws
-                                    its own, on the code panel beside its file tree, and the desk, git and plugins have none. */}
-                                {p.kind !== "editor" && p.kind !== "desk" && p.kind !== "git" && !isPluginKind(p.kind) && (
+                                    its own, on the code panel beside its file tree, git on its review column, a plugin only on its sign-in, and the desk none. */}
+                                {p.kind !== "editor" && p.kind !== "git" && p.kind !== "desk" && !isPluginKind(p.kind) && (
                                     <PaneField enabled={paneShader} />
                                 )}
-                                <ErrorBoundary label={`${p.kind} pane`}>
-                                    {renderWorkbenchItem({ pane: p, session, win, active: paneActive, visible: paneVisible, painted: panePainted })}
-                                </ErrorBoundary>
+                                <ScreenFieldContext.Provider value={isPluginKind(p.kind)}>
+                                    <ErrorBoundary label={`${p.kind} pane`}>
+                                        {renderWorkbenchItem({
+                                            pane: p,
+                                            session,
+                                            win,
+                                            active: paneActive,
+                                            visible: paneVisible,
+                                            painted: panePainted,
+                                        })}
+                                    </ErrorBoundary>
+                                </ScreenFieldContext.Provider>
                             </PanePaintedContext.Provider>
                             {live && canUnsplit && (
                                 <button

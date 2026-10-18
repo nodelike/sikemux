@@ -6,7 +6,7 @@ import { SerializeAddon } from "@xterm/addon-serialize";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import type { WebglAddon } from "@xterm/addon-webgl";
 import { invokeCommand as invoke } from "../api/invoke";
-import { currentTerminalTheme, registerTerminal } from "../themes/bus";
+import { currentTerminalTheme, refreshTerminalTheme, registerTerminal } from "../themes/bus";
 import { currentTerminalFontSize, registerTerminalFontSize } from "./fontSize";
 import { IS_MACOS } from "../lib/platform";
 import {
@@ -23,6 +23,8 @@ import { terminalWebglRequested, type TerminalRenderer } from "./renderer";
 import { cellWidthCorrection, lineHeightCorrection, measureChar } from "./cellMetrics";
 import { safeWebUrl } from "../lib/urls";
 import { isTerminalFindShortcut, sanitizeTerminalTitle, terminalBufferText, type TerminalSearchOptions } from "./interactions";
+import { screenRows } from "./promptDraft";
+import { registerScreen } from "../state/terminalScreens";
 import { scheduleNextFrame } from "../lib/instrumentation";
 import { stageMoving, whenStageStill } from "../state/nativeViews";
 import { performanceTelemetry } from "../lib/performance";
@@ -40,6 +42,41 @@ const MAX_RENDERER_BACKLOG_BYTES = 8 * 1024 * 1024;
 const MAX_RENDERER_BACKLOG_CHUNKS = 512;
 const RENDERER_STABLE_RESET_MS = 5_000;
 const WEBGL_REQUESTED = terminalWebglRequested(import.meta.env.VITE_TERMINAL_WEBGL);
+
+/*
+ * Starting a terminal lays out the page and draws every row, and a screen that
+ * comes on stage starts all of its terminals at once. Doing that while the
+ * screen slides in froze the slide, so they start once the stage stops, one a
+ * frame, the focused one first.
+ */
+const waitingToStart: Array<() => void> = [];
+let startFrame = 0;
+
+function startNext(): void {
+    startFrame = 0;
+    waitingToStart.shift()?.();
+    if (waitingToStart.length > 0) startFrame = requestAnimationFrame(startNext);
+}
+
+function startInTurn(start: () => void, first: boolean): () => void {
+    let queued = false;
+    const stopWaiting = whenStageStill(() => {
+        queued = true;
+        if (first) waitingToStart.unshift(start);
+        else waitingToStart.push(start);
+        if (!startFrame) startFrame = requestAnimationFrame(startNext);
+    });
+    return () => {
+        stopWaiting();
+        if (!queued) return;
+        const at = waitingToStart.indexOf(start);
+        if (at >= 0) waitingToStart.splice(at, 1);
+        if (waitingToStart.length === 0 && startFrame) {
+            cancelAnimationFrame(startFrame);
+            startFrame = 0;
+        }
+    };
+}
 
 function settlePtyOperation(operation: Promise<unknown>): void {
     // PtyLifecycleController records the operation failure. Renderer event
@@ -181,11 +218,13 @@ export function useXterm(opts: {
     useEffect(() => {
         if (!shouldMount) return;
         const host = hostRef.current!;
+        const unregisterScreen = registerScreen(host, () => (targetRef.current ? screenRows(targetRef.current.term) : []));
         let disposed = false;
         let cleanup = () => {};
         let restartTimer: number | null = null;
         let stableTimer: number | null = null;
         const restartBackoff = new RendererRestartBackoff();
+        let startNow = () => {};
 
         const scheduleRendererRestart = () => {
             if (disposed || restartTimer !== null) return;
@@ -197,7 +236,7 @@ export function useXterm(opts: {
             restartTimer = window.setTimeout(() => {
                 restartTimer = null;
                 delete host.dataset.terminalOutput;
-                bootRef.current();
+                startNow();
             }, decision.delayMs);
         };
 
@@ -284,7 +323,7 @@ export function useXterm(opts: {
             cleanup = disposeResources;
 
             try {
-                const unregisterTheme = registerTerminal(term);
+                const unregisterTheme = registerTerminal(term, () => visibleRef.current);
                 resourceDisposers.push(unregisterTheme);
                 const fit = new FitAddon();
                 const search = new SearchAddon();
@@ -731,40 +770,51 @@ export function useXterm(opts: {
                     ]).catch(() => {});
                 }, 0);
             }, boot);
-        bootRef.current = fontsThenBoot;
+        let stopWaitingToStart: (() => void) | null = null;
+        const startWhenStill = () => {
+            if (disposed || termRef.current || bootingRef.current || stopWaitingToStart) return;
+            stopWaitingToStart = startInTurn(() => {
+                stopWaitingToStart = null;
+                fontsThenBoot();
+            }, activeRef.current);
+        };
+        bootRef.current = startWhenStill;
+        startNow = fontsThenBoot;
 
-        fontsThenBoot();
+        startWhenStill();
 
         return () => {
             disposed = true;
+            stopWaitingToStart?.();
             bootRef.current = () => {};
             if (restartTimer !== null) window.clearTimeout(restartTimer);
             if (stableTimer !== null) window.clearTimeout(stableTimer);
             restartTimer = null;
             stableTimer = null;
             delete host.dataset.terminalOutput;
+            unregisterScreen();
             cleanup();
         };
     }, [shouldMount, hostRef, ptyController]);
 
+    // A screen sliding in keeps its size, so its terminal measures itself once the slide lands rather than in the middle of it.
     useEffect(() => {
         if (!visible) return;
         if (termRef.current) {
+            refreshTerminalTheme(termRef.current);
             scheduleOutputRef.current();
-            window.requestAnimationFrame(resizeRef.current);
-        } else if (shouldMount) {
-            bootRef.current();
+            return whenStageStill(() => resizeRef.current());
         }
+        if (shouldMount) bootRef.current();
     }, [visible, shouldMount]);
 
     useEffect(() => {
         if (!active) return;
         if (termRef.current) {
-            window.requestAnimationFrame(resizeRef.current);
             termRef.current.focus();
-        } else if (shouldMount) {
-            bootRef.current();
+            return whenStageStill(() => resizeRef.current());
         }
+        if (shouldMount) bootRef.current();
     }, [active, shouldMount]);
 
     return controllerRef.current!;

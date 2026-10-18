@@ -3,20 +3,20 @@ import * as cmd from "../state/commands";
 import { getState, useStore } from "../state/store";
 import { RAIL_WIDTH, type RailEdge } from "../lib/railWidths";
 
-const widthOf = (edge: RailEdge) => (edge === "start" ? getState().sideRailWidth : getState().agentRailWidth);
+const widthOf = (edge: RailEdge) => (edge === "start" ? getState().sideRailWidth : getState().tabRailWidth);
 
 export function useRailWidthVars(): void {
     const side = useStore((s) => s.sideRailWidth);
-    const agent = useStore((s) => s.agentRailWidth);
+    const agent = useStore((s) => s.tabRailWidth);
     useLayoutEffect(() => {
         const root = document.documentElement.style;
         root.setProperty("--side-rail-w", `${side}px`);
-        root.setProperty("--agent-rail-w", `${agent}px`);
+        root.setProperty("--tab-rail-w", `${agent}px`);
     }, [side, agent]);
 }
 
 export function RailResizer({ edge }: { edge: RailEdge }) {
-    const width = useStore((s) => (edge === "start" ? s.sideRailWidth : s.agentRailWidth));
+    const width = useStore((s) => (edge === "start" ? s.sideRailWidth : s.tabRailWidth));
     const outward = edge === "start" ? 1 : -1;
 
     const onPointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
@@ -64,7 +64,7 @@ export function RailResizer({ edge }: { edge: RailEdge }) {
             role="separator"
             tabIndex={0}
             aria-orientation="vertical"
-            aria-label={edge === "start" ? "Resize the project rail" : "Resize the agent rail"}
+            aria-label={edge === "start" ? "Resize the project rail" : "Resize the tab rail"}
             aria-valuemin={RAIL_WIDTH[edge].min}
             aria-valuemax={RAIL_WIDTH[edge].max}
             aria-valuenow={width}

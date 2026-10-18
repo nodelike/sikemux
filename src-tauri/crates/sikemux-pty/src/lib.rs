@@ -22,27 +22,11 @@ pub fn validate_pty_dimensions(cols: u16, rows: u16) -> PtyResult<()> {
 
 #[cfg(test)]
 mod tests {
-    use crate::launch::PtyContext;
     use portable_pty::CommandBuilder;
 
     pub(crate) fn env(command: &CommandBuilder, key: &str) -> Option<String> {
         command
             .get_env(key)
             .map(|value| value.to_string_lossy().into_owned())
-    }
-
-    pub(crate) fn local_shell_context() -> PtyContext {
-        PtyContext {
-            session_id: "session-1".into(),
-            session_name: "repo".into(),
-            session_kind: "project".into(),
-            project: Some("/repo".into()),
-            window_id: Some("window-1".into()),
-            pane_id: Some("pane-1".into()),
-            agent_id: None,
-            agent_type: None,
-            initial_prompt_submitted: false,
-            shell_integration: true,
-        }
     }
 }

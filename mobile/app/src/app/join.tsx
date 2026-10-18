@@ -9,10 +9,11 @@ import { DeviceIcon, Icon } from '@/ui/Icon';
 import { haptics } from '@/ui/haptics';
 import { goBack } from '@/ui/navigate';
 import { Button } from '@/ui/controls';
+import { Prompt } from '@/ui/prompt';
 import { Nav, Screen, useBottomGap } from '@/ui/screen';
 import { Working } from '@/ui/status';
 import { offerNotifications } from '@/notify/setting';
-import { fonts, type Palette, radius, translucent, typeFor, useColors, useStyles, useType } from '@/ui/theme';
+import { fonts, type Palette, radius, typeFor, useColors, useStyles, useType } from '@/ui/theme';
 
 function clock(seconds: number): string {
   return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
@@ -67,7 +68,6 @@ export { Crashed as ErrorBoundary } from '@/screens/Crashed';
 
 export default function Join() {
   const styles = useStyles(makeStyles);
-  const colors = useColors();
   const type = useType();
   const { getToken } = useAuth();
   const { core = '', name = 'your host', arrived } = useLocalSearchParams<{ core?: string; name?: string; arrived?: string }>();
@@ -154,15 +154,13 @@ export default function Join() {
           </Text>
         </View>
       ) : (
-        <View style={styles.block}>
-          <Text style={styles.title}>{problem ? problem.title : `Allow this phone on ${name}`}</Text>
-          <Text style={styles.detail}>
-            {problem ? problem.detail : `On ${name}, choose whether to let this phone in, and with what access.`}
-          </Text>
-          <View style={[styles.glyph, problem && styles.glyphFailed]}>
-            <DeviceIcon kind="laptop" size={34} color={problem ? colors.danger : colors.ink} />
-          </View>
-        </View>
+        <Prompt
+          icon="laptop"
+          tone={problem ? 'danger' : 'neutral'}
+          title={problem ? problem.title : `Allow this phone on ${name}`}
+          detail={problem?.detail}
+          style={styles.block}
+        />
       )}
       <View style={[styles.footer, { paddingBottom: bottom }]}>
         {problem ? (
@@ -184,20 +182,7 @@ export default function Join() {
 const makeStyles = (colors: Palette) => {
   const type = typeFor(colors);
   return StyleSheet.create({
-    block: { flex: 1, paddingTop: 40, paddingHorizontal: 28, alignItems: 'center' },
-    title: { ...type.title, fontSize: 22, textAlign: 'center' },
-    detail: { ...type.body, textAlign: 'center', marginTop: 8, minHeight: 44 },
-    glyph: {
-      marginTop: 32,
-      width: 76,
-      height: 76,
-      borderRadius: 18,
-      alignItems: 'center',
-      justifyContent: 'center',
-      borderWidth: 1,
-      borderColor: colors.borderStrong,
-      backgroundColor: colors.raised,
-    },
+    block: { flex: 1 },
     found: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 30 },
     foundTitle: { ...type.title, fontSize: 25, lineHeight: 29, letterSpacing: -0.75, textAlign: 'center', marginTop: 28 },
     foundDetail: { ...type.body, textAlign: 'center', marginTop: 10 },
@@ -228,7 +213,6 @@ const makeStyles = (colors: Palette) => {
       shadowRadius: 5,
       shadowOffset: { width: 0, height: 0 },
     },
-    glyphFailed: { borderColor: translucent(colors.danger, 0.55), backgroundColor: translucent(colors.danger, 0.08) },
     footer: { paddingHorizontal: 16, paddingTop: 12, gap: 8 },
     waiting: {
       minHeight: 52,

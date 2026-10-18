@@ -75,15 +75,6 @@ textarea:focus,
     padding-right: 16px;
 }
 
-.tb-btn,
-.env-dd-btn,
-.zoom-pill,
-.voice-pill,
-.tb-git-chip,
-.tb-deploy-chip {
-    border-radius: var(--radius-xs);
-}
-
 .tb-btn {
     width: 30px;
     height: 30px;
@@ -95,12 +86,12 @@ textarea:focus,
     width: var(--side-rail-w);
 }
 
-/* Agent rail: a little wider so titles, provider identity, and timestamps do
+/* Tab rail: a little wider so titles, provider identity, and timestamps do
  * not compete for the same 250px. The 34px icon gutter is added to that, not
  * taken out of it — a rail that pays for its own chrome by truncating agent
  * titles is a worse rail. */
 .workspace-rail {
-    width: var(--agent-rail-w);
+    width: var(--tab-rail-w);
 }
 
 /* The brand was a 62px slab: a bordered, tinted logo tile next to heavily
@@ -164,6 +155,137 @@ textarea:focus,
     margin-left: auto;
 }
 
+/* The rail's foot: who is signed in, or a card asking them to. */
+.rail-account {
+    display: flex;
+    align-items: center;
+    gap: var(--space-1);
+    flex: 0 0 auto;
+    padding: var(--space-1h) var(--gutter-rail);
+    border-top: 1px solid var(--border);
+}
+
+.rail-account-row {
+    display: flex;
+    flex: 1;
+    align-items: center;
+    gap: var(--space-2);
+    min-width: 0;
+    height: 36px;
+    padding: 0 var(--space-1h);
+    border-radius: var(--radius-2);
+    background: transparent;
+    text-align: left;
+    transition: background var(--dur-1) linear;
+}
+
+.rail-account-row:hover,
+.rail-account-row.open {
+    background: var(--surface-hover);
+}
+
+.rail-account-face {
+    display: grid;
+    place-items: center;
+    flex: none;
+    width: 24px;
+    height: 24px;
+    border-radius: var(--radius-full);
+    box-shadow: 0 0 0 1px var(--border);
+    background: var(--surface-raised);
+    color: var(--text-secondary);
+    font-size: 9px;
+    font-weight: var(--weight-semibold);
+    object-fit: cover;
+}
+
+.rail-account-who {
+    display: grid;
+    min-width: 0;
+    line-height: 1.3;
+}
+
+.rail-account-who > * {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.rail-account-who > b {
+    color: var(--text-primary);
+    font-size: var(--text-xs);
+    font-weight: var(--weight-medium);
+}
+
+.rail-account-who > span {
+    color: var(--text-tertiary);
+    font-size: var(--text-2xs);
+}
+
+.rail-account-settings {
+    display: grid;
+    place-items: center;
+    flex: none;
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    color: var(--text-tertiary);
+    background: transparent;
+    transition:
+        background var(--dur-1) linear,
+        color var(--dur-1) linear;
+}
+
+.rail-account-settings:hover {
+    color: var(--text-primary);
+    background: var(--surface-hover);
+}
+
+.rail-sign-in {
+    display: grid;
+    gap: var(--space-2);
+    flex: 0 0 auto;
+    margin: 0 var(--gutter-rail) var(--gutter-rail);
+    padding: var(--space-2);
+    border-radius: var(--radius-2);
+    background: color-mix(in oklab, var(--ink) 4%, transparent);
+}
+
+.rail-sign-in > p {
+    margin: 0;
+    color: var(--text-secondary);
+    font-size: var(--text-xs);
+    line-height: 1.4;
+}
+
+.rail-sign-in-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-1h);
+    height: 28px;
+    border: 1px solid var(--border);
+    background: transparent;
+    color: var(--text-primary);
+    font-size: var(--text-xs);
+    font-weight: var(--weight-medium);
+}
+
+.rail-sign-in-btn:hover {
+    background: var(--surface-hover);
+}
+
+.rail-sign-in-btn.primary {
+    border-color: var(--acc);
+    background: var(--acc);
+    color: var(--on-accent);
+}
+
+.rail-sign-in-btn.primary:hover {
+    background: var(--acc);
+    filter: brightness(1.08);
+}
+
 .rail-update {
     position: relative;
     overflow: hidden;
@@ -174,14 +296,11 @@ textarea:focus,
     margin: 0 var(--gutter-rail) var(--space-2);
     height: 30px;
     padding: 0 11px;
-    background: var(--surface-selected);
-    border: 1px solid var(--border-selected);
-    color: var(--acc);
-    font-family: var(--mono);
-    font-size: var(--text-2xs);
-    font-weight: var(--weight-semibold);
-    letter-spacing: 0.04em;
-    text-transform: lowercase;
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text-primary);
+    font-size: var(--text-xs);
+    font-weight: var(--weight-medium);
     text-align: left;
     transition:
         background var(--dur-1),
@@ -194,23 +313,33 @@ textarea:focus,
     border-color: var(--border-strong);
 }
 
+.rail-update-available {
+    border-color: var(--acc);
+    background: var(--acc);
+    color: var(--on-accent);
+}
+
+.rail-update-available:hover:not(:disabled) {
+    border-color: var(--acc);
+    background: var(--acc);
+    filter: brightness(1.08);
+}
+
 .rail-update-preparing,
 .rail-update-downloading,
 .rail-update-installing,
 .rail-update-restarting {
-    color: var(--warn);
-    border-color: color-mix(in srgb, var(--warn) 45%, transparent);
+    color: var(--text-secondary);
     animation: tb-update-pulse 1.4s ease-in-out infinite;
     cursor: progress;
 }
 
-.rail-update-error {
-    color: var(--danger);
-    border-color: color-mix(in srgb, var(--danger) 50%, transparent);
+.rail-update-waiting {
+    color: var(--text-secondary);
 }
 
-.rail-update-error:hover {
-    background: color-mix(in srgb, var(--danger) 12%, transparent);
+.rail-update-error > svg {
+    color: var(--danger);
 }
 
 .rail-update-measured {
@@ -221,7 +350,7 @@ textarea:focus,
     position: absolute;
     inset: 0;
     transform-origin: left center;
-    background: color-mix(in srgb, var(--warn) 20%, transparent);
+    background: var(--surface-chosen);
     transition: transform 0.18s linear;
     pointer-events: none;
 }
@@ -313,12 +442,12 @@ textarea:focus,
     color: var(--text-primary);
 }
 
+/* What you are on is lifted by a soft grey fill alone, with no colour or edge. */
 .sess-row.active,
 .proj-row.expanded,
 .proj-child.active,
 .agent-row.active {
-    background: var(--surface-selected);
-    box-shadow: inset 0 0 0 1px var(--border-selected);
+    background: var(--surface-chosen);
     color: var(--text-primary);
 }
 
@@ -371,11 +500,6 @@ textarea:focus,
     --mark: 22px;
 }
 
-/* Provider logos read at the agents' glyph size, so they take the whole slot. */
-.rail-logos {
-    --mark: var(--row-slot);
-}
-
 .agent-row .agent-glyph,
 .proj-row .proj-folder,
 .sess-row .sess-icon,
@@ -394,6 +518,7 @@ textarea:focus,
 }
 
 .row-x,
+.row-pin,
 .tab-x {
     display: grid;
     place-items: center;
@@ -423,6 +548,19 @@ textarea:focus,
     top: 50%;
     right: var(--row-inset);
     transform: translateY(-50%);
+    border-radius: var(--radius-2);
+}
+
+.row-pin {
+    position: absolute;
+    z-index: 3;
+    top: 50%;
+    right: calc(var(--row-inset) + var(--row-slot));
+    transform: translateY(-50%);
+}
+
+.agent-row-wrap:has(> .row-pin):is(:hover, :focus-within) > .agent-row {
+    padding-right: calc(var(--row-inset) + 2 * var(--row-slot) + var(--space-1));
 }
 
 .session-row-shell > .sess-row,
@@ -472,11 +610,48 @@ textarea:focus,
     transform: translateY(-50%);
 }
 
+.status-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: var(--radius-full);
+}
+
+.status-dot.ok {
+    background: var(--live);
+}
+
+.status-dot.pending {
+    background: var(--warn);
+    animation: statusDotPulse 1.2s ease-in-out infinite alternate;
+}
+
+.status-dot.idle {
+    box-shadow: inset 0 0 0 1.5px var(--text-tertiary);
+}
+
+.status-dot.failed {
+    background: var(--danger);
+}
+
+@keyframes statusDotPulse {
+    to {
+        opacity: 0.45;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .status-dot.pending {
+        animation: none;
+    }
+}
+
 /* Revealed by the pointer, and by the keyboard when it lands there — a close
    you can only reach with a mouse is a close half the app cannot use. Selection
    does not reveal it: a row you are looking at is not a row you are closing. */
 .session-row-shell:hover > .row-x,
 .agent-row-wrap:hover > .row-x,
+.agent-row-wrap:hover > .row-pin,
+.row-pin:focus-visible,
 .tab-wrap:hover .tab-x,
 .row-x:focus-visible,
 .tab-x:focus-visible {
@@ -486,10 +661,49 @@ textarea:focus,
 
 .tab-wrap:hover .tab-status,
 .tab-wrap:has(.tab-x:focus-visible) .tab-status,
-.session-row-shell:hover > .row-status,
+.session-row-shell:hover:has(> .row-x) > .row-status,
 .session-row-shell:has(> .row-x:focus-visible) > .row-status,
 .agent-row-wrap:hover > .row-status,
 .agent-row-wrap:has(> .row-x:focus-visible) > .row-status {
+    opacity: 0;
+}
+
+/* An agent tab with no status lets its name reach the end, and gives that end to the close on hover. */
+.tab-wrap:has(.tab-note):not(:has(.tab-status)) {
+    position: relative;
+}
+
+.tab-wrap:has(.tab-note):not(:has(.tab-status)) > .tab-tail {
+    position: absolute;
+    top: 50%;
+    right: var(--space-1);
+    margin: 0;
+    transform: translateY(-50%);
+}
+
+.tab-wrap:has(.tab-note):not(:has(.tab-status)) .tab-note {
+    transition: opacity var(--dur-1) linear;
+}
+
+.tab-wrap:has(.tab-note):not(:has(.tab-status)):is(:hover, :has(.tab-x:focus-visible)) .tab-note {
+    opacity: 0;
+}
+
+/* With no status to show, a row's subagent and shell counts take the trailing
+   slot themselves and give it to the close on hover, as the spinner does. */
+.agent-row-wrap:not(:has(> .row-status)) > .agent-row {
+    padding-right: calc(var(--row-inset) + var(--space-1));
+}
+
+.agent-row-wrap:not(:has(> .row-status)) .work-counts,
+.agent-row-wrap:not(:has(> .row-status)) .agent-row-name {
+    transition: opacity var(--dur-1) linear;
+}
+
+.agent-row-wrap:not(:has(> .row-status)):hover .work-counts,
+.agent-row-wrap:not(:has(> .row-status)):hover .agent-row-name,
+.agent-row-wrap:not(:has(> .row-status)):has(> .row-x:focus-visible) .work-counts,
+.agent-row-wrap:not(:has(> .row-status)):has(> .row-x:focus-visible) .agent-row-name {
     opacity: 0;
 }
 
@@ -498,6 +712,12 @@ textarea:focus,
 .agent-row-wrap:hover > .agent-row:not(.active) {
     background: var(--surface-hover);
     color: var(--text-primary);
+}
+
+.agent-row.remote,
+.agent-row-wrap:hover > .agent-row.remote {
+    background: transparent;
+    cursor: default;
 }
 
 .proj-row-status {
@@ -526,6 +746,15 @@ textarea:focus,
 .tab-x:hover {
     color: var(--danger);
     background: color-mix(in srgb, var(--danger) 18%, transparent);
+}
+
+.row-pin:hover {
+    color: var(--text-primary);
+    background: var(--surface-hover);
+}
+
+.row-pin.pinned {
+    color: var(--text-secondary);
 }
 
 .sess-name,
@@ -577,24 +806,6 @@ textarea:focus,
     gap: var(--space-2);
 }
 
-/* The rail's other headers are one row, so they share a tight padding. This
-   one ends in the provider tiles, which need clearance from the rule below. */
-.workspace-rail .agent-header {
-    padding-bottom: var(--space-3);
-}
-
-/* The provider switch spans the rail instead of competing with the title. */
-.agent-header-types {
-    display: flex;
-    gap: var(--space-1);
-}
-.agent-header-types > * {
-    flex: 1 1 0;
-}
-.agent-header-types .agent-header-btn {
-    width: 100%;
-}
-
 /* Now the rail's only name for this panel — the tab strip that used to say it
  * first is gone — but a rail header is a signpost, not a masthead. */
 .agent-header-label {
@@ -602,25 +813,6 @@ textarea:focus,
     font-size: var(--text-xs);
     font-weight: var(--weight-medium);
     letter-spacing: var(--tracking-normal);
-}
-
-.agent-header-types,
-.agent-header-actions {
-    gap: 4px;
-}
-
-.agent-header-types {
-    flex: 0 0 auto;
-}
-
-.agent-header-btn {
-    width: 32px;
-    height: 32px;
-    border-radius: var(--radius-xs);
-}
-
-.agent-header-btn.active {
-    box-shadow: inset 0 0 0 1px color-mix(in srgb, currentColor 24%, transparent);
 }
 
 .agent-usage {
@@ -637,12 +829,8 @@ textarea:focus,
     padding-inline: var(--space-2);
 }
 
-.agent-usage-row + .agent-usage-row {
-    margin-top: var(--space-3);
-}
-
 .agent-usage-head {
-    margin-bottom: 11px;
+    margin-bottom: 9px;
 }
 
 .rail-search {
@@ -678,14 +866,6 @@ textarea:focus,
 .agent-ago {
     font-family: var(--mono);
     font-size: var(--text-2xs);
-}
-
-.agent-empty {
-    margin: 12px;
-    padding: 16px;
-    border: 1px dashed var(--line);
-    border-radius: var(--radius-md);
-    background: color-mix(in srgb, var(--rail-2) calc(var(--window-opacity, 1) * 36%), transparent);
 }
 
 .workspace-rail .rail-scroll::-webkit-scrollbar {
@@ -727,7 +907,7 @@ textarea:focus,
 }
 
 .tabbar .tab-group.active {
-    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--acc) 28%, var(--border));
+    box-shadow: inset 0 0 0 1px var(--border-strong);
 }
 
 /* Registered so the tint can fade; a gradient on its own snaps between states. */
@@ -752,15 +932,11 @@ textarea:focus,
     border-radius: var(--radius-2);
     background: color-mix(in srgb, var(--surface) var(--panel-solidity), transparent);
     background-image: linear-gradient(var(--tab-tint), var(--tab-tint));
-    /* Full strength rather than 62%: the strip used to sit against the screen
-       card's lit top edge, and now it sits against the wallpaper, where a
-       hairline at two thirds of --border stopped reading as an edge at all. */
-    box-shadow: inset 0 0 0 1px var(--border);
-    color: var(--text-tertiary);
+    box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--ink) 6%, transparent);
+    color: var(--text-secondary);
     overflow: hidden;
     transition:
         --tab-tint 200ms var(--ease-out),
-        box-shadow 200ms var(--ease-out),
         color 200ms var(--ease-out);
 }
 
@@ -778,22 +954,21 @@ textarea:focus,
 .tabbar.v-desk .tab-wrap:hover,
 .tabbar.v-stack .tab-wrap:hover {
     --tab-tint: var(--surface-hover);
-    box-shadow: inset 0 0 0 1px var(--border);
     color: var(--text-secondary);
 }
 
+/* The chosen tab is lifted by a soft grey fill alone; the others keep only a faint edge and step back. */
 .tabbar.v-agent .tab-wrap.active,
 .tabbar.v-editor .tab-wrap.active,
 .tabbar.v-desk .tab-wrap.active,
 .tabbar.v-stack .tab-wrap.active {
-    --tab-tint: var(--surface-selected);
-    box-shadow: inset 0 0 0 1px var(--border-selected);
+    --tab-tint: var(--surface-chosen);
+    box-shadow: none;
     color: var(--text-primary);
 }
 
-/* The label inherits the tab's colour, so the three states are one decision
- * above rather than six rules. Weight stays put between them: a label that
- * gains 100 weight on selection reflows the strip by a pixel or two. */
+/* A label takes its tab's ink, so the chosen one reads brighter. Weight stays put between states: a
+ * label that gains 100 weight on selection reflows the strip by a pixel or two. */
 .tabbar.v-agent .tab-label,
 .tabbar.v-editor .tab-label,
 .tabbar.v-desk .tab-label,
@@ -821,7 +996,6 @@ textarea:focus,
 .tree-ctx-menu,
 .space-pop,
 .terminal-menu,
-.chat-slash-menu,
 .chat-picker-menu {
     border: 1px solid var(--border);
     /* Not scaled by --window-opacity. A translucent window is a choice about
@@ -928,7 +1102,7 @@ textarea:focus,
     left: calc(var(--shell-gap) * 1.5 + var(--side-rail-w));
 }
 .rail-resizer--end {
-    right: calc(var(--shell-gap) * 1.5 + var(--agent-rail-w));
+    right: calc(var(--shell-gap) * 1.5 + var(--tab-rail-w));
     transform: translateX(50%);
 }
 
@@ -953,7 +1127,7 @@ textarea:focus,
 }
 
 .rail-peek--end {
-    --rail-peek-width: var(--agent-rail-w);
+    --rail-peek-width: var(--tab-rail-w);
     --rail-peek-offset: calc(100% + var(--shell-gap));
     right: 0;
 }
@@ -1071,238 +1245,54 @@ html.is-transparent .rail-peek-panel > .workspace-rail {
 }
 
 /* ---- Geometry ------------------------------------------------------------
- * One radius per role, and the role is what the element *is*, not how big it
- * happens to be.
- *
- * This used to be six blocks in two places, and they disagreed: the palette,
- * the dialogs and the agent meters were each listed twice at two different
- * radii, so which corner you got came down to which block was written last.
- * Anything not on a list kept square corners, which is how a square input
- * ended up sitting beside a rounded button.
- *
- * Still `!important`, and that is not laziness. Nineteen component sheets are
- * imported ahead of this one and most set their own corners; overriding them
- * by specificity would mean a longer selector for every rule and a new one
- * every time a sheet grew a nested case. The order below is the whole
- * mechanism — each block overrides the one above it, so read it top to bottom
- * and the last mention of a selector wins.
+ * Corners for elements no sheet has given one. Each component sets its own;
+ * these only stop a bare control or a float from being square.
  */
-
-/* Controls: buttons, fields, rows, menu items. The app's default corner.
- *
- * `.tabbar` is deliberately absent. It was listed here once, but a full-width
- * strip is not a control, and the control corner is not the corner it wants.
- * The workspace strip rounds itself at the panel radius, up with its border.
- * Neither is a menu's search field: it runs edge to edge with a line under it,
- * and a corner would bend that line up at both ends. */
-button,
-input:not(.chat-picker-menu > input),
-select,
-textarea,
-.shell
-    :where(
-        .top-bar,
-        .tb-btn,
-        .env-dd-btn,
-        .env-dd-item,
-        .sess-row,
-        .row-x,
-        .proj-row,
-        .proj-child,
-        .agent-header-btn,
-        .rail-search,
-        .agent-row,
-        .dlg-input,
-        .dlg-btn,
-        .tip,
-        .cbx-box,
-        .picker-item,
-        .rnd-btn,
-        .bruno-send,
-        .bruno-save,
-        .bruno-input,
-        .bruno-icon-btn,
-        .bruno-secrets-btn,
-        .bruno-resp-status,
-        .settings-theme-act,
-        .settings-knob-num,
-        .settings-depth,
-        .settings-rail-item,
-        .settings-topbar-close,
-        .settings-row-x,
-        .keymap-recorder,
-        .keymap-reset,
-        .theme-editor-tab,
-        .theme-field,
-        .gg-ref
-    ) {
-    border-radius: var(--radius-2) !important;
+:where(button, select, textarea, input:not([type="range"], [type="color"], [type="checkbox"], [type="radio"])) {
+    border-radius: var(--radius-2);
 }
 
-/* Every remaining text field by role, so a sheet does not have to be listed
- * above to stop being square. Range, colour, checkbox and radio opt out —
- * their shape is the control. */
-.shell :where(input, textarea, select):not([type="range"], [type="color"], [type="checkbox"], [type="radio"], .chat-picker-menu > input) {
-    border-radius: var(--radius-2) !important;
+:where(kbd, code) {
+    border-radius: var(--radius-1);
 }
 
-/* Rows that are not buttons. A settings row or a keymap row is a div, so the
- * bare `button` rule above never reaches it and it sat square beside rows that
- * happened to be clickable. */
-.shell :where(.git-modal-suggestion, .git-modal-suggestions) {
-    border-radius: var(--radius-2) !important;
+:where(pre) {
+    border-radius: var(--radius-2);
 }
 
-/* Panels: the frame's own surfaces, which stay put. `.stage` is not one of
- * them any more — it is the gutter the strip and the screen sit in. The cards
- * are the same surface at a smaller size: a bordered block the pane puts in
- * the middle of itself to say it is empty, busy, or asking to sign in. */
-.shell
-    :where(
-        .side-rail,
-        .workspace-rail,
-        .agent-usage,
-        .agent-empty,
-        .aws-account,
-        .git-busy-card,
-        .rnd-conn,
-        .settings-list,
-        .settings-empty,
-        .theme-pick-current,
-        .theme-pick-list,
-        .keymap-list,
-        .custom-command-list,
-        .cli-paths,
-        .cli-usage,
-        .devices-row,
-        .devices-panel,
-        .provider-profile-layout,
-        .theme-editor,
-        .theme-preview,
-        .agent-mode-settings button
-    ) {
-    border-radius: var(--radius-3) !important;
+:where([role="menu"], [role="dialog"], [role="listbox"]) {
+    border-radius: var(--radius-4);
 }
 
-/* Floating: anything that leaves the frame and casts a shadow. A softer
- * corner than the panels, because height reads as distance.
- *
- * Deliberately not scoped to `.shell`. Menus portal into `document.body`, so
- * an ancestor-scoped rule never reaches them — that is how a right-click menu
- * kept square corners while the buttons inside it, matched by the bare
- * `button` rule above, rounded. A float is known by what it is, not by where
- * it happens to be mounted, so `[role="menu"]` catches the ones that move.
- * The address bar's suggestions are the lower half of its field, not a float. */
-:where(
-    .picker,
-    .command-palette,
-    .command-popup,
-    .session-switcher,
-    .env-dd-menu,
-    .dd-menu,
-    .tree-ctx-menu,
-    .terminal-menu,
-    .chat-slash-menu,
-    .chat-picker-menu,
-    .bruno-secrets-pop,
-    .dlg,
-    [role="menu"],
-    [role="dialog"],
-    [role="listbox"]:not(.address-suggestions)
-) {
-    border-radius: var(--radius-4) !important;
-}
-
-/* The one dialog that does not float. The settings pane fills the stage the
- * way a screen does, so it takes the stage's corner, not a palette's. */
-.shell .settings-pane {
-    border-radius: var(--radius-3) !important;
-}
-
-/* Inline marks by role, so a sheet does not have to be listed below to stop
- * being square. A `kbd` or an inline `code` chip is the smallest surface in
- * the app and takes the smallest corner; a `pre` is a block, so it takes the
- * control corner. Either only shows a corner if the sheet gave it a surface. */
-.shell :where(kbd, code) {
-    border-radius: var(--radius-1) !important;
-}
-
-.shell :where(pre) {
-    border-radius: var(--radius-2) !important;
-}
-
-/* Chips: the smallest marks, where the control radius reads as a pill.
- * The top bar's status chips live here — they are buttons, not badges, so
- * they take a rounded rectangle rather than the capsule they used to. A
- * view-switch half sits inset inside a rounded capsule, so it needs the
- * smaller corner to nest inside the one around it. */
-.shell
-    :where(
-        .git-menu-key,
-        .git-chip,
-        .panel-akbd,
-        .picker-tag,
-        .bruno-tab-count,
-        .command-palette-shortcut,
-        .tb-git-chip,
-        .tb-deploy-chip,
-        .gha-topbar,
-        .zoom-pill,
-        .voice-pill,
-        .agent-view-switch button
-    ) {
-    border-radius: var(--radius-1) !important;
-}
-
-/* Round by nature: sliders, and the status dots that genuinely are capsules.
- * This replaces a blanket `[class*="pill"], [class*="chip"]` rule, which
- * capsuled every toolbar button that happened to be named one. */
-.shell
-    :where(
-        .swx-track,
-        .swx-thumb,
-        .sld input[type="range"],
-        .sld input[type="range"]::-webkit-slider-runnable-track,
-        .sld input[type="range"]::-webkit-slider-thumb,
-        .aws-live,
-        .aws-live i,
-        .rnd-live,
-        .rnd-live i,
-        .chat-send,
-        .chat-project-trigger,
-        .chat-picker-trigger,
-        .chat-composer-bar .yolo-toggle,
-        .chat-project-strip .worktree-toggle,
-        .agent-surface-header button,
-        .tb-account,
-        .tb-account-face
-    ) {
-    border-radius: var(--radius-full) !important;
-}
-
-/* ---- Agent rail header ---------------------------------------------------
- * The provider buttons only had a surface when active, so the row read as one
- * boxed icon among loose glyphs, and the usage meter was a hard bar pinned to
- * the bottom edge — it collided with the button's rounded corner.
+/* ---- Tab rail header ---------------------------------------------------
+ * The chosen provider's name is the picker for the others: bare until hovered,
+ * so it reads as the title it replaces.
  */
-.agent-header-btn {
-    /* Each provider keeps its full mark colour; the tile's border and tint mark the selected one. */
-    color: var(--agent-provider);
-    background: color-mix(in srgb, var(--rail-2) calc(var(--window-opacity, 1) * 55%), transparent);
-    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--line) 66%, transparent);
+.dd-btn.agent-picker {
+    gap: 7px;
+    height: 28px;
+    margin-left: calc(-1 * var(--space-1h));
+    padding: 0 var(--space-1h);
+    border-color: transparent;
+    background: transparent;
+    font-size: var(--text-sm);
+    font-weight: var(--weight-semibold);
+    letter-spacing: var(--tracking-tight);
 }
 
-.agent-header-btn:hover:not(:disabled) {
-    color: var(--agent-provider);
+.dd-btn.agent-picker:hover:not(:disabled) {
+    border-color: transparent;
+    background: var(--surface-hover);
 }
 
-.agent-header-btn.active {
-    color: var(--agent-provider);
-    background: color-mix(in srgb, var(--agent-provider) 12%, transparent);
-    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--agent-provider) 34%, transparent);
+.dd-btn.agent-picker[aria-expanded="true"] {
+    border-color: transparent;
+    background: var(--surface-chosen);
+    box-shadow: none;
 }
 
 .agent-header-name {
+    flex: none;
     display: flex;
     align-items: center;
     gap: 7px;
@@ -1316,16 +1306,6 @@ textarea,
     letter-spacing: var(--tracking-tight);
     text-overflow: ellipsis;
     white-space: nowrap;
-}
-
-.agent-header-plan {
-    flex: 0 0 auto;
-    padding: 1px 5px;
-    border: 1px solid var(--border);
-    border-radius: var(--radius-chip);
-    color: var(--text-tertiary);
-    font-family: var(--mono);
-    font-size: var(--text-3xs);
 }
 
 .agent-header-actions {
@@ -1350,8 +1330,7 @@ textarea,
 
 .agent-header-action[aria-pressed="true"] {
     color: var(--text-primary);
-    background: var(--surface-selected);
-    box-shadow: inset 0 0 0 1px var(--border-selected);
+    background: var(--surface-chosen);
 }
 
 .agent-header-action:disabled {

@@ -20,6 +20,8 @@ const AGENT_EFFORTS: Readonly<Record<AgentType, readonly AgentEffort[]>> = {
     opencode: [],
     omp: ["off", "minimal", "low", "medium", "high", "xhigh", "max"],
     grok: ["none", "minimal", "low", "medium", "high", "xhigh", "max"],
+    // Meta's provider refuses "none".
+    muse: ["minimal", "low", "medium", "high", "xhigh", "max", "ultra"],
 };
 
 export const AGENT_PERMISSION_MODES: readonly AgentPermissionMode[] = ["workspace-write", "bypass"];
@@ -31,7 +33,7 @@ export function supportedPermissionModes(type: AgentType): readonly AgentPermiss
 /** Agents the built-in chat can drive over ACP. Pi has no ACP mode of its own. */
 export type ChatAgentType = Exclude<AgentType, "pi">;
 
-export const CHAT_AGENT_TYPES: readonly ChatAgentType[] = ["codex", "claude", "opencode", "omp", "grok", "hermes"];
+export const CHAT_AGENT_TYPES: readonly ChatAgentType[] = ["codex", "claude", "opencode", "omp", "grok", "hermes", "muse"];
 
 export function agentSupportsChat(type: AgentType): type is ChatAgentType {
     return (CHAT_AGENT_TYPES as readonly AgentType[]).includes(type);
@@ -106,7 +108,7 @@ export function agentLaunchArgs(type: AgentType, options: AgentLaunchOptions = {
         else if (type === "hermes") providerArgs.push("--reasoning", effort);
         else if (type === "pi") providerArgs.push("--thinking", effort);
         else if (type === "omp") providerArgs.push("--thinking", effort);
-        else if (type === "grok") providerArgs.push("--reasoning-effort", effort);
+        else if (type === "grok" || type === "muse") providerArgs.push("--reasoning-effort", effort);
     }
     if (options.permissionMode) providerArgs.push(...permissionArgs(type, options.permissionMode));
 
@@ -141,5 +143,6 @@ export function permissionArgs(type: AgentType, mode: AgentPermissionMode): stri
     if (type === "hermes" && mode === "bypass") return ["--yolo"];
     if (type === "omp" && mode === "bypass") return ["--approval-mode", "yolo"];
     if (type === "grok" && mode === "bypass") return ["--permission-mode", "bypassPermissions"];
+    if (type === "muse" && mode === "bypass") return ["--yolo"];
     return [];
 }

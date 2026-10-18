@@ -27,10 +27,11 @@ fn status(group: AgentGroup) -> AgentStatus {
     }
 }
 
-pub(crate) fn show_chat(chat: &mut ChatInfo) {
+/// `asking` says the agent waits on the person to answer its question.
+pub(crate) fn show_chat(chat: &mut ChatInfo, asking: bool) {
     chat.group = group(
-        !chat.pending_permissions.is_empty(),
-        chat.running,
+        asking || !chat.pending_permissions.is_empty(),
+        chat.running || chat.subagents > 0,
         chat.unread,
     );
     chat.status = match chat.group {
@@ -42,13 +43,13 @@ pub(crate) fn show_chat(chat: &mut ChatInfo) {
     };
 }
 
-pub(crate) fn show_session(session: &mut SessionInfo) {
+pub(crate) fn show_session(session: &mut SessionInfo, asking: bool) {
     if session.kind != SessionKind::Terminal || session.agent_id.is_none() {
         return;
     }
     let state = session.agent_state.as_deref();
     let shown = group(
-        state == Some("blocked"),
+        asking || state == Some("blocked"),
         state == Some("working"),
         session.unread,
     );

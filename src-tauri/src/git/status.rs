@@ -1,10 +1,12 @@
-use std::sync::Mutex;
+use std::collections::HashMap;
+use std::path::Path;
+use std::sync::{Mutex, OnceLock};
+use std::time::{Duration, Instant};
 
 use git2::{BranchType, Repository, Status, StatusOptions};
 use serde::Serialize;
 
-use super::log::GitOverview;
-use super::{git_walk_permit, open_repo, run_blocking};
+use super::{flight_key, git_walk_permit, open_repo, run_blocking, shared, Flights};
 
 #[derive(Serialize, Clone)]
 pub struct GitFile {
@@ -20,6 +22,18 @@ pub struct GitStatus {
     ahead: i32,
     behind: i32,
     files: Vec<GitFile>,
+}
+
+impl GitStatus {
+    fn clone_head(&self) -> Self {
+        Self {
+            branch: self.branch.clone(),
+            upstream: self.upstream.clone(),
+            ahead: self.ahead,
+            behind: self.behind,
+            files: Vec::new(),
+        }
+    }
 }
 
 #[derive(Serialize, Clone, Debug)]
@@ -70,11 +84,13 @@ fn status_chars(s: Status) -> (char, char) {
 }
 
 pub(super) fn read_status(repo: &Repository) -> Result<GitStatus, String> {
-    let mut opts = StatusOptions::new();
-    opts.include_untracked(true)
-        .recurse_untracked_dirs(true)
-        .renames_head_to_index(true);
+    let mut status = read_head(repo);
+    status.files = read_files(repo, &[])?;
+    Ok(status)
+}
 
+/// The checked out branch and how far it is from its upstream, with no files.
+fn read_head(repo: &Repository) -> GitStatus {
     let mut status = GitStatus {
         branch: String::new(),
         upstream: None,
@@ -117,7 +133,22 @@ pub(super) fn read_status(repo: &Repository) -> Result<GitStatus, String> {
             }
         }
     }
+    status
+}
 
+/// The changed files, or only those at or below `paths` when there are any.
+fn read_files(repo: &Repository, paths: &[String]) -> Result<Vec<GitFile>, String> {
+    let mut opts = StatusOptions::new();
+    opts.include_untracked(true)
+        .recurse_untracked_dirs(true)
+        .renames_head_to_index(true);
+    if !paths.is_empty() {
+        opts.disable_pathspec_match(true);
+        for path in paths {
+            opts.pathspec(path);
+        }
+    }
+    let mut files = Vec::new();
     let statuses = repo
         .statuses(Some(&mut opts))
         .map_err(|e| e.message().to_string())?;
@@ -130,13 +161,13 @@ pub(super) fn read_status(repo: &Repository) -> Result<GitStatus, String> {
         if x == ' ' && y == ' ' {
             continue;
         }
-        status.files.push(GitFile {
+        files.push(GitFile {
             path,
             index: x.to_string(),
             worktree: y.to_string(),
         });
     }
-    Ok(status)
+    Ok(files)
 }
 
 /// A walk of a repo stays good until its watcher says the tree moved. Saving a
@@ -147,16 +178,27 @@ pub(super) fn read_status(repo: &Repository) -> Result<GitStatus, String> {
 /// the answer stopped being true.
 const REPO_WALK_CACHE_REPOS: usize = 32;
 
-type WalkCache<T> = Mutex<std::collections::HashMap<String, (u64, T)>>;
+/// How long a status may be carried forward by reading again only the paths
+/// the watcher saw move. The watcher skips build and dependency folders and
+/// cannot see ignore rules kept outside the tree, so it is walked whole again
+/// after this.
+const PATCHED_STATUS_LIFETIME: Duration = Duration::from_secs(30);
 
-pub(super) fn status_cache() -> &'static WalkCache<GitStatus> {
-    static C: std::sync::OnceLock<WalkCache<GitStatus>> = std::sync::OnceLock::new();
-    C.get_or_init(|| Mutex::new(std::collections::HashMap::new()))
+/// More moved paths than this read faster in one whole walk.
+const MAX_PATCHED_PATHS: usize = 1024;
+
+pub(super) type WalkCache<T> = Mutex<HashMap<String, (u64, T)>>;
+
+#[derive(Clone)]
+pub(super) struct StatusWalk {
+    /// When the files were last read in a whole walk rather than patched.
+    walked_at: Instant,
+    status: GitStatus,
 }
 
-pub(super) fn overview_cache() -> &'static WalkCache<GitOverview> {
-    static C: std::sync::OnceLock<WalkCache<GitOverview>> = std::sync::OnceLock::new();
-    C.get_or_init(|| Mutex::new(std::collections::HashMap::new()))
+fn status_cache() -> &'static WalkCache<StatusWalk> {
+    static C: OnceLock<WalkCache<StatusWalk>> = OnceLock::new();
+    C.get_or_init(Default::default)
 }
 
 pub(super) fn watched_generation(repo: &str) -> Option<(String, u64)> {
@@ -166,11 +208,14 @@ pub(super) fn watched_generation(repo: &str) -> Option<(String, u64)> {
 }
 
 pub(super) fn cached_walk<T: Clone>(cache: &WalkCache<T>, key: &str, generation: u64) -> Option<T> {
-    let cache = cache.lock().ok()?;
-    cache
-        .get(key)
+    stored_walk(cache, key)
         .filter(|(stored, _)| *stored == generation)
-        .map(|(_, value)| value.clone())
+        .map(|(_, value)| value)
+}
+
+/// The latest walk of `key` and the generation it was read at, however old.
+pub(super) fn stored_walk<T: Clone>(cache: &WalkCache<T>, key: &str) -> Option<(u64, T)> {
+    cache.lock().ok()?.get(key).cloned()
 }
 
 pub(super) fn store_walk<T>(cache: &WalkCache<T>, key: String, generation: u64, value: T) {
@@ -181,6 +226,148 @@ pub(super) fn store_walk<T>(cache: &WalkCache<T>, key: String, generation: u64, 
         cache.clear();
     }
     cache.insert(key, (generation, value));
+}
+
+pub(super) fn cached_status(key: &str, generation: u64) -> Option<GitStatus> {
+    cached_walk(status_cache(), key, generation).map(|walk| walk.status)
+}
+
+/// The status of the watched repo `key` at `generation`, reading again only
+/// the paths that moved since the last read when that gives the same answer.
+pub(super) fn watched_status(
+    repo: &Repository,
+    key: &str,
+    generation: u64,
+) -> Result<GitStatus, String> {
+    if let Some((read_at, walk)) = stored_walk(status_cache(), key) {
+        if read_at == generation {
+            return Ok(walk.status);
+        }
+        if let Some(status) = patched_status(repo, key, read_at, &walk) {
+            let walk = StatusWalk {
+                walked_at: walk.walked_at,
+                status: status.clone(),
+            };
+            store_walk(status_cache(), key.to_owned(), generation, walk);
+            return Ok(status);
+        }
+    }
+    let status = read_status(repo)?;
+    let walk = StatusWalk {
+        walked_at: Instant::now(),
+        status: status.clone(),
+    };
+    store_walk(status_cache(), key.to_owned(), generation, walk);
+    Ok(status)
+}
+
+/// Whether a moved path can only have changed its own status and those of the
+/// paths below it.
+pub(super) fn moves_only_itself(path: &str) -> bool {
+    let name = path.rsplit('/').next().unwrap_or(path);
+    path.is_ascii()
+        && path.split('/').next() != Some(".git")
+        && !matches!(name, ".gitignore" | ".gitattributes" | ".gitmodules")
+}
+
+/// `walk`, read at `since`, with the paths moved after it read again; none
+/// when only a whole walk is sure to give the same answer.
+fn patched_status(
+    repo: &Repository,
+    key: &str,
+    since: u64,
+    walk: &StatusWalk,
+) -> Option<GitStatus> {
+    if walk.walked_at.elapsed() > PATCHED_STATUS_LIFETIME {
+        return None;
+    }
+    // A staged rename is listed under its old path, so an edit to its new
+    // path changes an entry the moved path does not name.
+    if walk.status.files.iter().any(|file| file.index == "R") {
+        return None;
+    }
+    let moved = moved_since(repo, key, since)?;
+    let mut status = walk.status.clone_head();
+    if moved.is_empty() {
+        status.files = walk.status.files.clone();
+        return Some(status);
+    }
+    let ignore_case = repo
+        .config()
+        .and_then(|config| config.get_bool("core.ignorecase"))
+        .unwrap_or(false);
+    let fresh = read_files(repo, &moved).ok()?;
+    status.files = merge_files(&walk.status.files, fresh, &moved, ignore_case);
+    Some(status)
+}
+
+/// The paths moved in the watched checkout `key` after change `since`, when
+/// asking git again of only them gives what asking of everything would.
+pub(super) fn moved_since(repo: &Repository, key: &str, since: u64) -> Option<Vec<String>> {
+    let moved = crate::fs_watch::changed_paths_since(key, since)?;
+    let patchable = moved.len() <= MAX_PATCHED_PATHS
+        && moved.iter().all(|path| moves_only_itself(path))
+        && is_plain_checkout(repo, key);
+    patchable.then_some(moved)
+}
+
+/// A checkout whose own `.git` folder sits at the watched root, with no
+/// submodules: the watcher sees everything its status can depend on.
+fn is_plain_checkout(repo: &Repository, key: &str) -> bool {
+    let root = Path::new(key);
+    let same = |path: Option<&Path>| {
+        path.and_then(|path| path.canonicalize().ok())
+            .is_some_and(|path| path == root)
+    };
+    same(repo.workdir())
+        && same(repo.path().parent())
+        && repo.path().file_name() == Some(std::ffi::OsStr::new(".git"))
+        && !root.join(".gitmodules").exists()
+}
+
+/// `cached` without the entries at or below `moved`, with `fresh` slotted in
+/// where git's own walk orders them.
+fn merge_files(
+    cached: &[GitFile],
+    fresh: Vec<GitFile>,
+    moved: &[String],
+    ignore_case: bool,
+) -> Vec<GitFile> {
+    let order = |a: &str, b: &str| {
+        if ignore_case {
+            let a = a.bytes().map(|byte| byte.to_ascii_lowercase());
+            a.cmp(b.bytes().map(|byte| byte.to_ascii_lowercase()))
+        } else {
+            a.cmp(b)
+        }
+    };
+    let at_or_below = |path: &str, moved: &str| {
+        let path = path.strip_suffix('/').unwrap_or(path);
+        let Some(head) = path.get(..moved.len()) else {
+            return false;
+        };
+        let same = if ignore_case {
+            head.eq_ignore_ascii_case(moved)
+        } else {
+            head == moved
+        };
+        same && matches!(path.as_bytes().get(moved.len()), None | Some(b'/'))
+    };
+    let kept = cached
+        .iter()
+        .filter(|file| !moved.iter().any(|moved| at_or_below(&file.path, moved)));
+    let mut merged = Vec::with_capacity(cached.len() + fresh.len());
+    let mut fresh = fresh.into_iter().peekable();
+    for file in kept {
+        while let Some(next) =
+            fresh.next_if(|next| order(&next.path, &file.path) == std::cmp::Ordering::Less)
+        {
+            merged.push(next);
+        }
+        merged.push(file.clone());
+    }
+    merged.extend(fresh);
+    merged
 }
 
 // Not `files::should_skip_dir`: it hides `vendor`, `build` and `out`, which are ordinary repository names.
@@ -232,19 +419,28 @@ pub async fn git_discover_repos(root: String) -> Result<Vec<DiscoveredRepo>, Str
 pub async fn git_status(repo: String) -> Result<GitStatus, String> {
     let watched = watched_generation(&repo);
     if let Some((key, generation)) = &watched {
-        if let Some(hit) = cached_walk(status_cache(), key, *generation) {
+        if let Some(hit) = cached_status(key, *generation) {
             return Ok(hit);
         }
     }
-    let _permit = git_walk_permit().await?;
-    run_blocking(move || -> Result<GitStatus, String> {
-        let status = read_status(&open_repo(&repo)?)?;
-        if let Some((key, generation)) = watched {
-            store_walk(status_cache(), key, generation, status.clone());
-        }
-        Ok(status)
+    let flight = flight_key(&repo, watched.as_ref());
+    shared(status_flights(), flight, async move {
+        let _permit = git_walk_permit().await?;
+        run_blocking(move || -> Result<GitStatus, String> {
+            let r = open_repo(&repo)?;
+            match watched {
+                Some((key, generation)) => watched_status(&r, &key, generation),
+                None => read_status(&r),
+            }
+        })
+        .await
     })
     .await
+}
+
+fn status_flights() -> &'static Flights<GitStatus> {
+    static F: OnceLock<Flights<GitStatus>> = OnceLock::new();
+    F.get_or_init(Default::default)
 }
 
 #[cfg(test)]
@@ -258,7 +454,7 @@ mod tests {
     /// change moves it on and the stale answer is skipped.
     #[test]
     fn a_cached_walk_is_only_reused_for_the_generation_it_was_read_at() {
-        let cache: WalkCache<String> = Mutex::new(std::collections::HashMap::new());
+        let cache: WalkCache<String> = Mutex::new(HashMap::new());
         store_walk(&cache, "/repo".into(), 7, "walked".to_string());
 
         assert_eq!(cached_walk(&cache, "/repo", 7).as_deref(), Some("walked"));

@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use super::ai_provider::{run_ai_commit_model, GitAiProvider};
-use super::commit::commit_with_message;
+use super::commit::commit_staged;
 use super::{git_has_head, git_ok, run_blocking};
 
 const PRIMARY_DIFF_BUDGET: usize = 18_000;
@@ -407,32 +407,36 @@ pub async fn git_ai_message(
 
 #[tauri::command]
 pub async fn git_ai_commit(
+    manager: tauri::State<'_, crate::pty::PtyManager>,
     repo: String,
     provider: Option<String>,
     model: Option<String>,
 ) -> Result<String, String> {
-    run_blocking(move || -> Result<String, String> {
-        // Auto-stage all working changes if nothing's been staged yet.
-        if git_ok(&repo, &["diff", "--cached", "--name-only"])?
-            .trim()
-            .is_empty()
-        {
-            git_ok(&repo, &["add", "-A"])?;
+    let message = run_blocking({
+        let repo = repo.clone();
+        move || -> Result<String, String> {
+            // Auto-stage all working changes if nothing's been staged yet.
             if git_ok(&repo, &["diff", "--cached", "--name-only"])?
                 .trim()
                 .is_empty()
             {
-                return Err("Nothing to commit — working tree is clean.".into());
+                git_ok(&repo, &["add", "-A"])?;
+                if git_ok(&repo, &["diff", "--cached", "--name-only"])?
+                    .trim()
+                    .is_empty()
+                {
+                    return Err("Nothing to commit — working tree is clean.".into());
+                }
             }
+            let (stat, diff) = staged_diff(&repo)?;
+            let provider = GitAiProvider::parse(provider)?;
+            let model = model.unwrap_or_else(|| provider.default_model().to_string());
+            describe_diff_with_local_ai(&repo, &stat, &diff, provider, &model, None)
         }
-        let (stat, diff) = staged_diff(&repo)?;
-        let provider = GitAiProvider::parse(provider)?;
-        let model = model.unwrap_or_else(|| provider.default_model().to_string());
-        let message = describe_diff_with_local_ai(&repo, &stat, &diff, provider, &model, None)?;
-        commit_with_message(&repo, &message)?;
-        Ok(message)
     })
-    .await
+    .await?;
+    commit_staged(&manager, repo, message.clone()).await?;
+    Ok(message)
 }
 
 #[cfg(test)]

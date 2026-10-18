@@ -1,9 +1,12 @@
 @import "./chat/surface.css";
 @import "./chat/transcript.css";
+@import "./chat/questions.css";
+@import "./chat/message-editor.css";
 @import "./chat/tools.css";
 @import "./chat/subagent.css";
 @import "./chat/live-stack.css";
 @import "./chat/attachments.css";
 @import "./chat/status.css";
 @import "./chat/composer.css";
+@import "./chat/composer-menu.css";
 @import "./chat/pickers.css";

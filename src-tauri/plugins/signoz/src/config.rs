@@ -10,7 +10,13 @@ use serde::{Deserialize, Serialize};
 use crate::error::{SignozError, SignozResult};
 
 pub const API_KEY_SERVICE: &str = "signoz-api";
-pub const SESSION_SERVICE: &str = "sikemux-signoz-session";
+/// A development build keeps a session of its own, so it never replaces the installed
+/// app's. The API key stays shared: it is the signoz CLI's own entry.
+pub const SESSION_SERVICE: &str = if cfg!(debug_assertions) {
+    "sikemux-signoz-session-dev"
+} else {
+    "sikemux-signoz-session"
+};
 
 #[derive(Serialize, Deserialize, Clone, Copy, Default, PartialEq, Eq, Debug)]
 #[serde(rename_all = "camelCase")]

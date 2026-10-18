@@ -2,8 +2,9 @@ import { StyleSheet, Text, View } from 'react-native';
 import { useAuth } from '@clerk/expo';
 
 import { Button } from '@/ui/controls';
+import { PromptGlyph } from '@/ui/prompt';
 import { Sheet } from '@/ui/Sheet';
-import { fonts, type Palette, typeFor, useStyles } from '@/ui/theme';
+import { fonts, type Palette, useStyles } from '@/ui/theme';
 import { choose, closeOffer, useOffered } from './setting';
 import { notificationsSupported, turnOn } from './switch';
 
@@ -26,11 +27,10 @@ export function NotificationsOffer() {
 
   return (
     <Sheet visible={visible} onClose={closeOffer}>
-      <Text style={styles.title}>Turn on notifications?</Text>
-      <Text style={styles.note}>
-        Get told when an agent stops to ask, finishes, or runs into a problem. What it&apos;s doing is encrypted on your computer; only this
-        phone can read it.
-      </Text>
+      <View style={styles.head}>
+        <PromptGlyph icon="IconInbox" small />
+        <Text style={styles.title}>Turn on notifications?</Text>
+      </View>
       <View style={styles.choices}>
         <Button title="Not now" onPress={notNow} style={styles.choice} />
         <Button kind="primary" title="Turn on" onPress={accept} style={styles.choice} />
@@ -39,12 +39,10 @@ export function NotificationsOffer() {
   );
 }
 
-const makeStyles = (colors: Palette) => {
-  const type = typeFor(colors);
-  return StyleSheet.create({
-    title: { fontFamily: fonts.uiSemibold, fontSize: 15, color: colors.ink, paddingHorizontal: 8, paddingTop: 12 },
-    note: { ...type.meta, lineHeight: 19, paddingHorizontal: 8, paddingTop: 4, paddingBottom: 12 },
+const makeStyles = (colors: Palette) =>
+  StyleSheet.create({
+    head: { alignItems: 'center', gap: 12, paddingTop: 12, paddingBottom: 20 },
+    title: { fontFamily: fonts.uiSemibold, fontSize: 17, letterSpacing: -0.35, color: colors.ink },
     choices: { flexDirection: 'row', gap: 8 },
     choice: { flex: 1 },
   });
-};

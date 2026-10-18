@@ -15,8 +15,8 @@ export interface AcpStartOptions {
     environmentKeys?: string[];
     /** The account the agent signs in as. */
     account?: AcpAccount;
-    /** Accounts the chat moves to, in order, when its own runs out of usage. */
-    fallbacks?: AcpAccount[];
+    /** The model provider the chat runs on, by catalogue id, in place of its maker's account. */
+    modelProvider?: string;
 }
 
 /** One of the person's accounts with the chat's provider: a profile, by its directory. */
@@ -42,10 +42,18 @@ export type AcpAttachment =
           running: boolean;
           /** A turn ran in this session, so the provider keeps it. */
           turned: boolean;
+          /** The core's run of this chat, which paging back names. */
+          feed: string;
+          /** Set when the replay holds only the chat's last turns: `history` pages back from it. */
+          olderBefore: number | null;
       }
-    | { status: "missing" }
-    /* It said more than the core keeps, so it starts again from the provider's history. */
-    | { status: "restart" };
+    | { status: "missing" };
+
+/** Turns from before what the page shows, and where the page before them starts. */
+export interface AcpHistory {
+    events: { kind: string; payload: Record<string, unknown> }[];
+    olderBefore: number | null;
+}
 
 export interface AcpAttachOptions {
     agentId: string;
@@ -57,18 +65,22 @@ export interface AcpAttachOptions {
 /** A chat agent the background core runs. */
 export interface AcpChat {
     agentId: string;
+    /** What the core calls the agent, such as Otter. */
+    name?: string | null;
     provider: string;
     cwd: string;
     sessionId: string | null;
     state: "starting" | "ready" | "stopped";
     running: boolean;
     pendingPermissions: string[];
-    /** The paired device that started it; null when this app did. */
+    /** The paired device, or the agent by id, that started it; null when this app did. */
     startedBy: string | null;
     /** The app's launcher a device started it with. */
     launcher: string | null;
     permissionMode: string;
     model: string | null;
+    /** The connected provider its turns are paid with, in place of the agent's own account. */
+    modelProvider?: string;
     effort: string | null;
 }
 
@@ -102,7 +114,7 @@ export const acpApi = {
             effort: options.effort ?? null,
             environmentKeys: options.environmentKeys ?? [],
             account: options.account ?? null,
-            fallbacks: options.fallbacks ?? [],
+            modelProvider: options.modelProvider ?? null,
         }),
     attach: (options: AcpAttachOptions): Promise<AcpAttachment> =>
         invoke<AcpAttachment>("acp_attach", {
@@ -111,6 +123,8 @@ export const acpApi = {
             cwd: options.cwd,
             configPath: options.configPath ?? null,
         }),
+    history: (agentId: string, feed: string, before: number, turns: number): Promise<AcpHistory> =>
+        invoke<AcpHistory>("acp_history", { agentId, feed, before, turns }),
     list: (): Promise<AcpChat[]> => invoke<AcpChat[]>("acp_list"),
     setPermissionMode: (agentId: string, permissionMode: AgentPermissionMode): Promise<void> =>
         invoke<void>("acp_set_permission_mode", { agentId, permissionMode }),

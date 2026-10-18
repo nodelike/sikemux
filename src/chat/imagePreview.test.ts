@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { fsapi } from "../api/fs";
-import { localImagePath, localPath, previewCacheBytes, readImageSource, sizedSvg, useImagePreview } from "./imagePreview";
+import { localImagePath, localPath } from "../lib/imagePaths";
+import { previewCacheBytes, readImageSource, sizedSvg, useImagePreview } from "./imagePreview";
 import { act, renderHook, waitFor } from "@testing-library/react";
 
 const url = (path: string) => `preview://localhost/${encodeURIComponent(path)}`;

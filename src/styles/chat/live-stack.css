@@ -38,6 +38,69 @@
     letter-spacing: 0;
 }
 
+.chat-group-toggle {
+    width: 100%;
+    padding-right: 8px;
+    text-align: left;
+}
+
+.chat-group-toggle:hover .chat-group-chevron {
+    color: var(--ink);
+}
+
+.chat-group-icon {
+    display: grid;
+    flex: none;
+    place-items: center;
+    color: color-mix(in srgb, var(--live) 58%, var(--ink-faint));
+}
+
+.chat-group-agent .chat-group-icon,
+.chat-group-agent .chat-group-toggle > .chat-task-spinner {
+    color: color-mix(in srgb, var(--acc) 62%, var(--ink-faint));
+}
+
+.chat-group-peek {
+    flex: 1 1 0;
+    min-width: 0;
+    margin-left: 2px;
+    overflow: hidden;
+    color: var(--ink-dim);
+    font-family: var(--mono);
+    font-size: calc(10.5px * var(--chat-text-em, 1));
+    letter-spacing: 0;
+    text-overflow: ellipsis;
+    text-transform: none;
+    white-space: nowrap;
+}
+
+.chat-group-chevron {
+    display: grid;
+    flex: none;
+    place-items: center;
+    width: 18px;
+    height: 14px;
+    margin-left: auto;
+    color: var(--ink-faint);
+}
+
+.chat-group-chevron > svg {
+    transform: rotate(90deg);
+    transition: transform 120ms;
+}
+
+.chat-group.is-folded .chat-group-chevron > svg {
+    transform: none;
+}
+
+.chat-group-toggle > .chat-task-spinner {
+    margin-left: 4px;
+}
+
+.chat-group-toggle > .chat-task-spinner + .chat-group-chevron {
+    margin-left: 0;
+}
+
 .chat-task {
     display: flex;
     align-items: center;
@@ -52,6 +115,42 @@
     padding-bottom: 7px;
 }
 
+/* A workflow's agents are its subagents, so they take the subagent row, set
+   in under the workflow's name. */
+.chat-workflow-agent {
+    padding-left: 26px;
+}
+
+.chat-workflow-cost {
+    flex: none;
+    margin-left: auto;
+    color: var(--ink-faint);
+    font-family: var(--mono);
+    font-size: calc(10px * var(--chat-text-em, 1));
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.chat-workflow-cost + .chat-task-end,
+.chat-task > .chat-workflow-cost + button {
+    margin-left: 2px;
+}
+
+.chat-workflow-agent.state-queued > .agent-glyph,
+.chat-workflow-agent.state-completed > .agent-glyph,
+.chat-workflow-agent.state-completed > .chat-task-name,
+.chat-workflow-agent.state-queued > .chat-task-name {
+    opacity: 0.6;
+}
+
+.chat-workflow-agent.state-completed > .chat-task-end {
+    color: color-mix(in srgb, var(--live) 58%, var(--ink-faint));
+}
+
+.chat-workflow-agent.state-failed > .chat-task-end {
+    color: var(--danger);
+}
+
 .chat-task.state-paused {
     color: var(--ink-faint);
 }
@@ -64,6 +163,20 @@
 
 .chat-task-agent > .agent-glyph {
     flex: none;
+}
+
+/* The same 18px slot as the stop button and the group's chevron, so every
+   mark down the right edge shares one centre line. */
+.chat-task-end {
+    display: grid;
+    flex: none;
+    place-items: center;
+    width: 18px;
+    margin-left: auto;
+}
+
+.chat-task-end > .chat-task-spinner {
+    margin-left: 0;
 }
 
 .chat-task-spinner {

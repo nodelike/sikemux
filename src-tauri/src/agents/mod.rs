@@ -1,25 +1,16 @@
 pub(crate) mod accounts;
 pub(crate) mod config;
 pub(crate) mod executable;
-pub(crate) mod models;
 pub(crate) mod sessions;
-pub(crate) mod status;
-pub(crate) mod usage;
 pub(crate) mod watch;
 
 use serde::{Deserialize, Serialize};
+use sikemux_core::agent_accounts::status::AgentStatus;
 
-pub(crate) use executable::resolve_agent_executable;
-pub(crate) use sessions::context::session_transcript_path;
+pub(crate) use config::global_skill_folders;
 pub use sikemux_core::agent_catalog::AgentKind;
+pub(crate) use sikemux_core::sessions::context::session_transcript_path;
 pub use watch::{note_streaming_session, watch_count};
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct AgentSession {
-    id: String,
-    title: String,
-    mtime: u64,
-}
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -37,7 +28,7 @@ pub struct AgentInfo {
     default_model: Option<String>,
     #[serde(rename = "defaultEffort")]
     default_effort: Option<String>,
-    status: status::AgentStatus,
+    status: AgentStatus,
 }
 
 #[derive(Clone, Deserialize)]
@@ -48,29 +39,4 @@ pub struct AgentProfileRequest {
     profile_id: Option<String>,
     executable_path: Option<String>,
     config_path: Option<String>,
-}
-
-#[derive(Serialize, Debug, Clone, PartialEq)]
-#[serde(untagged)]
-pub enum AgentUsageResetAt {
-    Unix(u64),
-    Iso(String),
-}
-
-#[derive(Serialize, Debug, Clone, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct AgentUsageWindow {
-    label: String,
-    used_percent: f64,
-    resets_at: Option<AgentUsageResetAt>,
-    window_minutes: Option<u64>,
-}
-
-#[derive(Serialize, Debug, Clone, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct AgentUsage {
-    provider: &'static str,
-    plan: Option<String>,
-    windows: Vec<AgentUsageWindow>,
-    unavailable_reason: Option<String>,
 }

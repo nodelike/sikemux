@@ -1,0 +1,53 @@
+---
+title: Claude Code
+description: "Anthropic's coding agent in Sikemux: install, sign-in, chats, accounts, limits and skills."
+---
+
+Claude Code is Anthropic's coding agent. Sikemux runs the `claude` CLI you install, signed in with your own Claude subscription or Anthropic Console key.
+
+## At a glance
+
+| | |
+|---|---|
+| Command | `claude` |
+| Chat in Sikemux | Yes, and its own TUI |
+| Permission modes | Normal and YOLO |
+| Effort levels | low, medium, high, xhigh, max |
+| Several accounts | Yes |
+| Plan limits in the rail | Yes |
+
+## Install
+
+Click **Install** beside Claude on the welcome screen, or run the official installer yourself:
+
+```bash
+curl -fsSL https://claude.ai/install.sh | bash
+```
+
+It installs to `~/.local/bin/claude` and keeps itself up to date. Sikemux also finds Claude in `~/.claude/local/claude`, `~/.claude/bin/claude`, on your `PATH`, and in the pnpm, npm and bun global folders.
+
+## Sign in
+
+Claude signs in through its own flow in your browser:
+
+```bash
+claude auth login
+```
+
+You can choose your Claude subscription or the Anthropic Console (API billing). Sikemux never sees or stores your Claude credentials. To check whether you're signed in, Sikemux asks `claude auth status`.
+
+## How Sikemux runs it
+
+A Claude chat speaks Claude Code's stream-json control protocol, the protocol Anthropic's own Agent SDK uses with the `claude` binary. That's how Sikemux streams Claude's replies, tool calls and thinking into the chat, answers its permission questions, and lets you steer it mid-reply.
+
+Switch to **TUI** to run `claude` in a terminal instead, with everything Claude's own interface offers.
+
+## Accounts and limits
+
+Each Claude account is its own `CLAUDE_CONFIG_DIR` folder, so you can keep a personal and a work account side by side. Add one in **Settings → Agents → Claude → Another account**.
+
+The rail's **Limits** shows how much of the selected account's plan is used, for each window Claude reports: 5 hours, 7 days, and the per-model weekly windows. If Claude doesn't report limits for a moment, the rail says so and offers a refresh.
+
+## Skills
+
+Claude gets the Sikemux skills library as a Claude plugin, alongside the skills you already have. Sikemux never writes into your own `~/.claude` folder.

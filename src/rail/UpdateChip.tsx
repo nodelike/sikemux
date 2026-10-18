@@ -6,18 +6,21 @@ import { Tooltip } from "../ui/Tooltip";
 
 export function UpdateChip() {
     const pending = useStore((s) => s.pendingUpdate);
+    const waitingOn = useStore((s) => s.updateBlockers.length);
     if (!pending) return null;
 
     const state = pending.state;
     const busy = isUpdateBusy(state);
-    const statusLabel = updateStatusLabel(pending);
+    const statusLabel = updateStatusLabel(pending, waitingOn);
     const percent = state === "downloading" ? updateDownloadPercent(pending) : null;
     const label =
         state === "error"
             ? `Update v${pending.version} failed — ${pending.error ?? "unknown"}. Click to retry.`
-            : busy
-              ? `${statusLabel} v${pending.version}`
-              : `Update v${pending.version} available (current: v${pending.currentVersion}). Click to install + relaunch.${pending.notes ? `\n\n${pending.notes}` : ""}`;
+            : state === "waiting"
+              ? `${statusLabel} that can't be carried over yet. Click to see them or force the update.`
+              : busy
+                ? `${statusLabel} v${pending.version}`
+                : `Update v${pending.version} available (current: v${pending.currentVersion}). Click to install + relaunch.${pending.notes ? `\n\n${pending.notes}` : ""}`;
     const Glyph = state === "error" ? IconWarning : state === "installing" || state === "restarting" ? IconRefresh : IconDownload;
 
     return (

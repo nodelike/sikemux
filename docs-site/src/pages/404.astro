@@ -1,0 +1,23 @@
+---
+import { Docs } from "@/components/docs";
+import Layout from "@/components/layout.astro";
+import { source } from "@/lib/source";
+
+const title = "Page not found";
+const description = "This page isn't in the docs. It may have moved, or the link has a typo.";
+---
+
+<Layout title={`${title} · Sikemux`} description={description}>
+  <Docs
+    client:load
+    tree={source.getPageTree()}
+    pathname={Astro.url.pathname}
+    params={Astro.params}
+    title={title}
+    description={description}
+    toc={[]}
+    markdownUrl=""
+    editUrl=""
+    kind="missing"
+  />
+</Layout>

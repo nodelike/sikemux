@@ -506,10 +506,12 @@ function rustNumbered(name, members) {
   return out;
 }
 
-export function rust(definitions) {
+/** The Rust types of the definitions `include` picks; `imports` brings in those they refer to. */
+export function rust(definitions, { include = () => true, imports = "" } = {}) {
   const unions = unionOf(definitions);
-  let out = `${HEADER}\nuse serde::{Deserialize, Serialize};\n`;
-  for (const { name, file, schema } of sortedDefinitions(definitions)) {
+  const chosen = sortedDefinitions(definitions).filter(include);
+  let out = `${HEADER}\nuse serde::{Deserialize, Serialize};\n${imports}`;
+  for (const { name, file, schema } of chosen) {
     out += "\n" + docComment(schema.description, "", "///");
     const kind = kindOf(schema);
     const eq = rustEq({ ref: name }, definitions, file) ? ", Eq" : "";
@@ -571,7 +573,7 @@ export function rust(definitions) {
     "#[cfg(test)]\npub(crate) fn round_trip(name: &str, json: &str) -> Option<super::RoundTrip> {\n";
   out += "    use super::through;\n";
   out += "    Some(match name {\n";
-  for (const { name } of sortedDefinitions(definitions))
+  for (const { name } of chosen)
     out += `        ${JSON.stringify(name)} => through::<${unions.get(name) ?? name}>(json),\n`;
   out += "        _ => return None,\n    })\n}\n";
   return out;

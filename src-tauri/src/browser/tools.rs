@@ -1476,7 +1476,7 @@ fn active_tab(manager: &BrowserManager, agent_id: &str) -> Result<(String, Webvi
     manager
         .active_view(agent_id)
         .map_err(|_| {
-            "no browser tab is open; call browser_navigate first. Tabs do not outlive Sikemux, so a restart closes them".to_string()
+            "no browser tab is open; call browser_navigate first. Quitting Sikemux closes tabs; an update's restart keeps them, but each page loads again from its address".to_string()
         })
 }
 

@@ -1,6 +1,6 @@
 export const DEMO_HOME = "/Users/edon";
 
-export const PANE_IMAGE = `${DEMO_HOME}/Pictures/jinx-graffiti.jpg`;
+export const PANE_IMAGE = `${DEMO_HOME}/Pictures/midnight-garden.jpg`;
 
 export const DEMO_PROJECTS = [
   { name: "sikemux", path: `${DEMO_HOME}/code/sikemux` },

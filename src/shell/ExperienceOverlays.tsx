@@ -9,8 +9,11 @@ import * as cmd from "../state/commands";
 import { agentDetectionApi, type ManifestReport } from "../api/agentDetection";
 import { selectedAgentRuntimeProfiles } from "../agents/agentProfiles";
 import { actionForEvent, keybindingLabelForAction, type CoreKeybindingActionId } from "../commands/keybindings";
-import { AgentIcon, IconAgent, IconCommand, IconFolder, IconSearch, Logo } from "../ui/Icons";
+import { AgentIcon, IconAgent, IconFolder, IconSearch, IconServer, Logo } from "../ui/Icons";
 import { agentStatusLabel } from "../agents/agentStatus";
+import { installAgent, signInAgent } from "../agents/AgentInstall";
+import { installCommand, loginArgs } from "../agents/catalog";
+import { setupOrder, withMissingAgents } from "../agents/setupList";
 import { Kbd } from "../ui/Kbd";
 import { ShaderField } from "../ui/ShaderField";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -38,7 +41,7 @@ const WELCOME_MOVES = [
         run: () => void cmd.startAgent(),
     },
     { id: "palette.commands", label: "Browse commands", detail: "Every action and its shortcut", Icon: IconSearch, run: cmd.openCommandPalette },
-    { id: "ssh.open", label: "Connect to a host", detail: "Hosts from your SSH config", Icon: IconCommand, run: () => cmd.openPicker("ssh") },
+    { id: "ssh.open", label: "Connect to a host", detail: "Hosts from your SSH config", Icon: IconServer, run: () => cmd.openPicker("ssh") },
 ] as const satisfies readonly {
     id: CoreKeybindingActionId;
     label: string;
@@ -167,7 +170,8 @@ export function Onboarding() {
             first.focus();
         }
     };
-    const agents = [...(catalog.data ?? [])].sort((a, b) => Number(b.available !== false) - Number(a.available !== false));
+    const found = catalog.data ?? [];
+    const agents = catalog.data ? setupOrder(withMissingAgents(found)) : [];
     const dragWindow = (event: React.MouseEvent<HTMLElement>) => {
         if (event.button !== 0 || event.target !== event.currentTarget) return;
         event.preventDefault();
@@ -244,6 +248,16 @@ export function Onboarding() {
                                             <span>{agent.label}</span>
                                             {status && <small>{status}</small>}
                                         </span>
+                                        {(agent.status?.state === "missing" || agent.status?.state === "broken") && installCommand(agent.type) && (
+                                            <button type="button" className="welcome-agent-install" onClick={() => installAgent(agent.type)}>
+                                                {agent.status.state === "broken" ? "Reinstall" : "Install"}
+                                            </button>
+                                        )}
+                                        {agent.status?.state === "signedOut" && loginArgs(agent.type) && (
+                                            <button type="button" className="welcome-agent-install" onClick={() => signInAgent(agent)}>
+                                                Sign in
+                                            </button>
+                                        )}
                                     </li>
                                 );
                             })}

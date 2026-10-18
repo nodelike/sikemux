@@ -1,11 +1,15 @@
 /* ---- Jobs list ---------------------------------------------------------- */
 
 .rnd-table-wrap {
-    flex: 1 1 auto;
+    flex: 0 1 auto;
     min-height: 0;
     display: flex;
     flex-direction: column;
-    padding: 0 var(--space-3) var(--space-3);
+    margin: 0 var(--space-5) var(--space-5);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-3);
+    background: var(--rnd-tint);
+    overflow: hidden;
 }
 .rnd-table-wrap > .rnd-table,
 .rnd-table-body {
@@ -26,7 +30,7 @@
     border-spacing: 0;
 }
 .rnd-table th {
-    padding: var(--space-2) 10px;
+    padding: 10px 14px;
     border-bottom: 1px solid var(--border);
     font-size: var(--text-2xs);
     font-weight: var(--weight-medium);
@@ -35,9 +39,8 @@
     white-space: nowrap;
 }
 .rnd-table td {
-    height: 42px;
-    padding: 0 10px;
-    border-top: 1px solid transparent;
+    height: 40px;
+    padding: 0 14px;
     border-bottom: 1px solid var(--rnd-rule);
     color: var(--text-secondary);
     white-space: nowrap;
@@ -56,23 +59,6 @@
     background: var(--surface-hover);
     color: var(--text-primary);
 }
-.rnd-table tbody tr.sel td {
-    background: var(--surface-selected);
-    border-color: var(--border-selected);
-    color: var(--text-primary);
-}
-.rnd-table tbody tr[data-job] td:first-child {
-    border-left: 1px solid transparent;
-    border-radius: var(--radius-2) 0 0 var(--radius-2);
-}
-.rnd-table tbody tr[data-job] td:last-child {
-    border-right: 1px solid transparent;
-    border-radius: 0 var(--radius-2) var(--radius-2) 0;
-}
-.rnd-table tbody tr.sel td:first-child,
-.rnd-table tbody tr.sel td:last-child {
-    border-color: var(--border-selected);
-}
 .rnd-table tbody tr[data-job]:focus-visible td {
     background: var(--surface-active);
 }
@@ -83,11 +69,13 @@
     color: var(--text-secondary);
 }
 .rnd-section-row td {
-    height: 34px;
-    padding-top: var(--space-2);
-    border-bottom-color: var(--border);
-    font-size: var(--text-2xs);
+    height: 36px;
+    padding-top: var(--space-3);
+    border-bottom-color: var(--rnd-rule);
+    font-size: var(--text-3xs);
     font-weight: var(--weight-medium);
+    letter-spacing: var(--tracking-label);
+    text-transform: uppercase;
     color: var(--text-tertiary);
 }
 .rnd-section-row .prod {
@@ -100,6 +88,8 @@
     background: none;
     color: var(--text-tertiary);
     font: inherit;
+    letter-spacing: inherit;
+    text-transform: inherit;
     cursor: pointer;
 }
 .rnd-section-link:hover {
@@ -127,7 +117,10 @@
     color: var(--text-tertiary) !important;
 }
 .rnd-table td:last-child {
-    padding-right: var(--space-2);
+    padding-right: var(--space-3);
+}
+.rnd-name-row .rnd-status {
+    gap: 0;
 }
 .rnd-row-deploy {
     height: 24px;
@@ -136,7 +129,6 @@
     opacity: 0;
 }
 tr:hover .rnd-row-deploy,
-tr.sel .rnd-row-deploy,
 .rnd-row-deploy:focus-visible {
     opacity: 1;
 }
@@ -192,10 +184,6 @@ tr.sel .rnd-row-deploy,
 .rnd-compare-cell:hover {
     background: var(--surface-hover);
     border-color: var(--border-strong);
-}
-.rnd-compare-cell.sel {
-    background: var(--surface-selected);
-    border-color: var(--border-selected);
 }
 .rnd-compare-cell:focus-visible {
     box-shadow: var(--focus-ring);

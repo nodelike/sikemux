@@ -19,6 +19,8 @@ export interface CoreSessionExit {
     readonly signal: string | null;
 }
 
+export type SshLink = "connecting" | "connected" | "disconnected";
+
 /** A terminal or task the background core holds, running or kept after it ended. */
 export interface CoreSession {
     readonly id: number;
@@ -35,6 +37,8 @@ export interface CoreSession {
     readonly killed: boolean;
     /** The paired device that started it; null when this app did. */
     readonly startedBy: string | null;
+    /** For an SSH terminal, where its connection last stood. */
+    readonly ssh?: SshLink;
 }
 
 export const coreSessionsApi = {

@@ -9,16 +9,21 @@
     pointer-events: none;
     z-index: 0;
 }
+/* The rows sit over the graph as one layer. Raised one by one, each row over the
+   graph's canvas became a layer of its own, and the screen took twice as long to show. */
+.gg-rows {
+    position: relative;
+    z-index: 1;
+}
 .gg-row {
     display: flex;
     align-items: center;
     gap: 8px;
     padding-right: 10px;
+    border-radius: var(--radius-2);
     font-size: 12.5px;
     color: var(--text-secondary);
     cursor: pointer;
-    position: relative;
-    z-index: 1;
     white-space: nowrap;
     transition: background 0.1s;
 }
@@ -26,15 +31,19 @@
     background: var(--surface-hover);
 }
 .gg-row.sel {
-    background: var(--surface-selected);
-    box-shadow: inset 0 0 0 1px var(--border-selected);
+    background: var(--surface-chosen);
     color: var(--text-primary);
 }
 .gg-row:focus-visible {
     outline: none;
 }
 .gg-row.ranged {
-    background: rgba(124, 197, 255, 0.08);
+    background: var(--surface-hover);
+}
+.gg-row .git-agents {
+    flex: 0 8 auto;
+    min-width: calc(var(--agents) * 29px - 4px);
+    max-width: 40%;
 }
 .gg-hash {
     color: var(--text-tertiary);
@@ -44,12 +53,13 @@
     font-variant-numeric: tabular-nums;
 }
 .gg-subj {
-    flex: 1;
+    flex: 1 1 auto;
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
     font-size: var(--text-sm);
+    font-weight: var(--weight-medium);
 }
 .gg-row.sel .gg-subj {
     color: var(--text-primary);
@@ -62,16 +72,20 @@
     font-variant-numeric: tabular-nums;
 }
 .gg-avatar {
-    width: 18px;
-    height: 18px;
+    width: 15px;
+    height: 15px;
     flex: none;
     display: grid;
     place-items: center;
     border-radius: 50%;
     color: var(--on-accent);
-    font-size: 8px;
+    font-size: 7px;
     font-weight: var(--weight-semibold);
     letter-spacing: 0.02em;
+}
+/* A commit's hash shows on the row in hand; at rest the list reads as who, what and when. */
+.git-history .gg-row:not(:hover, .sel) > .gg-hash {
+    display: none;
 }
 .git-detail-meta .gg-avatar {
     width: 20px;
@@ -83,10 +97,8 @@
     display: inline-flex;
     align-items: center;
     gap: 4px;
-    flex: 0 1 auto;
-    min-width: 0;
+    flex: none;
     max-width: 45%;
-    overflow: hidden;
 }
 .gg-ref {
     font-size: var(--text-3xs);
@@ -103,15 +115,13 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    border-radius: var(--radius-2);
 }
 .gg-ref-text {
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-}
-.gg-ref.more {
-    flex: none;
 }
 .gg-ref::before {
     content: "";

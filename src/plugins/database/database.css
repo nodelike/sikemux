@@ -86,7 +86,7 @@
     width: 100%;
     height: 24px;
     padding-right: var(--space-2);
-    border-radius: var(--radius-1);
+    border-radius: var(--radius-2);
     font-size: var(--text-xs);
     text-align: left;
     color: var(--text-secondary);
@@ -100,7 +100,7 @@
 
 .db-node.current {
     color: var(--text-primary);
-    background: var(--surface-selected);
+    background: var(--surface-chosen);
 }
 
 .db-node-chevron {
@@ -223,8 +223,7 @@
 
 .db-tab.active {
     color: var(--text-primary);
-    background: var(--surface-selected);
-    border-color: var(--border-selected);
+    background: var(--surface-chosen);
 }
 
 .db-tab-main {
@@ -262,7 +261,7 @@
     width: 18px;
     height: 18px;
     margin-right: 3px;
-    border-radius: var(--radius-1);
+    border-radius: var(--radius-2);
     color: var(--text-tertiary);
     opacity: 0;
 }
@@ -313,7 +312,7 @@
     justify-content: center;
     width: 22px;
     height: 22px;
-    border-radius: var(--radius-1);
+    border-radius: var(--radius-2);
     color: var(--text-tertiary);
 }
 
@@ -396,8 +395,7 @@
 
 .db-segmented button.active {
     color: var(--text-primary);
-    background: var(--surface-selected);
-    border-color: var(--border-selected);
+    background: var(--surface-chosen);
 }
 
 .db-inline {
@@ -585,8 +583,7 @@
 
 .db-result-tabs button.active {
     color: var(--text-primary);
-    background: var(--surface-selected);
-    border-color: var(--border-selected);
+    background: var(--surface-chosen);
 }
 
 .db-results-empty {
@@ -658,8 +655,7 @@
 
 .db-grid td.selected {
     color: var(--text-primary);
-    background: var(--surface-selected);
-    box-shadow: inset 0 0 0 1px var(--border-selected);
+    background: var(--surface-chosen);
 }
 
 .db-grid .db-rownum {

@@ -3,92 +3,96 @@ import type { Extension } from "@codemirror/state";
 import { EditorView, ViewPlugin } from "@codemirror/view";
 import { indentationMarkers } from "@replit/codemirror-indentation-markers";
 import { tags as t } from "@lezer/highlight";
-import type { Theme } from "../themes";
+import type { ThemeEditor, ThemeHighlight } from "../themes";
 
 // The root carries it too: the line-number gutter sizes from the root, not the content.
 const EDITOR_FONT_SIZE = "calc(13px * var(--editor-text-scale, 1))";
 
-export function buildEditorThemeExtensions(theme: Theme): Extension {
+const editorColour = (key: keyof ThemeEditor) => `var(--editor-${key})`;
+const syntaxColour = (key: keyof ThemeHighlight) => `var(--syntax-${key})`;
+
+/** Colours come from variables the theme bus sets, so only a change between light and dark rebuilds this. */
+export function buildEditorThemeExtensions(dark: boolean): Extension {
     const editorTheme = EditorView.theme(
         {
-            "&": { color: theme.editor.fg, backgroundColor: theme.editor.bg, fontSize: EDITOR_FONT_SIZE },
+            "&": { color: editorColour("fg"), backgroundColor: editorColour("bg"), fontSize: EDITOR_FONT_SIZE },
             ".cm-content": {
-                caretColor: theme.editor.caret,
+                caretColor: editorColour("caret"),
                 fontFamily: '"JetBrainsMono Nerd Font", "JetBrains Mono", monospace',
                 fontSize: EDITOR_FONT_SIZE,
                 paddingLeft: "6px",
             },
-            ".cm-cursor, .cm-dropCursor": { borderLeftColor: theme.editor.caret },
-            "&.cm-focused .cm-selectionBackground, .cm-selectionBackground, .cm-content ::selection": { backgroundColor: theme.editor.selection },
-            ".cm-activeLine": { backgroundColor: theme.editor.activeLine },
+            ".cm-cursor, .cm-dropCursor": { borderLeftColor: editorColour("caret") },
+            "&.cm-focused .cm-selectionBackground, .cm-selectionBackground, .cm-content ::selection": { backgroundColor: editorColour("selection") },
+            ".cm-activeLine": { backgroundColor: editorColour("activeLine") },
             ".cm-gutters": {
                 backgroundColor: "var(--surface-gutter)",
-                color: theme.editor.gutter,
+                color: editorColour("gutter"),
                 border: "none",
                 borderRight: "1px solid var(--border)",
             },
             ".cm-activeLineGutter": {
                 backgroundColor: "transparent",
-                color: theme.editor.gutterActive,
+                color: editorColour("gutterActive"),
             },
             ".cm-scroller": {
                 fontFamily: '"JetBrainsMono Nerd Font", "JetBrains Mono", monospace',
                 lineHeight: "1.6",
             },
-            ".cm-selectionMatch": { backgroundColor: theme.chrome.accDim },
+            ".cm-selectionMatch": { backgroundColor: "var(--acc-dim)" },
             ".cm-foldPlaceholder": {
-                backgroundColor: theme.chrome.bgRaised,
-                color: theme.chrome.inkDim,
+                backgroundColor: "var(--bg-raised)",
+                color: "var(--ink-dim)",
                 border: "none",
             },
             "&.cm-editor.cm-focused": { outline: "none" },
         },
-        { dark: theme.dark },
+        { dark },
     );
 
     const highlight = HighlightStyle.define([
         {
             tag: [t.keyword, t.modifier, t.controlKeyword, t.operatorKeyword],
-            color: theme.highlight.keyword,
+            color: syntaxColour("keyword"),
         },
         {
             tag: [t.string, t.special(t.string), t.regexp],
-            color: theme.highlight.string,
+            color: syntaxColour("string"),
         },
         {
             tag: [t.comment, t.lineComment, t.blockComment],
-            color: theme.highlight.comment,
+            color: syntaxColour("comment"),
             fontStyle: "italic",
         },
         {
             tag: [t.number, t.bool, t.atom, t.null],
-            color: theme.highlight.number,
+            color: syntaxColour("number"),
         },
         {
             tag: [t.function(t.variableName), t.function(t.propertyName), t.macroName],
-            color: theme.highlight.function,
+            color: syntaxColour("function"),
         },
         {
             tag: [t.typeName, t.className, t.namespace],
-            color: theme.highlight.type,
+            color: syntaxColour("type"),
         },
         {
             tag: [t.variableName, t.definition(t.variableName)],
-            color: theme.highlight.variable,
+            color: syntaxColour("variable"),
         },
-        { tag: [t.propertyName], color: theme.highlight.property },
-        { tag: [t.tagName], color: theme.highlight.tag },
-        { tag: [t.attributeName], color: theme.highlight.number },
+        { tag: [t.propertyName], color: syntaxColour("property") },
+        { tag: [t.tagName], color: syntaxColour("tag") },
+        { tag: [t.attributeName], color: syntaxColour("number") },
         {
             tag: [t.operator, t.punctuation, t.bracket, t.separator],
-            color: theme.highlight.operator,
+            color: syntaxColour("operator"),
         },
-        { tag: [t.heading], color: theme.highlight.heading, fontWeight: "bold" },
-        { tag: [t.link, t.url], color: theme.highlight.link },
-        { tag: [t.invalid], color: theme.highlight.invalid },
+        { tag: [t.heading], color: syntaxColour("heading"), fontWeight: "bold" },
+        { tag: [t.link, t.url], color: syntaxColour("link") },
+        { tag: [t.invalid], color: syntaxColour("invalid") },
         {
             tag: [t.meta, t.processingInstruction],
-            color: theme.highlight.meta,
+            color: syntaxColour("meta"),
         },
     ]);
 
@@ -135,18 +139,16 @@ const clipCodeUnderGutter = ViewPlugin.fromClass(
     },
 );
 
-export function buildIndentMarkerExtensions(theme: Theme): Extension {
-    return indentationMarkers({
-        thickness: 1,
-        // Active-block highlighting makes every caret-line / selection-line
-        // move rebuild the visible indent decorations. Plain guides preserve
-        // the visual affordance without making drag-selection pay that cost.
-        highlightActiveBlock: false,
-        colors: {
-            light: theme.editor.indent,
-            dark: theme.editor.indent,
-            activeLight: theme.editor.indentActive,
-            activeDark: theme.editor.indentActive,
-        },
-    });
-}
+export const indentMarkerExtensions: Extension = indentationMarkers({
+    thickness: 1,
+    // Active-block highlighting makes every caret-line / selection-line
+    // move rebuild the visible indent decorations. Plain guides preserve
+    // the visual affordance without making drag-selection pay that cost.
+    highlightActiveBlock: false,
+    colors: {
+        light: editorColour("indent"),
+        dark: editorColour("indent"),
+        activeLight: editorColour("indentActive"),
+        activeDark: editorColour("indentActive"),
+    },
+});

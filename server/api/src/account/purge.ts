@@ -10,6 +10,7 @@ export const RETENTION_DAYS = {
   events: 400,
   removedDevices: 30,
   audit: 400,
+  shares: 30,
 } as const;
 const BATCH = 5_000;
 
@@ -82,6 +83,7 @@ export interface Pruned {
   events: number;
   removedDevices: number;
   audit: number;
+  shares: number;
   challenges: number;
 }
 
@@ -143,8 +145,21 @@ export async function pruneHistory(
     RETENTION_DAYS.removedDevices,
   );
   const audit = await olderThan("audit", "at", RETENTION_DAYS.audit);
+  const shares = await inBatches(async () => {
+    const { rows } = await sql<{ n: string }>`
+      with gone as (
+        delete from shares where id in (
+          select id from shares
+          where coalesce(ended_at, expires_at) < now() - make_interval(days => ${RETENTION_DAYS.shares})
+          limit ${BATCH}
+        )
+        returning 1
+      )
+      select count(*) as n from gone`.execute(db);
+    return Number(rows[0]?.n ?? 0);
+  });
   const challenges = await pruneChallenges(db);
-  const pruned = { events, removedDevices, audit, challenges };
+  const pruned = { events, removedDevices, audit, shares, challenges };
   log.info(pruned, "pruned old history");
   return pruned;
 }

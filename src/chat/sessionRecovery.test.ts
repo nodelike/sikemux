@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { AcpEvent } from "../api/acp";
-import { afterSessionEnd, RESUME_WINDOW_MS, sessionEndOf } from "./sessionRecovery";
+import { afterSessionEnd, sessionEndOf } from "./sessionRecovery";
 
 const status = (payload: Record<string, unknown>): AcpEvent => ({ agentId: "a1", kind: "status", payload });
 
@@ -18,32 +18,12 @@ describe("sessionEndOf", () => {
 });
 
 describe("afterSessionEnd", () => {
-    const base = { end: "exited" as const, resumeId: "session-1", resuming: false, lastResumeAt: null, now: 100_000 };
-
-    it("resumes an agent that died with a saved session", () => {
-        expect(afterSessionEnd(base)).toBe("resume");
+    it("hands an agent the core gave up starting again to the person", () => {
+        expect(afterSessionEnd("exited")).toBe("give-up");
     });
 
-    it("never resumes a stop that was asked for", () => {
-        expect(afterSessionEnd({ ...base, end: "requested" })).toBe("leave");
-        expect(afterSessionEnd({ ...base, end: "requested", resuming: true })).toBe("leave");
-    });
-
-    it("gives up on an agent with no saved session to resume", () => {
-        expect(afterSessionEnd({ ...base, resumeId: undefined })).toBe("give-up");
-    });
-
-    it("gives up when a resume fails to start or dies right away", () => {
-        expect(afterSessionEnd({ ...base, end: "failed", resuming: true })).toBe("give-up");
-        expect(afterSessionEnd({ ...base, resuming: true })).toBe("give-up");
-    });
-
-    it("gives up on a second death soon after the last resume, and resumes once the window passes", () => {
-        expect(afterSessionEnd({ ...base, lastResumeAt: base.now - RESUME_WINDOW_MS + 1 })).toBe("give-up");
-        expect(afterSessionEnd({ ...base, lastResumeAt: base.now - RESUME_WINDOW_MS })).toBe("resume");
-    });
-
-    it("leaves a first start that failed to the person", () => {
-        expect(afterSessionEnd({ ...base, end: "failed" })).toBe("leave");
+    it("leaves a stop that was asked for, and a start that failed", () => {
+        expect(afterSessionEnd("requested")).toBe("leave");
+        expect(afterSessionEnd("failed")).toBe("leave");
     });
 });

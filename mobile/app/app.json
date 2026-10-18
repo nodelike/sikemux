@@ -40,9 +40,18 @@
       [
         "expo-image-picker",
         {
-          "photosPermission": "Sikemux attaches the photos you pick to a chat on your computer.",
-          "cameraPermission": false,
+          "photosPermission": "Sikemux shows your recent photos so you can attach them to a chat.",
+          "cameraPermission": "Sikemux uses the camera to take a photo you attach to a chat.",
           "microphonePermission": false
+        }
+      ],
+      [
+        "expo-media-library",
+        {
+          "photosPermission": "Sikemux shows your recent photos so you can attach them to a chat.",
+          "savePhotosPermission": false,
+          "granularPermissions": ["photo"],
+          "preventAutomaticLimitedAccessAlert": true
         }
       ],
       "@clerk/expo",
@@ -55,6 +64,7 @@
       "./plugins/notifications",
       "./plugins/backup-rules",
       "./plugins/scene-lifecycle",
+      "./plugins/photo-thumbnails",
       "./plugins/spm-ids",
       [
         "expo-splash-screen",

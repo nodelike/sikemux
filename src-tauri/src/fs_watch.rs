@@ -3,7 +3,7 @@
 // loop in GitPane. Per-repo watcher; a `repo_watch_stop` releases one exact
 // opaque lease token.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
@@ -297,38 +297,92 @@ fn active_routes(repo_key: &str) -> Vec<String> {
     lock_registry().routes(repo_key)
 }
 
-/// How many times this repo's watcher has reported a change. A repo with no
-/// live watcher is absent: nothing would tell us its tree moved, so nothing
-/// may cache a walk of it.
-fn scan_generations() -> &'static Mutex<HashMap<String, u64>> {
-    static G: OnceLock<Mutex<HashMap<String, u64>>> = OnceLock::new();
-    G.get_or_init(|| Mutex::new(HashMap::new()))
+/// Each watched repo's latest change number, and for its last few changes the
+/// paths each one moved, none when it could not say. A repo with no live
+/// watcher is absent: nothing would tell us its tree moved, so nothing may
+/// cache a walk of it. Numbers are never reused, even across watchers.
+#[derive(Default)]
+struct ScanGenerations {
+    last: u64,
+    repos: HashMap<String, RepoChanges>,
 }
 
-fn lock_scan_generations() -> MutexGuard<'static, HashMap<String, u64>> {
+#[derive(Default)]
+struct RepoChanges {
+    generation: u64,
+    recent: VecDeque<(u64, Option<Arc<[String]>>)>,
+    /// The newest change no longer in `recent`.
+    forgotten: u64,
+}
+
+const REMEMBERED_CHANGES: usize = 32;
+
+fn scan_generations() -> &'static Mutex<ScanGenerations> {
+    static G: OnceLock<Mutex<ScanGenerations>> = OnceLock::new();
+    G.get_or_init(Mutex::default)
+}
+
+fn lock_scan_generations() -> MutexGuard<'static, ScanGenerations> {
     scan_generations()
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
 pub fn scan_generation(repo_key: &str) -> Option<u64> {
-    lock_scan_generations().get(repo_key).copied()
+    lock_scan_generations()
+        .repos
+        .get(repo_key)
+        .map(|repo| repo.generation)
 }
 
-fn bump_scan_generation(repo_key: &str) {
-    *lock_scan_generations()
-        .entry(repo_key.to_string())
-        .or_insert(0) += 1;
+/// Every path the watcher saw move after change `since`, up to the latest;
+/// none when one of those changes could not say what it moved or is no longer
+/// remembered.
+pub fn changed_paths_since(repo_key: &str, since: u64) -> Option<Vec<String>> {
+    let generations = lock_scan_generations();
+    let repo = generations.repos.get(repo_key)?;
+    if since < repo.forgotten || since > repo.generation {
+        return None;
+    }
+    let mut paths: Vec<String> = Vec::new();
+    for (_, changed) in repo.recent.iter().filter(|(at, _)| *at > since) {
+        paths.extend(changed.as_ref()?.iter().cloned());
+    }
+    paths.sort_unstable();
+    paths.dedup();
+    Some(paths)
+}
+
+fn bump_scan_generation(repo_key: &str, paths: Option<&[String]>) {
+    let mut generations = lock_scan_generations();
+    generations.last += 1;
+    let generation = generations.last;
+    let repo = generations.repos.entry(repo_key.to_string()).or_default();
+    repo.generation = generation;
+    if repo.recent.len() == REMEMBERED_CHANGES {
+        if let Some((at, _)) = repo.recent.pop_front() {
+            repo.forgotten = at;
+        }
+    }
+    repo.recent.push_back((generation, paths.map(Arc::from)));
+}
+
+/// A change the app made itself, counted now so the next read sees it
+/// rather than waiting for the watcher to report it.
+pub fn note_own_change(repo_key: &str, paths: Option<&[String]>) {
+    if scan_generation(repo_key).is_some() {
+        bump_scan_generation(repo_key, paths);
+    }
 }
 
 fn forget_scan_generation(repo_key: &str) {
-    lock_scan_generations().remove(repo_key);
+    lock_scan_generations().repos.remove(repo_key);
 }
 
 fn emit_changed_to_active_routes(app: &AppHandle, repo_key: &str, paths: Option<Vec<String>>) {
     // Bump before emitting: the refresh this event triggers must not be able
     // to read a cached walk from before the change.
-    bump_scan_generation(repo_key);
+    bump_scan_generation(repo_key, paths.as_deref());
     for repo in active_routes(repo_key) {
         let _ = app.emit_to(
             "main",
@@ -713,7 +767,7 @@ fn start_repo_watch(app: AppHandle, repo: String, token: String) -> AppResult<()
     // after subscribing. Keep it scoped; an empty repo means "invalidate all"
     // on the JS side and causes an O(open projects) refetch storm.
     crate::files::invalidate(&repo_key);
-    bump_scan_generation(&repo_key);
+    bump_scan_generation(&repo_key, None);
     let _ = app.emit_to("main", "git_changed", ChangePayload { repo, paths: None });
     Ok(())
 }

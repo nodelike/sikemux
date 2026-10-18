@@ -65,7 +65,7 @@ async function renderIssues(cwd: string | null = null) {
     return view;
 }
 
-const list = () => document.querySelector(".git-left") as HTMLElement;
+const list = () => document.querySelector(".git-left, .gha-full-page") as HTMLElement;
 const right = () => document.querySelector(".git-right") as HTMLElement;
 
 beforeEach(() => {

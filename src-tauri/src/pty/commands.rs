@@ -1,6 +1,7 @@
 use std::time::Duration;
 
 use sikemux_core::client::{Attached, ClientError, Reply};
+use sikemux_core::launch::AgentSpec;
 use sikemux_core::protocol::{
     Continuation, LaunchIdentity, Request, Response as CoreResponse, SessionExit, SessionId,
     SessionInfo, SpawnTarget, TerminalSpawn,
@@ -102,18 +103,26 @@ pub async fn pty_spawn(
         }
         _ => Default::default(),
     };
-    if let (Some(_), Some(agent_type)) = (
-        direct_command.as_ref(),
+    let agent = direct_command.as_ref().zip(
         context
             .as_ref()
             .and_then(|context| context.agent_type.as_deref()),
-    ) {
-        env.extend(crate::model_providers::environment(agent_type).await);
-    }
-    if let Some(path) = crate::system::child_path() {
-        if !env.iter().any(|(key, _)| key == "PATH") {
-            env.push(("PATH".into(), path));
+    );
+    match agent {
+        Some((command, agent_type)) => {
+            let profile = command.profile.as_ref();
+            let spec = AgentSpec {
+                provider: agent_type.to_owned(),
+                executable_path: None,
+                config_path: profile.and_then(|profile| profile.config_path.clone()),
+                environment_keys: profile
+                    .map(|profile| profile.environment_keys.clone())
+                    .unwrap_or_default(),
+            };
+            let providers = crate::model_providers::environment(agent_type).await;
+            env.extend(spec.launch(command.program.clone().into(), providers).env);
         }
+        None => env.extend(crate::system::child_path().map(|path| ("PATH".to_owned(), path))),
     }
     let client = manager.client().await?;
     let id = client
@@ -478,4 +487,22 @@ mod tests {
             serde_json::json!({ "ptyId": 1_759_300_000_123u64 })
         );
     }
+}
+
+/// Has the core update after the coming relaunch stop the chats it cannot
+/// carry over, rather than wait on them.
+#[tauri::command]
+pub fn update_force_core(manager: State<'_, PtyManager>) -> AppResult<()> {
+    manager
+        .force_next_core_update()
+        .map_err(crate::error::AppError::Other)
+}
+
+/// The chats at work that an update now would stop and start again rather
+/// than carry over, which the app waits on before it installs one.
+#[tauri::command]
+pub async fn update_blockers(
+    manager: State<'_, PtyManager>,
+) -> AppResult<Vec<sikemux_core::frozen::UpdateBlocker>> {
+    Ok(manager.update_blockers().await)
 }

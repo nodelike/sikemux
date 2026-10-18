@@ -33,16 +33,22 @@ export function connectingLabel(connection: ChatState["connection"]): string | n
     return null;
 }
 
+function retryingText({ attempt, connection }: NonNullable<ChatState["retrying"]>): string {
+    return `${connection ? "Reconnecting…" : "Retrying…"}${attempt ? ` (attempt ${attempt})` : ""}`;
+}
+
 /* A permission card already says what the turn is waiting on, so a spinner
    beside it would only compete with it. */
 export function activityText(
-    state: Pick<ChatState, "permissions" | "running" | "messages" | "connection">,
+    state: Pick<ChatState, "permissions" | "running" | "messages" | "connection" | "retrying">,
     activeTool: string | null,
 ): string | null {
     return state.permissions.length > 0
         ? null
         : state.running
-          ? (activeTool ?? "Thinking…")
+          ? state.retrying
+              ? retryingText(state.retrying)
+              : (activeTool ?? "Thinking…")
           : state.messages.length > 0
             ? connectingLabel(state.connection)
             : null;
@@ -64,4 +70,11 @@ export function composerPlaceholder(
             : commands
               ? "Ask about this project, or type / for commands"
               : "Ask about this project";
+}
+
+const PROVIDERS: Record<string, string> = { claude: "Anthropic", codex: "OpenAI" };
+
+/** What the chat says when the network cut a turn short, naming whose servers it lost. */
+export function lostConnectionText(agentType: string): string {
+    return `Lost connection to ${PROVIDERS[agentType] ?? "the model provider"}. Sikemux sends it again when you're back online.`;
 }

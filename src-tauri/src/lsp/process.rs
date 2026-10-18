@@ -9,7 +9,7 @@ use serde_json::{json, Value};
 use tauri::AppHandle;
 
 use super::diagnostics::handle_server_notification;
-use super::discovery::server_command;
+use super::discovery::{server_command, server_env};
 use super::limits::{clear_pending_requests, take_pending_request, PENDING_REQUEST_COUNT};
 use super::protocol::path_to_uri;
 use super::server::{lsp_tick, shutdown_server, Server, ServerHandle};
@@ -48,6 +48,7 @@ pub(super) fn spawn_server(
         .ok_or_else(|| AppError::Lsp(format!("no language server configured for `{language}`")))?;
     let child = sikemux_process::user_environment::command(&bin)
         .args(&args)
+        .envs(server_env(language))
         .current_dir(project)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())

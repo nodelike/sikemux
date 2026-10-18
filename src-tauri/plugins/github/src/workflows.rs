@@ -195,13 +195,46 @@ pub async fn file(data_dir: &Path, input: FileRef) -> GithubResult<WorkflowFile>
     let contents = input
         .repo
         .path(&format!("/contents/{}", encode_path(&row.path)))?;
+    read(data_dir, &contents, row.path).await
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FileAt {
+    #[serde(flatten)]
+    pub repo: RepoRef,
+    pub path: String,
+    pub git_ref: String,
+}
+
+/// A workflow file as it was at one commit, such as the one a run came from,
+/// or one that a workflow calls by its path.
+pub async fn file_at(data_dir: &Path, input: FileAt) -> GithubResult<WorkflowFile> {
+    if !is_in_repository(&input.path) || input.path.split('/').any(|part| part == "..") {
+        return Err(GithubError::BadArg(format!(
+            "`{}` is not a workflow file in the repository",
+            input.path
+        )));
+    }
+    if !valid_ref(&input.git_ref) {
+        return Err(GithubError::BadArg(format!(
+            "`{}` is not a commit, branch or tag",
+            input.git_ref
+        )));
+    }
+    let contents = input.repo.path(&format!(
+        "/contents/{}?ref={}",
+        encode_path(&input.path),
+        encode_path(&input.git_ref)
+    ))?;
+    read(data_dir, &contents, input.path).await
+}
+
+async fn read(data_dir: &Path, contents: &str, path: String) -> GithubResult<WorkflowFile> {
     let (bytes, _) =
-        client::download_as(data_dir, &contents, "application/vnd.github.raw", false).await?;
+        client::download_as(data_dir, contents, "application/vnd.github.raw", false).await?;
     let text = String::from_utf8_lossy(&bytes).into_owned();
-    Ok(WorkflowFile {
-        path: row.path,
-        text,
-    })
+    Ok(WorkflowFile { path, text })
 }
 
 #[derive(Deserialize)]

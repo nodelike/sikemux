@@ -2,7 +2,7 @@ import { renameEditorPath } from "../state/editorPaths";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import type { MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent, ReactNode } from "react";
+import type { ComponentType, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent, ReactNode, RefObject } from "react";
 import { fsapi, type DirEntry } from "../api/fs";
 import { type GitFile } from "../api/git";
 import { subscribe } from "../state/bus";
@@ -12,7 +12,19 @@ import { notify, reportError, swallow } from "../state/toast";
 import { copyText } from "../lib/clipboard";
 import { confirmDialog } from "../state/dialog";
 import { dispatchPaths, pathDropTargetAt, registerFolderDrop, resolvePathDropTarget, showPathDropHover } from "../state/dropRegistry";
-import { IconChevron, IconCollapseAll, IconFilePlus, IconFolder, IconFolderPlus, IconSearch } from "../ui/Icons";
+import {
+    IconCheck,
+    IconChevron,
+    IconCollapseAll,
+    IconCopy,
+    IconFile,
+    IconFilePlus,
+    IconFolder,
+    IconFolderPlus,
+    IconPencil,
+    IconSearch,
+    IconTrash,
+} from "../ui/Icons";
 import { FileIcon } from "../ui/FileIcon";
 import { Tooltip } from "../ui/Tooltip";
 import { gitFileDecoration, gitFolderDecorations, type GitStatusDecoration } from "../git/gitFileStatus";
@@ -33,6 +45,8 @@ interface FileTreeProps {
     onResize?: (w: number) => void;
     active: boolean;
     revealPath?: string | null;
+    /** Rows above the tree that scroll with it, so the two read as one list. */
+    lead?: ReactNode;
 }
 
 interface NewEntryRequest {
@@ -64,7 +78,18 @@ export interface CtxItem {
     selected?: boolean;
     sep?: boolean;
     run?: () => void;
+    /** Small actions on the item itself, shown at its row's end while it is pointed at or focused. */
+    actions?: CtxAction[];
 }
+
+export interface CtxAction {
+    label: string;
+    icon: ReactNode;
+    danger?: boolean;
+    run: () => void;
+}
+
+export const menuIcon = (Glyph: ComponentType<{ size?: number }>): ReactNode => <Glyph size={13} />;
 
 function validEntryName(raw: string): string | null {
     const name = raw.trim();
@@ -77,7 +102,17 @@ function reshapesIgnores(changed: string, dir: string): boolean {
     return basename(changed) === ".gitignore" && isPathWithin(dir, dirname(changed));
 }
 
-export const FileTree = memo(function FileTree({ cwd, activePath, onOpenFile, onKeepFile, width, onResize, active, revealPath }: FileTreeProps) {
+export const FileTree = memo(function FileTree({
+    cwd,
+    activePath,
+    onOpenFile,
+    onKeepFile,
+    width,
+    onResize,
+    active,
+    revealPath,
+    lead,
+}: FileTreeProps) {
     const resizable = width !== undefined && onResize !== undefined;
     const [dirs, setDirs] = useState<Record<string, DirEntry[]>>({});
     const [expanded, setExpanded] = useState<Set<string>>(new Set());
@@ -95,6 +130,10 @@ export const FileTree = memo(function FileTree({ cwd, activePath, onOpenFile, on
     const [focusedPath, setFocusedPath] = useState<string | null>(null);
     const [menu, setMenu] = useState<MenuState | null>(null);
     const rootScrollRef = useRef<HTMLDivElement>(null);
+    const rowsRef = useRef<HTMLDivElement>(null);
+    const leadRef = useRef<HTMLDivElement>(null);
+    const [rowsTop, setRowsTop] = useState(0);
+    const hasLead = lead !== undefined;
     const rowButtonRefs = useRef(new Map<string, HTMLButtonElement>());
 
     const expandedRef = useRef(expanded);
@@ -145,7 +184,20 @@ export const FileTree = memo(function FileTree({ cwd, activePath, onOpenFile, on
         getItemKey: (index) => visibleRows[index]?.key ?? index,
         overscan: 20,
         enabled: virtualized,
+        scrollMargin: rowsTop,
     });
+
+    useLayoutEffect(() => {
+        const scroll = rootScrollRef.current;
+        const rows = rowsRef.current;
+        if (!hasLead || !scroll || !rows) return setRowsTop(0);
+        const measure = () => setRowsTop(rows.getBoundingClientRect().top - scroll.getBoundingClientRect().top + scroll.scrollTop);
+        measure();
+        const observer = new ResizeObserver(measure);
+        if (leadRef.current) observer.observe(leadRef.current);
+        observer.observe(scroll);
+        return () => observer.disconnect();
+    }, [hasLead]);
 
     const loadDirs = useCallback(async (paths: readonly string[]) => {
         if (paths.length === 0) return;
@@ -546,40 +598,42 @@ export const FileTree = memo(function FileTree({ cwd, activePath, onOpenFile, on
     const buildMenuItems = (entry: DirEntry | null): CtxItem[] => {
         if (!entry) {
             return [
-                { label: "New File", run: () => startNew("file", cwd) },
-                { label: "New Folder", run: () => startNew("folder", cwd) },
+                { label: "New File", icon: <IconFilePlus size={13} />, run: () => startNew("file", cwd) },
+                { label: "New Folder", icon: <IconFolderPlus size={13} />, run: () => startNew("folder", cwd) },
                 { sep: true },
-                { label: `Reveal in ${FILE_MANAGER_NAME}`, run: () => revealInFinder(cwd) },
-                { label: "Copy Path", run: () => void copyToClipboard(cwd, "path") },
+                { label: `Reveal in ${FILE_MANAGER_NAME}`, icon: <IconFolder size={13} />, run: () => revealInFinder(cwd) },
+                { label: "Copy Path", icon: <IconCopy size={13} />, run: () => void copyToClipboard(cwd, "path") },
             ];
         }
         const tail: CtxItem[] = [
-            { label: `Reveal in ${FILE_MANAGER_NAME}`, run: () => revealInFinder(entry.path) },
-            { label: "Copy Path", run: () => void copyToClipboard(entry.path, "path") },
-            { label: "Copy Relative Path", run: () => void copyToClipboard(relativePath(entry.path), "relative path") },
-        ];
-        if (entry.is_dir) {
-            return [
-                { label: "New File", run: () => startNew("file", entry.path) },
-                { label: "New Folder", run: () => startNew("folder", entry.path) },
-                { sep: true },
-                { label: "Rename…", run: () => startRename(entry) },
-                { label: "Delete", danger: true, run: () => void deleteEntry(entry) },
-                { sep: true },
-                ...tail,
-            ];
-        }
-        return [
+            { label: `Reveal in ${FILE_MANAGER_NAME}`, icon: <IconFolder size={13} />, run: () => revealInFinder(entry.path) },
+            { label: "Copy Path", icon: <IconCopy size={13} />, run: () => void copyToClipboard(entry.path, "path") },
             {
-                label: "Open",
-                run: () => {
-                    setSelectedDir(null);
-                    onKeepFile(entry);
-                },
+                label: "Copy Relative Path",
+                icon: <IconCopy size={13} />,
+                run: () => void copyToClipboard(relativePath(entry.path), "relative path"),
             },
+        ];
+        const head: CtxItem[] = entry.is_dir
+            ? [
+                  { label: "New File", icon: <IconFilePlus size={13} />, run: () => startNew("file", entry.path) },
+                  { label: "New Folder", icon: <IconFolderPlus size={13} />, run: () => startNew("folder", entry.path) },
+              ]
+            : [
+                  {
+                      label: "Open",
+                      icon: <IconFile size={13} />,
+                      run: () => {
+                          setSelectedDir(null);
+                          onKeepFile(entry);
+                      },
+                  },
+              ];
+        return [
+            ...head,
             { sep: true },
-            { label: "Rename…", run: () => startRename(entry) },
-            { label: "Delete", danger: true, run: () => void deleteEntry(entry) },
+            { label: "Rename…", icon: <IconPencil size={13} />, run: () => startRename(entry) },
+            { label: "Delete", icon: <IconTrash size={13} />, danger: true, run: () => void deleteEntry(entry) },
             { sep: true },
             ...tail,
         ];
@@ -605,9 +659,10 @@ export const FileTree = memo(function FileTree({ cwd, activePath, onOpenFile, on
     const renderRow = (row: VisibleTreeRow): ReactNode => {
         if (row.kind === "new") {
             return (
-                <NewEntryRow
+                <EntryInputRow
                     depth={row.depth}
                     kind={row.request.kind}
+                    renaming={false}
                     value={newName}
                     inputRef={newInputRef}
                     onChange={setNewName}
@@ -618,11 +673,27 @@ export const FileTree = memo(function FileTree({ cwd, activePath, onOpenFile, on
         }
         const e = row.entry;
         const pad = 4 + row.depth * 13;
+        const clicked = () => {
+            const suppressed = suppressClickRef.current;
+            suppressClickRef.current = false;
+            return !suppressed;
+        };
+        const shared = {
+            onPointerDown: (ev: ReactPointerEvent<HTMLButtonElement>) => onRowPointerDown(ev, e.path),
+            onDragStart: (ev: React.DragEvent) => ev.preventDefault(),
+            onContextMenu: (ev: ReactMouseEvent) => openMenu(ev, e),
+            role: "treeitem",
+            "aria-level": row.depth + 1,
+            tabIndex: focusPath === e.path ? 0 : -1,
+            onFocus: () => setFocusedPath(e.path),
+            onKeyDown: (event: React.KeyboardEvent<HTMLButtonElement>) => onEntryKey(event, e),
+        };
         if (renaming === e.path) {
             return (
-                <RenameRow
+                <EntryInputRow
                     depth={row.depth + (e.is_dir ? 0 : 1)}
                     kind={e.is_dir ? "folder" : "file"}
+                    renaming
                     value={renameName}
                     inputRef={renameInputRef}
                     onChange={setRenameName}
@@ -642,23 +713,12 @@ export const FileTree = memo(function FileTree({ cwd, activePath, onOpenFile, on
                     }}
                     className={`tree-row is-folder${e.ignored ? " ignored" : ""}${folderGit ? ` git-${folderGit.cls}` : ""}${selectedDir === e.path ? " selected" : ""}${dragOver === e.path ? " drag-over" : ""}${draggingPath === e.path ? " dragging" : ""}`}
                     style={{ paddingLeft: pad }}
-                    onPointerDown={(ev) => onRowPointerDown(ev, e.path)}
-                    onDragStart={(ev) => ev.preventDefault()}
+                    {...shared}
                     onClick={() => {
-                        if (suppressClickRef.current) {
-                            suppressClickRef.current = false;
-                            return;
-                        }
-                        void toggleDir(e);
+                        if (clicked()) void toggleDir(e);
                     }}
-                    onContextMenu={(ev) => openMenu(ev, e)}
-                    role="treeitem"
                     aria-expanded={open}
-                    aria-level={row.depth + 1}
                     aria-selected={selectedDir === e.path}
-                    tabIndex={focusPath === e.path ? 0 : -1}
-                    onFocus={() => setFocusedPath(e.path)}
-                    onKeyDown={(event) => onEntryKey(event, e)}
                     data-folder-path={e.path}>
                     <span className={`tree-chev${open ? " open" : ""}`}>
                         <IconChevron size={11} />
@@ -682,24 +742,14 @@ export const FileTree = memo(function FileTree({ cwd, activePath, onOpenFile, on
                 ref={(el) => attachRowButton(e.path, el)}
                 className={`tree-row file${e.ignored ? " ignored" : ""}${activePath === e.path ? " active" : ""}${gd ? ` git-${gd.cls}` : ""}${dragOver === e.path ? " drag-over" : ""}${draggingPath === e.path ? " dragging" : ""}`}
                 style={{ paddingLeft: pad + 13 }}
-                onPointerDown={(ev) => onRowPointerDown(ev, e.path)}
-                onDragStart={(ev) => ev.preventDefault()}
+                {...shared}
                 onClick={() => {
-                    if (suppressClickRef.current) {
-                        suppressClickRef.current = false;
-                        return;
-                    }
+                    if (!clicked()) return;
                     setSelectedDir(null);
                     onOpenFile(e);
                 }}
                 onDoubleClick={() => onKeepFile(e)}
-                onContextMenu={(ev) => openMenu(ev, e)}
-                role="treeitem"
-                aria-level={row.depth + 1}
                 aria-selected={activePath === e.path}
-                tabIndex={focusPath === e.path ? 0 : -1}
-                onFocus={() => setFocusedPath(e.path)}
-                onKeyDown={(event) => onEntryKey(event, e)}
                 data-file-path={e.path}
                 data-drop-dir={dirname(e.path)}>
                 <span className="tree-file">
@@ -776,43 +826,54 @@ export const FileTree = memo(function FileTree({ cwd, activePath, onOpenFile, on
               return (
                   <div
                       key={row.key}
-                      style={{ position: "absolute", top: 0, left: 0, width: "100%", height: item.size, transform: `translateY(${item.start}px)` }}>
+                      style={{
+                          position: "absolute",
+                          top: 0,
+                          left: 0,
+                          width: "100%",
+                          height: item.size,
+                          transform: `translateY(${item.start - rowsTop}px)`,
+                      }}>
                       {renderRow(row)}
                   </div>
               );
           })
         : visibleRows.map((row) => <div key={row.key}>{renderRow(row)}</div>);
 
+    const head = (
+        <div className="ed-tree-head">
+            <div className="ed-tree-title">
+                <span className="ed-tree-name">{basename(cwd) || "files"}</span>
+                <span className="ed-tree-actions">
+                    <Tooltip label="Find a file">
+                        <button type="button" className="ed-tree-act" aria-label="Find a file" onClick={() => openFilePalette()}>
+                            <IconSearch size={13} />
+                        </button>
+                    </Tooltip>
+                    <Tooltip label="New file">
+                        <button type="button" className="ed-tree-act" aria-label="New file" onClick={() => startNew("file")}>
+                            <IconFilePlus size={13} />
+                        </button>
+                    </Tooltip>
+                    <Tooltip label="New folder">
+                        <button type="button" className="ed-tree-act" aria-label="New folder" onClick={() => startNew("folder")}>
+                            <IconFolderPlus size={13} />
+                        </button>
+                    </Tooltip>
+                    <Tooltip label="Collapse folders">
+                        <button type="button" className="ed-tree-act" aria-label="Collapse folders" onClick={() => setExpanded(new Set())}>
+                            <IconCollapseAll size={13} />
+                        </button>
+                    </Tooltip>
+                </span>
+            </div>
+        </div>
+    );
+
     return (
         <>
             <div className={`ed-tree${resizable ? "" : " fill"}`} style={resizable ? { width } : undefined}>
-                <div className="ed-tree-head">
-                    <div className="ed-tree-title">
-                        <span className="ed-tree-name">{basename(cwd) || "files"}</span>
-                        <span className="ed-tree-actions">
-                            <Tooltip label="Find a file">
-                                <button type="button" className="ed-tree-act" aria-label="Find a file" onClick={() => openFilePalette()}>
-                                    <IconSearch size={13} />
-                                </button>
-                            </Tooltip>
-                            <Tooltip label="New file">
-                                <button type="button" className="ed-tree-act" aria-label="New file" onClick={() => startNew("file")}>
-                                    <IconFilePlus size={13} />
-                                </button>
-                            </Tooltip>
-                            <Tooltip label="New folder">
-                                <button type="button" className="ed-tree-act" aria-label="New folder" onClick={() => startNew("folder")}>
-                                    <IconFolderPlus size={13} />
-                                </button>
-                            </Tooltip>
-                            <Tooltip label="Collapse folders">
-                                <button type="button" className="ed-tree-act" aria-label="Collapse folders" onClick={() => setExpanded(new Set())}>
-                                    <IconCollapseAll size={13} />
-                                </button>
-                            </Tooltip>
-                        </span>
-                    </div>
-                </div>
+                {!hasLead && head}
                 <div
                     ref={rootScrollRef}
                     className={`ed-tree-scroll${rootDragOver ? " drag-over-root" : ""}`}
@@ -851,7 +912,21 @@ export const FileTree = memo(function FileTree({ cwd, activePath, onOpenFile, on
                     }}
                     data-root-path={cwd}
                     onContextMenu={(ev) => openMenu(ev, null)}>
-                    <div style={virtualized ? { position: "relative", width: "100%", height: treeVirtualizer.getTotalSize() } : undefined}>
+                    {hasLead && (
+                        <div
+                            ref={leadRef}
+                            className="ed-tree-lead"
+                            onContextMenu={(event) => {
+                                event.preventDefault();
+                                event.stopPropagation();
+                            }}>
+                            {lead}
+                        </div>
+                    )}
+                    {hasLead && head}
+                    <div
+                        ref={rowsRef}
+                        style={virtualized ? { position: "relative", width: "100%", height: treeVirtualizer.getTotalSize() } : undefined}>
                         {renderedRows}
                     </div>
                 </div>
@@ -882,6 +957,21 @@ export const FileTree = memo(function FileTree({ cwd, activePath, onOpenFile, on
     );
 });
 
+/** Where a floating surface opened at `x`, `y` sits, kept inside the window. */
+export function useFloatingPosition(ref: RefObject<HTMLElement | null>, x: number, y: number, alignRight = false, above = false) {
+    const [pos, setPos] = useState({ left: x, top: y });
+    useLayoutEffect(() => {
+        const r = ref.current?.getBoundingClientRect();
+        if (!r) return;
+        const pad = 6;
+        setPos({
+            left: Math.max(pad, Math.min(alignRight ? x - r.width : x, window.innerWidth - r.width - pad)),
+            top: Math.max(pad, Math.min(above ? y - r.height : y, window.innerHeight - r.height - pad)),
+        });
+    }, [ref, x, y, alignRight, above]);
+    return pos;
+}
+
 export function TreeContextMenu({
     x,
     y,
@@ -891,6 +981,7 @@ export function TreeContextMenu({
     above = false,
     width,
     className,
+    tickBesideLabel = false,
 }: {
     x: number;
     y: number;
@@ -903,21 +994,12 @@ export function TreeContextMenu({
     alignRight?: boolean;
     /** Open upward with its bottom at `y`, for buttons at the foot of the window. */
     above?: boolean;
+    /** Ticks the current item right after its name instead of at the row's end. */
+    tickBesideLabel?: boolean;
 }) {
+    const iconed = items.some((item) => item.icon);
     const ref = useRef<HTMLDivElement>(null);
-    const [pos, setPos] = useState({ left: x, top: y });
-
-    useLayoutEffect(() => {
-        const el = ref.current;
-        if (!el) return;
-        const r = el.getBoundingClientRect();
-        const pad = 6;
-        let left = alignRight ? x - r.width : x;
-        let top = above ? Math.max(pad, y - r.height) : y;
-        if (left + r.width > window.innerWidth - pad) left = Math.max(pad, window.innerWidth - r.width - pad);
-        if (top + r.height > window.innerHeight - pad) top = Math.max(pad, window.innerHeight - r.height - pad);
-        setPos({ left, top });
-    }, [x, y, alignRight, above]);
+    const pos = useFloatingPosition(ref, x, y, alignRight, above);
 
     /* A click on the page lands in the page, never on the scrim, but it takes the
        window's focus with it, so losing focus closes the menu as a click away would. */
@@ -949,21 +1031,15 @@ export function TreeContextMenu({
                 aria-label="Actions"
                 onKeyDown={(event) => {
                     const buttons = [...event.currentTarget.querySelectorAll<HTMLButtonElement>("button:not(:disabled)")];
+                    const count = buttons.length;
                     const index = buttons.indexOf(document.activeElement as HTMLButtonElement);
-                    let next = index;
-                    if (event.key === "ArrowDown") next = (index + 1) % buttons.length;
-                    else if (event.key === "ArrowUp") next = (index - 1 + buttons.length) % buttons.length;
-                    else if (event.key === "Home") next = 0;
-                    else if (event.key === "End") next = buttons.length - 1;
-                    else if (event.key === "Escape" || event.key === "Tab") {
-                        event.preventDefault();
-                        event.stopPropagation();
-                        onClose();
-                        return;
-                    } else return;
+                    const next = ({ ArrowDown: index + 1, ArrowUp: index - 1 + count, Home: 0, End: count - 1 } as Record<string, number>)[event.key];
+                    const closing = event.key === "Escape" || event.key === "Tab";
+                    if (next === undefined && !closing) return;
                     event.preventDefault();
                     event.stopPropagation();
-                    buttons[next]?.focus();
+                    if (closing) onClose();
+                    else buttons[next % count]?.focus();
                 }}
                 className={`tree-ctx-menu${className ? ` ${className}` : ""}`}
                 style={{ left: pos.left, top: pos.top, ...(width ? { width, minWidth: width, maxWidth: width } : {}) }}
@@ -972,36 +1048,49 @@ export function TreeContextMenu({
                     it.sep ? (
                         <div key={i} className="tree-ctx-sep" />
                     ) : (
-                        <button
-                            key={i}
-                            type="button"
-                            disabled={it.disabled}
-                            role="menuitem"
-                            tabIndex={-1}
-                            className={`tree-ctx-item${it.danger ? " danger" : ""}${it.disabled ? " disabled" : ""}${it.selected ? " selected" : ""}`}
-                            onPointerMove={(event) => {
-                                if (!it.disabled && document.activeElement !== event.currentTarget) event.currentTarget.focus();
-                            }}
-                            onClick={() => {
-                                if (it.disabled) return;
-                                onClose();
-                                it.run?.();
-                            }}>
-                            {it.icon && <span className="tree-ctx-icon">{it.icon}</span>}
-                            <span className="tree-ctx-label" title={it.label}>
-                                {it.label}
-                                {it.detail && (
-                                    <small className="tree-ctx-detail" title={it.detail}>
-                                        {it.detail}
-                                    </small>
-                                )}
-                            </span>
-                            {it.hint && (
-                                <span className="tree-ctx-hint" title={it.hint}>
-                                    {it.hint}
+                        <MenuRow key={i} actions={it.actions} onClose={onClose}>
+                            <button
+                                type="button"
+                                disabled={it.disabled}
+                                role="menuitem"
+                                tabIndex={-1}
+                                className={`tree-ctx-item${it.danger ? " danger" : ""}${it.disabled ? " disabled" : ""}${it.selected ? " selected" : ""}`}
+                                onPointerMove={(event) => {
+                                    if (!it.disabled && document.activeElement !== event.currentTarget) event.currentTarget.focus();
+                                }}
+                                onClick={() => {
+                                    if (it.disabled) return;
+                                    onClose();
+                                    it.run?.();
+                                }}>
+                                {iconed && <span className="tree-ctx-icon">{it.icon}</span>}
+                                <span className="tree-ctx-label" title={it.label}>
+                                    {tickBesideLabel ? (
+                                        <span className="tree-ctx-name">
+                                            {it.label}
+                                            {it.selected && <IconCheck size={11} className="tree-ctx-check" />}
+                                        </span>
+                                    ) : (
+                                        it.label
+                                    )}
+                                    {it.detail && (
+                                        <small className="tree-ctx-detail" title={it.detail}>
+                                            {it.detail}
+                                        </small>
+                                    )}
                                 </span>
-                            )}
-                        </button>
+                                {it.hint && (
+                                    <span className="tree-ctx-hint" title={it.hint}>
+                                        {it.hint}
+                                    </span>
+                                )}
+                                {it.selected && !tickBesideLabel && (
+                                    <span className="tree-ctx-check" aria-hidden="true">
+                                        <IconCheck size={11} />
+                                    </span>
+                                )}
+                            </button>
+                        </MenuRow>
                     ),
                 )}
             </div>
@@ -1010,9 +1099,11 @@ export function TreeContextMenu({
     );
 }
 
-function NewEntryRow({
+/** The name field a new entry, or one being renamed, shows in place of its row. */
+function EntryInputRow({
     depth,
     kind,
+    renaming,
     value,
     onChange,
     onSubmit,
@@ -1021,20 +1112,28 @@ function NewEntryRow({
 }: {
     depth: number;
     kind: "file" | "folder";
+    renaming: boolean;
     value: string;
     onChange: (v: string) => void;
     onSubmit: () => void;
     onCancel: () => void;
     inputRef: React.RefObject<HTMLInputElement | null>;
 }) {
-    const pad = 4 + depth * 13;
+    const folder = kind === "folder";
     return (
-        <div className="tree-row tree-new" style={{ paddingLeft: pad + 13 }}>
-            <span className="tree-file">{kind === "folder" ? <IconFolder size={17} /> : <FileIcon name="" size={16} />}</span>
+        <div className="tree-row tree-new" style={{ paddingLeft: 4 + depth * 13 + (renaming ? 0 : 13) }}>
+            {renaming && folder && (
+                <span className="tree-chev" style={{ visibility: "hidden" }}>
+                    <IconChevron size={11} />
+                </span>
+            )}
+            <span className={renaming && folder ? "tree-folder" : "tree-file"}>
+                {folder ? <IconFolder size={17} /> : <FileIcon name={renaming ? value : ""} size={16} />}
+            </span>
             <input
                 ref={inputRef}
                 className="tree-new-input"
-                placeholder={kind === "folder" ? "folder name…" : "filename…"}
+                placeholder={renaming ? undefined : folder ? "folder name…" : "filename…"}
                 value={value}
                 spellCheck={false}
                 autoCapitalize="off"
@@ -1051,55 +1150,29 @@ function NewEntryRow({
     );
 }
 
-function RenameRow({
-    depth,
-    kind,
-    value,
-    onChange,
-    onSubmit,
-    onCancel,
-    inputRef,
-}: {
-    depth: number;
-    kind: "file" | "folder";
-    value: string;
-    onChange: (v: string) => void;
-    onSubmit: () => void;
-    onCancel: () => void;
-    inputRef: React.RefObject<HTMLInputElement | null>;
-}) {
-    const pad = 4 + depth * 13;
+function MenuRow({ actions, onClose, children }: { actions?: CtxAction[]; onClose: () => void; children: ReactNode }) {
+    if (!actions?.length) return children;
     return (
-        <div className="tree-row tree-new" style={{ paddingLeft: pad }}>
-            {kind === "folder" ? (
-                <>
-                    <span className="tree-chev" style={{ visibility: "hidden" }}>
-                        <IconChevron size={11} />
-                    </span>
-                    <span className="tree-folder">
-                        <IconFolder size={17} />
-                    </span>
-                </>
-            ) : (
-                <span className="tree-file">
-                    <FileIcon name={value} size={16} />
-                </span>
-            )}
-            <input
-                ref={inputRef}
-                className="tree-new-input"
-                value={value}
-                spellCheck={false}
-                autoCapitalize="off"
-                autoCorrect="off"
-                onChange={(e) => onChange(e.target.value)}
-                onBlur={onCancel}
-                onKeyDown={(e) => {
-                    if (e.key === "Enter") onSubmit();
-                    else if (e.key === "Escape") onCancel();
-                    e.stopPropagation();
-                }}
-            />
+        <div className="tree-ctx-row" role="none">
+            {children}
+            <span className="tree-ctx-actions">
+                {actions.map((action) => (
+                    <button
+                        key={action.label}
+                        type="button"
+                        role="menuitem"
+                        tabIndex={-1}
+                        aria-label={action.label}
+                        title={action.label}
+                        className={`tree-ctx-act${action.danger ? " danger" : ""}`}
+                        onClick={() => {
+                            onClose();
+                            action.run();
+                        }}>
+                        {action.icon}
+                    </button>
+                ))}
+            </span>
         </div>
     );
 }

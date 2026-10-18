@@ -1,4 +1,6 @@
 import { useEffect, useRef, type ReactNode } from "react";
+import { formatAgo } from "../lib/format";
+import type { ResourceHandle } from "../state/resources";
 import { IconSearch } from "../ui/Icons";
 import "./controls.css";
 
@@ -78,5 +80,18 @@ export function Filter({ value, onChange, placeholder }: { value: string; onChan
             />
             <kbd>/</kbd>
         </label>
+    );
+}
+
+/** A line over data that could not be refreshed, saying how old it is. */
+export function StaleNotice({ handle }: { handle: Pick<ResourceHandle<unknown>, "status" | "data" | "error" | "failure" | "loadedAt"> }) {
+    if (handle.status !== "error" || handle.data === undefined) return null;
+    const why = handle.failure === "offline" || handle.failure === "timeout" ? "Offline" : "Couldn't refresh";
+    const age = handle.loadedAt === undefined ? "" : ` · showing data from ${formatAgo(handle.loadedAt)}`;
+    return (
+        <div className="plugin-stale" role="status" title={handle.error}>
+            {why}
+            {age}
+        </div>
     );
 }

@@ -2,14 +2,14 @@ import { ChatAttachment, MobileError, type ChatMark, type ConnectionLike } from 
 import { File } from 'expo-file-system';
 
 import { chatActions, recordOf } from '@mac/chat/acpEvents';
+import { earlierMessages, type EarlierPage, PAGE_TURNS, withEarlier } from '@mac/chat/earlier';
 import { combine, nextBatch } from '@mac/chat/queuedMessages';
 import { chatReducer, initialChatState } from '@mac/chat/reducer';
-import type { AcpPermissionRequest, ChatAction, ChatMessage, ChatState } from '@mac/chat/types';
+import type { AcpPermissionRequest, ChatAction, ChatState } from '@mac/chat/types';
 
 import type { ChatInfo, CoreChatEvent } from '@/core/protocol';
 import type { ChatDelivery } from '@/devices/hub';
 import { parsed } from './chatEvents';
-import { earlierMessages, PAGE_TURNS, withEarlier } from './earlier';
 import { Folds } from './folds';
 
 export type Attached = 'attaching' | 'live' | 'missing';
@@ -91,9 +91,9 @@ type Outgoing = { key: number; messageId: string; text: string; paths: string[];
 type Cursor = { feed: string; before: bigint };
 
 /** Earlier pages a fallen-back replay left a gap above, kept until the turns between are fetched. */
-type Bridge = { until: bigint; messages: ChatMessage[]; cursor: Cursor | null };
+type Bridge = { until: bigint; pages: EarlierPage[]; cursor: Cursor | null };
 
-const TOO_LONG = 'This chat is longer than the host keeps for the phone. Open it on the host to carry on.';
+const TOO_LONG = 'This chat is too long for the phone. Open it on the host.';
 
 /**
  * A permission request that just arrived is shown before the host's list of waiting requests,
@@ -159,7 +159,10 @@ export class ChatSession {
   private earlier: ChatSnapshot['earlier'] = 'idle';
   /** Where the replay on screen begins, to tell whether earlier pages still join on to it. */
   private replayStart: bigint | undefined;
-  private earlierShown: ChatMessage[] = [];
+  /** Oldest first. */
+  private earlierShown: EarlierPage[] = [];
+  /** What the replay and everything since added to the transcript, played on to each earlier page. */
+  private since: ChatAction[] = [];
   private bridge: Bridge | undefined;
   private pages = 0;
 
@@ -281,6 +284,28 @@ export class ChatSession {
     }
     this.deliver(text, attachments);
     return true;
+  };
+
+  /**
+   * Answers a question with `text` and the files picked for it, named in the answer once they are all on the
+   * host. The files stay in the composer when the answer did not go out.
+   */
+  answerWith = async (text: string, answer: (text: string) => Promise<boolean>): Promise<boolean> => {
+    this.notice = null;
+    let attachments: Attachment[] = [];
+    if (this.attachments.length) {
+      if (this.uploading()) return false;
+      attachments = await this.upload();
+      if (!attachments.length) return false;
+    }
+    const paths = attachments.flatMap((attachment) => (attachment.path ? [attachment.path] : []));
+    const full = [text, ...(paths.length ? [`Attached:\n${paths.map((path) => `- ${path}`).join('\n')}`] : [])]
+      .filter(Boolean)
+      .join('\n\n');
+    if (await answer(full)) return true;
+    this.attachments = [...attachments, ...this.attachments];
+    this.emit();
+    return false;
   };
 
   retrySend = (messageId: string) => {
@@ -413,8 +438,7 @@ export class ChatSession {
       .then((page) => {
         if (run !== this.run) return;
         this.pages += 1;
-        const messages = earlierMessages(parsed(page.eventsJson), this.pages);
-        this.showEarlier(messages);
+        this.showEarlier([{ number: this.pages, actions: parsed(page.eventsJson) }]);
         this.cursor = page.olderBefore === undefined ? null : { feed: cursor.feed, before: page.olderBefore };
         this.earlier = 'idle';
         this.crossBridge(page.olderBefore);
@@ -530,6 +554,7 @@ export class ChatSession {
   }
 
   private apply(batch: ChatAction[]) {
+    this.since.push(...batch);
     for (const action of batch) {
       const was = this.agent.running;
       this.agent = chatReducer(this.agent, action);
@@ -650,7 +675,8 @@ export class ChatSession {
     mark: ChatMark;
     olderBefore?: bigint;
   }) {
-    const rebuilt = parsed(live.replayJson).reduce(chatReducer, initialChatState);
+    const replay = parsed(live.replayJson);
+    const rebuilt = replay.reduce(chatReducer, initialChatState);
     const replayed = new Set(rebuilt.messages.map((message) => message.id));
     const wasRunning = this.agent.running;
     let agent = chatReducer(rebuilt, {
@@ -670,23 +696,22 @@ export class ChatSession {
     const sameFeed = this.mark?.feed === live.mark.feed;
     const before = this.earlierShown;
     const start = this.replayStart;
-    const kept = { messages: before, cursor: this.cursor };
+    const kept = { pages: before, cursor: this.cursor };
     this.earlierShown = [];
+    this.since = replay;
     this.bridge = undefined;
     this.cursor = live.olderBefore === undefined ? null : { feed: live.mark.feed, before: live.olderBefore };
+    this.agent = agent;
+    this.replayed = replayed;
     if (sameFeed && before.length && start !== undefined && live.olderBefore !== undefined) {
       if (live.olderBefore === start) {
-        agent = withEarlier(agent, before);
-        this.earlierShown = before;
+        this.showEarlier(before);
         this.cursor = kept.cursor;
-        before.forEach((message) => replayed.add(message.id));
       } else if (live.olderBefore > start) {
         this.bridge = { ...kept, until: start };
       }
     }
 
-    this.agent = agent;
-    this.replayed = replayed;
     this.replayStart = live.olderBefore;
     this.optimistic = false;
     this.pending = [];
@@ -695,10 +720,16 @@ export class ChatSession {
     if (this.bridge) queueMicrotask(this.loadEarlier);
   }
 
-  private showEarlier(messages: ChatMessage[]) {
-    this.replayed = new Set([...this.replayed, ...messages.map((message) => message.id)]);
-    this.agent = withEarlier(this.agent, messages);
-    this.earlierShown = [...messages, ...this.earlierShown];
+  /** Puts `pages`, oldest first and all from before what is shown, above the chat. */
+  private showEarlier(pages: EarlierPage[]) {
+    let later = [...this.earlierShown.flatMap((page) => page.actions), ...this.since];
+    for (const page of [...pages].reverse()) {
+      const messages = earlierMessages(page, later);
+      this.replayed = new Set([...this.replayed, ...messages.map((message) => message.id)]);
+      this.agent = withEarlier(this.agent, messages);
+      later = [...page.actions, ...later];
+    }
+    this.earlierShown = [...pages, ...this.earlierShown];
   }
 
   /** Once the fetched pages reach the ones a fallen-back replay set aside, those go back above them. */
@@ -706,7 +737,7 @@ export class ChatSession {
     const bridge = this.bridge;
     if (!bridge) return;
     if (reached === bridge.until) {
-      this.showEarlier(bridge.messages);
+      this.showEarlier(bridge.pages);
       this.cursor = bridge.cursor;
       this.bridge = undefined;
     } else if (reached === undefined || reached < bridge.until) {

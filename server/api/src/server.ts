@@ -14,6 +14,7 @@ import type { Logger } from "./log.ts";
 import { ApnsProvider } from "./push/apns.ts";
 import { FcmProvider } from "./push/fcm.ts";
 import { Pusher } from "./push/send.ts";
+import { attachShares } from "./share/server.ts";
 
 /** How long a stop waits for requests in flight before closing them anyway. */
 const DRAIN_MS = 25_000;
@@ -111,6 +112,13 @@ export function startServer(config: Config, log: Logger) {
     appOrigin: config.appOrigin,
     pusher,
   });
+  const shares = attachShares(server, {
+    database,
+    verifier,
+    limiter,
+    log,
+    appOrigin: config.appOrigin,
+  });
 
   let sweeping = false;
   const clerkSweep = setInterval(() => {
@@ -133,11 +141,10 @@ export function startServer(config: Config, log: Logger) {
     clearInterval(clerkSweep);
     const force = setTimeout(() => server.closeAllConnections(), DRAIN_MS);
     force.unref();
-    const liveStopped = live
-      .stop()
-      .catch((error: unknown) =>
+    const liveStopped = Promise.all([live.stop(), shares.stop()]).catch(
+      (error: unknown) =>
         log.error({ err: error }, "closing live connections failed"),
-      );
+    );
     server.close(() => {
       clearTimeout(force);
       liveStopped

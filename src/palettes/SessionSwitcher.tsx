@@ -5,13 +5,14 @@ import { useStore } from "../state/store";
 import type { SessionKind } from "../state/types";
 import { modifierGlyph } from "../commands/keybindings";
 import { pluginSurface } from "../plugins/registry";
-import { IconCommand, IconFolder } from "../ui/Icons";
+import { IconFolder, IconServer, IconTerminal } from "../ui/Icons";
 
 function kindIcon(kind: SessionKind): ReactNode {
     if (kind === "project") return <IconFolder size={16} />;
+    if (kind === "ssh") return <IconServer size={16} />;
     const surface = pluginSurface(kind);
     if (surface) return surface.icon(16);
-    return <IconCommand size={16} />;
+    return <IconTerminal size={16} />;
 }
 
 export function SessionSwitcher() {

@@ -1,6 +1,7 @@
 import type { ComponentType, ReactNode } from "react";
 import type { CtxItem } from "../rail/FileTree";
 import { isPluginKind, pluginIdOf, type PluginKind } from "./kinds";
+import type { PluginSignIn } from "../plugin-api/signInState";
 
 export interface PluginSurfaceProps {
     readonly paneId: string;
@@ -85,6 +86,8 @@ export interface FrontendPlugin {
     /** Always mounted; it decides for itself when to show. */
     readonly Overlay?: ComponentType;
     readonly TopBarItem?: ComponentType<PluginTopBarProps>;
+    /** Whether the person is signed in to its service, for plugins that need a sign-in. */
+    readonly useSignIn?: () => PluginSignIn;
 }
 
 const plugins = new Map<string, FrontendPlugin>();

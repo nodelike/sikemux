@@ -22,6 +22,8 @@ const EditorPane = lazy(() => import("../editor/EditorPane").then((module) => ({
 const GitPane = lazy(() => import("../git/GitPane").then((module) => ({ default: module.GitPane })));
 const DiffPane = lazy(() => import("../git/DiffPane").then((module) => ({ default: module.DiffPane })));
 const SearchPane = lazy(() => import("../workspace/SearchPane").then((module) => ({ default: module.SearchPane })));
+const SharedChatPane = lazy(() => import("../share/SharedChatPane").then((module) => ({ default: module.SharedChatPane })));
+const BoardPane = lazy(() => import("../board/BoardPane").then((module) => ({ default: module.BoardPane })));
 
 const paneCwd = (pane: PaneNode, session: Session) => pane.cwd || session.cwd;
 
@@ -48,9 +50,9 @@ export const BUILTIN_ITEM_RENDERERS: Readonly<Record<CorePaneKind, (props: Workb
             <GitPane paneId={pane.id} cwd={paneCwd(pane, session)} active={active} visible={visible} />
         </Suspense>
     ),
-    diff: ({ pane, session, active }) => (
+    diff: ({ pane, session, visible }) => (
         <Suspense fallback={<ItemFallback />}>
-            <DiffPane cwd={paneCwd(pane, session)} active={active} />
+            <DiffPane cwd={paneCwd(pane, session)} visible={visible} />
         </Suspense>
     ),
     search: ({ pane, session, active, visible }) => (
@@ -59,6 +61,16 @@ export const BUILTIN_ITEM_RENDERERS: Readonly<Record<CorePaneKind, (props: Workb
         </Suspense>
     ),
     agent: ({ pane, session, visible }) => <AgentPane paneId={pane.id} session={session} visible={visible} />,
+    shared: ({ pane, visible }) => (
+        <Suspense fallback={<ItemFallback />}>
+            <SharedChatPane paneId={pane.id} link={pane.startup ?? ""} visible={visible} />
+        </Suspense>
+    ),
+    board: ({ pane, session, visible }) => (
+        <Suspense fallback={<ItemFallback />}>
+            <BoardPane folder={paneCwd(pane, session)} visible={visible} />
+        </Suspense>
+    ),
     desk: ({ pane, session, win, active, visible, painted }) => (
         <DeskHost
             paneId={pane.id}

@@ -8,7 +8,7 @@ use serde::Serialize;
 use sikemux_plugin_api::{reply, PluginResult, StreamSink};
 use tokio::time::sleep;
 
-use crate::client::get_json;
+use crate::client::{get_json, Session};
 use crate::error::RundeckResult;
 use crate::executions::{Execution, WorkflowState};
 
@@ -44,7 +44,16 @@ fn state_is_terminal(state: &WorkflowState) -> bool {
         })
 }
 
-pub async fn watch(execution_id: u64, sink: StreamSink) -> PluginResult<()> {
+pub async fn watch(session: Session, execution_id: u64, sink: StreamSink) -> PluginResult<()> {
+    follow(&session, execution_id, |update| sink.send(reply(update)?)).await
+}
+
+/// Hands `each` the execution's state on every poll until it ends.
+pub async fn follow(
+    session: &Session,
+    execution_id: u64,
+    mut each: impl FnMut(WatchUpdate) -> PluginResult<()>,
+) -> PluginResult<()> {
     let mut last_status: Option<String> = None;
     let mut consecutive_errors: u32 = 0;
     let mut terminal_settle_polls: u32 = 0;
@@ -55,8 +64,10 @@ pub async fn watch(execution_id: u64, sink: StreamSink) -> PluginResult<()> {
     loop {
         let execution_path = format!("/execution/{execution_id}");
         let state_path = format!("/execution/{execution_id}/state");
-        let (exec_res, state_res): (RundeckResult<Execution>, RundeckResult<WorkflowState>) =
-            tokio::join!(get_json(&execution_path, &[]), get_json(&state_path, &[]));
+        let (exec_res, state_res): (RundeckResult<Execution>, RundeckResult<WorkflowState>) = tokio::join!(
+            get_json(session, &execution_path, &[]),
+            get_json(session, &state_path, &[])
+        );
 
         let both_failed = exec_res.is_err() && state_res.is_err();
         let (execution, state, error) = match (exec_res, state_res) {
@@ -88,12 +99,12 @@ pub async fn watch(execution_id: u64, sink: StreamSink) -> PluginResult<()> {
         let terminal = (workflow_terminal && (execution_terminal || execution.is_none()))
             || terminal_settle_polls > SETTLE_POLLS
             || consecutive_errors >= ERROR_GIVEUP;
-        sink.send(reply(WatchUpdate {
+        each(WatchUpdate {
             execution,
             state,
             error,
             terminal,
-        })?)?;
+        })?;
         if terminal {
             return Ok(());
         }

@@ -3,8 +3,12 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { DiffRow } from "../api/git";
 import { DiffView, layoutRows } from "./DiffView";
 
-vi.mock("../chat/shikiTokens", () => ({
-    tokenizeLines: async (lines: readonly string[]) => lines.map((text) => [{ text, color: "#123456" }]),
+vi.mock("./diffColours", () => ({
+    finishedColours: () => undefined,
+    colourLines: (lines: readonly string[], _lang: string, _theme: unknown, _name: string, _max: number, listener: (colours: unknown) => void) => {
+        listener(lines.map((text) => [{ text, color: "#123456" }]));
+        return () => {};
+    },
 }));
 
 afterEach(cleanup);
@@ -32,7 +36,6 @@ describe("DiffView", () => {
         const drawn = container.querySelectorAll(".diff-row").length;
         expect(drawn).toBeGreaterThan(0);
         expect(drawn).toBeLessThan(200);
-        const list = container.querySelector<HTMLElement>(".diff-rows")!;
-        expect(parseFloat(list.style.paddingTop) + parseFloat(list.style.paddingBottom) + drawn * 19).toBe(5000 * 19);
+        expect(container.querySelector<HTMLElement>(".diff-rows")!.style.height).toBe(`${5000 * 19}px`);
     });
 });

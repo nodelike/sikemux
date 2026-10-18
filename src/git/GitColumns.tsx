@@ -1,14 +1,33 @@
-import { useRef, type ReactNode } from "react";
+import { createContext, useContext, useLayoutEffect, useRef, type ReactNode } from "react";
 import * as cmd from "../state/commands";
 import { useStore } from "../state/store";
+import { PaneField } from "../ui/ShaderField";
 import { LEFT_MIN, RIGHT_MIN, ResizeHandle } from "./ResizeHandle";
+
+/** Lets columns inside a framed host screen take the frame onto their right column, so the left stands outside it. */
+export const ShellFrameContext = createContext<{ claim: () => () => void } | null>(null);
 
 /**
  * The git pane's two columns: a list or a conversation on the left, what it changed on the right. Changes, pull
  * requests and issues all sit in these, so the divider between them is one width for the whole pane.
  */
-export function GitColumns({ paneId, left, right }: { paneId: string; left: ReactNode; right: ReactNode }) {
+export function GitColumns({
+    paneId,
+    left,
+    right,
+    framed = false,
+}: {
+    paneId: string;
+    left: ReactNode;
+    right: ReactNode;
+    /** The right column is the pane's surface, with its frame, ground and picture, and the left stands beside it. */
+    framed?: boolean;
+}) {
     const leftRef = useRef<HTMLDivElement>(null);
+    const paneShader = useStore((s) => s.paneShader);
+    const shellFrame = useContext(ShellFrameContext);
+    useLayoutEffect(() => shellFrame?.claim(), [shellFrame]);
+    framed ||= !!shellFrame;
     const leftWidth = useStore((s) => s.gitViews[paneId]?.leftWidth ?? null);
     return (
         <div className="git-body">
@@ -26,7 +45,10 @@ export function GitColumns({ paneId, left, right }: { paneId: string; left: Reac
                 className="git-split"
                 onResize={(width) => cmd.setGitView(paneId, { leftWidth: width })}
             />
-            <div className="git-right">{right}</div>
+            <div className={`git-right${framed ? " git-framed" : ""}`}>
+                {framed && <PaneField enabled={paneShader} />}
+                {right}
+            </div>
         </div>
     );
 }

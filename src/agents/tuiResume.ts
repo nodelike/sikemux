@@ -40,6 +40,10 @@ interface AgentRecord extends TuiResumeView {
 
 const IDLE: TuiResumeView = Object.freeze({ recovery: null, generation: 0 });
 const records = new Map<string, AgentRecord>();
+/* A terminal can end before its pane has told the agent it owns it, when the agent dies as it starts. */
+const unclaimedExits = new Map<number, { exit: AgentProcessExit; at: number }>();
+const UNCLAIMED_EXIT_MS = 60_000;
+const MAX_UNCLAIMED_EXITS = 32;
 const listeners = new Set<() => void>();
 
 const defaultDeps: TuiResumeDeps = {
@@ -115,10 +119,30 @@ export async function relaunchTuiAgent(agentId: string, previousPtyId: number | 
 /** Decides what an ended terminal means for the agent running in it, if any. */
 export async function noteTerminalExit(ptyId: number, exit: AgentProcessExit, deps: TuiResumeDeps = defaultDeps): Promise<void> {
     const agent = Object.values(getState().agents).find((candidate) => candidate.ptyId === ptyId);
-    if (!agent || agent.launchState === "dormant") return;
+    if (!agent) {
+        keepUnclaimedExit(ptyId, exit, deps.now());
+        return;
+    }
+    if (agent.launchState === "dormant") return;
     const next = afterAgentExit({ exit, resumeId: agent.resumeId, lastResumeAt: records.get(agent.id)?.lastResumeAt ?? null, now: deps.now() });
     if (next === "resume") await relaunchTuiAgent(agent.id, ptyId, deps);
     else if (next === "give-up") update(agent.id, { recovery: { phase: "failed", detail: describeAgentExit(exit) } });
+}
+
+function keepUnclaimedExit(ptyId: number, exit: AgentProcessExit, now: number): void {
+    for (const [id, kept] of unclaimedExits) if (now - kept.at > UNCLAIMED_EXIT_MS) unclaimedExits.delete(id);
+    unclaimedExits.set(ptyId, { exit, at: now });
+    if (unclaimedExits.size > MAX_UNCLAIMED_EXITS) unclaimedExits.delete(unclaimedExits.keys().next().value!);
+}
+
+/** Records the terminal an agent's pane started, and handles its end if it already came. */
+export function claimAgentTerminal(agentId: string, ptyId: number, deps: TuiResumeDeps = defaultDeps): void {
+    cmd.setAgentPty(agentId, ptyId);
+    const kept = unclaimedExits.get(ptyId);
+    if (!kept) return;
+    unclaimedExits.delete(ptyId);
+    if (deps.now() - kept.at > UNCLAIMED_EXIT_MS) return;
+    void noteTerminalExit(ptyId, kept.exit, deps).catch(swallow("resume terminal agent"));
 }
 
 interface PtyExitedPayload extends AgentProcessExit {
@@ -145,5 +169,6 @@ export function watchTerminalAgentExits(deps: TuiResumeDeps = defaultDeps): () =
 
 export function resetTuiResumeForTests(): void {
     records.clear();
+    unclaimedExits.clear();
     listeners.clear();
 }

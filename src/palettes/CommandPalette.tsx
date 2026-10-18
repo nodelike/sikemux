@@ -12,7 +12,7 @@ import {
 import { useMouseActive } from "../hooks/useMouseActive";
 import { rankBy } from "../lib/fuzzy";
 import type { KeybindingOverrides } from "../commands/keybindings";
-import { IconCommand, IconSearch } from "../ui/Icons";
+import { IconSearch } from "../ui/Icons";
 import { runMeasuredAction } from "../lib/instrumentation";
 import { contentBox, glideSelection, leavingOverlay } from "../lib/motion";
 
@@ -160,18 +160,13 @@ export function CommandPalette({
                             tabIndex={-1}
                             disabled={entry.kind === "standalone" && entry.disabled}
                             aria-selected={index === selected}
+                            title={entry.detail}
                             className={`picker-item command-palette-item${index === selected ? " sel" : ""}`}
                             onMouseEnter={() => {
                                 if (mouseActive.current) setSelected(index);
                             }}
                             onClick={() => activate(entry)}>
-                            <span className={`picker-icon command-palette-icon ${entry.kind}`} aria-hidden="true">
-                                <IconCommand size={14} />
-                            </span>
-                            <span className="command-palette-copy">
-                                <span className="picker-name">{entry.title}</span>
-                                <span className="picker-sub">{entry.detail}</span>
-                            </span>
+                            <span className="picker-name">{entry.title}</span>
                             <span className="command-palette-meta">{entryMeta(entry)}</span>
                             {entry.shortcut && <kbd className="command-palette-shortcut">{entry.shortcut}</kbd>}
                         </button>

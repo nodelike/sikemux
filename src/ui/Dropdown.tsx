@@ -32,6 +32,7 @@ export function Dropdown({
     align = "left",
     menuWidth,
     search,
+    checkAtEnd,
     anchor,
     open: openWhen,
     onOpenChange,
@@ -49,6 +50,8 @@ export function Dropdown({
     menuWidth?: number;
     /** Puts a filter box at the top of the menu, with this placeholder. */
     search?: string;
+    /** Puts the chosen option's tick at the end of its row instead of before its icon. */
+    checkAtEnd?: boolean;
     /** Opens the menu under this element instead of a button of its own; `open` then says when. */
     anchor?: HTMLElement | null;
     open?: boolean;
@@ -148,7 +151,7 @@ export function Dropdown({
             <div
                 ref={menuElement}
                 id={id}
-                className={`dd-menu${search ? " searchable" : ""}`}
+                className={`dd-menu${search ? " searchable" : ""}${checkAtEnd ? " check-at-end" : ""}`}
                 role="listbox"
                 tabIndex={-1}
                 aria-label={label ?? title}

@@ -157,10 +157,10 @@ export function useRecentChats({ enabled, providers, projects, open, query }: Re
         setLoaded((current) => ({ ...current, chats: current.chats.filter((chat) => chat.agent !== agent || chat.id !== id) }));
     }, []);
 
-    const current = loaded.listKey === listKey;
+    const current = enabled && loaded.listKey === listKey;
     return {
         chats: current ? loaded.chats : [],
-        status: current ? loaded.status : "loading",
+        status: !enabled ? "ready" : current ? loaded.status : "loading",
         hasMore: current && loaded.next !== null,
         loadMore,
         retitle,

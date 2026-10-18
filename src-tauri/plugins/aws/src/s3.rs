@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::AwsResult;
 
-use crate::common::aws_json;
+use crate::common::{aws_json, Target};
 
 #[derive(Serialize, Clone)]
 pub struct S3Bucket {
@@ -10,7 +10,7 @@ pub struct S3Bucket {
     created_at: Option<String>,
 }
 
-pub(crate) async fn buckets(profile: String) -> AwsResult<Vec<S3Bucket>> {
+pub(crate) async fn buckets(target: &Target) -> AwsResult<Vec<S3Bucket>> {
     #[derive(Deserialize)]
     struct Resp {
         #[serde(rename = "Buckets")]
@@ -23,7 +23,7 @@ pub(crate) async fn buckets(profile: String) -> AwsResult<Vec<S3Bucket>> {
         #[serde(rename = "CreationDate")]
         created: Option<String>,
     }
-    let resp: Resp = aws_json(&profile, &["s3api", "list-buckets", "--output", "json"]).await?;
+    let resp: Resp = aws_json(target, &["s3api", "list-buckets", "--output", "json"]).await?;
     let mut out: Vec<S3Bucket> = resp
         .buckets
         .into_iter()

@@ -59,6 +59,7 @@ function deps(sessions: CoreSession[], chats: AcpChat[] = []) {
         resume,
         kill,
         chats: { list: async () => chats, stop: stopChat },
+        boards: async () => {},
         tasks: { watch: vi.fn(), adoptDeckTask: vi.fn(), showHarnessTerminal: vi.fn() },
         schedule: (callback, delay) => {
             expect(delay).toBe(UNCLAIMED_GRACE_MS);

@@ -2,94 +2,44 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use serde_json::Value;
+pub(crate) use sikemux_core::sessions::roots::{
+    agent_config_root, environment_path, grok_root, hermes_root, muse_config_root, muse_data_root,
+    omp_agent_root, omp_session_dirs, pi_agent_root,
+};
 use sikemux_process::paths::home;
-use sikemux_pty::launch::account_dir;
 use sikemux_pty::user_shell::user_variable;
 
 const MAX_MODEL_LENGTH: usize = 256;
 
-pub(crate) fn environment_path(key: &str) -> Option<PathBuf> {
-    user_variable(key).map(PathBuf::from)
-}
-
-/// Where Hermes keeps its config and sessions.
-pub(crate) fn hermes_root() -> Option<PathBuf> {
-    environment_path("HERMES_HOME").or_else(|| Some(home()?.join(".hermes")))
-}
-
-/// Where Pi keeps its settings and sessions.
-pub(crate) fn pi_agent_root() -> Option<PathBuf> {
-    environment_path("PI_CODING_AGENT_DIR").or_else(|| Some(home()?.join(".pi/agent")))
-}
-
-fn omp_profile_name() -> Option<String> {
-    let raw = user_variable("OMP_PROFILE").or_else(|| user_variable("PI_PROFILE"))?;
-    let name = raw.trim();
-    (!name.is_empty()
-        && name != "default"
-        && name != "."
-        && name != ".."
-        && name.len() <= 64
-        && !name.contains(['/', '\\']))
-    .then(|| name.to_string())
-}
-
-fn omp_config_root() -> Option<PathBuf> {
-    let home = home()?;
-    let config = user_variable("PI_CONFIG_DIR").unwrap_or_else(|| ".omp".to_string());
-    Some(home.join(config.trim_start_matches(['/', '\\'])))
-}
-
-pub(super) fn omp_agent_root() -> Option<PathBuf> {
-    if let Some(profile) = omp_profile_name() {
-        return Some(
-            omp_config_root()?
-                .join("profiles")
-                .join(profile)
-                .join("agent"),
-        );
-    }
-    environment_path("PI_CODING_AGENT_DIR").or_else(|| Some(omp_config_root()?.join("agent")))
-}
-
-pub(super) fn omp_session_dirs() -> Vec<PathBuf> {
-    if let Some(path) = environment_path("PI_CODING_AGENT_SESSION_DIR") {
-        return vec![path];
-    }
-    let mut dirs = Vec::new();
-    if let Some(root) = omp_agent_root() {
-        dirs.push(root.join("sessions"));
-    }
-    if let Some(xdg) = environment_path("XDG_DATA_HOME") {
-        let root = xdg.join("omp");
-        let sessions = omp_profile_name()
-            .map(|profile| root.join("profiles").join(profile).join("sessions"))
-            .unwrap_or_else(|| root.join("sessions"));
-        if sessions.exists() && !dirs.contains(&sessions) {
-            dirs.push(sessions);
-        }
-    }
-    dirs
-}
-
-pub(crate) fn grok_root() -> Option<PathBuf> {
-    environment_path("GROK_HOME").or_else(|| Some(home()?.join(".grok")))
-}
-
-pub(super) fn agent_config_root(kind: &str, configured: Option<&str>) -> Option<PathBuf> {
-    if let Some(configured) = configured.map(str::trim).filter(|value| !value.is_empty()) {
-        return Some(account_dir(configured));
-    }
-    let home = home()?;
-    match kind {
-        "claude" => {
-            Some(environment_path("CLAUDE_CONFIG_DIR").unwrap_or_else(|| home.join(".claude")))
-        }
-        "codex" => Some(environment_path("CODEX_HOME").unwrap_or_else(|| home.join(".codex"))),
-        "omp" => omp_agent_root(),
-        "grok" => grok_root(),
-        _ => Some(home),
-    }
+/// Each agent's own global skills folder, with the agents that read it,
+/// whether or not it exists yet. These belong to the person; Sikemux only reads them.
+pub(crate) fn global_skill_folders() -> Vec<(&'static str, PathBuf)> {
+    let Some(home) = home() else {
+        return Vec::new();
+    };
+    let config_home = environment_path("XDG_CONFIG_HOME").unwrap_or_else(|| home.join(".config"));
+    let skills = |root: Option<PathBuf>| root.map(|root| root.join("skills"));
+    let mut folders = vec![
+        ("Claude", skills(agent_config_root("claude", None))),
+        ("Codex", skills(agent_config_root("codex", None))),
+        ("Codex and other agents", Some(home.join(".agents/skills"))),
+        ("OpenCode", Some(config_home.join("opencode/skills"))),
+        ("OMP", skills(agent_config_root("omp", None))),
+        ("Grok", skills(grok_root())),
+        ("Hermes", skills(hermes_root())),
+        ("Pi", skills(pi_agent_root())),
+    ]
+    .into_iter()
+    .filter_map(|(label, folder)| Some((label, folder?)))
+    .collect::<Vec<_>>();
+    let mut seen = Vec::new();
+    folders.retain(|(_, folder)| {
+        let real = std::fs::canonicalize(folder).unwrap_or_else(|_| folder.clone());
+        let fresh = !seen.contains(&real);
+        seen.push(real);
+        fresh
+    });
+    folders
 }
 
 pub(super) fn configured_default_model(kind: &str, config_path: Option<&str>) -> Option<String> {
@@ -147,6 +97,9 @@ pub(super) fn configured_default_model(kind: &str, config_path: Option<&str>) ->
             .and_then(|text| toml_section_string(&text, "models", "default"))
             .and_then(|value| clean_model(&value))
             .or_else(|| Some("grok-build".to_string())),
+        "muse" => user_variable("MUSE_MODEL")
+            .and_then(|value| clean_model(&value))
+            .or_else(|| json_model(&muse_config_root()?.join("settings.json"), "model")),
         _ => None,
     }
 }
@@ -188,6 +141,11 @@ pub(super) fn configured_default_effort(kind: &str, config_path: Option<&str>) -
             .ok()
             .and_then(|text| toml_section_string(&text, "models", "default_reasoning_effort"))
             .and_then(|value| clean_effort(kind, &value)),
+        "muse" => json_effort(
+            &muse_config_root()?.join("settings.json"),
+            "reasoning_effort",
+            kind,
+        ),
         _ => None,
     }
 }
@@ -207,6 +165,7 @@ fn clean_effort(kind: &str, value: &str) -> Option<String> {
         ],
         "pi" | "omp" => &["off", "minimal", "low", "medium", "high", "xhigh", "max"],
         "grok" => &["none", "minimal", "low", "medium", "high", "xhigh", "max"],
+        "muse" => &["minimal", "low", "medium", "high", "xhigh", "max", "ultra"],
         _ => &[],
     };
     allowed.contains(&value.as_str()).then_some(value)

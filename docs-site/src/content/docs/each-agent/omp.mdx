@@ -1,0 +1,36 @@
+---
+title: OMP
+description: "oh-my-pi in Sikemux: install, sign-in, chats and skills."
+---
+
+OMP (oh-my-pi) is a terminal coding agent.
+
+## At a glance
+
+| | |
+|---|---|
+| Command | `omp` |
+| Chat in Sikemux | Yes, and its own TUI |
+| Permission modes | Normal and YOLO |
+| Effort levels | off, minimal, low, medium, high, xhigh, max |
+| Several accounts | No |
+
+## Install
+
+```bash
+curl -fsSL https://omp.sh/install | sh
+```
+
+It installs to `~/.local/bin/omp`.
+
+## Sign in
+
+```bash
+omp login
+```
+
+OMP has no sign-in check Sikemux can ask, so a chat refused for want of a sign-in is what marks it signed out, and offers **Sign in to OMP**.
+
+## How Sikemux runs it
+
+A chat runs `omp acp`. Sikemux passes OMP its skills library on the command line, alongside OMP's own skills.

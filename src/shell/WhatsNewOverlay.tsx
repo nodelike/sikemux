@@ -1,12 +1,13 @@
 import { createElement, useEffect, useState } from "react";
 import { getVersion } from "@tauri-apps/api/app";
-import { installPendingUpdate, isUpdateBusy, updateStatusLabel } from "../api/updater";
+import { installPendingUpdate, isUpdateBusy, updateStatusLabel, waitingLabel } from "../api/updater";
 import { openInBrowser, releasesApi, type ReleaseContributor, type ReleaseNotes } from "../api/releases";
 import * as cmd from "../state/commands";
 import { useStore } from "../state/store";
 import { errMessage, swallow } from "../state/toast";
 import { useOccludeNativeViews } from "../state/nativeViews";
 import { ExperienceBackdrop } from "./ExperienceOverlays";
+import { UpdateWaiting } from "./UpdateWaiting";
 import { ShaderField } from "../ui/ShaderField";
 import { Markdown, MARKDOWN_PLAIN, type MarkdownComponents } from "../markdown/Markdown";
 
@@ -182,6 +183,7 @@ export function WhatsNewOverlay() {
     const open = useStore((s) => s.whatsNewOpen);
     useOccludeNativeViews(open);
     const pending = useStore((s) => s.pendingUpdate);
+    const waitingOn = useStore((s) => s.updateBlockers.length);
     const { release, version, error, avatars } = useShownRelease(open);
     if (!open) return null;
     const [core, build] = splitVersion(version);
@@ -240,6 +242,7 @@ export function WhatsNewOverlay() {
                         <p className="wn-status">{release ? `v${version} shipped without notes.` : `Loading the notes for v${version}…`}</p>
                     )}
                 </div>
+                {pending?.state === "waiting" && <UpdateWaiting />}
                 <footer>
                     {release?.compare ? (
                         <a
@@ -255,12 +258,18 @@ export function WhatsNewOverlay() {
                         <span />
                     )}
                     {pending && (
-                        <button type="button" className="primary" disabled={updateBusy} onClick={() => void installPendingUpdate()}>
+                        <button
+                            type="button"
+                            className="primary"
+                            disabled={updateBusy || pending.state === "waiting"}
+                            onClick={() => void installPendingUpdate()}>
                             {updateBusy
                                 ? updateStatusLabel(pending)
-                                : pending.state === "error"
-                                  ? `Retry v${pending.version}`
-                                  : `Install v${pending.version}`}
+                                : pending.state === "waiting"
+                                  ? waitingLabel(waitingOn)
+                                  : pending.state === "error"
+                                    ? `Retry v${pending.version}`
+                                    : `Install v${pending.version}`}
                         </button>
                     )}
                 </footer>

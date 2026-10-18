@@ -1,5 +1,6 @@
 // Rebuilds src/themes/ghostty-themes.json from Ghostty's bundled theme files.
-// Each value: background, foreground, cursor, cursor text, selection, and the 16 ANSI colours.
+// Each value: background, foreground, cursor, cursor text, selection, and the 16 ANSI colours,
+// as base64 bytes. A theme with no selection colour leaves it out.
 // Usage: node scripts/import-ghostty-themes.mjs [themes-dir]
 // The themes come from iTerm2-Color-Schemes (MIT), which Ghostty ships as-is.
 import { readdir, readFile, writeFile } from "node:fs/promises";
@@ -44,14 +45,15 @@ function parse(text) {
   }
   if (!fields.background || !fields.foreground) return null;
   if (palette.slice(0, 16).filter(Boolean).length !== 16) return null;
-  return [
+  const colours = [
     fields.background,
     fields.foreground,
     fields["cursor-color"] ?? fields.foreground,
     fields["cursor-text"] ?? fields.background,
     fields["selection-background"] ?? "",
     ...palette.slice(0, 16),
-  ].join(",");
+  ];
+  return Buffer.from(colours.join(""), "hex").toString("base64");
 }
 
 const names = (await readdir(themesDir))

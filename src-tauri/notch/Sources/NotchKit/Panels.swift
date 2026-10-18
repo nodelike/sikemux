@@ -161,7 +161,7 @@ final class Panels {
             if current != pointerScreen { rebuild() }
         }
         let yielding = !store.options.dev && store.settings.yieldToDev && Handover.devIsRunning(stateDir: store.options.stateDir)
-        let needsYou = store.agents.contains { $0.state == .blocked } || !store.devices.isEmpty
+        let needsYou = store.entries.contains { $0.mark == .needs } || !store.devices.isEmpty
         let fullScreen = FullScreen.displays()
         for (_, entry) in panels {
             entry.island.checkPointer()

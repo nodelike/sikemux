@@ -61,7 +61,7 @@
 }
 .git-log-bar-btn:hover:not(:disabled) {
     color: var(--text-primary);
-    border-color: var(--border-selected);
+    border-color: var(--border-strong);
 }
 .git-log-bar-rows {
     flex: 1 1 auto;

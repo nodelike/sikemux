@@ -1,12 +1,14 @@
 import { createPortal } from "react-dom";
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { IS_MACOS } from "../lib/platform";
+import { IconCopy, IconDiscard, IconMessage, IconSearch, IconText } from "../ui/Icons";
 import { useOccludeNativeViews } from "../state/nativeViews";
 import type { TerminalController } from "./useXterm";
 
 interface MenuItem {
     label?: string;
     hint?: string;
+    icon?: ReactNode;
     disabled?: boolean;
     separator?: boolean;
     run?: () => void | Promise<unknown>;
@@ -61,15 +63,17 @@ export function TerminalContextMenu({
     };
     const primary = IS_MACOS ? "⌘" : "Ctrl+";
     const items: MenuItem[] = [
-        { label: "Copy", hint: `${primary}C`, disabled: !selection, run: () => controller.copySelection() },
-        { label: "Paste", hint: `${primary}V`, run: () => controller.pasteClipboard() },
-        { label: "Select All", hint: `${primary}A`, run: () => controller.selectAll() },
-        ...(selection && onSendSelection ? [{ label: "Send Selection to Agent…", run: () => onSendSelection(selection) }] : []),
+        { label: "Copy", hint: `${primary}C`, icon: <IconCopy size={13} />, disabled: !selection, run: () => controller.copySelection() },
+        { label: "Paste", hint: `${primary}V`, icon: <IconText size={13} />, run: () => controller.pasteClipboard() },
+        { label: "Select All", hint: `${primary}A`, icon: <IconText size={13} />, run: () => controller.selectAll() },
+        ...(selection && onSendSelection
+            ? [{ label: "Send Selection to Agent…", icon: <IconMessage size={13} />, run: () => onSendSelection(selection) }]
+            : []),
         { separator: true },
-        { label: "Find", hint: `${primary}F`, run: () => onFind(selection) },
-        { label: "Copy Scrollback", run: () => controller.copyScrollback() },
+        { label: "Find", hint: `${primary}F`, icon: <IconSearch size={13} />, run: () => onFind(selection) },
+        { label: "Copy Scrollback", icon: <IconCopy size={13} />, run: () => controller.copyScrollback() },
         { separator: true },
-        { label: "Clear Terminal", run: () => controller.clear() },
+        { label: "Clear Terminal", icon: <IconDiscard size={13} />, run: () => controller.clear() },
     ];
 
     return createPortal(
@@ -86,6 +90,7 @@ export function TerminalContextMenu({
                         <div className="terminal-menu-separator" key={index} />
                     ) : (
                         <button type="button" role="menuitem" key={item.label} disabled={item.disabled} onClick={() => item.run && run(item.run)}>
+                            <span className="tree-ctx-icon">{item.icon}</span>
                             <span>{item.label}</span>
                             {item.hint && <kbd>{item.hint}</kbd>}
                         </button>

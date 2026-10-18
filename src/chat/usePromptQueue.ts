@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type Dispatch, type RefObject } from "react";
+import { errorText } from "../lib/format";
 import { acpApi, type PromptContext } from "../api/acp";
 import type { Agent } from "../state/types";
 import * as cmd from "../state/commands";
@@ -9,6 +10,9 @@ import type { AcpAvailableCommand, ChatAction, ChatState } from "./types";
 /* Left off when there is none, so a plain message goes out exactly as before. */
 const contextArgs = (context: PromptContext[]): [] | [PromptContext[]] => (context.length ? [context] : []);
 
+/** How long a queue waits after a turn ends, for word that it failed. */
+const SETTLE_MS = 150;
+
 export function usePromptQueue({
     agentRef,
     agentId,
@@ -18,6 +22,7 @@ export function usePromptQueue({
     replaying,
     commands,
     steerable,
+    held = false,
     dispatch,
     onError,
 }: {
@@ -29,6 +34,8 @@ export function usePromptQueue({
     replaying: boolean;
     commands: AcpAvailableCommand[];
     steerable: boolean;
+    /** The last turn failed for want of the network: what is queued waits for it to go again. */
+    held?: boolean;
     dispatch: Dispatch<ChatAction>;
     onError: (message: string | null) => void;
 }) {
@@ -56,7 +63,7 @@ export function usePromptQueue({
             try {
                 await acpApi.prompt(agentRef.current.id, text, paths, context, messageId);
             } catch (error) {
-                dispatch({ type: "error", message: error instanceof Error ? error.message : String(error) });
+                dispatch({ type: "error", message: errorText(error) });
             }
         },
         [agentRef, dispatch],
@@ -73,14 +80,19 @@ export function usePromptQueue({
     }, [connection, early, deliver]);
 
     /* Messages written mid-turn wait, then go out together as one prompt once
-       the running turn ends, so nothing in flight is cut short. */
+       the running turn ends, so nothing in flight is cut short. They wait a
+       moment more, since a turn the network cut short says so just after it
+       ends, and then they wait for that turn to go again. */
     useEffect(() => {
-        if (connection !== "ready" || running || queued.length === 0) return;
-        const batch = nextBatch(queued);
-        const sent = new Set(batch.map((message) => message.id));
-        setQueued((current) => current.filter((message) => !sent.has(message.id)));
-        void promptNow(combineQueued(batch));
-    }, [promptNow, queued, connection, running]);
+        if (connection !== "ready" || running || held || queued.length === 0) return;
+        const timer = window.setTimeout(() => {
+            const batch = nextBatch(queued);
+            const sent = new Set(batch.map((message) => message.id));
+            setQueued((current) => current.filter((message) => !sent.has(message.id)));
+            void promptNow(combineQueued(batch));
+        }, SETTLE_MS);
+        return () => window.clearTimeout(timer);
+    }, [promptNow, queued, connection, running, held]);
 
     /* Steering stops whatever the agent has in flight so it reads this message
        now, so a message only goes this way when it is asked to. */
@@ -93,7 +105,7 @@ export function usePromptQueue({
             if ((await acpApi.steer(agentId, message.text, message.paths, ...contextArgs(message.context))) !== "promptRequired") return;
             await acpApi.prompt(agentId, message.text, message.paths, ...contextArgs(message.context));
         } catch (error) {
-            dispatch({ type: "error", message: error instanceof Error ? error.message : String(error) });
+            dispatch({ type: "error", message: errorText(error) });
         }
     };
 

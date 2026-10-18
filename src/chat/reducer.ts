@@ -1,4 +1,5 @@
 import { recordOf } from "./acpEvents";
+import { isAgentLetter } from "./agentLetters";
 import { toolDiff, toolFailure } from "./diff";
 import { toolPage } from "./pages";
 import { toolOutput } from "./toolOutput";
@@ -11,9 +12,11 @@ import type {
     AcpContentChunk,
     AcpSubagent,
     AcpTaskNotice,
+    AcpWorkflowAgent,
     AgentNotice,
     AcpToolCall,
     ChatAction,
+    ChatFailure,
     ChatMessage,
     ChatPart,
     ChatState,
@@ -39,7 +42,9 @@ export const initialChatState: ChatState = {
     nextId: 1,
     revision: 0,
     awaitingReplay: false,
+    earlierLost: false,
     turnOpening: null,
+    retrying: null,
 };
 
 /* The parent session and each subagent session own a transcript of the same
@@ -55,6 +60,7 @@ const textOf = (value: unknown): string | undefined => (typeof value === "string
 function isMarkupOnly(text: string): boolean {
     const trimmed = text.trim();
     if (!trimmed) return true;
+    if (isAgentLetter(trimmed)) return false;
     if (isHarnessMarkup(trimmed)) return true;
     if (!trimmed.startsWith("<") || /\n\s*\n/.test(trimmed)) return false;
     return /^<([a-z][\w-]*)\b[^>]*>[\s\S]*<\/\1>$/i.test(trimmed);
@@ -339,25 +345,9 @@ function settleMessages(messages: ChatMessage[], at: number, endSubagents: boole
     return changed ? settled : null;
 }
 
-function settleState(state: ChatState, endSubagents: boolean): ChatState {
-    const messages = settleMessages(state.messages, Date.now(), endSubagents);
+function settleState(state: ChatState): ChatState {
+    const messages = settleMessages(state.messages, Date.now(), false);
     return messages ? { ...state, messages, revision: state.revision + 1 } : state;
-}
-
-function stopSubagents(state: ChatState): ChatState {
-    let changed = false;
-    const at = Date.now();
-    const messages = state.messages.map((message) => {
-        if (!message.parts.some((part) => part.kind === "subagent" && part.subagent.state === "running")) return message;
-        changed = true;
-        const parts = message.parts.map((part) => {
-            if (part.kind !== "subagent" || part.subagent.state !== "running") return part;
-            const settled = settleMessages(part.subagent.messages, at, true);
-            return { ...part, subagent: { ...part.subagent, state: "cancelled" as const, ...(settled ? { messages: settled } : {}) } };
-        });
-        return { ...message, parts };
-    });
-    return changed ? { ...state, messages, revision: state.revision + 1 } : state;
 }
 
 /* A subagent can spawn subagents of its own, so its card holds theirs. */
@@ -420,6 +410,13 @@ function setSubagentState(state: ChatState, update: Record<string, unknown>): Ch
     );
 }
 
+function setSubagentUsage(state: ChatState, update: Record<string, unknown>): ChatState {
+    const subagentSessionId = textOf(update.subagentSessionId);
+    const tokens = update.tokens;
+    if (!subagentSessionId || typeof tokens !== "number") return state;
+    return patchSubagent(state, subagentSessionId, (subagent) => ({ ...subagent, tokens })) ?? state;
+}
+
 function spawnTask(state: ChatState, update: Record<string, unknown>): ChatState {
     const asyncTaskId = textOf(update.asyncTaskId);
     if (!asyncTaskId || state.tasks.some((task) => task.asyncTaskId === asyncTaskId)) return state;
@@ -474,7 +471,8 @@ function harnessNotice(state: ChatState, update: Record<string, unknown>): ChatS
     const name = /"([^"]+)"/.exec(summary ?? "")?.[1] ?? summary ?? "Background task";
     // History marks the notice that woke the agent; one that came mid-turn belongs to that turn.
     const woke = !state.running && replayedTurnStart(update) !== null;
-    return addNotice(state, taskId, { name, state: noticeState }, stampedAt(update), woke);
+    const subagent = textOf(update.subagentSessionId);
+    return addNotice(state, taskId, { name, state: noticeState, ...(subagent ? { subagent } : {}) }, stampedAt(update), woke);
 }
 
 function patchTask(state: ChatState, update: Record<string, unknown>): ChatState {
@@ -488,7 +486,12 @@ function patchTask(state: ChatState, update: Record<string, unknown>): ChatState
     if (taskState === "completed" || taskState === "failed" || taskState === "stopped") {
         const ended = state.tasks[index];
         const summary = textOf(update.summary) ?? ended.summary;
-        const notice: AcpTaskNotice = { name: ended.name, state: taskState, ...(summary ? { summary } : {}) };
+        const notice: AcpTaskNotice = {
+            name: ended.name,
+            state: taskState,
+            ...(ended.taskType ? { taskType: ended.taskType } : {}),
+            ...(summary ? { summary } : {}),
+        };
         const noted = addNotice(state, ended.asyncTaskId, notice, stampedAt(update));
         return { ...noted, tasks: state.tasks.filter((_, position) => position !== index), revision: state.revision + 1 };
     }
@@ -503,6 +506,7 @@ function patchTask(state: ChatState, update: Record<string, unknown>): ChatState
         lastToolName: textOf(update.lastToolName) ?? current.lastToolName,
         outputFilePath: textOf(update.outputFilePath) ?? current.outputFilePath,
         usage: (recordOf(update.usage) as AcpAsyncTask["usage"]) ?? current.usage,
+        agents: Array.isArray(update.agents) ? (update.agents as AcpWorkflowAgent[]) : current.agents,
     };
     return { ...state, tasks, revision: state.revision + 1 };
 }
@@ -516,9 +520,17 @@ function agentNotice(state: ChatState, update: Record<string, unknown>): ChatSta
     const notice: AgentNotice = { severity, title, ...(description ? { description } : {}) };
     return {
         ...state,
+        failure: resumeOf(state.failure, update),
         ...appendPart(state, { id: `agent-notice-${state.revision}`, kind: "agent_notice", notice }),
         revision: state.revision + 1,
     };
+}
+
+/* A chat a usage limit stopped says when it resumes, or that it no longer will. */
+function resumeOf(failure: ChatFailure | null, update: Record<string, unknown>): ChatFailure | null {
+    if (!("resumesAt" in update) || failure?.kind !== "limit") return failure;
+    const { resumesAt: _, ...rest } = failure;
+    return typeof update.resumesAt === "number" ? { ...rest, resumesAt: update.resumesAt } : rest;
 }
 
 /* The person took the chat back to before one of their messages: it goes, and
@@ -538,10 +550,21 @@ function contextUsage(update: Record<string, unknown>): ContextUsage | null {
         : { used, size };
 }
 
+/* An agent says it is retrying as a warning-level failure, in the same shape a
+   failed turn uses. It is not a failure yet: the turn runs on. */
+function retryOf(update: Record<string, unknown>): ChatState["retrying"] {
+    const notice = recordOf(recordOf(recordOf(recordOf(update._meta)?.jetbrains)?.air)?.sessionFailure);
+    if (notice?.severity !== "warning") return null;
+    return {
+        attempt: typeof notice.attempt === "number" && notice.attempt > 0 ? notice.attempt : null,
+        connection: notice.category === "connection",
+    };
+}
+
 /* A cancelled turn stops only the subagents it was waiting on, and the agent
    says which. Background ones run on and report their own end. */
 function endTurn(state: ChatState, stopReason: string | null, at = Date.now()): ChatState {
-    const settled = settleState(state, false);
+    const settled = settleState(state);
     const last = settled.messages.at(-1);
     // Only a turn this side watched run has a finish worth stamping.
     const messages = state.running && last?.role === "assistant" ? [...settled.messages.slice(0, -1), { ...last, endedAt: at }] : settled.messages;
@@ -550,6 +573,7 @@ function endTurn(state: ChatState, stopReason: string | null, at = Date.now()): 
         messages,
         running: false,
         turnOpening: null,
+        retrying: null,
         suppressUserEcho: false,
         permissions: [],
         stopReason,
@@ -559,6 +583,7 @@ function endTurn(state: ChatState, stopReason: string | null, at = Date.now()): 
 
 function sessionUpdate(state: ChatState, sessionId: string, update: Record<string, unknown>): ChatState {
     if (update.sessionUpdate === "subagent_state_update") return setSubagentState(state, update);
+    if (update.sessionUpdate === "subagent_usage") return setSubagentUsage(state, update);
     const inSubagent = patchSubagent(state, sessionId, (subagent) => {
         const next =
             update.sessionUpdate === "subagent_spawned"
@@ -584,6 +609,7 @@ function sessionUpdate(state: ChatState, sessionId: string, update: Record<strin
             ...recordedTime(marked, update, state.running),
             turnOpening: opened ? null : opening,
             suppressUserEcho: false,
+            retrying: update.sessionUpdate === "user_message_chunk" ? state.retrying : null,
             revision: state.revision + 1,
         };
     }
@@ -603,7 +629,13 @@ function sessionUpdate(state: ChatState, sessionId: string, update: Record<strin
             const noticeState = NOTICE_STATES[textOf(update.state) ?? ""];
             if (!taskId || !noticeState) return state;
             const summary = textOf(update.summary);
-            const notice: AcpTaskNotice = { name: textOf(update.name) ?? "Background task", state: noticeState, ...(summary ? { summary } : {}) };
+            const subagent = textOf(update.subagentSessionId);
+            const notice: AcpTaskNotice = {
+                name: textOf(update.name) ?? "Background task",
+                state: noticeState,
+                ...(summary ? { summary } : {}),
+                ...(subagent ? { subagent } : {}),
+            };
             return addNotice(state, taskId, notice, stampedAt(update));
         }
         case "notice":
@@ -639,8 +671,17 @@ function sessionUpdate(state: ChatState, sessionId: string, update: Record<strin
             const move: AccountMove = { label, ...(from ? { from } : {}), reason: update.reason === "limit" ? "limit" : "chosen" };
             return { ...state, ...appendPart(state, { id: `account-${state.nextId}`, kind: "account", move }), revision: state.revision + 1 };
         }
-        case "session_info_update":
-            return { ...state, title: typeof update.title === "string" ? update.title : state.title, revision: state.revision + 1 };
+        case "session_info_update": {
+            const retrying = state.running ? retryOf(update) : null;
+            return {
+                ...state,
+                title: typeof update.title === "string" ? update.title : state.title,
+                ...(retrying && { retrying }),
+                revision: state.revision + 1,
+            };
+        }
+        case "earlier_turns_lost":
+            return { ...state, earlierLost: true, revision: state.revision + 1 };
         case "message_rewound": {
             const messageId = textOf(update.messageId);
             return messageId ? rewind(state, messageId) : state;
@@ -650,8 +691,56 @@ function sessionUpdate(state: ChatState, sessionId: string, update: Record<strin
     }
 }
 
+/* Turns from before what the transcript holds go above it. A subagent drawn
+   where it started takes the place of any card for it shown further down. */
+function withEarlier(state: ChatState, messages: ChatMessage[]): ChatState {
+    if (!messages.length) return state;
+    const placed = new Set<string>();
+    collectSubagents(messages, placed);
+    return { ...state, messages: [...messages, ...withoutSubagents(state.messages, placed)], revision: state.revision + 1 };
+}
+
+function collectSubagents(messages: ChatMessage[], into: Set<string>) {
+    for (const message of messages)
+        for (const part of message.parts) {
+            if (part.kind !== "subagent") continue;
+            into.add(part.subagent.sessionId);
+            collectSubagents(part.subagent.messages, into);
+        }
+}
+
+function withoutSubagents(messages: ChatMessage[], placed: ReadonlySet<string>): ChatMessage[] {
+    if (!placed.size) return messages;
+    let changed = false;
+    const kept = messages.flatMap((message): ChatMessage[] => {
+        const parts = withoutSubagentParts(message.parts, placed);
+        if (parts === message.parts) return [message];
+        changed = true;
+        return parts.length ? [{ ...message, parts }] : [];
+    });
+    return changed ? kept : messages;
+}
+
+function withoutSubagentParts(parts: ChatPart[], placed: ReadonlySet<string>): ChatPart[] {
+    let changed = false;
+    const kept = parts.flatMap((part): ChatPart[] => {
+        if (part.kind !== "subagent") return [part];
+        if (placed.has(part.subagent.sessionId)) {
+            changed = true;
+            return [];
+        }
+        const messages = withoutSubagents(part.subagent.messages, placed);
+        if (messages === part.subagent.messages) return [part];
+        changed = true;
+        return [{ ...part, subagent: { ...part.subagent, messages } }];
+    });
+    return changed ? kept : parts;
+}
+
 export function chatReducer(state: ChatState, action: ChatAction): ChatState {
     switch (action.type) {
+        case "earlier":
+            return withEarlier(state, action.messages);
         case "config":
             return { ...state, setup: { ...state.setup, configOptions: action.options }, revision: state.revision + 1 };
         case "saved_usage":
@@ -665,13 +754,9 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
                 : initialChatState;
         case "status":
             return {
-                /* Starting again, as when the chat moves to another account, is a
-                   new agent that knows nothing of the old one's subagents. */
-                ...(action.state === "stopped" || action.state === "error"
-                    ? settleState(state, true)
-                    : action.state === "starting"
-                      ? stopSubagents(state)
-                      : state),
+                /* The host ends the subagents itself, with an update every client
+                   keeps, so a status never does. */
+                ...(action.state === "stopped" || action.state === "error" ? settleState(state) : state),
                 connection: action.state,
                 running: action.state === "stopped" || action.state === "error" ? false : state.running,
                 permissions: action.state === "stopped" || action.state === "error" ? [] : state.permissions,
@@ -718,6 +803,7 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
                 ...state,
                 running: true,
                 turnOpening: { at: action.at ?? null },
+                retrying: null,
                 stopReason: null,
                 error: null,
                 failure: null,
@@ -737,11 +823,14 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
                 permissions: state.permissions.filter((request) => request.requestId !== action.requestId),
                 revision: state.revision + 1,
             };
+        case "dismiss_error":
+            return { ...state, error: null, failure: null, revision: state.revision + 1 };
         case "error":
             return {
                 ...state,
                 connection: state.connection === "ready" ? "ready" : "error",
                 running: false,
+                retrying: null,
                 permissions: [],
                 error: action.message,
                 failure: action.failure ?? null,

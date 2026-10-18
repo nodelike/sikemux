@@ -173,7 +173,7 @@
 
 .desk-kind.on {
     background: color-mix(in srgb, var(--ink) 7%, transparent);
-    color: var(--acc);
+    color: var(--text-primary);
 }
 
 .desk-kind.busy {
@@ -195,19 +195,11 @@
 }
 
 /* Desk tabs sit on the same faint fill as the address field under them, with
-   no outline; only the one on show is edged. */
+   no outline. */
 .desk .tabbar.v-desk .tab-wrap {
     height: 24px;
     background-color: color-mix(in srgb, var(--ink) 5%, transparent);
     box-shadow: none;
-}
-
-.desk .tabbar.v-desk .tab-wrap:hover {
-    box-shadow: none;
-}
-
-.desk .tabbar.v-desk .tab-wrap.active {
-    box-shadow: inset 0 0 0 1px var(--border-selected);
 }
 
 .tabbar.v-desk .tab {
@@ -495,8 +487,7 @@
 }
 
 .address-suggestions li.selected {
-    border-color: var(--border-selected);
-    background: var(--surface-selected);
+    background: var(--surface-chosen);
 }
 
 .address-suggestion-icon {

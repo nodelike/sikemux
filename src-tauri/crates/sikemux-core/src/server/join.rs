@@ -9,19 +9,20 @@ use tokio::sync::Semaphore;
 use crate::join::{self, JoinHello, JoinReply, Refusal, APPROVAL_TIMEOUT};
 use crate::protocol::PendingDevice;
 
+use super::notify::Signal;
 use super::remote;
 use super::Core;
 
 const STEP: Duration = Duration::from_secs(15);
 /// Time for the phone to read the answer before the connection closes.
 const LINGER: Duration = Duration::from_secs(2);
-const NAME_LIMIT: usize = 64;
-const PLATFORM_LIMIT: usize = 16;
+pub(super) const NAME_LIMIT: usize = 64;
+pub(super) const PLATFORM_LIMIT: usize = 16;
 /// Join connections answered at once. One person adds one phone at a time;
 /// anything past this is turned away before it costs anything.
 static IN_PROGRESS: Semaphore = Semaphore::const_new(4);
 
-fn clean(text: &str, limit: usize) -> String {
+pub(super) fn clean(text: &str, limit: usize) -> String {
     let kept: String = text
         .chars()
         .filter(|character| !character.is_control())
@@ -82,8 +83,11 @@ pub(super) async fn serve(core: Arc<Core>, connection: Connection) {
         from_account: true,
         expires_at: remote::unix_ms() + APPROVAL_TIMEOUT.as_millis() as u64,
     };
-    let answered = core.remote.ask(request.clone());
+    let answered = core
+        .remote
+        .ask(request.clone(), hello.ticket.account.clone(), None);
     remote::announce(&core);
+    core.notify.send(Signal::Pairing(request.clone()));
     let access = tokio::select! {
         answer = tokio::time::timeout(APPROVAL_TIMEOUT, answered) => {
             answer.ok().and_then(Result::ok).flatten()
@@ -92,6 +96,7 @@ pub(super) async fn serve(core: Arc<Core>, connection: Connection) {
     };
     core.remote.forget_pending(&request.id);
     remote::announce(&core);
+    core.notify.send(Signal::PairingSettled { id: request.id });
     let reply = match access {
         Some(access) => JoinReply::Allowed { access },
         None => JoinReply::Denied,

@@ -4,6 +4,7 @@ import SwiftUI
 
 // Renders each state of the island against demo agents, to compare with
 // src-tauri/notch/design/screens.html: `swift run notch-snapshots <dir>`.
+// `--bare` leaves out the backdrop, so the showcase can lay the island over its own wallpaper.
 
 let fixture = #"""
 {
@@ -37,44 +38,47 @@ let fixture = #"""
     "palette": {},
     "backdrop": {"texture": false, "image": null}
   },
-  "sessions": [],
   "chats": [
-    {"agentId": "a1", "provider": "claude", "title": "Fix the login flake", "cwd": "/Users/me/sikemux", "sessionId": "s1", "state": "ready",
-     "running": true, "pendingPermissions": ["p1"], "subagents": 0, "tasks": 0, "permissionMode": "default", "asleep": false, "unread": true,
-     "group": "blocked", "status": "blocked", "attentionRank": 0},
-    {"agentId": "a2", "provider": "codex", "title": "Refactor the auth middleware", "cwd": "/Users/me/server", "sessionId": "s2", "state": "ready",
-     "running": true, "pendingPermissions": [], "subagents": 3, "tasks": 0, "permissionMode": "bypass", "asleep": false, "unread": false,
-     "group": "working", "status": "working", "attentionRank": 1},
-    {"agentId": "a3", "provider": "opencode", "title": "Draft the notch spec", "cwd": "/Users/me/sikemux", "sessionId": "s3", "state": "ready",
-     "running": true, "pendingPermissions": [], "subagents": 0, "tasks": 0, "permissionMode": "bypass", "asleep": false, "unread": false,
-     "group": "working", "status": "working", "attentionRank": 2},
-    {"agentId": "a5", "provider": "codex", "title": "Read the release notes", "cwd": "/Users/me/sikemux", "sessionId": "s5", "state": "ready",
-     "running": false, "pendingPermissions": [], "subagents": 0, "tasks": 2, "permissionMode": "bypass", "asleep": false, "unread": false,
-     "group": "idle", "status": "idle", "attentionRank": 4},
-    {"agentId": "a6", "provider": "claude", "title": "Sikemux bug", "cwd": "/Users/me/sikemux", "sessionId": null, "state": "stopped",
-     "running": false, "pendingPermissions": [], "subagents": 0, "tasks": 0, "permissionMode": "bypass", "asleep": true, "unread": false,
-     "group": "idle", "status": "asleep", "attentionRank": 6},
-    {"agentId": "a8", "provider": "claude", "title": "Ship the release notes", "cwd": "/Users/me/server", "sessionId": null, "state": "stopped",
-     "running": false, "pendingPermissions": [], "subagents": 0, "tasks": 0, "permissionMode": "bypass", "asleep": false, "unread": false,
-     "group": "idle", "status": "stopped", "attentionRank": 7},
-    {"agentId": "a7", "provider": "claude", "title": "Tidy the changelog", "cwd": "/Users/me/sikemux", "sessionId": "s7", "state": "ready",
-     "running": false, "pendingPermissions": [], "subagents": 0, "tasks": 0, "permissionMode": "bypass", "asleep": false, "unread": false,
-     "group": "idle", "status": "idle", "attentionRank": 5},
-    {"agentId": "a4", "provider": "grok", "title": "Bump Astro to 6", "cwd": "/Users/me/sikemux-front", "sessionId": "s4", "state": "ready",
-     "running": false, "pendingPermissions": [], "subagents": 0, "tasks": 0, "permissionMode": "bypass", "asleep": false, "unread": true,
-     "group": "done", "status": "done", "attentionRank": 3}
+    {"agentId": "a1", "name": "Otter", "provider": "claude", "cwd": "/Users/me/sikemux", "attentionRank": 0, "subagents": 0, "tasks": 0},
+    {"agentId": "a2", "name": "Flint", "provider": "codex", "cwd": "/Users/me/server", "attentionRank": 5, "subagents": 3, "tasks": 0},
+    {"agentId": "a3", "name": "Wren", "provider": "opencode", "cwd": "/Users/me/sikemux", "attentionRank": 6, "subagents": 0, "tasks": 0, "reconnecting": 3},
+    {"agentId": "a4", "name": "Birch", "provider": "grok", "cwd": "/Users/me/sikemux-front", "attentionRank": 2, "subagents": 0, "tasks": 0},
+    {"agentId": "a5", "name": "Heron", "provider": "claude", "title": "Profile the terminal flood", "cwd": "/Users/me/sikemux", "attentionRank": 7, "subagents": 0, "tasks": 2},
+    {"agentId": "a9", "name": "Maple", "provider": "codex", "cwd": "/Users/me/server", "attentionRank": 1, "subagents": 0, "tasks": 0},
+    {"agentId": "a10", "name": "Pine", "provider": "claude", "cwd": "/Users/me/server", "attentionRank": 3, "subagents": 0, "tasks": 0},
+    {"agentId": "a11", "name": "Moss", "provider": "claude", "cwd": "/Users/me/sikemux", "attentionRank": 4, "subagents": 0, "tasks": 0}
+  ],
+  "sessions": [
+    {"id": 7, "running": true, "project": "p-front", "agentId": "t1", "agentName": "Cedar", "agentType": "claude", "title": "Tighten the rail spacing", "attentionRank": 8}
   ],
   "attentions": [
-    {"id": "p1", "kind": "permission", "agentId": "a1", "provider": "claude", "cwd": "/Users/me/sikemux", "at": NOW,
-     "request": {"toolCall": {"title": "Run tests", "rawInput": {"command": "pnpm test --filter core -- --runInBand"}},
-                 "options": [{"optionId": "o1", "kind": "allow_once"}, {"optionId": "o2", "kind": "allow_always"}, {"optionId": "o3", "kind": "reject_once"}]},
+    {"id": "p1", "agentId": "a1",
      "choices": {"allowOnce": "o1", "allowAlways": "o2", "reject": "o3", "command": "pnpm test --filter core -- --runInBand", "title": "Run tests"}}
-  ]
+  ],
+  "inbox": {"working": 2, "items": [
+    {"id": "permission:a1:p1", "tier": "needs", "kind": "permission", "agentId": "a1", "name": "Otter", "cli": "claude", "project": "p-sikemux",
+     "title": "Fix the login flake", "what": "Needs your permission", "detail": "pnpm test --filter core -- --runInBand", "at": AGO(134), "requestId": "p1"},
+    {"id": "question:q1", "tier": "needs", "kind": "question", "agentId": "a9", "name": "Maple", "cli": "codex", "project": "p-server",
+     "title": "Move the ledger import", "what": "Asks you", "detail": "Should amounts be stored in cents or as decimals? The API sends decimals but the ledger table uses integers.",
+     "at": AGO(1), "questionId": "q1"},
+    {"id": "agent:a4", "tier": "review", "kind": "changes", "agentId": "a4", "name": "Birch", "cli": "grok", "project": "p-front",
+     "title": "Bump Astro to 6", "what": "Finished, with changes to review", "at": AGO(70)},
+    {"id": "agent:a10", "tier": "finished", "kind": "failed", "agentId": "a10", "name": "Pine", "cli": "claude", "project": "p-server",
+     "title": "Rotate the signing keys", "what": "Ran into a problem", "detail": "The keychain refused the new key", "at": AGO(300)},
+    {"id": "agent:a11", "tier": "finished", "kind": "finished", "agentId": "a11", "name": "Moss", "cli": "claude", "project": "p-sikemux",
+     "title": "Tidy the changelog", "what": "Finished", "at": AGO(900)},
+    {"id": "agent:a2", "tier": "progress", "kind": "working", "agentId": "a2", "name": "Flint", "cli": "codex", "project": "p-server",
+     "title": "Refactor the auth middleware", "what": "Working", "at": AGO(252)},
+    {"id": "agent:a3", "tier": "progress", "kind": "working", "agentId": "a3", "name": "Wren", "cli": "opencode", "project": "p-sikemux",
+     "title": "Draft the notch spec", "what": "Working", "at": AGO(48)}
+  ]}
 }
 """#
 
 let arguments = CommandLine.arguments
-let outputDir = URL(fileURLWithPath: arguments.count > 1 ? arguments[1] : "/tmp/notch-snapshots")
+let paths = arguments.dropFirst().filter { !$0.hasPrefix("--") }
+let outputDir = URL(fileURLWithPath: paths.first ?? "/tmp/notch-snapshots")
+let bare = arguments.contains("--bare")
 try? FileManager.default.createDirectory(at: outputDir, withIntermediateDirectories: true)
 
 let fontsDir = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("../../Fonts").standardized.path
@@ -82,18 +86,31 @@ Theme.registerFonts(in: fontsDir)
 _ = NSApplication.shared
 NSApp.setActivationPolicy(.prohibited)
 
-let now = String(Int(Date().timeIntervalSince1970 * 1000) - 134_000)
-let full = try! JSONDecoder().decode(DeviceView.self, from: Data(fixture.replacingOccurrences(of: "NOW", with: now).utf8))
+let now = Int(Date().timeIntervalSince1970 * 1000)
+let dated = try! NSRegularExpression(pattern: #"AGO\((\d+)\)"#).matches(in: fixture, range: NSRange(fixture.startIndex..., in: fixture))
+    .reversed().reduce(fixture) { text, match in
+        let seconds = Int((fixture as NSString).substring(with: match.range(at: 1)))!
+        return (text as NSString).replacingCharacters(in: match.range, with: String(now - seconds * 1000))
+    }
+let full = try! JSONDecoder().decode(DeviceView.self, from: Data(dated.utf8))
 
 func view(keeping ids: Set<String>?) -> DeviceView {
     guard let ids else { return full }
+    let items = full.inbox.items.filter { $0.agentId.map(ids.contains) ?? false }
     return DeviceView(
         workspace: full.workspace,
-        sessions: full.sessions,
         chats: full.chats.filter { ids.contains($0.agentId) },
-        attentions: full.attentions.filter { ids.contains($0.agentId) }
+        sessions: full.sessions.filter { $0.agentId.map(ids.contains) ?? false },
+        attentions: full.attentions.filter { ids.contains($0.agentId) },
+        inbox: Inbox(items: items, working: items.filter { $0.kind == .working }.count)
     )
 }
+
+let questions = [AgentQuestion(
+    id: "q1",
+    text: "Should amounts be stored in cents or as decimals? The API sends decimals but the ledger table uses integers.",
+    choices: [QuestionChoice(label: "Cents"), QuestionChoice(label: "Decimals")], via: "Otter", passed: true
+)]
 
 let notch = NotchGeometry(notchWidth: 221, height: 38, centerX: 0)
 let plain = NotchGeometry(notchWidth: 0, height: 24, centerX: 0)
@@ -105,14 +122,17 @@ func render(_ name: String, agents: Set<String>? = nil, geometry: NotchGeometry 
     options.dev = dev
     let store = NotchStore(options: options)
     store.apply(view(keeping: agents))
+    store.apply(questions)
     store.apply(devices, now: Date().addingTimeInterval(-8))
     let island = IslandModel(geometry: geometry)
     setup(island)
     let size = CGSize(width: 760, height: height)
     let root = ZStack(alignment: .top) {
-        LinearGradient(colors: [Color(hex: "#3b2a6e"), Color(hex: "#141024"), Color(hex: "#1f3b6b")], startPoint: .bottomLeading, endPoint: .topTrailing)
-        Color.black.frame(height: 10).frame(maxHeight: .infinity, alignment: .top)
-        IslandView(store: store, island: island).padding(.top, 10)
+        if !bare {
+            LinearGradient(colors: [Color(hex: "#3b2a6e"), Color(hex: "#141024"), Color(hex: "#1f3b6b")], startPoint: .bottomLeading, endPoint: .topTrailing)
+            Color.black.frame(height: 10).frame(maxHeight: .infinity, alignment: .top)
+        }
+        IslandView(store: store, island: island).padding(.top, bare ? 0 : 10)
     }
     .frame(width: size.width, height: size.height)
     let window = NSWindow(contentRect: CGRect(origin: .zero, size: size), styleMask: .borderless, backing: .buffered, defer: false)
@@ -182,20 +202,20 @@ if arguments.contains("--film") {
 }
 
 render("C1-idle", agents: [])
-render("C2b-only-idle", agents: ["a6", "a7", "a8"])
-render("C7-still-running", agents: ["a3", "a5"])
-render("O5-with-idle", agents: ["a2", "a5", "a6", "a8"], height: 340) { $0.mode = .open }
+render("C7-subagents-and-shells", agents: ["a2", "a5"])
+render("O5-finished", agents: ["a2", "a4", "a10", "a11"], height: 340) { $0.mode = .open }
 render("C2-working", agents: ["a2", "a3"])
 render("C3-needs-you")
-render("C4-done", agents: ["a4"])
+render("C4-done", agents: ["a4", "a10", "a11"])
 render("C4b-working-and-done", agents: ["a2", "a3", "a4"])
 render("C6-hover", agents: ["a2", "a3"]) { $0.hovering = true }
-render("P1-permission", height: 260) { $0.mode = .peekAsk("a1") }
-render("P2-finished", agents: ["a2", "a4"]) { $0.mode = .peekDone("a4") }
+render("P1-permission", height: 260) { $0.mode = .peekAsk("permission:a1:p1") }
+render("P4-question", agents: ["a2", "a9"], height: 260) { $0.mode = .peekAsk("question:q1") }
+render("P2-finished", agents: ["a2", "a4"]) { $0.mode = .peekDone("agent:a4") }
 render("P3-connect", agents: ["a2", "a3"], height: 240, devices: [PendingDevice(id: "d1", name: "Pixel 8", platform: "android", expiresAt: (Date().timeIntervalSince1970 + 112) * 1000)]) {
     $0.mode = .connect("d1")
 }
-render("O1-agents", height: 440) { $0.mode = .open }
+render("O1-inbox", height: 520) { $0.mode = .open }
 render("O2-new-agent", height: 300) {
     $0.mode = .open
     $0.tab = .compose

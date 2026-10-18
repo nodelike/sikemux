@@ -10,6 +10,7 @@ use std::time::Duration;
 
 use futures::future::try_join_all;
 use serde::de::DeserializeOwned;
+use serde::Deserialize;
 use sikemux_process::{ProcessCancellation, ProcessRunError};
 use tokio::task;
 
@@ -29,21 +30,58 @@ pub(crate) fn cli_value(value: &str) -> AwsResult<&str> {
     Ok(value)
 }
 
+/// The part of an ARN after its last slash: a task's id, a task definition's `family:revision`.
+pub(crate) fn last_segment(arn: &str) -> String {
+    arn.rsplit('/').next().unwrap_or(arn).to_string()
+}
+
 pub(crate) fn aws_bin() -> String {
     sikemux_process::user_environment::var("AWS_CLI").unwrap_or_else(|| "aws".to_string())
 }
 
+/// Which credentials and region a call runs with. No profile leaves the choice
+/// to the CLI, which then reads keys from the environment.
+#[derive(Deserialize, Clone, Default)]
+pub(crate) struct Target {
+    pub(crate) profile: Option<String>,
+    pub(crate) region: Option<String>,
+}
+
+impl Target {
+    pub(crate) fn named(profile: &str) -> Self {
+        Self {
+            profile: Some(profile.to_string()),
+            region: None,
+        }
+    }
+
+    pub(crate) fn label(&self) -> &str {
+        self.profile.as_deref().unwrap_or("default")
+    }
+}
+
+pub(crate) fn aws_command(target: &Target) -> std::process::Command {
+    let mut cmd = sikemux_process::user_environment::command(aws_bin());
+    if let Some(profile) = &target.profile {
+        cmd.env("AWS_PROFILE", profile);
+    }
+    if let Some(region) = &target.region {
+        cmd.env("AWS_REGION", region)
+            .env("AWS_DEFAULT_REGION", region);
+    }
+    cmd.env("AWS_PAGER", "")
+        .env("AWS_DEFAULT_OUTPUT", "json")
+        .env("NO_COLOR", "1");
+    cmd
+}
+
 fn run_aws_cli(
     args: &[&str],
-    profile: Option<&str>,
+    target: &Target,
     cancellation: &ProcessCancellation,
 ) -> AwsResult<(bool, String, String)> {
     let bin = aws_bin();
-    let mut cmd = sikemux_process::user_environment::command(&bin);
-    if let Some(p) = profile {
-        cmd.env("AWS_PROFILE", p);
-    }
-    cmd.env("AWS_PAGER", "").env("NO_COLOR", "1");
+    let mut cmd = aws_command(target);
     cmd.args(args);
     let timeout = if args.starts_with(&["sso", "login"]) {
         AWS_SSO_TIMEOUT
@@ -84,15 +122,15 @@ impl Drop for CancelOnDrop {
 
 pub(crate) async fn run_aws_cli_async(
     args: &[&str],
-    profile: Option<&str>,
+    target: &Target,
 ) -> AwsResult<(bool, String, String)> {
     let cancellation = ProcessCancellation::new();
     let _cancel_on_drop = CancelOnDrop(cancellation.clone());
-    let profile = profile.map(String::from);
+    let target = target.clone();
     let args: Vec<String> = args.iter().map(|s| (*s).to_string()).collect();
     task::spawn_blocking(move || {
         let refs: Vec<&str> = args.iter().map(String::as_str).collect();
-        run_aws_cli(&refs, profile.as_deref(), &cancellation)
+        run_aws_cli(&refs, &target, &cancellation)
     })
     .await
     .map_err(|e| AwsError::Aws(format!("join error: {e}")))?
@@ -105,7 +143,8 @@ pub(crate) async fn run_aws_cli_async(
 /// back to substring matching the human stderr when no structured form is
 /// present — that's still the common case for client-side failures (e.g.
 /// "Unable to locate credentials" emitted before any API call).
-pub(crate) fn classify_cli_err(stderr: &str) -> AwsError {
+pub(crate) fn classify_cli_err(stderr: &str, target: &Target) -> AwsError {
+    let profile = || target.label().to_string();
     if let Ok(v) = serde_json::from_str::<serde_json::Value>(stderr.trim()) {
         let code = v
             .get("Error")
@@ -114,10 +153,10 @@ pub(crate) fn classify_cli_err(stderr: &str) -> AwsError {
             .map(|s| s.to_ascii_lowercase());
         if let Some(c) = code {
             if c == "expiredtoken" || c == "expiredtokenexception" {
-                return AwsError::TokenExpired;
+                return AwsError::TokenExpired(profile());
             }
             if c == "credentialsnotfound" || c.contains("nocredential") {
-                return AwsError::NoCredentials;
+                return AwsError::NoCredentials(profile());
             }
         }
     }
@@ -126,19 +165,21 @@ pub(crate) fn classify_cli_err(stderr: &str) -> AwsError {
     if s.contains("token has expired")
         || s.contains("sso session associated with this profile has expired")
         || s.contains("expiredtoken")
+        || s.contains("error loading sso token")
+        || s.contains("unauthorizedssotoken")
     {
-        AwsError::TokenExpired
+        AwsError::TokenExpired(profile())
     } else if s.contains("could not be found") || s.contains("unable to locate credentials") {
-        AwsError::NoCredentials
+        AwsError::NoCredentials(profile())
     } else {
         AwsError::Aws(stderr.trim().to_string())
     }
 }
 
-pub(crate) async fn aws_json<T: DeserializeOwned>(profile: &str, args: &[&str]) -> AwsResult<T> {
-    let (ok, stdout, stderr) = run_aws_cli_async(args, Some(profile)).await?;
+pub(crate) async fn aws_json<T: DeserializeOwned>(target: &Target, args: &[&str]) -> AwsResult<T> {
+    let (ok, stdout, stderr) = run_aws_cli_async(args, target).await?;
     if !ok {
-        return Err(classify_cli_err(&stderr));
+        return Err(classify_cli_err(&stderr, target));
     }
     Ok(serde_json::from_str::<T>(&stdout)?)
 }
@@ -152,7 +193,7 @@ pub(crate) async fn aws_json<T: DeserializeOwned>(profile: &str, args: &[&str]) 
 /// `arns_flag` is the flag the arns are appended after (e.g. `"--services"`).
 /// `tail_args` lands at the very end (typically `["--output", "json"]`).
 pub(crate) async fn describe_in_chunks<R: DeserializeOwned>(
-    profile: String,
+    target: &Target,
     base_args: Vec<String>,
     arns_flag: &'static str,
     arns: Vec<String>,
@@ -176,10 +217,9 @@ pub(crate) async fn describe_in_chunks<R: DeserializeOwned>(
                 args.push(arns_flag.to_string());
                 args.extend(chunk);
                 args.extend(tail_args.iter().cloned());
-                let profile = profile.clone();
                 async move {
                     let refs: Vec<&str> = args.iter().map(String::as_str).collect();
-                    aws_json::<R>(&profile, &refs).await
+                    aws_json::<R>(target, &refs).await
                 }
             });
         out.extend(try_join_all(futs).await?);
@@ -201,19 +241,25 @@ mod tests {
 
     #[test]
     fn classify_substring_expired() {
-        let e = classify_cli_err("An error occurred: token has expired blah");
-        assert!(matches!(e, AwsError::TokenExpired));
+        let e = classify_cli_err(
+            "An error occurred: token has expired blah",
+            &Target::default(),
+        );
+        assert!(matches!(e, AwsError::TokenExpired(_)));
     }
 
     #[test]
     fn classify_substring_no_credentials() {
-        let e = classify_cli_err("Unable to locate credentials");
-        assert!(matches!(e, AwsError::NoCredentials));
+        let e = classify_cli_err("Unable to locate credentials", &Target::default());
+        assert!(matches!(e, AwsError::NoCredentials(_)));
     }
 
     #[test]
     fn classify_structured_expired() {
         let body = r#"{"Error":{"Code":"ExpiredToken","Message":"x"}}"#;
-        assert!(matches!(classify_cli_err(body), AwsError::TokenExpired));
+        assert!(matches!(
+            classify_cli_err(body, &Target::default()),
+            AwsError::TokenExpired(_)
+        ));
     }
 }

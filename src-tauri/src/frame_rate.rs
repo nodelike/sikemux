@@ -83,11 +83,17 @@ mod imp {
         };
         // SAFETY: `features` is an NSArray.
         let count: usize = unsafe { msg_send![&*features, count] };
+        let key_selector = sel!(key);
         for index in 0..count {
             // SAFETY: `index` is within the array.
             let feature: Retained<AnyObject> =
                 unsafe { msg_send![&*features, objectAtIndex: index] };
-            // SAFETY: every WebKit feature answers `key` with an NSString.
+            // SAFETY: a plain `respondsToSelector:` query.
+            let keyed: bool = unsafe { msg_send![&*feature, respondsToSelector: key_selector] };
+            if !keyed {
+                return;
+            }
+            // SAFETY: confirmed above; it answers with an NSString.
             let key: Option<Retained<NSString>> = unsafe { msg_send![&*feature, key] };
             if key.is_some_and(|key| key.to_string() == FEATURE) {
                 let setter = sel!(_setEnabled:forFeature:);

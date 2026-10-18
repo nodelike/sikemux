@@ -4,7 +4,7 @@ Thanks for taking the time to contribute. Sikemux is a Tauri + Rust + React desk
 
 ## Getting started
 
-**Prerequisites:** [rustup](https://www.rust-lang.org/tools/install), which installs the Rust version `rust-toolchain.toml` pins, the same one CI uses (Homebrew Rust ignores that file), Node.js 22+, and pnpm 10.33.0 (the version pinned in `package.json`). macOS bundles require Xcode; Linux builds require the [Tauri Linux packages](https://v2.tauri.app/start/prerequisites/#linux) (WebKitGTK 4.1, librsvg), and `pnpm build:linux` makes a `.deb`, an `.rpm` and an AppImage; Windows development requires Microsoft C++ Build Tools and WebView2. Published releases target Apple Silicon. Windows is not a current target: the background core that owns terminals and agents is Unix-only, so the app no longer builds there and `pnpm build:windows` does not work.
+**Prerequisites:** [rustup](https://www.rust-lang.org/tools/install), which installs the Rust version `rust-toolchain.toml` pins, the same one CI uses (Homebrew Rust ignores that file), Node.js 22+, and pnpm 10.33.0 (the version pinned in `package.json`). macOS bundles require Xcode; Linux builds require the [Tauri Linux packages](https://v2.tauri.app/start/prerequisites/#linux) (WebKitGTK 4.1, librsvg), and `pnpm build:linux` makes a `.deb`, an `.rpm` and an AppImage; Windows development requires Microsoft C++ Build Tools and WebView2. Published releases ship an Apple Silicon DMG and x86_64 Linux packages. Windows is not a current target: the background core that owns terminals and agents is Unix-only, so the app no longer builds there and `pnpm build:windows` does not work.
 
 ```bash
 git clone git@github.com:nodelike/sikemux.git
@@ -97,7 +97,6 @@ pnpm build            # production frontend build
 Some gates are floors that only move one way. Raise them when you beat them; never lower them to get a change through:
 
 - **`!important` in CSS:** the budget in `scripts/check-css-important.mjs`, checked by `pnpm lint`. Remove one and lower the budget to match.
-- **Bundle size:** the ceilings checked by `pnpm perf:budget` (see below).
 
 One CI job stays out of the hook: **macOS launched desktop E2E**. Run it with `pnpm test:e2e:desktop` if you touched the launch path — it builds the whole app, so the hook leaves it to CI.
 
@@ -109,7 +108,7 @@ Releases publish only from the Release workflow ([docs/releasing.md](docs/releas
 
 Agent tools are declared once in `browser/tools.json`. Add or change one there, run `pnpm agent-tools:generate`, and commit the regenerated `src-tauri/crates/sikemux-core/src/cli/methods.rs`. `pnpm agent-tools:check` fails when a declared method has no handler, when a handler is exposed by no tool, or when the generated file is stale. Keep tool descriptions to one line: they are sent on every agent request, so protocol detail belongs in `browser/SIKEMUX_GUIDE.md`, which agents fetch once through `guide`. `pnpm agent-tools:report` prints what the surface currently costs.
 
-`pnpm perf:budget` checks the production bundle after `pnpm build`. Every startup, lazy-feature, total-JavaScript, and CSS ceiling must retain at least 10% reserve; reaching the nominal ceiling is already a failure. When adding substantial UI, prefer a feature-level dynamic import and only rebaseline a ceiling alongside measured bundle output and a documented reason.
+`pnpm perf:budget` checks the production bundle after `pnpm build` against sizes a person would feel: 2 MB of JavaScript before the first pane draws, 600 KB for any file loaded later, and 300 KB of application CSS. Ordinary features fit under these. When one fails, move the code behind a dynamic import or split the file rather than raising the limit.
 
 - **Scope** — keep PRs focused. One feature or fix per PR is much easier to review.
 - **No regressions** — keep things efficient and performant; if a change touches the editor, terminal, or git panes, verify the affected views still behave.

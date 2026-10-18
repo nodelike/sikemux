@@ -19,7 +19,8 @@ function powershellQuote(value: string): string {
  * Run SSH through the user's local shell instead of leaving a dead transport
  * as the terminal's last state. A normal logout returns straight to the shell;
  * failed connections restore terminal modes and retry at most five times.
- * The loop runs under /bin/sh so it works whatever the login shell is.
+ * The loop runs under /bin/sh so it works whatever the login shell is, and
+ * prints where the connection stands as Sikemux's own OSC 6973 for the rail.
  */
 function unixSshStartup(alias: string): string {
     return `/bin/sh -c ${portableQuote(unixSshLoop(alias))}`;
@@ -27,7 +28,8 @@ function unixSshStartup(alias: string): string {
 
 function unixSshLoop(alias: string): string {
     const host = shellQuote(alias);
-    return `sikemux_ssh_retries=0; while :; do command ssh -o ServerAliveInterval=15 -o ServerAliveCountMax=3 ${host}; sikemux_ssh_status=$?; stty sane 2>/dev/null || true; printf '\\033[0m\\033[?25h\\033[?1l\\033>\\033[?2004l\\033[?1000l\\033[?1002l\\033[?1003l\\033[?1006l'; if [ "$sikemux_ssh_status" -eq 0 ]; then break; fi; if [ "$sikemux_ssh_status" -eq 130 ]; then printf '\\r\\nSSH reconnect cancelled. Back at your local shell.\\r\\n'; break; fi; if [ "$sikemux_ssh_retries" -ge ${SSH_MAX_RETRIES} ]; then printf '\\r\\nSSH could not reconnect after ${SSH_MAX_RETRIES} retries. Back at your local shell.\\r\\n'; break; fi; sikemux_ssh_retries=$((sikemux_ssh_retries + 1)); printf '\\r\\nSSH connection lost. Retrying (%s/${SSH_MAX_RETRIES}) in 3 seconds… Press Ctrl-C to stop.\\r\\n' "$sikemux_ssh_retries"; sleep 3 || break; done`;
+    const connected = `-o PermitLocalCommand=yes -o "LocalCommand=/usr/bin/printf '\\033]6973;ssh;connected\\007'"`;
+    return `sikemux_ssh_link() { printf '\\033]6973;ssh;%s\\007' "$1"; }; trap 'sikemux_ssh_link disconnected' EXIT; trap 'exit 130' INT TERM HUP; sikemux_ssh_link connecting; sikemux_ssh_retries=0; while :; do command ssh -o ServerAliveInterval=15 -o ServerAliveCountMax=3 ${connected} ${host}; sikemux_ssh_status=$?; stty sane 2>/dev/null || true; printf '\\033[0m\\033[?25h\\033[?1l\\033>\\033[?2004l\\033[?1000l\\033[?1002l\\033[?1003l\\033[?1006l'; if [ "$sikemux_ssh_status" -eq 0 ]; then break; fi; if [ "$sikemux_ssh_status" -eq 130 ]; then printf '\\r\\nSSH reconnect cancelled. Back at your local shell.\\r\\n'; break; fi; if [ "$sikemux_ssh_retries" -ge ${SSH_MAX_RETRIES} ]; then printf '\\r\\nSSH could not reconnect after ${SSH_MAX_RETRIES} retries. Back at your local shell.\\r\\n'; break; fi; sikemux_ssh_retries=$((sikemux_ssh_retries + 1)); printf '\\r\\nSSH connection lost. Retrying (%s/${SSH_MAX_RETRIES}) in 3 seconds… Press Ctrl-C to stop.\\r\\n' "$sikemux_ssh_retries"; sikemux_ssh_link connecting; sleep 3 || break; done`;
 }
 
 function windowsSshStartup(alias: string): string {

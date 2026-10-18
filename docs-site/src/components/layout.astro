@@ -1,0 +1,26 @@
+---
+import { ClientRouter } from "astro:transitions";
+import "@/styles/global.css";
+
+interface Props {
+  title: string;
+  description: string;
+}
+
+const { title, description } = Astro.props;
+---
+
+<html lang="en" class="dark">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{title}</title>
+    <meta name="description" content={description} />
+    <link rel="icon" href="/favicon.png" />
+    <link rel="preload" href="/fonts/Figtree-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin />
+    <ClientRouter />
+  </head>
+  <body class="flex min-h-screen flex-col" transition:persist transition:animate="none" transition:name="page-layout">
+    <slot />
+  </body>
+</html>

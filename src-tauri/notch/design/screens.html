@@ -121,7 +121,9 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: def
 .st.working { color: var(--live); }
 .st.blocked { color: var(--warn); }
 .st.done { color: var(--acc); }
-.st.still { color: var(--warn); }
+.st.failed { color: var(--danger); }
+.st.subagents { color: var(--live); }
+.st.shells { color: var(--warn); }
 .st .dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
 .st .ping { position: absolute; width: 7px; height: 7px; border-radius: 50%; border: 1.5px solid currentColor; opacity: 0; }
 .st.blocked.fresh .ping { animation: ping 520ms cubic-bezier(0.2, 0.6, 0.3, 1) both; }
@@ -154,25 +156,23 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: def
 .phone { display: inline-flex; align-items: center; gap: 5px; font-size: 11.5px; color: var(--ink-dim); padding: 0 6px; }
 .phone .ok { width: 5px; height: 5px; border-radius: 50%; background: var(--live); }
 
-.group-label { font-size: 11px; font-weight: 600; color: var(--ink-faint); padding: 12px 12px 4px; }
-.group-label:first-child { padding-top: 6px; }
 .row { display: flex; align-items: center; gap: 10px; height: 36px; padding: 0 12px; border-radius: 12px; }
-.row .title, .ask-head .title { flex: 1 1 auto; min-width: 0; }
+.head { flex: 1 1 auto; min-width: 0; display: flex; align-items: baseline; gap: 8px; }
+.head .title { flex: 0 1 auto; min-width: 0; }
+.end { display: inline-flex; align-items: center; gap: 8px; flex: none; }
 .proj { display: inline-flex; align-items: center; gap: 4px; flex: 0 1 auto; min-width: 0; max-width: 150px; font-size: 11.5px; color: var(--ink-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .proj svg { flex: 0 0 auto; color: var(--ink-faint); }
-.subagents { display: inline-flex; align-items: center; gap: 3px; flex: 0 0 auto; font-size: 11px; font-weight: 500; color: var(--ink-faint); font-variant-numeric: tabular-nums; }
-.subagents svg { fill: currentColor; stroke: none; color: color-mix(in srgb, var(--live) 75%, transparent); }
-.shells { display: inline-flex; align-items: center; gap: 3px; flex: 0 0 auto; font-size: 11px; font-weight: 500; color: var(--ink-faint); font-variant-numeric: tabular-nums; }
-.shells svg { width: 11px; height: 11px; color: color-mix(in srgb, var(--warn) 75%, transparent); }
-.word { font-size: 11.5px; color: var(--ink-faint); }
-.time { min-width: 44px; text-align: right; }
+.subagents { display: inline-flex; align-items: center; gap: 3px; flex: 0 0 auto; font-size: 11px; font-weight: 500; color: var(--ink); font-variant-numeric: tabular-nums; }
+.subagents svg { fill: currentColor; stroke: none; color: var(--live); }
+.shells { display: inline-flex; align-items: center; gap: 3px; flex: 0 0 auto; font-size: 11px; font-weight: 500; color: var(--ink); font-variant-numeric: tabular-nums; }
+.shells svg { width: 11px; height: 11px; color: var(--warn); }
 .row:hover { background: rgba(255, 255, 255, 0.07); }
 .mark { width: 20px; height: 20px; flex: 0 0 auto; }
 .mark svg { width: 20px; height: 20px; display: block; }
 .text { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .title { font-size: 13px; font-weight: 600; letter-spacing: -0.005em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .sub { font-size: 11.5px; color: var(--ink-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.time { font-size: 11.5px; color: var(--ink-faint); font-variant-numeric: tabular-nums; }
+.time, .word { flex: none; font-size: 11.5px; color: var(--ink-faint); font-variant-numeric: tabular-nums; white-space: nowrap; }
 
 .ask { padding: 12px; border-radius: 14px; background: rgba(255, 255, 255, 0.06); margin-bottom: 2px; }
 .ask .ask-head { display: flex; align-items: center; gap: 10px; }
@@ -182,6 +182,10 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: def
     background: rgba(255, 255, 255, 0.06); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .ask .cmd { background: rgba(0, 0, 0, 0.45); }
+.question {
+    margin-top: 10px; font-size: 13px; line-height: 1.4; color: var(--ink);
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
 .ask.connect { padding: 14px; border-radius: 16px; margin-bottom: 0; }
 .ask.connect .ask-head { gap: 12px; }
 .ask.connect .title { font-size: 14px; }
@@ -195,6 +199,7 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: def
 .btn {
     height: 32px; padding: 0 14px; border-radius: 16px; font-size: 12.5px; font-weight: 600;
     background: rgba(255, 255, 255, 0.1); color: var(--ink); display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+    white-space: nowrap; overflow: hidden;
 }
 .btn:hover { background: rgba(255, 255, 255, 0.16); }
 .btn.primary { background: var(--acc); color: var(--on-accent); }
@@ -204,6 +209,7 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: def
 .sub svg { flex: 0 0 auto; margin-right: 4px; color: var(--ink-faint); }
 .sub { display: flex; align-items: center; }
 .dotsep { margin: 0 5px; color: var(--ink-faint); }
+.agent-name { flex: none; font-size: 11px; color: var(--ink-faint); }
 .yolo-ring {
     position: absolute; inset: 0; border-radius: inherit; padding: 1px; overflow: hidden; pointer-events: none;
     -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
@@ -395,10 +401,11 @@ code { font-family: var(--mono); font-size: 11px; color: var(--ink); }
         <div class="controls" id="controls">
             <button data-act="start">An agent starts</button>
             <button data-act="block">Claude asks for permission</button>
+            <button data-act="question">Codex asks a question</button>
             <button data-act="finish">Codex finishes</button>
             <button data-act="connect">A phone asks to connect</button>
             <button data-act="drag">A file is dragged in</button>
-            <button data-act="clear">No agents</button>
+            <button data-act="clear">Nothing waiting</button>
             <button data-act="reset">Reset</button>
         </div>
         <div class="stage" id="live" style="height: 460px"></div>
@@ -421,9 +428,15 @@ code { font-family: var(--mono); font-size: 11px; color: var(--ink); }
             Centre on the gap between the two areas, not on the screen. No notch: height = menu bar (<code>frame.maxY − visibleFrame.maxY</code>).</td></tr>
         <tr><td>Shape</td><td>Top corners curve outward into the menu bar, bottom corners inward. Radii (top / bottom): closed 6 / 14, peek 14 / 22, open 19 / 24.
             Both radii animate with the size.</td></tr>
-        <tr><td>Closed wings</td><td>Each wing is as wide as what it holds: the right one holds only the count while every agent is idle, and grows
-            to fit a mark for each state some agent is in: needs you, then working, then done, each with its count above one, 10 pt apart. The island moves aside by half the difference so the camera stays between them. Bare agent marks at 20 pt, as the project tree draws them, 3 pt apart from overlapping.</td></tr>
-        <tr><td>Open</td><td>680 wide, 560 on a display without a notch, where the header is 38 tall so its controls clear the screen edge; height follows content up to 400, then the list scrolls. Padding: top-radius horizontally, then 12. Rows are one line, 36 tall, radius 12: mark at 20 pt as the rail draws it, task, project, time, state.</td></tr>
+        <tr><td>Agents</td><td>The list is every open agent in the device view's <code>chats</code> and agent <code>sessions</code>, in their <code>attentionRank</code>,
+            the order the rail and phones show; agents on other hosts the <code>inbox</code> lists follow. The island never ranks them itself. Each takes its state and words
+            from its first <code>inbox</code> item, and the <code>working</code> count still drives the closed wing. It adds what the inbox leaves out: a permission's
+            three option ids from <code>attentions</code>, a question's answers and the lead it went to first from the core's <code>questions</code> call,
+            and each chat's subagents and shells from <code>chats</code>.</td></tr>
+        <tr><td>Closed wings</td><td>Each wing is as wide as what it holds. The left holds the marks of the first three items in the inbox, then +N.
+            The right fits a mark for each state some item is in: needs you, then working (the core's count of agents at work), then the subagents and the shells or monitors
+            running across every agent, then done (to review or finished), each state with its count above one and the two totals always with theirs, 10 pt apart. The island moves aside by half the difference so the camera stays between them. Bare agent marks at 20 pt, as the project tree draws them, 3 pt apart from overlapping.</td></tr>
+        <tr><td>Open</td><td>680 wide, 560 on a display without a notch, where the header is 38 tall so its controls clear the screen edge; height follows content up to 400, then the list scrolls. Padding: top-radius horizontally, then 12. Rows are one line, 36 tall, radius 12: mark at 20 pt as the rail draws it, task, project, time, state. A label wherever the tier changes.</td></tr>
         <tr><td>Springs</td><td>Open <code>spring(response: 0.42, dampingFraction: 0.8)</code>. Close <code>spring(response: 0.45, dampingFraction: 1.0)</code>.
             Hover (shadow) <code>interactiveSpring(response: 0.38, dampingFraction: 0.8)</code>.</td></tr>
         <tr><td>Content</td><td>One shape: the band beside the camera swaps the wings for a header in place, out of and into a 20 pt blur; the body
@@ -521,19 +534,25 @@ const DISPLAYS = {
 const RADII = { closed: [6, 14], peek: [14, 22], open: [19, 24] };
 const SPRING = { open: [0.42, 0.8], close: [0.45, 1.0], hover: [0.38, 0.8] };
 
+/** Every open agent, in the order the app's rail lists them: what wants you first. An idle one has no tier. */
 function freshAgents() {
     return [
-        { id: "a1", type: "claude", title: "Fix the login flake", project: "sikemux", state: "blocked", time: "2:14",
-          ask: { tool: "Bash", cmd: "pnpm test --filter core -- --runInBand" } },
-        { id: "a2", type: "codex", title: "Refactor the auth middleware", project: "server", state: "working", time: "4:12", subagents: 3 },
-        { id: "a3", type: "opencode", title: "Draft the notch spec", project: "sikemux", state: "working", time: "0:48" },
-        { id: "a4", type: "grok", title: "Bump Astro to 6", project: "sikemux-front", state: "done", unread: true, time: "1m ago" },
-        { id: "a5", type: "codex", title: "Read the release notes", project: "sikemux", state: "idle", tasks: 2 },
-        { id: "a7", type: "claude", title: "Tidy the changelog", project: "sikemux", state: "idle" },
-        { id: "a6", type: "claude", title: "Sikemux bug", project: "sikemux", state: "idle", word: "Sleeping" },
-        { id: "a8", type: "claude", title: "Ship the release notes", project: "server", state: "idle", word: "Stopped" },
+        { id: "a1", name: "Otter", type: "claude", title: "Fix the login flake", project: "sikemux", tier: "needs", state: "blocked", time: "2:14",
+          what: "Needs your permission", ask: { tool: "Bash", cmd: "pnpm test --filter core -- --runInBand" } },
+        { id: "a9", name: "Maple", type: "codex", title: "Move the ledger import", project: "server", tier: "needs", state: "blocked", time: "0:01",
+          what: "Asks you", question: { via: "Otter", text: "Should amounts be stored in cents or as decimals? The API sends decimals but the ledger table uses integers.",
+                      choices: ["Cents", "Decimals"] } },
+        { id: "a4", name: "Birch", type: "grok", title: "Bump Astro to 6", project: "sikemux-front", tier: "review", state: "done", time: "1m ago" },
+        { id: "a10", name: "Pine", type: "claude", title: "Rotate the signing keys", project: "server", tier: "finished", state: "failed", time: "5m ago" },
+        { id: "a11", name: "Moss", type: "claude", title: "Tidy the changelog", project: "sikemux", tier: "finished", state: "done", time: "15m ago" },
+        { id: "a2", name: "Flint", type: "codex", title: "Refactor the auth middleware", project: "server", tier: "progress", state: "working", time: "4:12", subagents: 3 },
+        { id: "a3", name: "Wren", type: "opencode", title: "Draft the notch spec", project: "sikemux", tier: "progress", state: "working", time: "0:48", reconnecting: 3 },
+        { id: "a5", name: "Cedar", type: "codex", title: "Read the release notes", project: "sikemux", tasks: 2 },
     ];
 }
+
+/** The open agents, already in the rail's order. */
+const listed = (agents) => agents;
 
 /** The core turns a device away when nobody answers it within two minutes. */
 const ANSWER_WINDOW = 120;
@@ -543,6 +562,27 @@ function timeLeft(device) {
     return `${Math.floor(left / 60)}:${String(left % 60).padStart(2, "0")}`;
 }
 
+/** The agent's name, small and dim with the row's counts and state at its end, as the app's rail reads. */
+function agentName(a) {
+    return a.name ? `<span class="agent-name">@${a.name}</span>` : "";
+}
+
+/** Laid out as the app's tab rail row: the task with how long ago, the project, then the name, counts and state together at the end. */
+function rowLine(a) {
+    const since = a.reconnecting != null ? `<span class="word">Reconnecting…${a.reconnecting ? ` ${a.reconnecting}` : ""}</span>` : a.time ? `<span class="time">${a.time}</span>` : "";
+    const end = `${agentName(a)}${a.subagents ? `<span class="subagents">${GLYPH.agent}${a.subagents}</span>` : ""}${a.tasks ? `<span class="shells">${GLYPH.command}${a.tasks}</span>` : ""}${stateMark(a.state)}`;
+    return `<span class="head"><span class="title">${a.title}</span>${since}</span><span class="proj">${GLYPH.folderSmall}${a.project}</span>${end ? `<span class="end">${end}</span>` : ""}`;
+}
+
+/** What answers a question: up to two of its choices, then Answer in Sikemux, which opens the agent's chat. */
+function questionActions(a, size) {
+    const choices = a.question.choices.length <= 2 ? a.question.choices : [];
+    return `<div class="actions">
+        ${choices.map((choice) => `<button class="btn${size}" data-answer="choice" data-id="${a.id}">${choice}</button>`).join("")}
+        <button class="btn${size} primary" data-answer="open" data-id="${a.id}" style="grid-column:${choices.length + 1} / 4">Answer in Sikemux</button>
+    </div>`;
+}
+
 function stateMark(state, fresh) {
     if (state === "working") {
         const periods = [[0.9, 0], [1.24, -0.52], [1.58, -1.04], [1.07, -0.39], [1.41, -0.91], [0.9, -0.26], [1.24, -0.78], [1.58, -0.13], [1.07, -0.65]];
@@ -550,22 +590,27 @@ function stateMark(state, fresh) {
     }
     if (state === "blocked") return `<span class="st blocked${fresh ? " fresh" : ""}"><span class="ping"></span><span class="ping"></span><span class="dot"></span></span>`;
     if (state === "done") return `<span class="st done"><span class="dot"></span></span>`;
-    if (state === "still") return `<span class="st still">${GLYPH.command}</span>`;
+    if (state === "failed") return `<span class="st failed"><span class="dot"></span></span>`;
+    if (state === "subagents") return `<span class="st subagents">${GLYPH.agent}</span>`;
+    if (state === "shells") return `<span class="st shells">${GLYPH.command}</span>`;
     return "";
 }
 
-/** How many agents need you, work and are done, most pressing first, leaving out the states no agent is in. */
+const TALLIES = new Set(["subagents", "shells"]);
+
+/** How many items need you, agents work, subagents and shells run across every agent, and items are done, leaving out what is none. */
 function rollups(agents) {
-    const counts = {
-        blocked: (a) => a.state === "blocked",
-        working: (a) => a.state === "working",
-        still: (a) => a.state === "idle" && (a.tasks || a.subagents),
-        done: (a) => a.state === "done" && a.unread,
-    };
-    return Object.entries(counts)
-        .map(([state, has]) => ({ state, count: agents.filter(has).length }))
-        .filter((group) => group.count > 0);
+    const sum = (key) => agents.reduce((total, a) => total + (a[key] || 0), 0);
+    return [
+        { state: "blocked", count: agents.filter((a) => a.tier === "needs").length },
+        { state: "working", count: agents.filter((a) => a.tier === "progress").length },
+        { state: "subagents", count: sum("subagents") },
+        { state: "shells", count: sum("tasks") },
+        { state: "done", count: agents.filter((a) => a.tier === "review" || a.tier === "finished").length },
+    ].filter((group) => group.count > 0);
 }
+
+const showsCount = (group) => group.count > 1 || TALLIES.has(group.state);
 
 function notchPath(w, h, t, b) {
     return `M0 0Q${t} 0 ${t} ${t}L${t} ${h - b}Q${t} ${h} ${t + b} ${h}L${w - t - b} ${h}Q${w - t} ${h} ${w - t} ${h - b}L${w - t} ${t}Q${w - t} 0 ${w} 0Z`;
@@ -650,15 +695,13 @@ class Island {
 
     /** Each wing as wide as what it holds, so a quiet right wing stays small. */
     wings() {
-        const open = this.agents.length;
-        if (!open) return { left: 0, right: 0 };
-        let left = 14 + 20 + (Math.min(open, 3) - 1) * 17 + 10;
-        if (open > 3) left += 9 + 6.5 * (String(open - 3).length + 1);
         const groups = rollups(this.agents);
+        if (!groups.length) return { left: 0, right: 0 };
+        const open = listed(this.agents).length;
+        let left = open ? 14 + 20 + (Math.min(open, 3) - 1) * 17 + 10 : 0;
+        if (open > 3) left += 9 + 6.5 * (String(open - 3).length + 1);
         const digits = (n) => String(n).length * 7.5;
-        const held = groups.length
-            ? groups.reduce((sum, g) => sum + (g.count > 1 ? digits(g.count) + 6 : 0) + 16, 0) + (groups.length - 1) * 10
-            : digits(open);
+        const held = groups.reduce((sum, g) => sum + (showsCount(g) ? digits(g.count) + 6 : 0) + 16, 0) + (groups.length - 1) * 10;
         return { left, right: 10 + held + 14 };
     }
 
@@ -675,7 +718,7 @@ class Island {
             const w = plain ? 300 : d.notchW + 2 * 150;
             return { w, h: d.notchH, r: RADII.closed };
         }
-        if (!this.agents.length) {
+        if (!rollups(this.agents).length) {
             if (plain) return { w: 0, h: 0, r: RADII.closed };
             return { w: d.notchW, h: d.notchH, r: RADII.closed, nudge: true };
         }
@@ -696,22 +739,20 @@ class Island {
             const half = plain ? 150 : 150;
             this.layers.wings.innerHTML = `
                 <div class="wing l" style="width:${half}px;height:${d.notchH}px;gap:8px">
-                    <span class="tile">${ICON[a.type]}</span><span class="inline-text">Finished</span></div>
+                    <span class="tile">${ICON[a.type]}</span><span class="inline-text">${a.state === "failed" ? "Failed" : "Finished"}</span></div>
                 ${plain ? "" : `<div class="gap" style="width:${d.notchW}px"></div>`}
                 <div class="wing r" style="width:${half}px;height:${d.notchH}px">
-                    <span class="inline-text dim">${a.title}</span>${stateMark("done")}</div>`;
+                    <span class="inline-text dim">${a.title}</span>${stateMark(a.state)}</div>`;
         } else {
-            const shown = this.agents.slice(0, 3);
-            const extra = this.agents.length - shown.length;
+            const shown = listed(this.agents).slice(0, 3);
+            const extra = listed(this.agents).length - shown.length;
             this.layers.wings.innerHTML = `
                 <div class="wing l" style="width:${wings.left + (plain ? 4 : 0)}px;height:${d.notchH}px">
                     <span class="stack">${shown.map((a) => `<span class="tile">${ICON[a.type]}</span>`).join("")}${
                         extra > 0 ? `<span class="tile count" style="font-size:10px">+${extra}</span>` : ""}</span></div>
                 ${plain ? "" : `<div class="gap" style="width:${d.notchW}px"></div>`}
                 <div class="wing r" style="width:${wings.right + (plain ? 4 : 0)}px;height:${d.notchH}px">
-                    ${groups.length
-                        ? groups.map((g) => `<span class="group">${g.count > 1 ? `<span class="count">${g.count}</span>` : ""}${stateMark(g.state, this.freshPing)}</span>`).join("")
-                        : `<span class="count">${this.agents.length}</span>`}</div>`;
+                    ${groups.map((g) => `<span class="group">${showsCount(g) ? `<span class="count">${g.count}</span>` : ""}${stateMark(g.state, this.freshPing)}</span>`).join("")}</div>`;
             if (plain) this.layers.wings.firstElementChild.nextElementSibling.style.paddingRight = "10px";
         }
 
@@ -727,16 +768,17 @@ class Island {
             const inner = 460 - 2 * t - 16;
             this.layers.peek.style.width = `${inner}px`;
             this.layers.peek.innerHTML = `
-                ${head(`<span class="tile lg">${ICON[a.type]}</span><span class="lead">${NAME[a.type]}</span>`,
+                ${head(`<span class="tile lg">${ICON[a.type]}</span><span class="lead">${a.name}</span>`,
                        `<span class="trail" style="color:var(--warn)">Needs you</span>${stateMark("blocked", true)}`, inner)}
                 <div style="padding:8px 0 16px">
-                    <div class="text"><span class="title">${a.title}</span><span class="sub">${GLYPH.folderSmall}${a.project}<span class="dotsep">·</span>wants to run a command</span></div>
+                    <div class="text"><span class="title">${a.title}</span><span class="sub">${GLYPH.folderSmall}${a.project}<span class="dotsep">·</span>${a.what}${a.question?.via ? ` · ${a.question.via} didn't know` : ""}</span></div>
+                    ${a.question ? `<div class="question">${a.question.text}</div>${questionActions(a, "")}` : `
                     <div class="cmd"><span class="sign">$</span>${a.ask.cmd}</div>
                     <div class="actions">
                         <button class="btn" data-answer="deny" data-id="${a.id}">Deny</button>
                         <button class="btn" data-answer="always" data-id="${a.id}">Always allow</button>
                         <button class="btn primary" data-answer="allow" data-id="${a.id}">Allow</button>
-                    </div>
+                    </div>`}
                 </div>`;
         }
 
@@ -763,7 +805,7 @@ class Island {
 
         const inner = (plain ? 560 : 680) - 2 * RADII.open[0] - 24;
         this.layers.open.style.width = `${inner}px`;
-        const count = this.agents.length;
+        const count = listed(this.agents).length;
         const tabs = `
             <button class="chip" data-tab="agents" aria-selected="${this.tab === "agents"}">Agents <span class="n">${count}</span></button>
             <button class="chip" data-tab="new" aria-selected="${this.tab === "new"}">${GLYPH.plus.replace("<svg", '<svg width="12" height="12"')} New agent</button>`;
@@ -773,44 +815,37 @@ class Island {
 
         let body = "";
         if (this.mode === "drop") {
-            const target = this.agents.find((a) => a.state === "blocked" || a.state === "working") || this.agents[0];
+            const target = this.agents.find((a) => a.tier === "needs" || a.tier === "progress") || listed(this.agents)[0];
             body = `
                 <div class="drops">
                     <div class="drop hot" data-drop="new">${GLYPH.plus}New agent with this file<span class="sub">${NAME[this.selectedType]} in sikemux</span></div>
                     ${target ? `<div class="drop" data-drop="${target.id}">${ICON[target.type]}Send to ${NAME[target.type]}<span class="sub">${target.title}</span></div>` : ""}
                 </div>`;
         } else if (this.tab === "agents") {
-            if (!this.agents.length) {
-                body = `<div style="padding:18px 8px 14px;text-align:center;font-size:13px;color:var(--ink-dim)">No agents running
+            if (!listed(this.agents).length) {
+                body = `<div style="padding:18px 8px 14px;text-align:center;font-size:13px;color:var(--ink-dim)">No agents open
                     <div style="margin-top:14px"><button class="btn primary" data-tab="new">${GLYPH.plus.replace("<svg", '<svg width="12" height="12"')} New agent</button></div></div>`;
             } else {
-                const groups = [
-                    ["Needs you", this.agents.filter((a) => a.state === "blocked")],
-                    ["Working", this.agents.filter((a) => a.state === "working")],
-                    ["Done", this.agents.filter((a) => a.state === "done")],
-                    ["Idle", this.agents.filter((a) => a.state === "idle")],
-                ];
-                body = groups.filter(([, list]) => list.length).map(([label, list]) => `
-                    <div class="group-label">${label}</div>
-                    ${list.map((a) => a.state === "blocked" ? `
+                const items = listed(this.agents);
+                body = items.map((a, i) => `
+                    ${a.tier === "needs" ? `
                         <div class="ask">
                             <div class="ask-head">
                                 <span class="mark">${ICON[a.type]}</span>
-                                <span class="title">${a.title}</span><span class="proj">${GLYPH.folderSmall}${a.project}</span>
-                                <span class="time">${a.time}</span>${stateMark("blocked")}
+                                ${rowLine({ ...a, state: "blocked" })}
                             </div>
+                            ${a.question ? `<div class="question">${a.question.text}</div>${questionActions(a, " small")}` : `
                             <div class="cmd"><span class="sign">$</span>${a.ask.cmd}</div>
                             <div class="actions">
                                 <button class="btn small" data-answer="deny" data-id="${a.id}">Deny</button>
                                 <button class="btn small" data-answer="always" data-id="${a.id}">Always allow</button>
                                 <button class="btn small primary" data-answer="allow" data-id="${a.id}">Allow</button>
-                            </div>
+                            </div>`}
                         </div>` : `
                         <div class="row">
                             <span class="mark">${ICON[a.type]}</span>
-                            <span class="title">${a.title}</span>${a.subagents ? `<span class="subagents">${GLYPH.agent}${a.subagents}</span>` : ""}${a.tasks ? `<span class="shells">${GLYPH.command}${a.tasks}</span>` : ""}<span class="proj">${GLYPH.folderSmall}${a.project}</span>
-                            ${a.state === "idle" ? (a.word ? `<span class="word">${a.word}</span>` : "") : `<span class="time">${a.time}</span>${stateMark(a.state)}`}
-                        </div>`).join("")}`).join("");
+                            ${rowLine(a)}
+                        </div>`}`).join("");
             }
         } else {
             body = this.composer();
@@ -976,15 +1011,16 @@ class Island {
             const answer = e.target.closest("[data-answer]");
             if (answer) {
                 const a = this.agents.find((x) => x.id === answer.dataset.id);
-                a.state = answer.dataset.answer === "deny" ? "working" : "working";
+                Object.assign(a, { tier: "progress", state: "working" });
                 delete a.ask;
+                delete a.question;
                 if (this.mode === "peek-ask") this.mode = this.hover ? "open" : "closed";
                 this.render();
                 return;
             }
             if (e.target.closest("[data-start]")) {
                 const text = this.draft.trim() || "New task";
-                this.agents.unshift({ id: `n${Date.now()}`, type: this.selectedType, title: text, project: this.project, state: "working", time: "0:00" });
+                this.agents.unshift({ id: `n${Date.now()}`, type: this.selectedType, title: text, project: this.project, tier: "progress", state: "working", time: "0:00" });
                 this.draft = "";
                 this.menu = null;
                 this.tab = "agents";
@@ -1004,7 +1040,7 @@ class Island {
     }
 
     finishDrop(target) {
-        if (target === "new") this.agents.unshift({ id: `n${Date.now()}`, type: this.selectedType, title: "Look at screenshot 2026-10-03", project: "sikemux", state: "working", time: "0:00" });
+        if (target === "new") this.agents.unshift({ id: `n${Date.now()}`, type: this.selectedType, title: "Look at screenshot 2026-10-03", project: "sikemux", tier: "progress", state: "working", time: "0:00" });
         this.mode = "closed";
         this.hover = false;
         this.render();
@@ -1039,35 +1075,39 @@ const SECTIONS = [
         id: "closed", letter: "C", title: "Closed",
         lede: "The resting island. Only the wings change; it never grows taller than the menu bar.",
         states: [
-            { id: "C1", name: "Nothing open", when: "No agent is open in Sikemux.", shows: "The bare notch. Nothing is drawn beyond the camera housing.",
+            { id: "C1", name: "Nothing waiting", when: "The inbox is empty and no agent works or left shells running.", shows: "The bare notch. Nothing is drawn beyond the camera housing.",
               plain: "No island at all.", opts: { agents: [] } },
             { id: "C2", name: "Working", when: "One or more agents are working and none is waiting for you.",
-              shows: "Left: the marks of the open agents, the busiest first. Right: how many are working, and the green twinkle grid. With every agent idle, the right wing shows how many are open.",
+              shows: "Left: the marks of the first three items in the inbox, in its order. Right: how many agents are working, and the green twinkle grid.",
               opts: { agents: () => only(["a2", "a3"]) } },
             { id: "C3", name: "Needs you", when: "Any agent is waiting for a permission or an answer.",
               shows: "An amber dot, first in the right wing, ahead of working and done. It sends out two rings when it arrives, then goes still.",
               opts: { agents: () => freshAgents(), fresh: true } },
-            { id: "C4", name: "Done, unseen", when: "An agent finished and you have not looked at it yet.",
-              shows: "A purple dot, until you open the island or the agent.", opts: { agents: () => only(["a4"]) } },
-            { id: "C4b", name: "Working and done", when: "Some agents work while others finished unseen.",
+            { id: "C4", name: "Done", when: "The inbox lists changes to review or finished turns, failed ones included.",
+              shows: "A purple dot with how many, until the core takes them off the inbox once they are seen.", opts: { agents: () => only(["a4", "a10", "a11"]) } },
+            { id: "C4b", name: "Working and done", when: "Some agents work while others' turns wait to be seen.",
               shows: "The working grid stays, with the done dot to its right: each state keeps its own mark and count.", opts: { agents: () => only(["a2", "a3", "a4"]) } },
-            { id: "C5", name: "More than three", when: "Four or more agents are running.",
-              shows: "Three marks, then +N.", opts: { agents: () => [...allWorking(), { id: "a5", type: "pi", title: "x", project: "x", state: "working" }] } },
+            { id: "C5", name: "More than three", when: "The inbox lists four or more items.",
+              shows: "Three marks, then +N.", opts: { agents: () => [...allWorking(), { id: "a12", type: "pi", title: "x", project: "x", tier: "progress", state: "working" }] } },
             { id: "C6", name: "Pointer resting", when: "The pointer is on the island, for the 0.3 s before it opens.",
               shows: "The shadow comes on and the trackpad ticks once. The island keeps its size until it opens.", opts: { agents: () => only(["a2", "a3"]), hover: true } },
-            { id: "C7", name: "Shells still running", when: "An agent is idle but left shells or monitors running.",
-              shows: "The amber terminal glyph the Mac's tabs use, after working and before done, with a count past one. The agent itself stays idle: only a running turn is working.", opts: { agents: () => only(["a3", "a5"]) } },
+            { id: "C7", name: "Subagents and shells running", when: "Agents, working or idle, have subagents or left shells or monitors running.",
+              shows: "After working and before done, the total of subagents beside the green agent glyph, then the total of shells and monitors beside the amber terminal glyph the Mac's tabs use, each with its count even at one.", opts: { agents: () => only(["a2", "a5"]) } },
         ],
     },
     {
         id: "peeks", letter: "P", title: "Peeks",
         lede: "The island grows for a moment when something happens, without opening. Resting the pointer on a peek opens it.",
         states: [
-            { id: "P1", name: "Permission request", when: "An agent asks to run something.",
-              shows: "The agent, its task and the exact command, with Deny, Always allow and Allow (⏎).",
+            { id: "P1", name: "Something needs you", when: "A new item arrives in the inbox's Needs you: a permission, a question, a terminal waiting for you to type, a card handed back.",
+              shows: "The agent by its name, its task, the inbox's words for what it needs and the exact command, with Deny, Always allow and Allow (⏎). Anything the island cannot answer offers Open in Sikemux.",
               leaves: "Answering closes it. Unanswered, it shrinks to C3 after 6 s.", opts: { agents: () => freshAgents(), mode: "peek-ask", peekAgent: "a1" } },
-            { id: "P2", name: "Finished", when: "An agent finishes.",
-              shows: "One line either side of the camera: the agent's mark and Finished, then the task and a purple dot.",
+            { id: "P4", name: "A question", when: "An agent asks the person something with ask, or its lead passes the question on.",
+              shows: "The agent's name, its task, Asks you with the lead that did not know, and the question in two lines. Up to two of its answers as buttons, then Answer in Sikemux, which opens its chat for any other answer.",
+              leaves: "Answering here, in the chat, on a phone or in the terminal closes it: the first answer wins. Unanswered, it shrinks to C3 after 6 s.",
+              opts: { agents: () => only(["a2", "a9"]), mode: "peek-ask", peekAgent: "a9" } },
+            { id: "P2", name: "Finished", when: "An agent's turn ends: its inbox item goes from working to finished or to review.",
+              shows: "One line either side of the camera: the agent's mark and Finished, then the task and a purple dot. A turn that ran into a problem says Failed, with a red dot.",
               leaves: "Shrinks to C4 after 3 s.", opts: { agents: () => only(["a2", "a4"]), mode: "peek-done", peekAgent: "a4" } },
             { id: "P3", name: "A device asks to connect", when: "A phone signed in to the same Sikemux account asks to connect to this computer, whether or not Sikemux's window is open.",
               shows: "The island drops open on one card: the phone, its name, and the time left before the request lapses, with Decline, Watch only and Allow. Several waiting: the oldest first.",
@@ -1080,7 +1120,7 @@ const SECTIONS = [
         lede: "Opened by resting the pointer for 0.3 s. The header sits in the menu-bar band, split around the camera: tabs on the left, Sikemux on the right.",
         states: [
             { id: "O1", name: "Agents", when: "Opened, on the Agents tab.",
-              shows: "Every open agent, grouped Needs you, Working, Done, Idle. A permission can be answered in place. Clicking a row opens that agent in Sikemux.",
+              shows: "Every open agent once, in the order the app's rail lists them, what wants you first, with no labels between them. Each row reads as the rail does: what the agent works on with how long ago, its project, then the name Sikemux gave it with its counts and state together at the end. Idle agents are listed too, with no mark at the end. A permission, or a question with up to two answers, can be answered in place. Clicking a row opens that agent in Sikemux.",
               leaves: "The pointer leaves, and 0.1 s later it closes.", opts: { agents: () => freshAgents(), mode: "open" } },
             { id: "O2", name: "New agent", when: "Opened, on the New agent tab.",
               shows: "Sikemux's own composer: add files, the yolo toggle, the model picker (agent mark + model, in accent), effort, project and send.",
@@ -1090,10 +1130,10 @@ const SECTIONS = [
               shows: "The composer's picker, opening downward so the island grows to hold it: search, the agents as chips, then that agent's models with a check on the current one.",
               leaves: "Picking a model or pressing Esc closes it. Picking another agent swaps the list.",
               opts: { agents: () => freshAgents(), mode: "open", tab: "new", menu: "model", draft: "Turn the notch mockup into a SwiftUI spec" } },
-            { id: "O4", name: "Empty", when: "Opened with nothing running.", shows: "One New agent button.", opts: { agents: [], mode: "open" } },
-            { id: "O5", name: "With idle agents", when: "Opened while agents are idle, asleep or stopped, one with shells or monitors still running.",
-              shows: "Idle agents come last, with no time, most recently active first. Every row counts what its agent still has going: ✦ subagents in green, >_ shells and monitors in amber. An agent that is not running says why instead: Sleeping, Stopped or Starting. Rows keep their places while their agents work.",
-              opts: { agents: () => only(["a2", "a5", "a6", "a8"]), mode: "open" } },
+            { id: "O4", name: "Empty", when: "Opened with no agent open.", shows: "No agents open, and one New agent button.", opts: { agents: [], mode: "open" } },
+            { id: "O5", name: "Finished work", when: "Opened while turns wait to be seen.",
+              shows: "Changes to review, then finished turns, newest first, each with how long ago; one that ran into a problem has a red dot. Every row counts what its agent still has going: ✦ subagents in green, >_ shells and monitors in amber.",
+              opts: { agents: () => only(["a2", "a4", "a10", "a11"]), mode: "open" } },
         ],
     },
     {
@@ -1131,14 +1171,14 @@ const OPTIONS = [
 
 const FLOW = [
     [["state", "C1–C7", "Closed", "closed"], ["arrow", "rest 0.3 s"], ["state", "O1–O5", "Open", "open"], ["arrow", "leave 0.1 s"], ["state", "C1–C7", "Closed", "closed"]],
-    [["event", "", "Agent asks"], ["arrow", ""], ["state", "P1", "Permission", "P1"], ["arrow", "6 s"], ["state", "C3", "Needs you", "C3"]],
+    [["event", "", "Something needs you"], ["arrow", ""], ["state", "P1", "Needs you", "P1"], ["arrow", "6 s"], ["state", "C3", "Needs you", "C3"]],
     [["event", "", "Device asks to connect"], ["arrow", ""], ["state", "P3", "Connect", "P3"], ["arrow", "answer"], ["state", "C1–C7", "Closed", "closed"]],
-    [["event", "", "Agent finishes"], ["arrow", ""], ["state", "P2", "Finished", "P2"], ["arrow", "3 s"], ["state", "C4", "Done, unseen", "C4"]],
+    [["event", "", "Agent finishes"], ["arrow", ""], ["state", "P2", "Finished", "P2"], ["arrow", "3 s"], ["state", "C4", "Done", "C4"]],
     [["event", "", "File dragged"], ["arrow", ""], ["state", "D1", "Drop targets", "D1"], ["arrow", "drop"], ["state", "C2", "Working", "C2"]],
 ];
 
 const only = (ids) => freshAgents().filter((a) => ids.includes(a.id));
-const allWorking = () => freshAgents().filter((a) => a.state !== "idle").map((a) => ({ ...a, state: "working", ask: undefined, unread: false }));
+const allWorking = () => listed(freshAgents()).map((a) => ({ ...a, tier: "progress", state: "working", ask: undefined, question: undefined }));
 
 let display = "notch";
 let channel = "prod";
@@ -1241,7 +1281,7 @@ buildFlow();
 buildStates();
 buildOptions();
 
-const live = new Island(document.getElementById("live"), { live: true, agents: freshAgents().slice(1, 3) });
+const live = new Island(document.getElementById("live"), { live: true, agents: only(["a2", "a3"]) });
 
 document.getElementById("channel-seg").addEventListener("click", (e) => {
     const b = e.target.closest("[data-channel]");
@@ -1272,20 +1312,22 @@ document.getElementById("controls").addEventListener("click", (e) => {
     if (act === "start") {
         const kinds = ["claude", "codex", "opencode", "grok", "pi"];
         const type = kinds[live.agents.length % kinds.length];
-        live.agents.push({ id: `s${Date.now()}`, type, title: "Tidy up the README", project: "sikemux", state: "working", time: "0:00" });
+        live.agents.push({ id: `s${Date.now()}`, type, title: "Tidy up the README", project: "sikemux", tier: "progress", state: "working", time: "0:00" });
         live.render();
     } else if (act === "block") {
         let a = live.agents.find((x) => x.type === "claude");
         if (!a) { a = freshAgents()[0]; live.agents.unshift(a); }
-        a.state = "blocked";
-        a.ask = { tool: "Bash", cmd: "pnpm test --filter core -- --runInBand" };
+        Object.assign(a, { tier: "needs", state: "blocked", what: "Needs your permission", ask: { tool: "Bash", cmd: "pnpm test --filter core -- --runInBand" } });
+        live.peek("peek-ask", a.id, 6000);
+    } else if (act === "question") {
+        let a = live.agents.find((x) => x.id === "a9");
+        if (!a) { a = freshAgents().find((x) => x.id === "a9"); live.agents.unshift(a); }
+        Object.assign(a, { tier: "needs", state: "blocked", what: "Asks you", question: freshAgents().find((x) => x.id === "a9").question });
         live.peek("peek-ask", a.id, 6000);
     } else if (act === "finish") {
-        let a = live.agents.find((x) => x.type === "codex");
-        if (!a) { a = freshAgents()[1]; live.agents.push(a); }
-        a.state = "done";
-        a.unread = true;
-        a.time = "just now";
+        let a = live.agents.find((x) => x.type === "codex" && x.tier === "progress");
+        if (!a) { a = freshAgents().find((x) => x.id === "a2"); live.agents.push(a); }
+        Object.assign(a, { tier: "review", state: "done", time: "just now" });
         live.peek("peek-done", a.id, 3000);
     } else if (act === "connect") {
         live.askToConnect({ name: "Pixel 8", at: Date.now() });
@@ -1297,7 +1339,7 @@ document.getElementById("controls").addEventListener("click", (e) => {
         live.mode = "closed";
         live.render();
     } else if (act === "reset") {
-        live.agents = freshAgents().slice(1, 3);
+        live.agents = only(["a2", "a3"]);
         live.mode = "closed";
         live.tab = "agents";
         live.render();

@@ -57,3 +57,8 @@ export function formatBytes(bytes: number): string {
     }
     return `${Math.abs(value) < 10 ? value.toFixed(1) : Math.round(value)} ${BYTE_UNITS[unit]}`;
 }
+
+/** What a thrown value says went wrong. */
+export function errorText(error: unknown): string {
+    return error instanceof Error ? error.message : String(error);
+}

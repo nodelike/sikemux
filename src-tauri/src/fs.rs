@@ -360,21 +360,42 @@ pub async fn open_in_default_app(path: String) -> AppResult<()> {
 }
 
 #[tauri::command]
-pub async fn write_file(path: String, content: String) -> AppResult<()> {
+pub async fn write_file(
+    manager: tauri::State<'_, crate::pty::PtyManager>,
+    path: String,
+    content: String,
+) -> AppResult<()> {
+    let written = PathBuf::from(&path);
     spawn_blocking(move || write_file_atomic(PathBuf::from(path), content.as_bytes()))
         .await
-        .map_err(|e| AppError::Other(format!("write_file join: {e}")))?
+        .map_err(|e| AppError::Other(format!("write_file join: {e}")))??;
+    person_wrote(&manager, written);
+    Ok(())
+}
+
+/// Tells the core the person wrote `path`, so the change is theirs even
+/// while an agent is at work in the same checkout.
+fn person_wrote(manager: &crate::pty::PtyManager, path: PathBuf) {
+    let Some(client) = manager.current_client() else {
+        return;
+    };
+    tauri::async_runtime::spawn(async move {
+        let params = serde_json::json!({ "path": path });
+        let _ = crate::agent_names::call(&client, "personSaved".to_owned(), params).await;
+    });
 }
 
 /// Atomically replace an editor file only when its current content still
 /// matches the version the editor opened or most recently saved.
 #[tauri::command]
 pub async fn write_file_versioned(
+    manager: tauri::State<'_, crate::pty::PtyManager>,
     path: String,
     content: String,
     expected_version: String,
 ) -> AppResult<FileWriteResult> {
-    spawn_blocking(move || {
+    let written = PathBuf::from(&path);
+    let result = spawn_blocking(move || {
         if expected_version.len() != 64
             || !expected_version
                 .bytes()
@@ -392,7 +413,9 @@ pub async fn write_file_versioned(
         write_file_versioned_sync(path, content.as_bytes(), &expected_version)
     })
     .await
-    .map_err(|e| AppError::Other(format!("write_file_versioned join: {e}")))?
+    .map_err(|e| AppError::Other(format!("write_file_versioned join: {e}")))??;
+    person_wrote(&manager, written);
+    Ok(result)
 }
 
 /// Get the new bytes onto the device before the rename that publishes them.

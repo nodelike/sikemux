@@ -4,8 +4,9 @@
     flex-direction: column;
     gap: var(--space-3);
     padding: var(--space-4);
-    border: 1px solid var(--border-selected);
+    border: 1px solid var(--border);
     background: var(--s-raised);
+    border-radius: var(--radius-3);
 }
 .theme-editor-head {
     display: flex;
@@ -114,8 +115,7 @@
     color: var(--text-primary);
 }
 .theme-editor-tab.active {
-    background: var(--surface-selected);
-    border-color: var(--border-selected);
+    background: var(--surface-chosen);
     color: var(--text-primary);
 }
 .theme-editor-tab:focus-visible {

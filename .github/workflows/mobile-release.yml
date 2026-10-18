@@ -190,8 +190,13 @@ jobs:
           notes="$(node mobile/app/scripts/play-release.mjs notes "$VERSION")
 
           Built from $(git rev-parse --short HEAD). Install the APK on your Android phone. A copy installed from Google Play cannot update this one, or the other way round: to switch, uninstall first."
-          gh release create "$GITHUB_REF_NAME" "dist/Sikemux_${VERSION}_android.apk" dist/runtime-android.txt \
-            --title "Sikemux for Android $VERSION" --notes "$notes" "${flags[@]}"
+          # A re-run after a later step failed finds the release already made.
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" "dist/Sikemux_${VERSION}_android.apk" dist/runtime-android.txt --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" "dist/Sikemux_${VERSION}_android.apk" dist/runtime-android.txt \
+              --title "Sikemux for Android $VERSION" --notes "$notes" "${flags[@]}"
+          fi
 
       # Updates pushed to main while this release was building were skipped, as no release had
       # their runtime yet. Publishing main again now lets this build take them.
@@ -295,6 +300,13 @@ jobs:
 
       # Xcode signs with the App Store Connect API key: it makes or fetches the certificate and the
       # profiles for the app and its notification extension, and sends the build to TestFlight.
+      - name: Revoke the development certificates earlier runs made
+        working-directory: mobile/app
+        env:
+          APP_STORE_CONNECT_KEY: ${{ secrets.APP_STORE_CONNECT_KEY }}
+          APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+        run: node scripts/testflight-release.mjs prune-certificates
       - name: Archive, sign and send to TestFlight
         id: upload
         working-directory: mobile/app/ios

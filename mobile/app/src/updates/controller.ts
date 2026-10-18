@@ -1,5 +1,5 @@
 /** Asking the update server at most this often keeps a phone that flicks in and out of the app quiet. */
-export const CHECK_EVERY_MS = 30 * 60 * 1000;
+export const CHECK_EVERY_MS = 5 * 60 * 1000;
 /** A return from a glance away keeps what is on screen; a longer absence restarts into a waiting update. */
 export const AWAY_BEFORE_RESTART_MS = 60 * 1000;
 
@@ -11,8 +11,8 @@ export type UpdateDeps = {
 };
 
 /**
- * Over-the-air updates while the app runs: checks and fetches when it comes to the front, at most every
- * half hour, and starts the fetched update the next time the person comes back after a while away.
+ * Over-the-air updates while the app runs: checks and fetches when it comes to the front and while it stays
+ * there, at most every five minutes, and starts the fetched update the next time the person comes back after a while away.
  */
 export class UpdateController {
   private lastCheck = -Infinity;

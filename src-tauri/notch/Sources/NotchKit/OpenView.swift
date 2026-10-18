@@ -17,12 +17,12 @@ struct OpenHeader: View {
 
     private var tabs: some View {
         HStack(spacing: 4) {
-            HoverCapsule(selected: island.tab == .agents) {
-                select(.agents)
+            HoverCapsule(selected: island.tab == .inbox) {
+                select(.inbox)
             } label: {
                 HStack(spacing: 6) {
-                    Text("Agents").foregroundStyle(island.tab == .agents ? Theme.ink : Theme.inkDim)
-                    Text("\(store.agents.count)").foregroundStyle(island.tab == .agents ? Theme.inkDim : Theme.inkFaint).monospacedDigit()
+                    Text("Agents").foregroundStyle(island.tab == .inbox ? Theme.ink : Theme.inkDim)
+                    Text("\(store.entries.count)").foregroundStyle(island.tab == .inbox ? Theme.inkDim : Theme.inkFaint).monospacedDigit()
                 }
                 .font(Theme.ui(12, .semibold))
                 .padding(.horizontal, 11)
@@ -62,7 +62,7 @@ struct OpenHeader: View {
         }
         HoverCapsule {
             store.openApp()
-            if let first = store.agents.first { store.focus(first.id) }
+            if let agentId = store.entries.lazy.compactMap(\.item.agentId).first { store.focus(agentId) }
         } label: {
             IconView(icon: Icons.brand, size: 14)
                 .foregroundStyle(Theme.ink)
@@ -72,7 +72,7 @@ struct OpenHeader: View {
     }
 }
 
-/// The open island below its band: the agents, or the composer.
+/// The open island below its band: the inbox, or the composer.
 struct OpenBody: View {
     let store: NotchStore
     @Bindable var island: IslandModel
@@ -84,7 +84,7 @@ struct OpenBody: View {
                 Text(error).font(Theme.ui(11.5)).foregroundStyle(Theme.danger).padding(.horizontal, 12).padding(.top, 4)
             }
             switch island.tab {
-            case .agents: AgentList(store: store, island: island, marks: marks)
+            case .inbox: AgentList(store: store, island: island, marks: marks)
             case .compose: Composer(store: store, island: island)
             }
         }
@@ -92,16 +92,16 @@ struct OpenBody: View {
     }
 }
 
-/// Agents grouped by what they need from the person.
+/// The open agents in the app rail's order, in one list.
 struct AgentList: View {
     let store: NotchStore
     let island: IslandModel
     let marks: Namespace.ID
 
     var body: some View {
-        if store.agents.isEmpty {
+        if store.entries.isEmpty {
             VStack(spacing: 14) {
-                Text("No agents running").font(Theme.ui(13)).foregroundStyle(Theme.inkDim)
+                Text("No agents open").font(Theme.ui(13)).foregroundStyle(Theme.inkDim)
                 Button {
                     island.tab = .compose
                     island.keyboard?(.take)
@@ -123,10 +123,13 @@ struct AgentList: View {
         } else {
             ScrollView(.vertical, showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 0) {
-                    group("Needs you", .blocked)
-                    group("Working", .working)
-                    group("Done", .done)
-                    group("Idle", .idle)
+                    ForEach(store.entries) { entry in
+                        if entry.mark == .needs {
+                            AskCard(store: store, island: island, entry: entry, marks: marks)
+                        } else {
+                            EntryRow(store: store, entry: entry, marks: marks)
+                        }
+                    }
                 }
                 .background(GeometryReader { proxy in
                     Color.clear.onAppear { island.listScrolls = proxy.size.height > 330 }
@@ -137,39 +140,19 @@ struct AgentList: View {
             .fixedSize(horizontal: false, vertical: true)
         }
     }
-
-    @ViewBuilder
-    private func group(_ label: String, _ state: AgentState) -> some View {
-        let agents = store.agents.filter { $0.state == state }
-        if !agents.isEmpty {
-            Text(label)
-                .font(Theme.ui(11, .semibold))
-                .foregroundStyle(Theme.inkFaint)
-                .padding(.horizontal, 12)
-                .padding(.top, 10)
-                .padding(.bottom, 4)
-            ForEach(agents) { agent in
-                if state == .blocked {
-                    AskCard(store: store, island: island, agent: agent, marks: marks)
-                } else {
-                    AgentRow(store: store, agent: agent, marks: marks)
-                }
-            }
-        }
-    }
 }
 
-struct AgentRow: View {
+struct EntryRow: View {
     let store: NotchStore
-    let agent: AgentItem
+    let entry: Entry
     let marks: Namespace.ID
     @State private var hovering = false
 
     var body: some View {
         Button {
-            store.focus(agent.id)
+            store.open(entry)
         } label: {
-            RowLine(store: store, agent: agent, marks: marks)
+            RowLine(entry: entry, marks: marks)
                 .padding(.horizontal, 12)
                 .frame(height: 36)
                 .background(RoundedRectangle(cornerRadius: 12).fill(hovering ? Theme.hover : .clear))
@@ -180,28 +163,36 @@ struct AgentRow: View {
     }
 }
 
-/// Mark, task, project, time, state: one line.
+/// Laid out as the app's tab rail row: mark, task with how long ago, project, then the name, counts and state together at the end.
 struct RowLine: View {
-    let store: NotchStore
-    let agent: AgentItem
+    let entry: Entry
     let marks: Namespace.ID
 
     var body: some View {
         HStack(spacing: 10) {
-            AgentMark(provider: agent.provider, size: 20).matchedGeometryEffect(id: agent.id, in: marks)
-            Text(agent.title)
-                .font(Theme.ui(13, .semibold))
-                .foregroundStyle(Theme.ink)
-                .lineLimit(1)
-                .frame(maxWidth: .infinity, alignment: .leading)
-            if agent.subagents > 0 { SubagentCount(count: agent.subagents) }
-            if agent.tasks > 0 { ShellCount(count: agent.tasks) }
-            ProjectLabel(project: agent.project).frame(maxWidth: 150, alignment: .trailing).fixedSize()
-            if agent.state != .idle {
-                SinceText(state: agent.state, since: store.since[agent.id]).frame(minWidth: 44, alignment: .trailing)
-                StateMark(state: agent.state)
-            } else if let word = agent.status.word {
-                Text(word).font(Theme.ui(11.5)).foregroundStyle(Theme.inkFaint)
+            AgentMark(provider: entry.provider, size: 20).matchedGeometryEffect(id: entry.id, in: marks)
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text(entry.title).font(Theme.ui(13, .medium)).foregroundStyle(Theme.ink).lineLimit(1)
+                if entry.mark == .working, let attempt = entry.reconnecting {
+                    Text(attempt > 0 ? "Reconnecting… \(attempt)" : "Reconnecting…")
+                        .font(Theme.ui(11.5))
+                        .foregroundStyle(Theme.inkFaint)
+                        .fixedSize()
+                } else if entry.since != nil {
+                    SinceText(mark: entry.mark, since: entry.since).fixedSize()
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            ProjectLabel(project: entry.project).frame(maxWidth: 150, alignment: .trailing).fixedSize()
+            if entry.item.name != nil || entry.subagents > 0 || entry.tasks > 0 || entry.mark != .idle {
+                HStack(spacing: 8) {
+                    if let name = entry.item.name {
+                        Text("@\(name)").font(Theme.ui(11)).foregroundStyle(Theme.inkFaint).lineLimit(1).fixedSize()
+                    }
+                    if entry.subagents > 0 { SubagentCount(count: entry.subagents) }
+                    if entry.tasks > 0 { ShellCount(count: entry.tasks) }
+                    StateMark(mark: entry.mark)
+                }
             }
         }
     }
@@ -210,21 +201,19 @@ struct RowLine: View {
 struct AskCard: View {
     let store: NotchStore
     let island: IslandModel
-    let agent: AgentItem
+    let entry: Entry
     let marks: Namespace.ID
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             Button {
-                store.focus(agent.id)
+                store.open(entry)
             } label: {
-                RowLine(store: store, agent: agent, marks: marks).contentShape(Rectangle())
+                RowLine(entry: entry, marks: marks).contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            if let ask = agent.ask {
-                CommandText(ask: ask, darker: true).padding(.top, 10)
-            }
-            AnswerButtons(store: store, island: island, agent: agent, height: 28).padding(.top, 10)
+            AskDetail(entry: entry, darker: true).padding(.top, 10)
+            AnswerButtons(store: store, island: island, entry: entry, height: 28).padding(.top, 10)
         }
         .padding(.horizontal, 12)
         .padding(.top, 10)
@@ -239,8 +228,8 @@ struct DropTargets: View {
     let store: NotchStore
     let island: IslandModel
 
-    private var recent: AgentItem? {
-        store.agents.first { $0.isChat && ($0.state == .working || $0.state == .blocked) } ?? store.agents.first { $0.isChat }
+    private var recent: Entry? {
+        store.entries.first { $0.isChat && ($0.mark == .working || $0.mark == .needs) } ?? store.entries.first(where: \.isChat)
     }
 
     var body: some View {
@@ -289,8 +278,8 @@ struct DropTargets: View {
             island.tab = .compose
             island.set(.open)
             island.keyboard?(.take)
-        } else if let agent = store.agents.first(where: { $0.id == id }) {
-            store.send(paths, to: agent)
+        } else if let entry = store.entries.first(where: { $0.id == id }) {
+            store.send(paths, to: entry)
             island.set(.closed)
         }
     }

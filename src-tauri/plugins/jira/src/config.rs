@@ -8,8 +8,14 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::{JiraError, JiraResult};
 
+/// A development build keeps entries of its own, so it never spends or replaces the
+/// installed app's sign-in.
 #[cfg(not(test))]
-const TOKEN_SERVICE: &str = "sikemux-jira-token";
+const TOKEN_SERVICE: &str = if cfg!(debug_assertions) {
+    "sikemux-jira-token-dev"
+} else {
+    "sikemux-jira-token"
+};
 /// Tests keep to an entry of their own, so they never replace or delete a real token.
 #[cfg(test)]
 const TOKEN_SERVICE: &str = "sikemux-jira-token-test";

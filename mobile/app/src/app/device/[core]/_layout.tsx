@@ -3,10 +3,11 @@ import { Stack, useLocalSearchParams } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 
 import { useDeviceBackdrop } from '@/devices/backdrop';
-import { useDevices } from '@/devices/hub';
+import { useDevices, useLive } from '@/devices/hub';
 import { useDevicePalette } from '@/devices/palette';
 import { Crashed } from '@/screens/Crashed';
 import { BackdropContext } from '@/ui/Backdrop';
+import { BuddiesContext } from '@/ui/Buddy';
 import { goHome } from '@/ui/navigate';
 import { isLight, PaletteProvider } from '@/ui/theme';
 
@@ -20,6 +21,7 @@ export default function DeviceLayout() {
   const { core } = useLocalSearchParams<{ core: string }>();
   const palette = useDevicePalette(core);
   const backdrop = useDeviceBackdrop(core);
+  const buddies = useLive(core).snapshot?.inbox.buddies;
   const { devices, loaded } = useDevices();
   const paired = !loaded || devices.some((device) => device.core === core);
 
@@ -31,8 +33,15 @@ export default function DeviceLayout() {
   return (
     <PaletteProvider value={palette}>
       <BackdropContext.Provider value={backdrop}>
-        <StatusBar style={isLight(palette) ? 'dark' : 'light'} />
-        <Stack screenOptions={{ headerShown: false, freezeOnBlur: true, contentStyle: { backgroundColor: palette.ground } }} />
+        <BuddiesContext.Provider value={buddies}>
+          <StatusBar style={isLight(palette) ? 'dark' : 'light'} />
+          <Stack screenOptions={{ headerShown: false, freezeOnBlur: true, contentStyle: { backgroundColor: palette.ground } }}>
+            <Stack.Screen
+              name="chat/[agent]"
+              options={({ route }) => ({ animation: (route.params as { started?: string } | undefined)?.started ? 'none' : 'default' })}
+            />
+          </Stack>
+        </BuddiesContext.Provider>
       </BackdropContext.Provider>
     </PaletteProvider>
   );

@@ -61,7 +61,7 @@
     text-decoration: underline;
 }
 .sgz-link:focus-visible {
-    border-radius: var(--radius-1);
+    border-radius: var(--radius-2);
     outline: 0;
     box-shadow: var(--focus-ring);
 }
@@ -116,8 +116,7 @@
     color: var(--text-primary);
 }
 .sgz-segmented button.on {
-    border-color: var(--border-selected);
-    background: var(--surface-selected);
+    background: var(--surface-chosen);
     color: var(--text-primary);
 }
 .sgz-segmented button:focus-visible {
@@ -214,7 +213,7 @@
     color: var(--text-primary);
 }
 .sgz-nav.on {
-    background: var(--surface-selected);
+    background: var(--surface-chosen);
     color: var(--text-primary);
 }
 .sgz-nav:focus-visible {
@@ -226,7 +225,7 @@
     color: var(--text-tertiary);
 }
 .sgz-nav.on .sgz-nav-icon {
-    color: var(--acc);
+    color: var(--text-primary);
 }
 .sgz-nav-label {
     flex: 1;
@@ -384,8 +383,7 @@
     color: var(--text-primary);
 }
 .sgz-pin-button.on {
-    border-color: var(--border-selected);
-    background: var(--surface-selected);
+    background: var(--surface-chosen);
     color: var(--text-primary);
 }
 .sgz-pin-button:focus-visible {
@@ -414,7 +412,7 @@
     color: var(--text-primary);
 }
 .sgz-subtab.on {
-    box-shadow: inset 0 -2px 0 var(--acc);
+    box-shadow: inset 0 -2px 0 var(--text-primary);
     color: var(--text-primary);
 }
 .sgz-subtab:focus-visible {
@@ -505,8 +503,7 @@
     color: var(--text-primary);
 }
 .sgz-severity.on {
-    border-color: var(--border-selected);
-    background: var(--surface-selected);
+    background: var(--surface-chosen);
     color: var(--text-primary);
 }
 .sgz-severity:focus-visible {
@@ -542,7 +539,7 @@
     width: 20px;
     height: 20px;
     border: 0;
-    border-radius: var(--radius-1);
+    border-radius: var(--radius-2);
     background: none;
     color: var(--text-tertiary);
     cursor: pointer;
@@ -769,8 +766,7 @@
     background: transparent;
 }
 .sgz-log.selected {
-    box-shadow: inset 0 0 0 1px var(--border-selected);
-    background: var(--surface-selected);
+    background: var(--surface-chosen);
 }
 .sgz-log-head {
     display: grid;

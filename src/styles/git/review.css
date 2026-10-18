@@ -28,8 +28,6 @@
     min-height: 34px;
     flex: 0 0 auto;
     padding: 0 10px 0 14px;
-    border-bottom: 1px solid var(--border);
-    background: color-mix(in srgb, var(--surface) calc(var(--window-opacity, 1) * 100%), transparent);
 }
 .merge-review-count {
     margin-right: auto;
@@ -37,6 +35,9 @@
     font-size: var(--text-xs);
 }
 .merge-review-action {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
     height: 22px;
     padding: 0 7px;
     color: var(--text-tertiary);
@@ -74,10 +75,32 @@
     left: 0;
     right: 0;
 }
-.merge-review-item.focused > .merge-file-header {
-    background: color-mix(in srgb, var(--surface) var(--surface-solidity, 100%), transparent)
-        linear-gradient(var(--surface-selected), var(--surface-selected));
-    box-shadow: inset 0 0 0 1px var(--border-selected);
+/* Each file is a card of its own, with a gap between them; the gap sits inside the measured row so the list stays in step. */
+.merge-review-virtual-item > div {
+    padding: 0 var(--space-2) var(--space-2) 0;
+}
+/* The header and the diff under it each draw their own edges rather than the card, so a header pinned while its diff
+   scrolls under it still has its top line and corners. */
+.merge-review-item > .merge-file-header {
+    border: 1px solid var(--border);
+    border-radius: var(--radius-2) var(--radius-2) 0 0;
+    background: var(--surface);
+}
+.merge-review-item.open > .merge-file-header {
+    border-bottom: 0;
+}
+/* Folded, the header is the whole card. */
+.merge-review-item:not(.open) > .merge-file-header {
+    border-radius: var(--radius-2);
+    box-shadow: none;
+}
+.merge-review-item.open > :not(.merge-file-header) {
+    overflow: clip;
+    clip-path: inset(var(--pinned-cut, 0px) 0 0 0 round 0 0 var(--radius-2) var(--radius-2));
+    border: 1px solid var(--border);
+    border-top: 0;
+    border-radius: 0 0 var(--radius-2) var(--radius-2);
+    background: color-mix(in srgb, var(--surface) var(--panel-solidity), transparent);
 }
 .merge-file-dir {
     color: var(--text-tertiary);
@@ -101,8 +124,6 @@
 }
 .merge-review-content {
     min-width: 0;
-    content-visibility: auto;
-    contain-intrinsic-size: auto 240px;
 }
 .merge-sections {
     display: flex;
@@ -166,8 +187,8 @@
     scrollbar-color: var(--ink-faint) transparent;
 }
 .diff-view.tinted {
-    --diff-add-row: color-mix(in lab, transparent 80%, var(--live));
-    --diff-del-row: color-mix(in lab, transparent 80%, var(--danger));
+    --diff-add-row: color-mix(in lab, transparent 92%, var(--live));
+    --diff-del-row: color-mix(in lab, transparent 92%, var(--danger));
 }
 .diff-view::-webkit-scrollbar {
     width: 12px;
@@ -190,8 +211,14 @@
     background: var(--acc-soft);
 }
 .diff-rows {
-    width: max-content;
+    position: relative;
     min-width: 100%;
+}
+.diff-block {
+    position: absolute;
+    left: 0;
+    right: 0;
+    content-visibility: auto;
 }
 .diff-row {
     display: flex;
@@ -199,8 +226,10 @@
 }
 .diff-row[data-kind="hidden"] {
     height: 4px;
-    background: color-mix(in oklab, var(--ink) 7%, transparent);
     cursor: pointer;
+}
+.diff-row[data-kind="hidden"]:hover {
+    background: color-mix(in oklab, var(--ink) 7%, transparent);
 }
 .diff-num {
     position: sticky;
@@ -221,29 +250,18 @@
     padding: 0 1ch;
     white-space: pre;
 }
-.diff-row[data-kind="added"] .diff-num::before,
-.diff-row[data-kind="deleted"] .diff-num::before {
-    content: "";
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: 4px;
-    height: 100%;
+.diff-note {
+    margin-left: 4ch;
+    color: var(--ink-faint);
+    font: var(--text-2xs) / 19px var(--ui);
+    user-select: none;
 }
-.diff-row[data-kind="added"] .diff-num::before {
-    background: var(--live);
-}
-.diff-row[data-kind="deleted"] .diff-num::before {
-    background-image: linear-gradient(0deg, var(--diff-del-row) 50%, var(--danger) 50%);
-    background-size: 1.9px 1.9px;
-}
+/* A changed line is told by a faint tint and a coloured line number, never a bar down its edge. */
 .diff-view.tinted .diff-row[data-kind="added"] .diff-num {
     color: var(--live);
-    background: color-mix(in lab, transparent 85%, var(--live));
 }
 .diff-view.tinted .diff-row[data-kind="deleted"] .diff-num {
     color: var(--danger);
-    background: color-mix(in lab, transparent 85%, var(--danger));
 }
 .diff-view.tinted .diff-row[data-kind="added"] .diff-code {
     background: var(--diff-add-row);

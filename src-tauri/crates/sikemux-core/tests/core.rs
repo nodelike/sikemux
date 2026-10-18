@@ -727,7 +727,7 @@ fn serve_core_for_ensure_running() {
     if let Some(socket) = std::env::var_os(SERVE_ENV) {
         init_env();
         let _ = server::run(ServerConfig {
-            idle_exit: Duration::from_millis(500),
+            idle_exit: Duration::from_secs(10),
             ..ServerConfig::new(socket.into())
         });
     }
@@ -1162,13 +1162,14 @@ async fn an_agent_that_ends_while_watched_stays_and_a_continuation_starts_below_
             launch(),
             agent_terminal(
                 "agent-9",
-                "printf '\\033[?1000h'; echo before-$((1+1)); exit 7",
+                "printf '\\033[?1000h'; echo before-$((1+1)); read _; exit 7",
             ),
         )
         .await
         .expect("spawn");
     let attached = client.attach(ended).await.expect("attach");
     assert!(!attached.exited);
+    client.write(ended, b"\n").await.expect("write");
     assert_eq!(stream.until_exit(&client, ended).await, (Some(7), false));
     let kept = client
         .list()

@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { currentBranch, git, gitOverviewR } from "../plugin-api/host";
-import { resource, useResourceEnabled } from "../plugin-api/resources";
+import { resource, useCachedResourceEnabled, useResourceEnabled } from "../plugin-api/resources";
 import { isOwnBranch } from "./checkout";
 import { enabledCodeHosts, type CodeHost } from "./registry";
 import { accountForR, hostStatusR, pullsR } from "./resources";
@@ -49,15 +49,15 @@ export interface HostRepo {
 const NO_REPO: RepoRef = { provider: "", owner: "", name: "" };
 
 export function useHostRepo(cwd: string | null, enabled: boolean): HostRepo {
-    const fromRemote = useResourceEnabled(enabled && !!cwd, remoteRepoR, cwd ?? "");
-    const overview = useResourceEnabled(enabled && !!cwd, gitOverviewR, cwd ?? "");
+    const fromRemote = useCachedResourceEnabled(enabled && !!cwd, remoteRepoR, cwd ?? "");
+    const overview = useCachedResourceEnabled(enabled && !!cwd, gitOverviewR, cwd ?? "");
     const remote = fromRemote.data ?? null;
     const provider = remote?.provider ?? "";
     const chosen = hostSettings(provider).useSelect((settings) => (cwd && provider ? (settings.repoByProject[cwd] ?? null) : null));
     const pickedAccount = hostSettings(provider).useSelect((settings) => (cwd && provider ? (settings.accountByProject[cwd] ?? null) : null));
     const overridden = useMemo(() => (chosen ? refOf(provider, chosen) : null), [chosen, provider]);
     const shown = overridden ?? remote;
-    const found = useResourceEnabled(enabled && !!shown && !pickedAccount, accountForR, shown ?? NO_REPO);
+    const found = useCachedResourceEnabled(enabled && !!shown && !pickedAccount, accountForR, shown ?? NO_REPO);
     const account = pickedAccount ?? found.data ?? null;
     const findingAccount = !!shown && !pickedAccount && found.status === "loading" && found.data === undefined;
     // Held back until its account is known, so nothing is asked of the host as the wrong account first.
@@ -104,7 +104,26 @@ export function pullState(pull: Pick<Pull, "state" | "draft" | "mergedAt">): str
     return pull.draft && pull.state === "open" ? "draft" : pull.state;
 }
 
+const CLOSING = /\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\s*:?\s+(?:[\w.-]+\/[\w.-]+)?#(\d+)/giu;
+
+/** The issues a pull request's description says it closes, as GitHub links them: "Fixes #12", "closes owner/repo#3". */
+export function closedIssues(body: string | null | undefined): number[] {
+    return [...new Set([...(body ?? "").matchAll(CLOSING)].map((match) => Number(match[1])))];
+}
+
 export const PULL_STATE_LABEL: Readonly<Record<string, string>> = { open: "Open", closed: "Closed", merged: "Merged", draft: "Draft" };
+
+const NO_PULL_LIST: readonly Pull[] = [];
+
+/** Every pull request a branch has had, in any state, once someone is signed in to its host. */
+export function useBranchPullList(repo: RepoRef | null, branch: string, enabled: boolean): readonly Pull[] {
+    const status = useResourceEnabled(enabled && !!repo, hostStatusR, repo?.provider ?? "", repo?.account ?? null);
+    const pulls = useResourceEnabled(enabled && !!repo && !!status.data?.ok, pullsR, repo ?? NO_REPO, "all");
+    return useMemo(
+        () => (repo && pulls.data ? pulls.data.filter((pull) => pull.head === branch && isOwnBranch(pull, repo)) : NO_PULL_LIST),
+        [repo, pulls.data, branch],
+    );
+}
 
 /** One branch's pull request in any state, once someone is signed in to its host. */
 export function useBranchPull(repo: RepoRef | null, branch: string, enabled: boolean): Pull | null {

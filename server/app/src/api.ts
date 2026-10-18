@@ -6,6 +6,7 @@ import type {
   DeviceList,
   ErrorCode,
   ErrorDetail,
+  PendingHost,
 } from "@sikemux/protocol";
 
 import { config } from "./config.ts";
@@ -81,6 +82,9 @@ async function call(
   return response;
 }
 
+const hostSignIn = (code: string) =>
+  `/v1/host-sign-ins/${encodeURIComponent(code)}`;
+
 export const api = {
   devices: async (token: string) =>
     (await (await call("GET", "/v1/devices", token)).json()) as DeviceList,
@@ -93,6 +97,14 @@ export const api = {
     (await (
       await call("POST", "/v1/account/restore", token)
     ).json()) as Account,
+  pendingHost: async (token: string, code: string) =>
+    (await (await call("GET", hostSignIn(code), token)).json()) as PendingHost,
+  approveHost: async (token: string, code: string) => {
+    await call("POST", `${hostSignIn(code)}/approve`, token);
+  },
+  refuseHost: async (token: string, code: string) => {
+    await call("DELETE", hostSignIn(code), token);
+  },
   deleteAccount: async (token: string) =>
     (await (
       await call("DELETE", "/v1/account", token)

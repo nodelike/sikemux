@@ -203,6 +203,7 @@ pub fn resumed_session_in_args<'a>(agent: &str, args: &'a [String]) -> Option<&'
     let flag = match agent {
         "claude" | "hermes" | "omp" | "grok" => "--resume",
         "pi" | "opencode" => "--session",
+        "muse" => "resume",
         _ => return None,
     };
     args.windows(2)
@@ -921,9 +922,8 @@ pub async fn activity_summary(
 ) -> ActivitySummary {
     let offset_ms = utc_offset_minutes.clamp(-24 * 60, 24 * 60) * 60_000;
     let now = now_ms();
-    let (table, info) = pricing::rate_table(now).await;
-    let prices = Prices::new(table, &prices.unwrap_or_default(), info);
     spawn_blocking(move || {
+        let prices = Prices::new(&crate::model_providers::feed(), &prices.unwrap_or_default());
         with_database(|db| summarize(db, offset_ms, now, project.as_deref(), &prices))
     })
     .await
@@ -1060,7 +1060,7 @@ mod tests {
             day + 60_000
         ))
         .unwrap();
-        let prices = Prices::new(Default::default(), &HashMap::new(), PricingInfo::default());
+        let prices = Prices::new(&Default::default(), &HashMap::new());
         let summary = summarize(&db, -60_000, day + DAY_MS, None, &prices).unwrap();
         assert_eq!(summary.totals.sessions, 2);
         assert_eq!(summary.totals.resumed, 1);

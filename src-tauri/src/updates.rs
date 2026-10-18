@@ -115,9 +115,16 @@ async fn newest_update(
         feed_updater(app, endpoint, timeout)?
             .check()
             .await
-            .map_err(|error| AppError::Other(format!("update check: {error}")))
+            .map_err(|error| updater_error("update check", error))
     });
     pick_newest(join_all(checks).await, |update| &update.version)
+}
+
+fn updater_error(step: &str, error: tauri_plugin_updater::Error) -> AppError {
+    match error {
+        tauri_plugin_updater::Error::Reqwest(error) => error.into(),
+        error => AppError::Other(format!("{step}: {error}")),
+    }
 }
 
 // One unreachable feed must not hide a release the other feed offers.
@@ -236,7 +243,7 @@ async fn update_install_inner(
             || {},
         )
         .await
-        .map_err(|error| AppError::Other(format!("update install: {error}")))?;
+        .map_err(|error| updater_error("update install", error))?;
 
     let mut downloaded_metadata = Metadata::new();
     downloaded_metadata.insert(
@@ -258,6 +265,7 @@ async fn update_install_inner(
         .install(&bytes)
         .map_err(|error| AppError::Other(format!("update install: {error}")))?;
     observer.record_event("update.install.finished", Some(context), Metadata::new());
+    crate::relaunch::note_update_installed();
     let _ = on_progress.send(progress.snapshot(UpdateInstallPhase::Installed));
     Ok(installed)
 }

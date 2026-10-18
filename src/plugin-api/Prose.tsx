@@ -1,6 +1,7 @@
 import { createContext, memo, useContext, useEffect, useMemo, useState, type ComponentType, type ReactNode } from "react";
 import { Markdown as MarkdownText, MARKDOWN_GFM, type MarkdownComponents } from "../markdown/Markdown";
 import { openUrl, swallow } from "./host";
+import { showImage } from "../state/imageViewer";
 import "./prose.css";
 
 /** Turns a picture's address into one the window may show, such as a `data:` address. */
@@ -46,9 +47,22 @@ function ProseImage({ src, alt, title, inLink }: { src: string; alt: string; tit
         };
     }, [load, src]);
 
-    if (loaded?.src === src) return <img src={loaded.url} alt={alt} title={title} />;
-    const label = alt || src;
-    return inLink ? <>{label}</> : <ProseLink href={src}>{label}</ProseLink>;
+    if (loaded?.src === src) {
+        if (inLink) return <img src={loaded.url} alt={alt} title={title} />;
+        return (
+            <button
+                type="button"
+                className="prose-image"
+                aria-label={alt ? `Open ${alt}` : "Open the picture"}
+                onClick={() => showImage({ src: loaded.url, name: alt || src.split("/").pop() || "picture" })}>
+                <img src={loaded.url} alt={alt} title={title} />
+            </button>
+        );
+    }
+    // A picture with no description, such as a logo beside a name, adds nothing until it arrives; spelling out its
+    // address would push the words around it aside.
+    if (!alt) return null;
+    return inLink ? <>{alt}</> : <ProseLink href={src}>{alt}</ProseLink>;
 }
 
 const COMPONENTS: MarkdownComponents = { link: ProseLink };

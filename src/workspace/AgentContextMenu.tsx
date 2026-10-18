@@ -11,14 +11,14 @@ export function AgentContextMenu({
     x,
     y,
     onClose,
-    onRename,
+    onRetitle,
 }: {
     agent: Agent;
     session: Session;
     x: number;
     y: number;
     onClose: () => void;
-    onRename: () => void;
+    onRetitle: () => void;
 }) {
     const close = useShortcutLabel("pane.close");
     const permissions = useShortcutLabel("agent.permissions");
@@ -26,5 +26,5 @@ export function AgentContextMenu({
     const others = agentIdsOf(state, session.id)
         .map((id) => state.agents[id])
         .filter((other): other is Agent => !!other && other.id !== agent.id);
-    return <TreeContextMenu x={x} y={y} items={agentMenu(agent, others, session, { close, permissions }, onRename)} onClose={onClose} />;
+    return <TreeContextMenu x={x} y={y} items={agentMenu(agent, others, session, { close, permissions }, onRetitle)} onClose={onClose} />;
 }

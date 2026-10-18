@@ -9,7 +9,7 @@ use tokio::time::timeout_at;
 
 use crate::error::RundeckResult;
 
-use crate::client::{get_json, limited, seg};
+use crate::client::{get_json, limited, seg, Session};
 use crate::executions::{latest_and_deployed, ExecSummary};
 
 const MATRIX_DEADLINE: Duration = Duration::from_secs(40);
@@ -22,8 +22,8 @@ pub struct RundeckProject {
     pub description: Option<String>,
 }
 
-pub async fn projects() -> RundeckResult<Vec<RundeckProject>> {
-    let mut out: Vec<RundeckProject> = get_json("/projects", &[]).await?;
+pub async fn projects(session: &Session) -> RundeckResult<Vec<RundeckProject>> {
+    let mut out: Vec<RundeckProject> = get_json(session, "/projects", &[]).await?;
     out.sort_by_key(|project| project.name.to_lowercase());
     Ok(out)
 }
@@ -57,9 +57,9 @@ impl RundeckJob {
     }
 }
 
-pub async fn jobs(project: String) -> RundeckResult<Vec<RundeckJob>> {
+pub async fn jobs(session: &Session, project: String) -> RundeckResult<Vec<RundeckJob>> {
     let path = format!("/project/{}/jobs", seg(&project)?);
-    let mut out: Vec<RundeckJob> = get_json(&path, &[]).await?;
+    let mut out: Vec<RundeckJob> = get_json(session, &path, &[]).await?;
     out.sort_by_key(|job| job.qualified_name());
     Ok(out)
 }
@@ -71,10 +71,10 @@ pub struct JobIndexEntry {
     pub error: Option<String>,
 }
 
-pub async fn job_index() -> RundeckResult<Vec<JobIndexEntry>> {
-    let all = projects().await?;
+pub async fn job_index(session: &Session) -> RundeckResult<Vec<JobIndexEntry>> {
+    let all = projects(session).await?;
     Ok(join_all(all.into_iter().map(|project| async move {
-        match limited(jobs(project.name.clone())).await {
+        match limited(jobs(session, project.name.clone())).await {
             Ok(jobs) => JobIndexEntry {
                 project: project.name,
                 jobs,
@@ -128,9 +128,9 @@ fn empty_cell(job: &RundeckJob) -> MatrixCell {
     }
 }
 
-async fn cell_for(job: &RundeckJob, branch_options: &[String]) -> MatrixCell {
+async fn cell_for(session: &Session, job: &RundeckJob, branch_options: &[String]) -> MatrixCell {
     let mut cell = empty_cell(job);
-    match latest_and_deployed(&job.id, branch_options).await {
+    match latest_and_deployed(session, &job.id, branch_options).await {
         Ok((latest, deployed)) => {
             cell.latest = latest;
             cell.deployed = deployed;
@@ -143,12 +143,13 @@ async fn cell_for(job: &RundeckJob, branch_options: &[String]) -> MatrixCell {
 /// One cell per job, in input order. Cells still loading at `deadline` come
 /// back with a "timed out" error; the flag says whether any did.
 async fn cells_until(
+    session: &Session,
     jobs: &[RundeckJob],
     branch_options: &[String],
     deadline: tokio::time::Instant,
 ) -> (Vec<MatrixCell>, bool) {
     let cells = join_all(jobs.iter().map(|job| async move {
-        match timeout_at(deadline, cell_for(job, branch_options)).await {
+        match timeout_at(deadline, cell_for(session, job, branch_options)).await {
             Ok(cell) => (cell, false),
             Err(_) => {
                 let mut cell = empty_cell(job);
@@ -163,14 +164,15 @@ async fn cells_until(
 }
 
 pub async fn branches_matrix(
+    session: &Session,
     project: String,
-    branch_options: Vec<String>,
+    branch_options: &[String],
 ) -> RundeckResult<MatrixResult> {
     let started = Instant::now();
     let deadline = tokio::time::Instant::now() + MATRIX_DEADLINE;
     let elapsed_ms = |started: Instant| started.elapsed().as_millis() as u64;
 
-    let listed = match timeout_at(deadline, limited(jobs(project.clone()))).await {
+    let listed = match timeout_at(deadline, limited(jobs(session, project.clone()))).await {
         Ok(listed) => listed,
         Err(_) => {
             return Ok(MatrixResult {
@@ -194,7 +196,7 @@ pub async fn branches_matrix(
             })
         }
     };
-    let (cells, partial) = cells_until(&jobs, &branch_options, deadline).await;
+    let (cells, partial) = cells_until(session, &jobs, branch_options, deadline).await;
     Ok(MatrixResult {
         project,
         cells,
@@ -205,9 +207,12 @@ pub async fn branches_matrix(
 }
 
 pub async fn job_cells(
+    session: &Session,
     jobs: Vec<RundeckJob>,
-    branch_options: Vec<String>,
+    branch_options: &[String],
 ) -> RundeckResult<Vec<MatrixCell>> {
     let deadline = tokio::time::Instant::now() + MATRIX_DEADLINE;
-    Ok(cells_until(&jobs, &branch_options, deadline).await.0)
+    Ok(cells_until(session, &jobs, branch_options, deadline)
+        .await
+        .0)
 }

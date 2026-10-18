@@ -5,15 +5,13 @@ use serde::{Deserialize, Serialize};
 
 use super::methods::{BROWSER_METHODS, HARNESS_METHODS, SIM_METHODS};
 
-pub use sikemux_wire::cli::{
-    CliOpenRequest, CliOpenTarget, CliTargetKind, HarnessRequest, MAX_CLI_TARGETS,
-};
-
 pub const CLI_PROTOCOL_VERSION: u16 = 2;
-pub const MAX_CLI_FRAME_BYTES: u64 = 64 * 1024;
+/// Room for a message between agents of up to 64 KB, escaped.
+pub const MAX_CLI_FRAME_BYTES: u64 = 512 * 1024;
 /// Harness answers carry page text and screenshots, so they get more room
 /// than a request frame.
 pub const MAX_CLI_RESPONSE_BYTES: u64 = 4 * 1024 * 1024;
+pub const MAX_CLI_TARGETS: usize = 64;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -23,6 +21,90 @@ pub struct CliEndpointDescriptor {
     pub port: u16,
     pub token: String,
     pub version: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct CliOpenTarget {
+    pub id: String,
+    pub kind: CliTargetKind,
+    pub path: String,
+    pub project_root: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub line: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub column: Option<u32>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum CliTargetKind {
+    File,
+    Directory,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct CliOpenRequest {
+    pub id: String,
+    pub cwd: String,
+    pub wait: bool,
+    pub targets: Vec<CliOpenTarget>,
+}
+
+impl CliOpenRequest {
+    pub fn validate(&self) -> Result<(), String> {
+        use std::path::Path;
+        if self.id.trim().is_empty() || self.targets.is_empty() {
+            return Err("CLI open request has no targets".into());
+        }
+        if !Path::new(&self.cwd).is_absolute() {
+            return Err("CLI working directory must be an absolute path".into());
+        }
+        if self.targets.len() > MAX_CLI_TARGETS {
+            return Err(format!(
+                "CLI open request exceeds {MAX_CLI_TARGETS} targets"
+            ));
+        }
+        let mut ids = std::collections::HashSet::new();
+        for target in &self.targets {
+            if target.id.trim().is_empty() {
+                return Err("CLI open request has an empty target id".into());
+            }
+            if !ids.insert(&target.id) {
+                return Err("CLI open request has duplicate target ids".into());
+            }
+            if !Path::new(&target.path).is_absolute()
+                || !Path::new(&target.project_root).is_absolute()
+            {
+                return Err("CLI targets and project roots must be absolute paths".into());
+            }
+            if target.kind == CliTargetKind::Directory
+                && (target.line.is_some() || target.column.is_some())
+            {
+                return Err("directory targets cannot include a line or column".into());
+            }
+        }
+        if self.wait
+            && self
+                .targets
+                .iter()
+                .all(|target| target.kind == CliTargetKind::Directory)
+        {
+            return Err("--wait requires at least one file target".into());
+        }
+        Ok(())
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct HarnessRequest {
+    pub id: String,
+    pub project: String,
+    pub agent_id: Option<String>,
+    pub method: String,
+    pub params: serde_json::Value,
 }
 
 /// The first frame on every connection; see `cli_auth`.
@@ -48,6 +130,14 @@ pub enum CliClientCommand {
         protocol: u16,
         token: String,
         request: CliOpenRequest,
+    },
+    /// The window collecting a plugin stream it was given a ticket for. The
+    /// core writes each event as a `Result` line until the stream ends, and
+    /// stops it when the window closes the connection.
+    PluginStream {
+        protocol: u16,
+        token: String,
+        ticket: String,
     },
 }
 
@@ -123,10 +213,22 @@ pub const PLUGIN_METHODS: &[&str] = &["plugins.tools", "plugins.call"];
 /// The tools server waits on this to hear that plugins may offer its agent
 /// different tools, such as after the person signs in to one.
 pub const PLUGINS_CHANGED_METHOD: &str = "plugins.changed";
+/// The tools server asks this for the built-in tools and the guide.
+pub const TOOLS_MANIFEST_METHOD: &str = "tools.manifest";
+/// What the git shim asks for to end an agent's commit, not a tool.
+pub const COMMIT_FOOTER_METHOD: &str = "git.footer";
+/// What the git shim asks before a command that could take in or throw away
+/// other agents' work, not a tool.
+pub const GIT_GUARD_METHOD: &str = "git.guard";
 
 pub fn is_browser_method(method: &str) -> bool {
     BROWSER_METHODS.contains(&method)
 }
+
+/// Set on a reviewer Auto starts, and on its tools server, to `reviewer`, which
+/// offers it the tools only a reviewer gets.
+pub const TOOLS_OFFER_ENV: &str = "SIKEMUX_TOOLS_OFFER";
+pub const REVIEWER_OFFER: &str = "reviewer";
 
 /// The tools server asks this as it starts: whether its agent gets the simulator tools.
 pub const SIM_OFFERED_METHOD: &str = "sim.offered";
@@ -169,6 +271,9 @@ pub fn validate_harness(request: &HarnessRequest) -> Result<(), String> {
         && !is_sim_method(&request.method)
         && !is_plugin_method(&request.method)
         && request.method != PLUGINS_CHANGED_METHOD
+        && request.method != TOOLS_MANIFEST_METHOD
+        && request.method != COMMIT_FOOTER_METHOD
+        && request.method != GIT_GUARD_METHOD
     {
         return Err("unknown harness method".into());
     }

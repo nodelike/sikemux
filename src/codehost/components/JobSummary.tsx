@@ -15,7 +15,7 @@ export function JobSummary({ repo, checkRunId, active, jobName }: Props) {
     const summary = found.data;
     if (!summary) return null;
     return (
-        <details className="gha-summary" open>
+        <details className="gha-summary gha-reading" open>
             <summary className="gha-summary-head">{jobName} summary</summary>
             <Prose>{summary.body}</Prose>
         </details>

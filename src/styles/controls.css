@@ -97,7 +97,7 @@
 .swx-track {
     position: absolute;
     inset: 0;
-    border-radius: 999px;
+    border-radius: var(--radius-full);
     background: color-mix(in srgb, var(--surface-sunken) 70%, var(--border));
     border: 1px solid var(--border);
     transition:
@@ -111,7 +111,7 @@
     left: 3px;
     width: 13px;
     height: 13px;
-    border-radius: 999px;
+    border-radius: var(--radius-full);
     background: var(--text-tertiary);
     transform: translateY(-50%);
     transition:
@@ -203,10 +203,11 @@
     -webkit-appearance: none;
     appearance: none;
     cursor: pointer;
+    border-radius: var(--radius-full);
 }
 .sld input[type="range"]::-webkit-slider-runnable-track {
     height: 4px;
-    border-radius: 999px;
+    border-radius: var(--radius-full);
     background: linear-gradient(
         to right,
         var(--acc) 0,
@@ -220,7 +221,7 @@
     width: 13px;
     height: 13px;
     margin-top: -4.5px;
-    border-radius: 999px;
+    border-radius: var(--radius-full);
     background: #fff;
     border: none;
     transition: transform 120ms ease;

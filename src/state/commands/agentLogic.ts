@@ -6,6 +6,7 @@ export const SKIP_PERMISSION_FLAG: Partial<Record<AgentType, string>> = {
     codex: "--dangerously-bypass-approvals-and-sandbox",
     omp: "--approval-mode yolo",
     grok: "--permission-mode bypassPermissions",
+    muse: "--yolo",
 };
 
 export function agentSupportsSkipPermissions(type: AgentType): boolean {

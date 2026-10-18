@@ -1,0 +1,246 @@
+import { useState } from "react";
+import { copyWithNotice, notify, openUrl, reportError, swallow } from "../../../plugin-api/host";
+import { invalidate, useResourceEnabled } from "../../../plugin-api/resources";
+import { Dropdown, EmptyState, Markdown, SendToAgentMenu, SkeletonRows, StaleNotice } from "../../../plugin-api/ui";
+import { failureMessage, linearApi, refreshLinear, type LinearChange, type LinearIssue, type LinearStatus } from "../api";
+import { linearIssueR, linearIssuesR, linearStatusR } from "../resources";
+import { issueForAgent, updateLinearView, useLinearView } from "../state";
+import { LinearSignIn } from "./LinearSignIn";
+import "../linear.css";
+
+export function LinearPane({ paneId, active }: { paneId: string; active: boolean }) {
+    const status = useResourceEnabled(active, linearStatusR);
+    if (status.data === undefined && status.status !== "error") return <SkeletonRows rows={5} label="Connecting to Linear" />;
+    if (!status.data?.configured || status.data.authFailed) return <LinearSignIn status={status.data} onSignedIn={() => refreshLinear()} />;
+    return <LinearWorkspace paneId={paneId} active={active} status={status.data} />;
+}
+
+function when(at: string): string {
+    const time = Date.parse(at);
+    if (Number.isNaN(time)) return "";
+    return new Date(time).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+}
+
+function StateDot({ color }: { color: string }) {
+    return <span className="linear-state-dot" style={{ background: color }} aria-hidden="true" />;
+}
+
+function LinearWorkspace({ paneId, active, status }: { paneId: string; active: boolean; status: LinearStatus }) {
+    const view = useLinearView(paneId);
+    const workspace =
+        status.workspaces.find((each) => each.id === view.workspace) ?? status.workspaces.find((each) => each.isDefault) ?? status.workspaces[0];
+    const [words, setWords] = useState(view.query);
+    const issues = useResourceEnabled(active && !!workspace, linearIssuesR, workspace?.id ?? "", view.query);
+    if (!workspace) return null;
+
+    const row = (issue: LinearIssue) => (
+        <button
+            key={issue.id}
+            type="button"
+            className={`linear-row${issue.identifier === view.issue ? " active" : ""}`}
+            onClick={() => updateLinearView(paneId, { issue: issue.identifier })}>
+            <StateDot color={issue.state.color} />
+            <span className="linear-row-id">{issue.identifier}</span>
+            <span className="linear-row-title">{issue.title}</span>
+            <span className="linear-row-state">{issue.state.name}</span>
+        </button>
+    );
+
+    return (
+        <div className={`linear-pane${view.issue ? " with-issue" : ""}`}>
+            <nav className="linear-list" aria-label="Linear issues">
+                <div className="linear-list-head">
+                    {status.workspaces.length > 1 ? (
+                        <Dropdown
+                            label="Workspace"
+                            value={workspace.id}
+                            options={status.workspaces.map((each) => ({ value: each.id, label: each.name, detail: each.urlKey }))}
+                            onChange={(id) => updateLinearView(paneId, { workspace: id, issue: null })}
+                        />
+                    ) : (
+                        <span className="linear-workspace">{workspace.name}</span>
+                    )}
+                    <button type="button" className="linear-chip" onClick={() => void issues.refresh()}>
+                        Refresh
+                    </button>
+                </div>
+                <input
+                    className="linear-input"
+                    value={words}
+                    onChange={(event) => setWords(event.target.value)}
+                    onKeyDown={(event) => {
+                        if (event.key === "Enter") updateLinearView(paneId, { query: words.trim() });
+                        if (event.key === "Escape") {
+                            setWords("");
+                            updateLinearView(paneId, { query: "" });
+                        }
+                    }}
+                    placeholder="Search issues, or an id such as ENG-123"
+                    aria-label="Search Linear issues"
+                    spellCheck={false}
+                />
+                <div className="linear-heading">{view.query ? `Matching “${view.query}”` : "My open issues"}</div>
+                <StaleNotice handle={issues} />
+                {issues.status === "error" && !issues.data ? (
+                    <p className="linear-note">{issues.error}</p>
+                ) : !issues.data ? (
+                    <SkeletonRows rows={6} label="Loading issues" />
+                ) : issues.data.length === 0 ? (
+                    <EmptyState message={view.query ? "No issue matches." : "Nothing assigned to you is open."} />
+                ) : (
+                    <div className="linear-rows">{issues.data.map(row)}</div>
+                )}
+                <button
+                    type="button"
+                    className="linear-signout"
+                    onClick={() => void linearApi.signOut(workspace.id).then(refreshLinear).catch(reportError("sign out of Linear"))}>
+                    Sign out of {workspace.name}
+                </button>
+            </nav>
+            {view.issue ? (
+                <IssueView active={active} workspace={workspace.id} id={view.issue} onClose={() => updateLinearView(paneId, { issue: null })} />
+            ) : (
+                <div className="linear-detail">
+                    <EmptyState message="Pick an issue to read it, comment on it or move it." />
+                </div>
+            )}
+        </div>
+    );
+}
+
+function IssueView({ active, workspace, id, onClose }: { active: boolean; workspace: string; id: string; onClose: () => void }) {
+    const found = useResourceEnabled(active, linearIssueR, workspace, id);
+    const [draft, setDraft] = useState("");
+    const [busy, setBusy] = useState(false);
+    const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
+    const issue = found.data;
+
+    const changed = () => invalidate((kind) => kind === "linear.issues" || kind === "linear.issue");
+    const change = (what: LinearChange, done: string) => {
+        setBusy(true);
+        void linearApi
+            .update(workspace, id, what)
+            .then(() => {
+                notify("success", done);
+                changed();
+            })
+            .catch((error: unknown) => notify("error", `Change ${id}: ${failureMessage(error)}`))
+            .finally(() => setBusy(false));
+    };
+    const comment = () => {
+        const body = draft.trim();
+        if (!body || busy) return;
+        setBusy(true);
+        void linearApi
+            .comment(workspace, id, body)
+            .then(() => {
+                setDraft("");
+                changed();
+            })
+            .catch(reportError(`Comment on ${id}`))
+            .finally(() => setBusy(false));
+    };
+
+    if (found.status === "error" && !issue) {
+        return (
+            <section className="linear-detail">
+                <EmptyState message={found.error ?? `Linear could not open ${id}.`} tone="error" />
+            </section>
+        );
+    }
+    if (!issue) {
+        return (
+            <section className="linear-detail">
+                <SkeletonRows rows={6} label={`Loading ${id}`} />
+            </section>
+        );
+    }
+
+    const states = [...issue.team.states].sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
+    return (
+        <section className="linear-detail" aria-label={`${issue.identifier} ${issue.title}`}>
+            <StaleNotice handle={found} />
+            <header className="linear-detail-head">
+                <span className="linear-row-id">{issue.identifier}</span>
+                <span className="linear-detail-actions">
+                    <button type="button" className="linear-chip" onClick={() => void openUrl(issue.url).catch(swallow("open the issue"))}>
+                        Open in Linear
+                    </button>
+                    <button type="button" className="linear-chip" onClick={() => copyWithNotice(issue.branchName, "the branch name")}>
+                        Copy branch
+                    </button>
+                    <button type="button" className="linear-chip" onClick={(event) => setMenu({ x: event.clientX, y: event.clientY })}>
+                        Send to agent
+                    </button>
+                    <button type="button" className="linear-chip" aria-label="Close the issue" onClick={onClose}>
+                        ✕
+                    </button>
+                </span>
+            </header>
+            <h2 className="linear-title">{issue.title}</h2>
+            <div className="linear-facts">
+                <Dropdown
+                    label="State"
+                    value={issue.state.id}
+                    options={states.map((state) => ({ value: state.id, label: state.name }))}
+                    onChange={(stateId) => {
+                        const state = states.find((each) => each.id === stateId);
+                        if (state && state.id !== issue.state.id) change({ state: state.name }, `${issue.identifier} is ${state.name}`);
+                    }}
+                />
+                <span className="linear-fact">{issue.assignee ? issue.assignee.displayName || issue.assignee.name : "Unassigned"}</span>
+                {!issue.assignee && (
+                    <button
+                        type="button"
+                        className="linear-chip"
+                        disabled={busy}
+                        onClick={() => change({ assignee: "me" }, `${issue.identifier} is yours`)}>
+                        Assign to me
+                    </button>
+                )}
+                {issue.priority > 0 && <span className="linear-fact">{issue.priorityLabel}</span>}
+                {issue.labels.map((label) => (
+                    <span key={label.id} className="linear-label">
+                        <StateDot color={label.color} />
+                        {label.name}
+                    </span>
+                ))}
+            </div>
+            <div className="linear-body">
+                {issue.description?.trim() ? (
+                    <Markdown className="prose linear-description">{issue.description}</Markdown>
+                ) : (
+                    <p className="linear-note">No description.</p>
+                )}
+                <h3 className="linear-heading">Comments</h3>
+                {issue.comments.length === 0 && <p className="linear-note">No comments yet.</p>}
+                {issue.comments.map((each) => (
+                    <article key={each.id} className="linear-comment">
+                        <header>
+                            <b>{each.user?.displayName || each.user?.name || "Someone"}</b>
+                            <span>{when(each.createdAt)}</span>
+                        </header>
+                        <Markdown className="prose">{each.body}</Markdown>
+                    </article>
+                ))}
+            </div>
+            <div className="linear-composer">
+                <textarea
+                    value={draft}
+                    onChange={(event) => setDraft(event.target.value)}
+                    onKeyDown={(event) => {
+                        if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) comment();
+                    }}
+                    placeholder="Comment (⌘↵ to send)"
+                    aria-label={`Comment on ${issue.identifier}`}
+                />
+                <button type="button" className="linear-chip primary" disabled={!draft.trim() || busy} onClick={comment}>
+                    {busy ? "Saving…" : "Comment"}
+                </button>
+            </div>
+            {menu && (
+                <SendToAgentMenu x={menu.x} y={menu.y} alignRight delivery={() => ({ text: issueForAgent(issue) })} onClose={() => setMenu(null)} />
+            )}
+        </section>
+    );
+}

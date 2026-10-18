@@ -1,0 +1,55 @@
+---
+title: Install
+description: "Install Sikemux on a Mac or on Linux, or just its core on a server."
+---
+
+## One line
+
+```bash
+curl -fsSL https://sikemux.com/install | sh
+```
+
+On a Mac this puts Sikemux in `/Applications`. On Linux it asks whether you want the desktop app or just the core, and suggests the core on a machine with no desktop. The app comes as the `.deb` or `.rpm`, or the AppImage in `~/Applications`, on x86_64 only.
+
+For the nightly build, set the channel before `sh`:
+
+```bash
+curl -fsSL https://sikemux.com/install | SIKEMUX_CHANNEL=nightly sh
+```
+
+## On a server
+
+A Linux machine with no screen, such as a VPS or a spare box, can run just the core, which keeps agents working with nobody watching. Run the same line there and pick the core, or skip the question:
+
+```bash
+curl -fsSL https://sikemux.com/install | SIKEMUX_CHANNEL=nightly sh -s -- --host
+```
+
+`--app` picks the desktop app instead, and `--yes` takes every default without asking, as cloud-init and other scripts need. With no terminal attached, the installer asks nothing and installs the core on a machine with no desktop.
+
+The core works on x86_64 and arm64 and needs no WebKit. The `sikemux` command goes in `/usr/local/bin`, or in `~/.local/bin` when you are not root. With systemd, the core then starts at boot and restarts if it crashes. Last, it offers to sign the host in and prints a code: approve it at app.sikemux.com or in Sikemux on your phone to add the host to your account. Then link it from your Mac under Settings → Devices → Computers.
+
+The host needs no open ports: it connects out to Sikemux's relays over HTTPS and to your devices over UDP, so a firewall or security group can block all inbound traffic.
+
+Later:
+
+- `sikemux status` shows whether the core runs, whether it starts at boot, and which account it is on.
+- `sikemux login` signs the host in, if you skipped it, and `sikemux logout` takes it off your account.
+- Running the same line again updates the core; `sikemux restart` then switches the running core to it.
+- `sikemux help` lists every command.
+
+## Download
+
+The latest `.dmg` is on [sikemux.com](https://sikemux.com) and on [GitHub Releases](https://github.com/nodelike/sikemux/releases/latest). It is about 16 MB and needs macOS 11 or later on Apple Silicon.
+
+On x86_64 Linux the same release has a `.deb`, an `.rpm` and an `.AppImage`:
+
+```bash
+sudo apt install ./Sikemux_<version>_amd64.deb      # Debian, Ubuntu
+sudo dnf install ./Sikemux-<version>-1.x86_64.rpm   # Fedora
+chmod +x Sikemux_<version>_amd64.AppImage           # any other distribution
+```
+
+## Next
+
+Open Sikemux and follow [First launch](/getting-started/first-launch/).

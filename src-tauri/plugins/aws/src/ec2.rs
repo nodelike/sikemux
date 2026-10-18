@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::AwsResult;
 
-use crate::common::aws_json;
+use crate::common::{aws_json, Target};
 
 #[derive(Serialize, Clone)]
 pub struct Ec2Instance {
@@ -15,7 +15,22 @@ pub struct Ec2Instance {
     launch_time: Option<String>,
 }
 
-pub(crate) async fn instances(profile: String) -> AwsResult<Vec<Ec2Instance>> {
+impl Ec2Instance {
+    /// Whether its name, id or an address contains `text`, which is lowercase.
+    pub(crate) fn matches(&self, text: &str) -> bool {
+        [
+            self.name.as_deref(),
+            Some(self.instance_id.as_str()),
+            self.private_ip.as_deref(),
+            self.public_ip.as_deref(),
+        ]
+        .into_iter()
+        .flatten()
+        .any(|field| field.to_lowercase().contains(text))
+    }
+}
+
+pub(crate) async fn instances(target: &Target) -> AwsResult<Vec<Ec2Instance>> {
     #[derive(Deserialize)]
     struct Resp {
         #[serde(rename = "Reservations")]
@@ -56,7 +71,7 @@ pub(crate) async fn instances(profile: String) -> AwsResult<Vec<Ec2Instance>> {
         value: String,
     }
 
-    let resp: Resp = aws_json(&profile, &["ec2", "describe-instances", "--output", "json"]).await?;
+    let resp: Resp = aws_json(target, &["ec2", "describe-instances", "--output", "json"]).await?;
     let mut out = Vec::new();
     for r in resp.reservations {
         for i in r.instances {

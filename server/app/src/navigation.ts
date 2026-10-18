@@ -34,17 +34,34 @@ export function appReturn(search = location.search): string | null {
   }
 }
 
-/** Lets a sign-in that leaves the page for Google or GitHub come back to where it started. */
+/** Lets a sign-in that leaves the page for Google or GitHub come back to where it started, a shared chat's key included. */
 export function rememberReturn() {
-  sessionStorage.setItem(RETURN_KEY, location.pathname + location.search);
+  sessionStorage.setItem(
+    RETURN_KEY,
+    location.pathname + location.search + location.hash,
+  );
+}
+
+/** A shared chat's page, which loads on its own rather than inside the account pages. */
+export function isSharePath(path: string): boolean {
+  return path.startsWith("/s/");
+}
+
+/** The shared chat a sign-in started from, taken once, wherever the sign-in came back to. */
+export function takeShareReturn(): string | null {
+  const saved = sessionStorage.getItem(RETURN_KEY);
+  if (!saved || !isSharePath(saved)) return null;
+  sessionStorage.removeItem(RETURN_KEY);
+  return saved;
 }
 
 export function takeReturn(): string {
   const saved = sessionStorage.getItem(RETURN_KEY) ?? "/";
   sessionStorage.removeItem(RETURN_KEY);
+  if (isSharePath(saved)) return saved;
   const [path = "/", query = ""] = saved.split("?", 2);
   if (path === "/" && appReturn(`?${query}`)) return saved;
-  if (path === "/oauth-consent") return saved;
+  if (path === "/oauth-consent" || path === "/host") return saved;
   return path === DELETE_ACCOUNT ? path : "/";
 }
 

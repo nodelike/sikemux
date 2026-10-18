@@ -108,28 +108,25 @@ fn api_url(base: &str, version: u32, endpoint: &str) -> String {
     format!("{trimmed}/api/{version}{endpoint}")
 }
 
-/// Where a request goes and which token it carries.
+/// Where a request goes, which token it carries, and who that token is.
 pub struct Session {
     pub url: String,
     pub token: String,
+    pub user: String,
     pub allow_insecure_private_http: bool,
 }
 
 impl Session {
-    /// The saved session. Re-read from disk on every request so a `rnd login`
-    /// in a terminal is picked up without restarting the app.
-    pub async fn current() -> RundeckResult<Session> {
-        let cfg = config::refresh_from_disk()
-            .await
-            .unwrap_or_else(|_| config::RundeckConfig::default());
-        if cfg.url.is_empty() || cfg.token.is_empty() {
-            return Err(RundeckError::Unconfigured);
+    pub fn of(saved: &config::Saved) -> RundeckResult<Session> {
+        match &saved.token {
+            Some(token) if !saved.settings.url.is_empty() => Ok(Session {
+                url: saved.settings.url.clone(),
+                token: token.clone(),
+                user: saved.settings.user.clone(),
+                allow_insecure_private_http: saved.settings.allow_insecure_private_http,
+            }),
+            _ => Err(RundeckError::Unconfigured),
         }
-        Ok(Session {
-            url: cfg.url,
-            token: cfg.token,
-            allow_insecure_private_http: cfg.allow_insecure_private_http,
-        })
     }
 }
 
@@ -181,35 +178,37 @@ pub async fn request_as<T: DeserializeOwned>(
 }
 
 pub async fn get_json<T: DeserializeOwned>(
+    session: &Session,
     endpoint: &str,
     query: &[(&str, String)],
 ) -> RundeckResult<T> {
-    let session = Session::current().await?;
-    request_as(&session, Method::GET, endpoint, None, query).await
+    request_as(session, Method::GET, endpoint, None, query).await
 }
 
 pub async fn get_json_at_version<T: DeserializeOwned>(
+    session: &Session,
     version: u32,
     endpoint: &str,
     query: &[(&str, String)],
 ) -> RundeckResult<T> {
-    let session = Session::current().await?;
-    let resp = send(&session, version, Method::GET, endpoint, None, query).await?;
+    let resp = send(session, version, Method::GET, endpoint, None, query).await?;
     decode(resp).await
 }
 
 pub async fn post_json<B: Serialize, T: DeserializeOwned>(
+    session: &Session,
     endpoint: &str,
     body: &B,
 ) -> RundeckResult<T> {
     let val = serde_json::to_value(body).map_err(RundeckError::Json)?;
-    let session = Session::current().await?;
-    request_as(&session, Method::POST, endpoint, Some(&val), &[]).await
+    request_as(session, Method::POST, endpoint, Some(&val), &[]).await
 }
 
-pub async fn post_empty_json<T: DeserializeOwned>(endpoint: &str) -> RundeckResult<T> {
-    let session = Session::current().await?;
-    request_as(&session, Method::POST, endpoint, None, &[]).await
+pub async fn post_empty_json<T: DeserializeOwned>(
+    session: &Session,
+    endpoint: &str,
+) -> RundeckResult<T> {
+    request_as(session, Method::POST, endpoint, None, &[]).await
 }
 
 async fn decode<T: DeserializeOwned>(resp: Response) -> RundeckResult<T> {

@@ -3,6 +3,5 @@
 //! to the phone's native code and needs a store build to reach it.
 
 pub mod accounts;
-pub mod cli;
 pub mod protocol;
 pub mod pty;

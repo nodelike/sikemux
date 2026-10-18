@@ -3,13 +3,14 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { agentSupportsChat } from "../agents/agentLaunch";
 import { selectedAgentRuntimeProfiles } from "../agents/agentProfiles";
 import { agentApi } from "../api/agents";
+import { publishBuddies, type PublishedBuddies } from "../buddies/published";
 import { remoteApi, type PublishedChat } from "../api/remote";
 import { getIpcTransport } from "../api/transport";
 import { backdropPicture, grainDotColor } from "../remote/backdrop";
 import { usePaneImage } from "../lib/paneImage";
 import { readPalette } from "../remote/palette";
-import { remoteChats, remoteRecent, remoteTitles, remoteWorkspace } from "../remote/workspace";
-import { useResource, useResourceEnabled } from "../state/resources";
+import { remoteChats, remoteProjects, remoteRecent, remoteTitles } from "../remote/workspace";
+import { useResourceEnabled } from "../state/resources";
 import { agentCatalogR } from "../state/resources.defs";
 import type { AgentType } from "../state/types";
 import { activeAgentId } from "../state/selectors";
@@ -25,23 +26,17 @@ export const RECENT_LIMIT = 30;
 export const RECENT_REFRESH_MS = 120_000;
 
 /**
- * Tells the core which projects and agents can be started and what the app calls its agents, for the notch and paired
- * devices, and which agent is on screen. While remote access is on, also the theme and backdrop devices draw in.
+ * Tells the core which projects are open, the mode agents start in and what the app calls its agents, for the notch and
+ * paired devices, the buddies it draws for them, and which agent is on screen. While remote access is on, also the theme
+ * and backdrop devices draw in.
  */
 export function RemoteWorkspaceBridge() {
     const [enabled, setEnabled] = useState(false);
     const [themeChanges, setThemeChanges] = useState(0);
     const sessions = useStore((s) => s.sessions);
     const sessionOrder = useStore((s) => s.sessionOrder);
-    const profiles = useStore((s) => s.providerProfiles);
     const permissionMode = useStore((s) => s.defaultAgentPermissionMode);
-    const selections = useStore((s) => s.selectedProviderProfileIds);
-    const runtimeProfiles = useMemo(() => selectedAgentRuntimeProfiles(profiles, selections), [profiles, selections]);
-    const catalog = useResource(agentCatalogR, runtimeProfiles).data;
-    const published = useMemo(
-        () => JSON.stringify(remoteWorkspace(sessions, sessionOrder, profiles, permissionMode, catalog)),
-        [sessions, sessionOrder, profiles, permissionMode, catalog],
-    );
+    const projects = useMemo(() => JSON.stringify(remoteProjects(sessions, sessionOrder)), [sessions, sessionOrder]);
     const agents = useStore((s) => s.agents);
     const windows = useStore((s) => s.windows);
     const windowsBySession = useStore((s) => s.windowsBySession);
@@ -50,6 +45,14 @@ export function RemoteWorkspaceBridge() {
         [agents, windows, sessions, sessionOrder, windowsBySession],
     );
     const titles = useMemo(() => JSON.stringify(remoteTitles({ agents })), [agents]);
+    const buddiesOn = useStore((s) => s.buddies);
+    const buddyPack = useStore((s) => s.buddyPack);
+    const buddyShape = useStore((s) => s.buddyShape);
+    const buddyMotion = useStore((s) => s.buddyMotion);
+    const buddies = useMemo(
+        () => JSON.stringify(buddiesOn ? publishBuddies(Object.values(agents), { pack: buddyPack, shape: buddyShape }, buddyMotion) : null),
+        [buddiesOn, agents, buddyPack, buddyShape, buddyMotion],
+    );
     const active = useStore((s) => activeAgentId(s, s.sessions[s.activeSessionId]));
     const focused = useWindowFocused();
     const onScreen = focused ? active : undefined;
@@ -92,11 +95,11 @@ export function RemoteWorkspaceBridge() {
 
     useEffect(() => {
         const timer = window.setTimeout(() => {
-            const { projects, launchers } = JSON.parse(published) as ReturnType<typeof remoteWorkspace>;
-            remoteApi.publishWorkspace(projects, launchers).catch(swallow("publish projects to the core"));
+            const published = JSON.parse(projects) as ReturnType<typeof remoteProjects>;
+            remoteApi.publishWorkspace(published, permissionMode).catch(swallow("publish projects to the core"));
         }, PUBLISH_DELAY_MS);
         return () => window.clearTimeout(timer);
-    }, [published]);
+    }, [projects, permissionMode]);
 
     useEffect(() => {
         const timer = window.setTimeout(() => {
@@ -108,6 +111,13 @@ export function RemoteWorkspaceBridge() {
     }, [chats, titles]);
 
     usePublishRecent(enabled);
+
+    useEffect(() => {
+        const timer = window.setTimeout(() => {
+            remoteApi.publishBuddies(JSON.parse(buddies) as PublishedBuddies | null).catch(swallow("publish buddies to the core"));
+        }, PUBLISH_DELAY_MS);
+        return () => window.clearTimeout(timer);
+    }, [buddies]);
 
     useEffect(() => {
         remoteApi.publishOnScreen(onScreen ? [onScreen] : []).catch(swallow("tell the core which agent is on screen"));

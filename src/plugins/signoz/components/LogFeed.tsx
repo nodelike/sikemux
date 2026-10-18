@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { copyText, reportError } from "../../../plugin-api/host";
 import { useVisibleStream } from "../../../plugin-api/hooks";
-import { ContextMenu, EmptyState, SendToAgentMenu, VirtualLogList } from "../../../plugin-api/ui";
+import { ContextMenu, EmptyState, IconCopy, IconDiscard, IconMessage, SendToAgentMenu, VirtualLogList } from "../../../plugin-api/ui";
 import { failureMessage, signozApi, type LogLine, type LogSearch } from "../api";
 import { useResourceEnabled } from "../../../plugin-api/resources";
 import { signozVolumeR } from "../resources";
@@ -220,13 +220,17 @@ export function LogFeed({ paneId, active }: { paneId: string; active: boolean })
                     items={[
                         {
                             label: menu.lines.length === 1 ? "Copy Message" : `Copy ${menu.lines.length} Messages`,
+                            icon: <IconCopy size={13} />,
                             run: () => void copyText(menu.lines.map((line) => line.body).join("\n")).catch(reportError("copy")),
                         },
                         {
                             label: menu.lines.length === 1 ? "Send to Agent…" : `Send ${menu.lines.length} Lines to Agent…`,
+                            icon: <IconMessage size={13} />,
                             run: () => setMenu({ ...menu, sending: true }),
                         },
-                        ...(picked.size > 0 ? [{ sep: true }, { label: "Clear Selection", run: () => setPicked(new Set()) }] : []),
+                        ...(picked.size > 0
+                            ? [{ sep: true }, { label: "Clear Selection", icon: <IconDiscard size={13} />, run: () => setPicked(new Set()) }]
+                            : []),
                     ]}
                 />
             )}

@@ -63,43 +63,41 @@ export function GitComposer({
 
     return (
         <div className="git-compose">
-            <div className="git-compose-well">
-                <textarea
-                    ref={messageRef}
-                    className="git-compose-message"
-                    placeholder={`Message (${PRIMARY_SHORTCUT}⏎ to commit)`}
-                    aria-label="Commit message"
-                    value={draft}
-                    rows={3}
-                    spellCheck={false}
-                    readOnly={busy}
-                    onChange={(event) => setGitDraft(repo, event.target.value)}
-                    onKeyDown={onKeyDown}
-                />
-                <div className="git-compose-foot">
-                    <Tooltip label="Write the message from the staged changes (g)">
-                        <button type="button" className="git-compose-agent" disabled={busy} onClick={onGenerate}>
-                            <span className={`git-compose-spark${generating ? " writing" : ""}`}>
-                                <IconSparkle size={11} />
-                            </span>
-                            <span>{generating ? "writing…" : agentLabel}</span>
-                        </button>
-                    </Tooltip>
-                    <Tooltip label="Pick the agent and model">
-                        <button
-                            type="button"
-                            className="git-compose-agent-pick"
-                            aria-label="Pick the agent and model"
-                            onClick={(event) => onPickAgent(event.currentTarget)}>
-                            <IconChevron size={9} />
-                        </button>
-                    </Tooltip>
-                    <Tooltip label={stagedCount > 0 ? `${commitLabel} (${PRIMARY_SHORTCUT}⏎)` : "Stage files to commit them"}>
-                        <button type="button" className="git-compose-commit" disabled={!canCommit} onClick={onCommit}>
-                            {commitLabel}
-                        </button>
-                    </Tooltip>
-                </div>
+            <textarea
+                ref={messageRef}
+                className="git-compose-message"
+                placeholder={`Message (${PRIMARY_SHORTCUT}⏎ to commit)`}
+                aria-label="Commit message"
+                value={draft}
+                rows={3}
+                spellCheck={false}
+                readOnly={busy}
+                onChange={(event) => setGitDraft(repo, event.target.value)}
+                onKeyDown={onKeyDown}
+            />
+            <div className="git-compose-foot">
+                <Tooltip label="Write the message from the staged changes (g)">
+                    <button type="button" className="git-compose-agent" disabled={busy} onClick={onGenerate}>
+                        <span className={`git-compose-spark${generating ? " writing" : ""}`}>
+                            <IconSparkle size={11} />
+                        </span>
+                        <span>{generating ? "writing…" : agentLabel}</span>
+                    </button>
+                </Tooltip>
+                <Tooltip label="Pick the agent and model">
+                    <button
+                        type="button"
+                        className="git-compose-agent-pick"
+                        aria-label="Pick the agent and model"
+                        onClick={(event) => onPickAgent(event.currentTarget)}>
+                        <IconChevron size={9} />
+                    </button>
+                </Tooltip>
+                <Tooltip label={stagedCount > 0 ? `${commitLabel} (${PRIMARY_SHORTCUT}⏎)` : "Stage files to commit them"}>
+                    <button type="button" className="git-compose-commit" disabled={!canCommit} onClick={onCommit}>
+                        {commitLabel}
+                    </button>
+                </Tooltip>
             </div>
         </div>
     );

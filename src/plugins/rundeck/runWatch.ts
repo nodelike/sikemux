@@ -2,6 +2,7 @@ import { create } from "zustand";
 import { notify, notifyDesktop, swallow } from "../../plugin-api/host";
 import { invalidate } from "../../plugin-api/resources";
 import { rundeckApi, type RundeckExecution, type WatchUpdate } from "./api";
+import { branchOptionsNow } from "./resources";
 import { lostRunNotice, runNotice, type RunNotice } from "./runNotice";
 import { openRundeckExecution, rundeckSettings, type JobRef } from "./state";
 
@@ -48,7 +49,7 @@ export function watchRun(job: JobRef, executionId: number, hasFocus: () => boole
 
 /** The last update can lack the run itself when Rundeck stopped answering; its step state may still say how it ended. */
 function endedNotice(job: JobRef, executionId: number, update: WatchUpdate): RunNotice {
-    const { branchOptions } = rundeckSettings.get();
+    const branchOptions = branchOptionsNow();
     if (update.execution) return runNotice(update.execution, branchOptions);
     const status = update.state?.executionState;
     if (!status) return lostRunNotice(job.name, job.group, executionId);

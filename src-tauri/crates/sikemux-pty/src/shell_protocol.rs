@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 pub use sikemux_wire::pty::shell_protocol::{
-    PtyShellMetadataEvent, ShellBoundary, ShellMetadataSnapshot, ShellPhase,
+    PtyShellMetadataEvent, ShellBoundary, ShellMetadataSnapshot, ShellPhase, SshLink,
 };
 
 /// Stable frontend event for opt-in local shell metadata. The terminal byte
@@ -11,6 +11,8 @@ const MAX_SHELL_OSC_BYTES: usize = 8 * 1024;
 const MAX_SHELL_PATH_BYTES: usize = 4 * 1024;
 const MAX_SHELL_EXIT_CODE_BYTES: usize = 11;
 const SHELL_EVENT_MIN_INTERVAL: Duration = Duration::from_millis(100);
+/// Sikemux's own OSC, which the SSH startup loop prints its state under.
+const SSH_LINK_OSC: &[u8] = b"6973;ssh;";
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ShellProtocolUpdate {
@@ -21,6 +23,7 @@ pub struct ShellProtocolUpdate {
 #[derive(Default)]
 struct ShellProtocolBatch {
     latest: Option<ShellProtocolUpdate>,
+    ssh: Option<SshLink>,
     coalesced: usize,
     dropped: usize,
 }
@@ -69,6 +72,8 @@ impl ShellEventCoalescer {
 #[derive(Default)]
 pub struct ShellProtocolOutput {
     pub ready: Option<ShellProtocolUpdate>,
+    /// Set when the SSH link changed; these are rare, so none is held back.
+    pub ssh: Option<SshLink>,
     pub coalesced: usize,
     pub dropped: usize,
 }
@@ -101,6 +106,7 @@ enum ShellScanState {
 enum ShellSignal {
     Cwd(String),
     Boundary(ShellBoundary, ShellPhase, Option<i32>),
+    Ssh(SshLink),
 }
 
 pub struct ShellProtocolParser {
@@ -108,6 +114,7 @@ pub struct ShellProtocolParser {
     osc: Vec<u8>,
     osc_overflowed: bool,
     metadata: ShellMetadataSnapshot,
+    ssh: Option<SshLink>,
     events: ShellEventCoalescer,
 }
 
@@ -123,6 +130,7 @@ impl Default for ShellProtocolParser {
                 phase: ShellPhase::Unknown,
                 last_exit_code: None,
             },
+            ssh: None,
             events: ShellEventCoalescer::default(),
         }
     }
@@ -133,22 +141,31 @@ impl ShellProtocolParser {
         self.metadata.clone()
     }
 
-    /// Carries on from a snapshot another parser took.
-    pub fn restored(metadata: ShellMetadataSnapshot) -> Self {
+    pub fn ssh(&self) -> Option<SshLink> {
+        self.ssh
+    }
+
+    /// Carries on from what another parser had seen.
+    pub fn restored(metadata: ShellMetadataSnapshot, ssh: Option<SshLink>) -> Self {
         Self {
             metadata,
+            ssh,
             ..Self::default()
         }
     }
 
     fn process(&mut self, bytes: &[u8]) -> ShellProtocolBatch {
         let mut batch = ShellProtocolBatch::default();
-        for &byte in bytes {
+        let mut rest = bytes;
+        while let Some((&byte, after)) = rest.split_first() {
             match self.scan_state {
                 ShellScanState::Ground => {
-                    if byte == b'\x1b' {
-                        self.scan_state = ShellScanState::Escape;
-                    }
+                    let Some(escape) = memchr::memchr(b'\x1b', rest) else {
+                        break;
+                    };
+                    self.scan_state = ShellScanState::Escape;
+                    rest = &rest[escape + 1..];
+                    continue;
                 }
                 ShellScanState::Escape => {
                     if byte == b']' {
@@ -159,23 +176,32 @@ impl ShellProtocolParser {
                         self.scan_state = ShellScanState::Ground;
                     }
                 }
-                ShellScanState::Osc => match byte {
-                    b'\x07' => self.finish_osc(&mut batch),
-                    b'\x1b' => self.scan_state = ShellScanState::OscEscape,
-                    _ => self.push_osc_byte(byte),
-                },
+                ShellScanState::Osc => {
+                    let Some(end) = memchr::memchr2(b'\x07', b'\x1b', rest) else {
+                        self.push_osc_bytes(rest);
+                        break;
+                    };
+                    self.push_osc_bytes(&rest[..end]);
+                    if rest[end] == b'\x07' {
+                        self.finish_osc(&mut batch);
+                    } else {
+                        self.scan_state = ShellScanState::OscEscape;
+                    }
+                    rest = &rest[end + 1..];
+                    continue;
+                }
                 ShellScanState::OscEscape => match byte {
                     b'\\' | b'\x07' => self.finish_osc(&mut batch),
                     b'\x1b' => {
-                        self.push_osc_byte(b'\x1b');
+                        self.push_osc_bytes(b"\x1b");
                     }
                     _ => {
-                        self.push_osc_byte(b'\x1b');
-                        self.push_osc_byte(byte);
+                        self.push_osc_bytes(&[b'\x1b', byte]);
                         self.scan_state = ShellScanState::Osc;
                     }
                 },
             }
+            rest = after;
         }
         batch
     }
@@ -185,6 +211,7 @@ impl ShellProtocolParser {
         let Some(latest) = batch.latest.take() else {
             return ShellProtocolOutput {
                 ready: self.events.take_due(now_ms),
+                ssh: batch.ssh,
                 coalesced: batch.coalesced,
                 dropped: batch.dropped,
             };
@@ -192,6 +219,7 @@ impl ShellProtocolParser {
         let decision = self.events.submit(now_ms, latest);
         ShellProtocolOutput {
             ready: decision.ready,
+            ssh: batch.ssh,
             coalesced: batch
                 .coalesced
                 .saturating_add(usize::from(decision.replaced_pending)),
@@ -203,12 +231,12 @@ impl ShellProtocolParser {
         self.events.take_due(now_ms)
     }
 
-    fn push_osc_byte(&mut self, byte: u8) {
-        if self.osc.len() < MAX_SHELL_OSC_BYTES {
-            self.osc.push(byte);
-        } else {
+    fn push_osc_bytes(&mut self, bytes: &[u8]) {
+        let room = MAX_SHELL_OSC_BYTES - self.osc.len();
+        if bytes.len() > room {
             self.osc_overflowed = true;
         }
+        self.osc.extend_from_slice(&bytes[..bytes.len().min(room)]);
     }
 
     fn finish_osc(&mut self, batch: &mut ShellProtocolBatch) {
@@ -238,6 +266,13 @@ impl ShellProtocolParser {
                 }
                 boundary
             }
+            ShellSignal::Ssh(link) => {
+                if self.ssh != Some(link) {
+                    self.ssh = Some(link);
+                    batch.ssh = Some(link);
+                }
+                return;
+            }
         };
         self.metadata.revision = self.metadata.revision.saturating_add(1);
         let update = ShellProtocolUpdate {
@@ -251,6 +286,9 @@ impl ShellProtocolParser {
 fn parse_shell_signal(payload: &[u8]) -> Option<ShellSignal> {
     if let Some(uri) = payload.strip_prefix(b"7;") {
         return parse_shell_cwd(uri).map(ShellSignal::Cwd);
+    }
+    if let Some(link) = payload.strip_prefix(SSH_LINK_OSC) {
+        return parse_ssh_link(link).map(ShellSignal::Ssh);
     }
     let payload = payload.strip_prefix(b"133;")?;
     let mut fields = payload.split(|byte| *byte == b';');
@@ -279,6 +317,15 @@ fn parse_shell_signal(payload: &[u8]) -> Option<ShellSignal> {
                 exit_code,
             ))
         }
+        _ => None,
+    }
+}
+
+fn parse_ssh_link(value: &[u8]) -> Option<SshLink> {
+    match value {
+        b"connecting" => Some(SshLink::Connecting),
+        b"connected" => Some(SshLink::Connected),
+        b"disconnected" => Some(SshLink::Disconnected),
         _ => None,
     }
 }

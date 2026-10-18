@@ -8,14 +8,15 @@ icons:
 
 dev: export BITBUCKET_OAUTH_SECRET ?= $(shell sed -n 's/^BITBUCKET_OAUTH_SECRET=//p' .env 2>/dev/null)
 dev: export JIRA_OAUTH_SECRET ?= $(shell sed -n 's/^JIRA_OAUTH_SECRET=//p' .env 2>/dev/null)
+dev: export VERCEL_OAUTH_SECRET ?= $(shell sed -n 's/^VERCEL_OAUTH_SECRET=//p' .env 2>/dev/null)
 dev: icons
-	@node scripts/prune-target.mjs --daily >/dev/null 2>&1 &
+	@node scripts/prune-target.mjs --throttled >/dev/null 2>&1 &
 	pnpm dev:desktop
 
 # Stops the dev build's core, the terminals and agents it runs, and its notch.
 dev-stop:
 	@test -x src-tauri/target/debug/sikemux-editor || { echo "No dev build yet; run make dev first."; exit 1; }
-	src-tauri/target/debug/sikemux-editor core stop
+	src-tauri/target/debug/sikemux-editor stop
 	@pid=$$(cat "$(HOME)/.config/sikemux/notch.dev.lock" 2>/dev/null); [ -z "$$pid" ] || kill "$$pid" 2>/dev/null || true
 
 showcase:

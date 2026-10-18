@@ -57,6 +57,8 @@ function workspaceSettings(manifest) {
   return manifest
     .split(/\n(?=\[)/)
     .filter((section) => /^\[(workspace|profile|patch|replace)\b/.test(section))
+    .map((section) => (section.startsWith('[workspace.package]') ? section.replace(/^version = .*\n?/m, '') : section))
+    .filter((section) => section.split('\n').some((line, index) => index > 0 && line.trim() !== '' && !line.trim().startsWith('#')))
     .join('\n');
 }
 

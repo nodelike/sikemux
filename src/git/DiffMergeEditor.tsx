@@ -1,11 +1,12 @@
 import { useEffect, useRef } from "react";
 import { history, defaultKeymap, historyKeymap } from "@codemirror/commands";
-import { unifiedMergeView } from "@codemirror/merge";
-import { EditorState, Prec } from "@codemirror/state";
-import { EditorView, keymap, lineNumbers } from "@codemirror/view";
+import { getChunks, unifiedMergeView } from "@codemirror/merge";
+import { Compartment, EditorState, Facet, Prec } from "@codemirror/state";
+import { Decoration, EditorView, ViewPlugin, WidgetType, keymap, lineNumbers, type DecorationSet, type ViewUpdate } from "@codemirror/view";
 import { editorThemeOnlyExtensions, languageCompartment, languageFor, loadLanguage } from "../editor/codemirror";
 import { registerView } from "../themes/bus";
 import { swallow } from "../state/toast";
+import { ownerNotes, type ChangeBlock, type OwnedFile } from "./changeOwners";
 
 /* The editor's own theme sets a 13px face and a solid ground; the diff pane
    reads at the diff's size over whatever is behind it. */
@@ -23,24 +24,82 @@ const diffSurface = Prec.highest(
    rewrite from stalling typing. */
 const DIFF_CONFIG = { scanLimit: 20_000, timeout: 250 };
 
+const ownedFacet = Facet.define<OwnedFile | undefined, OwnedFile | undefined>({ combine: (values) => values[0] });
+const ownedCompartment = new Compartment();
+
+class NoteWidget extends WidgetType {
+    constructor(readonly text: string) {
+        super();
+    }
+    eq(other: NoteWidget) {
+        return other.text === this.text;
+    }
+    toDOM() {
+        const note = document.createElement("span");
+        note.className = "diff-note";
+        note.textContent = this.text;
+        return note;
+    }
+}
+
+function noteDecorations(state: EditorState): DecorationSet {
+    const owned = state.facet(ownedFacet);
+    const chunks = getChunks(state)?.chunks;
+    if (!owned || !chunks?.length) return Decoration.none;
+    const doc = state.doc;
+    const blocks: ChangeBlock[] = chunks.map((chunk) => {
+        const start = doc.lineAt(chunk.fromB).number;
+        if (chunk.toB <= chunk.fromB) return { start, count: 0 };
+        return { start, count: doc.lineAt(Math.min(chunk.toB - 1, doc.length)).number - start + 1 };
+    });
+    const { lines, gaps } = ownerNotes(blocks, owned);
+    const notes = new Map(lines);
+    for (const [line, note] of gaps) if (!notes.has(line)) notes.set(Math.min(line, doc.lines), note);
+    const widgets = [...notes]
+        .filter(([line]) => line <= doc.lines)
+        .sort(([a], [b]) => a - b)
+        .map(([line, note]) => Decoration.widget({ widget: new NoteWidget(note), side: 1 }).range(doc.line(line).to));
+    return Decoration.set(widgets);
+}
+
+/* Quiet notes after changed lines saying which agent wrote them. */
+const ownerNotesPlugin = ViewPlugin.fromClass(
+    class {
+        decorations: DecorationSet;
+        constructor(view: EditorView) {
+            this.decorations = noteDecorations(view.state);
+        }
+        update(update: ViewUpdate) {
+            const moved =
+                update.docChanged ||
+                update.startState.facet(ownedFacet) !== update.state.facet(ownedFacet) ||
+                getChunks(update.startState)?.chunks !== getChunks(update.state)?.chunks;
+            if (moved) this.decorations = noteDecorations(update.state);
+        }
+    },
+    { decorations: (plugin) => plugin.decorations },
+);
+
 /** The working-tree file, editable, with what changed since `base` marked on it. */
 export default function DiffMergeEditor({
     base,
     head,
     path,
     tinted,
+    owned,
     onChange,
 }: {
     base: string;
     head: string;
     path: string;
     tinted: boolean;
+    owned?: OwnedFile;
     onChange: (text: string) => void;
 }) {
     const host = useRef<HTMLDivElement>(null);
     const view = useRef<EditorView | null>(null);
-    const latest = useRef({ head, onChange });
-    latest.current = { head, onChange };
+    const latest = useRef({ head, owned, onChange });
+    latest.current = { head, owned, onChange };
 
     useEffect(() => {
         const parent = host.current;
@@ -56,6 +115,8 @@ export default function DiffMergeEditor({
                     editorThemeOnlyExtensions(),
                     diffSurface,
                     languageCompartment.of(languageFor(path)),
+                    ownedCompartment.of(ownedFacet.of(latest.current.owned)),
+                    ownerNotesPlugin,
                     unifiedMergeView({
                         original: base,
                         mergeControls: false,
@@ -81,6 +142,10 @@ export default function DiffMergeEditor({
             editor.destroy();
         };
     }, [base, path]);
+
+    useEffect(() => {
+        view.current?.dispatch({ effects: ownedCompartment.reconfigure(ownedFacet.of(owned)) });
+    }, [owned]);
 
     useEffect(() => {
         const editor = view.current;

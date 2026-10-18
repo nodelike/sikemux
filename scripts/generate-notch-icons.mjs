@@ -40,7 +40,7 @@ const MARK_FUNCTIONS = {
   hermes: "IconHermes",
 };
 
-const MARK_FILES = { codex: "codex.svg", omp: "omp.svg" };
+const MARK_FILES = { codex: "codex.svg", omp: "omp.svg", muse: "muse.svg" };
 const BRAND_MARK = resolve(root, "brand/mark/mark-white.svg");
 
 /** The colour each mark takes where the app paints it with its brand colour. */
@@ -53,7 +53,7 @@ const BRAND = Object.fromEntries(
 function attributes(text) {
   const found = {};
   for (const [, name, quoted, braced] of text.matchAll(
-    /([a-zA-Z-]+)=(?:"([^"]*)"|\{([^}]*)\})/g,
+    /([a-zA-Z0-9-]+)=(?:"([^"]*)"|\{([^}]*)\})/g,
   )) {
     found[name] = quoted ?? braced.replace(/^"|"$/g, "");
   }
@@ -182,6 +182,12 @@ function colour(text) {
   return text;
 }
 
+function fraction(value, fallback = 0) {
+  return value?.endsWith("%")
+    ? fixed(number(value) / 100)
+    : number(value, fallback);
+}
+
 function gradients(svg) {
   const found = {};
   for (const [, open, body] of svg.matchAll(
@@ -190,11 +196,11 @@ function gradients(svg) {
     const own = attributes(open);
     const stops = [...body.matchAll(/<stop\b([^>]*)\/>/g)].map(([, stop]) => {
       const { offset, "stop-color": stopColour } = attributes(stop);
-      return { offset: number(offset), colour: colour(stopColour) };
+      return { offset: fraction(offset), colour: colour(stopColour) };
     });
     const turned = own.gradientTransform?.startsWith("matrix(0");
-    const start = turned ? [0.5, 0] : [number(own.x1), number(own.y1)];
-    const end = turned ? [0.5, 1] : [number(own.x2, 1), number(own.y2)];
+    const start = turned ? [0.5, 0] : [fraction(own.x1), fraction(own.y1)];
+    const end = turned ? [0.5, 1] : [fraction(own.x2, 1), fraction(own.y2)];
     found[own.id] = { stops, start, end };
   }
   return found;

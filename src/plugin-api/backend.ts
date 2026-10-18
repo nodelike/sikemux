@@ -36,6 +36,11 @@ export function isPluginFailure(error: unknown, category?: string): error is Plu
     return category === undefined || candidate.category === category;
 }
 
+/** A request that never reached the service, such as when the Mac is offline. */
+export function isOfflineFailure(error: unknown): boolean {
+    return isPluginFailure(error) && (error.category === "offline" || error.category === "timeout");
+}
+
 /** What went wrong, in words: a plugin's failure, a thrown Error or a plain string. */
 export function failureMessage(error: unknown): string {
     if (typeof error === "string") return error;

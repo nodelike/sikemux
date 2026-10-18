@@ -344,6 +344,275 @@
         }
       }
     },
+    "/v1/host-sign-ins": {
+      "post": {
+        "operationId": "startHostSignIn",
+        "summary": "Start signing in a host that has no browser, such as a server reached over SSH",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/HostSignInStart" }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "The codes, good for ten minutes. The host shows the user code and asks every interval seconds whether it was approved.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/HostSignIn" }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many sign-ins from this address.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "default": {
+            "description": "Something went wrong.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/host-sign-ins/poll": {
+      "post": {
+        "operationId": "pollHostSignIn",
+        "summary": "Whether the person approved this host yet",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/HostSignInPoll" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Pending, or approved with the account and a challenge to sign.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/HostSignInState" }
+              }
+            }
+          },
+          "404": {
+            "description": "The code is unknown, was refused, or has expired.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "429": {
+            "description": "Asked more often than the interval allows.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "default": {
+            "description": "Something went wrong.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/host-sign-ins/finish": {
+      "post": {
+        "operationId": "finishHostSignIn",
+        "summary": "Register the approved host on the account, proving it holds its key",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/HostSignInFinish" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The host was already on the account and is updated. The code is used up.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Device" }
+              }
+            }
+          },
+          "201": {
+            "description": "The host is on the account. The code is used up.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Device" }
+              }
+            }
+          },
+          "400": {
+            "description": "The challenge is unknown, used or expired.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "403": {
+            "description": "The signature does not prove the host holds its key.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "404": {
+            "description": "The code is unknown, was refused, or has expired.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "409": {
+            "description": "The key is registered to another account, or as a phone.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "default": {
+            "description": "Something went wrong.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/host-sign-ins/{userCode}": {
+      "get": {
+        "operationId": "getPendingHost",
+        "summary": "The host waiting behind a user code, to check before approving it",
+        "parameters": [
+          {
+            "name": "userCode",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The waiting host.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/PendingHost" }
+              }
+            }
+          },
+          "404": {
+            "description": "The code is unknown, was refused, or has expired.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "default": {
+            "description": "Something went wrong.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "operationId": "refuseHostSignIn",
+        "summary": "Refuse the waiting host",
+        "parameters": [
+          {
+            "name": "userCode",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "204": { "description": "Refused. The host hears the code is gone." },
+          "404": {
+            "description": "The code is unknown, was refused, or has expired.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "default": {
+            "description": "Something went wrong.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/host-sign-ins/{userCode}/approve": {
+      "post": {
+        "operationId": "approveHostSignIn",
+        "summary": "Add the waiting host to your account",
+        "parameters": [
+          {
+            "name": "userCode",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Approved. The host finishes on its next ask."
+          },
+          "404": {
+            "description": "The code is unknown, was refused, or has expired.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "default": {
+            "description": "Something went wrong.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/live": {
       "get": {
         "operationId": "openLive",
@@ -768,6 +1037,95 @@
         "additionalProperties": false
       },
       "HealthStatus": { "type": "string", "enum": ["ok", "unavailable"] },
+      "HostSignIn": {
+        "description": "What the host shows and keeps while its person approves it from a device already signed in.",
+        "type": "object",
+        "properties": {
+          "code": { "$ref": "#/components/schemas/HostSignInCode" },
+          "userCode": { "$ref": "#/components/schemas/HostSignInUserCode" },
+          "verificationUrl": {
+            "description": "Where the person approves this host, with the code filled in.",
+            "type": "string",
+            "format": "uri"
+          },
+          "expiresAt": { "type": "string", "format": "date-time" },
+          "interval": {
+            "description": "How many seconds the host waits between asks whether it was approved.",
+            "type": "integer",
+            "minimum": 1
+          }
+        },
+        "required": [
+          "code",
+          "userCode",
+          "verificationUrl",
+          "expiresAt",
+          "interval"
+        ],
+        "additionalProperties": false
+      },
+      "HostSignInCode": {
+        "description": "The secret a host holds while it waits to be signed in: 32 random bytes in lowercase hex. Only the host ever sees it.",
+        "type": "string",
+        "pattern": "^[0-9a-f]{64}$"
+      },
+      "HostSignInFinish": {
+        "description": "Registers the approved host. The signature is the host key's, over the same text a DeviceRegistration signs, with the account from HostSignInState.",
+        "type": "object",
+        "properties": {
+          "code": { "$ref": "#/components/schemas/HostSignInCode" },
+          "nonce": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+          "signature": { "type": "string", "pattern": "^[0-9a-f]{128}$" }
+        },
+        "required": ["code", "nonce", "signature"],
+        "additionalProperties": false
+      },
+      "HostSignInPoll": {
+        "type": "object",
+        "properties": {
+          "code": { "$ref": "#/components/schemas/HostSignInCode" }
+        },
+        "required": ["code"],
+        "additionalProperties": false
+      },
+      "HostSignInStart": {
+        "description": "A host with no browser asks to be signed in. It proves its key only when it finishes, once it knows the account.",
+        "type": "object",
+        "properties": {
+          "key": { "$ref": "#/components/schemas/DeviceKey" },
+          "name": { "type": "string", "minLength": 1, "maxLength": 64 },
+          "platform": { "$ref": "#/components/schemas/Platform" },
+          "channel": { "$ref": "#/components/schemas/Channel" }
+        },
+        "required": ["key", "name", "platform", "channel"],
+        "additionalProperties": false
+      },
+      "HostSignInState": {
+        "description": "Pending until the person approves. Approved carries the account and a fresh challenge, which the host signs as it would a DeviceRegistration and sends back in HostSignInFinish.",
+        "type": "object",
+        "properties": {
+          "status": { "$ref": "#/components/schemas/HostSignInStatus" },
+          "account": {
+            "description": "Only once approved: the Clerk user id of the account that approved.",
+            "type": "string",
+            "pattern": "^user_[A-Za-z0-9]+$",
+            "maxLength": 64
+          },
+          "nonce": {
+            "description": "Only once approved: a challenge good for two minutes.",
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          }
+        },
+        "required": ["status"],
+        "additionalProperties": false
+      },
+      "HostSignInStatus": { "type": "string", "enum": ["pending", "approved"] },
+      "HostSignInUserCode": {
+        "description": "What the host shows its person, who enters or checks it on a device already signed in. Eight consonants in two groups of four.",
+        "type": "string",
+        "pattern": "^[BCDFGHJKLMNPQRSTVWXZ]{4}-[BCDFGHJKLMNPQRSTVWXZ]{4}$"
+      },
       "JoinRequest": {
         "description": "Which host on the account the phone wants to join.",
         "type": "object",
@@ -1108,10 +1466,11 @@
         "type": "object",
         "properties": {
           "macos": { "$ref": "#/components/schemas/ChannelVersions" },
+          "linux": { "$ref": "#/components/schemas/ChannelVersions" },
           "ios": { "$ref": "#/components/schemas/ChannelVersions" },
           "android": { "$ref": "#/components/schemas/ChannelVersions" }
         },
-        "required": ["macos", "ios", "android"],
+        "required": ["macos", "linux", "ios", "android"],
         "additionalProperties": false
       },
       "Network": {
@@ -1129,7 +1488,23 @@
         "required": ["relays", "minimumVersions"],
         "additionalProperties": false
       },
-      "Platform": { "type": "string", "enum": ["macos", "ios", "android"] },
+      "PendingHost": {
+        "description": "The host waiting behind a user code, for the person to check before approving it.",
+        "type": "object",
+        "properties": {
+          "key": { "$ref": "#/components/schemas/DeviceKey" },
+          "name": { "type": "string" },
+          "platform": { "$ref": "#/components/schemas/Platform" },
+          "channel": { "$ref": "#/components/schemas/Channel" },
+          "expiresAt": { "type": "string", "format": "date-time" }
+        },
+        "required": ["key", "name", "platform", "channel", "expiresAt"],
+        "additionalProperties": false
+      },
+      "Platform": {
+        "type": "string",
+        "enum": ["macos", "linux", "ios", "android"]
+      },
       "PushApp": {
         "description": "Which build of the phone app the token belongs to. Each has its own Firebase project and bundle id, and an API serves only one of them.",
         "type": "string",
@@ -1224,6 +1599,380 @@
         "description": "Why a device left its account: removed from another device or the web, signed out on the device itself, or the account was deleted.",
         "type": "string",
         "enum": ["removed", "signed_out", "account_deleted"]
+      },
+      "Sealed": {
+        "description": "What the host sealed for the share's viewers: a 12-byte nonce, then AES-256-GCM ciphertext and tag, in unpadded base64url. The key lives only in the share's link, so the server cannot read it.",
+        "type": "string",
+        "pattern": "^[A-Za-z0-9_-]+$",
+        "maxLength": 6000000
+      },
+      "ShareAnswer": {
+        "description": "Host only: the sealed answer to one viewer's question.",
+        "type": "object",
+        "properties": {
+          "type": { "const": "answer" },
+          "share": { "$ref": "#/components/schemas/ShareId" },
+          "viewer": { "$ref": "#/components/schemas/ShareViewerId" },
+          "sealed": { "$ref": "#/components/schemas/Sealed" }
+        },
+        "required": ["type", "share", "viewer", "sealed"],
+        "additionalProperties": false
+      },
+      "ShareAnswered": {
+        "description": "To a viewer: the host's sealed answer to one of its questions.",
+        "type": "object",
+        "properties": {
+          "type": { "const": "answer" },
+          "sealed": { "$ref": "#/components/schemas/Sealed" }
+        },
+        "required": ["type", "sealed"],
+        "additionalProperties": false
+      },
+      "ShareAsk": {
+        "description": "Viewer only: a sealed question for the host, such as the chat's turns before some event or a picture pasted into it. The host answers with answer.",
+        "type": "object",
+        "properties": {
+          "type": { "const": "ask" },
+          "sealed": { "$ref": "#/components/schemas/Sealed" }
+        },
+        "required": ["type", "sealed"],
+        "additionalProperties": false
+      },
+      "ShareAsked": {
+        "description": "To the host: a viewer's sealed question. Answer it with answer, naming the viewer.",
+        "type": "object",
+        "properties": {
+          "type": { "const": "ask" },
+          "share": { "$ref": "#/components/schemas/ShareId" },
+          "viewer": { "$ref": "#/components/schemas/ShareViewerId" },
+          "sealed": { "$ref": "#/components/schemas/Sealed" }
+        },
+        "required": ["type", "share", "viewer", "sealed"],
+        "additionalProperties": false
+      },
+      "ShareAuth": {
+        "description": "Viewer only: a fresh Clerk token for the same user, sent before ready.authExpiresAt.",
+        "type": "object",
+        "properties": {
+          "type": { "const": "auth" },
+          "token": { "type": "string", "minLength": 1, "maxLength": 4096 }
+        },
+        "required": ["type", "token"],
+        "additionalProperties": false
+      },
+      "ShareBye": {
+        "description": "The server is restarting and closes with ShareCloseCode restarting after it. Reconnect no sooner than reconnectAfterMs.",
+        "type": "object",
+        "properties": {
+          "type": { "const": "bye" },
+          "reconnectAfterMs": { "type": "integer", "minimum": 0 }
+        },
+        "required": ["type", "reconnectAfterMs"],
+        "additionalProperties": false
+      },
+      "ShareChallenge": {
+        "description": "The server's first message on every share connection: a one-time value a host's hello signs.",
+        "type": "object",
+        "properties": {
+          "type": { "const": "challenge" },
+          "nonce": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+          "expiresAt": { "type": "string", "format": "date-time" }
+        },
+        "required": ["type", "nonce", "expiresAt"],
+        "additionalProperties": false
+      },
+      "ShareClientMessage": {
+        "description": "What a host or a viewer sends on a share connection.",
+        "type": "object",
+        "oneOf": [
+          { "$ref": "#/components/schemas/ShareHello" },
+          { "$ref": "#/components/schemas/ShareOpen" },
+          { "$ref": "#/components/schemas/SharePublish" },
+          { "$ref": "#/components/schemas/ShareAnswer" },
+          { "$ref": "#/components/schemas/ShareClose" },
+          { "$ref": "#/components/schemas/ShareAsk" },
+          { "$ref": "#/components/schemas/ShareAuth" },
+          { "$ref": "#/components/schemas/SharePong" }
+        ],
+        "discriminator": { "propertyName": "type" }
+      },
+      "ShareClose": {
+        "description": "Host only: end a share for good. Its viewers are told it was stopped.",
+        "type": "object",
+        "properties": {
+          "type": { "const": "close" },
+          "share": { "$ref": "#/components/schemas/ShareId" }
+        },
+        "required": ["type", "share"],
+        "additionalProperties": false
+      },
+      "ShareCloseCode": {
+        "description": "Why the server closed a share connection, as the WebSocket close code.",
+        "type": "integer",
+        "oneOf": [
+          {
+            "const": 4400,
+            "title": "badMessage",
+            "description": "Something the protocol does not allow was sent. Reconnect with backoff."
+          },
+          {
+            "const": 4401,
+            "title": "unauthenticated",
+            "description": "The hello did not prove who is connecting, or the viewer's sign-in expired."
+          },
+          {
+            "const": 4404,
+            "title": "notFound",
+            "description": "No share has this id. Do not reconnect."
+          },
+          {
+            "const": 4408,
+            "title": "helloTimeout",
+            "description": "No hello came within 10 seconds of the challenge. Reconnect with backoff."
+          },
+          {
+            "const": 4409,
+            "title": "replaced",
+            "description": "A newer connection for the same host took over."
+          },
+          {
+            "const": 4410,
+            "title": "ended",
+            "description": "The share ended, after an ended message. Do not reconnect."
+          },
+          {
+            "const": 4429,
+            "title": "overLimit",
+            "description": "Over a limit: too many messages, viewers or failed hellos. Wait at least 30 seconds."
+          },
+          {
+            "const": 1011,
+            "title": "serverError",
+            "description": "Something failed on the server. Reconnect with backoff."
+          },
+          {
+            "const": 1012,
+            "title": "restarting",
+            "description": "The server is restarting, after a bye message. Reconnect no sooner than its reconnectAfterMs."
+          },
+          {
+            "const": 1013,
+            "title": "overloaded",
+            "description": "The server has too many connections, or the connection stopped reading. Reconnect with backoff."
+          }
+        ]
+      },
+      "ShareEnded": {
+        "description": "The share ended. The server closes a viewer's connection with ShareCloseCode ended after it.",
+        "type": "object",
+        "properties": {
+          "type": { "const": "ended" },
+          "share": { "$ref": "#/components/schemas/ShareId" },
+          "reason": { "$ref": "#/components/schemas/ShareEndReason" }
+        },
+        "required": ["type", "share", "reason"],
+        "additionalProperties": false
+      },
+      "ShareEndReason": {
+        "description": "Why a share ended: the host stopped it or its chat ended, or it ran past its expiry.",
+        "type": "string",
+        "enum": ["stopped", "expired"]
+      },
+      "ShareFrame": {
+        "description": "One sealed frame of a share. A snapshot holds the whole chat as it stands, so a viewer starts over from it and the frames before it are no longer needed.",
+        "type": "object",
+        "properties": {
+          "seq": { "$ref": "#/components/schemas/ShareSeq" },
+          "snapshot": { "type": "boolean" },
+          "sealed": { "$ref": "#/components/schemas/Sealed" }
+        },
+        "required": ["seq", "snapshot", "sealed"],
+        "additionalProperties": false
+      },
+      "ShareFrames": {
+        "description": "To a viewer: frames in order. One with snapshot set replaces everything before it.",
+        "type": "object",
+        "properties": {
+          "type": { "const": "frames" },
+          "frames": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/ShareFrame" }
+          }
+        },
+        "required": ["type", "frames"],
+        "additionalProperties": false
+      },
+      "ShareHello": {
+        "description": "The first message on a share connection. A host sends its key and its Ed25519 signature over the UTF-8 text `sikemux-share|<nonce>|<key>`. A viewer sends a Clerk token from the web app, the phone or the Mac, the share it wants, and the last frame it holds, if any.",
+        "type": "object",
+        "properties": {
+          "type": { "const": "hello" },
+          "role": { "$ref": "#/components/schemas/ShareRole" },
+          "key": { "$ref": "#/components/schemas/DeviceKey" },
+          "signature": { "type": "string", "pattern": "^[0-9a-f]{128}$" },
+          "token": { "type": "string", "minLength": 1, "maxLength": 4096 },
+          "share": { "$ref": "#/components/schemas/ShareId" },
+          "since": { "$ref": "#/components/schemas/ShareSeq" }
+        },
+        "required": ["type", "role"],
+        "additionalProperties": false
+      },
+      "ShareHost": {
+        "description": "To a viewer: the sharing host connected or went away. Questions wait for it.",
+        "type": "object",
+        "properties": {
+          "type": { "const": "host" },
+          "online": { "type": "boolean" }
+        },
+        "required": ["type", "online"],
+        "additionalProperties": false
+      },
+      "ShareId": {
+        "description": "A shared chat's id: 16 random bytes the host picks, in unpadded base64url.",
+        "type": "string",
+        "pattern": "^[A-Za-z0-9_-]{22}$"
+      },
+      "ShareOpen": {
+        "description": "Host only: start a share. The server answers opened or refused.",
+        "type": "object",
+        "properties": {
+          "type": { "const": "open" },
+          "share": { "$ref": "#/components/schemas/ShareId" },
+          "expiresAt": { "type": "string", "format": "date-time" }
+        },
+        "required": ["type", "share", "expiresAt"],
+        "additionalProperties": false
+      },
+      "ShareOpened": {
+        "description": "To the host: the share is open and viewers may join.",
+        "type": "object",
+        "properties": {
+          "type": { "const": "opened" },
+          "share": { "$ref": "#/components/schemas/ShareId" }
+        },
+        "required": ["type", "share"],
+        "additionalProperties": false
+      },
+      "SharePing": {
+        "description": "Answer with pong.",
+        "type": "object",
+        "properties": { "type": { "const": "ping" } },
+        "required": ["type"],
+        "additionalProperties": false
+      },
+      "SharePong": {
+        "description": "The answer to ping.",
+        "type": "object",
+        "properties": { "type": { "const": "pong" } },
+        "required": ["type"],
+        "additionalProperties": false
+      },
+      "SharePublish": {
+        "description": "Host only: the share's next frame, for every viewer now and later.",
+        "type": "object",
+        "properties": {
+          "type": { "const": "publish" },
+          "share": { "$ref": "#/components/schemas/ShareId" },
+          "frame": { "$ref": "#/components/schemas/ShareFrame" }
+        },
+        "required": ["type", "share", "frame"],
+        "additionalProperties": false
+      },
+      "ShareReady": {
+        "description": "The hello was accepted. A viewer is sent the frames it does not hold next, from the latest snapshot on.",
+        "type": "object",
+        "properties": {
+          "type": { "const": "ready" },
+          "heartbeatMs": { "type": "integer", "minimum": 1 },
+          "expiresAt": {
+            "description": "Viewer only: when the share ends.",
+            "type": "string",
+            "format": "date-time"
+          },
+          "hostOnline": {
+            "description": "Viewer only: whether the sharing host is connected.",
+            "type": "boolean"
+          },
+          "authExpiresAt": {
+            "description": "Viewer only: send a fresh token in an auth message before this.",
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": ["type", "heartbeatMs"],
+        "additionalProperties": false
+      },
+      "ShareRefusal": {
+        "description": "Why the server would not open a share: the account has as many open as it may, the id is taken, or the expiry is not between now and seven days from now.",
+        "type": "string",
+        "enum": ["limit", "exists", "expiry"]
+      },
+      "ShareRefused": {
+        "description": "To the host: the share was not opened.",
+        "type": "object",
+        "properties": {
+          "type": { "const": "refused" },
+          "share": { "$ref": "#/components/schemas/ShareId" },
+          "reason": { "$ref": "#/components/schemas/ShareRefusal" }
+        },
+        "required": ["type", "share", "reason"],
+        "additionalProperties": false
+      },
+      "ShareRole": {
+        "description": "A host publishes its shared chats; a viewer watches one.",
+        "type": "string",
+        "enum": ["host", "viewer"]
+      },
+      "ShareSeq": {
+        "description": "A frame's place in its share. The host numbers frames from 1, one higher each time.",
+        "type": "integer",
+        "minimum": 1
+      },
+      "ShareServerMessage": {
+        "description": "What the server sends on a share connection.",
+        "type": "object",
+        "oneOf": [
+          { "$ref": "#/components/schemas/ShareChallenge" },
+          { "$ref": "#/components/schemas/ShareReady" },
+          { "$ref": "#/components/schemas/ShareOpened" },
+          { "$ref": "#/components/schemas/ShareRefused" },
+          { "$ref": "#/components/schemas/ShareViewers" },
+          { "$ref": "#/components/schemas/ShareAsked" },
+          { "$ref": "#/components/schemas/ShareWantsSnapshot" },
+          { "$ref": "#/components/schemas/ShareFrames" },
+          { "$ref": "#/components/schemas/ShareAnswered" },
+          { "$ref": "#/components/schemas/ShareHost" },
+          { "$ref": "#/components/schemas/ShareEnded" },
+          { "$ref": "#/components/schemas/SharePing" },
+          { "$ref": "#/components/schemas/ShareBye" }
+        ],
+        "discriminator": { "propertyName": "type" }
+      },
+      "ShareViewerId": {
+        "description": "One viewer's connection, as the server names it to the host.",
+        "type": "string",
+        "pattern": "^[A-Za-z0-9_-]{1,32}$"
+      },
+      "ShareViewers": {
+        "description": "To the host: how many viewers a share has now.",
+        "type": "object",
+        "properties": {
+          "type": { "const": "viewers" },
+          "share": { "$ref": "#/components/schemas/ShareId" },
+          "count": { "type": "integer", "minimum": 0 }
+        },
+        "required": ["type", "share", "count"],
+        "additionalProperties": false
+      },
+      "ShareWantsSnapshot": {
+        "description": "To the host: the server let go of the share's frames, so the next frame it publishes must be a snapshot.",
+        "type": "object",
+        "properties": {
+          "type": { "const": "snapshot" },
+          "share": { "$ref": "#/components/schemas/ShareId" }
+        },
+        "required": ["type", "share"],
+        "additionalProperties": false
       }
     },
     "securitySchemes": {

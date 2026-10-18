@@ -11,6 +11,7 @@ import type {
   DeviceRegistration,
   JoinRequest,
   JoinTicket,
+  PendingHost,
   PushApp,
   PushTokenRegistration,
   PushTokenState,
@@ -155,6 +156,22 @@ export async function joinTicket(token: TokenSource, host: string): Promise<Join
   const device = await deviceIdentity();
   const request: JoinRequest = { host };
   return call<JoinTicket>(token, `/v1/devices/${device.id()}/join`, { method: 'POST', body: request });
+}
+
+const hostSignIn = (code: string) => `/v1/host-sign-ins/${encodeURIComponent(code)}`;
+
+/** The host waiting behind the code `sikemux login` shows, to check before approving it. */
+export async function pendingHost(token: TokenSource, code: string): Promise<PendingHost> {
+  return call<PendingHost>(token, hostSignIn(code));
+}
+
+/** Adds the waiting host to the account; it finishes signing in on its next ask. */
+export async function approveHost(token: TokenSource, code: string): Promise<void> {
+  await call<null>(token, `${hostSignIn(code)}/approve`, { method: 'POST' });
+}
+
+export async function refuseHost(token: TokenSource, code: string): Promise<void> {
+  await call<null>(token, hostSignIn(code), { method: 'DELETE' });
 }
 
 /** Takes back the account's deletion while it can still be restored. */

@@ -11,6 +11,7 @@ pub enum AgentKind {
     Opencode,
     Omp,
     Grok,
+    Muse,
 }
 
 pub struct AgentEntry {
@@ -95,10 +96,20 @@ pub const AGENTS: &[AgentEntry] = &[
         deletable_chats: false,
         bypass: true,
     },
+    AgentEntry {
+        kind: "muse",
+        label: "Muse",
+        command: "muse",
+        brand: "#0081fb",
+        accounts: false,
+        usage: false,
+        deletable_chats: false,
+        bypass: true,
+    },
 ];
 
 impl AgentKind {
-    pub const ALL: [AgentKind; 7] = [
+    pub const ALL: [AgentKind; 8] = [
         AgentKind::Claude,
         AgentKind::Codex,
         AgentKind::Hermes,
@@ -106,6 +117,7 @@ impl AgentKind {
         AgentKind::Opencode,
         AgentKind::Omp,
         AgentKind::Grok,
+        AgentKind::Muse,
     ];
 
     pub fn entry(self) -> &'static AgentEntry {

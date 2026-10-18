@@ -2,13 +2,14 @@
 // (`offset` + `lastModified`) so each poll returns only the new bytes, with
 // per-entry step context (`stepctx`) the UI uses to filter by step.
 
+use std::collections::VecDeque;
 use std::time::Duration;
 
 use serde::{Deserialize, Deserializer, Serialize};
 use sikemux_plugin_api::{reply, PluginResult, StreamSink};
 use tokio::time::sleep;
 
-use crate::client::get_json;
+use crate::client::{get_json, Session};
 use crate::error::RundeckResult;
 
 #[derive(Serialize, Clone, Deserialize)]
@@ -108,6 +109,7 @@ fn next_delay(chunk: &LogChunk, back_to_back_reads: u32) -> Option<Duration> {
 /// Tail log output. Resumes at `offset` when given; otherwise `backlog`
 /// replays the last N lines, and 0 or None reads from the beginning.
 pub async fn logs(
+    session: Session,
     execution_id: u64,
     resume_offset: Option<String>,
     backlog: Option<u32>,
@@ -136,8 +138,12 @@ pub async fn logs(
         }
         first_pass = false;
 
-        let res: RundeckResult<LogChunk> =
-            get_json(&format!("/execution/{execution_id}/output"), &query).await;
+        let res: RundeckResult<LogChunk> = get_json(
+            &session,
+            &format!("/execution/{execution_id}/output"),
+            &query,
+        )
+        .await;
 
         let sleep_dur = match res {
             Ok(chunk) => {
@@ -184,6 +190,90 @@ pub async fn logs(
                 sleep(delay).await;
             }
             None => back_to_back_reads += 1,
+        }
+    }
+}
+
+const MOST_EXCERPT_LINES: usize = 2000;
+const LONGEST_LINE_CHARS: usize = 400;
+const MOST_LINES_SEARCHED: usize = 200_000;
+
+/// The end of an execution's output. `truncated` means earlier lines were left out.
+#[derive(Serialize)]
+pub struct Excerpt {
+    pub lines: Vec<String>,
+    pub completed: bool,
+    pub truncated: bool,
+}
+
+fn text_lines(entries: &[LogEntry]) -> impl Iterator<Item = String> + '_ {
+    entries
+        .iter()
+        .filter_map(|entry| entry.log.as_deref())
+        .flat_map(str::lines)
+        .map(|line| {
+            let mut clipped: String = line.chars().take(LONGEST_LINE_CHARS).collect();
+            if clipped.len() < line.len() {
+                clipped.push('…');
+            }
+            clipped
+        })
+}
+
+/// The last `tail` lines, of those containing `grep` when given, ignoring case.
+pub async fn excerpt(
+    session: &Session,
+    execution_id: u64,
+    tail: usize,
+    grep: Option<&str>,
+) -> RundeckResult<Excerpt> {
+    let tail = tail.clamp(1, MOST_EXCERPT_LINES);
+    let path = format!("/execution/{execution_id}/output");
+    let page = |position: (&'static str, String)| {
+        let query = vec![
+            ("format", "json".to_string()),
+            ("maxlines", MAX_LINES.to_string()),
+            position,
+        ];
+        let path = path.clone();
+        async move { get_json::<LogChunk>(session, &path, &query).await }
+    };
+    let grep = grep.map(str::to_lowercase).filter(|text| !text.is_empty());
+    let Some(grep) = grep else {
+        let chunk = page(("lastlines", tail.to_string())).await?;
+        let lines: Vec<String> = text_lines(&chunk.entries).collect();
+        let skip = lines.len().saturating_sub(tail);
+        return Ok(Excerpt {
+            truncated: lines.len() >= tail,
+            completed: chunk.exec_completed.unwrap_or(false),
+            lines: lines.into_iter().skip(skip).collect(),
+        });
+    };
+    let mut kept: VecDeque<String> = VecDeque::with_capacity(tail);
+    let mut truncated = false;
+    let mut searched = 0;
+    let mut offset = String::from("0");
+    loop {
+        let chunk = page(("offset", offset.clone())).await?;
+        searched += chunk.entries.len();
+        for line in text_lines(&chunk.entries).filter(|line| line.to_lowercase().contains(&grep)) {
+            if kept.len() == tail {
+                kept.pop_front();
+                truncated = true;
+            }
+            kept.push_back(line);
+        }
+        let moved = chunk.offset.as_ref().is_some_and(|next| *next != offset);
+        if let Some(next) = chunk.offset {
+            offset = next;
+        }
+        let read_all = chunk.entries.is_empty() || chunk.completed.unwrap_or(false) || !moved;
+        if read_all || searched >= MOST_LINES_SEARCHED {
+            return Ok(Excerpt {
+                lines: kept.into(),
+                completed: chunk.exec_completed.unwrap_or(false),
+                truncated: truncated || !read_all,
+            });
         }
     }
 }

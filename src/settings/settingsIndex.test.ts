@@ -14,7 +14,7 @@ describe("searchSettings", () => {
     });
 
     it("needs every word, in any order", () => {
-        expect(labels("codex profile")).toEqual(["Provider profiles", "Provider", "Codex default"]);
+        expect(labels("codex profile")).toEqual(["Provider profiles", "Provider"]);
         expect(labels("codex nightly")).toEqual([]);
     });
 

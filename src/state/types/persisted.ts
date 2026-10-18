@@ -1,4 +1,3 @@
-import type { AccountAgentType } from "../../agents/catalog";
 import type { Theme } from "../../themes";
 import type { CustomCommand } from "../../commands/registry";
 import type { KeybindingOverrides } from "../../commands/keybindings";
@@ -12,7 +11,10 @@ import type {
     ProviderProfile,
     ProviderProfileSelection,
     RailDensity,
-    AgentRailScope,
+    MidTurnSend,
+    TabRailScope,
+    TabRailPage,
+    PinnedChat,
     RecentEntry,
     Session,
     Window,
@@ -27,6 +29,8 @@ export type PersistedAgent = Pick<
     Agent,
     | "id"
     | "type"
+    | "name"
+    | "lead"
     | "title"
     | "resumeId"
     | "permissionMode"
@@ -34,12 +38,14 @@ export type PersistedAgent = Pick<
     | "executablePath"
     | "cwd"
     | "model"
+    | "modelProvider"
     | "effort"
     | "skipPermissions"
     | "keepAlive"
     | "renamed"
     | "worktree"
     | "ptyId"
+    | "buddy"
 >;
 
 export interface PersistedSnapshot {
@@ -66,7 +72,12 @@ export interface PersistedPrefs {
     customThemes?: Theme[];
     uiTextScale?: number;
     paneShader?: boolean;
+    buddies?: boolean;
+    buddyPack?: string;
+    buddyShape?: string;
+    buddyMotion?: boolean;
     paneImage?: string | null;
+    paneStrength?: number;
     terminalFontSize?: number;
     chatTextScale?: number;
     editorTextScale?: number;
@@ -76,9 +87,9 @@ export interface PersistedPrefs {
     cloudBrowserShortcut: string;
     keybindingOverrides?: KeybindingOverrides;
     sideRailOpen: boolean;
-    agentRailOpen: boolean;
+    tabRailOpen: boolean;
     sideRailWidth?: number;
-    agentRailWidth?: number;
+    tabRailWidth?: number;
     pluginSettings?: Record<string, unknown>;
     disabledPlugins?: string[];
     restoreAgentTabs?: boolean;
@@ -93,9 +104,11 @@ export interface PersistedPrefs {
     notificationsIntroduced?: boolean;
     keptRunningNoticeShown?: boolean;
     railDensity?: RailDensity;
-    agentRailAllAgents?: boolean;
-    accountAutoSwitch?: Partial<Record<AccountAgentType, boolean>>;
-    agentRailScope?: AgentRailScope;
+    midTurnSend?: MidTurnSend;
+    tabRailAllAgents?: boolean;
+    tabRailScope?: TabRailScope;
+    tabRailPage?: TabRailPage;
+    pinnedChats?: PinnedChat[];
     onboardingComplete?: boolean;
     lastSeenVersion?: string;
     customCommands?: CustomCommand[];
@@ -110,4 +123,5 @@ export interface PersistedPrefs {
     lastAgentType?: AgentType | null;
     languageServerTrust?: Record<string, boolean>;
     agentWorktreeDefaults?: Record<string, boolean>;
+    defaultGitRepos?: Record<string, string>;
 }

@@ -539,6 +539,7 @@ pub enum LiveServerMessage {
 #[serde(rename_all = "camelCase")]
 pub struct MinimumVersions {
     pub macos: ChannelVersions,
+    pub linux: ChannelVersions,
     pub ios: ChannelVersions,
     pub android: ChannelVersions,
 }
@@ -556,6 +557,8 @@ pub struct Network {
 pub enum Platform {
     #[serde(rename = "macos")]
     Macos,
+    #[serde(rename = "linux")]
+    Linux,
     #[serde(rename = "ios")]
     Ios,
     #[serde(rename = "android")]

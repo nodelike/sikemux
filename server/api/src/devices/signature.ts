@@ -17,6 +17,11 @@ export function liveMessage(nonce: string, key: string): string {
   return `sikemux-live|${nonce}|${key}`;
 }
 
+/** What a host signs to open a share connection. */
+export function shareMessage(nonce: string, key: string): string {
+  return `sikemux-share|${nonce}|${key}`;
+}
+
 /** What a phone signs to send its notifications to a token. The token goes in as its SHA-256, in hex. */
 export function pushTokenMessage(
   nonce: string,

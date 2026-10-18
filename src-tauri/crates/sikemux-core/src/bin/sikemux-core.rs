@@ -3,6 +3,9 @@
 
 #[cfg(unix)]
 fn main() {
+    if let Some(code) = sikemux_core::git_guard::shim::run_if_git() {
+        std::process::exit(code);
+    }
     let build = sikemux_core::protocol::BuildIdentity::new(
         env!("CARGO_PKG_VERSION"),
         "standalone",

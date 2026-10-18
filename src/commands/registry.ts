@@ -1,6 +1,7 @@
 import {
     keybindingActions,
-    keybindingLabelForAction,
+    resolvedKeybinding,
+    shortcutText,
     type KeybindingActionId,
     type KeybindingCategory,
     type KeybindingOverrides,
@@ -99,7 +100,8 @@ export function customCommandAvailable(command: CustomCommand, context?: Command
 export function buildBuiltinCommandEntries(keybindingOverrides: KeybindingOverrides, executeBuiltin: BuiltinCommandExecutor): BuiltinCommandEntry[] {
     return keybindingActions().map((action) => {
         const id = action.id as KeybindingActionId;
-        const shortcut = keybindingLabelForAction(keybindingOverrides, id);
+        const binding = resolvedKeybinding(keybindingOverrides, id);
+        const shortcut = binding ? shortcutText(binding) : "";
         return {
             kind: "builtin",
             key: `builtin:${id}`,

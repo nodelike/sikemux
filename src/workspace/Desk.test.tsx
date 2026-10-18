@@ -399,6 +399,7 @@ describe("DeskHost", () => {
        the pane, so nothing opens until it is on screen. */
     it("opens the tabs it was restored with, once, and shows the one that was in front", async () => {
         setState({ deskRestores: { "pane-desk": restored } } as never);
+        vi.mocked(browserApi.snapshot).mockResolvedValue({ tabs: [], activeTabId: null });
         vi.mocked(browserApi.newTab).mockImplementation(async (_agentId, url) => `tab-${url}`);
         const view = renderPane(false);
 
@@ -744,11 +745,15 @@ describe("DeskHost", () => {
         expect(browserApi.newTab).not.toHaveBeenCalled();
     });
 
-    it("keeps the pane when restored pages fail to open but it already holds a page", async () => {
-        setState({ deskRestores: { "pane-desk": { ...restored, activeIndex: 5 } } } as never);
+    it("keeps the pane when restored pages fail to open but it already holds a file", async () => {
+        setState({
+            deskRestores: { "pane-desk": { ...restored, activeIndex: 5 } },
+            desks: { "agent-one": { order: ["file:/repo/a.ts"], active: "file:/repo/a.ts", terminals: [], simulators: [], reveal: null } },
+            editorViews: { [deskEditorId("agent-one")]: { openTabs: ["/repo/a.ts"], activePath: "/repo/a.ts" } },
+        } as never);
+        vi.mocked(browserApi.snapshot).mockResolvedValue({ tabs: [], activeTabId: null });
         vi.mocked(browserApi.newTab).mockRejectedValue(new Error("no window"));
         renderPane();
-        await announceStrip(snapshot);
 
         await waitFor(() => expect(useToasts.getState().toasts.length).toBeGreaterThan(0));
         expect(onEmpty).not.toHaveBeenCalled();
@@ -756,11 +761,12 @@ describe("DeskHost", () => {
 
     it("brings no restored tab to the front when the saved front tab did not open", async () => {
         setState({ deskRestores: { "pane-desk": { ...restored, activeIndex: 5 } } } as never);
+        vi.mocked(browserApi.snapshot).mockResolvedValue({ tabs: [], activeTabId: null });
         vi.mocked(browserApi.newTab).mockImplementation(async (_agentId, url) => `tab-${url}`);
         renderPane();
 
         await waitFor(() => expect(browserApi.newTab).toHaveBeenCalledTimes(2));
-        await waitFor(() => expect(browserApi.snapshot).toHaveBeenCalledTimes(2));
+        await waitFor(() => expect(browserApi.snapshot).toHaveBeenCalledTimes(3));
         expect(browserApi.switchTab).not.toHaveBeenCalled();
     });
 

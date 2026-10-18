@@ -101,6 +101,8 @@ pub struct Pull {
     pub merge_commit_sha: Option<String>,
     pub avatars: BTreeMap<String, String>,
     pub url: String,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub builds: Vec<BuildStatus>,
 }
 
 fn state_of(raw: &str) -> &'static str {
@@ -170,6 +172,7 @@ impl Pull {
             merged_by: merged.then(|| login_of(row.closed_by.as_ref())).flatten(),
             merge_commit_sha: row.merge_commit.and_then(|commit| commit.hash),
             avatars,
+            builds: Vec::new(),
             url: row
                 .links
                 .html
@@ -179,9 +182,11 @@ impl Pull {
     }
 }
 
-#[derive(Deserialize)]
-struct BuildStatus {
+#[derive(Deserialize, Serialize)]
+pub struct BuildStatus {
+    name: Option<String>,
     state: Option<String>,
+    url: Option<String>,
 }
 
 /// Whether a pull request can merge, in GitHub's merge-state words. Bitbucket
@@ -245,6 +250,34 @@ pub async fn list(data_dir: &Path, input: ListQuery) -> BitbucketResult<Vec<Pull
         .into_iter()
         .map(|row| Pull::from_row(&input.repo, row))
         .collect())
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CommitRef {
+    #[serde(flatten)]
+    pub repo: RepoRef,
+    pub sha: String,
+}
+
+/// The pull requests that hold the commit `sha`, the merged one first.
+pub async fn of_commit(data_dir: &Path, input: CommitRef) -> BitbucketResult<Vec<Pull>> {
+    if !input.sha.chars().all(|c| c.is_ascii_hexdigit()) || input.sha.len() < 7 {
+        return Err(BitbucketError::BadArg(format!(
+            "`{}` is not a commit hash",
+            input.sha
+        )));
+    }
+    let path = input
+        .repo
+        .path(&format!("/commit/{}/pullrequests", input.sha))?;
+    let rows: Vec<PullRow> = client::get_all(data_dir, &path, &[], 1).await?;
+    let mut pulls: Vec<Pull> = rows
+        .into_iter()
+        .map(|row| Pull::from_row(&input.repo, row))
+        .collect();
+    pulls.sort_by_key(|pull| pull.state != "merged");
+    Ok(pulls)
 }
 
 #[derive(Deserialize)]
@@ -331,6 +364,7 @@ pub async fn get(data_dir: &Path, input: Thread) -> BitbucketResult<Pull> {
     pull.additions = Some(stats.iter().map(|stat| stat.lines_added).sum());
     pull.deletions = Some(stats.iter().map(|stat| stat.lines_removed).sum());
     pull.changed_files = Some(stats.len() as u64);
+    pull.builds = builds;
     Ok(pull)
 }
 
@@ -919,24 +953,43 @@ pub async fn timeline(data_dir: &Path, input: Thread) -> BitbucketResult<Vec<Tim
 pub struct Merge {
     #[serde(flatten)]
     pub thread: Thread,
-    pub method: String,
+    pub method: Option<String>,
     /// The head commit the person saw; the merge is refused if the branch has moved since.
     pub sha: String,
+    pub message: Option<String>,
 }
 
 fn strategy_of(method: &str) -> BitbucketResult<&'static str> {
     match method {
         "merge" => Ok("merge_commit"),
         "squash" => Ok("squash"),
+        "fast_forward" => Ok("fast_forward"),
         _ => Err(BitbucketError::Unsupported("merge that way")),
     }
+}
+
+/// Without a method or a message the body stays empty, so Bitbucket merges
+/// the way the repository is set to.
+fn merge_body(input: &Merge) -> BitbucketResult<Value> {
+    let mut body = serde_json::Map::new();
+    if let Some(method) = &input.method {
+        body.insert("merge_strategy".into(), strategy_of(method)?.into());
+    }
+    if let Some(message) = input
+        .message
+        .as_ref()
+        .filter(|message| !message.trim().is_empty())
+    {
+        body.insert("message".into(), message.clone().into());
+    }
+    Ok(Value::Object(body))
 }
 
 /// Bitbucket's merge takes no expected head, so the head is checked first.
 /// That leaves a moment in which a push can still slip in, which is the most
 /// its API allows.
 pub async fn merge(data_dir: &Path, input: Merge) -> BitbucketResult<()> {
-    let strategy = strategy_of(&input.method)?;
+    let body = merge_body(&input)?;
     let current = row(data_dir, &input.thread.repo, input.thread.number).await?;
     let head = current.source.commit.hash.unwrap_or_default();
     if head.is_empty() || !input.sha.starts_with(&head) {
@@ -946,12 +999,7 @@ pub async fn merge(data_dir: &Path, input: Merge) -> BitbucketResult<()> {
         });
     }
     let path = pull_path(&input.thread.repo, input.thread.number, "/merge")?;
-    client::post_empty(
-        data_dir,
-        &path,
-        Some(&json!({ "merge_strategy": strategy })),
-    )
-    .await
+    client::post_empty(data_dir, &path, Some(&body)).await
 }
 
 #[derive(Deserialize)]
@@ -966,6 +1014,8 @@ pub struct NewPull {
     pub body: String,
     #[serde(default)]
     pub draft: bool,
+    #[serde(default)]
+    pub close_branch: bool,
 }
 
 pub async fn create(data_dir: &Path, input: NewPull) -> BitbucketResult<Pull> {
@@ -975,6 +1025,7 @@ pub async fn create(data_dir: &Path, input: NewPull) -> BitbucketResult<Pull> {
         "source": { "branch": { "name": input.head } },
         "destination": { "branch": { "name": input.base } },
         "draft": input.draft,
+        "close_source_branch": input.close_branch,
     });
     let row: PullRow = client::send_json(
         data_dir,
@@ -984,6 +1035,40 @@ pub async fn create(data_dir: &Path, input: NewPull) -> BitbucketResult<Pull> {
     )
     .await?;
     Ok(Pull::from_row(&input.repo, row))
+}
+
+#[derive(Deserialize)]
+pub struct PullEdit {
+    #[serde(flatten)]
+    pub thread: Thread,
+    pub title: Option<String>,
+    pub body: Option<String>,
+    pub base: Option<String>,
+}
+
+/// Only the fields given change. Bitbucket wants the title on every update,
+/// so one left out is sent as it stands.
+pub async fn edit(data_dir: &Path, input: PullEdit) -> BitbucketResult<Pull> {
+    let title = match input.title {
+        Some(title) => title,
+        None => {
+            row(data_dir, &input.thread.repo, input.thread.number)
+                .await?
+                .title
+        }
+    };
+    let mut body = serde_json::Map::new();
+    body.insert("title".into(), title.into());
+    if let Some(description) = input.body {
+        body.insert("description".into(), description.into());
+    }
+    if let Some(base) = input.base {
+        body.insert("destination".into(), json!({ "branch": { "name": base } }));
+    }
+    let body = Value::Object(body);
+    let path = pull_path(&input.thread.repo, input.thread.number, "")?;
+    let row: PullRow = client::send_json(data_dir, Method::PUT, &path, &body).await?;
+    Ok(Pull::from_row(&input.thread.repo, row))
 }
 
 #[derive(Deserialize)]
@@ -1051,7 +1136,9 @@ mod tests {
         states
             .iter()
             .map(|state| BuildStatus {
+                name: None,
                 state: Some(state.to_string()),
+                url: None,
             })
             .collect()
     }
@@ -1389,9 +1476,10 @@ mod tests {
     }
 
     #[test]
-    fn only_merge_commits_and_squashes_are_offered() {
+    fn only_merge_commits_squashes_and_fast_forwards_are_offered() {
         assert_eq!(strategy_of("merge").ok(), Some("merge_commit"));
         assert_eq!(strategy_of("squash").ok(), Some("squash"));
+        assert_eq!(strategy_of("fast_forward").ok(), Some("fast_forward"));
         assert!(strategy_of("rebase").is_err());
     }
 }

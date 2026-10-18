@@ -24,7 +24,7 @@ async function settle() {
 }
 
 describe('UpdateController', () => {
-  it('checks and fetches on coming to the front, at most every half hour', async () => {
+  it('checks and fetches on coming to the front, at most every five minutes', async () => {
     deps.check.mockResolvedValue({ isAvailable: false });
     const updates = new UpdateController(deps);
     updates.foreground();

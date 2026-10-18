@@ -20,11 +20,12 @@ use ignore::{DirEntry, ParallelVisitor, ParallelVisitorBuilder, WalkBuilder, Wal
 use rayon::prelude::*;
 use regex::bytes::RegexBuilder as BytesRegexBuilder;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::fs;
 use std::io::{Read, Write};
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
-use std::sync::{Mutex, OnceLock};
+use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 
 use crate::error::{AppError, AppResult};
 use crate::files;
@@ -322,34 +323,51 @@ fn build_bytes_regex(query: &str, opts: &SearchOptions) -> AppResult<regex::byte
 // Scoping by repo lets two project search panes run independently instead of
 // cancelling each other.
 
-fn generations() -> &'static dashmap::DashMap<String, AtomicU64> {
-    static GENERATIONS: OnceLock<dashmap::DashMap<String, AtomicU64>> = OnceLock::new();
-    GENERATIONS.get_or_init(dashmap::DashMap::new)
+fn generations() -> &'static Mutex<HashMap<String, Arc<AtomicU64>>> {
+    static GENERATIONS: OnceLock<Mutex<HashMap<String, Arc<AtomicU64>>>> = OnceLock::new();
+    GENERATIONS.get_or_init(Default::default)
 }
 
-fn bump_generation(repo: &str) -> u64 {
-    let entry = generations()
-        .entry(repo.to_string())
-        .or_insert_with(|| AtomicU64::new(0));
-    entry.fetch_add(1, Ordering::SeqCst) + 1
-}
-
-fn is_current(repo: &str, gen: u64) -> bool {
+fn lock_generations() -> MutexGuard<'static, HashMap<String, Arc<AtomicU64>>> {
     generations()
-        .get(repo)
-        .map(|entry| entry.load(Ordering::Relaxed) == gen)
-        .unwrap_or(false)
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
-fn clear_generation(repo: &str, generation: u64) {
-    let _ = generations().remove_if(repo, |_, current| {
-        current.load(Ordering::Acquire) == generation
-    });
+/// One search's place in its repo's sequence. Workers hold the counter itself,
+/// so checking it costs one atomic load rather than a map lookup.
+struct Generation {
+    counter: Arc<AtomicU64>,
+    gen: u64,
+}
+
+impl Generation {
+    fn is_current(&self) -> bool {
+        self.counter.load(Ordering::Relaxed) == self.gen
+    }
+}
+
+fn bump_generation(repo: &str) -> Generation {
+    let counter = Arc::clone(lock_generations().entry(repo.to_string()).or_default());
+    let gen = counter.fetch_add(1, Ordering::SeqCst) + 1;
+    Generation { counter, gen }
+}
+
+fn clear_generation(repo: &str, generation: &Generation) {
+    let mut generations = lock_generations();
+    if generations
+        .get(repo)
+        .is_some_and(|counter| Arc::ptr_eq(counter, &generation.counter) && generation.is_current())
+    {
+        generations.remove(repo);
+    }
 }
 
 #[tauri::command]
 pub fn project_search_cancel(repo: String) {
-    generations().remove(&repo);
+    if let Some(counter) = lock_generations().remove(&repo) {
+        counter.fetch_add(1, Ordering::SeqCst);
+    }
 }
 
 // ---- walker construction (shared by search + replace) ------------------
@@ -399,10 +417,10 @@ pub async fn project_search(
     options: SearchOptions,
     on_file: tauri::ipc::Channel<SearchFile>,
 ) -> AppResult<SearchResults> {
-    let gen = bump_generation(&repo);
+    let generation = bump_generation(&repo);
 
     if query.is_empty() {
-        clear_generation(&repo, gen);
+        clear_generation(&repo, &generation);
         return Ok(SearchResults {
             files: vec![],
             file_count: 0,
@@ -414,12 +432,13 @@ pub async fn project_search(
     }
 
     let cleanup_repo = repo.clone();
-    let result = tauri::async_runtime::spawn_blocking(move || {
-        run_search(repo, query, options, on_file, gen)
+    let (result, generation) = tauri::async_runtime::spawn_blocking(move || {
+        let result = run_search(repo, query, options, on_file, &generation);
+        (result, generation)
     })
     .await
     .map_err(|e| AppError::Search(format!("join: {e}")))?;
-    clear_generation(&cleanup_repo, gen);
+    clear_generation(&cleanup_repo, &generation);
     result
 }
 
@@ -428,7 +447,7 @@ fn run_search(
     query: String,
     options: SearchOptions,
     on_file: tauri::ipc::Channel<SearchFile>,
-    gen: u64,
+    generation: &Generation,
 ) -> AppResult<SearchResults> {
     let started = std::time::Instant::now();
     let matcher = build_matcher(&query, &options)?;
@@ -450,7 +469,7 @@ fn run_search(
         file_count: &'a AtomicU64,
         truncated: &'a std::sync::atomic::AtomicBool,
         cancelled: &'a std::sync::atomic::AtomicBool,
-        gen: u64,
+        generation: &'a Generation,
     }
 
     impl<'s, 'a: 's> ParallelVisitorBuilder<'s> for Builder<'a> {
@@ -465,7 +484,7 @@ fn run_search(
                 file_count: self.file_count,
                 truncated: self.truncated,
                 cancelled: self.cancelled,
-                gen: self.gen,
+                generation: self.generation,
                 searcher: {
                     let mut s = Searcher::new();
                     s.set_binary_detection(BinaryDetection::quit(b'\x00'));
@@ -485,14 +504,14 @@ fn run_search(
         file_count: &'a AtomicU64,
         truncated: &'a std::sync::atomic::AtomicBool,
         cancelled: &'a std::sync::atomic::AtomicBool,
-        gen: u64,
+        generation: &'a Generation,
         searcher: Searcher,
     }
 
     impl<'a> ParallelVisitor for Visitor<'a> {
         fn visit(&mut self, entry: Result<DirEntry, ignore::Error>) -> WalkState {
             // Cheap fast-path bails before any per-entry work.
-            if !is_current(self.repo, self.gen) {
+            if !self.generation.is_current() {
                 self.cancelled.store(true, Ordering::Relaxed);
                 return WalkState::Quit;
             }
@@ -579,7 +598,7 @@ fn run_search(
         file_count: &file_count,
         truncated: &truncated,
         cancelled: &cancelled,
-        gen,
+        generation,
     };
     build_walker(&repo).visit(&mut builder);
 

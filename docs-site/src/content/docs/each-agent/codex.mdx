@@ -1,0 +1,47 @@
+---
+title: Codex
+description: "OpenAI's coding agent in Sikemux: install, sign-in, chats, accounts, limits and skills."
+---
+
+Codex is OpenAI's coding agent. Sikemux runs the `codex` CLI, signed in with ChatGPT or an API key.
+
+## At a glance
+
+| | |
+|---|---|
+| Command | `codex` |
+| Chat in Sikemux | Yes, and its own TUI |
+| Permission modes | Normal and YOLO |
+| Effort levels | minimal, low, medium, high, xhigh, max |
+| Several accounts | Yes |
+| Plan limits in the rail | Yes |
+
+## Install
+
+Click **Install** beside Codex on the welcome screen, or run:
+
+```bash
+curl -fsSL https://chatgpt.com/codex/install.sh | sh
+```
+
+It installs to `~/.local/bin/codex`. On a Mac, Sikemux also finds the copy of Codex inside the ChatGPT app.
+
+## Sign in
+
+```bash
+codex login
+```
+
+This opens your browser to sign in with ChatGPT. Sikemux checks the sign-in with Codex itself and never stores your credentials.
+
+## How Sikemux runs it
+
+A Codex chat talks to `codex app-server`, Codex's own JSON-RPC server. Every step Codex takes (messages, commands, file changes, plans) shows up in the chat as it happens. Switch to **TUI** for Codex's terminal interface.
+
+## Accounts and limits
+
+Each Codex account is its own `CODEX_HOME` folder. Add one in **Settings → Agents → Codex → Another account**. The rail's **Limits** shows each rate-limit window Codex reports for the selected account, with its reset time.
+
+## Skills
+
+`/skills` in a Codex chat lists the skills Codex can use there, including the Sikemux library.

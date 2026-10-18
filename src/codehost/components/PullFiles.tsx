@@ -11,7 +11,7 @@ import { joinPath } from "../../lib/paths";
 import { copyText } from "../../lib/clipboard";
 import { reportError } from "../../state/toast";
 import { useResourceEnabled } from "../../plugin-api/resources";
-import { EmptyState, SkeletonRows } from "../../plugin-api/ui";
+import { EmptyState, IconCopy, IconMessage, SkeletonRows } from "../../plugin-api/ui";
 import { FileReviewList } from "../../git/FileReviewList";
 import { hostFileStatus } from "../../git/gitFileStatus";
 import { failureMessage, type ChangedFile, type RepoRef } from "../api";
@@ -63,10 +63,12 @@ const FileDiff = memo(function FileDiff({ file, dark, pull, cwd }: { file: Chang
                     items={[
                         {
                             label: "Copy Lines",
+                            icon: <IconCopy size={13} />,
                             run: () => void copyText(picked.map((row) => row[2]).join("\n")).catch(reportError("copy")),
                         },
                         {
                             label: picked.length === 1 ? "Send Line to Agent…" : "Send Lines to Agent…",
+                            icon: <IconMessage size={13} />,
                             run: () => setMenu({ ...menu, sending: true }),
                         },
                     ]}

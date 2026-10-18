@@ -44,10 +44,11 @@
       "type": "object",
       "properties": {
         "macos": { "$ref": "#/$defs/ChannelVersions" },
+        "linux": { "$ref": "#/$defs/ChannelVersions" },
         "ios": { "$ref": "#/$defs/ChannelVersions" },
         "android": { "$ref": "#/$defs/ChannelVersions" }
       },
-      "required": ["macos", "ios", "android"],
+      "required": ["macos", "linux", "ios", "android"],
       "additionalProperties": false
     },
     "ChannelVersions": {

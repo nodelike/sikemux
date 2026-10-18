@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { fsapi, type PathKind } from "../api/fs";
+import { useRemoteOrigin } from "./origin";
 
 export type PathState = PathKind | "missing";
 
@@ -82,9 +83,10 @@ export function forgetPathState(path?: string): void {
  * across every reference on screen and the answer is kept.
  */
 export function usePathState(path: string | null): PathState | null {
-    const [state, setState] = useState<PathState | null>(() => (path ? cached(path) : null));
+    const remote = useRemoteOrigin() !== null;
+    const [state, setState] = useState<PathState | null>(() => (path && !remote ? cached(path) : null));
     useEffect(() => {
-        if (!path) {
+        if (!path || remote) {
             setState(null);
             return;
         }
@@ -102,6 +104,8 @@ export function usePathState(path: string | null): PathState | null {
             live = false;
             stop();
         };
-    }, [path]);
+    }, [path, remote]);
+    // Another computer's files cannot be looked up here, so what names a path is taken to be one.
+    if (path && remote) return path.endsWith("/") ? "dir" : "file";
     return state;
 }

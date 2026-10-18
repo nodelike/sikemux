@@ -1,6 +1,6 @@
 export * from "../ui/Icons";
 export { Checkbox, Switch } from "../ui/Controls";
-export { Filter, Seg, type SegOption } from "./Controls";
+export { Filter, Seg, StaleNotice, type SegOption } from "./Controls";
 export { Dropdown, type DropdownOption } from "../ui/Dropdown";
 export { EmptyState } from "../ui/Panel";
 export { Markdown, type ProseImageLoader } from "./Prose";
@@ -16,3 +16,5 @@ export { SendToAgentMenu, sendToAgentItems, useAgentChoices } from "../agents/Se
 export { codeFence, type AgentChoice } from "../agents/agentTargets";
 export type { AgentDelivery } from "../agents/agentInbox";
 export { TreeContextMenu as ContextMenu, type CtxItem as ContextMenuItem } from "../rail/FileTree";
+export { useCardDrag } from "../ui/kanbanDrag";
+export { ResizeHandle } from "../git/ResizeHandle";

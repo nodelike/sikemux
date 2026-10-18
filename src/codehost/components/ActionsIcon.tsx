@@ -1,46 +1,50 @@
-import { IconCheck, IconClock, IconClose, IconPullRequest, IconRun, IconStop, IconWarning } from "../../plugin-api/ui";
+import { IconPullRequest } from "../../plugin-api/ui";
 import { OUTCOME_LABEL, type Outcome } from "../runStatus";
 import type { Section } from "../state";
+import "../styles/marks.css";
 
-const GLYPH: Record<Outcome, typeof IconCheck> = {
-    running: IconRun,
-    queued: IconClock,
-    success: IconCheck,
-    failure: IconClose,
-    cancelled: IconStop,
-    skipped: IconClock,
-    blocked: IconWarning,
-    unknown: IconWarning,
+/** An outcome, or a job a run will make but has not started yet. */
+export type Mark = Outcome | "idle";
+
+const INNER: Partial<Record<Mark, string>> = {
+    success: "m5.2 8.2 1.9 1.9 3.7-3.9",
+    failure: "m5.8 5.8 4.4 4.4m0-4.4-4.4 4.4",
+    cancelled: "M5.6 10.4 10.4 5.6",
+    skipped: "M5.6 10.4 10.4 5.6",
 };
 
-export function OutcomeIcon({ outcome, size = 13 }: { outcome: Outcome; size?: number }) {
-    const Glyph = GLYPH[outcome];
+/**
+ * How a run, job, step or check is going, as GitHub draws it: a filled circle with its tick, cross or slash once it
+ * ends, an amber dot while it waits, an amber ring spinning while it runs, and an empty circle before it starts.
+ */
+export function StatusMark({ outcome, size = 14 }: { outcome: Mark; size?: number }) {
+    const label = outcome === "idle" ? "Not started" : OUTCOME_LABEL[outcome];
+    const inner = INNER[outcome];
+    const style = { "--mark": `${size}px` } as React.CSSProperties;
+    if (outcome === "running" || outcome === "queued" || outcome === "blocked")
+        return (
+            <span className="status-mark" data-outcome={outcome} style={style} role="img" aria-label={label} title={label}>
+                <span className="pr-ci-pending" data-outcome={outcome === "running" ? "running" : "queued"} />
+            </span>
+        );
     return (
-        <span className="gha-outcome" data-outcome={outcome} title={OUTCOME_LABEL[outcome]} aria-label={OUTCOME_LABEL[outcome]} role="img">
-            <Glyph size={size} />
-        </span>
-    );
-}
-
-const RING_MARK: Record<Outcome, React.ReactNode> = {
-    running: <path d="M6.9 5.7 10.3 8l-3.4 2.3z" fill="currentColor" stroke="none" />,
-    queued: <path d="M8 5.2V8l1.8 1.2" />,
-    success: <path d="m5.4 8.2 1.8 1.8 3.5-3.7" />,
-    failure: <path d="m5.9 5.9 4.2 4.2m0-4.2-4.2 4.2" />,
-    cancelled: <path d="M5.6 10.4 10.4 5.6" />,
-    skipped: <path d="M5.4 8h5.2" />,
-    blocked: <path d="M8 5.2v3.3M8 10.6v.1" />,
-    unknown: <path d="M8 5.2v3.3M8 10.6v.1" />,
-};
-
-/** How a run went, as Bitbucket draws it: the mark inside a ring. */
-export function RingedOutcome({ outcome, size = 16 }: { outcome: Outcome; size?: number }) {
-    return (
-        <span className="gha-outcome" data-outcome={outcome} title={OUTCOME_LABEL[outcome]} aria-label={OUTCOME_LABEL[outcome]} role="img">
-            <Stroke size={size}>
-                <circle cx="8" cy="8" r="6.3" />
-                {RING_MARK[outcome]}
-            </Stroke>
+        <span className="status-mark" data-outcome={outcome} style={style} role="img" aria-label={label} title={label}>
+            <svg
+                width={size}
+                height={size}
+                viewBox="0 0 16 16"
+                fill="none"
+                strokeWidth={1.6}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true">
+                {inner ? (
+                    <circle cx="8" cy="8" r="7.2" fill="currentColor" />
+                ) : (
+                    <circle cx="8" cy="8" r="6.4" stroke="currentColor" strokeWidth={1.3} />
+                )}
+                {inner && <path d={inner} className="status-mark-inner" />}
+            </svg>
         </span>
     );
 }
@@ -105,15 +109,6 @@ export function SectionIcon({ section, size = 14 }: { section: Section; size?: n
                 </Stroke>
             );
     }
-}
-
-export function SignOutIcon({ size = 14 }: { size?: number }) {
-    return (
-        <Stroke size={size}>
-            <path d="M6.5 2.5H4a1.5 1.5 0 0 0-1.5 1.5v8A1.5 1.5 0 0 0 4 13.5h2.5" />
-            <path d="M10.5 5 13.5 8l-3 3M13.5 8H6.5" />
-        </Stroke>
-    );
 }
 
 export function NotPlannedIcon({ size = 14 }: { size?: number }) {

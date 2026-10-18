@@ -1,0 +1,41 @@
+---
+import { render } from "astro:content";
+import type { TOCItemType } from "fumadocs-core/toc";
+import { Docs } from "@/components/docs";
+import { mdxComponents } from "@/components/mdx";
+import Layout from "@/components/layout.astro";
+import { markdownUrl, source } from "@/lib/source";
+
+export function getStaticPaths() {
+  return source.getPages().map((page) => ({
+    params: { slug: page.slugs.length > 0 ? page.slugs.join("/") : undefined },
+    props: { slugs: page.slugs },
+  }));
+}
+
+const page = source.getPage(Astro.props.slugs)!;
+const { entry, title, description } = page.data;
+const { Content, headings } = await render(entry);
+const toc: TOCItemType[] = headings.map((heading) => ({
+  depth: heading.depth,
+  title: heading.text,
+  url: `#${heading.slug}`,
+}));
+---
+
+<Layout title={page.slugs.length > 0 ? `${title} · Sikemux` : title} description={description}>
+  <Docs
+    client:load
+    tree={source.getPageTree()}
+    pathname={Astro.url.pathname}
+    params={Astro.params}
+    title={title}
+    description={description}
+    toc={toc}
+    markdownUrl={markdownUrl(page.slugs)}
+    kind={page.slugs.length === 0 ? "landing" : "page"}
+    editUrl={`https://github.com/nodelike/sikemux/edit/main/docs-site/src/content/docs/${page.path}`}
+  >
+    <Content components={mdxComponents} />
+  </Docs>
+</Layout>

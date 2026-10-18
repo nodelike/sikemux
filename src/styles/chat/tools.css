@@ -21,7 +21,7 @@
     height: 22px;
     margin-left: -6px;
     padding: 0 6px;
-    border-radius: var(--radius-1);
+    border-radius: var(--radius-2);
     color: var(--ink-dim);
 }
 
@@ -359,6 +359,8 @@ button.chat-tool:hover > .chat-tool-line::after,
 }
 
 .chat-tool-output pre {
+    max-height: 420px;
+    overflow-y: auto;
     padding: 6px 30px 7px 9px;
     color: var(--ink-dim);
 }

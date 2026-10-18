@@ -135,6 +135,9 @@ impl Session {
     ) -> (Arc<Self>, mpsc::UnboundedReceiver<InputJob>) {
         let (input, input_jobs) = mpsc::unbounded_channel();
         let reported = parts.exit.is_some();
+        if let (Some(pid), Some(agent_id), false) = (parts.pid, &parts.owner.agent_id, reported) {
+            super::callers::started(pid, agent_id);
+        }
         let session = Arc::new(Session {
             id: parts.id,
             kind: parts.kind,
@@ -230,10 +233,17 @@ impl Session {
     }
 
     pub(crate) fn info(&self) -> SessionInfo {
-        let (rows, cols) = self
+        let ((rows, cols), ssh) = self
             .parser
             .lock()
-            .map(|parser| parser.screen().size())
+            .map(|parser| {
+                let ssh = parser
+                    .callbacks()
+                    .shell
+                    .as_ref()
+                    .and_then(|shell| shell.ssh());
+                (parser.screen().size(), ssh)
+            })
             .unwrap_or_default();
         SessionInfo {
             id: self.id,
@@ -246,6 +256,7 @@ impl Session {
             project: self.owner.project.clone(),
             pane_id: self.owner.pane_id.clone(),
             agent_id: self.owner.agent_id.clone(),
+            agent_name: None,
             agent_type: self.owner.agent_type.clone(),
             task_execution_id: self.owner.task_execution_id.clone(),
             agent_state: self
@@ -263,6 +274,7 @@ impl Session {
             group: None,
             status: None,
             attention_rank: None,
+            ssh,
         }
     }
 }
@@ -333,6 +345,7 @@ pub(crate) fn spawn_session(core: &Arc<Core>, launch: PreparedLaunch) -> CoreRes
         kind,
         owner,
         shell_integration,
+        ssh,
         initial_prompt_submitted,
         continues,
     } = launch;
@@ -350,7 +363,7 @@ pub(crate) fn spawn_session(core: &Arc<Core>, launch: PreparedLaunch) -> CoreRes
             pixel_height: 0,
         })
         .map_err(CoreError::pty)?;
-    let shell_metadata_enabled = shell_integration.is_some();
+    let shell_metadata_enabled = shell_integration.is_some() || ssh;
 
     let child = pair.slave.spawn_command(command).map_err(CoreError::pty)?;
     let pid = child.process_id();
@@ -750,14 +763,26 @@ pub(crate) fn report_exit(core: &Core, session: &Session, status: Option<&ExitSt
         _ => None,
     };
     if session.is_task() {
-        core.harness.session_exited(session.id, code, signal);
+        if let Some(failed) = core.harness.session_exited(session.id, code, signal) {
+            super::harness::tell_agent_run_failed(core, failed);
+        }
     }
     if let Some(agent) = session.agent.as_ref() {
+        let mid_turn = agent.busy();
         agent::note_exit(core, agent, status);
-        if let Some(reason) = failed.filter(|_| !session.is_killed()) {
-            core.note_activity(
+        let failed = failed.filter(|_| !session.is_killed());
+        if let Some(reason) = &failed {
+            core.note_activity(agent.agent_id(), super::activity::Activity::Problem(reason));
+        }
+        core.note_agent_gone(agent.agent_id());
+        if mid_turn || !session.is_killed() {
+            super::spawn::terminal_turn_ended(
+                core,
                 agent.agent_id(),
-                super::activity::Activity::Problem(&reason),
+                super::spawn::Ending::Gone {
+                    reason: failed,
+                    mid_turn,
+                },
             );
         }
     }
@@ -804,6 +829,12 @@ fn broadcast_output(core: &Arc<Core>, session: &Session, bytes: &[u8]) {
     drop(parser);
     if let Some(update) = shell_output.ready {
         core.broadcast_event(&Event::ShellMetadata(update.into_event(session.id)));
+    }
+    if let Some(link) = shell_output.ssh {
+        core.broadcast_event(&Event::SshLink {
+            id: session.id,
+            link,
+        });
     }
 }
 

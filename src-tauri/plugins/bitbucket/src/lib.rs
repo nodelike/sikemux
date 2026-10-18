@@ -7,6 +7,7 @@
 //   auth      — signing in and out, and who the app is talking to Bitbucket as
 //   repo      — a git remote turned into workspace and repository
 //   pulls     — pull requests, their files, commits and history, and merging one
+//   review    — what reviewers asked of a pull request, and answering it
 //   issues    — the issue tracker, tags as releases, and the inbox of pull requests waiting
 //   pipelines — pipelines as runs, their steps as jobs, and starting one
 //   watch     — following a pipeline while it is going
@@ -24,6 +25,7 @@ mod pipelines;
 mod pulls;
 mod ratelimit;
 mod repo;
+mod review;
 mod watch;
 
 use std::sync::Arc;
@@ -204,6 +206,7 @@ fn dispatch<'a>(ctx: &'a PluginContext, method: &'a str, input: Value) -> Plugin
         "pull" => answer(input, move |q| pulls::get(data_dir, q)),
         "pullFiles" => answer(input, move |q| pulls::files(data_dir, q)),
         "pullCommits" => answer(input, move |q| pulls::commits(data_dir, q)),
+        "commitPulls" => answer(input, move |q| pulls::of_commit(data_dir, q)),
         "commitAuthors" => answer(input, move |q| pulls::commit_authors(data_dir, q)),
         "pullReviews" => answer(input, move |q| pulls::reviews(data_dir, q)),
         "timeline" if is_issue(&input) => answer(input, move |q| issues::timeline(data_dir, q)),
@@ -225,8 +228,11 @@ fn dispatch<'a>(ctx: &'a PluginContext, method: &'a str, input: Value) -> Plugin
         "markAllRead" => Box::pin(async move { reply(issues::mark_all_read(data_dir).await?) }),
         "mergePull" => answer(input, move |q| pulls::merge(data_dir, q)),
         "createPull" => answer(input, move |q| pulls::create(data_dir, q)),
+        "editPull" => answer(input, move |q| pulls::edit(data_dir, q)),
         "setPullState" => answer(input, move |q| pulls::set_state(data_dir, q)),
         "reviewPull" => answer(input, move |q| pulls::review(data_dir, q)),
+        "reviewFeedback" => answer(input, move |q| review::feedback(data_dir, q)),
+        "answerReview" => answer(input, move |q| review::answer(data_dir, q)),
 
         _ => Box::pin(async move { Err(PluginError::unknown_method(method)) }),
     }

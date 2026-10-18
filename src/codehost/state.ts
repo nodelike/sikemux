@@ -9,6 +9,11 @@ export type StatusFilter = (typeof STATUS_FILTERS)[number];
 export const SECTIONS = ["pulls", "actions", "issues", "releases", "inbox"] as const;
 export type Section = (typeof SECTIONS)[number];
 
+/** The sections the project tree lists under Git, which open as screens of their own rather than as tabs in the Git pane. */
+export const TREE_SECTIONS = ["pulls", "issues", "actions", "releases"] as const satisfies readonly Section[];
+export type TreeSection = (typeof TREE_SECTIONS)[number];
+export const isTreeSection = (area: string): area is TreeSection => (TREE_SECTIONS as readonly string[]).includes(area);
+
 export interface HostSettings {
     pinned: string[];
     /** A repository picked by hand for a project folder, which wins over what its remote says. */

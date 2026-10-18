@@ -59,27 +59,114 @@
         cursor: pointer;
       }
 
-      input {
+      input,
+      .shot,
+      .has-screenshot iframe {
         display: none;
+      }
+
+      /* An uploaded screenshot fills the stage, with a blurred copy of itself behind the margins. */
+      .shot {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+      }
+
+      .has-screenshot .shot {
+        display: block;
+      }
+
+      .shot.is-backdrop {
+        object-fit: cover;
+        filter: blur(48px) brightness(0.8);
+        transform: scale(1.15);
+      }
+
+      .shot.is-front {
+        object-fit: contain;
+      }
+
+      /* The island hangs from the top edge of the screen, as it does from a MacBook's notch. */
+      .notch {
+        position: absolute;
+        top: 0;
+        left: 50%;
+        width: 760px;
+        transform: translateX(-50%);
+        pointer-events: none;
+      }
+
+      .notch:not([src]) {
+        display: none;
+      }
+
+      /* The window drops below the closed island, leaving a gap. */
+      .has-notch iframe {
+        top: 54px;
+        height: calc(100% - 81px);
+      }
+
+      .app-view {
+        display: none;
+      }
+
+      .has-screenshot .app-view {
+        display: block;
       }
     </style>
   </head>
   <body>
     <div class="stage">
       <iframe src="/showcase/?play" title="Sikemux"></iframe>
+      <img class="shot is-backdrop" alt="" />
+      <img class="shot is-front" alt="" />
+      <img class="notch" alt="" />
     </div>
     <div class="controls">
       <button type="button" class="wallpaper">Wallpaper</button>
+      <button type="button" class="screenshot">Screenshot</button>
+      <button type="button" class="app-view">App</button>
+      <button type="button" class="notch-view">Notch</button>
       <button type="button" data-layout="landscape">Landscape</button>
       <button type="button" data-layout="thirds">Thirds</button>
-      <input type="file" accept="image/*" />
+      <input type="file" class="wallpaper-picker" accept="image/*" />
+      <input type="file" class="screenshot-picker" accept="image/*" />
     </div>
     <script type="module">
       const stage = document.querySelector(".stage");
-      const picker = document.querySelector("input");
+      const picker = document.querySelector(".wallpaper-picker");
+      const shotPicker = document.querySelector(".screenshot-picker");
       const app = document.querySelector("iframe").contentWindow;
 
-      if (location.search.includes("capture")) {
+      function showScreenshot() {
+        const src = `/__showcase/screenshot?v=${Date.now()}`;
+        for (const image of document.querySelectorAll(".shot")) image.src = src;
+        document.documentElement.classList.add("has-screenshot");
+      }
+
+      const params = new URLSearchParams(location.search);
+      if (params.has("screenshot")) showScreenshot();
+
+      const NOTCH_STATES = { closed: "C3-needs-you", open: "O1-inbox", off: null };
+      const notchButton = document.querySelector(".notch-view");
+      let notch = params.get("notch") ?? "closed";
+      function showNotch() {
+        const image = document.querySelector(".notch");
+        const state = NOTCH_STATES[notch];
+        if (state) image.src = `/__showcase/notch/${state}.png`;
+        else image.removeAttribute("src");
+        document.documentElement.classList.toggle("has-notch", Boolean(state));
+        notchButton.textContent = `Notch: ${notch}`;
+      }
+      notchButton.addEventListener("click", () => {
+        const names = Object.keys(NOTCH_STATES);
+        notch = names[(names.indexOf(notch) + 1) % names.length];
+        showNotch();
+      });
+      showNotch();
+
+      if (params.has("capture")) {
         document.documentElement.classList.add("is-capturing");
       } else {
         const fit = () =>
@@ -103,11 +190,29 @@
         picker.value = "";
       });
 
+      document.querySelector(".screenshot").addEventListener("click", () =>
+        shotPicker.click(),
+      );
+      shotPicker.addEventListener("change", async () => {
+        const [file] = shotPicker.files;
+        if (!file) return;
+        await fetch("/__showcase/screenshot", { method: "POST", body: file });
+        showScreenshot();
+        shotPicker.value = "";
+      });
+      document.querySelector(".app-view").addEventListener("click", () =>
+        document.documentElement.classList.remove("has-screenshot"),
+      );
+
       // A page cannot screenshot itself, so the showcase server renders this view in its own Chrome.
       async function saveOnServer(layout) {
         const response = await fetch("/__showcase/snapshot", {
           method: "POST",
-          body: JSON.stringify({ state: app.showcase.store.getState(), layout }),
+          body: JSON.stringify(
+            document.documentElement.classList.contains("has-screenshot")
+              ? { screenshot: true, layout, notch }
+              : { state: app.showcase.store.getState(), layout, notch },
+          ),
         });
         const saved = await response.json();
         if (!response.ok) throw new Error(saved.error);

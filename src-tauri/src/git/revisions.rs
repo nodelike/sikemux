@@ -50,13 +50,13 @@ type FileAtKey = (String, String, String);
 
 #[derive(Default)]
 struct FileAtCache {
-    entries: linked_hash_map::LinkedHashMap<FileAtKey, String>,
+    entries: hashlink::LinkedHashMap<FileAtKey, String>,
     bytes: usize,
 }
 
 impl FileAtCache {
     fn get(&mut self, key: &FileAtKey) -> Option<String> {
-        self.entries.get_refresh(key).cloned()
+        self.entries.to_back(key).cloned()
     }
 
     fn insert(&mut self, key: FileAtKey, content: String) {

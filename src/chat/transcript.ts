@@ -1,6 +1,8 @@
-import { splitSentContext, type SentContext } from "./promptContext";
+import { tokenCount } from "./contextUsage";
+import { isMention, splitSentContext, type SentContext } from "./promptContext";
 import { toolKind, toolTarget } from "./toolLabels";
-import type { AcpAsyncTask, AcpSubagent, ChatMessage, ChatPart } from "./types";
+import { callCount } from "./toolView";
+import type { AcpAsyncTask, AcpSubagent, AcpWorkflowAgent, ChatMessage, ChatPart } from "./types";
 
 const MAX_DETAIL_CHARS = 120_000;
 
@@ -62,7 +64,8 @@ export function sentParts(message: ChatMessage): { parts: ChatPart[]; context: S
         context.push(...split.context);
         if (split.text) parts.push(split.context.length ? { ...part, text: split.text } : part);
     }
-    return { parts, context: context.filter((item, index) => context.findIndex((other) => other.uri === item.uri) === index) };
+    const shown = context.filter((item) => !isMention(item.uri));
+    return { parts, context: shown.filter((item, index) => shown.findIndex((other) => other.uri === item.uri) === index) };
 }
 
 export type PartGroup = { id: string; tools: Extract<ChatPart, { kind: "tool" }>[] } | { id: string; part: ChatPart };
@@ -228,6 +231,16 @@ export function subagentActivity(subagent: AcpSubagent): string {
     return subagentTask(subagent.task);
 }
 
+export function subagentsById(messages: ChatMessage[], found = new Map<string, AcpSubagent>()): Map<string, AcpSubagent> {
+    for (const message of messages)
+        for (const part of message.parts)
+            if (part.kind === "subagent") {
+                found.set(part.subagent.sessionId, part.subagent);
+                subagentsById(part.subagent.messages, found);
+            }
+    return found;
+}
+
 export function runningSubagents(messages: ChatMessage[]): AcpSubagent[] {
     const running: AcpSubagent[] = [];
     for (const message of messages)
@@ -240,6 +253,29 @@ export function runningSubagents(messages: ChatMessage[]): AcpSubagent[] {
 export function taskDetail(task: AcpAsyncTask): string | undefined {
     const detail = [task.summary, task.description, task.lastToolName, task.taskType].find((text) => text && text !== task.name);
     return [task.owner && `from ${task.owner}`, detail].filter(Boolean).join(" · ") || undefined;
+}
+
+/* A running agent says what it is doing; one that ended says which phase it was in. */
+export function workflowAgentDetail(agent: AcpWorkflowAgent): string | undefined {
+    if (agent.state === "failed") return agent.error ?? agent.phase;
+    if (agent.state === "running" && agent.activity) return agent.activity;
+    return agent.phase;
+}
+
+export function workflowAgentCost(agent: AcpWorkflowAgent): string | undefined {
+    const cost = [agent.tokens && `${tokenCount(agent.tokens)} tokens`, agent.toolCalls && `${agent.toolCalls} tools`];
+    return cost.filter(Boolean).join(" · ") || undefined;
+}
+
+export function workflowAgentCount(agents: AcpWorkflowAgent[]): string {
+    const finished = agents.filter((agent) => agent.state === "completed" || agent.state === "failed").length;
+    return `${finished}/${agents.length} ${agents.length === 1 ? "agent" : "agents"}`;
+}
+
+export function subagentCost(subagent: AcpSubagent): string | undefined {
+    const calls = subagent.messages.reduce((count, message) => count + message.parts.filter((part) => part.kind === "tool").length, 0);
+    const cost = [subagent.tokens && `${tokenCount(subagent.tokens)} tokens`, calls > 0 && callCount(calls)];
+    return cost.filter(Boolean).join(" · ") || undefined;
 }
 
 /* An agent names its own task types — "shell", "monitor" — and they are the

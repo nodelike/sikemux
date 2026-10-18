@@ -23,7 +23,7 @@ export function AgentTitleInput({
     return (
         <input
             className={`${className} agent-rename`}
-            aria-label="Chat name"
+            aria-label="Title"
             value={value}
             size={Math.max(value.length, 12)}
             maxLength={72}

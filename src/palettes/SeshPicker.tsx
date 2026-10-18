@@ -18,7 +18,7 @@ import { useMouseActive } from "../hooks/useMouseActive";
 import { isPluginKind } from "../plugins/kinds";
 import { enabledFrontendPlugins } from "../plugins/enabled";
 import { pluginSurface } from "../plugins/registry";
-import { IconClose, IconCommand, IconFolder, IconSearch } from "../ui/Icons";
+import { IconClose, IconFolder, IconSearch, IconServer, IconTerminal } from "../ui/Icons";
 import { leavingOverlay } from "../lib/motion";
 
 type Item =
@@ -58,6 +58,7 @@ export function SeshPicker() {
     const pluginSettings = useStore((s) => s.pluginSettings);
     const disabledPlugins = useStore((s) => s.disabledPlugins);
     const mode = useStore((s) => s.pickerMode);
+    const moving = useStore((s) => (s.pickerMovingAgentId ? s.agents[s.pickerMovingAgentId] : undefined));
 
     const [query, setQuery] = useState("");
     const [sel, setSel] = useState(0);
@@ -82,12 +83,12 @@ export function SeshPicker() {
         const pretty = (p: string) => prettyPath(p, home);
         const wantKind = (k: SessionKind) => mode === "all" || (mode === "projects" && k === "project") || (mode === "ssh" && k === "ssh");
         const sessionItems: Item[] = sessions
-            .filter((s) => wantKind(s.kind))
+            .filter((s) => wantKind(s.kind) && !(moving && s.cwd === moving.cwd))
             .map((s) => ({
                 kind: "session",
                 id: s.id,
                 name: s.kind === "project" ? projectLabel(s.cwd, s.name, projectRoots, home) : s.name,
-                sub: s.kind === "project" ? pretty(s.cwd) : s.kind === "ssh" ? "ssh" : isPluginKind(s.kind) ? "plugin" : "command",
+                sub: s.kind === "project" ? pretty(s.cwd) : s.kind === "ssh" ? "SSH" : isPluginKind(s.kind) ? "plugin" : "terminal",
                 sk: s.kind,
                 cwd: s.kind === "project" ? s.cwd : null,
             }));
@@ -140,15 +141,22 @@ export function SeshPicker() {
         };
         return groups.flatMap(finalize);
         // eslint-disable-next-line react-hooks/exhaustive-deps -- plugin settings change which plugins enabledFrontendPlugins returns
-    }, [sessions, projects, hosts, pluginSettings, disabledPlugins, query, home, mode, projectRoots, showProjects, showPlugins, showSsh]);
+    }, [sessions, projects, hosts, pluginSettings, disabledPlugins, query, home, mode, moving, projectRoots, showProjects, showPlugins, showSsh]);
 
     useEffect(() => {
         setSel((s) => Math.min(s, Math.max(0, items.length - 1)));
     }, [items.length]);
 
+    const moveTo = (agentId: string, cwd: string) => {
+        cmd.closePicker();
+        void cmd.moveAgentToProject(agentId, cwd);
+    };
+
     const activate = (it: Item | undefined) => {
         if (!it) return;
-        if (it.kind === "session") cmd.selectSession(it.id);
+        const project = it.kind === "dir" ? it.path : it.kind === "session" ? it.cwd : null;
+        if (moving && project) moveTo(moving.id, project);
+        else if (it.kind === "session") cmd.selectSession(it.id);
         else if (it.kind === "dir") cmd.createProjectSession(it.path);
         else if (it.kind === "plugin") {
             cmd.closePicker();
@@ -161,7 +169,8 @@ export function SeshPicker() {
             const picked = await settingsApi.pickFolder(home || undefined);
             if (!picked) return;
             cmd.addProjectRoot(picked, 0, true);
-            cmd.createProjectSession(picked);
+            if (moving) moveTo(moving.id, picked);
+            else cmd.createProjectSession(picked);
         } catch (err) {
             reportError("open folder")(err);
         }
@@ -190,12 +199,14 @@ export function SeshPicker() {
     const firstSshIdx = items.findIndex((it) => it.kind === "ssh");
     const firstSessIdx = items.findIndex((it) => it.kind === "session");
 
-    const placeholder =
-        mode === "projects"
-            ? "find a project…"
-            : mode === "ssh"
-              ? "ssh — search hosts from ~/.ssh/config…"
-              : "jump to a session, project, or ssh host…";
+    const movingLabel = moving?.name ? `@${moving.name}` : moving?.title;
+    const placeholder = moving
+        ? `move ${movingLabel} to…`
+        : mode === "projects"
+          ? "find a project…"
+          : mode === "ssh"
+            ? "SSH — search hosts from ~/.ssh/config…"
+            : "jump to a session, project, or ssh host…";
 
     return (
         <div ref={leavingOverlay} className="picker-backdrop" onMouseDown={cmd.closePicker}>
@@ -205,7 +216,7 @@ export function SeshPicker() {
                 className="picker"
                 role="dialog"
                 aria-modal="true"
-                aria-label="Open session or project"
+                aria-label={moving ? `Move ${movingLabel} to a project` : "Open session or project"}
                 onMouseDown={(e) => e.stopPropagation()}>
                 <div className="picker-input-wrap">
                     <IconSearch size={15} className="picker-search-icon" />
@@ -266,6 +277,7 @@ export function SeshPicker() {
                                     : `h-${it.alias}`;
                         const pluginIcon = it.kind === "plugin" ? it.icon : it.kind === "session" ? pluginSurface(it.sk)?.icon(14) : undefined;
                         const isFolder = it.kind === "dir" || (it.kind === "session" && it.sk === "project");
+                        const isHost = it.kind === "ssh" || (it.kind === "session" && it.sk === "ssh");
                         const iconClass = pluginIcon ? "plugin" : it.kind === "dir" ? "project" : it.kind === "session" ? it.sk : "command";
                         return (
                             <div key={key}>
@@ -280,7 +292,14 @@ export function SeshPicker() {
                                     }}>
                                     <button className={`picker-item${i === sel ? " sel" : ""}`} onClick={() => activate(it)}>
                                         <span className={`picker-icon ${iconClass}`}>
-                                            {pluginIcon ?? (isFolder ? <IconFolder size={14} /> : <IconCommand size={14} />)}
+                                            {pluginIcon ??
+                                                (isFolder ? (
+                                                    <IconFolder size={14} />
+                                                ) : isHost ? (
+                                                    <IconServer size={14} />
+                                                ) : (
+                                                    <IconTerminal size={14} />
+                                                ))}
                                         </span>
                                         <span className="picker-name">{it.name}</span>
                                         <span className="picker-sub">{it.sub}</span>

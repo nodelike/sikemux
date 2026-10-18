@@ -3,7 +3,7 @@ use std::os::fd::RawFd;
 use std::path::PathBuf;
 use std::time::Duration;
 
-use crate::protocol::frozen::{UpgradeInfo, UPGRADE_INFO_ARG};
+use crate::frozen::{UpgradeInfo, UPGRADE_INFO_ARG};
 use crate::protocol::{BuildIdentity, SessionId};
 
 use super::handover::{self, Recovery};
@@ -23,6 +23,7 @@ struct CoreArgs {
     lock_fd: Option<RawFd>,
     tools_fd: Option<RawFd>,
     sessions: Vec<(SessionId, RawFd, Option<u32>)>,
+    chat_fds: Vec<RawFd>,
 }
 
 fn number<T: std::str::FromStr>(value: Option<String>, flag: &str) -> Result<T, String> {
@@ -79,6 +80,7 @@ fn parse_args(mut args: impl Iterator<Item = String>) -> Result<CoreArgs, String
             "--lock-fd" => parsed.lock_fd = Some(number(args.next(), "--lock-fd")?),
             "--tools-fd" => parsed.tools_fd = Some(number(args.next(), "--tools-fd")?),
             "--session" => parsed.sessions.push(handed_over_session(args.next())?),
+            "--chat-fd" => parsed.chat_fds.push(number(args.next(), "--chat-fd")?),
             flag if flag == UPGRADE_INFO_ARG => parsed.upgrade_info = true,
             other => return Err(format!("unknown argument {other:?}")),
         }
@@ -127,6 +129,7 @@ pub fn main(args: impl Iterator<Item = String>, build: BuildIdentity) -> i32 {
             data_dir: args.data_dir,
             idle_exit: args.idle_exit.unwrap_or(DEFAULT_IDLE_EXIT),
             sessions: args.sessions,
+            chat_fds: args.chat_fds,
             inherited: HashMap::new(),
         };
         // Taken before anything opens a descriptor of its own.

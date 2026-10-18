@@ -18,11 +18,11 @@ describe("RailResizer", () => {
         expect(getState().sideRailWidth).toBe(274);
     });
 
-    it("widens the agent rail when its handle moves left", () => {
-        setState({ agentRailWidth: 288 });
+    it("widens the tab rail when its handle moves left", () => {
+        setState({ tabRailWidth: 288 });
         render(<RailResizer edge="end" />);
         fireEvent.keyDown(screen.getByRole("separator"), { key: "ArrowLeft", shiftKey: true });
-        expect(getState().agentRailWidth).toBe(328);
+        expect(getState().tabRailWidth).toBe(328);
     });
 
     it("stops at the rail's bounds", () => {

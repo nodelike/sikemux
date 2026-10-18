@@ -50,7 +50,7 @@ export function SignInForm({ status, onSignedIn }: { status: GitlabStatus | null
 
     return (
         <SignInScreen
-            mark={<GitlabMark size={26} className="icon-gitlab" />}
+            mark={<GitlabMark size={26} />}
             title="Connect GitLab"
             lede="Merge requests, pipelines, issues and your To-Do list for this project, right beside your changes."
             foot="Sikemux keeps your token in the macOS Keychain.">

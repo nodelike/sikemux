@@ -2,7 +2,7 @@ import { isPluginKind } from "../plugins/kinds";
 import { isValidWorkbenchItemId, isWorkbenchItemKind } from "../workbench/registry";
 import type { LayoutNode, SessionKind, Window, WindowRole } from "./types";
 
-export const PERSISTED_WINDOW_ROLES = new Set<WindowRole>(["term", "files", "git", "search", "ssh-config", "named", "agent"]);
+export const PERSISTED_WINDOW_ROLES = new Set<WindowRole>(["term", "files", "git", "search", "ssh-config", "named", "agent", "shared", "board"]);
 
 const CORE_SESSION_KINDS = new Set<string>(["project", "command", "ssh"]);
 

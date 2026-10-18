@@ -269,12 +269,32 @@ pub struct RunRef {
     pub run_id: String,
 }
 
+fn is_build_number(run_id: &str) -> bool {
+    let run_id = run_id.trim();
+    !run_id.is_empty() && run_id.chars().all(|c| c.is_ascii_digit())
+}
+
 fn pipeline_path(repo: &RepoRef, run_id: &str, rest: &str) -> BitbucketResult<String> {
-    repo.path(&format!("/pipelines/{}{rest}", uuid_segment(run_id)?))
+    let segment = if is_build_number(run_id) {
+        run_id.trim().to_string()
+    } else {
+        uuid_segment(run_id)?
+    };
+    repo.path(&format!("/pipelines/{segment}{rest}"))
 }
 
 async fn pipeline(data_dir: &Path, repo: &RepoRef, run_id: &str) -> BitbucketResult<PipelineRow> {
     client::get(data_dir, &pipeline_path(repo, run_id, "")?, &[]).await
+}
+
+/// Bitbucket finds a pipeline by its build number only when reading it, so
+/// anything else is sent to its {uuid}.
+async fn run_uuid(data_dir: &Path, repo: &RepoRef, run_id: &str) -> BitbucketResult<String> {
+    if is_build_number(run_id) {
+        Ok(pipeline(data_dir, repo, run_id).await?.uuid)
+    } else {
+        Ok(run_id.to_string())
+    }
 }
 
 #[derive(Deserialize)]
@@ -308,10 +328,15 @@ fn job_id(run_id: &str, step_id: &str) -> String {
     format!("{run_id}:{step_id}")
 }
 
-fn split_job(job_id: &str) -> BitbucketResult<(&str, &str)> {
+fn split_job<'a>(job_id: &'a str, run_id: Option<&'a str>) -> BitbucketResult<(&'a str, &'a str)> {
     job_id
         .split_once(':')
-        .ok_or_else(|| BitbucketError::BadArg(format!("`{job_id}` is not a Bitbucket step")))
+        .or_else(|| run_id.map(|run_id| (run_id, job_id)))
+        .ok_or_else(|| {
+            BitbucketError::BadArg(format!(
+                "`{job_id}` is a step without its pipeline: pass runId too, or the pipeline:step id bitbucket_pipeline gives"
+            ))
+        })
 }
 
 async fn steps(data_dir: &Path, repo: &RepoRef, run: &Run) -> BitbucketResult<Vec<Job>> {
@@ -372,7 +397,8 @@ pub async fn timing(data_dir: &Path, input: RunRef) -> BitbucketResult<Timing> {
 }
 
 pub async fn cancel(data_dir: &Path, input: RunRef) -> BitbucketResult<()> {
-    let path = pipeline_path(&input.repo, &input.run_id, "/stopPipeline")?;
+    let run_id = run_uuid(data_dir, &input.repo, &input.run_id).await?;
+    let path = pipeline_path(&input.repo, &run_id, "/stopPipeline")?;
     client::post_empty(data_dir, &path, None).await
 }
 
@@ -435,6 +461,7 @@ pub struct JobRef {
     #[serde(flatten)]
     pub repo: RepoRef,
     pub job_id: String,
+    pub run_id: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -517,10 +544,11 @@ pub async fn excerpt(data_dir: &Path, input: Excerpt) -> BitbucketResult<LogExce
 
 /// A step that has not started yet has no log, which reads as an empty one.
 pub async fn log(data_dir: &Path, input: JobRef) -> BitbucketResult<JobLog> {
-    let (run_id, step_id) = split_job(&input.job_id)?;
+    let (run_id, step_id) = split_job(&input.job_id, input.run_id.as_deref())?;
+    let run_id = run_uuid(data_dir, &input.repo, run_id).await?;
     let path = pipeline_path(
         &input.repo,
-        run_id,
+        &run_id,
         &format!("/steps/{}/log", uuid_segment(step_id)?),
     )?;
     let (status, bytes, truncated) =

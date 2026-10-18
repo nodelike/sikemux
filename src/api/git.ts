@@ -63,6 +63,28 @@ export interface GitCommit {
     subject: string;
     refs: string[];
     unpushed: boolean;
+    /** Its message ends in an agent footer, which only the core can check. */
+    footer?: boolean;
+}
+
+/** An agent a commit's signed footer names, as this host knows it now. */
+export interface CommitOwner {
+    name: string;
+    cli: string;
+    cliVersion?: string;
+    model?: string;
+    /** The version of Sikemux the agent ran in. */
+    sikemux?: string;
+    /** The agent the footer names. */
+    chat: string;
+    title?: string;
+    /** The agent that has its session open now. */
+    open?: string;
+    sessionId?: string;
+    /** The project its session ran in. */
+    project?: string;
+    /** The lines it wrote, first and last of each run by path, as the commit numbers them, when the commit's note says so because it holds others' lines too. */
+    lines?: Record<string, [number, number][]>;
 }
 
 export interface GitCompare {
@@ -118,6 +140,40 @@ export type DiffRow = [kind: 0 | 1 | 2, line: number, text: string] | [kind: 3, 
 
 export const DIFF_ROW = { context: 0, added: 1, deleted: 2, hidden: 3 } as const;
 
+/** An agent that wrote some of a checkout's uncommitted lines, or the agents at work when no one of them could have, named "Otter or Briar". */
+export interface ChangeAuthor {
+    agentId: string;
+    name: string;
+    cli: string;
+    model?: string;
+    /** The chat run of its latest edit. */
+    feed: string;
+    /** The agents it stands for, when several could have made the change. */
+    shared?: string[];
+}
+
+/** `count` lines from `start` that `author` wrote last; `over` is the agent whose lines it rewrote there. */
+export interface OwnedLines {
+    start: number;
+    count: number;
+    author: number;
+    over?: number;
+}
+
+/** The changed lines of a file agents wrote, numbered as in the working tree, or in the index for staged lines. */
+export interface FileOwners {
+    path: string;
+    lines: OwnedLines[];
+    /** Lines `author` took out just before line `at`. */
+    removed: { at: number; author: number }[];
+}
+
+/** Who wrote a checkout's uncommitted lines, as the core reads it from agents' edits. Lines no file lists have no known author. */
+export interface ChangeOwners {
+    authors: ChangeAuthor[];
+    files: FileOwners[];
+}
+
 /** Compact per-file blame: unique `commits` + a per-line index into them. */
 export interface GitBlame {
     commits: BlameCommit[];
@@ -132,6 +188,11 @@ let fileAtChars = 0;
 let fileAtGeneration = 0;
 /** A revision that names a commit by hash always reads back the same bytes; HEAD, a branch and the index do not. */
 const SHA_RE = /^[0-9a-f]{7,}([~^][0-9]*)*$/i;
+
+/** A commit named by its hash, whose contents can never change. */
+export function isFixedRevision(rev: string): boolean {
+    return SHA_RE.test(rev);
+}
 
 function cacheKey(repo: string, rev: string, path: string) {
     return `${repo}\0${rev}\0${path}`;
@@ -241,6 +302,8 @@ export const git = {
     compare: (repo: string, base: string, head: string) => invoke<GitCompare>("git_compare", { repo, base, head }),
     blame: (repo: string, path: string, contents?: string | null) => invoke<GitBlame>("git_blame", { repo, path, contents: contents ?? null }),
     commit: (repo: string, message: string) => invoke<string>("git_commit", { repo, message }),
+    changeOwners: (repo: string, staged: boolean) => invoke<ChangeOwners>("git_change_owners", { repo, staged }),
+    commitOwners: (repo: string, commits: string[]) => invoke<Record<string, CommitOwner[]>>("git_commit_owners", { repo, commits }),
     push: (repo: string) => invoke<string>("git_push", { repo }),
     pull: (repo: string) => invoke<string>("git_pull", { repo }),
     aiMessage: (repo: string, provider: string, model: string, onChunk: (chunk: string) => void) => {

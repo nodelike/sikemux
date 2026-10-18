@@ -177,6 +177,11 @@ export interface RundeckExecution {
     workflowState?: RundeckWorkflowState | null;
 }
 
+export interface ProjectExecutions {
+    executions: RundeckExecution[];
+    total: number | null;
+}
+
 export type LogLevel = "DEBUG" | "VERBOSE" | "INFO" | "WARN" | "ERROR";
 
 export interface RunRequest {
@@ -257,7 +262,6 @@ export interface PlanRequest {
     service: string;
     targetBranch: string;
     repoPath: string;
-    branchOptions: string[];
 }
 
 export interface PlanResult {
@@ -289,11 +293,14 @@ export const rundeckApi = {
     jobIndex: () => rndInvoke<JobIndexEntry[]>("jobIndex"),
     jobDetail: (jobId: string) => rndInvoke<JobDetail>("jobDetail", { jobId }),
     optionValues: (url: string) => rndInvoke<OptionValue[]>("optionValues", { url }),
-    branchesMatrix: (project: string, branchOptions: string[]) => rndInvoke<MatrixResult>("branchesMatrix", { project, branchOptions }),
-    jobCells: (jobs: RundeckJob[], branchOptions: string[]) => rndInvoke<MatrixCell[]>("jobCells", { jobs, branchOptions }),
+    branchesMatrix: (project: string) => rndInvoke<MatrixResult>("branchesMatrix", { project }),
+    jobCells: (jobs: RundeckJob[]) => rndInvoke<MatrixCell[]>("jobCells", { jobs }),
+    branchOptions: () => backend.call<string[]>("branchOptions"),
+    setBranchOptions: (names: string[]) => backend.call<null>("setBranchOptions", { names }),
 
     executions: (jobId: string, project: string, max = 25, onlySucceeded = false) =>
         rndInvoke<RundeckExecution[]>("executions", { jobId, project, max, onlySucceeded }),
+    projectExecutions: (project: string, max: number, offset: number) => rndInvoke<ProjectExecutions>("projectExecutions", { project, max, offset }),
     execution: (executionId: number) => rndInvoke<RundeckExecution>("execution", { executionId }),
     executionState: (executionId: number) => rndInvoke<RundeckWorkflowState>("executionState", { executionId }),
     run: (req: RunRequest) => rndInvoke<RunResult>("run", req),

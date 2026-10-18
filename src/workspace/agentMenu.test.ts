@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { Agent, Session } from "../state/types";
+import { getState, setState } from "../state/store";
 import { agentMenu } from "./agentMenu";
 
 const remove = vi.hoisted(() => vi.fn(async () => {}));
@@ -22,5 +23,22 @@ describe("agentMenu", () => {
         expect(item).toBeDefined();
         item?.run?.();
         await vi.waitFor(() => expect(remove).toHaveBeenCalledWith("a"));
+    });
+
+    it("pins a chat it can resume, and unpins a pinned one", () => {
+        const labels = (a: Agent) => agentMenu(a, [], session, hints).map((item) => item.label);
+        expect(labels(agent)).not.toContain("Pin");
+
+        const saved = { ...agent, resumeId: "r1" };
+        agentMenu(saved, [], session, hints)
+            .find((item) => item.label === "Pin")
+            ?.run?.();
+        expect(getState().pinnedChats).toEqual([{ agent: "claude", id: "r1", title: "fix", project: "/code/app" }]);
+
+        agentMenu(saved, [], session, hints)
+            .find((item) => item.label === "Unpin")
+            ?.run?.();
+        expect(getState().pinnedChats).toEqual([]);
+        setState({ pinnedChats: [] });
     });
 });

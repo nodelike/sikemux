@@ -1,20 +1,25 @@
 import "./styles/restored-rails.css";
 import { lazy, Suspense, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { invokeCommand as invoke } from "./api/invoke";
+import { whenIdle } from "./lib/idle";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { checkForUpdate } from "./api/updater";
+import { checkForUpdate, UPDATES_IN_APP } from "./api/updater";
 import { reportActive } from "./api/usage";
 import { TopBar } from "./shell/TopBar";
 import { SideRail } from "./rail/SideRail";
-import { AgentRail } from "./rail/AgentRail";
+import { TabRail } from "./rail/TabRail";
 import { RailPeek } from "./rail/RailPeek";
 import { RailResizer, useRailWidthVars } from "./rail/RailResizer";
 import { AgentSessionSync } from "./agents/AgentSessionSync";
 import { watchTerminalAgentExits } from "./agents/tuiResume";
+import { watchSshLinks } from "./terminal/sshLinks";
 import { watchFocusForAgentStatus } from "./agents/statusRefresh";
+import { syncAgentAccounts } from "./agents/accountBook";
+import { agentApi, type AgentAccountBook } from "./api/agents";
 import { AgentLifecycleManager } from "./agents/AgentLifecycleManager";
 import { AgentPalettePortal as AgentPalette } from "./agents/AgentPalettePortal";
+import { AgentInstallHost } from "./agents/AgentInstall";
 import { FilePalette } from "./palettes/FilePalette";
 import { NewTabPalette } from "./palettes/NewTabPalette";
 import { SeshPicker } from "./palettes/SeshPicker";
@@ -22,12 +27,22 @@ import { SessionSwitcher } from "./palettes/SessionSwitcher";
 import { Workspace } from "./workspace/Workspace";
 import { Toaster } from "./shell/Toaster";
 import { CommandPalette } from "./palettes/CommandPalette";
+import { ThemePalette } from "./palettes/ThemePalette";
+import { AccountDialogHost } from "./agents/AccountDialog";
 import { DialogHost } from "./shell/DialogHost";
+import { ShareHost } from "./share/ShareControls";
+import { BuddyBridge } from "./buddies/Buddy";
+import { BuddyPickerHost } from "./buddies/BuddyPicker";
 import { ImageViewer } from "./editor/ImageViewer";
 import { useOccludeNativeViews } from "./state/nativeViews";
 import { TerminalPane } from "./terminal/TerminalPane";
 import { HarnessBridge } from "./shell/HarnessBridge";
+import { NetworkBridge } from "./shell/NetworkBridge";
+import { GlobalSkillsBridge } from "./shell/GlobalSkillsBridge";
 import { RemoteChatBridge } from "./shell/RemoteChatBridge";
+import { AgentNameBridge } from "./shell/AgentNameBridge";
+import { AgentQuestionBridge } from "./shell/AgentQuestionBridge";
+import { AgentBoardBridge } from "./shell/AgentBoardBridge";
 import { RemoteWorkspaceBridge } from "./shell/RemoteWorkspaceBridge";
 import { UpdateRequiredPrompt } from "./shell/UpdateRequiredPrompt";
 import { PairingPrompt } from "./shell/PairingPrompt";
@@ -75,7 +90,6 @@ import { applyChatTextScale } from "./chat/textScale";
 import { applyEditorTextScale } from "./editor/textScale";
 import { dirname } from "./lib/paths";
 import type { StandaloneCommand } from "./commands/registry";
-import type { ProjectConfigLoadResult } from "./projects/projectConfig";
 import { agentDetectionApi } from "./api/agentDetection";
 import { lsp } from "./api/lsp";
 import { projectActionCommand, trustProjectConfig } from "./projects/projectConfigRuntime";
@@ -83,13 +97,15 @@ import { worktreeHasLiveOwners } from "./git/worktreeLifecycle";
 import { performanceTelemetry } from "./lib/performance";
 import { workbenchRuntime } from "./workbench/runtime";
 import {
-    activeProjectTaskInventoryMatches,
     appTaskRuntime,
     clearActiveProjectTasks,
     getAppTaskSnapshot,
     replaceActiveProjectTasks,
+    refreshDetectedTasks,
     subscribeAppTasks,
 } from "./tasks/application";
+import { projectTasksFor, restartProjectTask, runProjectTask, stopProjectTask } from "./tasks/projectTaskActions";
+import { activeProjectConfigMatches, whenTrusted } from "./projects/projectTrust";
 import type { ResolvedTaskDefinition, TaskControllerSnapshot } from "./tasks/taskRegistry";
 import {
     applicationActionContext,
@@ -154,13 +170,13 @@ export function gitChangeInvalidates(kind: string, args: unknown[], repo: string
     if (nested !== null) {
         const touched = !paths?.length || paths.some((path) => path === nested || path.startsWith(`${nested}/`));
         if (!touched || !kind.startsWith("git.")) return false;
-        return !paths?.length || kind === "git.overview" || kind === "git.status";
+        return !paths?.length || kind === "git.overview" || kind === "git.status" || kind === "git.changeOwners";
     }
     if (repo && args[0] !== repo) return false;
     if (kind === "files.list") return true;
     if (!kind.startsWith("git.")) return false;
     if (!paths?.length) return true;
-    return kind === "git.overview" || kind === "git.status" || kind === "git.discoveredRepos";
+    return kind === "git.overview" || kind === "git.status" || kind === "git.discoveredRepos" || kind === "git.changeOwners";
 }
 
 export function subscribeGitChanged(signal?: AbortSignal): Promise<IpcUnsubscribe> {
@@ -185,37 +201,6 @@ interface TreeDropTarget {
     targetDir: string;
     highlightPath: string | null;
     dropEl: HTMLElement;
-}
-
-type ValidProjectConfig = Extract<ProjectConfigLoadResult, { readonly status: "valid" }>;
-
-function activeProjectConfigMatches(project: string, expected: ValidProjectConfig, requireTaskInventory = false): boolean {
-    const active = projectControllerBridge.getActiveSnapshot();
-    const current = active?.config;
-    return (
-        active?.cwd === project &&
-        current?.status === "valid" &&
-        current.path === expected.path &&
-        current.fingerprint === expected.fingerprint &&
-        (!requireTaskInventory || activeProjectTaskInventoryMatches(project, expected.fingerprint))
-    );
-}
-
-/**
- * Re-checks the on-disk config after approval: the user can take arbitrarily
- * long in the dialog, and the project must still be the one they approved.
- */
-async function trustCurrentProjectConfig(project: string, expected: ValidProjectConfig, requireTaskInventory = false): Promise<boolean> {
-    if (!activeProjectConfigMatches(project, expected, requireTaskInventory)) return false;
-    if (!(await trustProjectConfig(expected))) return false;
-    return activeProjectConfigMatches(project, expected, requireTaskInventory);
-}
-
-/** `if (!trusted) return;` in promise form, for command bodies that must stay void. */
-function whenTrusted(project: string, expected: ValidProjectConfig, requireTaskInventory: boolean, run: () => void): void {
-    void trustCurrentProjectConfig(project, expected, requireTaskInventory).then((ok) => {
-        if (ok) run();
-    });
 }
 
 /**
@@ -326,6 +311,13 @@ function ProjectBridge() {
         }
         return clearActiveProjectTasks;
     }, [activeProjectCwd, projectConfig]);
+
+    useEffect(() => {
+        void refreshDetectedTasks(activeProjectCwd || null).catch(reportError("detect project tasks"));
+        return () => {
+            void refreshDetectedTasks(null);
+        };
+    }, [activeProjectCwd]);
 
     useEffect(() => {
         let cancelled = false;
@@ -474,47 +466,24 @@ function ApplicationCommandPalette() {
             ),
         });
     }
-    const currentProjectTasks =
-        projectConfig?.status === "valid" && activeProjectTaskInventoryMatches(activeProjectCwd, projectConfig.fingerprint)
-            ? taskRegistrySnapshot.tasks.filter((task) => task.project === activeProjectCwd && task.source === "project")
-            : [];
-    const taskCommands: StandaloneCommand[] =
-        projectConfig?.status === "valid"
-            ? currentProjectTasks.map((task) => ({
-                  id: `task.run.${task.id}`,
-                  title: task.label,
-                  detail: `Run task from ${task.cwd}`,
-                  category: "Tasks",
-                  execute: runStandalone(`task.run.${task.id}`, () => {
-                      whenTrusted(activeProjectCwd, projectConfig, true, () => {
-                          const snapshot = appTaskRuntime.getSnapshot(activeProjectCwd);
-                          const operation =
-                              snapshot?.status === "running" || snapshot?.status === "stopping"
-                                  ? appTaskRuntime.restart(activeProjectCwd, task.id)
-                                  : appTaskRuntime.run(activeProjectCwd, task.id);
-                          void operation.then(() => notify("success", `Started task: ${task.label}`)).catch(reportError(`start task ${task.label}`));
-                      });
-                  }),
-              }))
-            : [];
+    const currentProjectTasks = projectTasksFor(taskRegistrySnapshot, activeProjectCwd, projectConfig);
+    const taskCommands: StandaloneCommand[] = currentProjectTasks.map((task) => ({
+        id: `task.run.${task.id}`,
+        title: task.label,
+        detail: `Run task from ${task.cwd}`,
+        category: "Tasks",
+        execute: runStandalone(`task.run.${task.id}`, () => runProjectTask(activeProjectCwd, projectConfig, task)),
+    }));
     const taskRuntimeSnapshot = activeProjectCwd ? appTaskRuntime.getSnapshot(activeProjectCwd) : null;
     const taskControls = activeTaskControls(taskRuntimeSnapshot, currentProjectTasks);
-    if (activeProjectCwd && taskControls.restartTaskId) {
-        const restartTaskId = taskControls.restartTaskId;
+    const restartTask = currentProjectTasks.find((task) => task.id === taskControls.restartTaskId);
+    if (activeProjectCwd && restartTask) {
         taskCommands.push({
             id: "task.restart-active",
             title: "Restart active task",
             detail: "Stop the current project task and start its current trusted definition",
             category: "Tasks",
-            execute: runStandalone("task.restart-active", () => {
-                if (projectConfig?.status !== "valid") return;
-                whenTrusted(activeProjectCwd, projectConfig, true, () => {
-                    void appTaskRuntime
-                        .restart(activeProjectCwd, restartTaskId)
-                        .then(() => notify("success", "Restarted active task"))
-                        .catch(reportError("restart active task"));
-                });
-            }),
+            execute: runStandalone("task.restart-active", () => restartProjectTask(activeProjectCwd, projectConfig, restartTask)),
         });
     }
     if (activeProjectCwd && taskControls.canStop) {
@@ -523,12 +492,7 @@ function ApplicationCommandPalette() {
             title: "Stop active task",
             detail: "Stop only the exact PTY owned by the current project task",
             category: "Tasks",
-            execute: runStandalone("task.stop-active", () => {
-                void appTaskRuntime
-                    .stop(activeProjectCwd)
-                    .then(() => notify("success", "Stopped active task"))
-                    .catch(reportError("stop active task"));
-            }),
+            execute: runStandalone("task.stop-active", () => stopProjectTask(activeProjectCwd)),
         });
     }
     const worktreeCommands: StandaloneCommand[] = activeWorktrees
@@ -705,10 +669,10 @@ export default function App() {
     const [bootReady, setBootReady] = useState(false);
     const [bootIssue, setBootIssue] = useState<string | null>(null);
     const sideRailVisible = useStore((s) => s.sideRailOpen);
-    const agentRailVisible = useStore((s) => s.agentRailOpen);
+    const tabRailVisible = useStore((s) => s.tabRailOpen);
     const activeSessionIsProject = useStore((s) => s.sessions[s.activeSessionId]?.kind === "project");
     useRailDock(sideRailVisible, true, ".side-rail", bootReady);
-    useRailDock(agentRailVisible, activeSessionIsProject, ".agent-rail", bootReady);
+    useRailDock(tabRailVisible, activeSessionIsProject, ".tab-rail", bootReady);
     const pickerOpen = useStore((s) => s.pickerOpen);
     const agentPaletteOpen = useStore((s) => s.agentPaletteOpen);
     const filePaletteOpen = useStore((s) => s.filePaletteOpen);
@@ -727,7 +691,12 @@ export default function App() {
     useEffect(() => {
         document.documentElement.style.setProperty("--ui-text-scale", String(uiTextScale));
     }, [uiTextScale]);
+    const paneStrength = useStore((s) => s.paneStrength);
+    useEffect(() => {
+        document.documentElement.style.setProperty("--pane-strength", String(paneStrength));
+    }, [paneStrength]);
     const commandPaletteOpen = useStore((s) => s.commandPaletteOpen);
+    const themePaletteOpen = useStore((s) => s.themePaletteOpen);
     const commandPopup = useStore((s) => s.commandPopup);
     const sessionSwitcherOpen = useStore((s) => s.sessionSwitcher !== null);
     const onboardingOpen = useStore((s) => s.onboardingOpen);
@@ -740,6 +709,7 @@ export default function App() {
             newTabPaletteOpen ||
             settingsOpen ||
             commandPaletteOpen ||
+            themePaletteOpen ||
             sessionSwitcherOpen ||
             onboardingOpen ||
             Boolean(commandPopup),
@@ -749,6 +719,7 @@ export default function App() {
         let disposed = false;
         let unsub = () => {};
         let stopSpareShells = () => {};
+        let stopAccountSync = () => {};
         let bootFinished = false;
         let hydrationResult: HydrationResult | null = null;
         const bootSpan = performanceTelemetry.startTrace("startup.boot");
@@ -759,13 +730,15 @@ export default function App() {
             if (recorded) performanceTelemetry.recordLatency("startup.boot", recorded.durationMs);
         };
         void pluginsApi.manifests().then(cmd.setPluginManifests, swallow("plugin manifests"));
-        invoke<BootInfo>("boot_init")
-            .then((boot) => {
+        let accounts: AgentAccountBook | null | undefined;
+        Promise.all([invoke<BootInfo>("boot_init"), agentApi.accounts().catch(() => undefined)])
+            .then(([boot, book]) => {
                 if (disposed) return;
+                accounts = book;
                 const hydrateSpan = performanceTelemetry.startSpan(bootSpan, "startup.hydrate");
                 try {
                     cmd.setHome(boot.home);
-                    hydrationResult = applyHydrate(boot.state);
+                    hydrationResult = applyHydrate(boot.state, accounts);
                     const st = getState();
                     registerCustomThemes(st.customThemes);
                     applyTheme(st.themeId);
@@ -810,6 +783,7 @@ export default function App() {
                         return;
                     }
                     unsub = subscribePersist();
+                    stopAccountSync = syncAgentAccounts(accounts);
                     setBootReady(true);
                     introduceNotifications();
                     void restoreCoreSessions();
@@ -821,6 +795,7 @@ export default function App() {
             disposed = true;
             finishBoot("cancelled");
             unsub();
+            stopAccountSync();
             stopSpareShells();
             workbenchRuntime.stop();
         };
@@ -839,7 +814,10 @@ export default function App() {
     useEffect(() => recordAgentTurns(), []);
 
     useEffect(() => watchTerminalAgentExits(), []);
+    useEffect(() => watchSshLinks(), []);
     useEffect(() => watchFocusForAgentStatus(), []);
+    /* Fetched ahead so the first chat opened draws at once; a failure here leaves opening one to fetch it again. */
+    useEffect(() => whenIdle(() => void import("./chat/AgentSurface").catch(() => undefined)), []);
 
     useEffect(() => {
         let disposed = false;
@@ -884,7 +862,7 @@ export default function App() {
     }, []);
 
     useEffect(() => {
-        if (import.meta.env.DEV) return;
+        if (import.meta.env.DEV || !UPDATES_IN_APP) return;
         const firstCheck = window.setTimeout(() => void checkForUpdate(), 4000);
         const poll = window.setInterval(() => void checkForUpdate(), 30 * 60_000);
         return () => {
@@ -984,6 +962,12 @@ export default function App() {
             <RemoteWorkspaceBridge />
             <NotchBridge />
             <RemoteChatBridge />
+            <AgentNameBridge />
+            <BuddyBridge />
+            <AgentQuestionBridge />
+            <AgentBoardBridge />
+            <GlobalSkillsBridge />
+            <NetworkBridge />
             <ProjectBridge />
             <AgentSessionSync />
             <AgentLifecycleManager />
@@ -1004,11 +988,11 @@ export default function App() {
                         </Suspense>
                     )}
                 </main>
-                {activeSessionIsProject && <AgentRail />}
-                {agentRailVisible && activeSessionIsProject && <RailResizer edge="end" />}
-                {!agentRailVisible && activeSessionIsProject && (
+                {activeSessionIsProject && <TabRail />}
+                {tabRailVisible && activeSessionIsProject && <RailResizer edge="end" />}
+                {!tabRailVisible && activeSessionIsProject && (
                     <RailPeek edge="end">
-                        <AgentRail />
+                        <TabRail />
                     </RailPeek>
                 )}
             </div>
@@ -1019,6 +1003,7 @@ export default function App() {
             {installedPlugins.map(({ id, Overlay }) => (Overlay ? <Overlay key={id} /> : null))}
             {sessionSwitcherOpen && <SessionSwitcher />}
             {commandPaletteOpen && <ApplicationCommandPalette />}
+            {themePaletteOpen && <ThemePalette />}
             {commandPopup && (
                 <div className="experience-backdrop command-popup-backdrop" role="presentation" onMouseDown={cmd.closeCommandPopup}>
                     <section
@@ -1047,7 +1032,11 @@ export default function App() {
                 {diagnosticsOpen && <DiagnosticsOverlay />}
                 {whatsNewOpen && <WhatsNewOverlay />}
             </Suspense>
+            <AgentInstallHost />
             <DialogHost />
+            <AccountDialogHost />
+            <ShareHost />
+            <BuddyPickerHost />
             <ImageViewer />
             <VoiceCaption />
             <PairingPrompt />

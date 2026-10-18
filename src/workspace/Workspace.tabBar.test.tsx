@@ -9,6 +9,7 @@ import { Workspace, WorkspaceTabs } from "./Workspace";
 import { agentIdsOf, agentWindowId } from "../state/selectors";
 import { withAgents } from "../test/agents";
 import { acceptDialog, useDialogs } from "../state/dialog";
+import { draftOf, typeDraft } from "../test/draft";
 
 vi.mock("../api/acp", () => ({
     acpApi: {
@@ -73,6 +74,9 @@ function projectWithAgent(resumable = true): string {
     return sessionId;
 }
 
+/* The agent's pane loads lazily, which takes longer than a second while the whole suite runs at once. */
+const LAZY_PANE_MS = 5_000;
+
 describe("workspace tab bars", () => {
     it.each([
         ["one terminal", () => {}],
@@ -102,7 +106,7 @@ describe("workspace tab bars", () => {
         projectWithAgent(false);
         render(<Stage />);
 
-        const toggle = await screen.findByRole("button", { name: /safe/i });
+        const toggle = await screen.findByRole("button", { name: /safe/i }, { timeout: LAZY_PANE_MS });
         await waitFor(() => expect(toggle).not.toBeDisabled());
         fireEvent.click(toggle);
 
@@ -111,7 +115,7 @@ describe("workspace tab bars", () => {
             skipPermissions: true,
             directCommand: { program: "codex", args: ["--dangerously-bypass-approvals-and-sandbox"] },
         });
-        expect(await screen.findByRole("button", { name: /yolo/i })).toHaveAttribute("aria-pressed", "true");
+        expect(await screen.findByRole("button", { name: /yolo/i }, { timeout: LAZY_PANE_MS })).toHaveAttribute("aria-pressed", "true");
         expect(screen.queryByTestId("terminal-agent-only")).not.toBeInTheDocument();
     });
 
@@ -120,10 +124,10 @@ describe("workspace tab bars", () => {
         render(<Stage />);
 
         await act(async () => {
-            fireEvent.click(await screen.findByRole("button", { name: "TUI" }));
+            fireEvent.click(await screen.findByRole("button", { name: "TUI" }, { timeout: LAZY_PANE_MS }));
         });
 
-        const original = await screen.findByTestId("terminal-agent-only");
+        const original = await screen.findByTestId("terminal-agent-only", {}, { timeout: LAZY_PANE_MS });
         const header = document.querySelector(".agent-surface-header") as HTMLElement;
         const toggle = within(header).getByRole("button", { name: /safe/i });
         expect(toggle).toHaveAttribute("aria-pressed", "false");
@@ -163,7 +167,7 @@ describe("workspace tab bars", () => {
         render(<Stage />);
         const editor = await screen.findByRole("textbox", { name: "Message agent" });
         await waitFor(() => expect(editor).toBeEnabled());
-        fireEvent.change(editor, { target: { value: "Keep this draft" } });
+        typeDraft(editor, "Keep this draft");
         fireEvent.click(screen.getByRole("button", { name: "Model" }));
         fireEvent.click(within(screen.getByRole("group", { name: "Agent" })).getByRole("button", { name: /Claude/ }));
         await waitFor(() => expect(acpApi.start).toHaveBeenCalledTimes(2));
@@ -171,7 +175,7 @@ describe("workspace tab bars", () => {
         expect(acpApi.stop).toHaveBeenCalledWith("agent-only");
         expect(agentIdsOf(getState(), sessionId)).toEqual(["agent-only"]);
         expect(getState().agents["agent-only"]).toMatchObject({ type: "claude", title: "Claude" });
-        expect(editor).toHaveValue("Keep this draft");
+        expect(draftOf(editor)).toBe("Keep this draft");
         expect(within(screen.getByRole("group", { name: "Agent" })).getByRole("button", { name: /Claude/ })).toHaveAttribute("aria-pressed", "true");
         expect(screen.queryByText("only agent")).not.toBeInTheDocument();
         expect(screen.getAllByText("Claude").length).toBeGreaterThan(0);
@@ -256,7 +260,7 @@ describe("naming a terminal tab", () => {
 
         fireEvent.doubleClick(screen.getByRole("tab", { name: /only agent/ }));
 
-        expect(useDialogs.getState().dialog).toMatchObject({ kind: "prompt", title: "Rename chat", initial: "only agent" });
+        expect(useDialogs.getState().dialog).toMatchObject({ kind: "prompt", title: "Edit title", initial: "only agent" });
     });
 
     it("keeps the name a duplicated tab was given", () => {

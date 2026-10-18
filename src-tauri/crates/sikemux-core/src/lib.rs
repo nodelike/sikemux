@@ -4,13 +4,20 @@
 
 pub mod accounts;
 pub mod acp;
+#[cfg(unix)]
+pub mod agent_accounts;
 pub mod agent_catalog;
 pub mod cli;
 #[cfg(unix)]
 pub mod client;
+pub mod frozen;
+#[cfg(unix)]
+pub mod git_guard;
 pub mod harness;
 #[cfg(unix)]
 pub mod join;
+#[cfg(unix)]
+pub mod launch;
 pub use sikemux_wire::protocol;
 #[cfg(unix)]
 pub mod push;
@@ -18,6 +25,10 @@ pub mod push;
 pub use sikemux_client::remote;
 #[cfg(unix)]
 pub mod server;
+#[cfg(unix)]
+pub mod sessions;
+pub mod skills;
+pub mod trailers;
 
 use std::path::PathBuf;
 

@@ -1,12 +1,14 @@
 // Builds screens.html from screens.src.html: `{{IconName}}` or `{{IconName:size}}`
 // becomes that icon's SVG, the same markup the phone app draws. `--serve` also
-// serves the Mac app's fonts from public/fonts, which the page loads.
+// serves the Mac app's fonts from public/fonts, which the page loads, and the
+// showcases' pane picture, which the Picture backdrop draws.
 import { createReadStream, existsSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { createRequire } from 'node:module';
 import { dirname, extname, join, normalize, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { PANE_IMAGE_FILE } from '../../showcase/world/paneImage.ts';
 import { generate } from '../app/scripts/generate.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -37,9 +39,9 @@ function icon(_, name, size = '16') {
     .replace('<svg ', '<svg class="ico" aria-hidden="true" ');
 }
 
-function backdropScript() {
+function script(entry) {
   const bundled = buildSync({
-    entryPoints: [resolve(here, 'backdrop.js')],
+    entryPoints: [resolve(here, entry)],
     bundle: true,
     format: 'esm',
     write: false,
@@ -53,7 +55,7 @@ function build() {
   const page = source.replace(/\{\{(Icon\w+|Logo)(?::(\d+))?\}\}/g, icon);
   writeFileSync(
     resolve(here, 'screens.html'),
-    page.replace('{{BackdropScript}}', () => backdropScript()),
+    page.replace('{{BackdropScript}}', () => script('backdrop.js')).replace('{{BuddiesScript}}', () => script('buddies.js')),
   );
 }
 
@@ -63,11 +65,18 @@ if (!process.argv.includes('--serve')) {
   process.exit(0);
 }
 
+const PANE_PATH = '/pane.jpg';
 const types = { '.html': 'text/html', '.woff2': 'font/woff2', '.svg': 'image/svg+xml', '.png': 'image/png', '.css': 'text/css' };
 createServer((request, response) => {
   const path = decodeURIComponent(new URL(request.url ?? '/', 'http://localhost').pathname);
   // Each visit to the page rebuilds it, so an edit shows on reload.
   if (path === '/mobile/design/screens.html') build();
+  if (path === PANE_PATH) {
+    if (!existsSync(PANE_IMAGE_FILE)) return response.writeHead(404).end();
+    response.writeHead(200, { 'content-type': 'image/jpeg' });
+    createReadStream(PANE_IMAGE_FILE).pipe(response);
+    return;
+  }
   const file = normalize(join(repo, path));
   const allowed = SERVED.some((dir) => file.startsWith(dir + sep));
   if (!allowed || !existsSync(file) || !statSync(file).isFile()) {

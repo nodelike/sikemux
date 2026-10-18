@@ -117,6 +117,13 @@ pub enum Element {
     Fnref {
         n: usize,
     },
+    /// A `<details>` fold from embedded HTML, open or not as it was written.
+    Details {
+        summary: String,
+        #[serde(skip_serializing_if = "std::ops::Not::not")]
+        open: bool,
+        c: Vec<Node>,
+    },
 }
 
 /// Parses `text` and returns its top-level blocks from index `skip` on. A
@@ -140,6 +147,15 @@ pub fn parse(text: &str, options: Options, skip: usize) -> Vec<Element> {
     };
     for event in Parser::new_ext(text, flags) {
         builder.event(event);
+    }
+    while matches!(
+        builder.stack.last(),
+        Some(Frame {
+            kind: Kind::Details { .. },
+            ..
+        })
+    ) {
+        builder.close_details();
     }
     builder.blocks
 }
@@ -181,6 +197,10 @@ enum Kind {
     },
     Row(Vec<Cell>),
     TableCell,
+    Details {
+        summary: String,
+        open: bool,
+    },
     Unsupported,
 }
 
@@ -222,6 +242,21 @@ fn attribute(tag: &str, name: &str) -> Option<String> {
             .map(str::to_owned);
     }
     None
+}
+
+/// The words in a run of HTML, with its tags taken out and its spaces collapsed.
+fn strip_tags(html: &str) -> String {
+    let mut out = String::new();
+    let mut inside = false;
+    for c in html.chars() {
+        match c {
+            '<' => inside = true,
+            '>' => inside = false,
+            _ if !inside => out.push(c),
+            _ => {}
+        }
+    }
+    out.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
 fn nonempty(text: &str) -> Option<String> {
@@ -340,6 +375,77 @@ impl Builder {
 
     fn url(&self, url: &str) -> String {
         url::sanitize(url, self.options.file_links)
+    }
+
+    /// Opens and closes `<details>` folds and names them from `<summary>`, in
+    /// the order the HTML block writes them; the blocks between land inside.
+    fn html_folds(&mut self, html: &str) {
+        let lower = html.to_ascii_lowercase();
+        let mut from = 0;
+        loop {
+            let rest = lower.get(from..).unwrap_or_default();
+            let next = ["<details", "<summary", "</details"]
+                .into_iter()
+                .filter_map(|tag| rest.find(tag).map(|at| (at, tag)))
+                .min_by_key(|(at, _)| *at);
+            let Some((at, tag)) = next else { break };
+            let start = from + at;
+            let close = lower
+                .get(start..)
+                .and_then(|tail| tail.find('>'))
+                .map_or(html.len(), |end| start + end + 1);
+            match tag {
+                "<details" => {
+                    let open = attribute(html.get(start..close).unwrap_or_default(), "open")
+                        .is_some()
+                        || lower.get(start..close).is_some_and(|t| t.contains(" open"));
+                    self.open(Kind::Details {
+                        summary: String::new(),
+                        open,
+                    });
+                    from = close;
+                }
+                "<summary" => {
+                    let end = lower
+                        .get(close..)
+                        .and_then(|tail| tail.find("</summary"))
+                        .map_or(html.len(), |at| close + at);
+                    let words = strip_tags(html.get(close..end).unwrap_or_default());
+                    if let Some(Frame {
+                        kind: Kind::Details { summary, .. },
+                        ..
+                    }) = self.stack.last_mut()
+                    {
+                        *summary = words;
+                    }
+                    from = end.max(close);
+                }
+                _ => {
+                    if matches!(
+                        self.stack.last(),
+                        Some(Frame {
+                            kind: Kind::Details { .. },
+                            ..
+                        })
+                    ) {
+                        self.close_details();
+                    }
+                    from = close;
+                }
+            }
+        }
+    }
+
+    fn close_details(&mut self) {
+        let Some(Frame {
+            kind: Kind::Details { summary, open },
+            children,
+        }) = self.stack.pop()
+        else {
+            return;
+        };
+        let c = self.children(children);
+        self.push_element(Element::Details { summary, open, c });
     }
 
     fn html_images(&self, html: &str) -> Vec<Element> {
@@ -529,6 +635,9 @@ impl Builder {
             }
             Kind::Html(html) => {
                 if !self.options.html_as_text {
+                    if self.options.gfm {
+                        self.html_folds(&html);
+                    }
                     let images = if self.options.html_images {
                         self.html_images(&html)
                     } else {
@@ -574,6 +683,7 @@ impl Builder {
                 return;
             }
             Kind::Table { align, head, rows } => Element::Table { align, head, rows },
+            Kind::Details { .. } => return,
             Kind::Unsupported => {
                 for piece in frame.children {
                     self.push(piece);

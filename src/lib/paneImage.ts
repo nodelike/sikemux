@@ -6,6 +6,36 @@ import { useStore } from "../state/store";
 const loads = new Map<string, Promise<HTMLImageElement | null>>();
 const loaded = new Map<string, HTMLImageElement | null>();
 
+/* The pane dithers the picture in two-pixel dots, so it never shows more of it than this. */
+const DOT_PX = 2;
+
+/**
+ * The picture at no more than one texel per dot on this screen. Every pane
+ * uploads its own copy to the GPU when its screen first comes on stage, and a
+ * full-size photo made that upload freeze the swipe.
+ */
+async function fitToScreen(blob: Blob): Promise<Blob> {
+    const bitmap = await createImageBitmap(blob);
+    const longest = Math.ceil((Math.max(screen.width, screen.height) * devicePixelRatio) / DOT_PX);
+    const scale = longest / Math.max(bitmap.width, bitmap.height);
+    if (scale >= 1) {
+        bitmap.close();
+        return blob;
+    }
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.round(bitmap.width * scale);
+    canvas.height = Math.round(bitmap.height * scale);
+    const context = canvas.getContext("2d");
+    if (!context) {
+        bitmap.close();
+        return blob;
+    }
+    context.imageSmoothingQuality = "high";
+    context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    bitmap.close();
+    return new Promise((done) => canvas.toBlob((small) => done(small ?? blob), "image/jpeg", 0.92));
+}
+
 /*
  * Read through a blob so the picture is same-origin: WebGL refuses to upload
  * one straight off `preview://`.
@@ -13,7 +43,7 @@ const loaded = new Map<string, HTMLImageElement | null>();
 async function decode(path: string): Promise<HTMLImageElement | null> {
     const { mime } = await fsapi.previewFile(path);
     if (!mime.startsWith("image/")) return null;
-    const blob = await (await fetch(previewUrl(path))).blob();
+    const blob = await fitToScreen(await (await fetch(previewUrl(path))).blob());
     const image = new Image();
     image.src = URL.createObjectURL(blob);
     await image.decode();

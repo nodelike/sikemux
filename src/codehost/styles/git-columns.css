@@ -9,27 +9,91 @@
 }
 .git-left .pr-list,
 .gha-full-page > .pr-list {
-    padding: 0 6px var(--space-3);
+    margin: var(--space-2) 10px var(--space-3);
+    padding: 0 6px var(--space-1h);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-3);
+    background: var(--gha-tint);
+}
+/* Inside a framed host screen the frame is the card, so the full-page list runs edge to edge with no card of its own. */
+.git-framed .gha-full-page > .pr-list {
+    margin: 0;
+    padding: 0 var(--space-2) var(--space-2);
+    border: 0;
+    border-radius: 0;
+    background: none;
+}
+/* The filters stay pinned while the rows scroll under them, solid so nothing shows through. */
+.git-framed .gha-full-page > .pr-list {
+    --list-head: 47px;
+    gap: 0;
+}
+.git-framed .gha-full-page > .pr-list > .gha-list-head {
+    position: sticky;
+    top: 0;
+    z-index: 3;
+    flex: none;
+    flex-wrap: nowrap;
+    box-sizing: border-box;
+    height: var(--list-head);
+    margin: 0 calc(-1 * var(--space-2));
+    padding: 0 var(--space-3);
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+}
+.git-framed .gha-full-page :is(.pr-rows, .gha-run-rows) {
+    margin: 0 calc(-1 * var(--space-2));
+}
+/* In the side panel's inbox page the panel is the card, so the list draws none of its own. */
+.git-left .git-inbox-list > .pr-list {
+    margin: 0;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: none;
 }
 .git-left .pr-list .gha-list-head,
 .gha-full-page > .pr-list .gha-list-head {
     padding: var(--space-2) 4px var(--space-1);
+}
+.git-left .gha-labels {
+    flex-shrink: 0;
+}
+.git-left .gha-label + .gha-label {
+    display: none;
 }
 .git-left .gha-item-row {
     padding: 7px 8px 7px 6px;
     column-gap: var(--space-2);
 }
 .gha-item-row[data-on="1"] {
-    border-color: var(--border-selected);
-    background: var(--surface-selected);
+    background: var(--surface-chosen);
 }
 /* An open pull request's column: its card where Changes has the commit box, then its files, then the folding panels. */
+/* The merge page of the side panel: what stands between the pull request and merged, filling the page. */
 .pr-card {
-    flex: 0 0 auto;
-    margin: var(--space-2) 10px var(--space-1);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-2);
-    background: var(--s-sunken);
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+}
+.pr-back-btn > svg {
+    transform: rotate(180deg);
+}
+.pr-side-number {
+    flex: none;
+    color: var(--text-primary);
+    font-weight: var(--weight-medium);
+}
+.git-side-title > .pr-ref {
+    font-size: var(--text-2xs);
+    white-space: nowrap;
+}
+.git-side-title > .pr-ref-arrow {
+    flex: none;
+    color: var(--text-tertiary);
+}
+.git-btn-group.git-side-actions.pr-side-actions {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 .pr-back {
     display: inline-flex;
@@ -53,9 +117,7 @@
 .pr-back > svg {
     transform: rotate(180deg);
 }
-.pr-number {
-    color: var(--text-tertiary);
-}
+
 /* The merge box sits inside the card, so it drops its own frame and keeps only the rules between its parts. */
 .pr-card .gha-merge-box {
     border: 0;
@@ -68,6 +130,14 @@
 .pr-card .gha-merge-title {
     font-size: var(--text-xs);
 }
+.pr-card .gha-merge-row {
+    flex-wrap: wrap;
+    row-gap: 0;
+}
+.pr-card .gha-merge-detail {
+    flex-basis: 100%;
+    padding-left: calc(22px + var(--space-2));
+}
 .pr-card .gha-merge-actions {
     flex-wrap: wrap;
     gap: var(--space-1h);
@@ -76,14 +146,12 @@
     padding: 6px;
 }
 /* The files take the rows they need; whatever is left goes to the open panels beneath. */
+/* The files page of a pull request's side panel, like Changes: its group a step below the actions above it. */
 .pr-files {
-    flex: 0 1 auto;
-    min-height: 64px;
+    flex: 1 1 auto;
+    min-height: 0;
     overflow-y: auto;
-}
-.pr-files:last-of-type,
-.pr-files:has(+ .git-history:not(.open)) {
-    flex-grow: 1;
+    padding-top: var(--space-1h);
 }
 .pr-files-stat {
     margin-left: auto;
@@ -120,9 +188,7 @@ button.git-file-row {
     height: 100%;
     min-height: 0;
 }
-.pr-right > .git-detail .pr-number {
-    color: var(--text-tertiary);
-}
+
 .pr-right > .git-detail .gha-branch > span {
     font-size: var(--text-2xs);
 }
@@ -142,9 +208,7 @@ button.git-file-row {
     overflow-y: auto;
     padding: var(--space-4) 16px var(--space-6);
 }
-.pr-conversation > .gha-thread,
-.pr-conversation > .release-notes,
-.pr-conversation > .release-assets {
+.pr-conversation > .gha-thread {
     max-width: 880px;
     margin: 0 auto;
 }
@@ -158,11 +222,7 @@ button.git-file-row {
     text-overflow: ellipsis;
     white-space: nowrap;
 }
-.run-card-tools {
-    display: inline-flex;
-    align-items: center;
-    margin-left: auto;
-}
+
 .run-job-took {
     margin-left: auto;
     padding-right: var(--space-1h);
@@ -185,6 +245,8 @@ button.git-file-row {
 .pr-conversation:has(> .run-logs) {
     display: flex;
     flex-direction: column;
+    overflow: visible;
+    padding-top: 0;
     padding-bottom: var(--space-3);
 }
 .run-logs {
@@ -193,23 +255,31 @@ button.git-file-row {
     flex-direction: column;
     min-height: 0;
 }
-.run-logs > .gha-steps {
-    flex: 0 1 auto;
-    max-height: 40%;
-    overflow-y: auto;
-}
 .run-logs > .gha-log {
     flex: 1 1 0;
     min-height: 200px;
-    max-height: none;
 }
-/* An issue reads on the right, where a pull request's files would be. */
-.issue-page {
-    height: 100%;
-    overflow-y: auto;
+/* The job's band, what CI flagged in it and the log's tools are one solid stack, edge to edge under the run's header
+   like the other heads in the column, so the picture behind the pane never shows through and the steps scroll under it. */
+.run-logs > .gha-job-actions,
+.run-logs > .gha-annotations,
+.run-logs > .gha-log > .gha-log-head {
+    flex: none;
+    margin-inline: calc(-16px - var(--space-2));
+    border-bottom: 1px solid var(--border);
+    border-radius: 0;
+    background: color-mix(in srgb, var(--surface) var(--panel-solidity), transparent);
 }
-.issue-page > .gha-detail {
-    padding-top: var(--space-3);
+.run-logs > .gha-job-actions {
+    height: 38px;
+    margin-top: calc(-1 * var(--space-2));
+    padding: 0 var(--space-4) 0 calc(16px + var(--space-2));
+}
+.run-logs > .gha-log > .gha-log-head {
+    height: 38px;
+    margin-top: 0;
+    margin-bottom: var(--space-2);
+    padding: 0 var(--space-4) 0 calc(16px + var(--space-2));
 }
 .git-right > .empty-state {
     margin: auto;
@@ -223,4 +293,23 @@ button.git-file-row {
 }
 .git-right-review > .empty-state {
     margin: auto;
+}
+/* An open run's side panel: its actions share the row equally, however many it has. */
+.git-btn-group.git-side-actions.run-side-actions {
+    grid-template-columns: none;
+    grid-auto-columns: minmax(0, 1fr);
+    grid-auto-flow: column;
+}
+.run-side-took {
+    margin-left: auto;
+    color: var(--text-tertiary);
+    font-size: var(--text-2xs);
+    font-variant-numeric: tabular-nums;
+}
+.git-side-head > :is(.gha-callout, .gha-attempts, .gha-approvals) {
+    margin: 0 var(--space-2) var(--space-2);
+}
+/* A job's mark fills its box edge to edge, unlike a file's icon, so it keeps a gap from the branch's tick. */
+.git-row.git-tree-row.run-job-row {
+    padding-left: 22px;
 }

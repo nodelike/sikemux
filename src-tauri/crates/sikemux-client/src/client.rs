@@ -17,11 +17,11 @@ use tokio::task::JoinHandle;
 use sikemux_wire::protocol::{
     decode_output, decode_snapshot, encode_control, encode_input, read_frame, AllowedDevice,
     Attention, BackdropImage, BuildIdentity, CallId, ChatAccount, ChatAttachment, ChatContext,
-    ChatEvent, ChatInfo, ChatLaunch, ChatLauncher, ChatMark, ChatStart, ClientMessage,
-    DeviceAccess, Event, FrameKind, HostRegistration, LaunchIdentity, ProjectInfo, PublishedChat,
-    PublishedRecent, RemoteStatus, Request, RequestId, Response, RunSelector, ServerMessage,
-    SessionId, SessionInfo, SpawnTarget, WindowAnswer, WindowCall, Workspace, MAX_FRAME_BYTES,
-    OLDEST_PROTOCOL_VERSION, PROTOCOL, PROTOCOL_VERSION,
+    ChatEvent, ChatInfo, ChatLaunch, ChatMark, ChatStart, ClientMessage, DeviceAccess, Event,
+    FrameKind, HostRegistration, LaunchIdentity, PublishedChat, PublishedRecent, RemoteStatus,
+    Request, RequestId, Response, RunSelector, ServerMessage, SessionId, SessionInfo, SpawnTarget,
+    WindowAnswer, WindowCall, Workspace, MAX_FRAME_BYTES, OLDEST_PROTOCOL_VERSION, PROTOCOL,
+    PROTOCOL_VERSION,
 };
 
 const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(5);
@@ -60,6 +60,7 @@ pub struct CoreHello {
 }
 
 #[derive(Debug)]
+#[allow(clippy::large_enum_variant)]
 pub enum ClientEvent {
     Output { id: SessionId, bytes: Vec<u8> },
     Event(Event),
@@ -810,16 +811,22 @@ impl CoreClient {
         self.remote_request(Request::RevokeDevice { id }).await
     }
 
-    pub async fn publish_workspace(
+    /// One of the core's methods by name, answered with its JSON result.
+    pub async fn call(
         &self,
-        projects: Vec<ProjectInfo>,
-        launchers: Vec<ChatLauncher>,
-    ) -> Result<(), ClientError> {
-        self.request_done(Request::PublishWorkspace {
-            projects,
-            launchers,
-        })
-        .await
+        method: &str,
+        params: serde_json::Value,
+    ) -> Result<serde_json::Value, ClientError> {
+        match self
+            .request(Request::Call {
+                method: method.to_owned(),
+                params,
+            })
+            .await?
+        {
+            Response::Called { result } => Ok(result),
+            _ => Err(ClientError::UnexpectedReply),
+        }
     }
 
     /// Removes this device from the core's paired devices.

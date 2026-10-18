@@ -7,6 +7,7 @@ pub mod air;
 pub mod native;
 pub mod permission;
 pub mod pickers;
+pub mod sign_in;
 
 use std::path::PathBuf;
 

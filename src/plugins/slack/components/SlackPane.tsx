@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { copyWithNotice, notify, openUrl, reportError, swallow } from "../../../plugin-api/host";
 import { invalidate, useResourceEnabled } from "../../../plugin-api/resources";
-import { Dropdown, EmptyState, Markdown, SendToAgentMenu, SkeletonRows } from "../../../plugin-api/ui";
+import { Dropdown, EmptyState, Markdown, SendToAgentMenu, SkeletonRows, StaleNotice } from "../../../plugin-api/ui";
 import { failureMessage, refreshSlack, slackApi, type SlackChannel, type SlackMessage, type SlackStatus } from "../api";
 import { slackChannelsR, slackHistoryR, slackStatusR, slackThreadR } from "../resources";
 import { threadForAgent, updateSlackView, useSlackView } from "../state";
@@ -104,7 +104,8 @@ function SlackWorkspace({ paneId, active, status }: { paneId: string; active: bo
                     aria-label="Find a channel or person"
                     spellCheck={false}
                 />
-                {channels.status === "error" ? (
+                <StaleNotice handle={channels} />
+                {channels.status === "error" && !channels.data ? (
                     <p className="slack-note">{channels.error}</p>
                 ) : !channels.data ? (
                     <SkeletonRows rows={6} label="Loading channels" />
@@ -197,8 +198,9 @@ function ChannelView({
                     Refresh
                 </button>
             </header>
+            <StaleNotice handle={history} />
             <div className="slack-messages">
-                {history.status === "error" ? (
+                {history.status === "error" && !history.data ? (
                     <EmptyState message={history.error ?? "Slack could not read this channel."} tone="error" />
                 ) : !history.data ? (
                     <SkeletonRows rows={6} label="Loading messages" />
@@ -279,8 +281,9 @@ function ThreadView({
                     ✕
                 </button>
             </header>
+            <StaleNotice handle={thread} />
             <div className="slack-messages">
-                {thread.status === "error" ? (
+                {thread.status === "error" && !found ? (
                     <EmptyState message={thread.error ?? "Slack could not read this thread."} tone="error" />
                 ) : !found ? (
                     <SkeletonRows rows={4} label="Loading the thread" />

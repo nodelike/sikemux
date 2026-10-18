@@ -14,7 +14,7 @@
     },
     "Platform": {
       "type": "string",
-      "enum": ["macos", "ios", "android"]
+      "enum": ["macos", "linux", "ios", "android"]
     },
     "Channel": {
       "description": "Which build a host runs. Dev, nightly and stable cores are separate hosts.",

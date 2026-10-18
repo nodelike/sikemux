@@ -59,20 +59,25 @@ pub(crate) fn save(dir: &Path, name: &str, mime: &str, data: &str) -> CoreResult
     Ok(path)
 }
 
-/// A file in `dir`, in base64. Nothing outside `dir` is read, however `path`
-/// is spelled or linked.
-pub(crate) fn read(dir: &Path, path: &Path) -> CoreResult<String> {
-    let missing = || CoreError::from("this host no longer has that file");
-    let dir = fs::canonicalize(dir).map_err(|_| missing())?;
-    let path = fs::canonicalize(path).map_err(|_| missing())?;
-    if !path.starts_with(&dir) {
-        return Err("only files kept for chats can be read".into());
+/// Whether `path` is in `dir`, however it is spelled or linked.
+pub(crate) fn is_kept(dir: &Path, path: &Path) -> bool {
+    match (fs::canonicalize(dir), fs::canonicalize(path)) {
+        (Ok(dir), Ok(path)) => path.starts_with(dir),
+        _ => false,
     }
-    let size = fs::metadata(&path).map_err(|_| missing())?.len();
-    if size > MAX_ATTACHMENT_BYTES as u64 {
+}
+
+/// A file, in base64, for a device to show.
+pub(crate) fn read(path: &Path) -> CoreResult<String> {
+    let missing = || CoreError::from("this host no longer has that file");
+    let metadata = fs::metadata(path).map_err(|_| missing())?;
+    if !metadata.is_file() {
+        return Err(missing());
+    }
+    if metadata.len() > MAX_ATTACHMENT_BYTES as u64 {
         return Err("a device can be sent files of at most 10 MB".into());
     }
-    let bytes = fs::read(&path).map_err(|_| missing())?;
+    let bytes = fs::read(path).map_err(|_| missing())?;
     Ok(STANDARD.encode(bytes))
 }
 

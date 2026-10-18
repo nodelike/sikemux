@@ -39,3 +39,12 @@ pub struct PtyShellMetadataEvent<Id = u32> {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub exit_code: Option<i32>,
 }
+
+/// Where an SSH terminal's connection stands, as its startup loop reports it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SshLink {
+    Connecting,
+    Connected,
+    Disconnected,
+}

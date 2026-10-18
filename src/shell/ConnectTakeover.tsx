@@ -39,10 +39,18 @@ function useInertBesides(host: HTMLElement | null) {
     }, [host]);
 }
 
-/** What the takeover asks: about a phone waiting to join, or, right after signing in, about the phones already on the account. */
-export type ConnectQuestion = { kind: "waiting"; request: PendingDevice } | { kind: "signedIn"; names: readonly string[] };
+/**
+ * What the takeover asks: about a phone waiting to join, about another host on the account asking to link,
+ * or, right after signing in, about the phones already on the account.
+ */
+export type ConnectQuestion =
+    { kind: "waiting"; request: PendingDevice } | { kind: "link"; request: PendingDevice } | { kind: "signedIn"; names: readonly string[] };
 
 function wording(question: ConnectQuestion): { title: string; lines: readonly [string, string]; decline: string } {
+    if (question.kind === "link") {
+        const name = question.request.name || "Another computer";
+        return { title: `${name} wants to link with this computer`, lines: [`${name} wants to link`, "with this computer"], decline: "Decline" };
+    }
     if (question.kind === "waiting") {
         const name = question.request.name || "A phone";
         return { title: `${name} wants to connect to this computer`, lines: [`${name} wants to connect`, "to this computer"], decline: "Decline" };
@@ -53,7 +61,7 @@ function wording(question: ConnectQuestion): { title: string; lines: readonly [s
 }
 
 /**
- * Asks over the whole window whether phones on the account may connect: the app goes behind
+ * Asks over the whole window whether phones or hosts on the account may connect: the app goes behind
  * the window's own ground until the person allows or declines.
  */
 export default function ConnectTakeover({
@@ -70,6 +78,7 @@ export default function ConnectTakeover({
     const now = useNow();
     const { title, lines, decline } = wording(question);
     const names = question.kind === "signedIn" && question.names.length > 1 ? question.names : null;
+    const link = question.kind === "link";
 
     useEffect(() => {
         const element = document.createElement("div");
@@ -95,7 +104,7 @@ export default function ConnectTakeover({
             if (event.key === "Escape") {
                 event.preventDefault();
                 answerRef.current(false);
-            } else if (event.key === "ArrowUp" || event.key === "ArrowDown") {
+            } else if (!link && (event.key === "ArrowUp" || event.key === "ArrowDown")) {
                 event.preventDefault();
                 setAccess((current) => (current === "full" ? "watch" : "full"));
             } else if (event.key === "Enter" && !onButton) {
@@ -105,7 +114,7 @@ export default function ConnectTakeover({
         };
         window.addEventListener("keydown", onKey, { capture: true });
         return () => window.removeEventListener("keydown", onKey, { capture: true });
-    }, [host]);
+    }, [host, link]);
 
     if (!host) return null;
     return createPortal(
@@ -114,9 +123,7 @@ export default function ConnectTakeover({
             <div className="connect-column">
                 <div className="connect-handshake" aria-hidden="true">
                     <span className="connect-glow" />
-                    <span className="connect-tile connect-tile-phone">
-                        <IconPhone size={36} />
-                    </span>
+                    <span className="connect-tile connect-tile-phone">{link ? <IconLaptop size={36} /> : <IconPhone size={36} />}</span>
                     <span className="connect-line" />
                     <span className="connect-tile">
                         <IconLaptop size={36} />
@@ -128,37 +135,40 @@ export default function ConnectTakeover({
                     {lines[1]}
                 </h2>
                 {names && <p className="connect-names">{names.join(" · ")}</p>}
+                {link && <p className="connect-names">Its agents could start agents here, on this computer&apos;s sign-ins.</p>}
                 {account?.signedIn && (
                     <p className="connect-who">
                         <AccountAvatar account={account} className="connect-avatar" />
                         Signed in as <b>{account.email ?? account.name}</b>
                     </p>
                 )}
-                <div className="connect-choices" role="radiogroup" aria-label={names ? "Access for these phones" : "Access for this phone"}>
-                    {ACCESS_OPTIONS.map((option) => {
-                        const Icon = ACCESS_ICONS[option.value];
-                        return (
-                            <button
-                                key={option.value}
-                                className="connect-choice"
-                                type="button"
-                                role="radio"
-                                aria-checked={access === option.value}
-                                onClick={() => setAccess(option.value)}>
-                                <span className="connect-choice-mark">
-                                    <Icon size={16} />
-                                </span>
-                                <span className="connect-choice-copy">
-                                    <span className="connect-choice-label">{option.label}</span>
-                                    <span className="connect-choice-detail">{option.detail}</span>
-                                </span>
-                                <span className="connect-radio" aria-hidden="true" />
-                            </button>
-                        );
-                    })}
-                </div>
+                {!link && (
+                    <div className="connect-choices" role="radiogroup" aria-label={names ? "Access for these phones" : "Access for this phone"}>
+                        {ACCESS_OPTIONS.map((option) => {
+                            const Icon = ACCESS_ICONS[option.value];
+                            return (
+                                <button
+                                    key={option.value}
+                                    className="connect-choice"
+                                    type="button"
+                                    role="radio"
+                                    aria-checked={access === option.value}
+                                    onClick={() => setAccess(option.value)}>
+                                    <span className="connect-choice-mark">
+                                        <Icon size={16} />
+                                    </span>
+                                    <span className="connect-choice-copy">
+                                        <span className="connect-choice-label">{option.label}</span>
+                                        <span className="connect-choice-detail">{option.detail}</span>
+                                    </span>
+                                    <span className="connect-radio" aria-hidden="true" />
+                                </button>
+                            );
+                        })}
+                    </div>
+                )}
                 <div className="connect-actions">
-                    {question.kind === "waiting" && <span className="connect-waits">waits {waitsLabel(question.request.expiresAt, now)}</span>}
+                    {question.kind !== "signedIn" && <span className="connect-waits">waits {waitsLabel(question.request.expiresAt, now)}</span>}
                     <button className="connect-btn" type="button" onClick={() => answer(false)}>
                         {decline}
                     </button>
@@ -171,15 +181,19 @@ export default function ConnectTakeover({
                         <kbd>esc</kbd>
                         {decline}
                     </span>
-                    <span>
-                        <kbd>↑↓</kbd>Choose access
-                    </span>
+                    {!link && (
+                        <span>
+                            <kbd>↑↓</kbd>Choose access
+                        </span>
+                    )}
                     <span>
                         <kbd>{ENTER_GLYPH}</kbd>Allow
                     </span>
                 </div>
             </div>
-            <p className="connect-foot">Only allow phones you own. Remove one any time in Settings › Devices.</p>
+            <p className="connect-foot">
+                {link ? "Only allow computers you own." : "Only allow phones you own."} Remove one any time in Settings › Devices.
+            </p>
         </div>,
         host,
     );

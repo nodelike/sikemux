@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Run, RunPage, Workflow } from "../api";
 
@@ -153,7 +153,7 @@ describe("keeping the list fresh", () => {
             vi.advanceTimersByTime(10_000);
         });
         expect(api.runs.mock.calls.length).toBe(before + 1);
-        expect(within(document.querySelector(".gha-run-status") as HTMLElement).getByText("Running")).toBeTruthy();
+        expect(document.querySelector(".gha-run-item")).toHaveAttribute("data-outcome", "running");
     });
 
     it("waits twenty seconds between reads once everything has finished", async () => {

@@ -5,25 +5,8 @@ import { performanceTelemetry } from "../lib/performance";
 
 /** How long the track takes to travel one screen. */
 export const PAN_MS = 280;
-/** Any shorter and a settle reads as a cut rather than a move. */
-const SETTLE_MIN_MS = 120;
 /** Falls back to this when no `transitionend` arrives, so a pan or a slide can never get stuck. */
 export const SETTLE_GUARD_MS = PAN_MS + 120;
-
-/**
- * How long a swipe put back where it came from takes. One time for all of them,
- * however far the pull got: a band pulled twice as far comes back twice as fast
- * rather than taking twice as long, and it is the time that a person reads as
- * the feel of the thing.
- */
-export const RETURN_MS = 200;
-
-/**
- * How long to take over the ground a gesture left, which is less than a screen.
- * Not in proportion to it: covering half the distance in half the time looks
- * like the same speed, so a short trip keeps some of the pace of a long one.
- */
-export const settleMs = (remaining: number) => Math.max(SETTLE_MIN_MS, Math.round(PAN_MS * Math.sqrt(Math.min(Math.max(remaining, 0), 1))));
 
 /** How far the track is slid left to bring `index` to the front. One screen of
  *  travel is the stage plus the gap the cards keep between them. */
@@ -44,10 +27,8 @@ interface Pan {
     /** Where the target is parked for the slide, so the travel is one screen however far the jump was. */
     readonly slot: number;
     readonly distance: number;
-    /** How long the travel takes. A gesture hands back less than a screen of it. */
+    /** How long the travel takes. */
     readonly ms: number;
-    /** Whether the travel runs back against the hand rather than on the way it went. */
-    readonly returning: boolean;
 }
 
 export interface WindowPan {
@@ -55,8 +36,6 @@ export interface WindowPan {
     readonly panning: boolean;
     /** Whether the track is past its parked position and actually travelling. */
     readonly sliding: boolean;
-    /** Whether what is travelling is a swipe coming back rather than carrying on. */
-    readonly returning: boolean;
     /** Where the track sits now, in screen widths from its left edge. */
     readonly at: number;
     /** How long the travel on screen now takes, which the stylesheet needs. */
@@ -70,11 +49,13 @@ export interface WindowPan {
      * doing rather than a switch to slide for.
      */
     grab(on: string, beside: string | null): void;
+    /** Puts the track `at` screens along while a gesture holds it. */
+    place(at: number): void;
     /**
-     * Takes the track back when the gesture stops, sliding from wherever it left
-     * it onto `onto` over `ms`. The gesture knows how much ground that leaves.
+     * Takes the track back from a gesture that has carried it all the way onto
+     * `onto`, which the session is about to move to without a slide of its own.
      */
-    snap(onto: string, beside: string | null, ms: number, returning: boolean): void;
+    land(onto: string): void;
     /**
      * Takes the track back with no travel at all, parked on the screen the
      * session is on now. For a gesture whose screens moved out from under it,
@@ -95,7 +76,7 @@ function planPan(from: string | null, to: string | null, slots: ReadonlyMap<stri
     // Taking over a slide already travelling is that same travel carrying on, so
     // it carries on at the same pace rather than starting a fresh screen's worth.
     const ms = running?.to === from ? running.ms : PAN_MS;
-    return { kind: "slide", from, to, fromSlot, slot: fromSlot + (toSlot > home ? 1 : -1), distance: Math.abs(toSlot - home), ms, returning: false };
+    return { kind: "slide", from, to, fromSlot, slot: fromSlot + (toSlot > home ? 1 : -1), distance: Math.abs(toSlot - home), ms };
 }
 
 /**
@@ -107,15 +88,16 @@ function planPan(from: string | null, to: string | null, slots: ReadonlyMap<stri
  * it back on settle, which keeps the travel and the number of painted layers
  * the same whether the jump was one screen or twenty.
  *
- * A trackpad gesture borrows the track through `grab` and `snap` instead of a
- * switch. It drives the transform itself and moves the session along the screens it
- * drags past, so only the snap at the end is a slide.
+ * A trackpad gesture borrows the track through `grab`, `place` and `land`
+ * instead of a switch. It drives the transform itself, landing included, and
+ * the session only moves once the track is already there.
  */
 export function useWindowPan(sessionId: string, activeWindowId: string | null, slots: ReadonlyMap<string, number>): WindowPan {
     const trackRef = useRef<HTMLDivElement>(null);
     const [pan, setPan] = useState<Pan | null>(null);
     const [running, setRunning] = useState(false);
     const previous = useRef({ sessionId, activeWindowId });
+    const held = useRef<number | null>(null);
 
     if (previous.current.sessionId !== sessionId || previous.current.activeWindowId !== activeWindowId) {
         const was = previous.current;
@@ -177,50 +159,49 @@ export function useWindowPan(sessionId: string, activeWindowId: string | null, s
             slot: home,
             distance: 1,
             ms: PAN_MS,
-            returning: false,
         }));
         setRunning(false);
     };
 
-    const park = () => {
-        // A switch made mid-gesture plans a slide of its own, and that slide is
-        // then the one thing moving the track: only a drag is still the gesture's.
-        if (pan?.kind !== "drag") return;
-        previous.current = { sessionId, activeWindowId };
-        // The track goes by hand: React's transform has not moved since the
-        // gesture took the track over.
-        if (trackRef.current) trackRef.current.style.transform = panTransform(activeWindowId === null ? 0 : (slots.get(activeWindowId) ?? 0));
+    const place = (at: number) => {
+        held.current = at;
+        if (trackRef.current) trackRef.current.style.transform = panTransform(at);
+    };
+
+    const giveBack = (onto: string | null) => {
+        held.current = null;
+        previous.current = { sessionId, activeWindowId: onto };
+        if (trackRef.current) trackRef.current.style.transform = panTransform(onto === null ? 0 : (slots.get(onto) ?? 0));
         setPan(null);
         setRunning(false);
     };
 
-    const snap = (onto: string, beside: string | null, ms: number, returning: boolean) => {
-        const home = slots.get(onto);
-        // A screen closed under the swipe has nothing left to land on.
-        if (home === undefined) return park();
-        // A swipe thrown at the last moment moves the session one more screen on
-        // its way out, and this is the travel for it, so nothing else plans one.
-        previous.current = { sessionId, activeWindowId: onto };
-        if (prefersReducedMotion()) {
-            if (trackRef.current) trackRef.current.style.transform = panTransform(home);
-            setPan(null);
-            setRunning(false);
-            return;
-        }
-        // The same slide a switch makes, settling the same way, except that the
-        // two screens are already side by side so neither has to be parked.
-        const neighbour = beside === null ? undefined : slots.get(beside);
-        setPan({ kind: "slide", from: beside ?? onto, to: onto, fromSlot: neighbour ?? home, slot: home, distance: 1, ms, returning });
-        setRunning(true);
+    // A switch made mid-gesture plans a slide of its own, and that slide is
+    // then the one thing moving the track: only a drag is still the gesture's.
+    const park = () => {
+        if (pan?.kind === "drag") giveBack(activeWindowId);
+    };
+
+    const land = (onto: string) => {
+        if (pan?.kind !== "drag") return;
+        if (!slots.has(onto)) return giveBack(activeWindowId);
+        giveBack(onto);
     };
 
     return {
         trackRef,
         panning: pan !== null,
         sliding: pan !== null && pan.kind === "slide" && running,
-        returning: pan?.returning === true,
         ms: pan?.ms ?? PAN_MS,
-        at: pan ? (running ? pan.slot : pan.fromSlot) : activeWindowId ? (slots.get(activeWindowId) ?? 0) : 0,
+        at: pan
+            ? pan.kind === "drag"
+                ? (held.current ?? pan.fromSlot)
+                : running
+                  ? pan.slot
+                  : pan.fromSlot
+            : activeWindowId
+              ? (slots.get(activeWindowId) ?? 0)
+              : 0,
         slotOf: (windowId, slot) => {
             // A drag moves the whole track rather than parking anything, so every
             // screen stays on its own.
@@ -230,7 +211,8 @@ export function useWindowPan(sessionId: string, activeWindowId: string | null, s
         },
         paints: (windowId) => (pan ? windowId === pan.from || windowId === pan.to : windowId === activeWindowId),
         grab,
-        snap,
+        place,
+        land,
         park,
     };
 }

@@ -83,6 +83,12 @@ fn git_stage_sync(repo: String, path: String) -> Result<(), String> {
     index.write().map_err(|e| e.message().to_string())
 }
 
+fn note_index_write(repo: &str, paths: Option<&[String]>) {
+    if let Ok(key) = crate::files::canonical_repo_key(repo) {
+        crate::fs_watch::note_own_change(&key, paths);
+    }
+}
+
 fn git_unstage_sync(repo: String, path: String) -> Result<(), String> {
     let r = open_repo(&repo)?;
     let head_commit = r.head().and_then(|h| h.peel_to_commit()).ok();
@@ -101,12 +107,22 @@ fn git_unstage_sync(repo: String, path: String) -> Result<(), String> {
 
 #[tauri::command]
 pub async fn git_stage(repo: String, path: String) -> Result<(), String> {
-    run_blocking(move || git_stage_sync(repo, path)).await
+    run_blocking(move || -> Result<(), String> {
+        git_stage_sync(repo.clone(), path.clone())?;
+        note_index_write(&repo, Some(std::slice::from_ref(&path)));
+        Ok(())
+    })
+    .await
 }
 
 #[tauri::command]
 pub async fn git_unstage(repo: String, path: String) -> Result<(), String> {
-    run_blocking(move || git_unstage_sync(repo, path)).await
+    run_blocking(move || -> Result<(), String> {
+        git_unstage_sync(repo.clone(), path.clone())?;
+        note_index_write(&repo, Some(std::slice::from_ref(&path)));
+        Ok(())
+    })
+    .await
 }
 
 /// Paths per `git` invocation. Selecting a range in the git pane can name
@@ -175,7 +191,9 @@ pub async fn git_stage_paths(repo: String, paths: Vec<String>) -> Result<(), Str
                     .map_err(|e| e.message().to_string())?;
             }
         }
-        index.write().map_err(|e| e.message().to_string())
+        index.write().map_err(|e| e.message().to_string())?;
+        note_index_write(&repo, Some(&paths));
+        Ok(())
     })
     .await
 }
@@ -191,7 +209,7 @@ pub async fn git_unstage_paths(repo: String, paths: Vec<String>) -> Result<(), S
         match head_commit {
             Some(head) => r
                 .reset_default(Some(head.as_object()), paths.iter().map(String::as_str))
-                .map_err(|e| e.message().to_string()),
+                .map_err(|e| e.message().to_string())?,
             None => {
                 // Pre-first-commit — remove from the index.
                 let mut index = r.index().map_err(|e| e.message().to_string())?;
@@ -200,9 +218,11 @@ pub async fn git_unstage_paths(repo: String, paths: Vec<String>) -> Result<(), S
                         .remove_path(Path::new(path))
                         .map_err(|e| e.message().to_string())?;
                 }
-                index.write().map_err(|e| e.message().to_string())
+                index.write().map_err(|e| e.message().to_string())?
             }
         }
+        note_index_write(&repo, Some(&paths));
+        Ok(())
     })
     .await
 }
@@ -244,7 +264,7 @@ pub async fn git_discard_files(
 
 #[tauri::command]
 pub async fn git_stage_all(repo: String) -> Result<(), String> {
-    run_blocking(move || {
+    run_blocking(move || -> Result<(), String> {
         let r = open_repo(&repo)?;
         let mut idx = r.index().map_err(|e| e.message().to_string())?;
         idx.add_all(["*"], git2::IndexAddOption::DEFAULT, None)
@@ -252,7 +272,9 @@ pub async fn git_stage_all(repo: String) -> Result<(), String> {
         // Also stage deletions.
         idx.update_all(["*"], None)
             .map_err(|e| e.message().to_string())?;
-        idx.write().map_err(|e| e.message().to_string())
+        idx.write().map_err(|e| e.message().to_string())?;
+        note_index_write(&repo, None);
+        Ok(())
     })
     .await
 }
@@ -263,7 +285,12 @@ pub async fn git_stage_all(repo: String) -> Result<(), String> {
 /// is fiddlier than spawning the canonical command.
 #[tauri::command]
 pub async fn git_unstage_all(repo: String) -> Result<(), String> {
-    run_blocking(move || git_ok(&repo, &["reset", "HEAD", "--"]).map(|_| ())).await
+    run_blocking(move || -> Result<(), String> {
+        git_ok(&repo, &["reset", "HEAD", "--"])?;
+        note_index_write(&repo, None);
+        Ok(())
+    })
+    .await
 }
 
 /// Discard changes to a single file. `mode`:

@@ -64,7 +64,7 @@
      * High, because the field is dots of a surface tone with nothing painted
      * between them. Opacity buys texture here rather than haze.
      */
-    --shader-field-strength: 0.85;
+    --shader-field-strength: calc(0.85 * var(--pane-strength, 1));
     /*
      * Weighted to the top and gone by the middle. A pane fills downward —
      * scrollback, a document, a diff — so the top is the one band reliably
@@ -96,7 +96,7 @@
 .pane-field-image {
     bottom: auto;
     height: 60%;
-    --shader-field-strength: 0.38;
+    --shader-field-strength: calc(0.38 * var(--pane-strength, 1));
     mask-image: linear-gradient(to bottom, #000 0%, rgba(0, 0, 0, 0.45) 40%, rgba(0, 0, 0, 0.08) 76%, transparent 100%);
     clip-path: inset(0 round calc(var(--radius-panel) - 1px) calc(var(--radius-panel) - 1px) 0 0);
 }

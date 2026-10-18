@@ -200,6 +200,13 @@ function renderNode(node: MdNode, components: MarkdownComponents, inLink: boolea
         }
         case "fnref":
             return <sup key={key}>{node.n}</sup>;
+        case "details":
+            return (
+                <details key={key} open={node.open}>
+                    <summary>{node.summary || "Details"}</summary>
+                    {renderAll(node.c, components, inLink)}
+                </details>
+            );
     }
 }
 

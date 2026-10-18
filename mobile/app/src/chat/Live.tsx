@@ -1,23 +1,26 @@
 import { Fragment, useEffect, useState, type ReactNode } from 'react';
 import { ActivityIndicator, Animated, Pressable, StyleSheet, Text, View } from 'react-native';
 
-import { subagentActivity, taskDetail } from '@mac/chat/transcript';
+import {
+  subagentActivity,
+  subagentCost,
+  taskDetail,
+  workflowAgentCost,
+  workflowAgentCount,
+  workflowAgentDetail,
+} from '@mac/chat/transcript';
+import type { AcpWorkflowAgent } from '@mac/chat/types';
 import { AgentIcon, Icon } from '@/ui/Icon';
 import { SectionLabel } from '@/ui/list';
 import { useStill } from '@/ui/motion';
 import { Sheet } from '@/ui/Sheet';
 import { Shimmer } from '@/ui/Shimmer';
 import { Dot, Working } from '@/ui/status';
-import { fonts, type Palette, useColors, useStyles } from '@/ui/theme';
-import type { LiveWork, PlanEntry } from './liveWork';
-
-/** A kind of work named the way the Mac's live stack names it, counted. */
-function counted(word: string, count: number): string {
-  return count === 1 || word === 'queued' ? word : `${word}s`;
-}
+import { fonts, mixed, type Palette, useColors, useStyles } from '@/ui/theme';
+import { counted, liveStrip, type LiveWork, type PlanEntry, type StripPiece } from './liveWork';
 
 function TaskIcon({ kind, color, size = 12 }: { kind: string; color: string; size?: number }) {
-  return <Icon name={kind === 'shell' ? 'IconCommand' : 'IconTimer'} size={size} color={color} />;
+  return <Icon name={kind === 'shell' ? 'IconCommand' : kind === 'workflow' ? 'IconWorkflow' : 'IconTimer'} size={size} color={color} />;
 }
 
 /** Past this many kinds the strip drops the words and keeps the counts. */
@@ -52,55 +55,17 @@ function useTurns(count: number): { index: number; shown: Animated.Value } {
   return { index, shown };
 }
 
+function PieceIcon({ piece, provider }: { piece: StripPiece; provider: string }) {
+  const colors = useColors();
+  if (piece.task) return <TaskIcon kind={piece.task} color={colors.inkDim} />;
+  if (piece.key === 'subagents') return <AgentIcon provider={provider} size={12} />;
+  return <Icon name={piece.key === 'queued' ? 'IconClock' : 'IconCheck'} size={12} color={colors.inkDim} />;
+}
+
 export function LiveStrip({ work, provider, onOpen }: { work: LiveWork; provider: string; onOpen: () => void }) {
   const colors = useColors();
   const styles = useStyles(makeStyles);
-  const done = work.plan.filter((entry) => entry.status === 'completed').length;
-  const pieces: { key: string; icon: ReactNode; count: string; word: string }[] = [
-    ...(work.subagents.length
-      ? [
-          {
-            key: 'subagents',
-            icon: <AgentIcon provider={provider} size={12} />,
-            count: String(work.subagents.length),
-            word: counted('subagent', work.subagents.length),
-          },
-        ]
-      : []),
-    ...work.tasks.map(([kind, tasks]) => ({
-      key: `task-${kind}`,
-      icon: <TaskIcon kind={kind} color={colors.inkDim} />,
-      count: String(tasks.length),
-      word: counted(kind, tasks.length),
-    })),
-    ...(work.queued.length
-      ? [
-          {
-            key: 'queued',
-            icon: <Icon name="IconClock" size={12} color={colors.inkDim} />,
-            count: String(work.queued.length),
-            word: 'queued',
-          },
-        ]
-      : []),
-    ...(work.planOpen
-      ? [
-          {
-            key: 'plan',
-            icon: <Icon name="IconCheck" size={12} color={colors.inkDim} />,
-            count: `${done}/${work.plan.length}`,
-            word: 'plan',
-          },
-        ]
-      : []),
-  ];
-  const working = work.subagents.length > 0 || work.tasks.some(([, tasks]) => tasks.some((task) => task.state === 'running'));
-  const lines = [
-    ...work.subagents.map((subagent) => `${subagent.name} · ${subagentActivity(subagent)}`),
-    ...work.tasks.flatMap(([, tasks]) =>
-      tasks.filter((task) => task.state === 'running').map((task) => [task.name, taskDetail(task)].filter(Boolean).join(' · ')),
-    ),
-  ];
+  const { pieces, lines, working } = liveStrip(work);
   const line = useTurns(lines.length);
   const worded = !lines.length && pieces.length <= WORDED;
   return (
@@ -120,7 +85,7 @@ export function LiveStrip({ work, provider, onOpen }: { work: LiveWork; provider
       <View style={[styles.pieces, lines.length > 0 && styles.piecesAfter]}>
         {pieces.map((piece) => (
           <View key={piece.key} style={styles.piece}>
-            {piece.icon}
+            <PieceIcon piece={piece} provider={provider} />
             <Text style={styles.pieceText} numberOfLines={1}>
               {piece.key === 'plan' && worded ? `${piece.word} ` : null}
               <Text style={styles.count}>{piece.count}</Text>
@@ -163,25 +128,56 @@ function SmallButton({
   );
 }
 
-function Line({ mark, title, detail, end, faint }: { mark: ReactNode; title: string; detail?: string; end?: ReactNode; faint?: boolean }) {
+function Line({
+  mark,
+  title,
+  detail,
+  cost,
+  end,
+  faint,
+  nested,
+}: {
+  mark: ReactNode;
+  title: string;
+  detail?: string;
+  /** What a subagent has spent so far, or how many of a workflow's agents are done. */
+  cost?: string;
+  end?: ReactNode;
+  faint?: boolean;
+  /** One of a workflow's agents, set in under the workflow. */
+  nested?: boolean;
+}) {
   const colors = useColors();
   const styles = useStyles(makeStyles);
   return (
-    <View style={styles.line}>
-      <View style={styles.mark}>{mark}</View>
+    <View style={[styles.line, nested && styles.nested]}>
+      <View style={[styles.mark, faint && styles.faded]}>{mark}</View>
       <View style={styles.lineBody}>
         <Text style={[styles.lineTitle, faint && { color: colors.tertiary }]} numberOfLines={1}>
           {title}
         </Text>
-        {detail ? (
-          <Text style={styles.lineDetail} numberOfLines={1}>
-            {detail}
-          </Text>
+        {detail || cost ? (
+          <View style={styles.lineDetailRow}>
+            {detail ? (
+              <Text style={styles.lineDetail} numberOfLines={1}>
+                {detail}
+              </Text>
+            ) : null}
+            {cost ? <Text style={styles.cost}>{cost}</Text> : null}
+          </View>
         ) : null}
       </View>
       {end ? <View style={styles.lineEnd}>{end}</View> : null}
     </View>
   );
+}
+
+function WorkflowAgentMark({ state }: { state: AcpWorkflowAgent['state'] }) {
+  const colors = useColors();
+  if (state === 'running') return <Working />;
+  if (state === 'completed') return <Icon name="IconCheck" size={12} color={mixed(colors.live, colors.inkFaint, 0.58)} />;
+  if (state === 'failed') return <Icon name="IconClose" size={11} color={colors.danger} />;
+  return null;
 }
 
 function PlanMark({ status }: { status: PlanEntry['status'] }) {
@@ -232,6 +228,7 @@ export function LiveSheet({
                 mark={<AgentIcon provider={provider} size={16} />}
                 title={subagent.name}
                 detail={subagentActivity(subagent)}
+                cost={subagentCost(subagent)}
                 end={<Working />}
               />
             ))}
@@ -241,22 +238,36 @@ export function LiveSheet({
           <Fragment key={kind}>
             <SectionLabel count={tasks.length}>{counted(kind, tasks.length)}</SectionLabel>
             {tasks.map((task) => (
-              <Line
-                key={task.asyncTaskId}
-                mark={<TaskIcon kind={kind} size={15} color={task.state === 'paused' ? colors.warn : colors.inkDim} />}
-                title={task.name}
-                detail={task.state === 'paused' ? 'paused' : taskDetail(task)}
-                end={
-                  canAct && task.canStop ? (
-                    <SmallButton
-                      label="Stop"
-                      busy={stopping.has(task.asyncTaskId)}
-                      onPress={() => onStopTask(task.asyncTaskId)}
-                      accessibilityLabel={`Stop ${task.name}`}
-                    />
-                  ) : null
-                }
-              />
+              <Fragment key={task.asyncTaskId}>
+                <Line
+                  mark={<TaskIcon kind={kind} size={15} color={task.state === 'paused' ? colors.warn : colors.inkDim} />}
+                  title={task.name}
+                  detail={task.state === 'paused' ? 'paused' : taskDetail(task)}
+                  cost={task.agents?.length ? workflowAgentCount(task.agents) : undefined}
+                  end={
+                    canAct && task.canStop ? (
+                      <SmallButton
+                        label="Stop"
+                        busy={stopping.has(task.asyncTaskId)}
+                        onPress={() => onStopTask(task.asyncTaskId)}
+                        accessibilityLabel={`Stop ${task.name}`}
+                      />
+                    ) : null
+                  }
+                />
+                {task.agents?.map((agent) => (
+                  <Line
+                    key={agent.index}
+                    nested
+                    faint={agent.state === 'queued' || agent.state === 'completed'}
+                    mark={<AgentIcon provider={provider} size={16} />}
+                    title={agent.label}
+                    detail={workflowAgentDetail(agent)}
+                    cost={workflowAgentCost(agent)}
+                    end={<WorkflowAgentMark state={agent.state} />}
+                  />
+                ))}
+              </Fragment>
             ))}
           </Fragment>
         ))}
@@ -365,7 +376,11 @@ const makeStyles = (colors: Palette) => {
     mark: { width: 20, height: 20, alignItems: 'center', justifyContent: 'center' },
     lineBody: { flex: 1, minWidth: 0 },
     lineTitle: { fontFamily: fonts.uiMedium, fontSize: 14.5, letterSpacing: -0.15, color: colors.secondary },
-    lineDetail: { fontFamily: fonts.ui, fontSize: 12, color: colors.tertiary, marginTop: 1 },
+    lineDetailRow: { flexDirection: 'row', alignItems: 'baseline', gap: 8, marginTop: 1 },
+    lineDetail: { flexShrink: 1, fontFamily: fonts.ui, fontSize: 12, color: colors.tertiary },
+    cost: { fontFamily: fonts.mono, fontSize: 10.5, color: colors.inkFaint, fontVariant: ['tabular-nums'] },
+    nested: { paddingLeft: 38 },
+    faded: { opacity: 0.6 },
     lineEnd: { flexDirection: 'row', alignItems: 'center', gap: 8 },
     small: {
       minWidth: 52,

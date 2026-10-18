@@ -1,13 +1,16 @@
-import { IconChevron } from "../ui/Icons";
+import type { AgentType } from "../state/types";
+import { AgentIcon, IconChevron } from "../ui/Icons";
 import { callsLabel, workedLabel } from "./toolView";
 
 export function WorkSummary({
+    agent,
     took,
     calls,
     thought,
     open,
     onToggle,
 }: {
+    agent: AgentType;
     took: number | null;
     calls: number;
     thought: boolean;
@@ -17,6 +20,9 @@ export function WorkSummary({
     return (
         <div className="chat-work">
             <button type="button" className="chat-tools-sum" aria-expanded={open} onClick={onToggle}>
+                <span className={`chat-work-mark agent-glyph ${agent}`} aria-hidden="true">
+                    <AgentIcon type={agent} size={17} />
+                </span>
                 <span>{workedLabel(took, thought)}</span>
                 {calls > 0 && (
                     <>

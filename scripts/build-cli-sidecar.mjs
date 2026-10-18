@@ -55,13 +55,11 @@ function executableName(name, target) {
 }
 
 function buildFor(target, explicitTarget) {
-  const cargoArgs = ["build", "--locked", "--release"];
+  const cargoArgs = ["build", "--locked", "--release", "-p", "sikemux-host"];
   for (const name of sidecars) cargoArgs.push("--bin", name);
   cargoArgs.push("--manifest-path", join(tauriDir, "Cargo.toml"));
   if (explicitTarget) cargoArgs.push("--target", target);
-  // `tauri build` compiles every binary in the crate, so a release takes the
-  // sidecar it already linked instead of compiling the whole crate again.
-  if (!args.includes("--from-app-build")) run("cargo", cargoArgs);
+  run("cargo", cargoArgs);
   const releaseDir = explicitTarget
     ? join(tauriDir, "target", target, "release")
     : join(tauriDir, "target", "release");

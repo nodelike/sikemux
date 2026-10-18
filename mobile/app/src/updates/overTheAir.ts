@@ -2,7 +2,7 @@ import { useEffect } from 'react';
 import { AppState } from 'react-native';
 import * as Updates from 'expo-updates';
 
-import { UpdateController } from './controller';
+import { CHECK_EVERY_MS, UpdateController } from './controller';
 
 const controller = new UpdateController({
   check: () => Updates.checkForUpdateAsync(),
@@ -31,11 +31,25 @@ export function useOverTheAirUpdates() {
     if (!Updates.isEnabled) return;
     if (Updates.isEmergencyLaunch)
       console.warn('sikemux: an update failed to start, so the build’s own code runs', Updates.emergencyLaunchReason);
+    let polling: ReturnType<typeof setInterval> | undefined;
+    const poll = () => {
+      clearInterval(polling);
+      polling = setInterval(() => void controller.check(), CHECK_EVERY_MS);
+    };
+    if (AppState.currentState === 'active') poll();
     const following = AppState.addEventListener('change', (state) => {
-      if (state === 'active') controller.foreground();
-      else if (state === 'background') controller.background();
+      if (state === 'active') {
+        controller.foreground();
+        poll();
+      } else if (state === 'background') {
+        controller.background();
+        clearInterval(polling);
+      }
     });
-    return () => following.remove();
+    return () => {
+      following.remove();
+      clearInterval(polling);
+    };
   }, []);
 }
 

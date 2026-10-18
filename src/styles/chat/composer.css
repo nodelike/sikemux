@@ -13,7 +13,7 @@
 /*
  * Two surfaces, one step apart. The box is the sunken tier and the field is
  * the raised one sitting in it, which is what separates the thing you write in
- * from the settings around it — a step, not a shadow (DESIGN.md §10).
+ * from the settings around it — a step, not a shadow.
  */
 .chat-composer {
     position: relative;
@@ -30,12 +30,12 @@
     border-color: var(--border-selected);
 }
 
-.chat-composer textarea {
+.chat-draft,
+.chat-dictation-preview {
     display: block;
     width: 100%;
     max-height: min(320px, 40vh);
     overflow-y: auto;
-    resize: none;
     padding: 10px 12px;
     border: 0;
     outline: 0;
@@ -44,15 +44,106 @@
     font-family: var(--ui);
     font-size: calc(14.5px * var(--chat-text-em, 1));
     line-height: 1.5;
+    white-space: pre-wrap;
+    overflow-wrap: break-word;
     user-select: text;
 }
 
-.chat-composer textarea::placeholder {
+.chat-draft {
+    position: relative;
+    min-height: calc(14.5px * var(--chat-text-em, 1) * 1.5 * 2 + 20px);
+    cursor: text;
+}
+
+.chat-draft[data-empty]::before {
+    position: absolute;
+    content: attr(data-placeholder);
+    color: var(--ink-faint);
+    pointer-events: none;
+}
+
+/* While dictating, the preview over the text box draws its text, so the two never show different scroll positions. */
+.chat-field {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+}
+
+.chat-field > .chat-draft,
+.chat-dictation-preview {
+    grid-area: 2 / 1;
+}
+
+.chat-field > .chat-draft:has(+ .chat-dictation-preview) {
+    color: transparent;
+}
+
+.chat-field > .chat-draft:has(+ .chat-dictation-preview) .chat-chip {
+    visibility: hidden;
+}
+
+.chat-dictation-preview {
+    overflow: hidden;
+    pointer-events: none;
+}
+
+.chat-dictation-preview span {
     color: var(--ink-faint);
 }
 
-.chat-composer textarea:disabled {
-    opacity: 0.68;
+/* A tag in the draft. It sits on the text's centre line rather than its baseline, so it reads as part of the sentence. */
+.chat-chip {
+    position: relative;
+    top: -1.5px;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    max-width: 260px;
+    height: 20px;
+    margin: 0 1px;
+    padding: 0 6px 0 4px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-1);
+    background: color-mix(in srgb, var(--ink) 6%, transparent);
+    color: var(--ink);
+    font-size: calc(12px * var(--chat-text-em, 1));
+    line-height: 1;
+    vertical-align: middle;
+    white-space: nowrap;
+    user-select: none;
+}
+
+.chat-chip[data-selected] {
+    border-color: color-mix(in oklab, var(--ink) 30%, transparent);
+    background: var(--surface-chosen);
+}
+
+.chat-chip-mark {
+    display: inline-flex;
+    flex: none;
+    color: var(--text-tertiary);
+}
+
+.chat-chip-mark[data-kind="issue"],
+.chat-chip-mark[data-kind="pull"] {
+    color: var(--live);
+}
+
+.chat-chip code {
+    flex: none;
+    color: var(--text-primary);
+    font-family: var(--mono);
+    font-size: calc(11px * var(--chat-text-em, 1));
+}
+
+.chat-chip-label,
+.chat-chip-name {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.chat-chip-label {
+    color: var(--ink-dim);
 }
 
 .chat-attachments {
@@ -78,7 +169,7 @@
 
 .chat-attachments > .file:hover,
 .chat-attachments > .image:hover {
-    border-color: var(--border-selected);
+    border-color: var(--border-strong);
 }
 
 .chat-attachments > .image {
@@ -122,6 +213,11 @@
     color: var(--ink-dim);
 }
 
+.chat-context-chip.answering {
+    width: auto;
+    max-width: min(100%, 360px);
+}
+
 .chat-context-chip > span:not(.chat-context-mark) {
     overflow: hidden;
     font-size: calc(10.5px * var(--chat-text-em, 1));
@@ -159,6 +255,7 @@
     width: 31px;
     height: 31px;
     color: var(--ink-dim);
+    border-radius: var(--radius-2);
 }
 
 .chat-composer-icon:hover {
@@ -187,6 +284,7 @@
         background-color 200ms var(--ease-out),
         border-color 200ms var(--ease-out),
         color 200ms var(--ease-out);
+    border-radius: var(--radius-full);
 }
 
 .chat-composer-bar .yolo-toggle:hover:not(:disabled) {
@@ -291,85 +389,6 @@
     font-size: calc(10.5px * var(--chat-text-em, 1));
 }
 
-.chat-slash-menu {
-    position: absolute;
-    right: 8px;
-    bottom: calc(100% + 7px);
-    left: 8px;
-    z-index: 2;
-    overflow: hidden;
-}
-
-.chat-slash-heading {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    min-height: 30px;
-    padding: 0 10px;
-    border-bottom: 1px solid var(--line-soft);
-    color: var(--ink-faint);
-    font-size: calc(9.5px * var(--chat-text-em, 1));
-}
-
-.chat-slash-menu button {
-    display: grid;
-    grid-template-columns: 130px minmax(0, 1fr) auto;
-    align-items: center;
-    gap: var(--space-2);
-    width: 100%;
-    min-height: 34px;
-    padding: 5px 10px;
-    text-align: left;
-}
-
-.chat-slash-menu button:hover,
-.chat-slash-menu button.selected {
-    background: var(--acc-soft);
-}
-
-.chat-slash-menu code {
-    color: var(--ink);
-    font-size: calc(10.5px * var(--chat-text-em, 1));
-}
-
-.chat-slash-menu button > span {
-    overflow: hidden;
-    color: var(--ink-dim);
-    font-size: calc(10.5px * var(--chat-text-em, 1));
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
-.chat-slash-menu em {
-    color: var(--ink-faint);
-    font-family: var(--mono);
-    font-size: calc(9.5px * var(--chat-text-em, 1));
-    font-style: normal;
-}
-
-.chat-slash-menu.entries button {
-    grid-template-columns: 16px minmax(0, max-content) minmax(0, 1fr);
-}
-
-.chat-slash-menu.entries code {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
-.chat-menu-mark {
-    display: inline-flex;
-    justify-content: center;
-    align-items: center;
-    color: var(--text-tertiary);
-}
-
-.chat-slash-empty {
-    padding: 9px 10px;
-    color: var(--text-tertiary);
-    font-size: calc(10.5px * var(--chat-text-em, 1));
-}
-
 .chat-drop-target {
     position: absolute;
     inset: 10px;
@@ -403,14 +422,6 @@
     .chat-message {
         padding-inline: 12px;
     }
-
-    .chat-slash-menu.commands button {
-        grid-template-columns: 100px minmax(0, 1fr);
-    }
-
-    .chat-slash-menu em {
-        display: none;
-    }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -430,7 +441,8 @@
     .chat-activity-loader,
     .chat-activity-mark,
     .chat-tool.live .chat-tool-icon,
-    .chat-subagent-spinner {
+    .chat-subagent-spinner,
+    .chat-menu-loading i {
         animation: none;
     }
 
@@ -441,9 +453,4 @@
     .chat-context-fill {
         transition: none;
     }
-}
-
-.chat-menu-mark[data-kind="issue"],
-.chat-menu-mark[data-kind="pull"] {
-    color: var(--live);
 }

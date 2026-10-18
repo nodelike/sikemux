@@ -2,27 +2,31 @@ import AppKit
 import SwiftUI
 
 /// The rail's state marks: a twinkling grid while working, an amber dot that
-/// rings twice when it starts needing you, a purple dot when done and unseen.
+/// rings twice when it starts needing you, a purple dot when done, a red one when it failed.
 struct StateMark: View {
-    let state: AgentState
+    let mark: Mark
 
     var body: some View {
-        switch state {
+        switch mark {
         case .working: TwinkleGrid(colour: Theme.live).frame(width: 16, height: 16)
-        case .blocked: PingDot(colour: Theme.warn)
+        case .needs: PingDot(colour: Theme.warn)
         case .done: Dot(colour: Theme.accent)
+        case .failed: Dot(colour: Theme.danger)
         case .idle: EmptyView()
         }
     }
 }
 
-/// Shells or monitors an agent left running, in the terminal glyph so it does not read as the dot that waits on you.
-struct StillRunning: View {
+/// The glyph beside a running total on the closed island, in the slot a state mark takes.
+struct RunningGlyph: View {
+    let icon: IconDef
+    let size: CGFloat
+    let colour: Color
+
     var body: some View {
-        IconView(icon: Icons.command, size: 11)
-            .foregroundStyle(Theme.warn)
+        IconView(icon: icon, size: size)
+            .foregroundStyle(colour)
             .frame(width: 16, height: 16)
-            .accessibilityLabel("Shells or monitors still running")
     }
 }
 
@@ -31,8 +35,8 @@ struct SubagentCount: View {
 
     var body: some View {
         HStack(spacing: 3) {
-            IconView(icon: Icons.agent, size: 10).foregroundStyle(Theme.live.opacity(0.75))
-            Text("\(count)").font(Theme.ui(11, .medium)).monospacedDigit().foregroundStyle(Theme.inkFaint)
+            IconView(icon: Icons.agent, size: 10).foregroundStyle(Theme.live)
+            Text("\(count)").font(Theme.ui(11, .medium)).monospacedDigit().foregroundStyle(Theme.ink)
         }
         .fixedSize()
         .accessibilityElement(children: .ignore)
@@ -45,8 +49,8 @@ struct ShellCount: View {
 
     var body: some View {
         HStack(spacing: 3) {
-            IconView(icon: Icons.command, size: 11).foregroundStyle(Theme.warn.opacity(0.75))
-            Text("\(count)").font(Theme.ui(11, .medium)).monospacedDigit().foregroundStyle(Theme.inkFaint)
+            IconView(icon: Icons.command, size: 11).foregroundStyle(Theme.warn)
+            Text("\(count)").font(Theme.ui(11, .medium)).monospacedDigit().foregroundStyle(Theme.ink)
         }
         .fixedSize()
         .accessibilityElement(children: .ignore)
@@ -210,6 +214,7 @@ struct CapsuleButton: View {
         Button(action: action) {
             Text(title)
                 .font(Theme.ui(12.5, .semibold))
+                .lineLimit(1)
                 .foregroundStyle(primary ? Theme.onAccent : Theme.ink)
                 .frame(maxWidth: .infinity)
                 .frame(height: height)
@@ -244,25 +249,24 @@ struct HoverCapsule<Label: View>: View {
     }
 }
 
-/// How long an agent has been in its state: a clock while it works or waits,
-/// how long ago once it finished.
+/// How long an item has stood: a clock while it works or waits, how long ago once it finished.
 struct SinceText: View {
-    let state: AgentState
+    let mark: Mark
     let since: Date?
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: 1)) { context in
-            Text(Self.format(state, since, context.date))
+            Text(Self.format(mark, since, context.date))
                 .font(Theme.ui(11.5))
                 .monospacedDigit()
                 .foregroundStyle(Theme.inkFaint)
         }
     }
 
-    static func format(_ state: AgentState, _ since: Date?, _ now: Date) -> String {
-        guard let since, state != .idle else { return "" }
+    static func format(_ mark: Mark, _ since: Date?, _ now: Date) -> String {
+        guard let since else { return "" }
         let seconds = max(0, Int(now.timeIntervalSince(since)))
-        if state == .done {
+        if mark == .done || mark == .failed {
             if seconds < 60 { return "just now" }
             if seconds < 3600 { return "\(seconds / 60)m ago" }
             return "\(seconds / 3600)h ago"

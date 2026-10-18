@@ -15,12 +15,14 @@ vi.mock("../api/agents", () => ({
         addAccount: mocks.addAccount,
         signIn: mocks.signIn,
         signOut: mocks.signOut,
+        forgetAccount: () => Promise.resolve(),
         onSignInPage: () => Promise.resolve(() => {}),
     },
 }));
 
 import { invalidate } from "../state/resources";
 import { getState, setState } from "../state/store";
+import { AccountDialogHost } from "../agents/AccountDialog";
 import { AccountsSections } from "./AccountsSection";
 
 const initial = getState();
@@ -39,7 +41,7 @@ function signedIn(configPath?: string) {
 
 beforeEach(() => {
     setState(initial, true);
-    mocks.account.mockImplementation(async (_agent: string, _executable?: string, configPath?: string) => signedIn(configPath));
+    mocks.account.mockImplementation(async (_agent: string, configPath?: string) => signedIn(configPath));
     mocks.signIn.mockResolvedValue(undefined);
     mocks.signOut.mockResolvedValue(undefined);
     invalidate((kind) => kind === "agents.account" || kind === "agents.usage");
@@ -55,18 +57,24 @@ describe("accounts in Settings", () => {
         render(<AccountsSections />);
 
         expect(await screen.findAllByText("me@example.com · Max")).toHaveLength(2);
-        expect(screen.getAllByText("New chats")).toHaveLength(2);
+        expect(screen.getAllByText("In use")).toHaveLength(2);
         expect(screen.queryByRole("switch")).not.toBeInTheDocument();
     });
 
     it("adds an account in a folder of its own and signs it in", async () => {
         mocks.addAccount.mockResolvedValue("~/.claude-work");
         const user = userEvent.setup();
-        render(<AccountsSections />);
+        render(
+            <>
+                <AccountsSections />
+                <AccountDialogHost />
+            </>,
+        );
 
         const [claudeAdd] = await screen.findAllByRole("button", { name: "Add account" });
         await user.click(claudeAdd);
-        await user.type(screen.getByRole("textbox", { name: "New Claude account name" }), "Work{Enter}");
+        expect(screen.getByRole("dialog", { name: "Add a Claude account" })).toBeInTheDocument();
+        await user.type(screen.getByRole("textbox", { name: "Name" }), "Work{Enter}");
 
         await waitFor(() => expect(mocks.addAccount).toHaveBeenCalledWith("claude", "Work"));
         await waitFor(() =>
@@ -85,21 +93,26 @@ describe("accounts in Settings", () => {
         const user = userEvent.setup();
         render(<AccountsSections />);
 
-        await user.click(await screen.findByRole("button", { name: "Use for new chats" }));
+        await user.click(await screen.findByRole("button", { name: "Use" }));
         expect(getState().selectedProviderProfileIds.claude).toBe("claude-work");
 
-        await user.click(screen.getByRole("switch", { name: /Move Claude chats to another account/ }));
+        await user.click(screen.getByRole("switch", { name: "Auto-rotate Claude accounts at limits" }));
         expect(getState().accountAutoSwitch.claude).toBe(true);
 
-        const [signOut] = screen.getAllByRole("button", { name: "Sign out" });
-        await user.click(signOut);
+        await user.click(screen.getByRole("button", { name: "More for Work" }));
+        await user.click(screen.getByRole("menuitem", { name: "Sign out" }));
         await waitFor(() => expect(mocks.signOut).toHaveBeenCalled());
     });
 
     it("offers a sign-in for an account that is signed out", async () => {
         mocks.account.mockResolvedValue({ ...signedIn(), signedIn: false, email: null, plan: null });
         const user = userEvent.setup();
-        render(<AccountsSections />);
+        render(
+            <>
+                <AccountsSections />
+                <AccountDialogHost />
+            </>,
+        );
 
         const [signIn] = await screen.findAllByRole("button", { name: "Sign in" });
         await user.click(signIn);

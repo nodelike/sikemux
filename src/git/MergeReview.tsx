@@ -1,9 +1,10 @@
 import { useMemo, useRef, type ReactNode } from "react";
 import { DiffEditor } from "./DiffEditor";
 import { FileReviewList } from "./FileReviewList";
-import { hasUnstaged, isStaged, type GitFile } from "../api/git";
+import { hasUnstaged, isStaged, type ChangeOwners, type GitFile } from "../api/git";
 import { joinPath } from "../lib/paths";
 import { gitFileBadges, gitStatusBadge, type GitStatusBadge } from "./gitFileStatus";
+import { ownedFile, type OwnedFile } from "./changeOwners";
 
 const REVIEW_ROW_ESTIMATE = 250;
 const REVIEW_DOUBLE_ROW_ESTIMATE = 470;
@@ -32,6 +33,9 @@ export function MergeReview({
     onOpenFile,
     onSaved,
     fileActions,
+    owners,
+    stagedOwners,
+    foldAll,
 }: {
     repo: string;
     files: GitFile[];
@@ -40,6 +44,10 @@ export function MergeReview({
     onSaved: () => void;
     /** Buttons shown in a file's header while the pointer is on it. */
     fileActions?: (file: GitFile) => ReactNode;
+    /** Who wrote each changed line, against the index and against HEAD. */
+    owners?: ChangeOwners;
+    stagedOwners?: ChangeOwners;
+    foldAll?: { folded: boolean; seq: number };
 }) {
     const files = useStableFileList(incomingFiles);
     const byPath = useMemo(() => new Map(files.map((file) => [file.path, file])), [files]);
@@ -48,6 +56,7 @@ export function MergeReview({
         <FileReviewList
             paths={paths}
             focusPath={focusPath}
+            foldAll={foldAll}
             estimate={(path) => {
                 const file = byPath.get(path);
                 return file && isStaged(file) && hasUnstaged(file) ? REVIEW_DOUBLE_ROW_ESTIMATE : REVIEW_ROW_ESTIMATE;
@@ -67,7 +76,16 @@ export function MergeReview({
             }
             body={(path, focused) => {
                 const file = byPath.get(path);
-                return file ? <MergeFileDiff repo={repo} file={file} editable={focused && hasUnstaged(file)} onSaved={onSaved} /> : null;
+                return file ? (
+                    <MergeFileDiff
+                        repo={repo}
+                        file={file}
+                        stagedOwned={ownedFile(stagedOwners, path)}
+                        owned={ownedFile(owners, path)}
+                        editable={focused && hasUnstaged(file)}
+                        onSaved={onSaved}
+                    />
+                ) : null;
             }}
         />
     );
@@ -83,7 +101,21 @@ function GitStatusSymbol({ badge }: { badge: GitStatusBadge | null }) {
     );
 }
 
-function MergeFileDiff({ repo, file, editable, onSaved }: { repo: string; file: GitFile; editable: boolean; onSaved: () => void }) {
+function MergeFileDiff({
+    repo,
+    file,
+    stagedOwned,
+    owned,
+    editable,
+    onSaved,
+}: {
+    repo: string;
+    file: GitFile;
+    stagedOwned: OwnedFile | undefined;
+    owned: OwnedFile | undefined;
+    editable: boolean;
+    onSaved: () => void;
+}) {
     const path = file.path;
     const staged = isStaged(file);
     const unstaged = hasUnstaged(file);
@@ -99,20 +131,20 @@ function MergeFileDiff({ repo, file, editable, onSaved }: { repo: string; file: 
                             <GitStatusSymbol badge={indexBadge} />
                             <span>staged</span>
                         </div>
-                        <DiffEditor repo={repo} path={path} baseRev="HEAD" headRev=":index" editable={false} autoHeight />
+                        <DiffEditor repo={repo} path={path} baseRev="HEAD" headRev=":index" editable={false} autoHeight owned={stagedOwned} />
                     </div>
                     <div className="merge-section">
                         <div className="merge-section-title">
                             <GitStatusSymbol badge={worktreeBadge} />
                             <span>unstaged</span>
                         </div>
-                        <DiffEditor repo={repo} path={path} baseRev=":index" editable={editable} onSaved={onSaved} autoHeight />
+                        <DiffEditor repo={repo} path={path} baseRev=":index" editable={editable} onSaved={onSaved} autoHeight owned={owned} />
                     </div>
                 </div>
             ) : staged ? (
-                <DiffEditor repo={repo} path={path} baseRev="HEAD" headRev=":index" editable={false} autoHeight />
+                <DiffEditor repo={repo} path={path} baseRev="HEAD" headRev=":index" editable={false} autoHeight owned={owned} />
             ) : (
-                <DiffEditor repo={repo} path={path} baseRev="HEAD" editable={editable} onSaved={onSaved} autoHeight />
+                <DiffEditor repo={repo} path={path} baseRev="HEAD" editable={editable} onSaved={onSaved} autoHeight owned={owned} />
             )}
         </div>
     );

@@ -1,4 +1,5 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { useProjectRepo } from "../git/projectRepo";
 import { fuzzyScore, isSubstringMatch } from "../lib/fuzzy";
 import { leavingMenu } from "../lib/motion";
 import { basename, prettyPath } from "../lib/paths";
@@ -55,7 +56,7 @@ function ProjectSwitcher({ agentId, cwd, onClose }: { agentId: string; cwd: stri
     const pick = (choice: Choice | undefined) => {
         if (!choice) return;
         onClose();
-        if (choice.path !== cwd) cmd.moveAgentToProject(agentId, choice.path);
+        if (choice.path !== cwd) void cmd.moveAgentToProject(agentId, choice.path);
     };
 
     const grouped = !query.trim();
@@ -136,7 +137,8 @@ export function ProjectStrip({
     worktree: { state: WorktreeSwitchState; toggle: () => void };
 }) {
     const home = useStore((s) => s.home);
-    const branch = useResource(gitOverviewR, cwd).data?.status?.branch;
+    const repo = useProjectRepo(cwd).repo ?? cwd;
+    const branch = useResource(gitOverviewR, repo).data?.status?.branch;
     const [open, setOpen] = useState(false);
     const root = useRef<HTMLDivElement>(null);
     const trigger = useRef<HTMLButtonElement>(null);

@@ -1,5 +1,7 @@
 import { lazy } from "react";
-import { registerFrontendPlugin } from "../../plugin-api";
+import { registerFrontendPlugin, signInOf } from "../../plugin-api";
+import { useResource } from "../../plugin-api/resources";
+import { slackStatusR } from "./resources";
 import { SlackMark } from "./components/SlackMark";
 import { SLACK_MESSAGES, SLACK_PLUGIN_ID } from "./kinds";
 import { openSlack } from "./state";
@@ -20,4 +22,7 @@ registerFrontendPlugin({
     openTitle: "Open Slack",
     mark: (size) => <SlackMark size={size} />,
     linkHosts: [".slack.com"],
+    useSignIn: function useServiceSignIn() {
+        return signInOf(useResource(slackStatusR));
+    },
 });

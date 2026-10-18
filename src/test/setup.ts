@@ -24,6 +24,15 @@ if (!Element.prototype.getAnimations) {
     Element.prototype.getAnimations = () => [];
 }
 
+// jsdom runs no workers, so work handed to one simply never comes back.
+if (!("Worker" in globalThis)) {
+    globalThis.Worker = class {
+        onmessage = null;
+        postMessage() {}
+        terminate() {}
+    } as unknown as typeof Worker;
+}
+
 mockConvertFileSrc("macos");
 
 // Leaving the page writes any save still waiting on a timer, as the app does when

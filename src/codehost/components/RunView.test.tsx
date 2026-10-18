@@ -154,7 +154,7 @@ describe("a run waiting for approval", () => {
 describe("RunView", () => {
     it("re-runs once however many times the button is pressed", async () => {
         await renderRun(makeRun());
-        const button = screen.getByRole("button", { name: "Re-run all jobs" });
+        const button = screen.getByRole("button", { name: "Re-run all" });
         fireEvent.click(button);
         fireEvent.click(button);
         await act(async () => {});
@@ -225,7 +225,7 @@ async function renderPane(run: Run, jobs: Job[] = [], canWrite = true) {
     return view;
 }
 
-const card = () => document.querySelector(".gha-merge-box") as HTMLElement;
+const card = () => document.querySelector(".git-side-head") as HTMLElement;
 
 describe("the run's card", () => {
     it("cancels a run only once the person confirms", async () => {
@@ -287,7 +287,7 @@ describe("a job's log", () => {
         await act(async () => {});
         expect(api.rerunJob).toHaveBeenLastCalledWith(repo, "3", false);
         expect(toasts()).toContain("Re-running build");
-        fireEvent.click(screen.getByRole("button", { name: "with debug logs" }));
+        fireEvent.click(screen.getByRole("button", { name: "With debug logs" }));
         await act(async () => {});
         expect(api.rerunJob).toHaveBeenLastCalledWith(repo, "3", true);
     });
@@ -298,7 +298,7 @@ describe("a job's log", () => {
         cleanup();
         await openJob(makeJob(), false);
         expect(screen.queryByRole("button", { name: "Re-run this job" })).toBeNull();
-        expect(screen.queryByRole("button", { name: "with debug logs" })).toBeNull();
+        expect(screen.queryByRole("button", { name: "With debug logs" })).toBeNull();
     });
 });
 
@@ -327,7 +327,8 @@ describe("watching a run", () => {
         const onTick = watches()[0].handlers.onItem;
         const newer = makeRun({ status: "in_progress", conclusion: null, updatedAt: "2026-01-01T12:02:00Z", title: "Ship it now" });
         act(() => onTick({ run: newer, jobs: [], error: null, finished: false, fatal: false, signedOut: false }));
-        expect(screen.getByRole("heading").textContent).toBe("Ship it now #12");
+        expect(screen.getByRole("heading").textContent).toBe("Ship it now");
+        expect(document.querySelector(".pr-headline-who")?.textContent).toContain("#12");
         expect(within(document.querySelector(".pr-files") as HTMLElement).getByText("build")).toBeTruthy();
 
         act(() => onTick({ run: newer, jobs: [makeJob({ id: "9", name: "deploy" })], error: null, finished: false, fatal: false, signedOut: false }));
@@ -346,7 +347,7 @@ describe("watching a run", () => {
         });
         expect(api.watch).toHaveBeenCalledTimes(1);
         expect(api.run).toHaveBeenCalled();
-        expect(within(card()).getByText("Passed")).toBeTruthy();
+        expect(within(card()).getByRole("img", { name: "Passed" })).toBeTruthy();
     });
 
     it("stops the watch when the run is closed", async () => {

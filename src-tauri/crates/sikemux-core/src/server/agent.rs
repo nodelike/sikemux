@@ -13,10 +13,15 @@ use sikemux_pty::agent_detection::{
 use crate::protocol::{AgentStateEvent, Event};
 
 use super::activity::Activity;
+use super::messages;
 use super::session::Session;
+use super::spawn::{self, Ending};
 use super::{now_ms, Core, CoreResult};
 
 const ACTIVITY_SETTLE: Duration = Duration::from_secs(2);
+/// How long an agent at rest must keep printing before that counts as a turn
+/// it began by itself rather than a redraw of its screen.
+const OUTPUT_MAKES_A_TURN: Duration = Duration::from_secs(5);
 const UNKNOWN: u8 = 0;
 const IDLE: u8 = 1;
 const WORKING: u8 = 2;
@@ -88,6 +93,9 @@ pub(crate) struct AgentActivity {
     revision: AtomicU64,
     last_detection_fingerprint: AtomicU64,
     last_detection_revision: AtomicU64,
+    last_output_ms: AtomicU64,
+    /// When the output an agent at rest has been printing without a pause began.
+    resting_output_since_ms: AtomicU64,
 }
 
 impl AgentActivity {
@@ -108,6 +116,8 @@ impl AgentActivity {
             revision: AtomicU64::new(0),
             last_detection_fingerprint: AtomicU64::new(0),
             last_detection_revision: AtomicU64::new(0),
+            last_output_ms: AtomicU64::new(0),
+            resting_output_since_ms: AtomicU64::new(0),
         })
     }
 
@@ -151,6 +161,16 @@ impl AgentActivity {
     pub(crate) fn state_label(&self) -> Option<&'static str> {
         self.kind
             .map(|_| state_label(self.state.load(Ordering::Acquire)))
+    }
+
+    /// It is at work on a turn, or waits on the person in the middle of one.
+    pub(crate) fn busy(&self) -> bool {
+        matches!(self.state.load(Ordering::Acquire), WORKING | BLOCKED)
+    }
+
+    /// Its screen shows it waiting for a prompt.
+    pub(crate) fn idle(&self) -> bool {
+        self.kind.is_some() && self.state.load(Ordering::Acquire) == IDLE
     }
 
     pub(crate) fn silence(&self) {
@@ -202,6 +222,22 @@ impl AgentActivity {
         };
         if let Some(activity) = activity {
             core.note_activity(&self.agent_id, activity);
+        }
+        match next {
+            WORKING if source != "activity" => messages::prompt_taken(core, &self.agent_id),
+            BLOCKED => messages::prompt_taken(core, &self.agent_id),
+            IDLE | STOPPED if busy => messages::prompt_settled(
+                core,
+                &self.agent_id,
+                self.last_output_ms.load(Ordering::Acquire),
+            ),
+            _ => {}
+        }
+        if next == IDLE && busy {
+            spawn::terminal_turn_ended(core, &self.agent_id, Ending::Finished);
+        }
+        if next != previous {
+            core.agents_changed();
         }
         core.broadcast_event(&Event::AgentState(AgentStateEvent {
             agent_id: self.agent_id.clone(),
@@ -259,19 +295,33 @@ pub(crate) fn note_input(core: &Core, session: &Session, bytes: &[u8]) {
 }
 
 /// Startup banners and the first paint are output but not work. An agent
-/// stays ready until a submitted line arms it.
+/// stays ready until a submitted line arms it. Output from an agent at rest is
+/// a redraw, such as Claude's after each turn, unless it keeps going or its
+/// screen shows it at work.
 pub(crate) fn note_output(core: &Core, agent: &AgentActivity) {
-    if agent.kind.is_some() && agent.armed.load(Ordering::Acquire) {
-        agent.idle_confirmations.store(0, Ordering::Release);
-        agent.publish(
-            core,
-            WORKING,
-            "activity",
-            "medium",
-            "agent produced output",
-            None,
-        );
+    if agent.kind.is_none() || !agent.armed.load(Ordering::Acquire) {
+        return;
     }
+    agent.idle_confirmations.store(0, Ordering::Release);
+    let now = now_ms();
+    let previous = agent.last_output_ms.swap(now, Ordering::AcqRel);
+    if !agent.busy() {
+        if now.saturating_sub(previous) >= ACTIVITY_SETTLE.as_millis() as u64 {
+            agent.resting_output_since_ms.store(now, Ordering::Release);
+        }
+        let since = agent.resting_output_since_ms.load(Ordering::Acquire);
+        if now.saturating_sub(since) < OUTPUT_MAKES_A_TURN.as_millis() as u64 {
+            return;
+        }
+    }
+    agent.publish(
+        core,
+        WORKING,
+        "activity",
+        "medium",
+        "agent produced output",
+        None,
+    );
 }
 
 pub(crate) fn note_exit(core: &Core, agent: &AgentActivity, status: Option<&ExitStatus>) {
@@ -301,7 +351,46 @@ fn detection_input<'a>(recent: &'a str, title: &'a str) -> DetectionInput<'a> {
     }
 }
 
-fn screen_text(session: &Session) -> Option<(String, String)> {
+/// Whether the agent in `session` takes a prompt typed in now: its screen
+/// shows it waiting for one, read afresh, as what was last published may be
+/// a moment behind a permission prompt. One that has had no prompt yet must
+/// also have gone quiet with its prompt box in sight, as it may still be
+/// starting or asking the person something first.
+pub(crate) fn takes_prompt(core: &Core, session: &Session) -> bool {
+    let Some(agent) = session.agent.as_ref().filter(|agent| agent.idle()) else {
+        return false;
+    };
+    let Some(detection) = screen_now(core, session) else {
+        return false;
+    };
+    if agent.armed.load(Ordering::Acquire) {
+        return !matches!(
+            detection.state,
+            AgentDetectionState::Working | AgentDetectionState::Blocked
+        );
+    }
+    let quiet = now_ms().saturating_sub(session.last_activity_ms.load(Ordering::Relaxed))
+        >= ACTIVITY_SETTLE.as_millis() as u64;
+    quiet
+        && matches!(detection.state, AgentDetectionState::Idle)
+        && detection.fallback_reason.is_none()
+}
+
+/// Whether the agent's screen shows it asking the person something now, such
+/// as for a permission.
+pub(crate) fn asks_now(core: &Core, session: &Session) -> bool {
+    screen_now(core, session)
+        .is_some_and(|detection| matches!(detection.state, AgentDetectionState::Blocked))
+}
+
+fn screen_now(core: &Core, session: &Session) -> Option<AgentDetection> {
+    let kind = session.agent.as_ref()?.kind?;
+    let (recent, title) = screen_text(session)?;
+    let registry = core.detection.read().ok()?;
+    Some(registry.detect(kind, detection_input(&recent, &title)))
+}
+
+pub(crate) fn screen_text(session: &Session) -> Option<(String, String)> {
     let parser = session.parser.lock().ok()?;
     Some((
         parser.screen().contents(),

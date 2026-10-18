@@ -36,6 +36,7 @@
         background-color 200ms var(--ease-out),
         border-color 200ms var(--ease-out),
         color 200ms var(--ease-out);
+    border-radius: var(--radius-full);
 }
 
 .chat-project-trigger > span {
@@ -60,8 +61,7 @@
 }
 
 .chat-project-trigger[aria-expanded="true"] {
-    border-color: var(--border-selected);
-    background: var(--surface-selected);
+    background: var(--surface-chosen);
 }
 
 /* Cut from the start, so the folder the path ends in stays on screen. */
@@ -121,6 +121,7 @@
         background-color 200ms var(--ease-out),
         border-color 200ms var(--ease-out),
         color 200ms var(--ease-out);
+    border-radius: var(--radius-full);
 }
 
 .chat-project-strip .worktree-toggle:hover {
@@ -182,6 +183,5 @@
 }
 
 .project-switcher .chat-picker-options > div > button[aria-selected="true"] {
-    border-color: var(--border-selected);
-    background: var(--surface-selected);
+    background: var(--surface-chosen);
 }

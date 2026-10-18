@@ -12,6 +12,8 @@ const card = (key: string): JiraIssueSummary => ({
     issueType: null,
     sprint: null,
     updated: null,
+    due: null,
+    parent: null,
     url: "",
 });
 

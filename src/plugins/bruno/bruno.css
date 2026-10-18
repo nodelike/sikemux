@@ -97,9 +97,8 @@
     color: var(--ink);
 }
 .bruno-req-row.active {
-    background: var(--acc-soft);
+    background: var(--surface-chosen);
     color: var(--ink);
-    box-shadow: inset 0 0 0 1px var(--acc-line);
 }
 .bruno-chevron {
     display: inline-flex;
@@ -304,6 +303,7 @@ body.bruno-resizing {
     letter-spacing: 0.02em;
     cursor: pointer;
     transition: background 0.12s;
+    border-radius: var(--radius-2);
 }
 .bruno-send-kbd {
     display: inline-flex;
@@ -323,7 +323,7 @@ body.bruno-resizing {
     transform: translateY(-2px);
 }
 .bruno-send:hover:not(:disabled) {
-    background: color-mix(in srgb, var(--acc) 88%, white);
+    background: var(--surface-hover);
 }
 .bruno-send svg {
     flex: 0 0 auto;
@@ -350,6 +350,7 @@ body.bruno-resizing {
     transition:
         color 0.12s,
         border-color 0.12s;
+    border-radius: var(--radius-2);
 }
 .bruno-save:disabled {
     opacity: 0.45;
@@ -357,11 +358,11 @@ body.bruno-resizing {
 }
 .bruno-save.dirty {
     color: var(--warn);
-    border-color: var(--acc-line);
+    border-color: var(--border-strong);
 }
 .bruno-save.dirty:hover {
     color: var(--acc);
-    border-color: var(--acc);
+    border-color: var(--border-strong);
 }
 .bruno-url-preview {
     display: flex;
@@ -405,7 +406,7 @@ body.bruno-resizing {
 }
 .bruno-tab.active {
     color: var(--ink);
-    border-bottom-color: var(--acc);
+    border-bottom-color: var(--text-primary);
 }
 .bruno-tab-body {
     flex: 1 1 auto;
@@ -465,6 +466,7 @@ body.bruno-resizing {
     color: var(--ink);
     font-family: var(--mono);
     font-size: var(--text-xs);
+    border-radius: var(--radius-2);
 }
 .bruno-input:focus {
     outline: none;
@@ -553,6 +555,7 @@ body.bruno-resizing {
     font-weight: 700;
     font-size: var(--text-xs);
     padding: 2px 8px;
+    border-radius: var(--radius-2);
 }
 .bruno-resp-status.ok {
     color: var(--live);
@@ -632,22 +635,23 @@ body.bruno-resizing {
     transition:
         color 0.12s,
         border-color 0.12s;
+    border-radius: var(--radius-2);
 }
 .bruno-secrets-btn:hover,
 .bruno-icon-btn:hover {
     color: var(--ink);
-    border-color: var(--acc-line);
+    border-color: var(--border-strong);
 }
 .bruno-secrets-btn.active {
-    color: var(--acc);
-    border-color: var(--acc-line);
-    background: var(--acc-soft);
+    color: var(--text-primary);
+    background: var(--surface-chosen);
 }
 .bruno-icon-btn {
     width: 24px;
     height: 24px;
     padding: 0;
     justify-content: center;
+    border-radius: var(--radius-2);
 }
 .bruno-secrets-pop {
     position: absolute;
@@ -658,6 +662,7 @@ body.bruno-resizing {
     background: var(--rail-2);
     border: 1px solid var(--line);
     padding: 10px;
+    border-radius: var(--radius-4);
 }
 .bruno-secrets-head {
     font-size: var(--text-2xs);
@@ -819,8 +824,12 @@ body.bruno-resizing {
         background 0.12s,
         border-color 0.12s;
 }
+
+button.bruno-check {
+    border-radius: var(--radius-2);
+}
 .bruno-check:hover {
-    border-color: var(--acc-line);
+    border-color: var(--border-strong);
 }
 .bruno-check.on {
     background: var(--acc);
@@ -878,12 +887,13 @@ body.bruno-resizing {
     min-width: 15px;
     height: 14px;
     padding: 0 4px;
-    background: var(--acc-soft);
-    border: 1px solid var(--acc-line);
-    color: var(--acc);
+    background: var(--surface-chosen);
+    border: 1px solid var(--border);
+    color: var(--text-primary);
     font-size: 9px;
     font-weight: 700;
     font-variant-numeric: tabular-nums;
+    border-radius: var(--radius-1);
 }
 .bruno-tab-dot {
     width: 5px;

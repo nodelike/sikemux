@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react';
+import { useState, type ReactElement } from 'react';
 import {
   ActivityIndicator,
   Pressable,
@@ -12,7 +12,9 @@ import {
   type ViewStyle,
 } from 'react-native';
 
+import { haptics } from './haptics';
 import { DrawnIcon, Icon } from './Icon';
+import type { IconName } from './icons.generated';
 import { fonts, keyboardFor, type Palette, radius, translucent, useColors, useStyles } from './theme';
 
 export function IconButton({ name, onPress, label }: { name: Parameters<typeof Icon>[0]['name']; onPress?: () => void; label: string }) {
@@ -42,8 +44,8 @@ export function Button({
   disabled?: boolean;
   /** Working on what the press started: a spinner takes the icon's place, and the button stays as bright. */
   busy?: boolean;
-  /** Drawn before the title, such as a sign-in provider's logo. */
-  icon?: ReactNode;
+  /** Drawn before the title in the title's colour: one of the Mac's icons, or a sign-in provider's logo. */
+  icon?: IconName | ReactElement;
   style?: StyleProp<ViewStyle>;
 }) {
   const styles = useStyles(makeStyles);
@@ -56,18 +58,24 @@ export function Button({
       accessibilityRole="button"
       accessibilityState={{ disabled, busy }}
       style={({ pressed }) => [styles.button, fill[kind], pressed && styles.pressed, disabled && styles.disabled, style]}>
-      {busy ? <ActivityIndicator size="small" color={StyleSheet.flatten(ink[kind]).color} style={styles.spinner} /> : icon}
+      {busy ? (
+        <ActivityIndicator size="small" color={StyleSheet.flatten(ink[kind]).color} style={styles.spinner} />
+      ) : typeof icon === 'string' ? (
+        <Icon name={icon} size={17} color={StyleSheet.flatten(ink[kind]).color as string} />
+      ) : (
+        icon
+      )}
       <Text style={[styles.buttonText, ink[kind]]}>{title}</Text>
     </Pressable>
   );
 }
 
-/** A text box in the app's controls: sunken, rounded, edged in the accent while typing in it. */
-export function Field(props: TextInputProps) {
+/** A text box in the app's controls: sunken, rounded, edged in the accent while typing in it. `icon` says what goes in it. */
+export function Field({ icon, ...props }: TextInputProps & { icon?: IconName }) {
   const colors = useColors();
   const styles = useStyles(makeStyles);
   const [focused, setFocused] = useState(false);
-  return (
+  const input = (
     <TextInput
       placeholderTextColor={colors.tertiary}
       selectionColor={colors.accent}
@@ -81,8 +89,17 @@ export function Field(props: TextInputProps) {
         setFocused(false);
         props.onBlur?.(event);
       }}
-      style={[styles.field, focused && styles.fieldFocused, props.style]}
+      style={[styles.field, focused && styles.fieldFocused, icon && styles.fieldLed, props.style]}
     />
+  );
+  if (!icon) return input;
+  return (
+    <View>
+      {input}
+      <View style={styles.lead} pointerEvents="none">
+        <Icon name={icon} size={18} color={focused ? colors.secondary : colors.tertiary} />
+      </View>
+    </View>
   );
 }
 
@@ -92,7 +109,7 @@ export function PasswordField(props: Omit<TextInputProps, 'secureTextEntry'>) {
   const [shown, setShown] = useState(false);
   return (
     <View>
-      <Field {...props} secureTextEntry={!shown} style={[styles.passwordField, props.style]} />
+      <Field icon="IconLock" {...props} secureTextEntry={!shown} style={[styles.passwordField, props.style]} />
       <Pressable
         onPress={() => setShown((was) => !was)}
         style={styles.reveal}
@@ -102,6 +119,27 @@ export function PasswordField(props: Omit<TextInputProps, 'secureTextEntry'>) {
         {shown ? <DrawnIcon name="eyeOff" size={18} color={colors.tertiary} /> : <Icon name="IconEye" size={18} color={colors.tertiary} />}
       </Pressable>
     </View>
+  );
+}
+
+/** A small rounded control that sits in a row of others, a little apart. */
+export function Chip({ title, primary, busy, onPress }: { title: string; primary?: boolean; busy?: boolean; onPress: () => void }) {
+  const styles = useStyles(makeStyles);
+  return (
+    <Pressable
+      disabled={busy}
+      onPress={() => {
+        haptics.select();
+        onPress();
+      }}
+      hitSlop={4}
+      accessibilityRole="button"
+      accessibilityState={{ disabled: busy, busy }}
+      style={({ pressed }) => [styles.chip, primary && styles.chipPrimary, (pressed || busy) && { opacity: 0.6 }]}>
+      <Text style={[styles.chipText, primary && styles.chipTextPrimary]} numberOfLines={1}>
+        {title}
+      </Text>
+    </Pressable>
   );
 }
 
@@ -160,6 +198,19 @@ const buttonInk = (colors: Palette): Record<ButtonKind, TextStyle> => ({
 
 const makeStyles = (colors: Palette) => {
   return StyleSheet.create({
+    chip: {
+      minHeight: 32,
+      maxWidth: '100%',
+      justifyContent: 'center',
+      paddingHorizontal: 12,
+      borderRadius: radius.control,
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.raised,
+    },
+    chipPrimary: { backgroundColor: colors.ink, borderColor: colors.ink },
+    chipText: { fontFamily: fonts.uiMedium, fontSize: 13.5, color: colors.ink },
+    chipTextPrimary: { color: colors.ground },
     iconButton: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center' },
     button: {
       minHeight: 50,
@@ -185,6 +236,8 @@ const makeStyles = (colors: Palette) => {
       color: colors.ink,
     },
     fieldFocused: { borderColor: colors.borderSelected },
+    fieldLed: { paddingLeft: 44 },
+    lead: { position: 'absolute', left: 0, top: 0, bottom: 0, width: 44, alignItems: 'center', justifyContent: 'center' },
     passwordField: { paddingRight: 48 },
     reveal: { position: 'absolute', right: 0, top: 0, bottom: 0, width: 48, alignItems: 'center', justifyContent: 'center' },
     pressed: { opacity: 0.75 },

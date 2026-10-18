@@ -240,6 +240,7 @@ export const RUNDECK: Record<string, (params: Params) => unknown> = {
     };
   },
   executions: ({ jobId: id }) => history(String(id)),
+  projectExecutions: () => projectExecutions(),
   plan: ({ targetBranch }) => ({
     project: PROJECT,
     service: "deploy/production/billing-service",
@@ -313,8 +314,22 @@ function history(id: string) {
         },
       },
       argstring: null,
+      workflowState: running ? workflow : null,
     };
   });
+}
+
+function projectExecutions() {
+  const executions = jobs
+    .flatMap((job, jobIndex) =>
+      history(job.id).map((run) =>
+        run.status === "running"
+          ? run
+          : { ...run, id: run.id - (jobIndex + 1) * 1_000 },
+      ),
+    )
+    .sort((a, b) => b["date-started"].unixtime - a["date-started"].unixtime);
+  return { executions: executions.slice(0, 50), total: executions.length };
 }
 
 export function rundeckStream(

@@ -2,7 +2,8 @@ import { act, cleanup, fireEvent, render, screen, within } from "@testing-librar
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { GitPane } from "./GitPane";
-import { gitOverviewR } from "../state/resources.defs";
+import { remoteRepoR } from "../codehost/project";
+import { gitChangeOwnersR, gitOverviewR } from "../state/resources.defs";
 import { getState, setState } from "../state/store";
 import { useGitWorkbench } from "../state/gitWorkbench";
 import { useStageMotion } from "../state/nativeViews";
@@ -19,10 +20,13 @@ const resources = vi.hoisted(() => ({
         refresh: vi.fn(),
     },
     empty: { status: "ok", data: [], refresh: vi.fn() },
+    owners: { status: "ok", data: { authors: [], files: [] }, refresh: vi.fn() },
 }));
 vi.mock("../state/resources", async (original) => ({
     ...(await original<typeof import("../state/resources")>()),
     useCachedResourceEnabled: (enabled: boolean, definition: unknown) => {
+        if (definition === gitChangeOwnersR) return resources.owners;
+        if (definition === remoteRepoR) return { status: "ok", data: null, refresh: vi.fn() };
         if (definition !== gitOverviewR) return resources.empty;
         resources.overviewEnabled = enabled;
         return resources.overview;
@@ -49,24 +53,17 @@ it("offers to stash from the toolbar menu when there are no stashes yet", async 
     expect(getState().gitModal).toMatchObject({ kind: "menu", title: "Stash" });
 });
 
-it("switches between Changes and Branches from the rail, with History folded under the changes", async () => {
+it("switches between Changes, History and Branches from the side panel's foot", async () => {
     const user = userEvent.setup();
     render(<GitPane paneId="git-test" cwd="/repo" active visible />);
-    const rail = screen.getByRole("navigation", { name: "Git" });
-    const changes = within(rail).getByRole("button", { name: "Changes (1)" });
-    expect(changes).toHaveAttribute("aria-current", "page");
+    const foot = screen.getByRole("tablist", { name: "Git lists" });
+    expect(within(foot).getByRole("tab", { name: "Changes — 1" })).toHaveAttribute("aria-selected", "true");
 
-    const history = screen.getByRole("button", { name: /History/ });
-    expect(history).toHaveAttribute("aria-expanded", "true");
+    await user.click(within(foot).getByRole("tab", { name: "History — 2" }));
+    expect(getState().gitViews["git-test"].panel).toBe("commits");
+    expect(within(foot).getByRole("tab", { name: "History — 2" })).toHaveAttribute("aria-selected", "true");
 
-    await user.click(history);
-    expect(getState().gitViews["git-test"]).toMatchObject({ historyOpen: false, panel: "files" });
-
-    await user.click(screen.getByRole("button", { name: /History/ }));
-    expect(getState().gitViews["git-test"]).toMatchObject({ historyOpen: true, panel: "commits" });
-    expect(changes).toHaveAttribute("aria-current", "page");
-
-    await user.click(within(rail).getByRole("button", { name: "Branches (2)" }));
+    await user.click(within(foot).getByRole("tab", { name: "Branches — 3" }));
     expect(getState().gitViews["git-test"].panel).toBe("branches");
     expect(screen.getByRole("button", { name: /New branch/ })).toBeInTheDocument();
 });
@@ -89,7 +86,7 @@ it("takes keyboard focus when it becomes the active pane", () => {
     const { rerender } = render(<GitPane paneId="git-test" cwd="/repo" active={false} visible={false} />);
     document.body.focus();
     rerender(<GitPane paneId="git-test" cwd="/repo" active visible />);
-    fireEvent.keyDown(document.activeElement ?? document.body, { key: "2" });
+    fireEvent.keyDown(document.activeElement ?? document.body, { key: "3" });
     expect(getState().gitViews["git-test"].panel).toBe("branches");
 });
 

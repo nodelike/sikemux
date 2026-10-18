@@ -37,7 +37,8 @@ const agentWindow = (agent: PersistedAgent): Window => ({
 
 export const AGENTS = {
   rail: {
-    id: "agent-rail",
+    id: "tab-rail",
+    name: "Otter",
     type: "claude",
     title: "Line up the sidebar labels",
     resumeId: "5f0c8a1e-rail",
@@ -45,6 +46,7 @@ export const AGENTS = {
   },
   replay: {
     id: "agent-replay",
+    name: "Maple",
     type: "codex",
     title: "Fix a flaky terminal test",
     resumeId: "codex-replay-0192",
@@ -52,6 +54,7 @@ export const AGENTS = {
   },
   hero: {
     id: "agent-hero",
+    name: "Wren",
     type: "claude",
     title: "Fix the cover buttons",
     resumeId: "91d2e7b4-hero",
@@ -59,6 +62,7 @@ export const AGENTS = {
   },
   palette: {
     id: "agent-palette",
+    name: "Flint",
     type: "codex",
     title: "Compare two ways to pick colours",
     resumeId: "codex-palette-7731",
@@ -66,6 +70,7 @@ export const AGENTS = {
   },
   notes: {
     id: "agent-notes",
+    name: "Heron",
     type: "hermes",
     title: "Write up the colour results",
     resumeId: "hermes-notes-3310",
@@ -73,6 +78,7 @@ export const AGENTS = {
   },
   flow: {
     id: "agent-flow",
+    name: "Birch",
     type: "claude",
     title: "Map the checkout flow",
     resumeId: "c41f2b90-flow",
@@ -80,6 +86,7 @@ export const AGENTS = {
   },
   latency: {
     id: "agent-latency",
+    name: "Cedar",
     type: "codex",
     title: "Check checkout latency after the fix",
     resumeId: "codex-latency-5521",
@@ -87,6 +94,7 @@ export const AGENTS = {
   },
   empty: {
     id: "agent-empty",
+    name: "Juniper",
     type: "claude",
     title: "Empty state options",
     resumeId: "91d2e7b4-empty",
@@ -94,6 +102,7 @@ export const AGENTS = {
   },
   phone: {
     id: "agent-phone",
+    name: "Comet",
     type: "claude",
     title: "Check the permission card on iPhone",
     resumeId: "5f0c8a1e-phone",
@@ -101,6 +110,7 @@ export const AGENTS = {
   },
   incident: {
     id: "agent-incident",
+    name: "Moss",
     type: "claude",
     title: "Fix the checkout 500s",
     resumeId: "c41f2b90-incident",
@@ -117,7 +127,7 @@ const agents: PersistedAgent[] = Object.values(AGENTS).map((agent) => ({
   keepAlive: true,
 }));
 
-export const EDITOR_TABS = [`${SIKEMUX}/src/rail/AgentRail.tsx`];
+export const EDITOR_TABS = [`${SIKEMUX}/src/rail/TabRail.tsx`];
 
 export function demoSnapshot(): PersistedSnapshot {
   return {
@@ -243,6 +253,14 @@ export function demoSnapshot(): PersistedSnapshot {
         pinned: false,
         activeWindowId: "w-database",
       },
+      {
+        id: "s-jira",
+        name: "Jira",
+        kind: "sikemux.jira:issues",
+        cwd: "",
+        pinned: false,
+        activeWindowId: "w-jira",
+      },
     ],
     windowsBySession: {
       "s-sikemux": [
@@ -306,7 +324,12 @@ export function demoSnapshot(): PersistedSnapshot {
       "s-billing": [
         terminalWindow(
           "w-billing-service",
-          pane("t-billing-service", `${DEMO_HOME}/work/billing-service`, "terminal", "zsh"),
+          pane(
+            "t-billing-service",
+            `${DEMO_HOME}/work/billing-service`,
+            "terminal",
+            "zsh",
+          ),
           "t-billing-service",
         ),
         agentWindow(AGENTS.incident),
@@ -316,7 +339,12 @@ export function demoSnapshot(): PersistedSnapshot {
       "s-portal": [
         terminalWindow(
           "w-client-portal",
-          pane("t-client-portal", `${DEMO_HOME}/work/client-portal`, "terminal", "zsh"),
+          pane(
+            "t-client-portal",
+            `${DEMO_HOME}/work/client-portal`,
+            "terminal",
+            "zsh",
+          ),
           "t-client-portal",
         ),
       ],
@@ -436,6 +464,22 @@ export function demoSnapshot(): PersistedSnapshot {
           activePaneId: "p-database",
         },
       ],
+      "s-jira": [
+        {
+          id: "w-jira",
+          name: "Jira",
+          role: "sikemux.jira:issues",
+          fixed: true,
+          root: {
+            type: "pane",
+            id: "p-jira",
+            cwd: "",
+            kind: "sikemux.jira:issues",
+            title: "Jira",
+          },
+          activePaneId: "p-jira",
+        },
+      ],
       "s-signoz": [
         {
           id: "w-signoz",
@@ -467,6 +511,7 @@ export function demoSnapshot(): PersistedSnapshot {
       "s-rundeck",
       "s-signoz",
       "s-database",
+      "s-jira",
     ],
     activeSessionId: "s-sikemux",
     recent: [],
@@ -479,12 +524,12 @@ export function demoSnapshot(): PersistedSnapshot {
       windowOpacity: 0.81,
       paneShader: true,
       sideRailWidth: 258,
-      agentRailWidth: 256,
+      tabRailWidth: 256,
       windowBlur: 0,
       cloudBrowser: "",
       cloudBrowserShortcut: "",
       sideRailOpen: true,
-      agentRailOpen: true,
+      tabRailOpen: true,
       onboardingComplete: true,
       notificationsIntroduced: true,
       agentNotifications: false,

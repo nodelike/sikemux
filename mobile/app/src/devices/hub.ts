@@ -2,7 +2,7 @@ import { useEffect, useMemo, useSyncExternalStore } from 'react';
 import { AppState } from 'react-native';
 import { CoreEvent, MobileError, type ConnectionLike, type CoreListener } from '@sikemux/native';
 
-import { keepUnchanged, readHost, readView, type Snapshot } from '@/core/protocol';
+import { keepUnchanged, readHost, readView, type HostInfo, type Snapshot } from '@/core/protocol';
 import { goOffline, thisDevice } from '@/device/identity';
 import { onNetworkChange } from '@/network/connectivity';
 import { dismissHostCards, reconcileCards } from '@/notify/cards';
@@ -270,15 +270,26 @@ async function connect(core: string, found: Entry) {
   set(core, found, { status: 'open', connection, snapshot: found.live.snapshot });
   if (AppState.currentState !== 'active') connection.setForeground(false).catch(() => {});
   shareKey(core, connection).then(() => withdrawIfForgotten(core));
-  connection
-    .host()
-    .then(readHost)
+  hostOf(connection)
     .then((host) => {
       const known = devices.find((device) => device.core === core);
       if (known?.name === host.name && known.model === host.model && known.channel === host.channel) return;
       return updateDevice(core, { name: host.name, model: host.model, channel: host.channel }).then(reloadDevices);
     })
     .catch(() => {});
+}
+
+const hosts = new WeakMap<ConnectionLike, Promise<HostInfo>>();
+
+/** What the host behind `connection` says it is, asked once per connection. */
+export function hostOf(connection: ConnectionLike): Promise<HostInfo> {
+  let host = hosts.get(connection);
+  if (!host) {
+    host = connection.host().then(readHost);
+    host.catch(() => hosts.delete(connection));
+    hosts.set(connection, host);
+  }
+  return host;
 }
 
 function close(core: string, found: Entry, reason: string) {

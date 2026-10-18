@@ -10,7 +10,7 @@ registerCodeHost({
     id: BITBUCKET_PLUGIN_ID,
     name: "Bitbucket",
     ciName: "Pipelines",
-    icon: (size) => <BitbucketMark size={size} className="icon-bitbucket" />,
+    icon: (size) => <BitbucketMark size={size} />,
     capabilities: {
         ci: {
             graph: true,
@@ -41,7 +41,7 @@ registerFrontendPlugin({
     surfaces: [],
     open: () => void openGitArea("pulls"),
     openTitle: "Open Bitbucket",
-    mark: (size) => <BitbucketMark size={size} className="icon-bitbucket" />,
+    mark: (size) => <BitbucketMark size={size} />,
     linkHosts: ["bitbucket.org"],
     TopBarItem: hostCiGlyph(BITBUCKET_PLUGIN_ID),
 });

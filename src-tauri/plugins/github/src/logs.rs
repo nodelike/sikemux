@@ -107,6 +107,52 @@ pub async fn job(data_dir: &Path, input: LogRequest) -> GithubResult<JobLog> {
     }
 }
 
+const DEFAULT_TAIL: usize = 200;
+const MAX_TAIL: usize = 2000;
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Excerpt {
+    #[serde(flatten)]
+    pub job: JobRef,
+    pub tail: Option<usize>,
+    pub grep: Option<String>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LogExcerpt {
+    pub lines: Vec<LogLine>,
+    pub truncated: bool,
+}
+
+/// The end of a job's log, optionally only the lines that mention something.
+pub async fn excerpt(data_dir: &Path, input: Excerpt) -> GithubResult<LogExcerpt> {
+    let whole = job(data_dir, LogRequest { job: input.job }).await?;
+    let needle = input
+        .grep
+        .map(|grep| grep.to_lowercase())
+        .filter(|grep| !grep.is_empty());
+    let mut lines: Vec<LogLine> = whole
+        .lines
+        .into_iter()
+        .filter(|line| {
+            needle
+                .as_deref()
+                .is_none_or(|needle| line.text.to_lowercase().contains(needle))
+        })
+        .collect();
+    let tail = input.tail.unwrap_or(DEFAULT_TAIL).clamp(1, MAX_TAIL);
+    let cut = lines.len() > tail;
+    if cut {
+        lines.drain(..lines.len() - tail);
+    }
+    Ok(LogExcerpt {
+        lines,
+        truncated: cut || whole.truncated,
+    })
+}
+
 /// GitHub answers "not found" for a log that aged out, for one a job has not
 /// written yet, and for a repository the token cannot see. Asking about the
 /// job itself tells them apart.

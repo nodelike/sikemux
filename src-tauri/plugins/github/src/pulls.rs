@@ -214,6 +214,45 @@ pub async fn list(data_dir: &Path, input: Query) -> GithubResult<Vec<Pull>> {
         .collect())
 }
 
+#[derive(Serialize)]
+pub struct PullCounts {
+    pub open: u64,
+    pub closed: u64,
+}
+
+#[derive(Deserialize)]
+struct Total {
+    total_count: u64,
+}
+
+/// How many pull requests the repository has open and closed, as GitHub's search counts them.
+pub async fn counts(data_dir: &Path, repo: RepoRef) -> GithubResult<PullCounts> {
+    counts_of(data_dir, repo, "pr").await
+}
+
+/// How many issues the repository has open and closed, as GitHub's search counts them.
+pub async fn issue_counts(data_dir: &Path, repo: RepoRef) -> GithubResult<PullCounts> {
+    counts_of(data_dir, repo, "issue").await
+}
+
+async fn counts_of(data_dir: &Path, repo: RepoRef, kind: &'static str) -> GithubResult<PullCounts> {
+    repo.checked()?;
+    let total = |state: &'static str| {
+        let terms = format!("repo:{}/{} is:{kind} is:{state}", repo.owner, repo.name);
+        async move {
+            let found: Total = client::get(
+                data_dir,
+                "/search/issues",
+                &[("q", terms), ("per_page", "1".to_string())],
+            )
+            .await?;
+            GithubResult::Ok(found.total_count)
+        }
+    };
+    let (open, closed) = futures::try_join!(total("open"), total("closed"))?;
+    Ok(PullCounts { open, closed })
+}
+
 #[derive(Deserialize)]
 struct CountRow {
     number: u64,
@@ -270,6 +309,28 @@ pub async fn get(data_dir: &Path, input: PullRef) -> GithubResult<Pull> {
     let path = input.repo.path(&format!("/pulls/{}", input.number))?;
     let row: PullRow = client::get(data_dir, &path, &[]).await?;
     Ok(Pull::from(row))
+}
+
+#[derive(Deserialize)]
+pub struct CommitRef {
+    #[serde(flatten)]
+    pub repo: RepoRef,
+    pub sha: String,
+}
+
+/// The pull requests that hold the commit `sha`, the merged one first.
+pub async fn of_commit(data_dir: &Path, input: CommitRef) -> GithubResult<Vec<Pull>> {
+    if !input.sha.chars().all(|c| c.is_ascii_hexdigit()) || input.sha.len() < 7 {
+        return Err(GithubError::BadArg(format!(
+            "`{}` is not a commit hash",
+            input.sha
+        )));
+    }
+    let path = input.repo.path(&format!("/commits/{}/pulls", input.sha))?;
+    let rows: Vec<PullRow> = client::get(data_dir, &path, &[]).await?;
+    let mut pulls: Vec<Pull> = rows.into_iter().map(Pull::from).collect();
+    pulls.sort_by_key(|pull| pull.state != "merged");
+    Ok(pulls)
 }
 
 #[derive(Deserialize)]

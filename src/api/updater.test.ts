@@ -137,7 +137,7 @@ describe("updater progress", () => {
 
         expect(installHandler).toHaveBeenCalledOnce();
         expect(mocks.relaunch).not.toHaveBeenCalled();
-        expect(getState().pendingUpdate).toMatchObject({ state: "error", error: "Error: download timed out" });
+        expect(getState().pendingUpdate).toMatchObject({ state: "error", error: "download timed out" });
     });
 });
 
@@ -159,6 +159,16 @@ describe("update checks", () => {
 
         expect(getState().lastUpdateCheck).toMatchObject({ error: "update check: 404 Not Found" });
         expect(useToasts.getState().toasts).toMatchObject([{ kind: "error", text: "update check: update check: 404 Not Found" }]);
+    });
+
+    it("tells a person who checks by hand that they are offline, not that something broke", async () => {
+        transport.register("update_check", () => Promise.reject({ category: "offline", message: "Can't reach the server. Check your connection." }));
+
+        await checkForUpdateNow();
+
+        expect(useToasts.getState().toasts).toMatchObject([
+            { kind: "info", text: "You're offline. Sikemux will check for updates when you're back." },
+        ]);
     });
 
     it("confirms an up-to-date result only when the check actually succeeded", async () => {

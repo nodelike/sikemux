@@ -125,6 +125,8 @@ export interface PtyLifecycleControllerOptions<ChannelTransport, Context = unkno
     /** Paste payloads delivered independently before `initialInput`. */
     readonly initialPastes?: readonly string[];
     readonly initialInput?: string;
+    /** Pasted after any initial input and never submitted, so it waits at the prompt to be edited or sent. */
+    readonly initialDraft?: string;
     readonly initialInputDelayMs?: number;
     readonly onInitialInputDelivered?: () => void;
     readonly onError?: (event: PtyControllerErrorEvent) => void;
@@ -374,6 +376,7 @@ export class PtyLifecycleController<ChannelTransport, Context = unknown> {
     private status: PtyControllerStatus = "idle";
     private failureOperation: PtyOperation | null = null;
     private initialInputStatus: PtyInitialInputStatus;
+    private initialDraft: string | null;
     private initialPasteChunks: string[] | null;
     private initialInputAttempted = false;
     private initialInputTimer: unknown | null = null;
@@ -427,7 +430,8 @@ export class PtyLifecycleController<ChannelTransport, Context = unknown> {
         const initialPastes = (options.initialPastes ?? []).filter((value) => value.length > 0);
         this.initialPasteChunks = [...initialPastes, ...(initialInput ? [initialInput] : [])];
         if (this.initialPasteChunks.length === 0) this.initialPasteChunks = null;
-        this.initialInputStatus = this.initialPasteChunks ? "pending" : "none";
+        this.initialDraft = options.initialDraft?.replaceAll("\0", "").trim() || null;
+        this.initialInputStatus = this.initialPasteChunks || this.initialDraft ? "pending" : "none";
     }
 
     getSnapshot(): PtyControllerSnapshot {
@@ -882,7 +886,7 @@ export class PtyLifecycleController<ChannelTransport, Context = unknown> {
     }
 
     private scheduleInitialInput(id: number): void {
-        if (!this.initialPasteChunks || this.initialInputAttempted || this.disposeRequested) return;
+        if ((!this.initialPasteChunks && !this.initialDraft) || this.initialInputAttempted || this.disposeRequested) return;
         this.initialInputStatus = "scheduled";
         this.emitState();
         try {
@@ -900,18 +904,22 @@ export class PtyLifecycleController<ChannelTransport, Context = unknown> {
     }
 
     private async deliverInitialInput(id: number): Promise<void> {
-        if (this.initialInputAttempted || !this.initialPasteChunks) return;
+        if (this.initialInputAttempted || (!this.initialPasteChunks && !this.initialDraft)) return;
         if (this.disposeRequested || this.status !== "running" || this.ptyId !== id) {
             this.initialPasteChunks = null;
+            this.initialDraft = null;
             return;
         }
         this.initialInputAttempted = true;
         this.initialInputStatus = "delivering";
         const pasteChunks = this.initialPasteChunks;
+        const draft = this.initialDraft;
         this.initialPasteChunks = null;
+        this.initialDraft = null;
         this.emitState();
         try {
-            const input = `${pasteChunks.map((chunk) => `\x1b[200~${chunk}\x1b[201~`).join("")}\r`;
+            const submitted = pasteChunks ? `${pasteChunks.map((chunk) => `\x1b[200~${chunk}\x1b[201~`).join("")}\r` : "";
+            const input = `${submitted}${draft ? `\x1b[200~${draft}\x1b[201~` : ""}`;
             await this.api.write(id, input);
             if (this.disposeRequested || this.ptyId !== id) {
                 this.initialInputStatus = "cancelled";
@@ -957,6 +965,7 @@ export class PtyLifecycleController<ChannelTransport, Context = unknown> {
             this.initialInputTimer = null;
         }
         this.initialPasteChunks = null;
+        this.initialDraft = null;
     }
 
     private activateAttachment(state: AttachmentState<ChannelTransport>): void {

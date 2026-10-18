@@ -48,8 +48,13 @@ export function TabStrip({
                                     x: event.clientX,
                                     y: event.clientY,
                                     items: [
-                                        { label: "Close", run: () => onClose(tab.id) },
-                                        { label: "Close others", disabled: tabs.length < 2, run: () => onCloseOthers(tab.id) },
+                                        { label: "Close", icon: <IconClose size={13} />, run: () => onClose(tab.id) },
+                                        {
+                                            label: "Close others",
+                                            icon: <IconClose size={13} />,
+                                            disabled: tabs.length < 2,
+                                            run: () => onCloseOthers(tab.id),
+                                        },
                                     ],
                                 });
                             }}>

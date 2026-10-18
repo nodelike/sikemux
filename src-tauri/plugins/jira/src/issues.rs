@@ -19,13 +19,19 @@ use crate::error::{JiraError, JiraResult};
 const DEFAULT_LIMIT: u64 = 20;
 const MAX_LIMIT: u64 = 100;
 const MAX_COMMENTS: usize = 50;
-pub(crate) const SUMMARY_FIELDS: &str = "summary,status,priority,assignee,issuetype,updated";
+const COMMENTS_PER_HIT: usize = 5;
+const MAX_CHANGES: usize = 50;
+/// Longer values are cut, so a rewritten field does not carry its whole text twice.
+const CHANGE_VALUE_CHARS: usize = 200;
+pub(crate) const SUMMARY_FIELDS: &str =
+    "summary,status,priority,assignee,issuetype,updated,parent,duedate";
 
 #[derive(Serialize, Debug, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct Person {
     pub account_id: String,
     pub name: String,
+    pub avatar_url: Option<String>,
 }
 
 #[derive(Serialize, Debug, PartialEq)]
@@ -41,7 +47,20 @@ pub struct IssueSummary {
     pub issue_type: Option<String>,
     pub sprint: Option<String>,
     pub updated: Option<String>,
+    /// The day it is due, as `2026-10-31`.
+    pub due: Option<String>,
+    /// The epic or other issue it sits under.
+    pub parent: Option<Parent>,
     pub url: String,
+}
+
+#[derive(Serialize, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Parent {
+    pub key: String,
+    pub summary: String,
+    /// Jira's name for the epic's colour, `color_1` to `color_14`, when a board says it.
+    pub color: Option<String>,
 }
 
 #[derive(Serialize, Debug, PartialEq)]
@@ -49,8 +68,29 @@ pub struct IssueSummary {
 pub struct Comment {
     pub id: String,
     pub author: String,
+    pub author_avatar_url: Option<String>,
     pub created: String,
     pub body: String,
+}
+
+/// One edit to an issue: who made it, when, and the fields it changed.
+#[derive(Serialize, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Change {
+    pub id: String,
+    pub author: String,
+    pub author_avatar_url: Option<String>,
+    pub created: String,
+    pub fields: Vec<FieldChange>,
+}
+
+#[derive(Serialize, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct FieldChange {
+    pub field: String,
+    /// Absent when the field was empty, or is long text such as the description.
+    pub from: Option<String>,
+    pub to: Option<String>,
 }
 
 #[derive(Serialize, Debug, PartialEq)]
@@ -60,6 +100,7 @@ pub struct Transition {
     pub name: String,
     /// The status the issue is in after taking it.
     pub to: String,
+    pub to_category: String,
 }
 
 #[derive(Serialize, Debug)]
@@ -76,7 +117,40 @@ pub struct IssueDetail {
     pub comments: Vec<Comment>,
     /// How many comments there are, which can be more than are shown.
     pub comment_count: u64,
+    /// The latest edits, newest first.
+    pub history: Vec<Change>,
     pub transitions: Vec<Transition>,
+    pub subtasks: Vec<IssueSummary>,
+    /// The keys of the issues this one is blocked by.
+    pub blocked_by: Vec<String>,
+    /// The keys of the issues this one blocks.
+    pub blocks: Vec<String>,
+}
+
+/// The keys this issue is blocked by and the keys it blocks, from its links.
+fn blocking_links(fields: &Value) -> (Vec<String>, Vec<String>) {
+    let (mut blocked_by, mut blocks) = (Vec::new(), Vec::new());
+    for link in fields
+        .get("issuelinks")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+    {
+        let named = |key: &str| {
+            text(link.pointer(&format!("/type/{key}")))
+                .is_some_and(|name| name.eq_ignore_ascii_case("blocks"))
+        };
+        if !named("name") && !named("outward") {
+            continue;
+        }
+        if let Some(key) = text(link.pointer("/inwardIssue/key")) {
+            blocked_by.push(key);
+        }
+        if let Some(key) = text(link.pointer("/outwardIssue/key")) {
+            blocks.push(key);
+        }
+    }
+    (blocked_by, blocks)
 }
 
 pub(crate) fn text(value: Option<&Value>) -> Option<String> {
@@ -88,6 +162,7 @@ fn person(value: Option<&Value>) -> Option<Person> {
     Some(Person {
         account_id: text(value.get("accountId")).unwrap_or_default(),
         name: text(value.get("displayName")).unwrap_or_else(|| "someone".into()),
+        avatar_url: text(value.pointer("/avatarUrls/48x48")),
     })
 }
 
@@ -116,6 +191,14 @@ pub fn summarise(issue: &Value, site: &str, sprint_field: Option<&str>) -> Issue
         issue_type: text(fields.pointer("/issuetype/name")),
         sprint: sprint_field.and_then(|field| sprint(fields.get(field))),
         updated: text(fields.get("updated")),
+        due: text(fields.get("duedate")),
+        parent: fields.get("parent").and_then(|parent| {
+            Some(Parent {
+                key: text(parent.get("key"))?,
+                summary: text(parent.pointer("/fields/summary")).unwrap_or_default(),
+                color: None,
+            })
+        }),
     }
 }
 
@@ -129,12 +212,69 @@ pub fn comments(body: &Value) -> Vec<Comment> {
                     id: text(comment.get("id")).unwrap_or_default(),
                     author: text(comment.pointer("/author/displayName"))
                         .unwrap_or_else(|| "someone".into()),
+                    author_avatar_url: text(comment.pointer("/author/avatarUrls/48x48")),
                     created: text(comment.get("created")).unwrap_or_default(),
                     body: adf::to_markdown(comment.get("body").unwrap_or(&Value::Null)),
                 })
                 .collect()
         })
         .unwrap_or_default()
+}
+
+/// The edits in an issue's changelog, as Jira lists them: newest first.
+pub fn history(changelog: &Value) -> Vec<Change> {
+    changelog
+        .get("histories")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .take(MAX_CHANGES)
+        .map(|entry| Change {
+            id: text(entry.get("id")).unwrap_or_default(),
+            author: text(entry.pointer("/author/displayName")).unwrap_or_else(|| "Jira".into()),
+            author_avatar_url: text(entry.pointer("/author/avatarUrls/48x48")),
+            created: text(entry.get("created")).unwrap_or_default(),
+            fields: entry
+                .get("items")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .map(|item| {
+                    let field = text(item.get("field")).unwrap_or_default();
+                    let long = field.eq_ignore_ascii_case("description");
+                    let value = |key: &str| {
+                        if long {
+                            return None;
+                        }
+                        text(item.get(key))
+                            .filter(|value| !value.is_empty())
+                            .map(|value| {
+                                if value.chars().count() > CHANGE_VALUE_CHARS {
+                                    let cut: String =
+                                        value.chars().take(CHANGE_VALUE_CHARS).collect();
+                                    format!("{cut}…")
+                                } else {
+                                    value
+                                }
+                            })
+                    };
+                    FieldChange {
+                        from: value("fromString"),
+                        to: value("toString"),
+                        field,
+                    }
+                })
+                .collect(),
+        })
+        .filter(|change| !change.fields.is_empty())
+        .collect()
+}
+
+/// The newest comments the search returned with an issue, oldest first.
+fn latest_comments(issue: &Value) -> Vec<Comment> {
+    let mut all = comments(issue.pointer("/fields/comment").unwrap_or(&Value::Null));
+    let older = all.len().saturating_sub(COMMENTS_PER_HIT);
+    all.split_off(older)
 }
 
 pub fn transitions(body: &Value) -> Vec<Transition> {
@@ -147,6 +287,8 @@ pub fn transitions(body: &Value) -> Vec<Transition> {
                     id: text(transition.get("id")).unwrap_or_default(),
                     name: text(transition.get("name")).unwrap_or_default(),
                     to: text(transition.pointer("/to/name")).unwrap_or_default(),
+                    to_category: text(transition.pointer("/to/statusCategory/key"))
+                        .unwrap_or_default(),
                 })
                 .collect()
         })
@@ -164,51 +306,39 @@ pub fn pick<'a>(transitions: &'a [Transition], wanted: &str) -> Option<&'a Trans
         .or_else(|| transitions.iter().find(|transition| same(&transition.to)))
 }
 
-/// Issue keys such as `ABC-123` in a branch name or commit message, upper-cased, in order and
-/// without repeats. A project key is 2 to 10 letters starting a word, as Jira makes them.
-pub fn keys_in(text: &str) -> Vec<String> {
-    let characters: Vec<char> = text.chars().collect();
-    let at = |index: usize| characters.get(index).copied();
-    let mut found: Vec<String> = Vec::new();
-    let mut index = 0;
-    while index < characters.len() {
-        let starts_word =
-            index == 0 || at(index - 1).is_some_and(|before| !before.is_ascii_alphanumeric());
-        let letters = characters
-            .iter()
-            .skip(index)
-            .take_while(|character| character.is_ascii_alphabetic())
-            .count();
-        if starts_word && (2..=10).contains(&letters) && at(index + letters) == Some('-') {
-            let digits = characters
-                .iter()
-                .skip(index + letters + 1)
-                .take_while(|character| character.is_ascii_digit())
-                .count();
-            let end = index + letters + 1 + digits;
-            if digits > 0 && at(end).is_none_or(|next| !next.is_ascii_alphanumeric()) {
-                let project: String = characters.iter().skip(index).take(letters).collect();
-                let number: String = characters
-                    .iter()
-                    .skip(index + letters + 1)
-                    .take(digits)
-                    .collect();
-                let key = format!("{}-{number}", project.to_ascii_uppercase());
-                if !found.contains(&key) {
-                    found.push(key);
-                }
-                index = end;
-                continue;
-            }
-        }
-        index += letters.max(1);
-    }
-    found
+/// The ids of the custom fields Sikemux reads, which differ from site to site.
+#[derive(Clone, Default, Debug, PartialEq)]
+pub(crate) struct CustomFields {
+    pub sprint: Option<String>,
+    /// An epic's colour on a board, `ghx-label-1` to `ghx-label-14`.
+    pub epic_color: Option<String>,
+    /// An issue's own colour by name, such as `teal`, which newer projects keep.
+    pub issue_color: Option<String>,
 }
 
-/// The custom field that holds sprints, which differs from site to site. Asked once per site.
-pub(crate) async fn sprint_field(site: &Site, credentials: &Credentials) -> Option<String> {
-    static FIELDS: Mutex<Option<HashMap<String, Option<String>>>> = Mutex::new(None);
+impl CustomFields {
+    pub(crate) fn from_fields(fields: &Value) -> Self {
+        let id_of = |schema: &str| {
+            fields.as_array().and_then(|fields| {
+                fields
+                    .iter()
+                    .find(|field| {
+                        field.pointer("/schema/custom").and_then(Value::as_str) == Some(schema)
+                    })
+                    .and_then(|field| text(field.get("id")))
+            })
+        };
+        Self {
+            sprint: id_of("com.pyxis.greenhopper.jira:gh-sprint"),
+            epic_color: id_of("com.pyxis.greenhopper.jira:gh-epic-color"),
+            issue_color: id_of("com.pyxis.greenhopper.jira:jsw-issue-color"),
+        }
+    }
+}
+
+/// Asked once per site.
+pub(crate) async fn custom_fields(site: &Site, credentials: &Credentials) -> CustomFields {
+    static FIELDS: Mutex<Option<HashMap<String, CustomFields>>> = Mutex::new(None);
     if let Some(known) = FIELDS.lock().ok().and_then(|fields| {
         fields
             .as_ref()
@@ -216,26 +346,21 @@ pub(crate) async fn sprint_field(site: &Site, credentials: &Credentials) -> Opti
     }) {
         return known;
     }
-    let found = client::send(credentials, Method::GET, "/rest/api/3/field", &[], None)
-        .await
-        .ok()
-        .and_then(|fields| {
-            fields.as_array().and_then(|fields| {
-                fields
-                    .iter()
-                    .find(|field| {
-                        field.pointer("/schema/custom").and_then(Value::as_str)
-                            == Some("com.pyxis.greenhopper.jira:gh-sprint")
-                    })
-                    .and_then(|field| text(field.get("id")))
-            })
-        });
-    if let Ok(mut fields) = FIELDS.lock() {
-        fields
+    let Ok(fields) = client::send(credentials, Method::GET, "/rest/api/3/field", &[], None).await
+    else {
+        return CustomFields::default();
+    };
+    let found = CustomFields::from_fields(&fields);
+    if let Ok(mut known) = FIELDS.lock() {
+        known
             .get_or_insert_with(HashMap::new)
             .insert(site.host.clone(), found.clone());
     }
     found
+}
+
+pub(crate) async fn sprint_field(site: &Site, credentials: &Credentials) -> Option<String> {
+    custom_fields(site, credentials).await.sprint
 }
 
 pub(crate) fn issue_path(key: &str) -> JiraResult<String> {
@@ -253,11 +378,6 @@ pub(crate) fn issue_path(key: &str) -> JiraResult<String> {
 }
 
 #[derive(Deserialize)]
-pub struct KeysRequest {
-    pub text: String,
-}
-
-#[derive(Deserialize)]
 pub struct Search {
     pub jql: String,
     #[serde(default)]
@@ -267,12 +387,24 @@ pub struct Search {
     /// Where the previous page ended, as `next` gave it.
     #[serde(default)]
     pub next: Option<String>,
+    #[serde(default)]
+    pub comments: bool,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Hit {
+    #[serde(flatten)]
+    pub summary: IssueSummary,
+    /// The latest few, oldest first; only when the search asked for comments.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub comments: Option<Vec<Comment>>,
 }
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Found {
-    pub issues: Vec<IssueSummary>,
+    pub issues: Vec<Hit>,
     /// Pass back as `next` for the following page; absent on the last.
     pub next: Option<String>,
 }
@@ -280,10 +412,14 @@ pub struct Found {
 pub async fn search(data_dir: &Path, request: Search) -> JiraResult<Found> {
     let (site, credentials) = auth::credentials(data_dir, request.site.as_deref()).await?;
     let sprint_field = sprint_field(&site, &credentials).await;
-    let fields = match &sprint_field {
-        Some(field) => format!("{SUMMARY_FIELDS},{field}"),
-        None => SUMMARY_FIELDS.into(),
-    };
+    let mut fields = SUMMARY_FIELDS.to_string();
+    if let Some(field) = &sprint_field {
+        fields.push(',');
+        fields.push_str(field);
+    }
+    if request.comments {
+        fields.push_str(",comment");
+    }
     let mut body = json!({
         "jql": request.jql,
         "maxResults": request.limit.unwrap_or(DEFAULT_LIMIT).clamp(1, MAX_LIMIT),
@@ -306,7 +442,10 @@ pub async fn search(data_dir: &Path, request: Search) -> JiraResult<Found> {
         .map(|issues| {
             issues
                 .iter()
-                .map(|issue| summarise(issue, &site.host, sprint_field.as_deref()))
+                .map(|issue| Hit {
+                    summary: summarise(issue, &site.host, sprint_field.as_deref()),
+                    comments: request.comments.then(|| latest_comments(issue)),
+                })
                 .collect()
         })
         .unwrap_or_default();
@@ -335,7 +474,8 @@ pub async fn issue(data_dir: &Path, request: IssueRequest) -> JiraResult<IssueDe
     let (site, credentials) = auth::credentials(data_dir, request.site.as_deref()).await?;
     let path = issue_path(&request.key)?;
     let sprint_field = sprint_field(&site, &credentials).await;
-    let mut fields = format!("{SUMMARY_FIELDS},project,reporter,labels,created,description");
+    let mut fields =
+        format!("{SUMMARY_FIELDS},project,reporter,labels,created,description,subtasks,issuelinks");
     if let Some(field) = &sprint_field {
         fields.push(',');
         fields.push_str(field);
@@ -344,7 +484,7 @@ pub async fn issue(data_dir: &Path, request: IssueRequest) -> JiraResult<IssueDe
         &credentials,
         Method::GET,
         &path,
-        &[("fields", fields)],
+        &[("fields", fields), ("expand", "changelog".into())],
         None,
     )
     .await?;
@@ -370,6 +510,7 @@ pub async fn issue(data_dir: &Path, request: IssueRequest) -> JiraResult<IssueDe
     let all = found.get("fields").unwrap_or(&Value::Null);
     let mut comments = comments(&comment_page);
     comments.reverse();
+    let (blocked_by, blocks) = blocking_links(all);
     Ok(IssueDetail {
         summary: summarise(&found, &site.host, sprint_field.as_deref()),
         project: text(all.pointer("/project/key")),
@@ -392,7 +533,17 @@ pub async fn issue(data_dir: &Path, request: IssueRequest) -> JiraResult<IssueDe
             .and_then(Value::as_u64)
             .unwrap_or(comments.len() as u64),
         comments,
+        history: history(found.get("changelog").unwrap_or(&Value::Null)),
         transitions: transitions(&moves),
+        subtasks: all
+            .get("subtasks")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .map(|subtask| summarise(subtask, &site.host, None))
+            .collect(),
+        blocked_by,
+        blocks,
     })
 }
 
@@ -421,6 +572,7 @@ pub async fn comment(data_dir: &Path, request: CommentRequest) -> JiraResult<Com
     Ok(Comment {
         id: text(posted.get("id")).unwrap_or_default(),
         author: text(posted.pointer("/author/displayName")).unwrap_or_default(),
+        author_avatar_url: text(posted.pointer("/author/avatarUrls/48x48")),
         created: text(posted.get("created")).unwrap_or_default(),
         body: adf::to_markdown(posted.get("body").unwrap_or(&Value::Null)),
     })
@@ -1052,9 +1204,11 @@ pub async fn filters(data_dir: &Path, request: SiteRequest) -> JiraResult<Vec<Fi
 }
 
 #[derive(Serialize, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
 pub struct Project {
     pub key: String,
     pub name: String,
+    pub avatar_url: Option<String>,
 }
 
 pub fn projects_of(body: &Value) -> Vec<Project> {
@@ -1067,6 +1221,7 @@ pub fn projects_of(body: &Value) -> Vec<Project> {
                     Some(Project {
                         key: text(project.get("key"))?,
                         name: text(project.get("name"))?,
+                        avatar_url: text(project.pointer("/avatarUrls/48x48")),
                     })
                 })
                 .collect()
@@ -1102,7 +1257,8 @@ mod tests {
             projects_of(&body),
             vec![Project {
                 key: "CIQ".into(),
-                name: "ChannelIQ".into()
+                name: "ChannelIQ".into(),
+                avatar_url: None,
             }]
         );
     }
@@ -1115,6 +1271,8 @@ mod tests {
             "assignee": { "accountId": "a1", "displayName": "Ana" },
             "issuetype": { "name": "Bug" },
             "updated": "2026-10-04T09:00:00.000+0000",
+            "duedate": "2026-10-31",
+            "parent": { "key": "ABC-1", "fields": { "summary": "Sign-in" } },
             "customfield_10020": [ { "name": "Sprint 4", "state": "closed" }, { "name": "Sprint 5", "state": "active" } ]
         } })
     }
@@ -1131,11 +1289,18 @@ mod tests {
                 priority: Some("High".into()),
                 assignee: Some(Person {
                     account_id: "a1".into(),
-                    name: "Ana".into()
+                    name: "Ana".into(),
+                    avatar_url: None,
                 }),
                 issue_type: Some("Bug".into()),
                 sprint: Some("Sprint 5".into()),
                 updated: Some("2026-10-04T09:00:00.000+0000".into()),
+                due: Some("2026-10-31".into()),
+                parent: Some(Parent {
+                    key: "ABC-1".into(),
+                    summary: "Sign-in".into(),
+                    color: None,
+                }),
                 url: "https://acme.atlassian.net/browse/ABC-12".into(),
             }
         );
@@ -1176,21 +1341,11 @@ mod tests {
             [Comment {
                 id: "9".into(),
                 author: "Ana".into(),
+                author_avatar_url: None,
                 created: "2026-10-04".into(),
                 body: "Looks good".into()
             }]
         );
-    }
-
-    #[test]
-    fn issue_keys_are_found_in_branch_names_and_commit_messages() {
-        assert_eq!(keys_in("abc-123-fix-x"), ["ABC-123"]);
-        assert_eq!(
-            keys_in("feature/PROJ-7_and_ABC-12: tidy, see ABC-12"),
-            ["PROJ-7", "ABC-12"]
-        );
-        assert_eq!(keys_in("main"), Vec::<String>::new());
-        assert_eq!(keys_in("v2-1 and x-1 and ABC-1x"), Vec::<String>::new());
     }
 
     #[test]

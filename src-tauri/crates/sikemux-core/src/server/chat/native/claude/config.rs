@@ -77,6 +77,13 @@ pub(crate) fn settings_model(models: &mut Vec<Value>, named: &str) -> Option<Str
     Some(named.to_owned())
 }
 
+/// Lists a model another provider serves, which Claude Code itself does not.
+pub(crate) fn provider_model(models: &mut Vec<Value>, value: &str) {
+    if find(models, value).is_none() {
+        models.push(json!({ "value": value, "displayName": value }));
+    }
+}
+
 pub(crate) fn offers_model(models: &[Value], value: &str) -> bool {
     find(models, value).is_some()
 }

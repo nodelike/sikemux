@@ -84,9 +84,19 @@ pub fn handle<R: Runtime>(
     }
     let app = context.app_handle().clone();
     tauri::async_runtime::spawn_blocking(move || {
-        let previews = app.state::<Previews>();
-        responder.respond(answer(&previews, &request));
+        let response = answer(&app.state::<Previews>(), &request);
+        respond_on_main_thread(&app, responder, response);
     });
+}
+
+/// WebKit cancels a load on the main thread, and answering a cancelled load
+/// aborts the app, so the answer goes there too and cannot race the cancel.
+pub fn respond_on_main_thread<R: Runtime>(
+    app: &tauri::AppHandle<R>,
+    responder: UriSchemeResponder,
+    response: Response<Vec<u8>>,
+) {
+    let _ = app.run_on_main_thread(move || responder.respond(response));
 }
 
 fn answer(previews: &Previews, request: &Request<Vec<u8>>) -> Response<Vec<u8>> {

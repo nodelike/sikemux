@@ -7,12 +7,19 @@ pub enum GithubError {
     Unconfigured,
     Auth(String),
     Forbidden(String),
-    RateLimited { resets_in_secs: u64 },
-    Http { status: u16, message: String },
+    RateLimited {
+        resets_in_secs: u64,
+    },
+    Http {
+        status: u16,
+        message: String,
+    },
     BadArg(String),
     NotFound(String),
     Keychain(String),
     Transport(String),
+    /// The service could not be reached at all, such as when the Mac is offline.
+    Unreachable(sikemux_plugin_api::Unreachable),
     Response(String),
 }
 
@@ -32,6 +39,9 @@ impl fmt::Display for GithubError {
             Self::NotFound(message) => formatter.write_str(message),
             Self::Keychain(message) => write!(formatter, "keychain: {message}"),
             Self::Transport(message) => write!(formatter, "github: {message}"),
+            Self::Unreachable(kind) => formatter.write_str(
+                &sikemux_plugin_api::network::unreachable_message(*kind, "GitHub"),
+            ),
             Self::Response(message) => write!(formatter, "github: unexpected response: {message}"),
         }
     }
@@ -41,6 +51,10 @@ impl fmt::Display for GithubError {
 /// be sent, such as a DNS or certificate failure, is further down the chain.
 impl From<reqwest::Error> for GithubError {
     fn from(error: reqwest::Error) -> Self {
+        if let Some(kind) = sikemux_plugin_api::unreachable(&error) {
+            eprintln!("github: {error}");
+            return Self::Unreachable(kind);
+        }
         let mut message = error.to_string();
         let mut cause = std::error::Error::source(&error);
         while let Some(next) = cause {
@@ -75,6 +89,7 @@ impl From<GithubError> for PluginError {
             GithubError::BadArg(_) => PluginError::new("bad-params", message),
             GithubError::NotFound(_) => PluginError::new("not-found", message).with_status(404),
             GithubError::Keychain(_) => PluginError::new("keychain", message),
+            GithubError::Unreachable(kind) => PluginError::unreachable(kind, "GitHub"),
             GithubError::Transport(_) => PluginError::new("github", message),
             GithubError::Response(_) => PluginError::new("response", message),
         }

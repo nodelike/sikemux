@@ -19,6 +19,9 @@ use crate::voice_models;
 
 pub const VOICE_EVENT: &str = "voice";
 /// The helper would otherwise honour these and fetch models from wherever they point.
+const DOWNLOAD_OFFLINE: &str =
+    "You're offline, so the speech model paused downloading. It carries on when you're back.";
+
 const MODEL_FETCH_VARIABLES: [&str; 5] = [
     "REGISTRY_URL",
     "MODEL_REGISTRY_URL",
@@ -91,21 +94,25 @@ impl VoiceManager {
                     json!({ "type": "progress", "stage": "download", "fraction": fraction }),
                 );
             })
-            .await
-            .map_err(|error| format!("Could not download the speech model: {error}"));
-            let sent = fetched.and_then(|()| {
-                manager
+            .await;
+            let sent = match fetched {
+                Err(AppError::Unreachable(_)) => Err(("offline", DOWNLOAD_OFFLINE.to_string())),
+                Err(error) => Err((
+                    "models",
+                    format!("Could not download the speech model: {error}"),
+                )),
+                Ok(()) => manager
                     .send(
                         &app,
                         json!({ "type": "prepare", "modelsDir": dir.to_string_lossy() }),
                     )
-                    .map_err(|error| error.to_string())
-            });
-            if let Err(message) = sent {
+                    .map_err(|error| ("models", error.to_string())),
+            };
+            if let Err((reason, message)) = sent {
                 let _ = app.emit_to(
                     "main",
                     VOICE_EVENT,
-                    json!({ "type": "error", "reason": "models", "message": message }),
+                    json!({ "type": "error", "reason": reason, "message": message }),
                 );
             }
         }));

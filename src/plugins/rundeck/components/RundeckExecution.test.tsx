@@ -5,7 +5,14 @@ import type { LogTick, WatchUpdate } from "../api";
 
 const { watch, logs } = vi.hoisted(() => ({ watch: vi.fn(), logs: vi.fn() }));
 vi.mock("../api", () => ({
-    rundeckApi: { watch, logs, abort: vi.fn(), jobDetail: () => new Promise(() => {}) },
+    rundeckApi: {
+        watch,
+        logs,
+        abort: vi.fn(),
+        jobDetail: () => new Promise(() => {}),
+        executions: () => new Promise(() => {}),
+        branchOptions: async () => ["BRANCH"],
+    },
     failureMessage: (e: unknown) => String(e),
 }));
 vi.mock("../../../plugin-api/ui", async (importOriginal) => ({ ...(await importOriginal<object>()), VirtualLogList: () => null }));

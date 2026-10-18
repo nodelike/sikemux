@@ -87,7 +87,7 @@ export function JiraSignIn({ status, onSignedIn }: { status: JiraStatus | undefi
                 <SignInWaiting onCancel={attempt.cancel}>Finish signing in in your browser</SignInWaiting>
             ) : (
                 <button type="button" className="signin-btn primary" onClick={signInWithBrowser}>
-                    <JiraMark size={14} color="currentColor" />
+                    <JiraMark size={14} mono />
                     Continue with Atlassian
                 </button>
             )}

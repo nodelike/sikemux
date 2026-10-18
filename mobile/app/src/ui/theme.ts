@@ -66,6 +66,19 @@ export function translucent(color: string, opacity: number): string {
   return `rgba(${red}, ${green}, ${blue}, ${opacity})`;
 }
 
+/** Two palette colours mixed, `weight` of the first, as the Mac's stylesheet mixes its inks. */
+export function mixed(first: string, second: string, weight: number): string {
+  const channels = (color: string) =>
+    /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i
+      .exec(color)
+      ?.slice(1)
+      .map((part) => parseInt(part, 16));
+  const [a, b] = [channels(first), channels(second)];
+  if (!a || !b) return first;
+  const [red, green, blue] = a.map((value, index) => Math.round(value * weight + b[index] * (1 - weight)));
+  return `rgb(${red}, ${green}, ${blue})`;
+}
+
 /** Whether a palette's ground is light, so the status bar's text turns dark on it. */
 export function isLight(palette: Palette): boolean {
   const match = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})/i.exec(palette.ground);

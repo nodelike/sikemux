@@ -6,7 +6,7 @@
 ## Context
 
 The window has two side columns: the side rail (`src/rail/SideRail.tsx`) lists
-sessions, and the agent rail (`src/rail/AgentRail.tsx`) lists agent chats.
+sessions, and the tab rail (`src/rail/TabRail.tsx`) lists agent chats.
 Together they take about 546 px, which prompted attempts to merge them.
 
 About fifteen single-rail layouts were mocked up on 2026-09-20 and all were
@@ -30,6 +30,6 @@ An icon-only dock drops the group headers and is the worst of the options.
 
 ## Consequences
 
-- To win back width, use the existing `toggleAgentRail` and the `RailPeek`
+- To win back width, use the existing `toggleTabRail` and the `RailPeek`
   hover reveal, or narrow the rails. Do not restructure them.
 - Treat this as settled. It held through a full implementation and a release.

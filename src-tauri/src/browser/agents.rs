@@ -6,15 +6,17 @@
 //! adds to what the user already configured or works on a private copy of the
 //! host's home, so an agent launched outside Sikemux is unaffected.
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::time::Duration;
 
 use serde_json::{json, Value};
 use sikemux_core::acp::schema::v1::{EnvVariable, McpServer, McpServerStdio};
-use sikemux_pty::user_shell::user_variable;
+use sikemux_core::launch::{homes, skills};
 use tauri::{AppHandle, Manager};
 
+use super::agent_skills;
 use super::{browser_state_dir, validate_agent_id, BrowserManager, BrowserMcpLaunch};
 use crate::error::{AppError, AppResult};
 
@@ -55,8 +57,14 @@ impl BrowserManager {
         validate_agent_id(agent_id)?;
         let launch = self.mcp_launch()?;
         let mut environment = base_environment(agent_id)?;
+        let data_dir = skills_data_dir(app);
+        let data_dir = data_dir.as_deref();
         let args_prefix = match agent_type {
-            "claude" => claude_browser_args(app, &launch)?,
+            "claude" => {
+                let mut args = claude_browser_args(app, &launch)?;
+                args.extend(skills::skill_args(data_dir, skills::claude_args));
+                args
+            }
             "codex" => codex_browser_args(&launch)?,
             "pi" | "omp" => {
                 environment.push(("SIKEMUX_TOOLS_MCP_COMMAND".into(), launch.command.clone()));
@@ -64,25 +72,43 @@ impl BrowserManager {
                     "SIKEMUX_TOOLS_MCP_ARGS".into(),
                     serde_json::to_string(&launch.args)?,
                 ));
-                vec![
+                let mut args = vec![
                     "--extension".into(),
                     pi_browser_extension(app)?.to_string_lossy().into_owned(),
-                ]
+                ];
+                args.extend(if agent_type == "pi" {
+                    skills::skill_args(data_dir, |dir| Ok(skills::pi_args(dir)))
+                } else {
+                    skills::skill_args(data_dir, skills::omp_args)
+                });
+                args
             }
             "hermes" => {
-                let home = prepare_hermes_home(app, agent_id, agent_program, &launch).await?;
+                let home =
+                    prepare_hermes_home(app, agent_id, agent_program, &launch, data_dir).await?;
                 environment.push(("HERMES_HOME".into(), home.to_string_lossy().into_owned()));
                 Vec::new()
             }
             "grok" => {
-                let home = prepare_grok_home(app, agent_id, agent_program, &launch).await?;
+                let home =
+                    prepare_grok_home(app, agent_id, agent_program, &launch, data_dir).await?;
                 environment.push(("GROK_HOME".into(), home.to_string_lossy().into_owned()));
                 Vec::new()
             }
+            "muse" => muse_browser_args(&launch, &environment)?,
             "opencode" => {
                 environment.push((
                     "OPENCODE_CONFIG_CONTENT".into(),
-                    opencode_browser_config(inherited_opencode_config().as_deref(), &launch)?,
+                    opencode_browser_config(
+                        skills::inherited_opencode_config().as_deref(),
+                        &launch,
+                        data_dir.map(|dir| {
+                            (
+                                skills::opencode_user_paths(),
+                                sikemux_core::skills::library(dir),
+                            )
+                        }),
+                    )?,
                 ));
                 Vec::new()
             }
@@ -110,6 +136,82 @@ pub fn acp_browser_server(app: &AppHandle, agent_id: &str) -> AppResult<McpServe
     Ok(McpServer::Stdio(server))
 }
 
+/// Gives a Hermes or Grok chat a private home holding the skills library,
+/// since the tools reach them over the protocol rather than their config.
+pub async fn chat_home(
+    app: &AppHandle,
+    agent_id: &str,
+    provider: &str,
+    program: &Path,
+    env: &mut BTreeMap<String, String>,
+) {
+    let Some(data_dir) = skills_data_dir(app) else {
+        return;
+    };
+    let library = sikemux_core::skills::library(&data_dir);
+    match provider {
+        "hermes" => {
+            match chat_hermes_home(app, agent_id, &program.to_string_lossy(), &library).await {
+                Ok(home) => {
+                    env.insert("HERMES_HOME".into(), home.to_string_lossy().into_owned());
+                }
+                Err(error) => {
+                    eprintln!("Sikemux skills are unavailable to this Hermes chat: {error}")
+                }
+            }
+        }
+        "grok" => match chat_grok_home(app, agent_id, &library) {
+            Ok(home) => {
+                env.insert("GROK_HOME".into(), home.to_string_lossy().into_owned());
+            }
+            Err(error) => eprintln!("Sikemux skills are unavailable to this Grok chat: {error}"),
+        },
+        _ => {}
+    }
+}
+
+async fn chat_hermes_home(
+    app: &AppHandle,
+    agent_id: &str,
+    program: &str,
+    library: &Path,
+) -> AppResult<PathBuf> {
+    let real = crate::agents::config::hermes_root()
+        .ok_or_else(|| AppError::Other("the home folder is unavailable".into()))?;
+    homes::share_session_store(&real, "state.db", false)?;
+    let home = private_home(app, "hermes-chat", agent_id, &real, "config.yaml", "{}\n")?;
+    let config = std::fs::read_to_string(home.join("config.yaml")).unwrap_or_default();
+    let dirs = agent_skills::hermes_external_dirs(&config, library);
+    run_config_command(
+        program,
+        &["config", "set", "skills.external_dirs", &dirs, "--force"],
+        ("HERMES_HOME", &home),
+        "Hermes",
+    )
+    .await?;
+    Ok(home)
+}
+
+fn chat_grok_home(app: &AppHandle, agent_id: &str, library: &Path) -> AppResult<PathBuf> {
+    let real = crate::agents::config::grok_root()
+        .ok_or_else(|| AppError::Other("the home folder is unavailable".into()))?;
+    homes::share_session_store(&real, "sessions", true)?;
+    let home = private_home(app, "grok-chat", agent_id, &real, "config.toml", "")?;
+    let path = home.join("config.toml");
+    let config = std::fs::read_to_string(&path).unwrap_or_default();
+    let merged = agent_skills::grok_config(&config, library).map_err(AppError::Other)?;
+    std::fs::write(&path, merged)?;
+    Ok(home)
+}
+
+/// The app data folder with the skills library ready in it. Without one,
+/// agents launch without Sikemux skills rather than pointed at a missing folder.
+pub fn skills_data_dir(app: &AppHandle) -> Option<PathBuf> {
+    let data_dir = app.path().app_data_dir().ok()?;
+    skills::ready(&data_dir)?;
+    Some(data_dir)
+}
+
 /// The protocol asks for an absolute path, and a development launch runs
 /// through a program found on PATH.
 fn absolute_command(command: &str) -> AppResult<PathBuf> {
@@ -117,7 +219,7 @@ fn absolute_command(command: &str) -> AppResult<PathBuf> {
     if path.is_absolute() {
         return Ok(path);
     }
-    crate::system::find_executable(command)
+    sikemux_process::user_environment::find_executable(command)
         .ok_or_else(|| AppError::Other(format!("{command} is not on PATH")))
 }
 
@@ -169,11 +271,39 @@ fn codex_browser_args(launch: &BrowserMcpLaunch) -> AppResult<Vec<String>> {
     ])
 }
 
-fn inherited_opencode_config() -> Option<String> {
-    user_variable("OPENCODE_CONFIG_CONTENT")
+/// Muse adds one named server from a `-c` override to the ones it already
+/// has. It starts tool servers with only the environment it is given, so the
+/// sidecar's is named in the server itself.
+fn muse_browser_args(
+    launch: &BrowserMcpLaunch,
+    environment: &[(String, String)],
+) -> AppResult<Vec<String>> {
+    let server = json!({
+        "transport": "stdio",
+        "command": launch.command,
+        "args": launch.args,
+        "env": environment
+            .iter()
+            .map(|(name, value)| (name.clone(), Value::from(value.as_str())))
+            .collect::<serde_json::Map<String, Value>>(),
+        "mode": "optional",
+    });
+    Ok(vec![
+        "-c".into(),
+        format!(
+            "mcpServers.sikemux-tools={}",
+            serde_json::to_string(&server)?
+        ),
+    ])
 }
 
-fn opencode_browser_config(existing: Option<&str>, launch: &BrowserMcpLaunch) -> AppResult<String> {
+/// Skills arguments for one launch. A library that cannot be set up costs the
+/// agent its Sikemux skills, never its launch.
+fn opencode_browser_config(
+    existing: Option<&str>,
+    launch: &BrowserMcpLaunch,
+    skills: Option<(Vec<String>, PathBuf)>,
+) -> AppResult<String> {
     let mut config = match existing.map(str::trim).filter(|value| !value.is_empty()) {
         Some(existing) => serde_json::from_str::<Value>(existing)
             .map_err(|_| AppError::BadArg("invalid OPENCODE_CONFIG_CONTENT"))?,
@@ -193,6 +323,9 @@ fn opencode_browser_config(existing: Option<&str>, launch: &BrowserMcpLaunch) ->
         "sikemux_tools".into(),
         json!({ "type": "local", "command": command, "enabled": true }),
     );
+    if let Some((own_paths, library)) = skills {
+        skills::add_opencode_paths(&mut config, &own_paths, &library);
+    }
     serde_json::to_string(&config).map_err(AppError::from)
 }
 
@@ -222,6 +355,7 @@ async fn prepare_hermes_home(
     agent_id: &str,
     agent_program: &str,
     launch: &BrowserMcpLaunch,
+    data_dir: Option<&Path>,
 ) -> AppResult<PathBuf> {
     let home = private_home(
         app,
@@ -251,6 +385,21 @@ async fn prepare_hermes_home(
         "Hermes",
     )
     .await?;
+    if let Some(data_dir) = data_dir {
+        let config = std::fs::read_to_string(home.join("config.yaml")).unwrap_or_default();
+        let dirs =
+            agent_skills::hermes_external_dirs(&config, &sikemux_core::skills::library(data_dir));
+        if let Err(error) = run_config_command(
+            agent_program,
+            &["config", "set", "skills.external_dirs", &dirs, "--force"],
+            ("HERMES_HOME", &home),
+            "Hermes",
+        )
+        .await
+        {
+            eprintln!("Sikemux skills are unavailable to Hermes: {error}");
+        }
+    }
     Ok(home)
 }
 
@@ -259,6 +408,7 @@ async fn prepare_grok_home(
     agent_id: &str,
     agent_program: &str,
     launch: &BrowserMcpLaunch,
+    data_dir: Option<&Path>,
 ) -> AppResult<PathBuf> {
     let home = private_home(
         app,
@@ -272,12 +422,19 @@ async fn prepare_grok_home(
     let mut args = vec!["mcp", "add", "sikemux_tools", "--", launch.command.as_str()];
     args.extend(launch.args.iter().map(String::as_str));
     run_config_command(agent_program, &args, ("GROK_HOME", &home), "Grok").await?;
+    if let Some(data_dir) = data_dir {
+        let path = home.join("config.toml");
+        let config = std::fs::read_to_string(&path).unwrap_or_default();
+        match agent_skills::grok_config(&config, &sikemux_core::skills::library(data_dir)) {
+            Ok(config) => std::fs::write(&path, config)?,
+            Err(error) => eprintln!("Sikemux skills are unavailable to Grok: {error}"),
+        }
+    }
     Ok(home)
 }
 
-/// A private copy of the host's home: every entry is linked back to the real
-/// one, except the config file, which is copied so Sikemux can add a server to
-/// it without touching the user's own.
+/// A private copy of the host's home for `agent_id`, which Sikemux can add a
+/// server to without touching the user's own config.
 fn private_home(
     app: &AppHandle,
     host: &str,
@@ -287,53 +444,8 @@ fn private_home(
     empty_config: &str,
 ) -> AppResult<PathBuf> {
     let destination = browser_state_dir(app)?.join(host).join(agent_id);
-    std::fs::create_dir_all(&destination)?;
-    match std::fs::read_dir(source) {
-        Ok(entries) => {
-            for entry in entries.flatten() {
-                if entry.file_name() == config_name {
-                    continue;
-                }
-                link_entry(&entry.path(), &destination.join(entry.file_name()))?;
-            }
-        }
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-        Err(error) => return Err(error.into()),
-    }
-    let config = destination.join(config_name);
-    let source_config = source.join(config_name);
-    if source_config.is_file() {
-        std::fs::copy(source_config, &config)?;
-    } else if !config.is_file() {
-        std::fs::write(&config, empty_config)?;
-    }
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&destination, std::fs::Permissions::from_mode(0o700))?;
-        std::fs::set_permissions(&config, std::fs::Permissions::from_mode(0o600))?;
-    }
+    homes::private_home(&destination, source, config_name, empty_config)?;
     Ok(destination)
-}
-
-fn link_entry(source: &Path, destination: &Path) -> std::io::Result<()> {
-    if std::fs::symlink_metadata(destination).is_ok() {
-        return Ok(());
-    }
-    #[cfg(unix)]
-    {
-        std::os::unix::fs::symlink(source, destination)
-    }
-    #[cfg(windows)]
-    {
-        if source.is_dir() {
-            std::os::windows::fs::symlink_dir(source, destination)
-        } else {
-            std::os::windows::fs::symlink_file(source, destination)
-                .or_else(|_| std::fs::hard_link(source, destination))
-                .or_else(|_| std::fs::copy(source, destination).map(|_| ()))
-        }
-    }
 }
 
 async fn run_config_command(
@@ -378,6 +490,25 @@ mod tests {
             command: "/Apps/Sikemux.app/sikemux-editor".into(),
             args: vec!["--tools-mcp".into()],
         }
+    }
+
+    #[test]
+    fn opencode_adds_the_skills_library_beside_the_tools() {
+        let library = PathBuf::from("/data/skills");
+        let config: Value = serde_json::from_str(
+            &opencode_browser_config(
+                Some(r#"{"skills":{"paths":["/inherited"]}}"#),
+                &launch(),
+                Some((vec!["/own".into()], library)),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            config["skills"]["paths"],
+            json!(["/inherited", "/own", "/data/skills"])
+        );
+        assert!(config["mcp"]["sikemux_tools"].is_object());
     }
 
     #[test]
@@ -459,9 +590,10 @@ mod tests {
     #[test]
     fn opencode_keeps_the_settings_it_already_had() {
         let existing = r#"{"theme":"dark","mcp":{"other":{"type":"local"}}}"#;
-        let merged: Value =
-            serde_json::from_str(&opencode_browser_config(Some(existing), &launch()).unwrap())
-                .unwrap();
+        let merged: Value = serde_json::from_str(
+            &opencode_browser_config(Some(existing), &launch(), None).unwrap(),
+        )
+        .unwrap();
         assert_eq!(merged["theme"], "dark");
         assert_eq!(merged["mcp"]["other"]["type"], "local");
         assert_eq!(
@@ -474,10 +606,10 @@ mod tests {
     #[test]
     fn opencode_starts_from_nothing_and_refuses_junk() {
         let fresh: Value =
-            serde_json::from_str(&opencode_browser_config(None, &launch()).unwrap()).unwrap();
+            serde_json::from_str(&opencode_browser_config(None, &launch(), None).unwrap()).unwrap();
         assert!(fresh["mcp"]["sikemux_tools"].is_object());
-        assert!(opencode_browser_config(Some("   "), &launch()).is_ok());
-        assert!(opencode_browser_config(Some("not json"), &launch()).is_err());
-        assert!(opencode_browser_config(Some("[1,2]"), &launch()).is_err());
+        assert!(opencode_browser_config(Some("   "), &launch(), None).is_ok());
+        assert!(opencode_browser_config(Some("not json"), &launch(), None).is_err());
+        assert!(opencode_browser_config(Some("[1,2]"), &launch(), None).is_err());
     }
 }

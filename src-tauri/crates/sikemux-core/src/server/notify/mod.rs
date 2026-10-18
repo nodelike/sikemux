@@ -1,7 +1,8 @@
 //! Tells paired phones, through the account's push service, when an agent
-//! needs the person, finishes a long turn or runs into a problem. Each phone
-//! chose what it hears about and gave this host a key to seal it with (see
-//! [`crate::push`]); the host decides everything else, since it knows most.
+//! needs the person, finishes a long turn, runs into a problem, or when a
+//! device asks to pair. Each phone chose what it hears about and gave this
+//! host a key to seal it with (see [`crate::push`]); the host decides
+//! everything else, since it knows most.
 
 mod presence;
 #[cfg(test)]
@@ -16,11 +17,12 @@ use tokio::sync::mpsc;
 
 use crate::accounts::live::Push;
 use crate::accounts::protocol::PushKind;
-use crate::protocol::{Attention, NotifyPrefs, NotifyWhen};
+use crate::protocol::{Attention, NotifyPrefs, NotifyWhen, PendingDevice};
 use crate::push::{self, Notification, NotificationCategory, NotificationKind, MAX_PLAINTEXT};
 
 pub(crate) use presence::{Presence, SystemPresence};
 
+use super::access::{self, Needs, Peer};
 use super::remote::{unix_ms, NotifyTarget};
 use super::Core;
 
@@ -46,11 +48,50 @@ const NEEDS_INPUT: &str = "blocked";
 #[derive(Clone, Debug)]
 pub(crate) enum Signal {
     Attention(Box<Attention>),
-    Cleared { id: String, agent_id: String },
-    AgentState { agent_id: String, state: String },
-    TurnStarted { agent_id: String },
-    TurnCompleted { agent_id: String, cancelled: bool },
-    Problem { agent_id: String, message: String },
+    Cleared {
+        id: String,
+        agent_id: String,
+    },
+    AgentState {
+        agent_id: String,
+        state: String,
+    },
+    TurnStarted {
+        agent_id: String,
+    },
+    TurnCompleted {
+        agent_id: String,
+        cancelled: bool,
+    },
+    Problem {
+        agent_id: String,
+        message: String,
+    },
+    /// An agent's question now waits on the person.
+    Question {
+        id: String,
+        agent_id: String,
+        name: String,
+        text: String,
+        at: u64,
+    },
+    QuestionCleared {
+        id: String,
+        agent_id: String,
+    },
+    /// A device waits for someone to let it pair.
+    Pairing(PendingDevice),
+    PairingSettled {
+        id: String,
+    },
+}
+
+/// A question waiting on the person, as a phone is told of it.
+#[derive(Clone, Debug)]
+struct Asked {
+    name: String,
+    text: String,
+    at: u64,
 }
 
 #[derive(Default)]
@@ -64,6 +105,8 @@ pub(crate) struct Notifier {
 #[derive(Default)]
 struct State {
     away: bool,
+    /// When the person last went away.
+    left_at: Option<u64>,
     /// Cards a phone was sent and that are still showing, by phone and card.
     alerted: HashSet<(String, String)>,
     turns: HashMap<String, u64>,
@@ -72,6 +115,8 @@ struct State {
     waiting_for_input: HashSet<String>,
     /// Permission requests still waiting, by agent and request.
     pending: HashMap<(String, String), Attention>,
+    /// Agents' questions still waiting on the person, by agent and question.
+    questions: HashMap<(String, String), Asked>,
 }
 
 impl Notifier {
@@ -106,6 +151,12 @@ impl Notifier {
             .presence
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(presence);
+    }
+
+    /// When the person last went away, and whether they still are.
+    pub(crate) fn absence(&self) -> (Option<u64>, bool) {
+        let state = self.lock();
+        (state.left_at, state.away)
     }
 
     fn host_name(&self) -> String {
@@ -165,6 +216,9 @@ fn noted(core: &Core, away: bool, now: u64) {
         let mut state = core.notify.lock();
         let left = away && !state.away;
         state.away = away;
+        if left {
+            state.left_at = Some(now);
+        }
         left
     };
     if !left {
@@ -173,6 +227,18 @@ fn noted(core: &Core, away: bool, now: u64) {
     let pending: Vec<Attention> = core.notify.lock().pending.values().cloned().collect();
     for attention in pending {
         if let Some(draft) = permission(core, &attention) {
+            alert_all(core, &draft, now);
+        }
+    }
+    let questions: Vec<((String, String), Asked)> = core
+        .notify
+        .lock()
+        .questions
+        .iter()
+        .map(|(key, asked)| (key.clone(), asked.clone()))
+        .collect();
+    for ((agent_id, id), asked) in questions {
+        if let Some(draft) = question(core, &agent_id, &id, &asked) {
             alert_all(core, &draft, now);
         }
     }
@@ -237,6 +303,31 @@ fn apply(core: &Core, signal: Signal, now: u64) {
                 clear_all(core, &agent_id, &input_card(&agent_id), None, now);
             }
         }
+        Signal::Question {
+            id,
+            agent_id,
+            name,
+            text,
+            at,
+        } => {
+            let asked = Asked { name, text, at };
+            core.notify
+                .lock()
+                .questions
+                .insert((agent_id.clone(), id.clone()), asked.clone());
+            if let Some(draft) = question(core, &agent_id, &id, &asked) {
+                alert_all(core, &draft, now);
+            }
+        }
+        Signal::QuestionCleared { id, agent_id } => {
+            core.notify
+                .lock()
+                .questions
+                .remove(&(agent_id.clone(), id.clone()));
+            clear_all(core, &agent_id, &question_card(&agent_id, &id), None, now);
+        }
+        Signal::Pairing(device) => alert_all(core, &pairing(core, &device), now),
+        Signal::PairingSettled { id } => clear_all(core, "", &pairing_card(&id), None, now),
         Signal::TurnStarted { agent_id } => {
             core.notify.lock().turns.insert(agent_id, now);
         }
@@ -247,7 +338,7 @@ fn apply(core: &Core, signal: Signal, now: u64) {
             let started = core.notify.lock().turns.remove(&agent_id);
             let long =
                 started.is_some_and(|started| now.saturating_sub(started) >= FINISHED_AFTER_MS);
-            if long && !cancelled {
+            if long && !cancelled && !core.harness.questions.waits_on_answer(&agent_id) {
                 if let Some(draft) = finished(core, &agent_id, now) {
                     alert_all(core, &draft, now);
                 }
@@ -268,8 +359,16 @@ fn permission_card(agent_id: &str, request_id: &str) -> String {
     format!("permission|{agent_id}|{request_id}")
 }
 
+fn question_card(agent_id: &str, id: &str) -> String {
+    format!("question|{agent_id}|{id}")
+}
+
 fn input_card(agent_id: &str) -> String {
     format!("input|{agent_id}")
+}
+
+fn pairing_card(id: &str) -> String {
+    format!("pairing|{id}")
 }
 
 /// A notification before it is addressed to a phone.
@@ -296,6 +395,7 @@ struct Draft {
 struct Named {
     chat: bool,
     provider: String,
+    /// Its name, or its CLI's for an agent without one.
     agent: String,
     title: Option<String>,
     project: Option<String>,
@@ -346,7 +446,10 @@ fn name(core: &Core, agent_id: &str) -> Option<Named> {
         return Some(Named {
             chat: true,
             provider: chat.provider().to_owned(),
-            agent: provider_name(core, chat.provider()),
+            agent: core
+                .names
+                .name(agent_id)
+                .unwrap_or_else(|| provider_name(core, chat.provider())),
             title,
             project: Some(project_name(core, &chat.launch.cwd.to_string_lossy())),
         });
@@ -356,7 +459,10 @@ fn name(core: &Core, agent_id: &str) -> Option<Named> {
     let provider = owner.agent_type.clone().unwrap_or_default();
     Some(Named {
         chat: false,
-        agent: provider_name(core, &provider),
+        agent: core
+            .names
+            .name(agent_id)
+            .unwrap_or_else(|| provider_name(core, &provider)),
         provider,
         title: core.workspaces.title(agent_id),
         project: owner
@@ -366,7 +472,7 @@ fn name(core: &Core, agent_id: &str) -> Option<Named> {
     })
 }
 
-fn clip(text: &str, limit: usize) -> String {
+pub(crate) fn clip(text: &str, limit: usize) -> String {
     let line = text
         .lines()
         .map(str::trim)
@@ -454,6 +560,21 @@ fn permission(core: &Core, attention: &Attention) -> Option<Draft> {
     Some(draft)
 }
 
+fn question(core: &Core, agent_id: &str, id: &str, asked: &Asked) -> Option<Draft> {
+    let named = name(core, agent_id)?;
+    let mut draft = named.draft(
+        NotificationKind::Input,
+        question_card(agent_id, id),
+        agent_id,
+        asked.at,
+        PERMISSION_LIFE_MS,
+    );
+    draft.title = clip(&format!("{} asks you", asked.name), MAX_TITLE_CHARS);
+    draft.body = clip(&asked.text, MAX_BODY_CHARS);
+    draft.detail = Some(clip(&named.whereabouts(core, true), MAX_DETAIL_CHARS));
+    Some(draft)
+}
+
 fn needs_input(core: &Core, agent_id: &str, now: u64) -> Option<Draft> {
     let named = name(core, agent_id)?;
     let mut draft = named.draft(
@@ -503,6 +624,33 @@ fn problem(core: &Core, agent_id: &str, message: &str, now: u64) -> Option<Draft
     Some(draft)
 }
 
+fn pairing(core: &Core, device: &PendingDevice) -> Draft {
+    let name = if device.name.is_empty() {
+        "A phone"
+    } else {
+        &device.name
+    };
+    Draft {
+        kind: NotificationKind::Pairing,
+        card: pairing_card(&device.id),
+        agent_id: String::new(),
+        chat: false,
+        provider: String::new(),
+        chat_title: None,
+        title: clip(&format!("{name} wants to connect"), MAX_TITLE_CHARS),
+        body: clip(
+            &format!("To {}, from your Sikemux account", core.notify.host_name()),
+            MAX_BODY_CHARS,
+        ),
+        detail: None,
+        request_id: None,
+        allow_option_id: None,
+        reject_option_id: None,
+        at: unix_ms(),
+        expires_at: device.expires_at,
+    }
+}
+
 fn wants(
     prefs: &NotifyPrefs,
     kind: NotificationKind,
@@ -511,7 +659,9 @@ fn wants(
     now: u64,
 ) -> bool {
     let kind_on = match kind {
-        NotificationKind::Permission | NotificationKind::Input => prefs.needs_you,
+        NotificationKind::Permission | NotificationKind::Input | NotificationKind::Pairing => {
+            prefs.needs_you
+        }
         NotificationKind::Finished => prefs.finished,
         NotificationKind::Problem => prefs.problems,
         NotificationKind::Clear => true,
@@ -526,6 +676,14 @@ fn wants(
         .iter()
         .any(|mute| mute.agent_id == agent_id && mute.until.is_none_or(|until| until > now));
     kind_on && when && !muted
+}
+
+/// Only phones that may let a device in hear that one asks.
+fn answers_pairing(core: &Core, phone: &str) -> bool {
+    let peer = Peer::Device {
+        id: phone.to_owned(),
+    };
+    access::permit(&peer, core.remote.standing_of(phone), Needs::Person).is_ok()
 }
 
 /// The phone has this agent open on screen, so it already sees it.
@@ -557,14 +715,16 @@ fn address(draft: &Draft, host: &str, host_name: &str, target: &NotifyTarget) ->
         {
             Some(NotificationCategory::Permission)
         }
-        NotificationKind::Permission | NotificationKind::Input => {
+        NotificationKind::Permission | NotificationKind::Input | NotificationKind::Pairing => {
             Some(NotificationCategory::NeedsYou)
         }
         NotificationKind::Finished => Some(NotificationCategory::Finished),
         NotificationKind::Problem => Some(NotificationCategory::Problem),
         NotificationKind::Clear => None,
     };
-    let url = if draft.chat {
+    let url = if draft.kind == NotificationKind::Pairing {
+        format!("sikemux://device/{host}/pairing")
+    } else if draft.chat {
         format!("sikemux://device/{host}/chat/{}", draft.agent_id)
     } else {
         format!("sikemux://device/{host}")
@@ -614,11 +774,14 @@ fn alert_all(core: &Core, draft: &Draft, now: u64) {
         if !wants(&target.prefs, draft.kind, &draft.agent_id, away, now) {
             continue;
         }
+        if draft.kind == NotificationKind::Pairing && !answers_pairing(core, &phone) {
+            continue;
+        }
         {
             let state = core.notify.lock();
             let once = matches!(
                 draft.kind,
-                NotificationKind::Permission | NotificationKind::Input
+                NotificationKind::Permission | NotificationKind::Input | NotificationKind::Pairing
             );
             if once && state.alerted.contains(&card) {
                 continue;

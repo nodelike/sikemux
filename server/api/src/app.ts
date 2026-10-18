@@ -10,6 +10,7 @@ import type { Verifier } from "./auth.ts";
 import type { Database } from "./db.ts";
 import { deviceRoutes } from "./devices/routes.ts";
 import { healthRoutes } from "./health/routes.ts";
+import { hostSignInRoutes } from "./host/routes.ts";
 import { ApiFailure, errorResponse, requestContext, type Env } from "./http.ts";
 import type { JoinSigner } from "./join/signer.ts";
 import { clientAddress, limit, RateLimiter } from "./limits.ts";
@@ -82,6 +83,10 @@ export function createApp({
   app.route(
     "/v1/devices",
     deviceRoutes(database, verifier, limiter, clerk, push, join),
+  );
+  app.route(
+    "/v1/host-sign-ins",
+    hostSignInRoutes(database, verifier, limiter, appOrigin),
   );
   app.route(
     "/v1/account",

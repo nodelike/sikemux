@@ -4,10 +4,13 @@ import { invokeCommand as invoke } from "../api/invoke";
 import * as cmd from "../state/commands";
 import { swallow } from "../state/toast";
 import type { Agent } from "../state/types";
+import type { AcpSubagent } from "./types";
 import { safeWebUrl } from "../lib/urls";
-import { localPath } from "./imagePreview";
+import { localPath } from "../lib/imagePaths";
 
 export const ChatAgentContext = createContext<{ id: string; type: Agent["type"] }>({ id: "", type: "claude" });
+
+export const ChatSubagentsContext = createContext<ReadonlyMap<string, AcpSubagent>>(new Map());
 
 /** Scrolls the transcript as the reader asked, for a wheel turned over a page, which the transcript never sees. */
 export const ReaderScrollContext = createContext<(deltaY: number) => void>(() => {});

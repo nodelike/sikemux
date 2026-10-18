@@ -277,8 +277,22 @@ function copyEnvironment(environment: Readonly<Record<string, string>>): Readonl
     return Object.freeze(Object.fromEntries(Object.entries(environment)));
 }
 
+export function taskTerminalKey(project: string, taskId: string): string {
+    return JSON.stringify(["task", project, taskId]);
+}
+
 function terminalKey(task: ResolvedTaskDefinition): string {
-    return JSON.stringify(["task", task.project, task.id]);
+    return taskTerminalKey(task.project, task.id);
+}
+
+/** Execution ids are `[terminalKey, sequence]` in JSON, so the key names the task a process belongs to. */
+export function terminalKeyOfExecution(executionId: string): string | null {
+    try {
+        const [key] = JSON.parse(executionId) as unknown[];
+        return typeof key === "string" ? key : null;
+    } catch {
+        return null;
+    }
 }
 
 /**
@@ -512,6 +526,7 @@ export class TaskRuntime {
     private readonly maxProjectControllers: number;
     /** In least-recently-used to most-recently-used order. */
     private readonly controllers = new Map<string, TaskController>();
+    private readonly listeners = new Set<() => void>();
     private disposed = false;
     private disposePromise: Promise<void> | null = null;
 
@@ -600,6 +615,14 @@ export class TaskRuntime {
         return controller.getSnapshot();
     }
 
+    /** Called whenever any project's task starts, stops or changes state. */
+    subscribe(listener: () => void): () => void {
+        this.listeners.add(listener);
+        return () => {
+            this.listeners.delete(listener);
+        };
+    }
+
     disposeProject(projectInput: string): Promise<void> {
         if (this.disposed) return rejected(new TaskRuntimeDisposedError());
         let project: string;
@@ -611,6 +634,7 @@ export class TaskRuntime {
         const controller = this.controllers.get(project);
         if (!controller) return RESOLVED_VOID;
         this.controllers.delete(project);
+        this.notify();
         return controller.dispose();
     }
 
@@ -642,8 +666,13 @@ export class TaskRuntime {
             void idle[1].dispose();
         }
         const controller = new TaskController(this.runner, this.controllerOptions);
+        controller.subscribe(() => this.notify());
         this.controllers.set(project, controller);
         return controller;
+    }
+
+    private notify(): void {
+        for (const listener of [...this.listeners]) listener();
     }
 
     private touch(project: string, controller: TaskController): void {

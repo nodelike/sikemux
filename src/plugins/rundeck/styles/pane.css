@@ -114,7 +114,7 @@
     font-weight: var(--weight-semibold);
 }
 .rnd-form .rnd-banner,
-.rnd-insp .rnd-banner {
+.rnd-service .rnd-banner {
     margin: 0;
 }
 .rnd-banner.rnd-inset {

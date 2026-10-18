@@ -1,24 +1,36 @@
-use super::{
-    current_branch_name, default_remote, git_command, has_upstream, run_blocking,
-    run_command_with_timeout, run_git, GIT_COMMAND_TIMEOUT,
-};
+use serde_json::json;
+use tauri::State;
 
-pub(super) fn commit_with_message(repo: &str, message: &str) -> Result<String, String> {
-    let mut command = git_command(repo);
-    command.args(["commit", "-F", "-"]);
-    let out =
-        run_command_with_timeout(&mut command, Some(message.as_bytes()), GIT_COMMAND_TIMEOUT)?;
-    if out.status.success() {
-        crate::activity::record_commit(repo);
-        Ok(String::from_utf8_lossy(&out.stdout).into_owned())
-    } else {
-        Err(String::from_utf8_lossy(&out.stderr).into_owned())
-    }
+use super::{current_branch_name, default_remote, has_upstream, run_blocking, run_git};
+use crate::agent_names::call;
+use crate::pty::PtyManager;
+
+/// Commits what is staged with `message`. The core runs the commit, so that
+/// its footer names the agents whose lines it holds once the hooks are done.
+pub(super) async fn commit_staged(
+    manager: &PtyManager,
+    repo: String,
+    message: String,
+) -> Result<String, String> {
+    let client = manager.client().await.map_err(|error| error.to_string())?;
+    let said = call(
+        &client,
+        "commitStaged".to_owned(),
+        json!({ "dir": repo, "message": message }),
+    )
+    .await
+    .map_err(|error| error.to_string())?;
+    crate::activity::record_commit(&repo);
+    Ok(said.as_str().map(str::to_owned).unwrap_or_default())
 }
 
 #[tauri::command]
-pub async fn git_commit(repo: String, message: String) -> Result<String, String> {
-    run_blocking(move || commit_with_message(&repo, &message)).await
+pub async fn git_commit(
+    manager: State<'_, PtyManager>,
+    repo: String,
+    message: String,
+) -> Result<String, String> {
+    commit_staged(&manager, repo, message).await
 }
 
 #[tauri::command]

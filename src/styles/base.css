@@ -223,8 +223,7 @@ html.is-transparent .workspace-rail,
 html.is-transparent .stage,
 html.is-transparent .window-layer,
 html.is-transparent .tabbar,
-html.is-transparent .browser-toolbar,
-html.is-transparent .env-dd-btn {
+html.is-transparent .browser-toolbar {
     background: transparent;
 }
 

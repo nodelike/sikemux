@@ -93,3 +93,30 @@ pub(crate) fn js_number(number: f64) -> String {
 pub(crate) fn is_js_whitespace(ch: char) -> bool {
     ch.is_whitespace() || ch == '\u{feff}'
 }
+
+/// A map whose keys are not strings, kept as a list of pairs, since JSON
+/// keys can only be strings.
+pub(crate) mod pairs {
+    use std::collections::HashMap;
+    use std::hash::Hash;
+
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+    pub fn serialize<K, V, S>(map: &HashMap<K, V>, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        K: Serialize,
+        V: Serialize,
+        S: Serializer,
+    {
+        serializer.collect_seq(map.iter())
+    }
+
+    pub fn deserialize<'de, K, V, D>(deserializer: D) -> Result<HashMap<K, V>, D::Error>
+    where
+        K: Deserialize<'de> + Eq + Hash,
+        V: Deserialize<'de>,
+        D: Deserializer<'de>,
+    {
+        Vec::<(K, V)>::deserialize(deserializer).map(|pairs| pairs.into_iter().collect())
+    }
+}

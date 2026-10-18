@@ -33,6 +33,7 @@ export function TerminalPane({
     directCommand,
     initialDropPaths,
     initialInput,
+    initialDraft,
     onInitialInputDelivered,
     active,
     visible = active,
@@ -54,6 +55,8 @@ export function TerminalPane({
     initialDropPaths?: readonly string[];
     /** First submitted task for interactive CLIs without an argv prompt. */
     initialInput?: string;
+    /** Pasted at the program's prompt once it starts, and never submitted. */
+    initialDraft?: string;
     onInitialInputDelivered?: () => void;
     active: boolean;
     visible?: boolean;
@@ -99,6 +102,7 @@ export function TerminalPane({
         directCommand,
         initialDropPaths,
         initialInput,
+        initialDraft,
         onInitialInputDelivered,
         hostRef,
         spawnWhen,

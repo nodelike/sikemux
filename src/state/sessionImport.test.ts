@@ -1,7 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
-vi.mock("@tauri-apps/plugin-dialog", () => ({ open: vi.fn() }));
 
 import { importSessionFromClipboard } from "./commands";
 import { getState, setState } from "./store";

@@ -39,6 +39,7 @@ const PROVIDER_ICONS: Record<Provider, IconName> = {
   pi: 'IconPi',
   omp: 'IconOmp',
   grok: 'IconGrok',
+  muse: 'IconMuse',
 };
 
 export function isProvider(name: string): name is Provider {

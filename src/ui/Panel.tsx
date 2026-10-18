@@ -170,7 +170,7 @@ export function EmptyState({
     icon?: ReactNode;
     title?: string;
     /** The only required copy — `title` and `icon` are for roomier panels. */
-    message: string;
+    message: ReactNode;
     action?: EmptyStateAction;
     tone?: "neutral" | "error";
     variant?: "block" | "inline";
@@ -198,7 +198,7 @@ export function EmptyState({
                 </span>
             )}
             {title && <span className="empty-state-title">{title}</span>}
-            <span className="empty-state-msg">{message}</span>
+            {message && <span className="empty-state-msg">{message}</span>}
             {action && (
                 <button type="button" className="empty-state-action" onClick={action.onClick}>
                     {action.label}

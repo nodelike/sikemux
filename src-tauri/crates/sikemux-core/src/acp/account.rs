@@ -36,7 +36,7 @@ pub fn directory(provider: &str, env: &BTreeMap<String, String>) -> Option<PathB
 /// Who the provider is signed in as: an account id, or `SignedOut`. `None`
 /// when that cannot be told, such as for a provider without account files or
 /// a file caught halfway through being written.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum SignIn {
     Account(String),
     SignedOut,
@@ -101,22 +101,50 @@ fn codex_sign_in(auth: &Value) -> Option<SignIn> {
     })
 }
 
+pub const LOST_CONNECTION: &str = "Lost the connection to the model provider";
+
+/// Words an agent's error uses when the network, not the request, was at fault.
+const CONNECTION_WORDS: [&str; 10] = [
+    "connection error",
+    "connection refused",
+    "connection reset",
+    "econnreset",
+    "econnrefused",
+    "enotfound",
+    "etimedout",
+    "fetch failed",
+    "socket hang up",
+    "network is unreachable",
+];
+
+/// Whether an agent's error reads as the network failing it.
+pub fn sounds_offline(said: &str) -> bool {
+    let said = said.to_lowercase();
+    CONNECTION_WORDS.iter().any(|words| said.contains(words))
+}
+
 /// What a failed turn needs from the person, or from the chat on their behalf.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum FailureKind {
     /// The account is signed out, or its sign-in no longer works.
     SignIn,
     /// The account ran out of usage, for now or until its plan resets.
     Limit,
+    /// The network or the model provider could not be reached; the same
+    /// prompt can go again once it is back.
+    Network,
     Other,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, serde::Deserialize)]
 pub struct Failure {
     pub kind: FailureKind,
     pub title: String,
     pub details: Option<String>,
+    /// When the account can be used again, in Unix milliseconds, when the
+    /// agent says.
+    pub resets_at: Option<u64>,
 }
 
 impl Failure {
@@ -125,13 +153,30 @@ impl Failure {
             kind: FailureKind::SignIn,
             title: title.into(),
             details: None,
+            resets_at: None,
+        }
+    }
+
+    /// A turn the network cut short, worded for the person, with what the
+    /// agent said kept for whoever opens the details.
+    pub fn lost_connection(said: impl Into<String>) -> Self {
+        Self {
+            kind: FailureKind::Network,
+            title: LOST_CONNECTION.into(),
+            details: Some(said.into()).filter(|said: &String| !said.trim().is_empty()),
+            resets_at: None,
         }
     }
 
     /// The chat's `error` event for it, naming the account it happened on.
+    /// A lost connection says so plainly; the agent's own words stay in `details`.
     pub fn payload(&self, account: Option<&str>) -> Value {
         let message = match &self.details {
-            Some(details) if !details.is_empty() && details != &self.title => {
+            Some(details)
+                if !details.is_empty()
+                    && details != &self.title
+                    && self.kind != FailureKind::Network =>
+            {
                 format!("{}\n{}", self.title, details)
             }
             _ => self.title.clone(),
@@ -146,6 +191,24 @@ impl Failure {
             },
         })
     }
+}
+
+/// The update that says the agent is retrying a request the network or the
+/// service failed, as a warning in the same AIR shape ACP agents send. It
+/// holds until the agent streams again or the turn ends.
+pub fn retrying(id: &str, category: &str, attempt: u64, detail: &str) -> Value {
+    json!({
+        "sessionUpdate": "session_info_update",
+        "_meta": { "jetbrains": { "air": { "version": 1, "sessionFailure": {
+            "id": id,
+            "revision": attempt,
+            "category": category,
+            "severity": "warning",
+            "title": detail,
+            "attempt": attempt,
+            "actions": [],
+        } } } },
+    })
 }
 
 /// The failure an ACP agent attached to a prompt's answer or a session update.
@@ -170,6 +233,7 @@ pub fn failure(meta: &Value) -> Option<Failure> {
         // A context or budget limit belongs to the session, not the account,
         // and its way out is a new session rather than another account.
         Some("limit") if !offers("new_session") => FailureKind::Limit,
+        Some("connection") => FailureKind::Network,
         _ => FailureKind::Other,
     };
     let title = failure
@@ -182,16 +246,58 @@ pub fn failure(meta: &Value) -> Option<Failure> {
         .get("details")
         .and_then(Value::as_str)
         .map(str::to_owned);
+    if kind == FailureKind::Network {
+        return Some(Failure::lost_connection(details.unwrap_or(title)));
+    }
     Some(Failure {
         kind,
         title,
         details,
+        resets_at: failure.get("resetsAt").and_then(Value::as_u64),
     })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_connection_failure_is_the_networks_and_reads_plainly() {
+        let lost = failure(&air(json!({
+            "id": "t:error", "revision": 1, "category": "connection", "severity": "error",
+            "title": "stream disconnected before completion", "actions": ["retry", "new_session"],
+        })))
+        .unwrap();
+        assert_eq!(lost.kind, FailureKind::Network);
+        assert_eq!(lost.title, LOST_CONNECTION);
+        assert_eq!(
+            lost.details.as_deref(),
+            Some("stream disconnected before completion")
+        );
+        let payload = lost.payload(None);
+        assert_eq!(payload["message"], LOST_CONNECTION);
+        assert_eq!(payload["failure"]["kind"], "network");
+    }
+
+    #[test]
+    fn an_agents_words_say_when_the_network_failed_it() {
+        assert!(sounds_offline("API Error: Connection error."));
+        assert!(sounds_offline(
+            "request to https://api.anthropic.com failed: getaddrinfo ENOTFOUND"
+        ));
+        assert!(sounds_offline("TypeError: fetch failed"));
+        assert!(!sounds_offline("Invalid request: prompt is too long"));
+    }
+
+    #[test]
+    fn a_retry_is_a_warning_that_no_failure_is_read_from() {
+        let update = retrying("turn-1:retry", "connection", 3, "Connection error");
+        assert_eq!(update["sessionUpdate"], "session_info_update");
+        let notice = &update["_meta"]["jetbrains"]["air"]["sessionFailure"];
+        assert_eq!(notice["severity"], "warning");
+        assert_eq!(notice["attempt"], 3);
+        assert!(failure(&update["_meta"]).is_none());
+    }
 
     fn air(failure: Value) -> Value {
         json!({ "jetbrains": { "air": { "version": 1, "sessionFailure": failure } } })
@@ -298,6 +404,7 @@ mod tests {
             kind: FailureKind::Limit,
             title: "Limit reached".into(),
             details: Some("Resets at 3pm".into()),
+            resets_at: None,
         };
         let payload = failure.payload(Some("work"));
         assert_eq!(payload["message"], "Limit reached\nResets at 3pm");

@@ -106,7 +106,7 @@ async fn a_phone_reaches_a_core_through_the_relay_alone() {
         }],
         "network": {
             "relays": relays,
-            "minimumVersions": { "macos": any, "ios": any, "android": any },
+            "minimumVersions": { "macos": any, "linux": any, "ios": any, "android": any },
         },
     });
     std::fs::write(remote_file(&socket), stored.to_string()).expect("remote file");

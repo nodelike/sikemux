@@ -1,13 +1,15 @@
 import { readableColor } from "../lib/themeContrast";
 import type { EditorView } from "@codemirror/view";
 import type { ITheme, Terminal } from "@xterm/xterm";
-import { DEFAULT_THEME_ID, themeById, type Theme } from ".";
+import { DEFAULT_THEME_ID, TERMINAL_KEYS, themeById, type Theme } from ".";
 
 let current: Theme = themeById(DEFAULT_THEME_ID);
 let currentOpacity = 1;
 
 const views = new Set<EditorView>();
-const terms = new Set<Terminal>();
+const terms = new Map<Terminal, () => boolean>();
+const termThemes = new WeakMap<Terminal, ITheme>();
+let terminalTheme: ITheme | null = null;
 
 /** What an editor view needs from a theme change. Supplied by `editor/themeBridge`
  *  the first time a view registers, so nothing here pulls CodeMirror into the boot bundle. */
@@ -68,13 +70,22 @@ function terminalThemeFor(theme: Theme): ITheme {
  * must both go through this; a Terminal built straight from theme.terminal
  * carries the opaque background this function exists to strip. */
 export function currentTerminalTheme(): ITheme {
-    return terminalThemeFor(current);
+    return (terminalTheme ??= terminalThemeFor(current));
 }
 
+/** Gives a terminal the current palette if it does not have it yet. */
+export function refreshTerminalTheme(term: Terminal): void {
+    const theme = currentTerminalTheme();
+    if (termThemes.get(term) === theme) return;
+    termThemes.set(term, theme);
+    term.options.theme = theme;
+}
+
+// Every repaint redraws the whole terminal, so one out of sight waits until it is shown again.
 function applyTerminalThemes() {
-    const t = terminalThemeFor(current);
-    terms.forEach((term) => {
-        term.options.theme = t;
+    terminalTheme = terminalThemeFor(current);
+    terms.forEach((visible, term) => {
+        if (visible()) refreshTerminalTheme(term);
     });
 }
 
@@ -98,15 +109,16 @@ export function refreshViewTheme(view: EditorView): void {
     editorBridge?.push(view);
 }
 
-export function registerTerminal(term: Terminal): () => void {
-    term.options.theme = terminalThemeFor(current);
-    terms.add(term);
+export function registerTerminal(term: Terminal, visible: () => boolean): () => void {
+    refreshTerminalTheme(term);
+    terms.set(term, visible);
     return () => terms.delete(term);
 }
 
 function applyChrome(theme: Theme) {
     const c = theme.chrome;
     const root = document.documentElement.style;
+    document.documentElement.classList.toggle("theme-light", !theme.dark);
 
     root.setProperty("--bg", c.bg);
     root.setProperty("--bg-dim", c.bgDim);
@@ -140,24 +152,31 @@ function applyChrome(theme: Theme) {
         "--git-renamed": theme.dark ? "#94b1ef" : "#345bad",
     }))
         root.setProperty(token, readableColor(color, [c.bg, c.bgDim, c.bgRaised], c.ink));
+    for (const [key, color] of Object.entries(theme.editor)) root.setProperty(`--editor-${key}`, color);
+    for (const [key, color] of Object.entries(theme.highlight)) root.setProperty(`--syntax-${key}`, color);
     root.setProperty("--cmd", theme.highlight.function);
     root.setProperty("--terminal-background", theme.terminal.background);
+    TERMINAL_KEYS.slice(TERMINAL_KEYS.indexOf("black")).forEach((key, index) => root.setProperty(`--terminal-ansi-${index}`, theme.terminal[key]));
 
     applyTransparentState();
 }
 
+let settling = 0;
+
 function applyThemeObject(next: Theme): void {
     const root = document.documentElement;
     root.classList.add("theme-changing");
-    void root.offsetWidth;
     current = next;
     applyChrome(next);
     editorBridge?.rebuild(next);
     if (editorBridge) views.forEach(editorBridge.push);
     applyTerminalThemes();
     themeListeners.forEach((listener) => listener(next));
-    void root.offsetWidth;
-    requestAnimationFrame(() => root.classList.remove("theme-changing"));
+    // Transitions stay off until the new colours have been drawn once, so nothing fades between themes.
+    cancelAnimationFrame(settling);
+    settling = requestAnimationFrame(() => {
+        settling = requestAnimationFrame(() => root.classList.remove("theme-changing"));
+    });
 }
 
 export function applyTheme(id: string): void {

@@ -44,7 +44,7 @@ vi.mock("./DispatchDialog", () => ({
 }));
 
 import { invalidate } from "../../plugin-api/resources";
-import type { Section } from "../state";
+import type { TreeSection } from "../state";
 import { hostSettings, resetView, setFollowBranch, updateView, viewOf } from "../state";
 import { InHost, registerTestHost, TEST_HOST } from "../testHost";
 import { HostArea } from "./HostArea";
@@ -63,7 +63,7 @@ const CWD = "/work/sikemux";
 
 const signedIn: HostAccount = { id: "ada-id", ok: true, login: "ada", avatarUrl: null, host: "example.test", canWriteCi: true, warning: null };
 
-function show(section: Section, extra: { branch?: string | null; cwd?: string | null; repo?: typeof repo & { account?: string } } = {}) {
+function show(section: TreeSection, extra: { branch?: string | null; cwd?: string | null; repo?: typeof repo & { account?: string } } = {}) {
     const props = {
         paneId: PANE,
         section,

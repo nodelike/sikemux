@@ -29,6 +29,8 @@ pub struct JournalEntry {
     pub execution_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub task_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_id: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -206,15 +208,38 @@ impl Journals {
         execution_id: Option<&str>,
         task_id: Option<&str>,
     ) -> JournalEntry {
+        self.add(
+            project,
+            JournalEntry {
+                seq: 0,
+                ts: now_ms(),
+                kind: kind.to_owned(),
+                execution_id: execution_id.map(str::to_owned),
+                task_id: task_id.map(str::to_owned),
+                agent_id: None,
+            },
+        )
+    }
+
+    /// Something that happened to one of the project's agents.
+    pub fn append_agent(&mut self, project: &str, kind: &str, agent_id: &str) -> JournalEntry {
+        self.add(
+            project,
+            JournalEntry {
+                seq: 0,
+                ts: now_ms(),
+                kind: kind.to_owned(),
+                execution_id: None,
+                task_id: None,
+                agent_id: Some(agent_id.to_owned()),
+            },
+        )
+    }
+
+    fn add(&mut self, project: &str, mut entry: JournalEntry) -> JournalEntry {
         let journal = self.project(project);
         journal.last_seq += 1;
-        let entry = JournalEntry {
-            seq: journal.last_seq,
-            ts: now_ms(),
-            kind: kind.to_owned(),
-            execution_id: execution_id.map(str::to_owned),
-            task_id: task_id.map(str::to_owned),
-        };
+        entry.seq = journal.last_seq;
         if let Err(error) = journal.write(&entry) {
             eprintln!("sikemux core: could not write the harness journal: {error}");
         }

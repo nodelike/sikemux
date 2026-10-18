@@ -277,8 +277,12 @@ impl Writer {
             &[codec_key, width_key, height_key],
             &[h264.as_ref(), wide.as_ref(), tall.as_ref()],
         );
+        // SAFETY: a plain query on the fresh writer; it throws on nothing.
+        if !unsafe { writer.canApplyOutputSettings_forMediaType(Some(&settings), media_type) } {
+            return Err(format!("a {width}x{height} video cannot be recorded"));
+        }
         // SAFETY: `settings` uses AVFoundation's own keys with the NSString and NSNumber
-        // values it documents for them.
+        // values it documents for them, and the writer accepts them.
         let input = unsafe {
             AVAssetWriterInput::assetWriterInputWithMediaType_outputSettings(
                 media_type,
@@ -334,17 +338,18 @@ impl Writer {
         let mut frames = 0;
         let mut last: Option<Duration> = None;
         for frame in incoming {
-            if last.is_some_and(|last| frame.at <= last)
-                // SAFETY: `input` belongs to this thread and is still attached to the writer.
-                || !unsafe { self.input.isReadyForMoreMediaData() }
-            {
+            let at_ms = frame.at.as_millis();
+            if last.is_some_and(|last| at_ms <= last.as_millis()) || !self.ready() {
                 continue;
             }
             let Some(buffer) = self.draw(&frame.image) else {
                 continue;
             };
+            if !self.ready() {
+                continue;
+            }
             // SAFETY: builds a plain value from two integers.
-            let at = unsafe { CMTime::new(frame.at.as_millis() as i64, 1000) };
+            let at = unsafe { CMTime::new(at_ms as i64, 1000) };
             // SAFETY: `buffer` came from the adaptor's own pool, and `at` is later than every
             // frame already appended.
             if unsafe {
@@ -356,6 +361,16 @@ impl Writer {
             }
         }
         self.finish(frames, last.unwrap_or_default())
+    }
+
+    /// AVFoundation throws, rather than refusing, when a frame arrives while the
+    /// input is busy or the writer has failed.
+    fn ready(&self) -> bool {
+        // SAFETY: `writer` and `input` belong to this thread; reading their state is always allowed.
+        unsafe {
+            self.writer.status() == AVAssetWriterStatus::Writing
+                && self.input.isReadyForMoreMediaData()
+        }
     }
 
     /// Draws a picture into a fresh video frame, fitted inside it: a tab that
@@ -419,6 +434,10 @@ impl Writer {
     }
 
     fn finish(self, frames: u64, length: Duration) -> Result<Summary, String> {
+        // SAFETY: the writer belongs to this thread; reading its status is always allowed.
+        if unsafe { self.writer.status() } != AVAssetWriterStatus::Writing {
+            return Err(self.failure());
+        }
         let (sender, finished) = mpsc::channel();
         let block = RcBlock::new(move || {
             let _ = sender.send(());
@@ -431,15 +450,19 @@ impl Writer {
         let _ = finished.recv_timeout(Duration::from_secs(30));
         // SAFETY: the writer belongs to this thread; reading its status is always allowed.
         if unsafe { self.writer.status() } != AVAssetWriterStatus::Completed {
-            // SAFETY: same writer, same thread.
-            return Err(unsafe { self.writer.error() }
-                .map(|error| describe(&error))
-                .unwrap_or_else(|| "the video could not be finished".into()));
+            return Err(self.failure());
         }
         Ok(Summary {
             frames,
             seconds: length.as_secs_f64(),
         })
+    }
+
+    fn failure(&self) -> String {
+        // SAFETY: the writer belongs to this thread; reading its error is always allowed.
+        unsafe { self.writer.error() }
+            .map(|error| describe(&error))
+            .unwrap_or_else(|| "the video could not be finished".into())
     }
 }
 

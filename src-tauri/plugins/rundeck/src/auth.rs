@@ -3,6 +3,7 @@
 // own cookie jar so sessions never leak between attempts. A pasted token is
 // checked against /system/info and /user/info instead.
 
+use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -13,8 +14,8 @@ use serde_json::Value;
 
 use crate::error::{RundeckError, RundeckResult};
 
-use crate::client::{request_as, seg, Session, API_VERSION};
-use crate::config::{self, RundeckConfig};
+use crate::client::{get_json, request_as, seg, Session, API_VERSION};
+use crate::config::{self, Saved, Settings};
 
 const MAX_AUTH_RESPONSE_BYTES: usize = 1024 * 1024;
 
@@ -214,76 +215,38 @@ fn is_auth_failure(e: &RundeckError) -> bool {
     )
 }
 
-pub async fn status() -> RundeckStatus {
-    // Always reload from disk on status checks — the CLI may have written
-    // a new token since boot.
-    let cfg = config::refresh_from_disk()
-        .await
-        .unwrap_or_else(|_| RundeckConfig::default());
-
-    if !cfg.is_configured() {
-        return RundeckStatus {
-            configured: false,
-            url: cfg.url,
-            user: cfg.user,
-            token_present: !cfg.token.is_empty(),
-            rundeck_version: None,
-            ok: false,
-            auth_failed: false,
-            message: None,
-            allow_insecure_private_http: cfg.allow_insecure_private_http,
-        };
-    }
-
-    if cfg.url.starts_with("http://") && !cfg.allow_insecure_private_http {
-        return RundeckStatus {
-            configured: true,
-            url: cfg.url,
-            user: cfg.user,
-            token_present: true,
-            rundeck_version: None,
-            ok: false,
-            auth_failed: true,
-            message: Some("Private-subnet HTTP now requires explicit acknowledgement before credentials are sent".into()),
-            allow_insecure_private_http: false,
-        };
-    }
-
-    let info: RundeckResult<Value> = crate::client::get_json("/system/info", &[]).await;
+pub async fn status(data_dir: &Path) -> RundeckStatus {
+    let (saved, problem) = match config::load(data_dir).await {
+        Ok(saved) => (saved, None),
+        Err(error) => (Saved::default(), Some(error.to_string())),
+    };
+    let settings = saved.settings.clone();
+    let offline = |message: Option<String>, auth_failed: bool| RundeckStatus {
+        configured: saved.is_signed_in(),
+        url: settings.url.clone(),
+        user: settings.user.clone(),
+        token_present: saved.token.is_some(),
+        rundeck_version: None,
+        ok: false,
+        auth_failed,
+        message,
+        allow_insecure_private_http: settings.allow_insecure_private_http,
+    };
+    let Ok(session) = Session::of(&saved) else {
+        return offline(problem, false);
+    };
+    let info: RundeckResult<Value> = get_json(&session, "/system/info", &[]).await;
     match info {
+        Ok(info) => RundeckStatus {
+            ok: true,
+            rundeck_version: rundeck_version(&info),
+            ..offline(None, false)
+        },
         Err(RundeckError::Forbidden(message)) => RundeckStatus {
-            configured: true,
-            url: cfg.url,
-            user: cfg.user,
-            token_present: true,
-            rundeck_version: None,
             ok: true,
-            auth_failed: false,
-            message: Some(message),
-            allow_insecure_private_http: cfg.allow_insecure_private_http,
+            ..offline(Some(message), false)
         },
-        Ok(v) => RundeckStatus {
-            configured: true,
-            url: cfg.url,
-            user: cfg.user,
-            token_present: true,
-            rundeck_version: rundeck_version(&v),
-            ok: true,
-            auth_failed: false,
-            message: None,
-            allow_insecure_private_http: cfg.allow_insecure_private_http,
-        },
-        Err(e) => RundeckStatus {
-            configured: true,
-            url: cfg.url,
-            user: cfg.user,
-            token_present: true,
-            rundeck_version: None,
-            ok: false,
-            auth_failed: is_auth_failure(&e),
-            message: Some(e.to_string()),
-            allow_insecure_private_http: cfg.allow_insecure_private_http,
-        },
+        Err(e) => offline(Some(e.to_string()), is_auth_failure(&e)),
     }
 }
 
@@ -307,7 +270,7 @@ async fn revoke(session: &Session, token_id: &str) {
     .await;
 }
 
-pub async fn login(req: LoginRequest) -> RundeckResult<LoginResult> {
+pub async fn login(data_dir: &Path, req: LoginRequest) -> RundeckResult<LoginResult> {
     let url = req.url.trim_end_matches('/').to_string();
     let minted = perform_login(&LoginRequest {
         url: url.clone(),
@@ -317,20 +280,27 @@ pub async fn login(req: LoginRequest) -> RundeckResult<LoginResult> {
     let session = Session {
         url: url.clone(),
         token: minted.token.clone(),
+        user: req.user.clone(),
         allow_insecure_private_http: req.allow_insecure_private_http,
     };
 
-    let previous = config::load().await.unwrap_or_default();
+    let previous = config::load(data_dir).await.unwrap_or_default().settings;
     if !previous.token_id.is_empty() && previous.url == url && previous.token_id != minted.id {
         revoke(&session, &previous.token_id).await;
     }
-    config::save(RundeckConfig {
-        url: url.clone(),
-        user: req.user.clone(),
-        token: minted.token,
-        token_id: minted.id,
-        allow_insecure_private_http: req.allow_insecure_private_http,
-    })
+    config::save(
+        data_dir,
+        Saved {
+            settings: Settings {
+                url: url.clone(),
+                user: req.user.clone(),
+                token_id: minted.id,
+                allow_insecure_private_http: req.allow_insecure_private_http,
+                ..previous
+            },
+            token: Some(minted.token),
+        },
+    )
     .await?;
 
     let version = request_as::<Value>(&session, Method::GET, "/system/info", None, &[])
@@ -353,7 +323,10 @@ pub struct TokenLoginRequest {
     pub allow_insecure_private_http: bool,
 }
 
-pub async fn login_with_token(req: TokenLoginRequest) -> RundeckResult<LoginResult> {
+pub async fn login_with_token(
+    data_dir: &Path,
+    req: TokenLoginRequest,
+) -> RundeckResult<LoginResult> {
     let url = req.url.trim().trim_end_matches('/').to_string();
     let token = req.token.trim().to_string();
     if token.is_empty() {
@@ -362,6 +335,7 @@ pub async fn login_with_token(req: TokenLoginRequest) -> RundeckResult<LoginResu
     let session = Session {
         url: url.clone(),
         token: token.clone(),
+        user: String::new(),
         allow_insecure_private_http: req.allow_insecure_private_http,
     };
     let (info, user_info) = tokio::join!(
@@ -380,13 +354,20 @@ pub async fn login_with_token(req: TokenLoginRequest) -> RundeckResult<LoginResu
         Err(RundeckError::Forbidden(_)) => None,
         Err(error) => return Err(error),
     };
-    config::save(RundeckConfig {
-        url: url.clone(),
-        user: user.clone(),
-        token,
-        token_id: String::new(),
-        allow_insecure_private_http: req.allow_insecure_private_http,
-    })
+    let previous = config::load(data_dir).await.unwrap_or_default().settings;
+    config::save(
+        data_dir,
+        Saved {
+            settings: Settings {
+                url: url.clone(),
+                user: user.clone(),
+                token_id: String::new(),
+                allow_insecure_private_http: req.allow_insecure_private_http,
+                ..previous
+            },
+            token: Some(token),
+        },
+    )
     .await?;
     Ok(LoginResult {
         url,
@@ -396,20 +377,35 @@ pub async fn login_with_token(req: TokenLoginRequest) -> RundeckResult<LoginResu
     })
 }
 
-pub async fn logout() -> RundeckResult<()> {
-    // The URL and user stay so signing back in to the same Rundeck is quick.
-    let mut cfg = config::load().await?;
-    if !cfg.token_id.is_empty() && !cfg.token.is_empty() && !cfg.url.is_empty() {
-        let session = Session {
-            url: cfg.url.clone(),
-            token: cfg.token.clone(),
-            allow_insecure_private_http: cfg.allow_insecure_private_http,
-        };
-        revoke(&session, &cfg.token_id).await;
+pub async fn logout(data_dir: &Path) -> RundeckResult<()> {
+    let mut saved = config::load(data_dir).await?;
+    if let (Ok(session), false) = (Session::of(&saved), saved.settings.token_id.is_empty()) {
+        revoke(&session, &saved.settings.token_id).await;
     }
-    cfg.token.clear();
-    cfg.token_id.clear();
-    config::save(cfg).await
+    saved.token = None;
+    saved.settings.token_id.clear();
+    config::save(data_dir, saved).await
+}
+
+pub async fn set_branch_options(data_dir: &Path, names: Vec<String>) -> RundeckResult<()> {
+    let names: Vec<String> = names
+        .into_iter()
+        .map(|name| name.trim().to_string())
+        .filter(|name| !name.is_empty())
+        .collect();
+    let settings = config::load(data_dir).await?.settings;
+    config::save_settings(
+        data_dir,
+        Settings {
+            branch_options: if names.is_empty() {
+                Settings::default().branch_options
+            } else {
+                names
+            },
+            ..settings
+        },
+    )
+    .await
 }
 
 #[cfg(test)]

@@ -1,5 +1,5 @@
-import { fireEvent, render, waitFor, within } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { cleanup, fireEvent, render, waitFor, within } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { EditorPane } from "./EditorPane";
 import { getState, setState } from "../state/store";
 
@@ -20,6 +20,12 @@ Range.prototype.getClientRects = () => [] as unknown as DOMRectList;
 Range.prototype.getBoundingClientRect = () => new DOMRect();
 
 describe("EditorPane CLI queue", () => {
+    afterEach(async () => {
+        cleanup();
+        // React can still have a render queued after unmounting; let it run while the page exists.
+        await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
     beforeEach(() => {
         setState(initial, true);
         invoke.mockReset();

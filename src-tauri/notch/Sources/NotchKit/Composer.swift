@@ -169,7 +169,7 @@ struct Composer: View {
             island.draft = ""
             island.attachments = []
             island.menu = nil
-            island.tab = .agents
+            island.tab = .inbox
             island.keyboard?(.give)
         }
     }

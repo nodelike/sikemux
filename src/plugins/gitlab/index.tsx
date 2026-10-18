@@ -10,7 +10,7 @@ registerCodeHost({
     id: GITLAB_PLUGIN_ID,
     name: "GitLab",
     ciName: "Pipelines",
-    icon: (size) => <GitlabMark size={size} className="icon-gitlab" />,
+    icon: (size) => <GitlabMark size={size} />,
     capabilities: {
         ci: {
             graph: true,
@@ -42,7 +42,7 @@ registerFrontendPlugin({
     surfaces: [],
     open: () => void openGitArea("pulls"),
     openTitle: "Open GitLab",
-    mark: (size) => <GitlabMark size={size} className="icon-gitlab" />,
+    mark: (size) => <GitlabMark size={size} />,
     linkHosts: ["gitlab.com"],
     TopBarItem: hostCiGlyph(GITLAB_PLUGIN_ID),
 });

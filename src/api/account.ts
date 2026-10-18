@@ -1,4 +1,5 @@
 import { invokeCommand as invoke } from "./invoke";
+import type { RemotePairing } from "./remote";
 import { getIpcTransport } from "./transport";
 
 /** The Sikemux account this host is signed in to, which devices on the same account find it through. */
@@ -20,6 +21,9 @@ export interface AccountPhone {
     readonly createdAt: string;
 }
 
+/** Another host on the account, which this host links with by its key. */
+export type AccountHost = AccountPhone;
+
 /** Sent when the account changes without the app asking, such as this host being removed from it elsewhere. */
 export const ACCOUNT_CHANGED_EVENT = "account_changed";
 
@@ -33,6 +37,10 @@ export const accountApi = {
     cancelSignIn: () => invoke<void>("account_cancel_sign_in"),
     /** The phones on the account this host has not paired yet. */
     phones: () => invoke<readonly AccountPhone[]>("account_phones"),
+    /** The other hosts on the account this host has not linked with yet. */
+    hosts: () => invoke<readonly AccountHost[]>("account_hosts"),
+    /** Asks another host on the account to link, and resolves once the person there allows it. */
+    linkHost: (host: AccountHost) => invoke<RemotePairing>("account_link_host", { key: host.key, name: host.name, platform: host.platform }),
     /** Takes this host off the account; devices already paired stay paired. */
     signOut: () => invoke<AccountStatus>("account_sign_out"),
     subscribe: (listener: (status: AccountStatus) => void, signal: AbortSignal) =>

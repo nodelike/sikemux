@@ -43,12 +43,12 @@ final class IslandModel {
         case drop
     }
 
-    enum Tab { case agents, compose }
+    enum Tab { case inbox, compose }
     enum Menu { case model, effort, project }
 
     var mode: Mode = .closed
     var hovering = false
-    var tab: Tab = .agents
+    var tab: Tab = .inbox
     var menu: Menu?
     var draft = ""
     var provider = "claude"
@@ -208,12 +208,12 @@ final class IslandModel {
         }
     }
 
-    /// A peek ends once what it shows is over: the request was answered, here or anywhere else, or the agent closed.
-    func agentsChanged(_ agents: [AgentItem]) {
+    /// A peek ends once what it shows leaves the inbox: the request was answered, here or anywhere else, or the agent closed.
+    func entriesChanged(_ entries: [Entry]) {
         switch mode {
-        case .peekAsk(let id) where !agents.contains { $0.id == id && $0.state == .blocked }:
+        case .peekAsk(let id) where !entries.contains { $0.id == id }:
             set(hovering ? .open : .closed)
-        case .peekDone(let id) where !agents.contains { $0.id == id }:
+        case .peekDone(let id) where !entries.contains { $0.id == id }:
             set(.closed)
         default:
             break

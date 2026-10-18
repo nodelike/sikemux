@@ -1,37 +1,94 @@
-import { acpApi } from "../api/acp";
+import { agentApi } from "../api/agents";
 import { AccountSignIn } from "../agents/AccountSignIn";
-import { accountsOf, acpAccount, isAccountProvider } from "../agents/accounts";
+import { signInAgent } from "../agents/AgentInstall";
+import { agentLabel, loginArgs } from "../agents/catalog";
+import { accountsOf, isAccountProvider, moveChat } from "../agents/accounts";
 import { useResource } from "../state/resources";
 import { agentAccountR } from "../state/resources.defs";
 import { useStore } from "../state/store";
 import { reportError } from "../state/toast";
 import type { Agent, ProviderProfile } from "../state/types";
 import type { ChatFailure } from "./types";
+import { useState } from "react";
 
-/* Carries the chat on to `account`. The core sends the failed prompt again
-   once the agent is up there. */
-function moveTo(agent: Agent, account: ProviderProfile): void {
-    void acpApi.switchAccount(agent.id, agent.type, acpAccount(account)).catch(reportError("Switch account"));
-}
+/** A way the agent said, as it started, that it can be signed in. */
+export type SignInMethod =
+    | { kind: "terminal"; id: string; name: string; description: string | null; args: string[]; env: [string, string][] }
+    | { kind: "agent"; id: string; name: string; description: string | null };
 
 /** What the person can do about a turn that failed because of its account. */
-export function ChatFailureActions({ agent, profile, failure }: { agent: Agent; profile: ProviderProfile; failure: ChatFailure }) {
-    if (!isAccountProvider(profile.provider)) return null;
-    if (failure.kind === "signIn") {
+export function ChatFailureActions({
+    agent,
+    profile,
+    failure,
+    signInMethods = [],
+}: {
+    agent: Agent;
+    profile: ProviderProfile | undefined;
+    failure: ChatFailure;
+    signInMethods?: readonly SignInMethod[];
+}) {
+    if (!profile || !isAccountProvider(profile.provider)) {
+        if (failure.kind !== "signIn") return null;
+        const own = { type: agent.type, command: agent.executablePath ?? agent.type, configPath: null };
+        if (signInMethods.length > 0) {
+            return (
+                <span className="chat-error-actions">
+                    {signInMethods.map((method) => (
+                        <button
+                            key={method.id}
+                            type="button"
+                            title={method.description ?? undefined}
+                            onClick={() =>
+                                method.kind === "terminal"
+                                    ? signInAgent(own, { method: { args: method.args, env: method.env }, retry: agent.id })
+                                    : void agentApi
+                                          .authenticateChat(agent.id, method.id)
+                                          .then(() => agentApi.retryFailed(agent.id))
+                                          .catch(reportError(`Sign in to ${agentLabel(agent.type)}`))
+                            }>
+                            {method.name}
+                        </button>
+                    ))}
+                </span>
+            );
+        }
+        if (!loginArgs(agent.type)) return null;
         return (
             <span className="chat-error-actions">
-                <AccountSignIn profile={profile} label={`Sign in to ${profile.name}`} onSignedIn={() => moveTo(agent, profile)} />
+                <button type="button" onClick={() => signInAgent(own, { retry: agent.id })}>
+                    Sign in to {agentLabel(agent.type)}
+                </button>
             </span>
         );
     }
-    if (failure.kind === "limit") return <ContinueElsewhere agent={agent} profile={profile} />;
+    if (failure.kind === "signIn") {
+        return (
+            <span className="chat-error-actions">
+                <AccountSignIn profile={profile} label={`Sign in to ${profile.name}`} onSignedIn={() => moveChat(agent, profile)} />
+            </span>
+        );
+    }
+    if (failure.kind === "limit")
+        return (
+            <>
+                {failure.resumesAt !== undefined && failure.resumesAt > Date.now() && (
+                    <span className="chat-error-actions">
+                        <button type="button" onClick={() => void agentApi.cancelResume(agent.id).catch(reportError("Cancel the resume"))}>
+                            Don't resume
+                        </button>
+                    </span>
+                )}
+                <ContinueElsewhere agent={agent} profile={profile} />
+            </>
+        );
     return null;
 }
 
 function ContinueElsewhere({ agent, profile }: { agent: Agent; profile: ProviderProfile }) {
     const profiles = useStore((s) => s.providerProfiles);
     const provider = isAccountProvider(profile.provider) ? profile.provider : "claude";
-    const own = useResource(agentAccountR, provider, profile.executablePath, profile.configPath);
+    const own = useResource(agentAccountR, provider, profile.configPath);
     const others = accountsOf(provider, profiles).filter((other) => other.id !== profile.id);
     if (others.length === 0 || !own.data?.sessions) return null;
     return (
@@ -47,11 +104,34 @@ function ContinueElsewhere({ agent, profile }: { agent: Agent; profile: Provider
    take the chat over. */
 function ContinueOn({ agent, account, sessions }: { agent: Agent; account: ProviderProfile; sessions: string }) {
     const provider = isAccountProvider(account.provider) ? account.provider : "claude";
-    const status = useResource(agentAccountR, provider, account.executablePath, account.configPath);
+    const status = useResource(agentAccountR, provider, account.configPath);
     if (!status.data?.signedIn || status.data.sessions !== sessions) return null;
     return (
-        <button type="button" onClick={() => moveTo(agent, account)}>
+        <button type="button" onClick={() => moveChat(agent, account)}>
             Continue on {account.name}
         </button>
+    );
+}
+
+/** What the person can do about a turn the network cut short: send it now, let it go, or read what the agent said. */
+export function NetworkFailureActions({ agent, failure, onDismiss }: { agent: Agent; failure: ChatFailure; onDismiss: () => void }) {
+    const [open, setOpen] = useState(false);
+    return (
+        <>
+            <span className="chat-error-actions">
+                <button type="button" onClick={() => void agentApi.retryFailed(agent.id).catch(reportError("Retry"))}>
+                    Retry now
+                </button>
+                <button type="button" onClick={() => void agentApi.discardFailed(agent.id).then(onDismiss).catch(reportError("Discard"))}>
+                    Discard
+                </button>
+                {failure.details && (
+                    <button type="button" aria-expanded={open} onClick={() => setOpen(!open)}>
+                        Details
+                    </button>
+                )}
+            </span>
+            {open && failure.details && <pre className="chat-error-details">{failure.details}</pre>}
+        </>
     );
 }

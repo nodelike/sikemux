@@ -1,4 +1,4 @@
-import { memo, useContext, useMemo, useState, type ReactNode } from "react";
+import { Fragment, memo, useContext, useMemo, useState, type ReactNode } from "react";
 import { CopyButton } from "../ui/CopyButton";
 import { basename } from "../lib/paths";
 import {
@@ -13,20 +13,25 @@ import {
     IconTimer,
     IconUser,
     IconWarning,
+    IconWorkflow,
 } from "../ui/Icons";
 import { Tooltip } from "../ui/Tooltip";
-import { MessageEditor } from "./MessageEditor";
+import { AgentMark } from "../agents/AgentMark";
+import { AgentBuddy } from "../buddies/Buddy";
+import { useStore } from "../state/store";
+import { messageLetters, type AgentLetter } from "./agentLetters";
+import { AnsweredQuestion } from "./AgentQuestions";
 import { rateLabel, sentLabel, sentTitle } from "./messageMeta";
 import { durationLabel } from "./durationLabel";
-import { localImagePath, useImagePreview } from "./imagePreview";
+import { localImagePath } from "../lib/imagePaths";
+import { useImagePreview } from "./imagePreview";
 import { ChatFileRef, useFileRef } from "./FileRef";
-import { ChatAgentContext } from "./chatAgent";
+import { ChatAgentContext, ChatSubagentsContext } from "./chatAgent";
 import { ChatImage } from "./ChatImage";
 import { FoldedMarkdown, warmChatMarkdown } from "./ChatMarkdown";
 import { ChatPage } from "./ChatPage";
 import { ToolGroup } from "./ToolGroup";
 import { ToolRow } from "./ToolRow";
-import { callCount } from "./toolView";
 import {
     attachmentName,
     formatDetail,
@@ -35,12 +40,14 @@ import {
     shownParts,
     SUBAGENT_MARKS,
     SUBAGENT_WORDS,
+    subagentCost,
     subagentTask,
     type SubagentMark,
 } from "./transcript";
 import type { AccountMove, AcpSubagent, AcpTaskNotice, AgentNotice, ChatMessage, ChatPart } from "./types";
 import { ContextChipLabel } from "./ContextChip";
 import { Shimmer } from "./Shimmer";
+import { MessageEditor } from "./MessageEditor";
 
 function ResourceLinkPart({ content }: { content: Extract<ChatPart, { kind: "content" }>["content"] }) {
     const uri = typeof content.uri === "string" ? content.uri : undefined;
@@ -90,6 +97,11 @@ export function warmTranscript(messages: readonly ChatMessage[]): Promise<void> 
         const message = messages[index];
         if (warmed.has(message)) continue;
         warmed.add(message);
+        const letters = messageLetters(message);
+        if (letters) {
+            texts.push(...letters.map((letter) => ({ text: letter.text, typed: false })));
+            continue;
+        }
         for (const part of sentParts(message).parts) {
             if (part.kind === "text") texts.push({ text: part.text, typed: message.role === "user" });
             else if (part.kind === "thought") texts.push({ text: part.text, typed: false });
@@ -150,9 +162,11 @@ function PartGroups({ parts, live, typed = false }: { parts: ChatPart[]; live: b
 }
 
 function NoticePart({ notice }: { notice: AcpTaskNotice }) {
+    const subagent = useContext(ChatSubagentsContext).get(notice.subagent ?? "");
+    if (subagent) return <SubagentPart subagent={subagent} />;
     return (
         <div className={`chat-notice state-${notice.state}`} role="status">
-            <IconTimer size={12} />
+            {notice.taskType === "workflow" ? <IconWorkflow size={12} /> : <IconTimer size={12} />}
             <span className="chat-notice-name" title={notice.name}>
                 {notice.name}
             </span>
@@ -213,7 +227,7 @@ function SubagentPart({ subagent }: { subagent: AcpSubagent }) {
     const agentType = useContext(ChatAgentContext).type;
     const [open, setOpen] = useState(false);
     const parts = subagent.messages.flatMap((message) => message.parts);
-    const calls = parts.filter((part) => part.kind === "tool").length;
+    const cost = subagentCost(subagent);
     return (
         <details className={`chat-subagent state-${subagent.state}`} open={open} onToggle={(event) => setOpen(event.currentTarget.open)}>
             <summary>
@@ -230,20 +244,70 @@ function SubagentPart({ subagent }: { subagent: AcpSubagent }) {
                     <span className="chat-subagent-task">{subagentTask(subagent.task)}</span>
                 )}
                 <span className="chat-subagent-end">
-                    {calls > 0 && <span className="chat-subagent-calls">{callCount(calls)}</span>}
+                    {cost && <span className="chat-subagent-calls">{cost}</span>}
                     <SubagentStateMark state={subagent.state} />
                 </span>
             </summary>
             {open && (
                 <div className="chat-subagent-body">
-                    {parts.length > 0 ? (
-                        <PartGroups parts={parts} live={subagent.state === "running"} />
-                    ) : (
-                        <span className="chat-subagent-empty">No output yet.</span>
-                    )}
+                    <div>
+                        {parts.length > 0 ? (
+                            <PartGroups parts={parts} live={subagent.state === "running"} />
+                        ) : (
+                            <span className="chat-subagent-empty">No output yet.</span>
+                        )}
+                    </div>
                 </div>
             )}
         </details>
+    );
+}
+
+function SentTime({ at, took }: { at: number; took: number | null }) {
+    return (
+        <time className="chat-message-time" dateTime={new Date(at).toISOString()} title={sentTitle(at)}>
+            {took === null ? sentLabel(at) : `${sentLabel(at)} · took ${durationLabel(took)}`}
+        </time>
+    );
+}
+
+function LetterSenderMark({ agentId, cli }: { agentId: string; cli: string }) {
+    const buddies = useStore((s) => s.buddies);
+    const sender = useStore((s) => s.agents[agentId]);
+    return buddies && sender ? <AgentBuddy agent={sender} size={14} className="agent-glyph" /> : <AgentMark cli={cli} />;
+}
+
+function AgentLetters({ id, letters, at }: { id: string; letters: AgentLetter[]; at: number | null }) {
+    return (
+        <article className="chat-message agent-letter">
+            <div className="chat-message-content">
+                {letters.map((letter, index) =>
+                    letter.kind === "answer" ? (
+                        <div key={index} className="chat-letter-answer">
+                            <AnsweredQuestion letter={letter} />
+                        </div>
+                    ) : (
+                        <Fragment key={index}>
+                            <div className="chat-letter-from" title={letter.agentId}>
+                                <span className="chat-letter-rule" />
+                                <LetterSenderMark agentId={letter.agentId} cli={letter.cli} />
+                                <span>
+                                    Message from <b>{letter.name}</b>
+                                </span>
+                                <span className="chat-letter-rule" />
+                            </div>
+                            <div className="chat-markdown">
+                                <FoldedMarkdown id={`${id}-letter-${index}`} text={letter.text} live={false} />
+                            </div>
+                        </Fragment>
+                    ),
+                )}
+                <div className="chat-message-meta">
+                    <CopyButton value={letters.map((letter) => letter.text).join("\n\n")} label="message" size={15} />
+                    {at !== null && <SentTime at={at} took={null} />}
+                </div>
+            </div>
+        </article>
     );
 }
 
@@ -268,10 +332,12 @@ export const ChatMessageRow = memo(function ChatMessageRow({
     /** Where the shown parts start, when the work before them is folded away. */
     from?: number;
 }) {
+    const letters = useMemo(() => messageLetters(message), [message]);
     const { parts, context } = useMemo(() => sentParts(message), [message]);
     const shown = useMemo(() => shownParts(parts, from), [parts, from]);
     const [editing, setEditing] = useState(false);
     const attachments = message.attachments ?? [];
+    if (letters) return <AgentLetters id={message.id} letters={letters} at={at} />;
     if (editing && onEdit) {
         const written = parts.flatMap((part) => (part.kind === "text" ? [part.text] : [])).join("\n\n");
         return (
@@ -315,11 +381,7 @@ export const ChatMessageRow = memo(function ChatMessageRow({
                             </Tooltip>
                         )}
                         <CopyButton value={copyable} label={message.role === "user" ? "message" : "reply"} size={15} />
-                        {at !== null && (
-                            <time className="chat-message-time" dateTime={new Date(at).toISOString()} title={sentTitle(at)}>
-                                {took === null ? sentLabel(at) : `${sentLabel(at)} · took ${durationLabel(took)}`}
-                            </time>
-                        )}
+                        {at !== null && <SentTime at={at} took={took} />}
                         {rate !== null && (
                             <span className="chat-message-rate" title="Writing speed, estimated from the text that arrived">
                                 {rateLabel(rate)}

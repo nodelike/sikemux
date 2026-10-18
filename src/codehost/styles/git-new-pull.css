@@ -63,7 +63,7 @@
     font-weight: var(--weight-medium);
 }
 .shell .pr-new-title {
-    border-radius: 0 !important;
+    border-radius: var(--radius-2);
 }
 .pr-new-title::placeholder {
     color: var(--text-disabled);

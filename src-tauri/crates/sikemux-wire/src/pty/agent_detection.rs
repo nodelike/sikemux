@@ -12,10 +12,11 @@ pub enum AgentKind {
     OpenCode,
     Omp,
     Grok,
+    Muse,
 }
 
 impl AgentKind {
-    pub const ALL: [Self; 7] = [
+    pub const ALL: [Self; 8] = [
         Self::Claude,
         Self::Codex,
         Self::Hermes,
@@ -23,6 +24,7 @@ impl AgentKind {
         Self::OpenCode,
         Self::Omp,
         Self::Grok,
+        Self::Muse,
     ];
 
     pub const fn label(self) -> &'static str {
@@ -34,6 +36,7 @@ impl AgentKind {
             Self::OpenCode => "opencode",
             Self::Omp => "omp",
             Self::Grok => "grok",
+            Self::Muse => "muse",
         }
     }
 
@@ -46,6 +49,7 @@ impl AgentKind {
             "opencode" | "open-code" => Some(Self::OpenCode),
             "omp" | "oh-my-pi" => Some(Self::Omp),
             "grok" | "grok-build" => Some(Self::Grok),
+            "muse" | "muse-code" => Some(Self::Muse),
             _ => None,
         }
     }

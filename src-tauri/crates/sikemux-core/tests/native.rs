@@ -13,8 +13,8 @@ use std::time::{Duration, Instant};
 use serde_json::Value;
 use sikemux_core::client::{probe, ClientEvent, CoreClient};
 use sikemux_core::protocol::{
-    encode_control, read_frame_sync, BuildIdentity, ChatAttachment, ChatEvent, ChatEventKind,
-    ChatLaunch, ClientMessage, Event, Request, PROTOCOL, PROTOCOL_VERSION,
+    encode_control, read_frame_sync, BuildIdentity, ChatAccount, ChatAttachment, ChatEvent,
+    ChatEventKind, ChatLaunch, ClientMessage, Event, Request, PROTOCOL, PROTOCOL_VERSION,
 };
 use sikemux_core::server::{self, ServerConfig, ServerError};
 use tokio::sync::mpsc::UnboundedReceiver;
@@ -41,6 +41,7 @@ impl TestCore {
                 built_at: 0,
                 source: "chat".into(),
             },
+            data_dir: Some(dir.path().join("data")),
             ..ServerConfig::new(socket.clone())
         };
         let thread = std::thread::spawn(move || server::run(config));
@@ -225,6 +226,66 @@ async fn a_claude_chat_streams_a_turn_with_its_options_and_commands() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn a_claude_chat_says_when_claude_retries_its_request() {
+    let config = tempfile::tempdir().expect("config");
+    let core = TestCore::start();
+    let (client, mut chat) = core.connect().await;
+    client
+        .acp_start(claude_launch("claude-retry", config.path()))
+        .await
+        .expect("start");
+    chat.until_kind(ChatEventKind::Ready).await;
+    prompt(&client, "claude-retry", &message_id(), "retry 2").await;
+    chat.until_kind(ChatEventKind::TurnCompleted).await;
+
+    let heard = updates(&chat.heard);
+    let attempts: Vec<Value> = heard
+        .iter()
+        .filter_map(|update| update.pointer("/update/_meta/jetbrains/air/sessionFailure"))
+        .map(|notice| {
+            assert_eq!(notice["severity"], "warning");
+            notice["attempt"].clone()
+        })
+        .collect();
+    assert_eq!(attempts, [Value::from(1), Value::from(2)]);
+    assert_eq!(chat.text(), "back");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_turn_the_network_cut_short_says_so_plainly_and_goes_again_on_retry() {
+    let config = tempfile::tempdir().expect("config");
+    let core = TestCore::start();
+    let (client, mut chat) = core.connect().await;
+    client
+        .acp_start(claude_launch("claude-offline", config.path()))
+        .await
+        .expect("start");
+    chat.until_kind(ChatEventKind::Ready).await;
+    prompt(&client, "claude-offline", &message_id(), "offline").await;
+
+    let error = chat.until_kind(ChatEventKind::Error).await;
+    assert_eq!(error.payload["failure"]["kind"], "network");
+    assert_eq!(
+        error.payload["message"],
+        "Lost the connection to the model provider"
+    );
+    assert_eq!(
+        error.payload["failure"]["details"],
+        "API Error: Connection error."
+    );
+
+    client
+        .call(
+            "retryFailed",
+            serde_json::json!({ "agentId": "claude-offline" }),
+        )
+        .await
+        .expect("retry");
+    chat.until(|event| said(std::slice::from_ref(event)).contains("back online"))
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn a_claude_tool_waits_for_the_persons_answer() {
     let config = tempfile::tempdir().expect("config");
     let core = TestCore::start();
@@ -304,6 +365,8 @@ async fn an_edited_claude_message_takes_the_chat_back_to_before_it() {
         )
         .await
         .expect("edit");
+    chat.until(|event| said(std::slice::from_ref(event)).contains("earlier"))
+        .await;
     chat.until_kind(ChatEventKind::TurnCompleted).await;
     assert!(chat.text().ends_with("1 earlier"), "{}", chat.text());
 
@@ -373,6 +436,88 @@ async fn a_claude_account_out_of_usage_fails_the_turn_as_a_limit() {
         "You've hit your limit · resets 3pm"
     );
     assert!(!chat.text().contains("hit your limit"));
+    let in_an_hour = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("clock")
+        .as_millis() as u64
+        + 3_600_000;
+    let resumes_at = |event: &ChatEvent| {
+        event.payload["updates"]
+            .as_array()?
+            .iter()
+            .find_map(|update| update.pointer("/update/resumesAt")?.as_u64())
+    };
+    let notice = chat.until(|event| resumes_at(event).is_some()).await;
+    let resumes_at = resumes_at(&notice).expect("time");
+    assert!(resumes_at.abs_diff(in_an_hour) < 30_000);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_claude_prompt_stopped_by_a_limit_is_answered_on_the_account_it_moves_to() {
+    let config = tempfile::tempdir().expect("config");
+    let core = TestCore::start();
+    let (client, mut chat) = core.connect().await;
+    let mut launch = claude_launch("claude-l", config.path());
+    launch
+        .env
+        .insert("FAKE_CLAUDE_OUT_OF_USAGE".into(), "1".into());
+    client.acp_start(launch).await.expect("start");
+    prompt(&client, "claude-l", &message_id(), "hello there").await;
+    let error = chat.until_kind(ChatEventKind::Error).await;
+    assert_eq!(error.payload["failure"]["kind"], "limit");
+
+    let spare = ChatAccount {
+        id: "spare".into(),
+        label: "Spare".into(),
+        env: BTreeMap::from([
+            (
+                "CLAUDE_CONFIG_DIR".to_owned(),
+                config.path().to_string_lossy().into_owned(),
+            ),
+            ("FAKE_CLAUDE_OUT_OF_USAGE".to_owned(), "0".to_owned()),
+        ]),
+    };
+    client
+        .acp_switch_account("claude-l".into(), spare)
+        .await
+        .expect("switch");
+    chat.until_kind(ChatEventKind::TurnCompleted).await;
+    assert_eq!(chat.text(), "echo: hello there");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_codex_chat_loads_the_sikemux_skills_library() {
+    let home = tempfile::tempdir().expect("home");
+    let library = tempfile::tempdir().expect("library");
+    std::fs::create_dir_all(library.path().join("deploy")).expect("skill folder");
+    std::fs::write(
+        library.path().join("deploy/SKILL.md"),
+        "---\nname: deploy\ndescription: Deploys\n---\n",
+    )
+    .expect("skill");
+    let mut launch = codex_launch("codex-skills", home.path());
+    launch.env.insert(
+        sikemux_core::skills::LIBRARY_ENV.to_owned(),
+        library.path().to_string_lossy().into_owned(),
+    );
+    let core = TestCore::start();
+    let (client, mut chat) = core.connect().await;
+    client.acp_start(launch).await.expect("start");
+    chat.until_kind(ChatEventKind::Ready).await;
+    prompt(&client, "codex-skills", &message_id(), "hello").await;
+    chat.until_kind(ChatEventKind::TurnCompleted).await;
+
+    let offered: Vec<Value> = updates(&chat.heard)
+        .into_iter()
+        .filter(|update| update["update"]["sessionUpdate"] == "available_commands_update")
+        .flat_map(|update| {
+            update["update"]["availableCommands"]
+                .as_array()
+                .cloned()
+                .unwrap_or_default()
+        })
+        .collect();
+    assert!(offered.iter().any(|command| command["name"] == "$deploy"));
 }
 
 fn codex_launch(agent_id: &str, home: &Path) -> ChatLaunch {
@@ -480,6 +625,8 @@ async fn an_edited_codex_message_takes_the_thread_back_to_before_it() {
         )
         .await
         .expect("edit");
+    chat.until(|event| said(std::slice::from_ref(event)).contains("earlier"))
+        .await;
     chat.until_kind(ChatEventKind::TurnCompleted).await;
     assert!(chat.text().ends_with("1 earlier"), "{}", chat.text());
 }
@@ -651,7 +798,7 @@ async fn live_claude_streams_edits_and_resumes() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn a_long_claude_chat_comes_back_whole() {
+async fn a_long_claude_chat_comes_back_as_its_last_turns_and_pages_back_whole() {
     let config = tempfile::tempdir().expect("config");
     let session = uuid::Uuid::new_v4().to_string();
     let project = config.path().join("projects").join("fake");
@@ -687,9 +834,29 @@ async fn a_long_claude_chat_comes_back_whole() {
     launch.resume_id = Some(session);
     client.acp_start(launch).await.expect("resume");
     chat.until_kind(ChatEventKind::Ready).await;
-    let answers = updates(&chat.heard)
-        .into_iter()
-        .filter(|update| update["update"]["sessionUpdate"] == "agent_message_chunk")
-        .count();
-    assert_eq!(answers, 200);
+    let heard = updates(&chat.heard);
+    let answers = |updates: &[Value]| {
+        updates
+            .iter()
+            .filter(|update| update["update"]["sessionUpdate"] == "agent_message_chunk")
+            .count()
+    };
+    let shown = answers(&heard);
+    assert!(shown < 20, "{shown} answers were sent at once");
+    let earlier = heard
+        .iter()
+        .find(|update| update["update"]["sessionUpdate"] == "earlier_turns")
+        .expect("where the earlier turns start");
+    let feed = earlier["update"]["feed"].as_str().unwrap().to_owned();
+    let mut before = earlier["update"]["before"].as_u64();
+    let mut paged = 0;
+    while let Some(from) = before {
+        let (events, older) = client
+            .acp_history("claude-long".into(), feed.clone(), from, 20)
+            .await
+            .expect("a page");
+        paged += answers(&updates(&events));
+        before = older;
+    }
+    assert_eq!(shown + paged, 200);
 }

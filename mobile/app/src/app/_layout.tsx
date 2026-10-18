@@ -108,6 +108,8 @@ function Routes({ background }: { background: string }) {
         <Stack.Protected guard={!!isSignedIn}>
           <Stack.Screen name="device/[core]" />
           <Stack.Screen name="join" />
+          <Stack.Screen name="host-sign-in" />
+          <Stack.Screen name="share/[id]" />
         </Stack.Protected>
       </Stack>
       <NotificationsOffer />

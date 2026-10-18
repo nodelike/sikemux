@@ -1,12 +1,19 @@
-import { useEffect, useState, type ReactNode } from "react";
-import { accountApi, type AccountStatus } from "../api/account";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { accountApi, type AccountHost, type AccountStatus } from "../api/account";
 import { portsApi } from "../api/ports";
 import { AccountAvatar } from "../account/AccountAvatar";
-import { loadAccount, offerAccountPhones, setAccount, useAccount } from "../account/account";
+import { loadAccount, signInToAccount, signOutOfAccount, useAccount } from "../account/account";
 import { formatAgo } from "../lib/format";
-import { remoteApi, type AccountLink, type DeviceAccess, type NotificationState, type PairedDevice, type RemoteStatus } from "../api/remote";
+import {
+    remoteApi,
+    type AccountLink,
+    type DeviceAccess,
+    type LinkedHost,
+    type NotificationState,
+    type PairedDevice,
+    type RemoteStatus,
+} from "../api/remote";
 import { ACCESS_OPTIONS, platformName } from "../remote/access";
-import * as cmd from "../state/commands";
 import { reportError, swallow } from "../state/toast";
 import { Dropdown } from "../ui/Dropdown";
 import { Switch } from "../ui/Controls";
@@ -158,6 +165,8 @@ export function DevicesPage() {
                     )}
                 </section>
             )}
+
+            {signedIn && <HostsSection now={now} />}
         </SettingsPage>
     );
 }
@@ -194,13 +203,8 @@ function AccountRow({ account, link }: { account: AccountStatus; link: AccountLi
     const [leaving, setLeaving] = useState(false);
     const signOut = async () => {
         setLeaving(true);
-        try {
-            setAccount(await accountApi.signOut());
-        } catch (error) {
-            reportError("Sign out")(error);
-        } finally {
-            setLeaving(false);
-        }
+        await signOutOfAccount();
+        setLeaving(false);
     };
     return (
         <DevicesRow
@@ -225,19 +229,7 @@ function AccountRow({ account, link }: { account: AccountStatus; link: AccountLi
 }
 
 function SignInCall({ removed }: { removed: string | null }) {
-    const [waiting, setWaiting] = useState(false);
-    const signIn = async () => {
-        setWaiting(true);
-        try {
-            setAccount(await accountApi.signIn());
-            cmd.openSettings("devices");
-            offerAccountPhones().catch(swallow("phones on the account"));
-        } catch (error) {
-            if (!String(error).includes("cancelled")) reportError("Sign in")(error);
-        } finally {
-            setWaiting(false);
-        }
-    };
+    const waiting = useAccount((s) => s.signingIn);
     return (
         <section className="devices-panel devices-sign-in" data-settings-target="Your account">
             <div className="devices-panel-copy">
@@ -253,7 +245,7 @@ function SignInCall({ removed }: { removed: string | null }) {
                             Cancel
                         </button>
                     ) : (
-                        <button className="settings-btn primary" type="button" onClick={() => void signIn()}>
+                        <button className="settings-btn primary" type="button" onClick={() => void signInToAccount()}>
                             Sign in
                         </button>
                     )}
@@ -329,4 +321,112 @@ function DeviceRow({
             </span>
         </SettingsRow>
     );
+}
+
+/** The links with this host, read again whenever the core says links or connections changed. */
+function useLinkedHosts(): [readonly LinkedHost[] | null, () => void] {
+    const [links, setLinks] = useState<readonly LinkedHost[] | null>(null);
+    const read = useRef(() => {});
+    useEffect(() => {
+        const controller = new AbortController();
+        read.current = () =>
+            void remoteApi
+                .pairing()
+                .then((pairing) => {
+                    if (!controller.signal.aborted) setLinks(pairing.links);
+                })
+                .catch(swallow("linked computers"));
+        remoteApi
+            .subscribe(() => read.current(), controller.signal)
+            .then(() => read.current())
+            .catch(swallow("linked computers"));
+        return () => controller.abort();
+    }, []);
+    return [links, () => read.current()];
+}
+
+function HostsSection({ now }: { now: number }) {
+    const [links, reread] = useLinkedHosts();
+    const [hosts, setHosts] = useState<readonly AccountHost[]>([]);
+    const [linking, setLinking] = useState<AccountHost | null>(null);
+    const linkedKeys = links?.map((link) => link.id).join(" ");
+    useEffect(() => {
+        if (linkedKeys === undefined) return;
+        let current = true;
+        accountApi
+            .hosts()
+            .then((next) => {
+                if (current) setHosts(next);
+            })
+            .catch(swallow("computers on the account"));
+        return () => {
+            current = false;
+        };
+    }, [linkedKeys]);
+    const link = async (host: AccountHost) => {
+        setLinking(host);
+        try {
+            await accountApi.linkHost(host);
+        } catch (error) {
+            reportError(`Link ${host.name || "computer"}`)(error);
+        } finally {
+            setLinking(null);
+            reread();
+        }
+    };
+    const unlink = async (host: LinkedHost) => {
+        try {
+            await remoteApi.revokeDevice(host.id);
+        } catch (error) {
+            reportError("Remove computer")(error);
+        }
+        reread();
+    };
+    if (!links) return null;
+    return (
+        <section className="devices-hosts" data-settings-target="Computers">
+            <h2 className="devices-label">Computers</h2>
+            <p className="settings-hint">
+                Link another computer on your account. Someone there allows it once, then agents here can start agents there, on that computer&apos;s
+                own sign-ins.
+            </p>
+            {links.length === 0 && hosts.length === 0 ? (
+                <p className="settings-hint">No other computers on your account. Sign in to Sikemux on one to link it.</p>
+            ) : (
+                <SettingsRows>
+                    {links.map((host) => (
+                        <SettingsRow key={host.id} label={host.name || "Unnamed computer"} desc={linkedLine(host, now)}>
+                            <button
+                                className="settings-btn danger"
+                                type="button"
+                                onClick={() => void unlink(host)}
+                                title="Unlink this computer; agents on either side can no longer start agents on the other">
+                                <IconTrash size={12} /> Remove
+                            </button>
+                        </SettingsRow>
+                    ))}
+                    {hosts.map((host) => (
+                        <SettingsRow
+                            key={host.key}
+                            label={host.name || "Unnamed computer"}
+                            desc={
+                                linking?.key === host.key
+                                    ? `Waiting for ${host.name || "it"} to allow…`
+                                    : `${platformName(host.platform)} · on your account, not linked`
+                            }>
+                            <button className="settings-btn" type="button" disabled={linking !== null} onClick={() => void link(host)}>
+                                {linking?.key === host.key ? "Waiting…" : "Link"}
+                            </button>
+                        </SettingsRow>
+                    ))}
+                </SettingsRows>
+            )}
+        </section>
+    );
+}
+
+function linkedLine(host: LinkedHost, now: number): string {
+    const seen = host.connected ? "connected now" : seenLabel(host.lastSeen, now);
+    const agents = host.agents > 0 ? ` · ${host.agents} ${host.agents === 1 ? "agent works" : "agents work"} across it` : "";
+    return `${platformName(host.platform)} · linked · ${seen}${agents}`;
 }

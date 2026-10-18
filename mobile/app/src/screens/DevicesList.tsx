@@ -4,7 +4,7 @@ import { router, useIsFocused } from 'expo-router';
 import { useUser } from '@clerk/expo';
 import * as Clipboard from 'expo-clipboard';
 import type { Device } from '@protocol';
-import { AGENT_LABELS } from '@mac/state/agentStatus';
+import { agentLabel } from '@mac/agents/catalog';
 
 import { AccountSheet } from '@/account/AccountSheet';
 import { Avatar } from '@/account/Avatar';
@@ -12,12 +12,10 @@ import { providerName } from '@/account/providers';
 import { retryHosts, useAccountHosts } from '@/account/session';
 import { reloadDevices, retry, useHostStatus, useLive } from '@/devices/hub';
 import { channelLabel, deviceKind, deviceName, type PairedDevice } from '@/devices/paired';
-import { asking as askingOf } from '@/devices/asking';
 import { summary } from '@/devices/status';
-import { chatDisplay, chatTitle } from '@/devices/words';
+import { chatDisplay } from '@/devices/words';
 import { haptics } from '@/ui/haptics';
 import { AgentIcon, DeviceIcon, Icon } from '@/ui/Icon';
-import { Wants } from './Wants';
 import { Button, IconButton } from '@/ui/controls';
 import { Screen, useBottomGap } from '@/ui/screen';
 import { NeedsYou, Working } from '@/ui/status';
@@ -33,15 +31,12 @@ function DeviceCard({ device }: { device: PairedDevice }) {
   // A host being reached again keeps its card lit until a try fails, so cards don't flicker on every retry.
   const away = !status.online && !(status.connecting && !status.problem);
   const snapshot = status.online ? live.snapshot : undefined;
-  const asking = snapshot?.attentions[0];
-  const askingChat = asking ? snapshot?.chats.find((chat) => chat.agentId === asking.agentId) : undefined;
+  const needs = snapshot?.inbox.items[0]?.tier === 'needs' ? snapshot.inbox.items[0] : undefined;
   const displays = (snapshot?.chats ?? []).map((chat) => ({ chat, display: chatDisplay(chat) }));
-  const working = displays.filter(({ display }) => display.group === 'working').map(({ chat }) => chat);
+  const working = snapshot?.inbox.working ?? 0;
   const background = displays.reduce((sum, { display }) => sum + display.subagents + display.tasks, 0);
-  const busy = working.length ? working : displays.filter(({ display }) => display.subagents + display.tasks).map(({ chat }) => chat);
-  const work = [working.length ? `${working.length} working` : null, background ? `${background} in the background` : null]
-    .filter(Boolean)
-    .join(' · ');
+  const busy = displays.filter(({ display }) => display.group === 'working' || display.subagents + display.tasks).map(({ chat }) => chat);
+  const work = [working ? `${working} working` : null, background ? `${background} in the background` : null].filter(Boolean).join(' · ');
   const channel = channelLabel(device.channel);
   const meta = snapshot ? summary(snapshot) : status.online ? 'Connecting…' : status.line;
 
@@ -65,15 +60,15 @@ function DeviceCard({ device }: { device: PairedDevice }) {
         </View>
         <Icon name="IconChevron" size={14} color={colors.rest} />
       </View>
-      {asking ? (
+      {needs ? (
         <View style={styles.ask}>
-          <AgentIcon provider={asking.provider} size={16} />
+          <AgentIcon provider={needs.cli ?? ''} size={16} />
           <View style={{ flex: 1 }}>
             <Text style={styles.askTitle} numberOfLines={1}>
-              {askingChat ? chatTitle(askingChat) : asking.provider}
+              {needs.title ?? needs.card?.title ?? needs.name ?? agentLabel(needs.cli ?? 'agent')}
             </Text>
             <Text style={styles.askDetail} numberOfLines={1}>
-              {askingOf(asking) ? <Wants attention={asking} /> : AGENT_LABELS.blocked}
+              {needs.detail ? `${needs.what} · ${needs.detail}` : needs.what}
             </Text>
           </View>
           <NeedsYou />
@@ -89,7 +84,7 @@ function DeviceCard({ device }: { device: PairedDevice }) {
             ))}
           </View>
           <Text style={styles.workText}>{work}</Text>
-          {working.length ? <Working /> : null}
+          {working ? <Working /> : null}
         </View>
       ) : null}
     </Pressable>
@@ -231,6 +226,7 @@ function BringItIn() {
       <View style={styles.chips}>
         <Chip primary title="Send me the link" onPress={send} />
         <Chip title={copied ? 'Copied' : 'Copy link'} onPress={copy} />
+        <Chip title="Have a code?" onPress={() => router.push('/host-sign-in')} />
       </View>
     </View>
   );

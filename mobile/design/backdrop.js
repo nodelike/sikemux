@@ -10,8 +10,8 @@ const RATIO = 2;
 const INK = '#e7e5ef';
 const SHADER_DOT = '#19191e';
 const STILL_MS = 2500;
-const LONGEST_EDGE = 1280;
 const STORE = 'sikemux-design-backdrop';
+const PANE_PICTURE = '/pane.jpg';
 
 function preset(picture) {
   const sizing = { u_originX: 0.5, u_originY: 0.5, u_worldWidth: 0, u_worldHeight: 0, u_rotation: 0, u_offsetX: 0, u_offsetY: 0 };
@@ -124,46 +124,22 @@ function loadImage(src) {
   });
 }
 
-/** Shrunk to what the Mac sends a phone: its longest edge 1280, as a JPEG. */
-async function shrink(file) {
-  const image = await loadImage(URL.createObjectURL(file));
-  const scale = Math.min(1, LONGEST_EDGE / Math.max(image.naturalWidth, image.naturalHeight));
-  const canvas = document.createElement('canvas');
-  canvas.width = Math.round(image.naturalWidth * scale);
-  canvas.height = Math.round(image.naturalHeight * scale);
-  canvas.getContext('2d').drawImage(image, 0, 0, canvas.width, canvas.height);
-  return canvas.toDataURL('image/jpeg', 0.82);
-}
-
 function saved() {
   try {
-    return JSON.parse(localStorage.getItem(STORE)) ?? { mode: 'grain' };
+    return JSON.parse(localStorage.getItem(STORE))?.mode ?? 'picture';
   } catch {
-    return { mode: 'grain' };
+    return 'picture';
   }
 }
 
-async function apply(state) {
-  localStorage.setItem(STORE, JSON.stringify(state));
-  const mode = state.mode === 'picture' && !state.picture ? 'grain' : state.mode;
-  document.body.classList.toggle('has-backdrop', mode !== 'none');
+async function apply(mode) {
+  localStorage.setItem(STORE, JSON.stringify({ mode }));
   document.querySelectorAll('.backdrop-pick [data-mode]').forEach((button) => button.classList.toggle('on', button.dataset.mode === mode));
+  document.body.classList.toggle('has-backdrop', mode !== 'none');
   if (mode === 'none') return;
-  render(mode === 'picture' ? await loadImage(state.picture) : undefined);
+  const picture = mode === 'picture' ? await loadImage(PANE_PICTURE).catch(() => undefined) : undefined;
+  render(picture);
 }
 
-const pick = document.querySelector('.backdrop-pick');
-const file = pick.querySelector('input[type=file]');
-pick.querySelectorAll('[data-mode]').forEach((button) =>
-  button.addEventListener('click', () => {
-    const state = saved();
-    if (button.dataset.mode === 'picture' && !state.picture) file.click();
-    else apply({ ...state, mode: button.dataset.mode });
-  }),
-);
-pick.querySelector('.choose').addEventListener('click', () => file.click());
-file.addEventListener('change', async () => {
-  if (!file.files?.[0]) return;
-  apply({ mode: 'picture', picture: await shrink(file.files[0]) });
-});
+document.querySelectorAll('.backdrop-pick [data-mode]').forEach((button) => button.addEventListener('click', () => apply(button.dataset.mode)));
 apply(saved());

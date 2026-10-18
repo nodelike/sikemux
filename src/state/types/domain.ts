@@ -10,7 +10,7 @@ import type { SpaceIcon } from "../projectSpaces";
  * are tabs, and the active pane decides which is on top.
  */
 export type SplitDir = "row" | "column" | "stack";
-export type CorePaneKind = "terminal" | "editor" | "git" | "diff" | "search" | "agent" | "desk";
+export type CorePaneKind = "terminal" | "editor" | "git" | "diff" | "search" | "agent" | "desk" | "shared" | "board";
 export type PaneKind = CorePaneKind | PluginKind;
 
 export interface PaneNode {
@@ -42,7 +42,7 @@ export type LayoutNode = PaneNode | SplitNode;
 
 export type SessionKind = "project" | "command" | "ssh" | PluginKind;
 
-export type WindowRole = "term" | "files" | "git" | "diff" | "search" | "ssh-config" | "named" | "agent" | PluginKind;
+export type WindowRole = "term" | "files" | "git" | "diff" | "search" | "ssh-config" | "named" | "agent" | "shared" | "board" | PluginKind;
 
 export interface Window {
     id: string;
@@ -99,6 +99,10 @@ export const DEFAULT_PROVIDER_PROFILE_SELECTION: Readonly<ProviderProfileSelecti
 export interface Agent {
     id: string;
     type: AgentType;
+    /** What the core calls this agent, such as Otter: the word the person and other agents address it by. */
+    name?: string;
+    /** The agent that started this one, by id, when an agent did rather than the person. */
+    lead?: string;
     title: string;
     startup: string;
     /** Runtime-only structured launch; avoids shell parsing and argv prompt exposure. */
@@ -115,6 +119,8 @@ export interface Agent {
     cwd?: string;
     /** Optional provider model override selected at launch. */
     model?: string;
+    /** The model provider a chat runs on, by catalogue id, in place of its maker's account. */
+    modelProvider?: string;
     /** Optional provider reasoning-effort override selected at launch. */
     effort?: AgentEffort;
     /** @deprecated Compatibility bridge for snapshots and command builders. */
@@ -136,6 +142,15 @@ export interface Agent {
     worktree?: AgentWorktree;
     /** The terminal core session running this agent's TUI, which outlives the app. */
     ptyId?: number;
+    /** The character drawn for this agent. Without a pack and shape it follows the default style in settings. */
+    buddy?: AgentBuddy;
+}
+
+export interface AgentBuddy {
+    /** A slot in the pack's palette, given out so open agents rarely share one. */
+    color: number;
+    pack?: string;
+    shape?: string;
 }
 
 export interface AgentWorktree {
@@ -171,6 +186,8 @@ export interface AgentRuntimeState {
     confidence: "high" | "medium" | "low";
     reason: string;
     matchedRule?: string;
+    /** What the agent itself last said it was doing, while a question it put to the person shows it as waiting. */
+    reported?: AgentBackendState;
 }
 
 /** Identity Sikemux attaches to every shell it owns. Runtime-only. */
@@ -189,8 +206,22 @@ export interface PtyContext {
 }
 
 export type RailDensity = "comfortable" | "compact";
-/** Whether the agent rail lists the open project or every open project. */
-export type AgentRailScope = "project" | "all";
+/** What a message sent while the agent works does: goes into the running turn, or waits for it to end. */
+export type MidTurnSend = "steer" | "queue";
+/** Whether the tab rail lists the open project or every open project. */
+export type TabRailScope = "project" | "all";
+/** Which of its pages the tab rail shows: the project's agents, its terminals or its open files. */
+export type TabRailPage = "agents" | "terminals" | "files";
+
+/** A saved chat kept at the top of the tab rail, open or closed. */
+export interface PinnedChat {
+    agent: AgentType;
+    /** The agent's own id for the conversation, which resumes it. */
+    id: string;
+    title: string;
+    /** The project folder the chat ran in. */
+    project: string;
+}
 
 /** What the diff tab is reviewing: a changed file, or a whole commit. */
 export type DiffTarget = { kind: "worktree"; path: string } | { kind: "commit"; rev: string; subject: string };

@@ -1,0 +1,9 @@
+{
+  "title": "Reference",
+  "defaultOpen": true,
+  "pages": [
+    "keyboard-shortcuts",
+    "cli",
+    "mcp-tools"
+  ]
+}

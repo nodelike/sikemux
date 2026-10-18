@@ -86,9 +86,17 @@ export function ghosttyTheme(name: string, encoded: string, accent?: string): Th
     return { id: `ghostty-${slugify(name)}`, name, dark, chrome, editor, highlight, terminal };
 }
 
+/** The catalogue stores each theme's colours as base64 bytes; a theme with no selection colour has 20 colours instead of 21. */
+function unpack(packed: string): string {
+    const hex = Array.from(atob(packed), (char) => char.charCodeAt(0).toString(16).padStart(2, "0")).join("");
+    const colours = hex.match(/.{6}/g) ?? [];
+    if (colours.length === 20) colours.splice(4, 0, "");
+    return colours.join(",");
+}
+
 /** Ghostty's catalogue, minus any theme whose name matches one in `skipNames` once spaces and punctuation are ignored. */
 export function ghosttyThemes(skipNames: ReadonlySet<string>): ThemeColours[] {
     return Object.entries(GHOSTTY_THEMES)
         .filter(([name]) => !skipNames.has(slugify(name).replace(/-/g, "")))
-        .map(([name, encoded]) => ghosttyTheme(name, encoded));
+        .map(([name, packed]) => ghosttyTheme(name, unpack(packed)));
 }

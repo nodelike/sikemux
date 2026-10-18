@@ -10,14 +10,23 @@
 //!   cancel;
 //! - `exit CODE` ends the process at once;
 //! - `who` says which account the process runs as;
+//! - `run COMMAND` runs a shell command in the session's folder, as a tool
+//!   call, and says what it printed;
+//! - `tool METHOD JSON` calls one of Sikemux's agent tools, as the agent, and
+//!   says the answer;
 //! - anything else is echoed back.
+//!
+//! A message wrapped as one from another agent is read from its first line
+//! inside the wrapping.
 //!
 //! The account is `FAKE_ACP_ACCOUNT`. An account named in `FAKE_ACP_LIMITED`
 //! has run out of usage, and every turn on it fails the way Claude's adapter
-//! reports that. When `FAKE_ACP_SIGN_IN` names a file, the process reads who
-//! is signed in from it once, as it starts, and refuses every prompt while
-//! nobody was. With `FAKE_ACP_STRICT_LOAD` set, loading a session that never
-//! saved a turn fails the way Claude's adapter does.
+//! reports that, until the Unix time in milliseconds `FAKE_ACP_RESETS_AT`
+//! names, which the failure gives when set. When `FAKE_ACP_SIGN_IN` names a
+//! file, the process reads who is signed in from it once, as it starts, and
+//! refuses every prompt while nobody was. With `FAKE_ACP_STRICT_LOAD` set, loading a session that never
+//! saved a turn fails the way Claude's adapter does. While the file
+//! `FAKE_ACP_START_GATE` names exists, the agent does not finish starting.
 
 use std::collections::HashMap;
 use std::io::{BufRead, Write};
@@ -29,14 +38,23 @@ use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
 
+/// What a session was started with.
+#[derive(Clone, Default)]
+struct Session {
+    cwd: Option<PathBuf>,
+    /// The file naming the tool endpoint Sikemux handed the session.
+    endpoint: Option<PathBuf>,
+}
+
 struct Agent {
     out: Mutex<std::io::Stdout>,
+    sessions: Mutex<HashMap<String, Session>>,
     waiting: Mutex<HashMap<String, Sender<Value>>>,
     cancelled: AtomicBool,
     next_request: AtomicU64,
     model: Mutex<String>,
     account: String,
-    signed_in: bool,
+    signed_in: AtomicBool,
 }
 
 impl Agent {
@@ -146,8 +164,104 @@ fn prompt_text(params: &Value) -> String {
         .to_owned()
 }
 
+/// Runs `command` in the session's folder, answering what it printed.
+fn run_command(session: &Session, command: &str) -> String {
+    let mut shell = sikemux_process::user_environment::command("/bin/sh");
+    shell.args(["-c", command]);
+    if let Some(cwd) = &session.cwd {
+        shell.current_dir(cwd);
+    }
+    match shell.output() {
+        Ok(output) => format!(
+            "ran with status {}: {}{}",
+            output.status.code().unwrap_or(-1),
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        ),
+        Err(error) => format!("did not run: {error}"),
+    }
+}
+
+/// Calls one of Sikemux's agent tools over the endpoint the session names.
+fn call_tool(session: &Session, method: &str, params: &str) -> String {
+    use sikemux_core::cli::auth::new_nonce;
+    use sikemux_core::cli::protocol::{
+        CliClientCommand, CliClientHello, CliEndpointDescriptor, CliServerResponse, HarnessRequest,
+        CLI_PROTOCOL_VERSION,
+    };
+    let call = || -> Result<String, String> {
+        let endpoint = session.endpoint.as_ref().ok_or("no tool endpoint")?;
+        let descriptor: CliEndpointDescriptor =
+            serde_json::from_slice(&std::fs::read(endpoint).map_err(|error| error.to_string())?)
+                .map_err(|error| error.to_string())?;
+        let params: Value = serde_json::from_str(params).map_err(|error| error.to_string())?;
+        let stream = std::net::TcpStream::connect(("127.0.0.1", descriptor.port))
+            .map_err(|error| error.to_string())?;
+        let mut reader = std::io::BufReader::new(stream);
+        let mut send = |message: Value| -> Result<CliServerResponse, String> {
+            let mut line = serde_json::to_vec(&message).map_err(|error| error.to_string())?;
+            line.push(b'\n');
+            reader
+                .get_mut()
+                .write_all(&line)
+                .map_err(|error| error.to_string())?;
+            let mut answer = String::new();
+            reader
+                .read_line(&mut answer)
+                .map_err(|error| error.to_string())?;
+            serde_json::from_str(&answer).map_err(|error| error.to_string())
+        };
+        let hello = CliClientHello::Hello {
+            protocol: CLI_PROTOCOL_VERSION,
+            nonce: new_nonce(),
+        };
+        send(serde_json::to_value(hello).map_err(|error| error.to_string())?)?;
+        let command = CliClientCommand::Harness {
+            protocol: CLI_PROTOCOL_VERSION,
+            token: descriptor.token,
+            request: HarnessRequest {
+                id: format!("fake-{}", std::process::id()),
+                project: session
+                    .cwd
+                    .as_ref()
+                    .map(|cwd| cwd.to_string_lossy().into_owned())
+                    .unwrap_or_default(),
+                agent_id: None,
+                method: method.to_owned(),
+                params,
+            },
+        };
+        match send(serde_json::to_value(command).map_err(|error| error.to_string())?)? {
+            CliServerResponse::Result { value } => Ok(value.to_string()),
+            CliServerResponse::Error { message } => Err(message),
+            other => Err(format!("{other:?}")),
+        }
+    };
+    match call() {
+        Ok(answer) => format!("tool answered: {answer}"),
+        Err(error) => format!("tool failed: {error}"),
+    }
+}
+
+/// The line of `text` that says what to do: its first, or the first inside
+/// a message from another agent.
+fn command_line(text: &str) -> &str {
+    let mut lines = text.lines().map(str::trim);
+    match lines.next() {
+        Some(first) if first.starts_with('<') => lines.next().unwrap_or(text),
+        _ => text,
+    }
+}
+
 fn run_turn(agent: &Agent, session_id: &str, text: &str) -> &'static str {
-    let mut words = text.split_whitespace();
+    let session = agent
+        .sessions
+        .lock()
+        .ok()
+        .and_then(|sessions| sessions.get(session_id).cloned())
+        .unwrap_or_default();
+    let line = command_line(text);
+    let mut words = line.split_whitespace();
     let command = words.next().unwrap_or_default();
     let argument = words.next().and_then(|word| word.parse::<u64>().ok());
     let mut said = String::new();
@@ -237,6 +351,26 @@ fn run_turn(agent: &Agent, session_id: &str, text: &str) -> &'static str {
             say(&format!("account {}", agent.account));
             "end_turn"
         }
+        "run" => {
+            let command = line.trim_start().trim_start_matches("run").trim();
+            agent.update(
+                session_id,
+                json!({ "sessionUpdate": "tool_call", "toolCallId": "run-1", "title": command, "kind": "execute", "status": "in_progress" }),
+            );
+            let output = run_command(&session, command);
+            agent.update(
+                session_id,
+                json!({ "sessionUpdate": "tool_call_update", "toolCallId": "run-1", "status": "completed" }),
+            );
+            say(&output);
+            "end_turn"
+        }
+        "tool" => {
+            let rest = line.trim_start().trim_start_matches("tool").trim();
+            let (method, params) = rest.split_once(' ').unwrap_or((rest, "{}"));
+            say(&call_tool(&session, method, params.trim()));
+            "end_turn"
+        }
         _ => {
             say(&format!("echo: {text}"));
             "end_turn"
@@ -265,22 +399,50 @@ fn handle(agent: &Arc<Agent>, message: Value, sessions: &AtomicU64) {
     };
     let params = message.get("params").cloned().unwrap_or(Value::Null);
     match (method, id) {
-        ("initialize", Some(id)) => agent.reply(
-            &id,
-            json!({
+        ("initialize", Some(id)) => {
+            if let Some(gate) = std::env::var_os("FAKE_ACP_START_GATE") {
+                while std::path::Path::new(&gate).exists() {
+                    std::thread::sleep(Duration::from_millis(20));
+                }
+            }
+            let mut answer = json!({
                 "protocolVersion": 1,
                 "agentCapabilities": {
                     "loadSession": true,
                     "promptCapabilities": { "embeddedContext": true },
                 },
-            }),
-        ),
+            });
+            if params["clientCapabilities"]["auth"]["terminal"] == true {
+                answer["authMethods"] = json!([
+                    { "type": "terminal", "id": "fake-login", "name": "Log in", "args": ["login"] },
+                    { "id": "fake-key", "name": "API key", "description": "Use a key from the environment" },
+                    { "id": "elsewhere", "name": "Elsewhere", "_meta": { "terminal-auth": { "command": "/bin/elsewhere", "args": [] } } },
+                ]);
+            }
+            agent.reply(&id, answer);
+        }
         ("session/new", Some(id)) => {
             let session_id = format!(
                 "fake-{}-{}",
                 std::process::id(),
                 sessions.fetch_add(1, Ordering::Relaxed)
             );
+            let endpoint = params["mcpServers"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .flat_map(|server| server["env"].as_array().cloned().unwrap_or_default())
+                .find(|variable| variable["name"] == "SIKEMUX_CLI_ENDPOINT")
+                .and_then(|variable| variable["value"].as_str().map(PathBuf::from));
+            if let Ok(mut known) = agent.sessions.lock() {
+                known.insert(
+                    session_id.clone(),
+                    Session {
+                        cwd: params["cwd"].as_str().map(PathBuf::from),
+                        endpoint,
+                    },
+                );
+            }
             agent.reply(
                 &id,
                 json!({ "sessionId": session_id, "configOptions": agent.config() }),
@@ -302,11 +464,17 @@ fn handle(agent: &Arc<Agent>, message: Value, sessions: &AtomicU64) {
             replay_history(agent, &session_id);
             agent.reply(&id, json!({ "configOptions": agent.config() }));
         }
-        ("session/prompt", Some(id)) if !agent.signed_in => agent.send(json!({
-            "jsonrpc": "2.0",
-            "id": id,
-            "error": { "code": -32000, "message": "Authentication required" },
-        })),
+        ("authenticate", Some(id)) if params["methodId"] == "fake-key" => {
+            agent.signed_in.store(true, Ordering::Relaxed);
+            agent.reply(&id, json!({}));
+        }
+        ("session/prompt", Some(id)) if !agent.signed_in.load(Ordering::Relaxed) => {
+            agent.send(json!({
+                "jsonrpc": "2.0",
+                "id": id,
+                "error": { "code": -32000, "message": "Authentication required" },
+            }))
+        }
         ("session/prompt", Some(id)) if limited(&agent.account) => {
             let session_id = params["sessionId"].as_str().unwrap_or_default().to_owned();
             record(&session_id, "user", &prompt_text(&params));
@@ -321,6 +489,7 @@ fn handle(agent: &Arc<Agent>, message: Value, sessions: &AtomicU64) {
                         "severity": "error",
                         "title": format!("{} hit its usage limit", agent.account),
                         "actions": [],
+                        "resetsAt": resets_at(),
                     } } } },
                 }),
             );
@@ -355,10 +524,19 @@ fn handle(agent: &Arc<Agent>, message: Value, sessions: &AtomicU64) {
 }
 
 fn limited(account: &str) -> bool {
-    std::env::var("FAKE_ACP_LIMITED")
-        .unwrap_or_default()
-        .split(',')
-        .any(|limited| limited == account)
+    let reset = resets_at().is_some_and(|at| {
+        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH);
+        now.is_ok_and(|now| now.as_millis() >= u128::from(at))
+    });
+    !reset
+        && std::env::var("FAKE_ACP_LIMITED")
+            .unwrap_or_default()
+            .split(',')
+            .any(|limited| limited == account)
+}
+
+fn resets_at() -> Option<u64> {
+    std::env::var("FAKE_ACP_RESETS_AT").ok()?.parse().ok()
 }
 
 fn main() {
@@ -368,12 +546,13 @@ fn main() {
     };
     let agent = Arc::new(Agent {
         out: Mutex::new(std::io::stdout()),
+        sessions: Mutex::new(HashMap::new()),
         waiting: Mutex::new(HashMap::new()),
         cancelled: AtomicBool::new(false),
         next_request: AtomicU64::new(1),
         model: Mutex::new("fast".into()),
         account: std::env::var("FAKE_ACP_ACCOUNT").unwrap_or_else(|_| "main".into()),
-        signed_in,
+        signed_in: AtomicBool::new(signed_in),
     });
     let sessions = AtomicU64::new(1);
     for line in std::io::stdin().lock().lines() {

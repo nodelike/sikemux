@@ -5,7 +5,7 @@ import type { Agent, AgentEffort, AgentPermissionMode, AgentType, ProviderProfil
 
 type LaunchOptions = { model?: string; effort?: AgentEffort; configPath?: string; environmentKeys?: string[] };
 
-function shellQuote(value: string): string {
+export function shellQuote(value: string): string {
     if (/^[A-Za-z0-9_./:=@+-]+$/.test(value)) return value;
     if (IS_WINDOWS) return `'${value.replace(/'/g, "''")}'`;
     return `'${value.replace(/'/g, "'\\''")}'`;
