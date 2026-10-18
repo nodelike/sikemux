@@ -5,7 +5,9 @@ import type { Notification } from "../api";
 
 const api = vi.hoisted(() => ({
     inbox: vi.fn(),
-    status: vi.fn(() => Promise.resolve({ id: "work", ok: true, login: "me", avatarUrl: null, host: "example.test", canWriteCi: true, warning: null })),
+    status: vi.fn(() =>
+        Promise.resolve({ id: "work", ok: true, login: "me", avatarUrl: null, host: "example.test", canWriteCi: true, warning: null }),
+    ),
     markRead: vi.fn(),
     issue: vi.fn(),
     timeline: vi.fn(() => Promise.resolve([])),
