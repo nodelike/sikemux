@@ -1,4 +1,5 @@
 import { RunChip } from "../tasks/RunChip";
+import { useProjectRepo } from "../git/projectRepo";
 import { memo, useState, type MouseEvent as ReactMouseEvent } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useBattery } from "../hooks/useBattery";
@@ -58,6 +59,12 @@ function twelveHour(d: Date): { h: number; m: number; ap: "am" | "pm" } {
  * reads. Asking for a status of its own made the backend do the recursive
  * untracked walk a second time on every file change, for one chip.
  */
+/** The chip for the repository the project's Git views use, which may sit inside the project folder. */
+function ProjectGitChip({ project }: { project: string }) {
+    const { repo } = useProjectRepo(project);
+    return repo ? <GitChip repo={repo} /> : null;
+}
+
 function GitChip({ repo }: { repo: string }) {
     const res = useResource(gitOverviewR, repo);
     const remote = useResource(remoteRepoR, repo).data ?? null;
@@ -166,7 +173,7 @@ export const TopBar = memo(function TopBar() {
 
             <div className="tb-right" onPointerEnter={() => setStripHovered(true)}>
                 <VoicePill />
-                {isProject && session.cwd && <GitChip repo={session.cwd} />}
+                {isProject && session.cwd && <ProjectGitChip project={session.cwd} />}
                 {isProject && session.cwd && <RunChip sessionId={session.id} project={session.cwd} />}
                 {isProject && session.cwd && <PortsChip sessionId={session.id} />}
                 {plugins.map(({ id, TopBarItem }) =>

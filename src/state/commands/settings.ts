@@ -76,6 +76,14 @@ export const setLanguageServerTrust = (project: string, allowed: boolean): void 
 export const setAgentWorktreeDefault = (project: string, on: boolean): void =>
     setState((s) => ({ agentWorktreeDefaults: { ...s.agentWorktreeDefaults, [project]: on } }));
 
+/** Null clears it, so the project's Git views go back to asking. */
+export function setDefaultGitRepo(project: string, repo: string | null): void {
+    setState((s) => {
+        const { [project]: _cleared, ...rest } = s.defaultGitRepos;
+        return { defaultGitRepos: repo ? { ...rest, [project]: repo } : rest };
+    });
+}
+
 export function setKeybinding(id: import("../../commands/keybindings").KeybindingActionId, binding: string | null): void {
     setState((s) => ({ keybindingOverrides: { ...s.keybindingOverrides, [id]: binding } }));
 }

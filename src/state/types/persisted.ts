@@ -123,4 +123,5 @@ export interface PersistedPrefs {
     lastAgentType?: AgentType | null;
     languageServerTrust?: Record<string, boolean>;
     agentWorktreeDefaults?: Record<string, boolean>;
+    defaultGitRepos?: Record<string, string>;
 }

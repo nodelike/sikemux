@@ -1,4 +1,5 @@
 import { lazy, memo, Suspense, useCallback, useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from "react";
+import { defaultRepoAmong, isMissingRepository } from "./projectRepo";
 import {
     git,
     hasUnstaged,
@@ -44,6 +45,7 @@ import {
     IconFetch,
     IconFile,
     IconGit,
+    IconStar,
     IconKeyboard,
     IconLink,
     IconLogLines,
@@ -1882,13 +1884,10 @@ function MoreButton({
     );
 }
 
-function isMissingRepository(error: string | null | undefined): boolean {
-    return !!error && /could not find repository/i.test(error);
-}
-
 function GitRepoPicker({ paneId, root, active }: { paneId: string; root: string; active: boolean }) {
     const discovered = useCachedResourceEnabled(active && !!root, gitDiscoveredReposR, root || "");
     const repos = discovered.data ?? [];
+    const chosen = useStore((s) => s.defaultGitRepos[root]);
 
     if (discovered.status === "loading" && !discovered.data) {
         return (
@@ -1926,8 +1925,8 @@ function GitRepoPicker({ paneId, root, active }: { paneId: string; root: string;
             </div>
             <ul className="git-repo-list">
                 {repos.map((entry) => (
-                    <li key={entry.path}>
-                        <button type="button" className="git-repo-row" onClick={() => cmd.setGitView(paneId, { repo: entry.path })}>
+                    <li key={entry.path} className="git-repo-item">
+                        <button type="button" className="git-repo-row" onClick={() => cmd.setGitView(paneId, { repo: entry.path, listing: false })}>
                             <IconGit size={13} className={`git-repo-icon${entry.changes > 0 ? " dirty" : ""}`} />
                             <span className="git-repo-name">{entry.name}</span>
                             <span className="git-repo-branch">{entry.branch || "no commits"}</span>
@@ -1935,6 +1934,16 @@ function GitRepoPicker({ paneId, root, active }: { paneId: string; root: string;
                             {entry.behind > 0 && <span className="git-repo-sync">{entry.behind}↓</span>}
                             <span className={`git-repo-changes${entry.changes > 0 ? " dirty" : ""}`}>{entry.changes > 0 ? entry.changes : "—"}</span>
                         </button>
+                        <Tooltip label={chosen === entry.path ? "Opened by default; click to stop" : "Open this one by default in this project"}>
+                            <button
+                                type="button"
+                                className={`git-repo-default${chosen === entry.path ? " on" : ""}`}
+                                aria-pressed={chosen === entry.path}
+                                aria-label="Open by default"
+                                onClick={() => cmd.setDefaultGitRepo(root, chosen === entry.path ? null : entry.path)}>
+                                <IconStar size={12} />
+                            </button>
+                        </Tooltip>
                     </li>
                 ))}
             </ul>
@@ -1968,21 +1977,26 @@ function useSettled(active: boolean): boolean {
 export function GitPane({ paneId, cwd, active, visible }: { paneId: string; cwd: string; active: boolean; visible: boolean }) {
     const fetching = useSettled(visible);
     const selectedRepo = useStore((s) => s.gitViews[paneId]?.repo ?? null);
+    const listing = useStore((s) => s.gitViews[paneId]?.listing ?? false);
+    const chosen = useStore((s) => s.defaultGitRepos[cwd]);
     const rootOverview = useCachedResourceEnabled(fetching && !!cwd && !selectedRepo, gitOverviewR, cwd || "");
     const settledRoot = useRef<{ cwd: string; missing: boolean } | null>(null);
     if (rootOverview.status !== "loading") {
         settledRoot.current = { cwd, missing: rootOverview.status === "error" && !rootOverview.data && isMissingRepository(rootOverview.error) };
     }
     const rootMissing = settledRoot.current?.cwd === cwd && settledRoot.current.missing;
+    const discovered = useCachedResourceEnabled(fetching && rootMissing && !selectedRepo, gitDiscoveredReposR, cwd || "");
+    const fallback = rootMissing && discovered.data ? defaultRepoAmong(chosen, discovered.data) : null;
 
-    if (!selectedRepo && rootMissing) return <GitRepoPicker paneId={paneId} root={cwd} active={fetching} />;
+    if (!selectedRepo && rootMissing && (listing || !fallback)) return <GitRepoPicker paneId={paneId} root={cwd} active={fetching} />;
+    const repo = selectedRepo ?? fallback ?? cwd;
     return (
         <GitWorkbench
             paneId={paneId}
-            repo={selectedRepo ?? cwd}
+            repo={repo}
             active={active}
             fetching={fetching}
-            onLeaveRepo={selectedRepo ? () => cmd.setGitView(paneId, { repo: null }) : null}
+            onLeaveRepo={repo !== cwd ? () => cmd.setGitView(paneId, { repo: null, listing: true }) : null}
         />
     );
 }

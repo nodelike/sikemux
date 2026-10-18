@@ -1,10 +1,11 @@
 import { IS_MACOS } from "../lib/platform";
 
 export type SettingsPageId =
-    "general" | "appearance" | "keybindings" | "activity" | "about" | "agents" | "actions" | "cli" | "devices" | "cloud" | "plugins";
+    "general" | "project" | "appearance" | "keybindings" | "activity" | "about" | "agents" | "actions" | "cli" | "devices" | "cloud" | "plugins";
 
 export const SETTINGS_GROUPS: { label: string; pages: SettingsPageId[] }[] = [
     { label: "App", pages: ["general", "appearance", "keybindings", "activity", "about"] },
+    { label: "Project", pages: ["project"] },
     { label: "Tools", pages: ["agents", "actions", "cli", "devices", "cloud", "plugins"] },
 ];
 
@@ -12,6 +13,7 @@ export const SETTINGS_PAGE_ORDER: SettingsPageId[] = SETTINGS_GROUPS.flatMap((gr
 
 export const SETTINGS_PAGE_NAMES: Record<SettingsPageId, string> = {
     general: "General",
+    project: "This project",
     appearance: "Appearance",
     keybindings: "Keybindings",
     activity: "Activity",
@@ -60,6 +62,8 @@ export const SETTINGS_INDEX: SettingsEntry[] = [
     ),
     section("general", "Project folders", "repos repositories directories roots scan depth index picker"),
     section("general", "Session transfer", "export import clipboard move machine bundle copy"),
+
+    section("project", "Default git repository", "git repos repositories several multiple monorepo folder branch worktree diff"),
 
     section("appearance", "Theme", "colours colors palette dark light custom fork editor"),
     section("appearance", "Interface"),

@@ -120,6 +120,8 @@ export interface GitPaneView {
     historyHeight: number | null;
     /** A repository found inside the project folder, when the folder is not one itself. */
     repo: string | null;
+    /** The person went back to the list of repositories, so the project's default does not open on its own. */
+    listing: boolean;
 }
 
 export const DEFAULT_GIT_VIEW: GitPaneView = {
@@ -131,6 +133,7 @@ export const DEFAULT_GIT_VIEW: GitPaneView = {
     historyOpen: true,
     historyHeight: null,
     repo: null,
+    listing: false,
 };
 
 export interface GlobalSearchView {
