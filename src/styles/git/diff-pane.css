@@ -36,6 +36,47 @@
     overflow-y: auto;
     flex: 1 1 auto;
 }
+.git-repo-item {
+    display: flex;
+    align-items: center;
+    gap: var(--space-1);
+    padding-right: var(--space-2);
+}
+.git-repo-item > .git-repo-row {
+    flex: 1;
+    min-width: 0;
+}
+.git-repo-default {
+    flex: none;
+    width: 22px;
+    height: 22px;
+    padding: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    border: 1px solid transparent;
+    color: var(--text-tertiary);
+    cursor: pointer;
+    opacity: 0;
+}
+.git-repo-item:hover .git-repo-default,
+.git-repo-default:focus-visible,
+.git-repo-default.on {
+    opacity: 1;
+}
+.git-repo-default:hover {
+    background: var(--surface-hover);
+    color: var(--text-primary);
+}
+.git-repo-default.on {
+    background: var(--surface-selected);
+    border-color: var(--border-selected);
+    color: var(--text-primary);
+}
+.git-repo-default.on svg {
+    fill: currentColor;
+}
 .git-repo-row {
     display: flex;
     align-items: center;

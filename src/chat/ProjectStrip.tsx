@@ -1,4 +1,5 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { useProjectRepo } from "../git/projectRepo";
 import { fuzzyScore, isSubstringMatch } from "../lib/fuzzy";
 import { leavingMenu } from "../lib/motion";
 import { basename, prettyPath } from "../lib/paths";
@@ -136,7 +137,8 @@ export function ProjectStrip({
     worktree: { state: WorktreeSwitchState; toggle: () => void };
 }) {
     const home = useStore((s) => s.home);
-    const branch = useResource(gitOverviewR, cwd).data?.status?.branch;
+    const repo = useProjectRepo(cwd).repo ?? cwd;
+    const branch = useResource(gitOverviewR, repo).data?.status?.branch;
     const [open, setOpen] = useState(false);
     const root = useRef<HTMLDivElement>(null);
     const trigger = useRef<HTMLButtonElement>(null);

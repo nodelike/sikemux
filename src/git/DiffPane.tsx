@@ -8,11 +8,13 @@ import { reportError } from "../state/toast";
 import { CommitReview } from "./CommitReview";
 import { MergeReview } from "./MergeReview";
 import { useChangeOwners } from "./changeOwners";
+import { useProjectRepo } from "./projectRepo";
 import { invalidateDiffContentCache } from "./DiffEditor";
 
-export function DiffPane({ cwd, visible }: { cwd: string; visible: boolean }) {
+export function DiffPane({ cwd: project, visible }: { cwd: string; visible: boolean }) {
+    const target = useStore((s) => s.diffTarget[project] ?? null);
+    const cwd = useProjectRepo(project, visible).repo ?? project;
     const overview = useCachedResourceEnabled(visible && !!cwd, gitOverviewR, cwd || "");
-    const target = useStore((s) => s.diffTarget[cwd] ?? null);
     const files = useMemo(() => overview.data?.status.files ?? [], [overview.data]);
     const owners = useChangeOwners(cwd, false, visible && !!cwd);
     const stagedOwners = useChangeOwners(cwd, true, visible && files.some((file) => isStaged(file) && hasUnstaged(file)));

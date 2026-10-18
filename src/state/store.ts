@@ -133,6 +133,8 @@ export interface DomainState {
     languageServerTrust: Record<string, boolean>;
     /** Whether a new chat in each project, by root path, starts with its Worktree switch on. */
     agentWorktreeDefaults: Record<string, boolean>;
+    /** For a project folder that holds several repositories, by root path, the one its Git views open. */
+    defaultGitRepos: Record<string, string>;
 }
 
 export type UpdateOperationState = "available" | "waiting" | "preparing" | "downloading" | "installing" | "restarting" | "error";
@@ -332,6 +334,7 @@ export const useStore = create<StoreState>(() => {
         lastAgentType: null,
         languageServerTrust: {},
         agentWorktreeDefaults: {},
+        defaultGitRepos: {},
 
         home: "",
         pluginManifests: [],

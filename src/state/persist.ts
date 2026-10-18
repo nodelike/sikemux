@@ -162,6 +162,7 @@ const PERSISTED_KEYS = [
     "lastAgentType",
     "languageServerTrust",
     "agentWorktreeDefaults",
+    "defaultGitRepos",
 ] as const satisfies readonly (keyof StoreState)[];
 type PersistedKey = (typeof PERSISTED_KEYS)[number];
 type SliceShot = { [K in PersistedKey]: StoreState[K] };
@@ -233,6 +234,7 @@ function packPrefs(s: StoreState): PersistedPrefs {
         lastAgentType: s.lastAgentType,
         languageServerTrust: s.languageServerTrust,
         agentWorktreeDefaults: s.agentWorktreeDefaults,
+        defaultGitRepos: s.defaultGitRepos,
     };
 }
 
@@ -975,6 +977,11 @@ function booleansByPath(value: unknown): Record<string, boolean> {
     return Object.fromEntries(Object.entries(value).filter((entry): entry is [string, boolean] => typeof entry[1] === "boolean"));
 }
 
+function stringsByPath(value: unknown): Record<string, string> {
+    if (!isRecord(value)) return {};
+    return Object.fromEntries(Object.entries(value).filter((entry): entry is [string, string] => typeof entry[1] === "string"));
+}
+
 function normalisePluginSettings(value: unknown): Record<string, unknown> {
     if (!isRecord(value)) return {};
     return Object.fromEntries(Object.entries(value).filter(([id]) => isPluginId(id)));
@@ -1285,6 +1292,7 @@ export function applyHydrate(raw: string, accounts?: AgentAccountBook | null): H
         lastAgentType: isAgentType(prefs.lastAgentType) ? prefs.lastAgentType : null,
         languageServerTrust: booleansByPath(prefs.languageServerTrust),
         agentWorktreeDefaults: booleansByPath(prefs.agentWorktreeDefaults),
+        defaultGitRepos: stringsByPath(prefs.defaultGitRepos),
     });
     pruneOnDemandWindows();
     registerCustomThemes(getState().customThemes);

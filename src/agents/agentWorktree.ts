@@ -14,6 +14,7 @@ import { agentWindowId, ownerSessionId } from "../state/selectors";
 import { getState } from "../state/store";
 import { errMessage, notify } from "../state/toast";
 import type { AgentWorktree } from "../state/types";
+import { defaultRepoAmong, isMissingRepository } from "../git/projectRepo";
 import { copyWorktreeIncludes } from "./worktreeInclude";
 import { branchSlug, cwdInWorktree, cwdOutsideWorktree, pickWorktreeTarget, worktreeCandidates } from "./worktreePlan";
 
@@ -31,6 +32,22 @@ function refreshWorktrees(repo: string): void {
     emit({ type: "git-refresh", repo });
 }
 
+/**
+ * The project's checkouts, from its folder when it is in a repository, or else
+ * from the repository the person chose among those directly inside it.
+ */
+async function checkoutsOf(projectCwd: string): Promise<{ repo: string; worktrees: Awaited<ReturnType<typeof git.worktrees>> }> {
+    try {
+        return { repo: projectCwd, worktrees: await git.worktrees(projectCwd) };
+    } catch (error) {
+        if (!isMissingRepository(errMessage(error))) throw error;
+    }
+    const repo = defaultRepoAmong(getState().defaultGitRepos[projectCwd], await git.discoverRepos(projectCwd));
+    if (!repo)
+        throw new Error("This folder holds several repositories. Star the one to use in the Git pane's list, or pick it in Settings → Project.");
+    return { repo, worktrees: await git.worktrees(repo) };
+}
+
 /** Cuts a new branch off the project's HEAD into a checkout beside the repository, then runs the project's worktree setup in it. */
 export async function createAgentWorktree({
     agentId,
@@ -44,7 +61,8 @@ export async function createAgentWorktree({
     onStep: (step: string) => void;
 }): Promise<PreparedWorktree> {
     onStep("Creating worktree");
-    const [worktrees, branches] = await Promise.all([git.worktrees(projectCwd), git.branches(projectCwd)]);
+    const { repo, worktrees } = await checkoutsOf(projectCwd);
+    const branches = await git.branches(repo);
     const main = worktrees.find((worktree) => worktree.is_main);
     const current = worktrees.find((worktree) => worktree.current);
     if (!main || !current?.head) throw new Error("The project has no commit to branch from");
@@ -56,10 +74,10 @@ export async function createAgentWorktree({
     ]);
     const target = pickWorktreeTarget(candidates, new Set(branches.map((branch) => branch.name)), takenPaths);
     if (!target) throw new Error("Every worktree name for this message is already taken");
-    const created = await git.worktreeCreate(projectCwd, { path: target.path, branch: target.branch, createBranch: true, startPoint: current.head });
+    const created = await git.worktreeCreate(repo, { path: target.path, branch: target.branch, createBranch: true, startPoint: current.head });
     const worktree: AgentWorktree = { repo: main.path, path: created.path, branch: target.branch, base: current.branch, startSha: current.head };
     refreshWorktrees(main.path);
-    const cwd = cwdInWorktree(created.path, projectCwd, current.path);
+    const cwd = cwdInWorktree(created.path, repo === projectCwd ? projectCwd : repo, current.path);
     await copyWorktreeIncludes(main.path, created.path).catch((failure: unknown) => notify("error", `Copy .env files: ${errMessage(failure)}`));
     const setupError = await runWorktreeSetup(agentId, projectCwd, cwd, onStep);
     return { worktree, cwd, setupError };
