@@ -203,7 +203,10 @@ impl EventSink for AppSink {
                     None => self.emit("core_changed", change),
                 }
             }
-            Event::Attention { .. } | Event::AttentionCleared { .. } => {}
+            Event::AttentionCleared { id, agent_id } => {
+                crate::acp::permission_cleared(&self.app, &agent_id, id)
+            }
+            Event::Attention { .. } => {}
         }
     }
 

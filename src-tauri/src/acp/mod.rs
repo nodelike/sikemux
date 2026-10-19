@@ -94,6 +94,16 @@ pub(crate) fn deliver(app: &AppHandle, agent_id: &str, event: ChatEvent) {
     emit(app, agent_id, kind_name(event.kind), event.payload);
 }
 
+/// A permission request was answered or withdrawn, wherever that happened.
+pub(crate) fn permission_cleared(app: &AppHandle, agent_id: &str, request_id: String) {
+    emit(
+        app,
+        agent_id,
+        "permission_cleared",
+        json!({ "requestId": request_id }),
+    );
+}
+
 /// Replays a chat to the page as the events it would have heard, with
 /// streamed updates sent in large batches.
 fn replay(app: &AppHandle, agent_id: &str, events: Vec<ChatEvent>) {

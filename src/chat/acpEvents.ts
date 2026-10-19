@@ -85,6 +85,8 @@ export function chatActions(event: ChatEvent): ChatAction[] {
             const request = permissionRequest(payload);
             return request ? [{ type: "permission_requested", request }] : [];
         }
+        case "permission_cleared":
+            return typeof payload.requestId === "string" ? [{ type: "permission_cleared", requestId: payload.requestId }] : [];
         case "error":
             return [
                 { type: "error", message: typeof payload.message === "string" ? payload.message : "The agent stopped.", failure: failureOf(event) },
