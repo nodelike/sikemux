@@ -273,7 +273,9 @@ export function AgentChatPane({
             await acpApi.permissionReply(agent.id, requestId, optionId);
             dispatch({ type: "permission_cleared", requestId });
         } catch (error) {
-            setComposerError(errorText(error));
+            const message = errorText(error);
+            if (/no longer pending/.test(message)) dispatch({ type: "permission_cleared", requestId });
+            else setComposerError(message);
         } finally {
             setReplyingPermission(null);
         }
