@@ -1,6 +1,4 @@
-import { useEffect, useState } from "react";
 import { coreCall } from "../api/core";
-import { onCoreChanged } from "../api/coreChanged";
 
 export type SuggestionKind = "variable" | "environment" | "agentEnvironment" | "done" | "task" | "note" | "guardrail" | "service";
 
@@ -25,28 +23,6 @@ export interface Suggestion {
 }
 
 export const isPending = (suggestion: Suggestion) => suggestion.changes.some((change) => change.status === "pending");
-
-/** What agents suggested for the project's settings, read again whenever an agent sends more. */
-export function useProjectSuggestions(project: string): { suggestions: readonly Suggestion[]; refresh: () => void } {
-    const [found, setFound] = useState<{ project: string; suggestions: Suggestion[] } | null>(null);
-    const [version, setVersion] = useState(0);
-    useEffect(() => onCoreChanged("suggestions", () => setVersion((current) => current + 1)), []);
-    useEffect(() => {
-        let cancelled = false;
-        void coreCall<Suggestion[]>("projectSuggestions", { project })
-            .then((suggestions) => {
-                if (!cancelled) setFound({ project, suggestions });
-            })
-            .catch(() => {});
-        return () => {
-            cancelled = true;
-        };
-    }, [project, version]);
-    return {
-        suggestions: found?.project === project ? found.suggestions : [],
-        refresh: () => setVersion((current) => current + 1),
-    };
-}
 
 /** Applies the changes named and discards the rest of the suggestion. */
 export function answerSuggestion(project: string, id: string, apply: readonly string[]): Promise<void> {

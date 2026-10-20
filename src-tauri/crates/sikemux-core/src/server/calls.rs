@@ -261,7 +261,6 @@ pub(crate) async fn call(
         "javaRuntimes" => answer(blocking(|| Ok(crate::tasks::java::runtimes())).await?),
         "projectSuggestions" => answer(super::suggestions::list(&core, parse(params)?).await?),
         "answerSuggestion" => answer(super::suggestions::answer(&core, parse(params)?).await?),
-        "setProjectRules" => answer(workspace::set_project_rules(&core, parse(params)?)?),
         "projectBrief" => {
             let params: ProjectParams = parse(params)?;
             let core = core.clone();
@@ -270,7 +269,7 @@ pub(crate) async fn call(
                     .await?,
             )
         }
-        "setFolderSettings" => answer(workspace::set_folder_settings(&core, parse(params)?)?),
+        "changeProjectSettings" => answer(workspace::change_project(&core, parse(params)?)?),
         "untrustProject" => {
             let params: ProjectParams = parse(params)?;
             answer(super::tasks::untrust_project(&core, params.project).await?)

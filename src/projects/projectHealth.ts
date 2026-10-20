@@ -1,8 +1,7 @@
-import { useEffect, useState } from "react";
-import { coreCall } from "../api/core";
 import { notify, reportError } from "../state/toast";
 import { tasksApi, useTaskRuns, type TaskRun } from "../tasks/coreTasks";
 import type { FolderSettings, ProjectFolder } from "./projectFolders";
+import type { JavaRuntime } from "./projectResources";
 
 export type CheckState = "never" | "running" | "passed" | "failed";
 
@@ -60,22 +59,6 @@ export async function checkSetup(project: string, taskIds: readonly string[]): P
         });
         if (started && "checks" in started) notify("error", `${taskId} could not start: ${started.checks.map((check) => check.title).join("; ")}`);
     }
-}
-
-interface JavaRuntime {
-    home: string;
-    major: number;
-}
-
-export function useJavaRuntimes(enabled: boolean): readonly JavaRuntime[] | null {
-    const [runtimes, setRuntimes] = useState<JavaRuntime[] | null>(null);
-    useEffect(() => {
-        if (!enabled) return;
-        void coreCall<{ installed: JavaRuntime[] }>("javaRuntimes")
-            .then((found) => setRuntimes(found.installed))
-            .catch(() => setRuntimes([]));
-    }, [enabled]);
-    return runtimes;
 }
 
 /** A setting that no longer matches what the folder's own files ask for, with the change that fixes it. */

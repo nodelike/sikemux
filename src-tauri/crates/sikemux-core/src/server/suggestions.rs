@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 use super::connection::blocking;
+use super::workspace::{project::Guardrail, Change as setting};
 use super::{Core, CoreError, CoreResult};
 use crate::cli::protocol::HarnessRequest;
 
@@ -190,7 +191,7 @@ pub(crate) struct AnswerParams {
 pub(crate) async fn answer(core: &Arc<Core>, params: AnswerParams) -> CoreResult<()> {
     let suggestion = core
         .workspaces
-        .suggestions(&canonical(&params.project))
+        .suggestions(&params.project)
         .into_iter()
         .find(|suggestion| suggestion.id == params.id)
         .ok_or_else(|| CoreError::from("that suggestion is gone"))?;
@@ -204,7 +205,7 @@ pub(crate) async fn answer(core: &Arc<Core>, params: AnswerParams) -> CoreResult
         applied.push(change.id.clone());
     }
     core.workspaces
-        .settle_suggestion(&canonical(&params.project), &params.id, &applied)?;
+        .settle_suggestion(&params.project, &params.id, &applied)?;
     core.changes
         .changed("suggestions", Some(&params.project), None);
     Ok(())
@@ -212,63 +213,50 @@ pub(crate) async fn answer(core: &Arc<Core>, params: AnswerParams) -> CoreResult
 
 async fn apply(core: &Arc<Core>, project: &str, change: &Change) -> CoreResult<()> {
     let value = change.value.clone().unwrap_or_default();
-    if change.kind == "task" {
-        let added = serde_json::from_value(json!({
-            "project": project,
-            "label": change.key.clone().unwrap_or_default(),
-            "command": value,
-            "cwd": change.folder,
-            "team": false,
-        }))
-        .map_err(|error| CoreError::from(error.to_string()))?;
-        super::tasks::add(core, added).await?;
-        return Ok(());
-    }
-    if matches!(change.kind.as_str(), "note" | "guardrail") {
-        let mut rules = core.workspaces.project_rules(project);
-        match (change.kind.as_str(), change.key.as_deref()) {
-            ("note", _) => {
-                rules.notes = [rules.notes.trim(), value.trim()]
-                    .into_iter()
-                    .filter(|line| !line.is_empty())
-                    .collect::<Vec<_>>()
-                    .join("\n");
-            }
-            (_, Some("neverEdit")) => push_new(&mut rules.never_edit, value),
-            (_, Some("askBefore")) => push_new(&mut rules.ask_before, value),
-            (_, Some("neverRun")) => push_new(&mut rules.never_run, value),
-            _ => {}
+    let key = change.key.clone().unwrap_or_default();
+    let setting = match change.kind.as_str() {
+        "task" => {
+            let added = serde_json::from_value(json!({
+                "project": project,
+                "label": key,
+                "command": value,
+                "cwd": change.folder,
+                "team": false,
+            }))
+            .map_err(|error| CoreError::from(error.to_string()))?;
+            super::tasks::add(core, added).await?;
+            return Ok(());
         }
-        return core.workspaces.set_project_rules(project.to_owned(), rules);
-    }
-    let mut settings = core
-        .workspaces
-        .folder_settings(project)
-        .remove(&change.folder)
-        .unwrap_or_default();
-    match change.kind.as_str() {
-        "variable" => {
-            let key = change.key.clone().unwrap_or_default();
-            if value.is_empty() {
-                settings.env.remove(&key);
-            } else {
-                settings.env.insert(key, value);
-            }
-        }
-        "environment" => settings.environment = Some(value),
-        "agentEnvironment" => settings.agent_environment = Some(value),
-        "done" => push_new(&mut settings.done, value),
-        "service" => push_new(&mut settings.services, value),
-        _ => {}
-    }
+        "variable" => setting::Variable {
+            key,
+            value: (!value.is_empty()).then_some(value),
+        },
+        "environment" => setting::Environment { value: Some(value) },
+        "agentEnvironment" => setting::AgentEnvironment { value: Some(value) },
+        "done" => setting::Done {
+            task: value,
+            on: true,
+        },
+        "service" => setting::Service {
+            name: value,
+            on: true,
+        },
+        "note" => setting::AddNote { text: value },
+        "guardrail" => setting::Guardrail {
+            list: match key.as_str() {
+                "neverEdit" => Guardrail::NeverEdit,
+                "askBefore" => Guardrail::AskBefore,
+                _ => Guardrail::NeverRun,
+            },
+            pattern: value,
+            on: true,
+        },
+        other => return Err(format!("{other} is not a kind of change").into()),
+    };
     core.workspaces
-        .set_folder_settings(project.to_owned(), change.folder.clone(), settings)
-}
-
-fn push_new(list: &mut Vec<String>, value: String) {
-    if !list.contains(&value) {
-        list.push(value);
-    }
+        .change_project(project, &change.folder, setting)?;
+    core.changes.changed("projectSettings", Some(project), None);
+    Ok(())
 }
 
 #[derive(Deserialize)]
@@ -278,12 +266,5 @@ pub(crate) struct ListParams {
 
 pub(crate) async fn list(core: &Arc<Core>, params: ListParams) -> CoreResult<Vec<Suggestion>> {
     let core = core.clone();
-    blocking(move || Ok(core.workspaces.suggestions(&canonical(&params.project)))).await
-}
-
-/// Agents name the project by its real path; the window by the folder it opened.
-fn canonical(project: &str) -> String {
-    std::fs::canonicalize(project)
-        .map(|path| path.to_string_lossy().into_owned())
-        .unwrap_or_else(|_| project.to_owned())
+    blocking(move || Ok(core.workspaces.suggestions(&params.project))).await
 }

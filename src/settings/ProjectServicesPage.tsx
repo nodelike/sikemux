@@ -1,40 +1,11 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { coreCall } from "../api/core";
-import { folderName, saveFolderSettings, type FolderSettings, type ProjectFolder } from "../projects/projectFolders";
+import { folderName, type FolderSettings, type ProjectFolder } from "../projects/projectFolders";
+import { changeProject, projectServicesR } from "../projects/projectResources";
+import { useResource } from "../state/resources";
 import { reportError } from "../state/toast";
 import { Checkbox } from "../ui/Controls";
 import { SettingsPage, SettingsSection } from "./SettingsLayout";
-
-interface Service {
-    name: string;
-    image?: string;
-    ports: string[];
-    state?: string;
-}
-
-interface ComposeFolder {
-    folder: string;
-    file: string;
-    services: Service[];
-    docker: boolean;
-}
-
-function useServices(project: string): { compose: ComposeFolder[] | null; refresh: () => void } {
-    const [compose, setCompose] = useState<ComposeFolder[] | null>(null);
-    const [version, setVersion] = useState(0);
-    useEffect(() => {
-        let cancelled = false;
-        void coreCall<ComposeFolder[]>("projectServices", { project })
-            .then((found) => {
-                if (!cancelled) setCompose(found);
-            })
-            .catch(() => setCompose([]));
-        return () => {
-            cancelled = true;
-        };
-    }, [project, version]);
-    return { compose, refresh: () => setVersion((current) => current + 1) };
-}
 
 /** The docker-compose services the project needs, started or stopped here, and which folders' tasks start them first. */
 export function ProjectServicesPage({
@@ -42,15 +13,15 @@ export function ProjectServicesPage({
     name,
     folders,
     settings,
-    onChanged,
 }: {
     project: string;
     name: string;
     folders: readonly ProjectFolder[];
     settings: Readonly<Record<string, FolderSettings>>;
-    onChanged: () => void;
 }) {
-    const { compose, refresh } = useServices(project);
+    const services = useResource(projectServicesR, project);
+    const compose = services.data ?? null;
+    const refresh = () => void services.refresh();
     const [busy, setBusy] = useState<string | null>(null);
     const act = (folder: string, service: string, action: "start" | "stop") => {
         setBusy(`${folder}:${service}`);
@@ -61,13 +32,8 @@ export function ProjectServicesPage({
                 refresh();
             });
     };
-    const toggle = (folder: string, service: string, on: boolean) => {
-        const current = settings[folder] ?? {};
-        const services = on ? [...(current.services ?? []), service] : (current.services ?? []).filter((kept) => kept !== service);
-        void saveFolderSettings(project, folder, { ...current, services })
-            .then(onChanged)
-            .catch(reportError("Save the folder's services"));
-    };
+    const toggle = (folder: string, name: string, on: boolean) =>
+        void changeProject(project, { kind: "service", name, on }, folder).catch(reportError("Save the folder's services"));
     const servicesFor = (folder: string) =>
         (compose?.find((entry) => entry.folder === folder) ?? compose?.find((entry) => entry.folder === "."))?.services ?? [];
     const codeFolders = folders.filter((folder) => folder.languages.length && servicesFor(folder.path).length);

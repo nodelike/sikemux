@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from "react";
 import { SendToAgentMenu } from "../agents/SendToAgentMenu";
-import { folderName, looksSecret, saveFolderSettings, type FolderEnvFile, type FolderSettings, type ProjectFolder } from "../projects/projectFolders";
+import { folderName, looksSecret, type FolderEnvFile, type FolderSettings, type ProjectFolder } from "../projects/projectFolders";
+import { changeProject, type ProjectChange } from "../projects/projectResources";
 import { confirmDialog } from "../state/dialog";
 import { useStore } from "../state/store";
 import { reportError } from "../state/toast";
@@ -44,13 +45,11 @@ export function ProjectEnvironmentPage({
     name,
     folders,
     settings,
-    onChanged,
 }: {
     project: string;
     name: string;
     folders: readonly ProjectFolder[];
     settings: Readonly<Record<string, FolderSettings>>;
-    onChanged: () => void;
 }) {
     const [picked, setPicked] = useState<string | null>(null);
     const folder = folders.find((entry) => entry.path === picked) ?? folders.find((entry) => entry.envFiles.length) ?? folders[0];
@@ -70,17 +69,7 @@ export function ProjectEnvironmentPage({
             ))}
         </div>
     );
-    return (
-        <FolderEnvironment
-            key={folder.path}
-            project={project}
-            name={name}
-            folder={folder}
-            settings={settings[folder.path]}
-            onChanged={onChanged}
-            above={tabs}
-        />
-    );
+    return <FolderEnvironment key={folder.path} project={project} name={name} folder={folder} settings={settings[folder.path]} above={tabs} />;
 }
 
 function FolderEnvironment({
@@ -88,14 +77,12 @@ function FolderEnvironment({
     name,
     folder,
     settings,
-    onChanged,
     above,
 }: {
     project: string;
     name: string;
     folder: ProjectFolder;
     settings: FolderSettings | undefined;
-    onChanged: () => void;
     above: ReactNode;
 }) {
     const sessionId = useStore((s) => s.activeSessionId);
@@ -108,19 +95,11 @@ function FolderEnvironment({
     const rows = shownVariables(read, own);
     const where = folder.path === "." ? "the project root" : `${folder.path}/`;
 
-    const save = (next: FolderSettings) =>
-        void saveFolderSettings(project, folder.path, {
-            done: settings?.done,
-            services: settings?.services,
-            agentEnvironment: settings?.agentEnvironment,
-            ...next,
-        })
-            .then(onChanged)
-            .catch(reportError("Save the folder's environment"));
+    const save = (change: ProjectChange) => void changeProject(project, change, folder.path).catch(reportError("Save the folder's environment"));
 
     const choose = async (value: string) => {
         if (value === NOT_LOADED) {
-            save({ env: own });
+            save({ kind: "environment", value: null });
             return;
         }
         const production = folder.environments.find((entry) => entry.name === value)?.production;
@@ -134,20 +113,17 @@ function FolderEnvironment({
             }))
         )
             return;
-        save({ environment: value, env: own });
+        save({ kind: "environment", value });
     };
 
     const addVariable = () => {
         const key = draft.key.trim();
         if (!key) return;
-        save({ environment, env: { ...own, [key]: draft.value } });
+        save({ kind: "variable", key, value: draft.value });
         setDraft({ key: "", value: "" });
     };
 
-    const removeVariable = (key: string) => {
-        const { [key]: _removed, ...rest } = own;
-        save({ environment, env: rest });
-    };
+    const removeVariable = (key: string) => save({ kind: "variable", key, value: null });
 
     return (
         <SettingsPage>
@@ -198,7 +174,7 @@ function FolderEnvironment({
                                     .filter((entry) => !entry.production)
                                     .map((entry) => ({ value: entry.name, label: entry.name })),
                             ]}
-                            onChange={(value) => save({ environment, env: own, agentEnvironment: value === SAME_AS_YOURS ? undefined : value })}
+                            onChange={(value) => save({ kind: "agentEnvironment", value: value === SAME_AS_YOURS ? null : value })}
                         />
                     </SettingsRow>
                 </SettingsRows>

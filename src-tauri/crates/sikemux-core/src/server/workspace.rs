@@ -36,6 +36,9 @@ use super::{Core, CoreError, CoreResult};
 use crate::acp::pickers;
 
 mod migrate;
+pub(crate) mod project;
+
+pub(crate) use project::{Change, FolderSettings, ProjectRules};
 
 /// Bumped by a change to what [`Saved`] holds that an earlier file needs
 /// carried over to.
@@ -52,13 +55,6 @@ const MAX_FIELD_CHARS: usize = 512;
 /// Room for a worktree or a buddy, which are a handful of short fields.
 const MAX_DETAIL_BYTES: usize = 4096;
 const MAX_COLOURS: usize = 64;
-const MAX_FOLDER_VARIABLES: usize = 256;
-const MAX_DONE_TASKS: usize = 32;
-const MAX_NOTES_CHARS: usize = 4000;
-const MAX_GUARDRAILS: usize = 64;
-const MAX_SUGGESTIONS: usize = 30;
-const MAX_PENDING_SUGGESTIONS: usize = 10;
-const MAX_VARIABLE_CHARS: usize = 8192;
 /// A phone-sized JPEG is a few hundred kilobytes; this leaves room without letting one fill a frame.
 const MAX_IMAGE_BYTES: usize = 3 * 1024 * 1024;
 const MAX_COLOUR_CHARS: usize = 64;
@@ -123,52 +119,6 @@ struct Saved {
     /// What agents suggested for a project's settings, newest last, by the project's real path.
     #[serde(default)]
     suggestions: BTreeMap<String, Vec<super::suggestions::Suggestion>>,
-}
-
-/// The environment processes started in one folder of a project get.
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct FolderSettings {
-    /// Whose environment files are read: absent reads none, empty only the ones every
-    /// environment shares.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub environment: Option<String>,
-    /// Set by the person, over what the files say.
-    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    pub env: BTreeMap<String, String>,
-    /// The tasks an agent's work in the folder must pass before it is done, by id.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub done: Vec<String>,
-    /// Whose environment files agents get, when not the same as the person's. A
-    /// production-looking environment never reaches an agent.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub agent_environment: Option<String>,
-    /// docker-compose services the folder's tasks need running first.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub services: Vec<String>,
-}
-
-/// What the person tells every agent working in a project.
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct ProjectRules {
-    #[serde(default, skip_serializing_if = "String::is_empty")]
-    pub notes: String,
-    /// Agents run every folder's checks, not only those of the folders they changed.
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub check_every_folder: bool,
-    /// An agent whose check fails stops and says so, instead of fixing it first.
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub stop_on_failure: bool,
-    /// Paths, as globs, agents must not change without asking.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub never_edit: Vec<String>,
-    /// Commands, as patterns, an agent asks the person before running.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub ask_before: Vec<String>,
-    /// Commands, as patterns, agents never run.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub never_run: Vec<String>,
 }
 
 impl Saved {
@@ -610,275 +560,6 @@ impl Workspaces {
             saved.spaces = spaces;
             Ok(())
         })
-    }
-
-    pub(crate) fn folder_settings(&self, project: &str) -> BTreeMap<String, FolderSettings> {
-        self.lock()
-            .saved
-            .folder_settings
-            .get(project)
-            .cloned()
-            .unwrap_or_default()
-    }
-
-    pub(crate) fn set_folder_settings(
-        &self,
-        project: String,
-        folder: String,
-        settings: FolderSettings,
-    ) -> CoreResult<()> {
-        let one_folder = folder == "."
-            || (!folder.is_empty() && !folder.contains('/') && !folder.starts_with('.'));
-        let oversized = too_long(&project, MAX_FIELD_CHARS)
-            || too_long(&folder, MAX_FIELD_CHARS)
-            || settings
-                .environment
-                .as_ref()
-                .is_some_and(|name| too_long(name, 64))
-            || settings.env.len() > MAX_FOLDER_VARIABLES
-            || settings.env.iter().any(|(key, value)| {
-                too_long(key, MAX_TITLE_CHARS) || too_long(value, MAX_VARIABLE_CHARS)
-            })
-            || settings.done.len() > MAX_DONE_TASKS
-            || settings
-                .done
-                .iter()
-                .any(|task| too_long(task, MAX_FIELD_CHARS))
-            || settings
-                .agent_environment
-                .as_ref()
-                .is_some_and(|name| too_long(name, 64))
-            || settings.services.len() > MAX_DONE_TASKS
-            || settings
-                .services
-                .iter()
-                .any(|service| too_long(service, MAX_TITLE_CHARS));
-        if !one_folder || oversized {
-            return Err("those folder settings are more than the core keeps".into());
-        }
-        if let Some(key) = settings.env.keys().find(|key| !is_variable_name(key)) {
-            return Err(format!("{key} cannot name an environment variable").into());
-        }
-        self.change(|saved| {
-            let folders = saved.folder_settings.entry(project.clone()).or_default();
-            if settings == FolderSettings::default() {
-                folders.remove(&folder);
-            } else {
-                folders.insert(folder, settings);
-            }
-            if folders.is_empty() {
-                saved.folder_settings.remove(&project);
-            } else if saved.folder_settings.len() > MAX_PROJECTS {
-                return Err("settings for more projects than the core keeps".into());
-            }
-            Ok(())
-        })
-    }
-
-    pub(crate) fn project_rules(&self, project: &str) -> ProjectRules {
-        self.lock()
-            .saved
-            .project_rules
-            .get(project)
-            .cloned()
-            .unwrap_or_default()
-    }
-
-    pub(crate) fn suggestions(&self, project: &str) -> Vec<super::suggestions::Suggestion> {
-        self.lock()
-            .saved
-            .suggestions
-            .get(project)
-            .cloned()
-            .unwrap_or_default()
-    }
-
-    /// Keeps a new suggestion, forgetting the oldest settled ones past the limit.
-    pub(crate) fn keep_suggestion(
-        &self,
-        project: &str,
-        suggestion: super::suggestions::Suggestion,
-    ) -> CoreResult<()> {
-        self.change(|saved| {
-            let kept = saved.suggestions.entry(project.to_owned()).or_default();
-            if kept.iter().filter(|known| known.pending()).count() >= MAX_PENDING_SUGGESTIONS {
-                return Err(
-                    "this project already has as many suggestions waiting as it keeps".into(),
-                );
-            }
-            kept.push(suggestion);
-            while kept.len() > MAX_SUGGESTIONS {
-                match kept.iter().position(|known| !known.pending()) {
-                    Some(oldest) => kept.remove(oldest),
-                    None => break,
-                };
-            }
-            Ok(())
-        })
-    }
-
-    /// Marks the changes in `applied` applied and the rest of the suggestion discarded.
-    pub(crate) fn settle_suggestion(
-        &self,
-        project: &str,
-        id: &str,
-        applied: &[String],
-    ) -> CoreResult<()> {
-        use super::suggestions::Status;
-        self.change(|saved| {
-            let suggestion = saved
-                .suggestions
-                .get_mut(project)
-                .and_then(|kept| kept.iter_mut().find(|known| known.id == id))
-                .ok_or_else(|| CoreError::from("that suggestion is gone"))?;
-            for change in &mut suggestion.changes {
-                if change.status == Status::Pending {
-                    change.status = if applied.contains(&change.id) {
-                        Status::Applied
-                    } else {
-                        Status::Discarded
-                    };
-                }
-            }
-            Ok(())
-        })
-    }
-
-    pub(crate) fn set_project_rules(&self, project: String, rules: ProjectRules) -> CoreResult<()> {
-        let patterns = rules
-            .never_edit
-            .iter()
-            .chain(&rules.ask_before)
-            .chain(&rules.never_run);
-        let too_many = rules.never_edit.len() + rules.ask_before.len() + rules.never_run.len()
-            > MAX_GUARDRAILS;
-        if too_many
-            || patterns
-                .into_iter()
-                .any(|pattern| too_long(pattern, MAX_FIELD_CHARS))
-        {
-            return Err("those guardrails are more than the core keeps".into());
-        }
-        if too_long(&project, MAX_FIELD_CHARS) || too_long(&rules.notes, MAX_NOTES_CHARS) {
-            return Err("those notes are longer than the core keeps".into());
-        }
-        self.change(|saved| {
-            if rules == ProjectRules::default() {
-                saved.project_rules.remove(&project);
-            } else if saved.project_rules.len() >= MAX_PROJECTS
-                && !saved.project_rules.contains_key(&project)
-            {
-                return Err("rules for more projects than the core keeps".into());
-            } else {
-                saved.project_rules.insert(project, rules);
-            }
-            Ok(())
-        })
-    }
-
-    /// What a process started in `cwd` gets from its project's folder settings: the root's,
-    /// then those of the folder it is in. A worktree counts as its main checkout.
-    /// The project holding `cwd`, a worktree counting as its main checkout, with its folder
-    /// settings and the folder directly inside it that `cwd` is in.
-    fn folder_of(
-        &self,
-        cwd: &Path,
-    ) -> Option<(PathBuf, BTreeMap<String, FolderSettings>, Option<String>)> {
-        let projects = self.lock().saved.folder_settings.clone();
-        if projects.is_empty() {
-            return None;
-        }
-        let path = super::names::in_main_checkout_or_self(cwd);
-        let canonical = |project: &str| {
-            std::fs::canonicalize(project).unwrap_or_else(|_| PathBuf::from(project))
-        };
-        let (project, folders) = projects
-            .into_iter()
-            .map(|(project, folders)| (canonical(&project), folders))
-            .filter(|(project, _)| path.starts_with(project))
-            .max_by_key(|(project, _)| project.as_os_str().len())?;
-        let inner = path
-            .strip_prefix(&project)
-            .ok()
-            .and_then(|rest| rest.components().next())
-            .map(|first| first.as_os_str().to_string_lossy().into_owned());
-        Some((project, folders, inner))
-    }
-
-    /// What a process started in `cwd` gets from its project's folder settings: the root's,
-    /// then those of the folder it is in. An agent gets the environment chosen for agents,
-    /// and never the files of one that looks like production.
-    pub(crate) fn folder_environment(
-        &self,
-        cwd: &Path,
-        for_agent: bool,
-    ) -> BTreeMap<String, String> {
-        let Some((project, folders, inner)) = self.folder_of(cwd) else {
-            return BTreeMap::new();
-        };
-        let mut env = BTreeMap::new();
-        for folder in std::iter::once(".".to_owned()).chain(inner) {
-            let Some(settings) = folders.get(&folder) else {
-                continue;
-            };
-            let environment = if for_agent {
-                settings
-                    .agent_environment
-                    .as_ref()
-                    .or(settings.environment.as_ref())
-                    .filter(|name| !crate::tasks::folders::is_production(name))
-            } else {
-                settings.environment.as_ref()
-            };
-            if let Some(environment) = environment {
-                env.extend(crate::tasks::folders::variables(
-                    &project,
-                    &folder,
-                    environment,
-                ));
-            }
-            env.extend(settings.env.clone());
-        }
-        env
-    }
-
-    /// The guardrails of the project holding `cwd`, a worktree counting as its main checkout.
-    pub(crate) fn rules_for(&self, cwd: &Path) -> ProjectRules {
-        let projects = self.lock().saved.project_rules.clone();
-        if projects.is_empty() {
-            return ProjectRules::default();
-        }
-        let path = super::names::in_main_checkout_or_self(cwd);
-        projects
-            .into_iter()
-            .map(|(project, rules)| {
-                let project =
-                    std::fs::canonicalize(&project).unwrap_or_else(|_| PathBuf::from(project));
-                (project, rules)
-            })
-            .filter(|(project, _)| path.starts_with(project))
-            .max_by_key(|(project, _)| project.as_os_str().len())
-            .map(|(_, rules)| rules)
-            .unwrap_or_default()
-    }
-
-    /// The compose folder and the services the folder of `cwd` needs running, its own
-    /// choice or else the project root's.
-    pub(crate) fn services_for(&self, cwd: &Path) -> Option<(PathBuf, Vec<String>)> {
-        let (project, folders, inner) = self.folder_of(cwd)?;
-        let folder = inner
-            .filter(|inner| {
-                folders
-                    .get(inner)
-                    .is_some_and(|settings| !settings.services.is_empty())
-            })
-            .unwrap_or_else(|| ".".to_owned());
-        let services = folders.get(&folder)?.services.clone();
-        if services.is_empty() {
-            return None;
-        }
-        let dir = super::services::compose_dir_for(&project, &folder)?;
-        Some((dir, services))
     }
 
     fn set_pinned(&self, pinned: Vec<PinnedChat>) -> CoreResult<()> {
@@ -1949,37 +1630,26 @@ pub(crate) fn set_pinned_chats(core: &Core, params: PinnedParams) -> CoreResult<
     Ok(())
 }
 
-fn is_variable_name(key: &str) -> bool {
-    let mut chars = key.chars();
-    chars
-        .next()
-        .is_some_and(|first| first.is_ascii_alphabetic() || first == '_')
-        && chars.all(|rest| rest.is_ascii_alphanumeric() || rest == '_')
-}
-
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct FolderSettingsParams {
+pub(crate) struct ChangeProjectParams {
     project: String,
+    #[serde(default = "root")]
     folder: String,
-    settings: FolderSettings,
+    change: Change,
 }
 
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct ProjectRulesParams {
-    project: String,
-    rules: ProjectRules,
+fn root() -> String {
+    ".".to_owned()
 }
 
-pub(crate) fn set_project_rules(core: &Core, params: ProjectRulesParams) -> CoreResult<()> {
+/// One change to a project's settings, from the window.
+pub(crate) fn change_project(core: &Core, params: ChangeProjectParams) -> CoreResult<()> {
     core.workspaces
-        .set_project_rules(params.project, params.rules)
-}
-
-pub(crate) fn set_folder_settings(core: &Core, params: FolderSettingsParams) -> CoreResult<()> {
-    core.workspaces
-        .set_folder_settings(params.project, params.folder, params.settings)
+        .change_project(&params.project, &params.folder, params.change)?;
+    core.changes
+        .changed("projectSettings", Some(&params.project), None);
+    Ok(())
 }
 
 #[derive(Deserialize)]

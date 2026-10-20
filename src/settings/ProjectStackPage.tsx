@@ -1,18 +1,14 @@
-import { useEffect, useState, type ReactNode } from "react";
-import { coreCall } from "../api/core";
+import { useState, type ReactNode } from "react";
 import { prettyPath } from "../lib/paths";
 import { LANGUAGE_NAMES, type FolderLanguage, type FolderSettings } from "../projects/projectFolders";
 import type { Drift } from "../projects/projectHealth";
+import { javaRuntimesR } from "../projects/projectResources";
+import { useResource } from "../state/resources";
 import { DriftBanner } from "./ProjectOverviewPage";
 import { useStore } from "../state/store";
 import { Switch } from "../ui/Controls";
 import { Dropdown } from "../ui/Dropdown";
 import { SettingsPage, SettingsRow, SettingsRows, SettingsSection } from "./SettingsLayout";
-
-interface JavaRuntime {
-    home: string;
-    major: number;
-}
 
 type SetVariable = (key: string, value: string | null) => void;
 
@@ -66,13 +62,8 @@ interface Sections {
 }
 
 function JavaSections({ language, env, setVariable }: Sections) {
-    const [runtimes, setRuntimes] = useState<JavaRuntime[] | null>(null);
+    const runtimes = useResource(javaRuntimesR).data ?? null;
     const home = useStore((s) => s.home);
-    useEffect(() => {
-        void coreCall<{ installed: JavaRuntime[] }>("javaRuntimes")
-            .then((found) => setRuntimes(found.installed))
-            .catch(() => setRuntimes([]));
-    }, []);
     const maven = language.markers.some((marker) => marker === "pom.xml" || marker === "mvnw");
     const asked = language.version ? `Java ${language.version}` : null;
     return (
