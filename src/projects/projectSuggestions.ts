@@ -1,4 +1,5 @@
 import { coreCall } from "../api/core";
+import { invalidate } from "../state/resources";
 
 export type SuggestionKind = "variable" | "environment" | "agentEnvironment" | "done" | "task" | "note" | "guardrail" | "service";
 
@@ -26,7 +27,7 @@ export const isPending = (suggestion: Suggestion) => suggestion.changes.some((ch
 
 /** Applies the changes named and discards the rest of the suggestion. */
 export function answerSuggestion(project: string, id: string, apply: readonly string[]): Promise<void> {
-    return coreCall<void>("answerSuggestion", { project, id, apply });
+    return coreCall<void>("answerSuggestion", { project, id, apply }).then(() => invalidate((kind) => kind.startsWith("project.")));
 }
 
 const GUARDRAIL_NAMES: Record<string, string> = { neverEdit: "Never edit", askBefore: "Ask before running", neverRun: "Never run" };

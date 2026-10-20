@@ -86,5 +86,7 @@ export type ProjectChange =
 
 /** Applies one change; `folder` is the folder a folder change is for, `.` for the project root. */
 export function changeProject(project: string, change: ProjectChange, folder = "."): Promise<void> {
-    return coreCall<void>("changeProjectSettings", { project, folder, change });
+    return coreCall<void>("changeProjectSettings", { project, folder, change }).then(() =>
+        invalidate((kind) => READ_AGAIN.projectSettings.includes(kind)),
+    );
 }
