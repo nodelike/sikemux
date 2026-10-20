@@ -1575,7 +1575,7 @@ fn start(
     rebind::name_accounts(core, &mut launch_spec);
     let given = core
         .workspaces
-        .folder_environment(&launch_spec.cwd)
+        .folder_environment(&launch_spec.cwd, true)
         .into_iter()
         .chain(super::plugins::agent_environment(
             core,

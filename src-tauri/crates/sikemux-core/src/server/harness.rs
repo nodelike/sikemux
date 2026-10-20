@@ -1192,6 +1192,11 @@ async fn task_start(
     restart: bool,
 ) -> Result<Value, String> {
     let until = Instant::now() + START_BUDGET;
+    if request.agent_id.is_some() {
+        if let Some(command) = text(&request.params, "command")? {
+            super::guardrails::check_command(core, Path::new(&request.project), command)?;
+        }
+    }
     let (key, ready_when) = if restart {
         (uuid::Uuid::new_v4().to_string(), None)
     } else {

@@ -9,6 +9,7 @@ import { SettingsPage, SettingsRow, SettingsRows, SettingsSection } from "./Sett
 
 const NOT_LOADED = "-";
 const SHARED_ONLY = "";
+const SAME_AS_YOURS = "-same";
 const HIDDEN = "••••••••";
 
 interface Shown {
@@ -108,7 +109,12 @@ function FolderEnvironment({
     const where = folder.path === "." ? "the project root" : `${folder.path}/`;
 
     const save = (next: FolderSettings) =>
-        void saveFolderSettings(project, folder.path, { done: settings?.done, ...next })
+        void saveFolderSettings(project, folder.path, {
+            done: settings?.done,
+            services: settings?.services,
+            agentEnvironment: settings?.agentEnvironment,
+            ...next,
+        })
             .then(onChanged)
             .catch(reportError("Save the folder's environment"));
 
@@ -152,7 +158,7 @@ function FolderEnvironment({
                 sub={`Variables tasks, terminals and agents started in ${where} get, also in an agent's worktree of it. What the task or the app sets itself still wins.`}>
                 <SettingsRows>
                     <SettingsRow
-                        label="Load"
+                        label="Load for you"
                         desc={
                             environment === undefined
                                 ? "Nothing is loaded from the files below."
@@ -175,6 +181,24 @@ function FolderEnvironment({
                                 })),
                             ]}
                             onChange={(value) => void choose(value)}
+                        />
+                    </SettingsRow>
+                    <SettingsRow
+                        label="Load for agents"
+                        desc="Agents can get a different environment from yours, such as local while you use stage. One that looks like production never reaches them."
+                        wide>
+                        <Dropdown
+                            className="settings-dd"
+                            label="Environment for agents"
+                            value={settings?.agentEnvironment ?? SAME_AS_YOURS}
+                            options={[
+                                { value: SAME_AS_YOURS, label: "Same as yours" },
+                                { value: SHARED_ONLY, label: "Shared files only" },
+                                ...folder.environments
+                                    .filter((entry) => !entry.production)
+                                    .map((entry) => ({ value: entry.name, label: entry.name })),
+                            ]}
+                            onChange={(value) => save({ environment, env: own, agentEnvironment: value === SAME_AS_YOURS ? undefined : value })}
                         />
                     </SettingsRow>
                 </SettingsRows>

@@ -1122,7 +1122,7 @@ fn give_agent_environment(
     let folder = std::path::Path::new(folder);
     let given = core
         .workspaces
-        .folder_environment(folder)
+        .folder_environment(folder, agent_id.is_some())
         .into_iter()
         .chain(super::plugins::agent_environment(core, folder, agent_id));
     for (key, value) in given {

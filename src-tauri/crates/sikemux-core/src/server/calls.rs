@@ -253,6 +253,11 @@ pub(crate) async fn call(
                     .await?;
             answer(json!({ "folders": folders, "settings": settings, "rules": rules }))
         }
+        "projectServices" => {
+            let params: ProjectParams = parse(params)?;
+            answer(blocking(move || Ok(super::services::list(Path::new(&params.project)))).await?)
+        }
+        "serviceAction" => answer(super::services::action(parse(params)?).await?),
         "javaRuntimes" => answer(blocking(|| Ok(crate::tasks::java::runtimes())).await?),
         "projectSuggestions" => answer(super::suggestions::list(&core, parse(params)?).await?),
         "answerSuggestion" => answer(super::suggestions::answer(&core, parse(params)?).await?),

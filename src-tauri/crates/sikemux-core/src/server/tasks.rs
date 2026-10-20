@@ -250,7 +250,7 @@ fn offered(core: &Core, project: &Path) -> Offered {
         .map(|task| task.cwd.clone())
         .filter(|cwd| {
             core.workspaces
-                .folder_environment(cwd)
+                .folder_environment(cwd, false)
                 .contains_key("JAVA_HOME")
         })
         .collect();
@@ -967,6 +967,9 @@ pub(crate) async fn launch(
         Source::Project | Source::Command => TaskSource::Project,
         Source::Personal | Source::Detected | Source::Rerun => TaskSource::BuiltIn,
     };
+    super::services::before_task(core, &task.cwd)
+        .await
+        .map_err(|error| error.to_string())?;
     let mut env: std::collections::HashMap<String, String> = task.env.into_iter().collect();
     if let Some(path) = sikemux_process::user_environment::var_os("PATH") {
         env.entry("PATH".into())

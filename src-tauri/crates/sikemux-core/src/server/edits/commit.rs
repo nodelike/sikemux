@@ -151,6 +151,8 @@ pub(crate) fn commit(
         if changes.is_empty() {
             return Err(nothing_yours(&left));
         }
+        let paths: Vec<String> = changes.iter().map(|change| change.path.clone()).collect();
+        super::super::guardrails::check_paths(core, dir, &paths)?;
         let lacking = unresolved(&diff, &changes)?;
         if !lacking.is_empty() {
             return Err(format!(

@@ -57,7 +57,14 @@ fn compose(
     for folder in found {
         let chosen = settings.get(&folder.path);
         let line = folder_line(folder, chosen.map(|chosen| &chosen.env));
-        let loaded = chosen.and_then(|chosen| chosen.environment.as_deref());
+        let loaded = chosen
+            .and_then(|chosen| {
+                chosen
+                    .agent_environment
+                    .as_deref()
+                    .or(chosen.environment.as_deref())
+            })
+            .filter(|name| !folders::is_production(name));
         if line.is_empty() && loaded.is_none() {
             continue;
         }
@@ -68,7 +75,17 @@ fn compose(
             } else {
                 environment
             };
-            let _ = writeln!(brief, "  environment: {name} loaded");
+            let _ = writeln!(brief, "  environment: {name} loaded for you");
+        }
+        if let Some(services) = chosen
+            .map(|chosen| &chosen.services)
+            .filter(|services| !services.is_empty())
+        {
+            let _ = writeln!(
+                brief,
+                "  needs running: {} (docker compose; Sikemux starts them before this folder's tasks)",
+                services.join(", ")
+            );
         }
         let set: Vec<&str> = chosen
             .map(|chosen| {
@@ -133,6 +150,16 @@ fn compose(
             "Done means: before you say your work is finished, {scope} with task_start and wait for them to pass. {failing}\n  {}",
             done.join("\n  ")
         );
+    }
+    let guarded = [
+        ("Never edit without asking the person", &rules.never_edit),
+        ("Ask the person before running", &rules.ask_before),
+        ("Never run", &rules.never_run),
+    ];
+    for (what, patterns) in guarded {
+        if !patterns.is_empty() {
+            let _ = writeln!(brief, "{what}: {}", patterns.join(", "));
+        }
     }
     let notes = rules.notes.trim();
     if !notes.is_empty() {

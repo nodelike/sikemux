@@ -6,12 +6,13 @@ import { isPending, useProjectSuggestions } from "../projects/projectSuggestions
 import * as cmd from "../state/commands";
 import { useStore, type StoreState } from "../state/store";
 import { reportError } from "../state/toast";
-import { IconAgent, IconCheck, IconClose, IconCode, IconFolder, IconRun, IconSparkle, IconTerminal } from "../ui/Icons";
+import { IconAgent, IconCheck, IconClose, IconCode, IconFolder, IconLock, IconRun, IconServer, IconSparkle, IconTerminal } from "../ui/Icons";
 import { PaneField } from "../ui/ShaderField";
 import { useLeaveOnNavigation } from "./leaveSettings";
-import { ProjectBriefPage, ProjectDonePage, ProjectSuggestionsPage } from "./ProjectAgentPages";
+import { ProjectBriefPage, ProjectDonePage, ProjectGuardrailsPage, ProjectSuggestionsPage } from "./ProjectAgentPages";
 import { ProjectEnvironmentPage } from "./ProjectEnvironmentPage";
 import { ProjectOverviewPage } from "./ProjectOverviewPage";
+import { ProjectServicesPage } from "./ProjectServicesPage";
 import { ProjectStackPage } from "./ProjectStackPage";
 import { ProjectTasksPage } from "./ProjectTasksPage";
 import { stackOfPage, stackPage, type ProjectSettingsPageId } from "./projectSettingsPages";
@@ -21,6 +22,8 @@ const isOpen = (state: StoreState) => state.projectSettingsPage !== null;
 
 const PAGE_TITLES: Partial<Record<ProjectSettingsPageId, string>> = {
     overview: "Overview",
+    services: "Services",
+    guardrails: "Guardrails",
     environment: "Environment",
     tasks: "Tasks",
     done: "Done means",
@@ -137,12 +140,14 @@ function ProjectSettings({ project, name }: { project: string; name: string }) {
                         <div className="settings-nav-group">
                             <span className="settings-nav-label">Run</span>
                             {item("environment", "Environment", <IconTerminal size={13} />)}
+                            {item("services", "Services", <IconServer size={13} />)}
                             {item("tasks", "Tasks", <IconRun size={13} />)}
                             {item("done", "Done means", <IconCheck size={13} />)}
                         </div>
                         <div className="settings-nav-group">
                             <span className="settings-nav-label">Agents</span>
                             {item("brief", "What agents know", <IconAgent size={13} />)}
+                            {item("guardrails", "Guardrails", <IconLock size={13} />)}
                             {item("suggestions", "Suggestions", <IconSparkle size={13} />, waiting ? String(waiting) : undefined)}
                         </div>
                     </nav>
@@ -194,9 +199,19 @@ function ProjectSettings({ project, name }: { project: string; name: string }) {
                             />
                         )}
                         {page === "tasks" && <ProjectTasksPage project={project} />}
+                        {page === "services" && folders && (
+                            <ProjectServicesPage
+                                project={project}
+                                name={name}
+                                folders={folders.folders}
+                                settings={folders.settings}
+                                onChanged={refresh}
+                            />
+                        )}
                         {page === "done" && folders && (
                             <ProjectDonePage project={project} name={name} settings={folders.settings} rules={folders.rules} onChanged={refresh} />
                         )}
+                        {page === "guardrails" && folders && <ProjectGuardrailsPage project={project} rules={folders.rules} onChanged={refresh} />}
                         {page === "suggestions" && (
                             <ProjectSuggestionsPage project={project} name={name} suggestions={suggestions} onChanged={refresh} />
                         )}

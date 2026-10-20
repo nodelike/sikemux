@@ -474,6 +474,11 @@ fn loaded_files(dir: &Path, names: &BTreeSet<String>) -> Vec<(String, String)> {
     found
 }
 
+/// Whether an environment's name looks like production's, such as `prod` or `live`.
+pub fn is_production(name: &str) -> bool {
+    PRODUCTION.is_match(name)
+}
+
 /// A word people name an environment with, such as `stage`, as opposed to a service such as `web`.
 fn is_environment_name(name: &str) -> bool {
     ENVIRONMENT_NAME.is_match(name)

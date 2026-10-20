@@ -34,6 +34,10 @@ export interface FolderSettings {
     readonly env?: Readonly<Record<string, string>>;
     /** The tasks an agent's work in the folder must pass before it is done, by id. */
     readonly done?: readonly string[];
+    /** Whose env files agents get when not the person's; production never reaches them. */
+    readonly agentEnvironment?: string;
+    /** docker-compose services the folder's tasks need running first. */
+    readonly services?: readonly string[];
 }
 
 /** What the person tells every agent working in the project. */
@@ -41,6 +45,12 @@ export interface ProjectRules {
     readonly notes?: string;
     readonly checkEveryFolder?: boolean;
     readonly stopOnFailure?: boolean;
+    /** Path globs agents must not change without asking. */
+    readonly neverEdit?: readonly string[];
+    /** Command patterns an agent asks before running. */
+    readonly askBefore?: readonly string[];
+    /** Command patterns agents never run. */
+    readonly neverRun?: readonly string[];
 }
 
 export interface ProjectFolders {

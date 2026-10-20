@@ -778,34 +778,59 @@ impl Workspaces {
 
     /// What a process started in `cwd` gets from its project's folder settings: the root's,
     /// then those of the folder it is in. A worktree counts as its main checkout.
-    pub(crate) fn folder_environment(&self, cwd: &Path) -> BTreeMap<String, String> {
+    /// The project holding `cwd`, a worktree counting as its main checkout, with its folder
+    /// settings and the folder directly inside it that `cwd` is in.
+    fn folder_of(
+        &self,
+        cwd: &Path,
+    ) -> Option<(PathBuf, BTreeMap<String, FolderSettings>, Option<String>)> {
         let projects = self.lock().saved.folder_settings.clone();
         if projects.is_empty() {
-            return BTreeMap::new();
+            return None;
         }
         let path = super::names::in_main_checkout_or_self(cwd);
         let canonical = |project: &str| {
             std::fs::canonicalize(project).unwrap_or_else(|_| PathBuf::from(project))
         };
-        let Some((project, folders)) = projects
-            .iter()
-            .map(|(project, folders)| (canonical(project), folders))
+        let (project, folders) = projects
+            .into_iter()
+            .map(|(project, folders)| (canonical(&project), folders))
             .filter(|(project, _)| path.starts_with(project))
-            .max_by_key(|(project, _)| project.as_os_str().len())
-        else {
-            return BTreeMap::new();
-        };
+            .max_by_key(|(project, _)| project.as_os_str().len())?;
         let inner = path
             .strip_prefix(&project)
             .ok()
             .and_then(|rest| rest.components().next())
             .map(|first| first.as_os_str().to_string_lossy().into_owned());
+        Some((project, folders, inner))
+    }
+
+    /// What a process started in `cwd` gets from its project's folder settings: the root's,
+    /// then those of the folder it is in. An agent gets the environment chosen for agents,
+    /// and never the files of one that looks like production.
+    pub(crate) fn folder_environment(
+        &self,
+        cwd: &Path,
+        for_agent: bool,
+    ) -> BTreeMap<String, String> {
+        let Some((project, folders, inner)) = self.folder_of(cwd) else {
+            return BTreeMap::new();
+        };
         let mut env = BTreeMap::new();
         for folder in std::iter::once(".".to_owned()).chain(inner) {
             let Some(settings) = folders.get(&folder) else {
                 continue;
             };
-            if let Some(environment) = &settings.environment {
+            let environment = if for_agent {
+                settings
+                    .agent_environment
+                    .as_ref()
+                    .or(settings.environment.as_ref())
+                    .filter(|name| !crate::tasks::folders::is_production(name))
+            } else {
+                settings.environment.as_ref()
+            };
+            if let Some(environment) = environment {
                 env.extend(crate::tasks::folders::variables(
                     &project,
                     &folder,
@@ -815,6 +840,45 @@ impl Workspaces {
             env.extend(settings.env.clone());
         }
         env
+    }
+
+    /// The guardrails of the project holding `cwd`, a worktree counting as its main checkout.
+    pub(crate) fn rules_for(&self, cwd: &Path) -> ProjectRules {
+        let projects = self.lock().saved.project_rules.clone();
+        if projects.is_empty() {
+            return ProjectRules::default();
+        }
+        let path = super::names::in_main_checkout_or_self(cwd);
+        projects
+            .into_iter()
+            .map(|(project, rules)| {
+                let project =
+                    std::fs::canonicalize(&project).unwrap_or_else(|_| PathBuf::from(project));
+                (project, rules)
+            })
+            .filter(|(project, _)| path.starts_with(project))
+            .max_by_key(|(project, _)| project.as_os_str().len())
+            .map(|(_, rules)| rules)
+            .unwrap_or_default()
+    }
+
+    /// The compose folder and the services the folder of `cwd` needs running, its own
+    /// choice or else the project root's.
+    pub(crate) fn services_for(&self, cwd: &Path) -> Option<(PathBuf, Vec<String>)> {
+        let (project, folders, inner) = self.folder_of(cwd)?;
+        let folder = inner
+            .filter(|inner| {
+                folders
+                    .get(inner)
+                    .is_some_and(|settings| !settings.services.is_empty())
+            })
+            .unwrap_or_else(|| ".".to_owned());
+        let services = folders.get(&folder)?.services.clone();
+        if services.is_empty() {
+            return None;
+        }
+        let dir = super::services::compose_dir_for(&project, &folder)?;
+        Some((dir, services))
     }
 
     fn set_pinned(&self, pinned: Vec<PinnedChat>) -> CoreResult<()> {
