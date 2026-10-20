@@ -1,81 +1,19 @@
-import { useMemo } from "react";
 import { AGENT_PERMISSION_COPY, AGENT_PERMISSION_MODES } from "../agents/agentLaunch";
 import { ACCOUNT_AGENT_TYPES, AGENT_TYPES, agentLabel } from "../agents/catalog";
 import { enabledCodeHosts } from "../codehost/registry";
 import { forgetProjectCodeHost } from "../codehost/state";
 import { allowLanguageServers } from "../editor/languageServerTrust";
 import { useProjectRepo } from "../git/projectRepo";
-import { prettyPath } from "../lib/paths";
 import { SpaceGlyph } from "../rail/SpaceSwitch";
 import * as cmd from "../state/commands";
 import { useStore } from "../state/store";
 import { Switch } from "../ui/Controls";
 import { Dropdown } from "../ui/Dropdown";
-import { IconFolder, IconGit } from "../ui/Icons";
+import { IconGit } from "../ui/Icons";
 import { SettingsPage, SettingsRow, SettingsRows, SettingsSection } from "./SettingsLayout";
 
-interface OpenProject {
-    cwd: string;
-    name: string;
-}
-
-function useOpenProjects(): OpenProject[] {
-    const sessions = useStore((s) => s.sessions);
-    const order = useStore((s) => s.sessionOrder);
-    return useMemo(
-        () =>
-            order.flatMap((id) => {
-                const session = sessions[id];
-                return session?.kind === "project" && session.cwd ? [{ cwd: session.cwd, name: session.name }] : [];
-            }),
-        [sessions, order],
-    );
-}
-
-function useFrontProject(): string {
-    return useStore((s) => {
-        const session = s.sessions[s.activeSessionId];
-        return session?.kind === "project" ? session.cwd : "";
-    });
-}
-
-/** The project the page edits: the one picked while it is still open, else the one in front. */
-function useSettingsProject(projects: readonly OpenProject[]): string {
-    const picked = useStore((s) => s.settingsProject);
-    const front = useFrontProject();
-    if (picked && projects.some((project) => project.cwd === picked)) return picked;
-    return front || projects[0]?.cwd || "";
-}
-
-/** Picking the project in front goes back to following whichever project is in front. */
-export function ProjectSettingsPicker() {
-    const projects = useOpenProjects();
-    const project = useSettingsProject(projects);
-    const front = useFrontProject();
-    const home = useStore((s) => s.home);
-    if (!projects.length) return <p className="settings-project-none">No project open</p>;
-    return (
-        <Dropdown
-            className="settings-dd settings-project-picker"
-            label="Project to change"
-            icon={<IconFolder size={12} />}
-            value={project}
-            search={projects.length > 6 ? "Find a project" : undefined}
-            options={projects.map((open) => ({
-                value: open.cwd,
-                label: open.name,
-                detail: prettyPath(open.cwd, home),
-                meta: open.cwd === front ? "in front" : undefined,
-            }))}
-            onChange={(cwd) => cmd.setSettingsProject(cwd === front ? null : cwd)}
-        />
-    );
-}
-
-/** Settings that belong to one open project, kept on this host rather than in the repository. */
-export function ProjectPage() {
-    const projects = useOpenProjects();
-    const project = useSettingsProject(projects);
+/** Settings that belong to one project, kept on this host rather than in the repository. */
+export function ProjectGeneralPage({ project }: { project: string }) {
     return (
         <SettingsPage>
             <DefaultRepoSection project={project} />
@@ -87,16 +25,14 @@ export function ProjectPage() {
 }
 
 function DefaultRepoSection({ project }: { project: string }) {
-    const { repo, repos } = useProjectRepo(project, !!project);
+    const { repo, repos } = useProjectRepo(project);
     const chosen = useStore((s) => s.defaultGitRepos[project]);
     return (
         <SettingsSection
             title="Default git repository"
             meta={repos?.length ? `${repos.length} inside` : undefined}
             sub="When the project folder holds several repositories, its Git pane, the branch in the top bar, the diff pane and new agent worktrees use this one.">
-            {!project ? (
-                <p className="settings-repo-note">Open a project to choose its repository.</p>
-            ) : repos === null ? (
+            {repos === null ? (
                 <p className="settings-repo-note">This project folder is a repository itself, so its Git views use it.</p>
             ) : repos.length === 0 ? (
                 <p className="settings-repo-note">There is no repository in this folder or the folders directly inside it.</p>
@@ -147,8 +83,8 @@ function LanguageServersSection({ project }: { project: string }) {
                 <SettingsRow
                     asLabel
                     label="Let this project start language servers"
-                    desc={project ? LANGUAGE_SERVER_STATE[state] : "Open a project to change this."}
-                    control={<Switch checked={trust === true} disabled={!project} onChange={(on) => allowLanguageServers(project, on)} />}
+                    desc={LANGUAGE_SERVER_STATE[state]}
+                    control={<Switch checked={trust === true} onChange={(on) => allowLanguageServers(project, on)} />}
                 />
             </SettingsRows>
         </SettingsSection>
@@ -160,9 +96,7 @@ function CodeHostsSection({ project }: { project: string }) {
     const hosts = enabledCodeHosts();
     return (
         <SettingsSection title="Code hosts" sub="Without a pick, each host follows the project's remote and the account you signed in with.">
-            {!project ? (
-                <p className="settings-repo-note">Open a project to see what it picked on each host.</p>
-            ) : !hosts.length ? (
+            {!hosts.length ? (
                 <p className="settings-repo-note">Turn on a code host, such as GitHub, in Plugins.</p>
             ) : (
                 <SettingsRows>
@@ -215,7 +149,7 @@ function SpaceSection({ project }: { project: string }) {
                         className="settings-dd"
                         label="Space"
                         value={space}
-                        disabled={!project || !spaces.length}
+                        disabled={!spaces.length}
                         options={[
                             { value: "", label: "No space" },
                             ...spaces.map((entry) => ({ value: entry.id, label: entry.name, icon: <SpaceGlyph icon={entry.icon} /> })),
@@ -230,10 +164,8 @@ function SpaceSection({ project }: { project: string }) {
 
 const APP_DEFAULT = "";
 
-/** What new chats start with in one open project, over the app's own defaults. */
-export function ProjectAgentsPage() {
-    const projects = useOpenProjects();
-    const project = useSettingsProject(projects);
+/** What new chats start with in one project, over the app's own defaults. */
+export function ProjectAgentsPage({ project }: { project: string }) {
     const settings = useStore((s) => s.projectSettings[project]);
     const lastAgent = useStore((s) => s.lastAgentType);
     const appMode = useStore((s) => s.defaultAgentPermissionMode);
@@ -242,17 +174,15 @@ export function ProjectAgentsPage() {
     const worktree = useStore((s) => s.agentWorktreeDefaults[project] === true);
     const mode = settings?.permissionMode === "bypass" || settings?.permissionMode === "workspace-write" ? settings.permissionMode : null;
     const switchable = ACCOUNT_AGENT_TYPES.filter((type) => profiles.filter((profile) => profile.provider === type).length > 1);
-    const none = !project ? "Open a project to change this." : undefined;
     return (
         <SettingsPage>
             <SettingsSection title="New chats" sub="Anything left on the app default follows Settings → Agents.">
                 <SettingsRows>
-                    <SettingsRow label="Agent" desc={none ?? "The one New chat starts here."} wide>
+                    <SettingsRow label="Agent" desc="The one New chat starts here." wide>
                         <Dropdown
                             className="settings-dd"
                             label="Agent"
                             value={settings?.agent ?? APP_DEFAULT}
-                            disabled={!project}
                             options={[
                                 { value: APP_DEFAULT, label: `App default · ${lastAgent ? agentLabel(lastAgent) : "the last one launched"}` },
                                 ...AGENT_TYPES.map((type) => ({ value: type, label: agentLabel(type) })),
@@ -260,12 +190,11 @@ export function ProjectAgentsPage() {
                             onChange={(agent) => cmd.setProjectSettings(project, { agent: agent || undefined })}
                         />
                     </SettingsRow>
-                    <SettingsRow label="Permissions" desc={none ?? AGENT_PERMISSION_COPY[mode ?? appMode].detail} wide>
+                    <SettingsRow label="Permissions" desc={AGENT_PERMISSION_COPY[mode ?? appMode].detail} wide>
                         <Dropdown
                             className="settings-dd"
                             label="Permissions"
                             value={mode ?? APP_DEFAULT}
-                            disabled={!project}
                             options={[
                                 { value: APP_DEFAULT, label: `App default · ${AGENT_PERMISSION_COPY[appMode].label}` },
                                 ...AGENT_PERMISSION_MODES.map((value) => ({ value, label: AGENT_PERMISSION_COPY[value].label })),
@@ -276,15 +205,13 @@ export function ProjectAgentsPage() {
                     <SettingsRow
                         asLabel
                         label="Start in a worktree"
-                        desc={none ?? "Each new chat gets a branch of its own. You can still turn it off on the chat before sending."}
-                        control={<Switch checked={worktree} disabled={!project} onChange={(on) => cmd.setAgentWorktreeDefault(project, on)} />}
+                        desc="Each new chat gets a branch of its own. You can still turn it off on the chat before sending."
+                        control={<Switch checked={worktree} onChange={(on) => cmd.setAgentWorktreeDefault(project, on)} />}
                     />
                 </SettingsRows>
             </SettingsSection>
             <SettingsSection title="Accounts" sub="For agents you are signed in to more than once, such as a work and a personal account.">
-                {!project ? (
-                    <p className="settings-repo-note">Open a project to choose its accounts.</p>
-                ) : !switchable.length ? (
+                {!switchable.length ? (
                     <p className="settings-repo-note">Add a second account to an agent in Settings → Agents to choose one here.</p>
                 ) : (
                     <SettingsRows>

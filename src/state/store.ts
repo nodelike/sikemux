@@ -192,8 +192,8 @@ export interface ViewState {
     deskAddressOpen: string | null;
     settingsOpen: boolean;
     settingsPage: SettingsPageId;
-    /** The open project the Project page edits, or null to follow the project in front. */
-    settingsProject: string | null;
+    /** The page of the project in front's own settings, or null while they are closed. */
+    projectSettingsPage: import("../settings/projectSettingsPages").ProjectSettingsPageId | null;
     /** A section or row title the settings pane scrolls to once it opens. */
     settingsTarget: string | null;
     zoomedPaneId: string | null;
@@ -356,7 +356,7 @@ export const useStore = create<StoreState>(() => {
         deskAddressOpen: null,
         settingsOpen: false,
         settingsPage: "general",
-        settingsProject: null,
+        projectSettingsPage: null,
         settingsTarget: null,
         zoomedPaneId: null,
         sessionSwitcher: null,

@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ProjectAgentsPage, ProjectPage, ProjectSettingsPicker } from "./ProjectPage";
 import { sendTestNotification } from "../agents/agentNotifications";
 import type { KeyboardEvent as ReactKeyboardEvent, ReactNode } from "react";
 import { invokeCommand as invoke } from "../api/invoke";
@@ -83,8 +82,6 @@ import "../styles/settings.css";
 
 const PAGE_ICONS: Record<SettingsPageId, ReactNode> = {
     general: <IconFolder size={13} />,
-    project: <IconFolder size={13} />,
-    projectAgents: <IconAgent size={13} />,
     appearance: <IconContrast size={13} />,
     keybindings: <IconCommand size={13} />,
     activity: <IconActivity size={13} />,
@@ -266,7 +263,6 @@ export function SettingsPanel() {
                         {SETTINGS_GROUPS.map((group) => (
                             <div className="settings-nav-group" key={group.label}>
                                 <span className="settings-nav-label">{group.label}</span>
-                                {group.pages.includes("project") && <ProjectSettingsPicker />}
                                 {group.pages.map((id) => (
                                     <button
                                         key={id}
@@ -312,8 +308,6 @@ export function SettingsPanel() {
                             <>
                                 {page === "general" && <GeneralPage projectRoots={projectRoots} home={home} pretty={pretty} />}
 
-                                {page === "project" && <ProjectPage />}
-                                {page === "projectAgents" && <ProjectAgentsPage />}
                                 {page === "appearance" && <AppearancePage themeId={themeId} windowOpacity={windowOpacity} windowBlur={windowBlur} />}
 
                                 {page === "keybindings" && (

@@ -236,6 +236,7 @@ function ProjectBlock({ s }: { s: Session }) {
     useProjectUnfold(treeRef, active);
     const host = useHostRepo(active ? s.cwd : null, active).repo;
     const hostDef = host ? codeHost(host.provider) : undefined;
+    const projectSettingsOpen = useStore((st) => active && st.projectSettingsPage !== null);
     const gitArea = useStore((st) => {
         for (const id of st.windowsBySession[s.id] ?? []) {
             const win = st.windows[id];
@@ -302,7 +303,7 @@ function ProjectBlock({ s }: { s: Session }) {
         );
     }
 
-    const activeRole = sessionWindows.find((w) => w.id === s.activeWindowId)?.role;
+    const activeRole = projectSettingsOpen ? undefined : sessionWindows.find((w) => w.id === s.activeWindowId)?.role;
     const tabCount = sessionWindows.filter((w) => w.role === "term").length;
     const termIcons: ReactNode[] =
         tabCount > 1
@@ -363,8 +364,8 @@ function ProjectBlock({ s }: { s: Session }) {
         icon: <IconSettings size={13} />,
         label: "Settings",
         title: `${s.name} settings`,
-        open: () => cmd.openProjectSettings(s.cwd),
-        active: false,
+        open: () => cmd.openProjectSettings(),
+        active: projectSettingsOpen,
         icons: [],
     };
     const children: SubRow[] = [

@@ -87,18 +87,30 @@
     text-overflow: ellipsis;
     white-space: nowrap;
 }
-/* The open project the Project pages change, above them in the rail. */
-.settings-project-picker {
-    height: 28px;
-    margin-bottom: var(--space-1);
-    padding: 0 var(--space-2);
-    font-weight: var(--weight-medium);
-}
-.settings-project-none {
-    margin: 0;
-    padding: 0 var(--space-2) var(--space-1);
+/* Which project a project's own settings belong to, at the top of their rail. */
+.project-settings-head {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: center;
+    gap: 2px var(--space-2);
+    padding: var(--space-1) var(--space-2) var(--space-3);
     color: var(--text-tertiary);
-    font-size: var(--text-xs);
+}
+.project-settings-name {
+    overflow: hidden;
+    color: var(--text-primary);
+    font-size: var(--text-sm);
+    font-weight: var(--weight-semibold);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.project-settings-path {
+    grid-column: 2;
+    overflow: hidden;
+    font-family: var(--mono);
+    font-size: var(--text-3xs);
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .settings-rail-foot {

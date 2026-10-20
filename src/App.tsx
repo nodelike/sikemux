@@ -118,6 +118,7 @@ import { useInstalledPlugins } from "./plugins/installed";
 import { useRailDock } from "./rail/railMotion";
 
 const SettingsPanel = lazy(() => import("./settings/SettingsPanel").then((module) => ({ default: module.SettingsPanel })));
+const ProjectSettingsPanel = lazy(() => import("./settings/ProjectSettingsPanel").then((module) => ({ default: module.ProjectSettingsPanel })));
 
 /* The welcome, the release notes and the diagnostics panel, none of which exist
    until someone opens one. */
@@ -646,6 +647,7 @@ export default function App() {
         void simApi.offerToAgents(iosSimulator).catch(swallow("switch the iOS Simulator"));
     }, [iosSimulator]);
     const settingsOpen = useStore((s) => s.settingsOpen);
+    const projectSettingsOpen = useStore((s) => s.projectSettingsPage !== null);
     const uiTextScale = useStore((s) => s.uiTextScale);
     useEffect(() => {
         document.documentElement.style.setProperty("--ui-text-scale", String(uiTextScale));
@@ -667,6 +669,7 @@ export default function App() {
             filePaletteOpen ||
             newTabPaletteOpen ||
             settingsOpen ||
+            projectSettingsOpen ||
             commandPaletteOpen ||
             themePaletteOpen ||
             sessionSwitcherOpen ||
@@ -934,11 +937,16 @@ export default function App() {
                         <SideRail />
                     </RailPeek>
                 )}
-                <main className={`stage${settingsOpen ? " stage--settings" : ""}`}>
+                <main className={`stage${settingsOpen || projectSettingsOpen ? " stage--settings" : ""}`}>
                     <Workspace />
                     {settingsOpen && (
                         <Suspense fallback={null}>
                             <SettingsPanel />
+                        </Suspense>
+                    )}
+                    {projectSettingsOpen && !settingsOpen && (
+                        <Suspense fallback={null}>
+                            <ProjectSettingsPanel />
                         </Suspense>
                     )}
                 </main>

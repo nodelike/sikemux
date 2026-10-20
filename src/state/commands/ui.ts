@@ -3,6 +3,7 @@ import { invalidate } from "../resources";
 import { selectFocusMode } from "../selectors";
 import { getState, mutate, setState } from "../store";
 import type { SettingsPageId } from "../../settings/settingsIndex";
+import type { ProjectSettingsPageId } from "../../settings/projectSettingsPages";
 import type { PickerMode } from "../types";
 
 export const setHome = (home: string): void => setState({ home });
@@ -47,19 +48,19 @@ export const closeNewTabPalette = (): void => setState({ newTabPaletteOpen: fals
 export const openFilePalette = (): void => setState({ filePaletteOpen: true });
 export const closeFilePalette = (): void => setState({ filePaletteOpen: false });
 export const openSettings = (page?: SettingsPageId, target?: string): void =>
-    setState(page ? { settingsOpen: true, settingsPage: page, settingsTarget: target ?? null } : { settingsOpen: true });
+    setState(
+        page
+            ? { settingsOpen: true, settingsPage: page, settingsTarget: target ?? null, projectSettingsPage: null }
+            : { settingsOpen: true, projectSettingsPage: null },
+    );
 export const clearSettingsTarget = (): void => setState({ settingsTarget: null });
 export const setSettingsPage = (page: SettingsPageId): void => setState({ settingsPage: page });
 export const dismissSignInCard = (): void => setState({ signInCardDismissed: true });
-export const setSettingsProject = (cwd: string | null): void => setState({ settingsProject: cwd });
-/** Opens the Project page on `cwd`, following the project in front when that is the one. */
-export function openProjectSettings(cwd: string): void {
-    const state = getState();
-    const front = state.sessions[state.activeSessionId]?.cwd;
-    setState({ settingsOpen: true, settingsPage: "project", settingsTarget: null, settingsProject: cwd === front ? null : cwd });
-}
+/** Opens the project in front's own settings, at `page`. */
+export const openProjectSettings = (page: ProjectSettingsPageId = "general"): void => setState({ projectSettingsPage: page, settingsOpen: false });
+export const closeProjectSettings = (): void => setState({ projectSettingsPage: null });
 export const closeSettings = (): void => setState({ settingsOpen: false });
-export const toggleSettings = (): void => setState((s) => ({ settingsOpen: !s.settingsOpen }));
+export const toggleSettings = (): void => setState((s) => ({ settingsOpen: !s.settingsOpen, projectSettingsPage: null }));
 
 export const toggleSideRail = (): void => setState((s) => ({ sideRailOpen: !s.sideRailOpen }));
 export const toggleTabRail = (): void => setState((s) => ({ tabRailOpen: !s.tabRailOpen }));
