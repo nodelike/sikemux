@@ -19,7 +19,8 @@ import { gitDiscoveredReposR, gitOverviewR, gitRemoteBranchesR, gitRemotesR, git
 import { useStore } from "../state/store";
 import { commitGitDraft, generateGitDraft, runRepositoryGit, useGitWorkbench } from "../state/gitWorkbench";
 import { whenStageStill } from "../state/nativeViews";
-import { errMessage, notify } from "../state/toast";
+import { notify } from "../state/toast";
+import { errorText } from "../lib/format";
 import { DEFAULT_GIT_VIEW, type GitPanel } from "../state/types";
 import { copyText } from "../lib/clipboard";
 import { GitHostShell } from "../codehost/components/GitHostShell";
@@ -294,7 +295,7 @@ function GitWorkbench({
             setBusy(null);
             return out;
         } catch (err) {
-            const msg = errMessage(err);
+            const msg = errorText(err);
             setBusy(`✗ ${msg.length > 80 ? msg.slice(0, 80) + "…" : msg}`);
             errorTimerRef.current = window.setTimeout(() => setBusy(null), 3500);
             return undefined;
@@ -596,7 +597,7 @@ function GitWorkbench({
     const copyValue = (value: string, what: string) =>
         copyText(value).then(
             () => notify("success", `Copied ${what}`),
-            (err) => notify("error", errMessage(err)),
+            (err) => notify("error", errorText(err)),
         );
 
     const openCommitRowMenu = (c: GitCommit) =>

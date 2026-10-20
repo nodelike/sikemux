@@ -58,7 +58,17 @@ export function formatBytes(bytes: number): string {
     return `${Math.abs(value) < 10 ? value.toFixed(1) : Math.round(value)} ${BYTE_UNITS[unit]}`;
 }
 
-/** What a thrown value says went wrong. */
+function fieldOf(error: unknown, field: "message" | "category"): string | undefined {
+    const value = typeof error === "object" && error !== null ? (error as Record<string, unknown>)[field] : undefined;
+    return typeof value === "string" ? value : undefined;
+}
+
+/** What a thrown value says went wrong: an Error, a string, or the core's `{ category, message }`. */
 export function errorText(error: unknown): string {
-    return error instanceof Error ? error.message : String(error);
+    return fieldOf(error, "message") ?? String(error);
+}
+
+/** The kind of failure the core reported, such as `file-conflict`. */
+export function errorCategory(error: unknown): string | undefined {
+    return fieldOf(error, "category");
 }

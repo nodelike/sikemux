@@ -2,7 +2,7 @@ import { create } from "zustand";
 import { createJSONStorage, persist, type StateStorage } from "zustand/middleware";
 import { git } from "../api/git";
 import { runGitCmd } from "./git";
-import { errMessage } from "./toast";
+import { errorText } from "../lib/format";
 import { DEFAULT_AI_PROVIDER, defaultAiModel } from "../git/gitPaneConstants";
 import type { GitAiProvider } from "../git/gitPaneTypes";
 
@@ -86,7 +86,7 @@ export async function runRepositoryGit(repo: string, label: string, action: () =
         update({ label, busy: false, error: null, result: typeof result === "string" && result.trim() ? result : `${label} completed` });
         return true;
     } catch (error) {
-        update({ label, busy: false, error: errMessage(error), result: null });
+        update({ label, busy: false, error: errorText(error), result: null });
         return false;
     }
 }

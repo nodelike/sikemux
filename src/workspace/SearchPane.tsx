@@ -10,7 +10,8 @@ import { searchApi, type SearchFile, type SearchHit, type SearchResults, type Re
 import * as cmd from "../state/commands";
 import { useStore } from "../state/store";
 import { DEFAULT_GLOBAL_SEARCH_VIEW } from "../state/types";
-import { notify, errMessage } from "../state/toast";
+import { notify } from "../state/toast";
+import { errorText } from "../lib/format";
 import { FileIcon } from "../ui/FileIcon";
 import { IconSearch } from "../ui/Icons";
 import { basename, dirname, isPathWithin, joinPath, normalizePath } from "../lib/paths";
@@ -222,7 +223,7 @@ export function SearchPane({
             );
             setReplacePreview(null);
         } catch (e) {
-            notify("error", `replace failed: ${errMessage(e)}`);
+            notify("error", `replace failed: ${errorText(e)}`);
             setReplacePreview(null);
         } finally {
             setReplacing(false);
@@ -870,7 +871,7 @@ function Preview({
             })
             .catch((e: unknown) => {
                 if (cancelled) return;
-                setErr(errMessage(e));
+                setErr(errorText(e));
                 setActive(null);
             });
         return () => {

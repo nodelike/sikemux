@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { errMessage } from "../../state/toast";
+import { errorText } from "../../lib/format";
 import { ViewerBar, ViewerMessage, type ViewProps } from "./ViewerBar";
 
 const SIZES = [12, 16, 24, 36, 56];
@@ -28,7 +28,7 @@ export function FontView({ path, preview, url, onReload }: ViewProps) {
                 setFamily(name);
             })
             .catch((cause: unknown) => {
-                if (live) setError(errMessage(cause));
+                if (live) setError(errorText(cause));
             });
         return () => {
             live = false;

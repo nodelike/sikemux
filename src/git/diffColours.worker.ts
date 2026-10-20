@@ -3,6 +3,7 @@ import { createOnigurumaEngine } from "shiki/dist/engine-oniguruma.mjs";
 import onigWasm from "shiki/dist/onig.wasm?url";
 import { codeLines } from "../chat/codeLines";
 import type { CodeLine } from "../chat/types";
+import { errorText } from "../lib/format";
 
 export type ColourRequest =
     | { type: "grammar"; lang: string; grammars: LanguageRegistration[] }
@@ -90,7 +91,7 @@ function pump(): void {
             } catch (error) {
                 const at = jobs.indexOf(job);
                 if (at >= 0) jobs.splice(at, 1);
-                scope.postMessage({ type: "failed", id: job.id, message: error instanceof Error ? error.message : String(error) });
+                scope.postMessage({ type: "failed", id: job.id, message: errorText(error) });
             }
             await new Promise((resume) => setTimeout(resume));
         }

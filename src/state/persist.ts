@@ -23,7 +23,8 @@ import { BROWSER_ACTIVE, deskEditorId, deskView, fileKey, simulatorKey } from ".
 import { agentExecutablePath } from "./commands/agentLaunchCommand";
 import { agentWindow } from "./agentWindow";
 import { getState, setState, useStore, type StoreState } from "./store";
-import { errMessage, notify } from "./toast";
+import { notify } from "./toast";
+import { errorText } from "../lib/format";
 import { isCoreSessionId, isSessionKind, validatePersistedLayout } from "./persistValidation";
 import { isPluginId, isPluginKind } from "../plugins/kinds";
 import { isSpaceIcon, spaceName } from "./projectSpaces";
@@ -615,7 +616,7 @@ async function drainSaves(): Promise<boolean> {
             lastSaved = current;
         } catch (error) {
             if (pendingSnapshot == null) pendingSnapshot = current;
-            notify("error", `state save failed: ${errMessage(error)}; retrying`);
+            notify("error", `state save failed: ${errorText(error)}; retrying`);
             scheduleRetry();
             return false;
         } finally {

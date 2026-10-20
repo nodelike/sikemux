@@ -4,7 +4,8 @@ import { getIpcTransport } from "../api/transport";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import * as cmd from "../state/commands";
 import { useStore } from "../state/store";
-import { errMessage, swallow } from "../state/toast";
+import { swallow } from "../state/toast";
+import { errorText } from "../lib/format";
 import type { CliFrontendRequest, CliOpenResult } from "../state/types";
 
 async function acknowledge(result: CliOpenResult): Promise<void> {
@@ -41,7 +42,7 @@ export function CliOpenBridge() {
                         targetId: target.id,
                         paneId: null,
                         path: target.path,
-                        error: errMessage(error),
+                        error: errorText(error),
                     }));
                 }
                 await focusApp().catch(swallow("CLI window focus"));

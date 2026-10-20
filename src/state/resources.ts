@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useSyncExternalStore } from "react";
+import { errorCategory, errorText } from "../lib/format";
 
 export interface ResourceDef<Args extends unknown[], T> {
     kind: string;
@@ -117,28 +118,6 @@ function keyOf(kind: string, args: unknown[], def?: AnyDef): string {
     return framed("r", kind) + framed("k", k);
 }
 
-function stringifyError(err: unknown): string {
-    if (err == null) return "";
-    if (typeof err === "string") return err;
-    if (err instanceof Error) return err.message;
-    if (typeof err === "object") {
-        const e = err as { message?: unknown; category?: unknown };
-        if (typeof e.message === "string" && e.message) return e.message;
-        if (typeof e.category === "string" && e.category) return e.category;
-        try {
-            return JSON.stringify(err);
-        } catch {
-            return "unknown error";
-        }
-    }
-    return String(err);
-}
-
-function failureCategory(err: unknown): string | undefined {
-    const category = (err as { category?: unknown } | null | undefined)?.category;
-    return typeof category === "string" ? category : undefined;
-}
-
 function isPlainObject(value: unknown): value is Record<string, unknown> {
     if (typeof value !== "object" || value === null) return false;
     const proto = Object.getPrototypeOf(value);
@@ -213,8 +192,8 @@ function trigger<Args extends unknown[], T>(def: ResourceDef<Args, T>, key: stri
                     args,
                     status: "error",
                     data: current?.data,
-                    error: stringifyError(err),
-                    failure: failureCategory(err),
+                    error: errorText(err),
+                    failure: errorCategory(err),
                     fetchedAt: Date.now(),
                     loadedAt: current?.loadedAt,
                 });

@@ -19,6 +19,7 @@ import { ShaderField } from "../ui/ShaderField";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useOccludeNativeViews } from "../state/nativeViews";
 import { copyText } from "../lib/clipboard";
+import { errorText } from "../lib/format";
 
 interface IntegrationHealth {
     git: boolean;
@@ -354,7 +355,7 @@ export function DiagnosticsOverlay() {
             setSnapshot({ browser: browserDiagnostics(), native });
             setManifests(detection);
         } catch (value) {
-            setError(value instanceof Error ? value.message : String(value));
+            setError(errorText(value));
         }
     };
     useEffect(() => {
@@ -415,9 +416,7 @@ export function DiagnosticsOverlay() {
                 <button onClick={() => void copyText(text)}>Copy JSON</button>
                 <button
                     disabled={snapshot == null}
-                    onClick={() =>
-                        void exportDiagnosticsSnapshot(snapshot).catch((value) => setError(value instanceof Error ? value.message : String(value)))
-                    }>
+                    onClick={() => void exportDiagnosticsSnapshot(snapshot).catch((value) => setError(errorText(value)))}>
                     Save JSON
                 </button>
             </footer>

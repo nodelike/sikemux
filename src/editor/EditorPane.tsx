@@ -34,7 +34,8 @@ import * as cmd from "../state/commands";
 import { invalidate } from "../state/resources";
 import { useStore } from "../state/store";
 import { collectPanes } from "../state/layout";
-import { errCategory, errMessage, notify, reportError, swallow } from "../state/toast";
+import { notify, reportError, swallow } from "../state/toast";
+import { errorCategory, errorText } from "../lib/format";
 import { confirmDialog } from "../state/dialog";
 import { refreshViewTheme, registerView } from "../themes/bus";
 import { useLspBridge } from "../hooks/useLspBridge";
@@ -332,8 +333,8 @@ export function EditorPane({
                 if (isSshConfigPath(path)) invalidate((kind) => kind === "ssh.hosts");
             })
             .catch((error: unknown) => {
-                if (errCategory(error) === "file-conflict") {
-                    showConflictRef.current(path, errMessage(error));
+                if (errorCategory(error) === "file-conflict") {
+                    showConflictRef.current(path, errorText(error));
                     return;
                 }
                 reportError("save")(error);
@@ -505,7 +506,7 @@ export function EditorPane({
         try {
             return await documentIORef.current.read(path);
         } catch (error) {
-            if (errCategory(error) !== "not-text") throw error;
+            if (errorCategory(error) !== "not-text") throw error;
             await loadPreview(path);
             return null;
         }
@@ -521,7 +522,7 @@ export function EditorPane({
                 if (currentRef.current === path) setViewer({ path, ...previewed });
             })
             .catch((error: unknown) => {
-                if (currentRef.current === path) setViewer({ path, revision: 0, error: errMessage(error) });
+                if (currentRef.current === path) setViewer({ path, revision: 0, error: errorText(error) });
             });
     };
     const reloadViewer = useCallback((path: string) => showViewerRef.current(path, "reload"), []);
@@ -631,7 +632,7 @@ export function EditorPane({
                     }
                 }
             } catch (cause) {
-                error = errMessage(cause);
+                error = errorText(cause);
             }
 
             const stillQueued = (useStore.getState().pendingEditorOpens[paneId] ?? []).some(
@@ -802,7 +803,7 @@ export function EditorPane({
                                 showConflictRef.current(path, "The disk version changed while this editor had unsaved work.");
                             }
                         } catch (error) {
-                            if (!conflictedRef.current.has(path)) showConflictRef.current(path, errMessage(error));
+                            if (!conflictedRef.current.has(path)) showConflictRef.current(path, errorText(error));
                         }
                         continue;
                     }

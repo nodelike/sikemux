@@ -2,9 +2,9 @@ import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type
 import { git, isFixedRevision, type DiffRow } from "../api/git";
 import { fsapi } from "../api/fs";
 import { currentTheme, subscribeTheme } from "../themes/bus";
-import { errMessage, swallow } from "../state/toast";
+import { swallow } from "../state/toast";
 import { joinPath } from "../lib/paths";
-import { formatBytes } from "../lib/format";
+import { errorText, formatBytes } from "../lib/format";
 import { subscribe } from "../state/bus";
 import { DiffView } from "./DiffView";
 import { diffRowNotes, type OwnedFile } from "./changeOwners";
@@ -192,7 +192,7 @@ export function DiffEditor({
                 if (!cancelled) setRows(next);
             })
             .catch((err: unknown) => {
-                if (!cancelled) setError(errMessage(err));
+                if (!cancelled) setError(errorText(err));
             });
         return () => {
             cancelled = true;
@@ -217,7 +217,7 @@ export function DiffEditor({
                 setFiles((current) => (current?.base === base && current.head === head ? current : { base, head }));
             })
             .catch((err: unknown) => {
-                if (!cancelled) setError(errMessage(err));
+                if (!cancelled) setError(errorText(err));
             });
         return () => {
             cancelled = true;
@@ -301,6 +301,6 @@ async function readWorkingFile(repo: string, path: string, absPath: string): Pro
 }
 
 function isMissingFileError(err: unknown): boolean {
-    const msg = errMessage(err).toLowerCase();
+    const msg = errorText(err).toLowerCase();
     return msg.includes("no such file") || msg.includes("not found") || msg.includes("os error 2");
 }

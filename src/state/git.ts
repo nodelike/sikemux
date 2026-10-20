@@ -1,6 +1,7 @@
 import { emit } from "./bus";
 import type { GitCheatsheetSection, GitMenuItem, GitPromptSuggestion } from "./gitTypes";
-import { errMessage, reportError } from "./toast";
+import { reportError } from "./toast";
+import { errorText } from "../lib/format";
 import { getState, setState } from "./store";
 
 function currentPaneId(): string | null {
@@ -108,7 +109,7 @@ export async function runGitCmd<T>(label: string, fn: () => Promise<T>, opts?: {
         if (opts?.repo) emit({ type: "git-refresh", repo: opts.repo });
         return out;
     } catch (e) {
-        const msg = errMessage(e);
+        const msg = errorText(e);
         patchLogEntry(id, {
             status: "error",
             detail: msg.length > 4096 ? msg.slice(0, 4096) + "…" : msg,

@@ -6,6 +6,7 @@ import { reportError } from "../state/toast";
 import { hasAccounts, type AccountAgentType } from "./catalog";
 import { adoptAgentAccounts } from "../state/persist";
 import { DEFAULT_PROVIDER_PROFILES, type Agent, type AgentProvider, type AgentType, type ProviderProfile } from "../state/types";
+import { errorText } from "../lib/format";
 
 /* An account is a provider profile: its directory holds one sign-in. */
 
@@ -94,7 +95,7 @@ export async function signIn(profile: ProviderProfile, executablePath?: string):
         setSignIn(profile.id, null);
         return true;
     } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
+        const message = errorText(error);
         setSignIn(profile.id, message === "Sign-in stopped" ? null : { phase: "failed", message });
         return false;
     } finally {

@@ -3,8 +3,8 @@ import { relaunch } from "@tauri-apps/plugin-process";
 import { invokeCommand as invoke } from "./invoke";
 import type { ReleaseCredits } from "./releases";
 import { getState, setState, type PendingUpdate, type UpdateBlocker, type UpdateCheckOutcome, type UpdateOperationState } from "../state/store";
-import { errCategory, errMessage, notify, reportError, swallow } from "../state/toast";
-import { formatBytes } from "../lib/format";
+import { notify, reportError, swallow } from "../state/toast";
+import { errorCategory, errorText, formatBytes } from "../lib/format";
 
 export const RELEASES_URL = "https://github.com/nodelike/sikemux/releases";
 // The update feed only lists macOS builds, so Linux installs update by downloading the next release.
@@ -114,7 +114,7 @@ export function updateCheckLabel(outcome: UpdateCheckOutcome): string {
 }
 
 function isOffline(error: unknown): boolean {
-    const category = errCategory(error);
+    const category = errorCategory(error);
     return category === "offline" || category === "timeout";
 }
 
@@ -151,7 +151,7 @@ async function runUpdateCheck(announce: boolean): Promise<void> {
         });
         if (announce) notify("success", `Update v${update.version} is ready to install.`);
     } catch (error) {
-        setState({ lastUpdateCheck: { at: Date.now(), channel, error: errMessage(error) } });
+        setState({ lastUpdateCheck: { at: Date.now(), channel, error: errorText(error) } });
         if (!announce) swallow("update check")(error);
         else if (isOffline(error)) notify("info", "You're offline. Sikemux will check for updates when you're back.");
         else reportError("update check")(error);
@@ -255,7 +255,7 @@ async function installPendingUpdateOnce(force: boolean): Promise<void> {
             await restartIntoUpdate(force);
         } catch (error) {
             setState((state) => ({
-                pendingUpdate: state.pendingUpdate ? { ...state.pendingUpdate, state: "error", error: errMessage(error) } : null,
+                pendingUpdate: state.pendingUpdate ? { ...state.pendingUpdate, state: "error", error: errorText(error) } : null,
             }));
         }
         return;
@@ -303,7 +303,7 @@ async function installPendingUpdateOnce(force: boolean): Promise<void> {
         await restartIntoUpdate(force);
     } catch (error) {
         setState((state) => ({
-            pendingUpdate: state.pendingUpdate ? { ...state.pendingUpdate, state: "error", error: errMessage(error) } : null,
+            pendingUpdate: state.pendingUpdate ? { ...state.pendingUpdate, state: "error", error: errorText(error) } : null,
         }));
     }
 }

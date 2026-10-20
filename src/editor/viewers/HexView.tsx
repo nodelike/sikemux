@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
-import { errMessage } from "../../state/toast";
 import { ViewerBar, ViewerMessage, type ViewProps } from "./ViewerBar";
-import { formatBytes } from "../../lib/format";
+import { errorText, formatBytes } from "../../lib/format";
 
 const SHOWN_BYTES = 64 * 1024;
 
@@ -29,7 +28,7 @@ export function HexView({ path, preview, url, onReload }: ViewProps) {
                 if (live) setDump(hexDump(new Uint8Array(data, 0, Math.min(data.byteLength, SHOWN_BYTES))));
             })
             .catch((cause: unknown) => {
-                if (live) setError(errMessage(cause));
+                if (live) setError(errorText(cause));
             });
         return () => {
             live = false;

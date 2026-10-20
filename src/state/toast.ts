@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { errorText } from "../lib/format";
 
 export type ToastKind = "info" | "error" | "success";
 
@@ -86,30 +87,8 @@ export function dismissToast(id: number): void {
     useToasts.getState().dismiss(id);
 }
 
-export interface AppErrorEnvelope {
-    category: string;
-    message: string;
-}
-
-function isAppError(e: unknown): e is AppErrorEnvelope {
-    return (
-        !!e && typeof e === "object" && typeof (e as AppErrorEnvelope).message === "string" && typeof (e as AppErrorEnvelope).category === "string"
-    );
-}
-
-export function errMessage(e: unknown): string {
-    if (isAppError(e)) return e.message;
-    if (e instanceof Error) return e.message;
-    if (typeof e === "string") return e;
-    return String(e);
-}
-
-export function errCategory(e: unknown): string | null {
-    return isAppError(e) ? e.category : null;
-}
-
 export function reportError(label: string): (err: unknown) => void {
-    return (err) => notify("error", `${label}: ${errMessage(err)}`);
+    return (err) => notify("error", `${label}: ${errorText(err)}`);
 }
 
 const SWALLOW_RING_SIZE = 64;

@@ -31,6 +31,7 @@ import type { Theme } from "../themes";
 import { onBatteryPower } from "../state/battery";
 import { currentTheme, subscribeTheme } from "../themes/bus";
 import { prefersReducedMotion } from "./motion";
+import { errorText } from "./format";
 
 type Shaders = typeof import("@paper-design/shaders");
 
@@ -505,7 +506,7 @@ export function mountShaderField(host: HTMLElement, preset: ShaderFieldPreset, i
             host.dataset.shaderField = preset;
             syncTicker();
         } catch (error) {
-            const reason = error instanceof Error ? error.message : String(error);
+            const reason = errorText(error);
             console.warn(`Paper Shaders: ${preset} field skipped —`, reason);
             lastRefusal = `${preset}: ${reason}`;
             surfaces.delete(host);

@@ -2,7 +2,8 @@ import { type Extension } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import { languageFromPath, lsp, uriToPath, type LspLocation, type LspLocationKind } from "../api/lsp";
 import { openLspPeek } from "./lspPeek";
-import { errMessage, notify } from "../state/toast";
+import { notify } from "../state/toast";
+import { errorText } from "../lib/format";
 
 export interface LspContext {
     project: string;
@@ -133,7 +134,7 @@ export function lspNav(): Extension {
                         })),
                     });
                 })
-                .catch((e) => notify("error", `LSP ${requested}: ${errMessage(e)}`));
+                .catch((e) => notify("error", `LSP ${requested}: ${errorText(e)}`));
             return true;
         },
     });

@@ -7,7 +7,8 @@ import * as cmd from "../state/commands";
 import { confirmDialog } from "../state/dialog";
 import { invalidate } from "../state/resources";
 import { getState } from "../state/store";
-import { errMessage, notify } from "../state/toast";
+import { notify } from "../state/toast";
+import { errorText } from "../lib/format";
 import type { AgentWorktree } from "../state/types";
 import { cwdOutsideWorktree } from "./worktreePlan";
 
@@ -67,7 +68,7 @@ export async function removeAgentWorktree(agentId: string, pullMerged = false): 
         if (deleteBranch) await git.branchDelete(worktree.repo, worktree.branch, true);
         notify("success", deleteBranch ? `Removed worktree and branch ${worktree.branch}` : `Removed worktree ${worktree.branch}`);
     } catch (failure) {
-        notify("error", `Could not remove worktree ${worktree.branch}: ${errMessage(failure)}`);
+        notify("error", `Could not remove worktree ${worktree.branch}: ${errorText(failure)}`);
     } finally {
         refreshWorktrees(worktree.repo);
     }

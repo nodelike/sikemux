@@ -2,7 +2,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { languageFromPath, loadServedLanguages, lsp, type LspTextChange } from "../api/lsp";
 import { documentLanguageOf } from "../languages";
 import { languageServersAllowed } from "../editor/languageServerTrust";
-import { dismissToast, errCategory, errMessage, notify, swallow } from "../state/toast";
+import { dismissToast, notify, swallow } from "../state/toast";
+import { errorCategory, errorText } from "../lib/format";
 import { projectDiagnosticsRuntime, type ProjectDiagnosticsLease } from "../workbench/projectDiagnostics";
 
 const CHANGE_DEBOUNCE_MS = 120;
@@ -20,7 +21,7 @@ function openKey(lang: string, path: string) {
 function isInstallableMissingServer(lang: string, err: unknown, msg: string): boolean {
     const spec = INSTALLABLE_LSP[lang];
     if (!spec) return false;
-    if (errCategory(err) === "lsp-server-missing") return msg.includes(`\`${spec.bin}\``);
+    if (errorCategory(err) === "lsp-server-missing") return msg.includes(`\`${spec.bin}\``);
     return new RegExp(`spawn\\s+${spec.bin}\\b.*(?:no such file|not found)`, "i").test(msg);
 }
 
@@ -99,10 +100,10 @@ export function useLspBridge(cwd: string) {
                     await retry();
                     notify("success", `${spec.label} ready`);
                 } catch (e) {
-                    notify("error", `LSP ${lang} retry failed: ${errMessage(e)}`);
+                    notify("error", `LSP ${lang} retry failed: ${errorText(e)}`);
                 }
             })
-            .catch((e) => notify("error", `${spec.bin} install failed: ${errMessage(e)}`))
+            .catch((e) => notify("error", `${spec.bin} install failed: ${errorText(e)}`))
             .finally(() => {
                 installing.current.delete(lang);
             });
@@ -110,7 +111,7 @@ export function useLspBridge(cwd: string) {
 
     const reportLspError = useCallback(
         (lang: string, action: string, err: unknown, retry?: () => Promise<void>) => {
-            const msg = errMessage(err);
+            const msg = errorText(err);
             const key = `${lang}:${action}:${msg}`;
             if (reportedErrors.current.has(key)) return;
             reportedErrors.current.add(key);

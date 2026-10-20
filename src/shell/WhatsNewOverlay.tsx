@@ -4,7 +4,8 @@ import { installPendingUpdate, isUpdateBusy, updateStatusLabel, waitingLabel } f
 import { openInBrowser, releasesApi, type ReleaseContributor, type ReleaseNotes } from "../api/releases";
 import * as cmd from "../state/commands";
 import { useStore } from "../state/store";
-import { errMessage, swallow } from "../state/toast";
+import { swallow } from "../state/toast";
+import { errorText } from "../lib/format";
 import { useOccludeNativeViews } from "../state/nativeViews";
 import { ExperienceBackdrop } from "./ExperienceOverlays";
 import { UpdateWaiting } from "./UpdateWaiting";
@@ -51,7 +52,7 @@ function useShownRelease(open: boolean) {
         setError("");
         notesFor(version)
             .then((notes) => live && setFetched(notes))
-            .catch((value) => live && setError(errMessage(value)));
+            .catch((value) => live && setError(errorText(value)));
         return () => {
             live = false;
         };

@@ -5,7 +5,8 @@ import type { HarnessRequest } from "../harness/service";
 import { projectSessionId } from "../state/selectors";
 import { useStore } from "../state/store";
 import { tasksApi } from "../tasks/coreTasks";
-import { errMessage, swallow } from "../state/toast";
+import { swallow } from "../state/toast";
+import { errorText } from "../lib/format";
 
 /** Answers the tool calls the core hands to the window, and stops the harness tasks of a project or agent that closes. */
 export function HarnessBridge() {
@@ -24,7 +25,7 @@ export function HarnessBridge() {
                 const result = await (await getService()).handleHarnessRequest(request, controller.signal);
                 await invokeCommand("harness_reply", { id: request.id, result, error: null });
             } catch (error) {
-                await invokeCommand("harness_reply", { id: request.id, result: null, error: errMessage(error) }).catch(swallow("harness reply"));
+                await invokeCommand("harness_reply", { id: request.id, result: null, error: errorText(error) }).catch(swallow("harness reply"));
             }
         };
         const claim = async () => {
