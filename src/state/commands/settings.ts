@@ -1,4 +1,6 @@
 import { agentApi, type AgentAccountBook } from "../../api/agents";
+import { coreCall } from "../../api/core";
+import type { ProjectSettings } from "../../api/generated/wire";
 import { checkForUpdateNow } from "../../api/updater";
 import { adoptAgentAccounts } from "../persist";
 import { reportError } from "../toast";
@@ -57,6 +59,22 @@ export const setShareUsageData = (value: boolean): void => setState({ shareUsage
 
 export const setLanguageServerTrust = (project: string, allowed: boolean): void =>
     setState((s) => ({ languageServerTrust: { ...s.languageServerTrust, [project]: allowed } }));
+
+/** Changes what new chats start with in the project at `cwd`; an undefined field goes back to the app's default. */
+export function setProjectSettings(cwd: string, change: Partial<ProjectSettings>): void {
+    const merged = { ...getState().projectSettings[cwd], ...change };
+    const accounts = Object.fromEntries(Object.entries(merged.accounts ?? {}).filter(([, account]) => account));
+    const settings: ProjectSettings = {
+        ...(merged.agent ? { agent: merged.agent } : {}),
+        ...(merged.permissionMode ? { permissionMode: merged.permissionMode } : {}),
+        ...(Object.keys(accounts).length ? { accounts } : {}),
+    };
+    setState((s) => {
+        const { [cwd]: _replaced, ...others } = s.projectSettings;
+        return { projectSettings: Object.keys(settings).length ? { ...others, [cwd]: settings } : others };
+    });
+    void coreCall("setProjectSettings", { path: cwd, settings }).catch(reportError("Save project settings"));
+}
 
 export const setAgentWorktreeDefault = (project: string, on: boolean): void =>
     setState((s) => ({ agentWorktreeDefaults: { ...s.agentWorktreeDefaults, [project]: on } }));

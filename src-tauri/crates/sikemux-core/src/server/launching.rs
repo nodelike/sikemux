@@ -212,6 +212,10 @@ pub(crate) async fn start(
     chosen: Launch,
 ) -> CoreResult<Arc<chat::Chat>> {
     let launcher = core.workspaces.launcher(&chosen.launcher)?;
+    let permission_mode = chosen.permission_mode.or_else(|| {
+        core.workspaces
+            .project_mode(&chosen.cwd, &launcher.agent.provider)
+    });
     let program = launcher.agent.program().await?;
     let launcher_id = launcher.id.clone();
     let owner = core.clone();
@@ -225,7 +229,7 @@ pub(crate) async fn start(
     .await?;
     launch.agent_id = chosen.agent_id;
     launch.resume_id = chosen.resume_id;
-    if let Some(mode) = chosen.permission_mode {
+    if let Some(mode) = permission_mode {
         launch.permission_mode = mode;
     }
     launch.effort = chosen.effort;

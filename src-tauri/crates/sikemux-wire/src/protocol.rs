@@ -851,6 +851,21 @@ pub struct ProjectInfo {
     pub code_hosts: BTreeMap<String, CodeHostChoice>,
 }
 
+/// What new chats in one project start with, where it differs from the host's defaults.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectSettings {
+    /// The agent the app's New chat starts, by provider.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub permission_mode: Option<String>,
+    /// The account each agent signs in as here, by provider, as the id of one
+    /// of the person's agent accounts.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub accounts: BTreeMap<String, String>,
+}
+
 /// A repository or account picked for a project on one code host.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -991,6 +1006,10 @@ pub struct Workspace {
     /// The plugins the person switched off, by id.
     #[serde(default)]
     pub disabled_plugins: Vec<String>,
+    /// What new chats start with in each project, by the project's folder,
+    /// over the host's own defaults. Kept after a project is closed.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub project_settings: BTreeMap<String, ProjectSettings>,
     pub launchers: Vec<LauncherInfo>,
     /// The app's theme colours by name; empty until the app publishes them.
     pub palette: BTreeMap<String, String>,

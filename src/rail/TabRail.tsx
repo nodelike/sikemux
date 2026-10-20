@@ -1,13 +1,14 @@
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { AgentInfo } from "../api/agents";
 import { usePageVisible } from "../hooks/usePageVisible";
-import { selectedAgentRuntimeProfiles, selectedProviderProfile } from "../agents/agentProfiles";
+import { selectedAgentRuntimeProfiles } from "../agents/agentProfiles";
+import { projectProfile } from "../agents/projectDefaults";
 import { hasUsage, type UsageAgentType } from "../agents/catalog";
 import * as cmd from "../state/commands";
 import { useShortcutLabel, withShortcut } from "../commands/useShortcutLabel";
 import { useResource, useResourceEnabled } from "../state/resources";
 import { agentCatalogR, agentUsageR } from "../state/resources.defs";
-import { useStore } from "../state/store";
+import { getState, useStore, type StoreState } from "../state/store";
 import { activeAgentId, agentDisplayOf, agentIdsOf } from "../state/selectors";
 import { type Agent, type AgentType, type PinnedChat } from "../state/types";
 import { AgentIcon, IconAgent, IconGlobe, IconInbox, IconPin, IconPlus, IconSearch, IconTerminal } from "../ui/Icons";
@@ -381,7 +382,7 @@ export function TabRailBody() {
                                 allAgents || scope === "all"
                                     ? void cmd.startAgent()
                                     : cmd.addAgent(selectedType, undefined, undefined, {
-                                          profileId: selectedProviderProfile(selectedType, profiles, profileSelections)?.id,
+                                          profileId: projectProfile(getState(), activeProjectCwd(getState()), selectedType)?.id,
                                           detectedExecutablePath: selectedProvider?.command,
                                       })
                             }
@@ -612,4 +613,9 @@ function revealList(scroll: HTMLElement): void {
         ],
         { duration: 200 },
     );
+}
+
+function activeProjectCwd(state: StoreState): string {
+    const session = state.sessions[state.activeSessionId];
+    return session?.kind === "project" ? session.cwd : "";
 }

@@ -23,6 +23,11 @@ export interface Workspace {
   permissionMode?: string;
   /** The plugins the person switched off, by id. */
   disabledPlugins?: string[];
+  /**
+   * What new chats start with in each project, by the project's folder,
+   * over the host's own defaults. Kept after a project is closed.
+   */
+  projectSettings?: Record<string, ProjectSettings>;
   launchers: LauncherInfo[];
   /** The app's theme colours by name; empty until the app publishes them. */
   palette: Record<string, string>;
@@ -103,6 +108,18 @@ export interface PinnedChat {
   title: string;
   /** The folder it ran in. */
   project: string;
+}
+
+/** What new chats in one project start with, where it differs from the host's defaults. */
+export interface ProjectSettings {
+  /** The agent the app's New chat starts, by provider. */
+  agent?: string;
+  permissionMode?: string;
+  /**
+   * The account each agent signs in as here, by provider, as the id of one
+   * of the person's agent accounts.
+   */
+  accounts?: Record<string, string>;
 }
 
 /** What a device learns about a launcher: never its program or environment. */

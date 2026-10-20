@@ -23,7 +23,7 @@ use crate::launch::providers::{Helper, Providers, Wiring, ROUTED_ENV};
 use crate::launch::{skills, AgentSpec};
 use crate::protocol::{
     Backdrop, BackdropImage, ChatAccount, ChatInfo, ChatLaunch, ChatState, LauncherInfo,
-    PinnedChat, ProjectInfo, RecentInfo, SpaceInfo, Workspace, WorkspaceAgent,
+    PinnedChat, ProjectInfo, ProjectSettings, RecentInfo, SpaceInfo, Workspace, WorkspaceAgent,
 };
 use crate::sessions::recent::{self as saved_chats, RecentProvider, RecentRef, RecentRequest};
 
@@ -106,6 +106,9 @@ struct Saved {
     accounts: Option<Book>,
     /// The mode the person starts agents in, absent until they first choose.
     permission_mode: Option<String>,
+    /// What new chats start with in a project, by the project's folder.
+    #[serde(default)]
+    project_settings: BTreeMap<String, ProjectSettings>,
 }
 
 impl Saved {
@@ -546,6 +549,59 @@ impl Workspaces {
             }
             saved.spaces = spaces;
             Ok(())
+        })
+    }
+
+    /// Keeps what new chats start with in the project at `path`; settings that
+    /// say nothing are dropped.
+    fn set_project_settings(&self, path: String, settings: ProjectSettings) -> CoreResult<()> {
+        let oversized = too_long(&path, MAX_FIELD_CHARS)
+            || settings
+                .agent
+                .as_ref()
+                .is_some_and(|agent| too_long(agent, 64))
+            || settings.accounts.len() > MAX_LAUNCHERS
+            || settings.accounts.iter().any(|(provider, account)| {
+                too_long(provider, 64) || too_long(account, MAX_FIELD_CHARS)
+            });
+        if oversized {
+            return Err("those project settings are more than the core keeps".into());
+        }
+        if let Some(mode) = settings.permission_mode.as_deref() {
+            if !matches!(mode, "bypass" | "workspace-write") {
+                return Err(format!("{mode} is not a mode agents start in").into());
+            }
+        }
+        self.change(|saved| {
+            if settings == ProjectSettings::default() {
+                saved.project_settings.remove(&path);
+                return Ok(());
+            }
+            if !saved.project_settings.contains_key(&path)
+                && saved.project_settings.len() >= MAX_PROJECTS
+            {
+                return Err("settings for more projects than the core keeps".into());
+            }
+            saved.project_settings.insert(path, settings);
+            Ok(())
+        })
+    }
+
+    /// The mode a chat of `provider` starts in when the project at `cwd` sets
+    /// one; an agent that cannot bypass permissions never gets bypass.
+    pub(crate) fn project_mode(&self, cwd: &Path, provider: &str) -> Option<String> {
+        let published = self.lock();
+        let mode = published
+            .saved
+            .project_settings
+            .get(cwd.to_string_lossy().as_ref())?
+            .permission_mode
+            .clone()?;
+        let bypass = AGENTS.iter().any(|def| def.kind == provider && def.bypass);
+        Some(if bypass {
+            mode
+        } else {
+            "workspace-write".to_owned()
         })
     }
 
@@ -1260,6 +1316,7 @@ impl Workspaces {
                 .clone()
                 .unwrap_or_else(|| "bypass".into()),
             disabled_plugins: super::plugins::disabled(),
+            project_settings: saved.project_settings.clone(),
             launchers: published
                 .launchers
                 .iter()
@@ -1613,6 +1670,20 @@ pub(crate) struct PinnedParams {
 
 pub(crate) fn set_pinned_chats(core: &Core, params: PinnedParams) -> CoreResult<()> {
     core.workspaces.set_pinned(params.chats)?;
+    core.publish_device_view();
+    Ok(())
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ProjectSettingsParams {
+    path: String,
+    settings: ProjectSettings,
+}
+
+pub(crate) fn set_project_settings(core: &Core, params: ProjectSettingsParams) -> CoreResult<()> {
+    core.workspaces
+        .set_project_settings(params.path, params.settings)?;
     core.publish_device_view();
     Ok(())
 }

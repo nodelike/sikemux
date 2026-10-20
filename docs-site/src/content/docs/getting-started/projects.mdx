@@ -30,14 +30,21 @@ When the project folder is not a repository itself but holds several, such as `b
 
 ## Project settings
 
-**Settings → This project** holds what belongs to one open project. The menu above it in the settings sidebar picks which one; it starts on the project in front, and picking that one again makes it follow whichever project is in front.
+**Settings** at the foot of a project's tree in the sidebar opens that project's settings. In the settings sidebar, the menu above **This project** picks which open project they change; picking the one in front makes it follow whichever project is in front.
 
 - **Default git repository**, for a folder with several repositories.
 - **Language servers**: whether the project may start them. Turning this off stops the ones running.
 - **Code hosts**: the repository and account picked by hand on GitHub, GitLab or Bitbucket. **Forget** goes back to the project's remote and your signed-in account.
 - **Space**: which space lists the project in the rail.
 
-These settings stay on your Mac and are not written into the project.
+**Project agents** sets what new chats start with in the project, over **Settings → Agents**:
+
+- **Agent**: the one New chat (`⌘N`) starts.
+- **Permissions**: Normal or YOLO. Chats started from your phone in this project follow it too.
+- **Start in a worktree**: whether a new chat gets a branch of its own.
+- **Accounts**: for an agent you are signed in to more than once, which account chats here use, such as a work account for work projects.
+
+Anything left on **App default** follows the app's setting. These settings stay on your Mac and are not written into the project.
 
 ## Project config
 

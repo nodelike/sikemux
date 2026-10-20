@@ -10,7 +10,7 @@ describe("searchSettings", () => {
 
     it("matches words a setting does not show through its keywords", () => {
         expect(labels("font")).toEqual(["Text size"]);
-        expect(labels("yolo")).toEqual(["Launch boundary"]);
+        expect(labels("yolo")).toEqual(["Permissions", "Launch boundary"]);
     });
 
     it("needs every word, in any order", () => {

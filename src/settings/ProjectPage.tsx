@@ -1,4 +1,6 @@
 import { useMemo } from "react";
+import { AGENT_PERMISSION_COPY, AGENT_PERMISSION_MODES } from "../agents/agentLaunch";
+import { ACCOUNT_AGENT_TYPES, AGENT_TYPES, agentLabel } from "../agents/catalog";
 import { enabledCodeHosts } from "../codehost/registry";
 import { forgetProjectCodeHost } from "../codehost/state";
 import { allowLanguageServers } from "../editor/languageServerTrust";
@@ -223,5 +225,92 @@ function SpaceSection({ project }: { project: string }) {
                 </SettingsRow>
             </SettingsRows>
         </SettingsSection>
+    );
+}
+
+const APP_DEFAULT = "";
+
+/** What new chats start with in one open project, over the app's own defaults. */
+export function ProjectAgentsPage() {
+    const projects = useOpenProjects();
+    const project = useSettingsProject(projects);
+    const settings = useStore((s) => s.projectSettings[project]);
+    const lastAgent = useStore((s) => s.lastAgentType);
+    const appMode = useStore((s) => s.defaultAgentPermissionMode);
+    const profiles = useStore((s) => s.providerProfiles);
+    const appProfiles = useStore((s) => s.selectedProviderProfileIds);
+    const worktree = useStore((s) => s.agentWorktreeDefaults[project] === true);
+    const mode = settings?.permissionMode === "bypass" || settings?.permissionMode === "workspace-write" ? settings.permissionMode : null;
+    const switchable = ACCOUNT_AGENT_TYPES.filter((type) => profiles.filter((profile) => profile.provider === type).length > 1);
+    const none = !project ? "Open a project to change this." : undefined;
+    return (
+        <SettingsPage>
+            <SettingsSection title="New chats" sub="Anything left on the app default follows Settings → Agents.">
+                <SettingsRows>
+                    <SettingsRow label="Agent" desc={none ?? "The one New chat starts here."} wide>
+                        <Dropdown
+                            className="settings-dd"
+                            label="Agent"
+                            value={settings?.agent ?? APP_DEFAULT}
+                            disabled={!project}
+                            options={[
+                                { value: APP_DEFAULT, label: `App default · ${lastAgent ? agentLabel(lastAgent) : "the last one launched"}` },
+                                ...AGENT_TYPES.map((type) => ({ value: type, label: agentLabel(type) })),
+                            ]}
+                            onChange={(agent) => cmd.setProjectSettings(project, { agent: agent || undefined })}
+                        />
+                    </SettingsRow>
+                    <SettingsRow label="Permissions" desc={none ?? AGENT_PERMISSION_COPY[mode ?? appMode].detail} wide>
+                        <Dropdown
+                            className="settings-dd"
+                            label="Permissions"
+                            value={mode ?? APP_DEFAULT}
+                            disabled={!project}
+                            options={[
+                                { value: APP_DEFAULT, label: `App default · ${AGENT_PERMISSION_COPY[appMode].label}` },
+                                ...AGENT_PERMISSION_MODES.map((value) => ({ value, label: AGENT_PERMISSION_COPY[value].label })),
+                            ]}
+                            onChange={(value) => cmd.setProjectSettings(project, { permissionMode: value || undefined })}
+                        />
+                    </SettingsRow>
+                    <SettingsRow
+                        asLabel
+                        label="Start in a worktree"
+                        desc={none ?? "Each new chat gets a branch of its own. You can still turn it off on the chat before sending."}
+                        control={<Switch checked={worktree} disabled={!project} onChange={(on) => cmd.setAgentWorktreeDefault(project, on)} />}
+                    />
+                </SettingsRows>
+            </SettingsSection>
+            <SettingsSection title="Accounts" sub="For agents you are signed in to more than once, such as a work and a personal account.">
+                {!project ? (
+                    <p className="settings-repo-note">Open a project to choose its accounts.</p>
+                ) : !switchable.length ? (
+                    <p className="settings-repo-note">Add a second account to an agent in Settings → Agents to choose one here.</p>
+                ) : (
+                    <SettingsRows>
+                        {switchable.map((type) => {
+                            const own = profiles.filter((profile) => profile.provider === type);
+                            const appProfile = own.find((profile) => profile.id === appProfiles[type]);
+                            return (
+                                <SettingsRow key={type} label={<span>{agentLabel(type)}</span>} wide>
+                                    <Dropdown
+                                        className="settings-dd"
+                                        label={`${agentLabel(type)} account`}
+                                        value={settings?.accounts?.[type] ?? APP_DEFAULT}
+                                        options={[
+                                            { value: APP_DEFAULT, label: `App default · ${appProfile?.name ?? "the signed-in one"}` },
+                                            ...own.map((profile) => ({ value: profile.id, label: profile.name || agentLabel(type) })),
+                                        ]}
+                                        onChange={(account) =>
+                                            cmd.setProjectSettings(project, { accounts: { ...settings?.accounts, [type]: account } })
+                                        }
+                                    />
+                                </SettingsRow>
+                            );
+                        })}
+                    </SettingsRows>
+                )}
+            </SettingsSection>
+        </SettingsPage>
     );
 }

@@ -1,11 +1,23 @@
 import { IS_MACOS } from "../lib/platform";
 
 export type SettingsPageId =
-    "general" | "project" | "appearance" | "keybindings" | "activity" | "about" | "agents" | "actions" | "cli" | "devices" | "cloud" | "plugins";
+    | "general"
+    | "project"
+    | "projectAgents"
+    | "appearance"
+    | "keybindings"
+    | "activity"
+    | "about"
+    | "agents"
+    | "actions"
+    | "cli"
+    | "devices"
+    | "cloud"
+    | "plugins";
 
 export const SETTINGS_GROUPS: { label: string; pages: SettingsPageId[] }[] = [
     { label: "App", pages: ["general", "appearance", "keybindings", "activity", "about"] },
-    { label: "Project", pages: ["project"] },
+    { label: "Project", pages: ["project", "projectAgents"] },
     { label: "Tools", pages: ["agents", "actions", "cli", "devices", "cloud", "plugins"] },
 ];
 
@@ -14,6 +26,7 @@ export const SETTINGS_PAGE_ORDER: SettingsPageId[] = SETTINGS_GROUPS.flatMap((gr
 export const SETTINGS_PAGE_NAMES: Record<SettingsPageId, string> = {
     general: "General",
     project: "This project",
+    projectAgents: "Project agents",
     appearance: "Appearance",
     keybindings: "Keybindings",
     activity: "Activity",
@@ -69,6 +82,12 @@ export const SETTINGS_INDEX: SettingsEntry[] = [
     section("project", "Code hosts", "github gitlab bitbucket repository account forget remote"),
     section("project", "Space", "spaces group rail folder"),
     row("project", "Space", "Listed under", "spaces group rail folder"),
+
+    section("projectAgents", "New chats", "project agent default claude codex new chat"),
+    row("projectAgents", "New chats", "Agent", "default agent new chat cmd n claude codex opencode"),
+    row("projectAgents", "New chats", "Permissions", "yolo bypass normal approval sandbox safety boundary"),
+    row("projectAgents", "New chats", "Start in a worktree", "branch isolate sandbox worktree"),
+    section("projectAgents", "Accounts", "work personal second account sign in claude codex"),
 
     section("appearance", "Theme", "colours colors palette dark light custom fork editor"),
     section("appearance", "Interface"),
