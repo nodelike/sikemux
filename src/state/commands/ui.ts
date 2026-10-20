@@ -51,6 +51,12 @@ export const openSettings = (page?: SettingsPageId, target?: string): void =>
 export const clearSettingsTarget = (): void => setState({ settingsTarget: null });
 export const setSettingsPage = (page: SettingsPageId): void => setState({ settingsPage: page });
 export const setSettingsProject = (cwd: string | null): void => setState({ settingsProject: cwd });
+/** Opens the Project page on `cwd`, following the project in front when that is the one. */
+export function openProjectSettings(cwd: string): void {
+    const state = getState();
+    const front = state.sessions[state.activeSessionId]?.cwd;
+    setState({ settingsOpen: true, settingsPage: "project", settingsTarget: null, settingsProject: cwd === front ? null : cwd });
+}
 export const closeSettings = (): void => setState({ settingsOpen: false });
 export const toggleSettings = (): void => setState((s) => ({ settingsOpen: !s.settingsOpen }));
 

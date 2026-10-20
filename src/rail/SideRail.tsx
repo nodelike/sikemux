@@ -20,7 +20,7 @@ import { animate, EASE_IN, EASE_PAN, EASE_POP, EASE_SWAP, foldedFrames, leavingR
 import { rollupAgentDisplays, type AgentDisplay } from "../state/agentStatus";
 import { getState, useStore } from "../state/store";
 import { AgentFace } from "../buddies/Buddy";
-import { IconAgent, IconClose, IconFolder, IconMove, IconPencil, IconPlus, IconServer, IconTerminal, WindowIcon } from "../ui/Icons";
+import { IconAgent, IconClose, IconFolder, IconMove, IconPencil, IconPlus, IconServer, IconSettings, IconTerminal, WindowIcon } from "../ui/Icons";
 import { useHostRepo } from "../codehost/project";
 import { codeHost } from "../codehost/registry";
 import { isTreeSection } from "../codehost/state";
@@ -358,12 +358,24 @@ function ProjectBlock({ s }: { s: Session }) {
         active: activeRole === "agent",
         icons: [],
     };
-    const children: SubRow[] = PROJECT_SURFACE_ORDER.flatMap((role) => {
-        const row = surfaceRow(role);
-        if (role === "files") return [row, terminalRow];
-        if (role === "git") return [agentsRow, row, ...hostRows];
-        return [row];
-    });
+    const settingsRow: SubRow = {
+        key: "settings",
+        icon: <IconSettings size={13} />,
+        label: "Settings",
+        title: `${s.name} settings`,
+        open: () => cmd.openProjectSettings(s.cwd),
+        active: false,
+        icons: [],
+    };
+    const children: SubRow[] = [
+        ...PROJECT_SURFACE_ORDER.flatMap((role) => {
+            const row = surfaceRow(role);
+            if (role === "files") return [row, terminalRow];
+            if (role === "git") return [agentsRow, row, ...hostRows];
+            return [row];
+        }),
+        settingsRow,
+    ];
     return (
         <div ref={treeRef} className={`proj-tree active${rail.projectDragClass(s.id)}`} data-project-id={s.id}>
             <div className="session-row-shell project-row-shell" onContextMenu={(event) => rail.openSpaceMenu(event, s)}>
