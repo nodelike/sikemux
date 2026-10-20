@@ -94,6 +94,7 @@ export interface PersistedPrefs {
     simulatorFrame?: boolean;
     notificationsIntroduced?: boolean;
     keptRunningNoticeShown?: boolean;
+    signInCardDismissed?: boolean;
     railDensity?: RailDensity;
     midTurnSend?: MidTurnSend;
     tabRailAllAgents?: boolean;

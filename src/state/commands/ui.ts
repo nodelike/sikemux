@@ -50,6 +50,7 @@ export const openSettings = (page?: SettingsPageId, target?: string): void =>
     setState(page ? { settingsOpen: true, settingsPage: page, settingsTarget: target ?? null } : { settingsOpen: true });
 export const clearSettingsTarget = (): void => setState({ settingsTarget: null });
 export const setSettingsPage = (page: SettingsPageId): void => setState({ settingsPage: page });
+export const dismissSignInCard = (): void => setState({ signInCardDismissed: true });
 export const setSettingsProject = (cwd: string | null): void => setState({ settingsProject: cwd });
 /** Opens the Project page on `cwd`, following the project in front when that is the one. */
 export function openProjectSettings(cwd: string): void {

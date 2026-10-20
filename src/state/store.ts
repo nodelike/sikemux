@@ -112,6 +112,8 @@ export interface DomainState {
     notificationsIntroduced: boolean;
     /** The person was told once that terminals keep running after Sikemux quits. */
     keptRunningNoticeShown: boolean;
+    /** The person closed the side rail's card asking them to sign in. */
+    signInCardDismissed: boolean;
     railDensity: RailDensity;
     midTurnSend: MidTurnSend;
     /** The tab rail shows every CLI's chats instead of one provider's. */
@@ -320,6 +322,7 @@ export const useStore = create<StoreState>(() => {
         simulatorFrame: true,
         notificationsIntroduced: false,
         keptRunningNoticeShown: false,
+        signInCardDismissed: false,
         railDensity: "comfortable",
         midTurnSend: "steer",
         tabRailAllAgents: false,
