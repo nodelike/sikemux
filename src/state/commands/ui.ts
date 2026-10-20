@@ -57,7 +57,7 @@ export const clearSettingsTarget = (): void => setState({ settingsTarget: null }
 export const setSettingsPage = (page: SettingsPageId): void => setState({ settingsPage: page });
 export const dismissSignInCard = (): void => setState({ signInCardDismissed: true });
 /** Opens the project in front's own settings, at `page`. */
-export const openProjectSettings = (page: ProjectSettingsPageId = "general"): void => setState({ projectSettingsPage: page, settingsOpen: false });
+export const openProjectSettings = (page: ProjectSettingsPageId = "start"): void => setState({ projectSettingsPage: page, settingsOpen: false });
 export const closeProjectSettings = (): void => setState({ projectSettingsPage: null });
 export const closeSettings = (): void => setState({ settingsOpen: false });
 export const toggleSettings = (): void => setState((s) => ({ settingsOpen: !s.settingsOpen, projectSettingsPage: null }));

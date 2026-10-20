@@ -1,7 +1,6 @@
 import type { AgentInfo } from "../api/agents";
 import { agentSupportsChat } from "../agents/agentLaunch";
 import { selectedAgentRuntimeProfiles } from "../agents/agentProfiles";
-import { projectAgentType } from "../agents/projectDefaults";
 import { sendToAgent } from "../agents/sendToAgent";
 import { fetchResource, peekResource } from "../state/resources";
 import { agentCatalogR } from "../state/resources.defs";
@@ -32,7 +31,7 @@ export async function workOnIssue(repo: RepoRef, number: number, cwd: string): P
     }
     const runtime = selectedAgentRuntimeProfiles(state.providerProfiles, state.selectedProviderProfileIds);
     const catalog = peekResource(agentCatalogR, runtime) ?? (await fetchResource(agentCatalogR, runtime).catch((): AgentInfo[] => []));
-    const type = chatAgentFor(catalog, projectAgentType(state, cwd));
+    const type = chatAgentFor(catalog, state.lastAgentType);
     if (!type) {
         notify("error", "No agent that can chat is installed");
         return;

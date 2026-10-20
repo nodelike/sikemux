@@ -1,5 +1,4 @@
-import { selectedAgentRuntimeProfiles } from "../../agents/agentProfiles";
-import { projectAgentType, projectProfile } from "../../agents/projectDefaults";
+import { selectedAgentRuntimeProfiles, selectedProviderProfile } from "../../agents/agentProfiles";
 import { fetchResource, peekResource } from "../resources";
 import { agentCatalogR } from "../resources.defs";
 import { agentWindowId, nearestAgentId, selectTabRefs } from "../selectors";
@@ -25,13 +24,13 @@ export async function startAgent(): Promise<void> {
     const runtime = selectedAgentRuntimeProfiles(st.providerProfiles, st.selectedProviderProfileIds);
     const catalog = peekResource(agentCatalogR, runtime) ?? (await fetchResource(agentCatalogR, runtime).catch(() => []));
     const installed = catalog.filter((agent) => agent.available !== false);
-    const agent = installed.find((candidate) => candidate.type === projectAgentType(getState(), session.cwd)) ?? installed[0];
+    const agent = installed.find((candidate) => candidate.type === getState().lastAgentType) ?? installed[0];
     if (!agent) {
         openAgentPalette();
         return;
     }
     addAgent(agent.type, undefined, undefined, {
-        profileId: projectProfile(st, session.cwd, agent.type)?.id,
+        profileId: selectedProviderProfile(agent.type, st.providerProfiles, st.selectedProviderProfileIds)?.id,
         detectedExecutablePath: agent.command,
         cwd: session.cwd,
         sessionId: session.id,

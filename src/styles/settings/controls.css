@@ -289,57 +289,6 @@
     text-transform: uppercase;
 }
 
-.settings-repo-choices {
-    display: grid;
-    gap: var(--space-1);
-}
-.settings-repo-choice {
-    display: flex;
-    align-items: center;
-    gap: var(--space-2);
-    min-height: 32px;
-    padding: 0 var(--space-3);
-    background: transparent;
-    border: 1px solid var(--border);
-    color: var(--text-secondary);
-    font-family: var(--ui);
-    font-size: var(--text-sm);
-    text-align: left;
-    cursor: pointer;
-}
-.settings-repo-choice:hover {
-    background: var(--surface-hover);
-    color: var(--text-primary);
-}
-.settings-repo-choice.on {
-    background: var(--surface-selected);
-    border-color: var(--border-selected);
-    color: var(--text-primary);
-}
-.settings-repo-name {
-    font-family: var(--mono);
-    font-size: var(--text-xs);
-}
-.settings-repo-branch {
-    margin-left: auto;
-    font-family: var(--mono);
-    font-size: var(--text-2xs);
-    color: var(--text-tertiary);
-}
-.settings-repo-changes {
-    font-size: var(--text-2xs);
-    color: var(--warn);
-}
-.settings-code-host-pick {
-    font-family: var(--mono);
-    font-size: var(--text-2xs);
-}
-.settings-repo-note {
-    margin: var(--space-1) 0 0;
-    font-size: var(--text-xs);
-    color: var(--text-tertiary);
-}
-
 /* ── a project's sikemux.json ───────────────────────── */
 .project-file {
     overflow: hidden;
@@ -504,14 +453,6 @@
 }
 
 /* ── a project's folders ────────────────────────────── */
-.project-settings-meta {
-    margin-left: auto;
-    overflow: hidden;
-    color: var(--text-tertiary);
-    font-size: var(--text-3xs);
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
 .project-folder-found {
     display: flex;
     flex-wrap: wrap;
@@ -582,4 +523,28 @@
     gap: var(--space-2);
     padding: var(--space-2) var(--space-3);
     border-top: 1px solid var(--border);
+}
+.project-folder-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-1);
+}
+.project-folder-tabs button {
+    height: 26px;
+    padding: 0 var(--space-2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-2);
+    background: transparent;
+    color: var(--text-secondary);
+    font-family: var(--mono);
+    font-size: var(--text-2xs);
+    cursor: pointer;
+}
+.project-folder-tabs button:hover {
+    background: var(--surface-hover);
+}
+.project-folder-tabs button.on {
+    border-color: transparent;
+    background: var(--surface-chosen);
+    color: var(--text-primary);
 }

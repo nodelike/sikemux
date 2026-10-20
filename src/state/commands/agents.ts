@@ -13,8 +13,7 @@ import {
     normalizePermissionMode,
     type ChatAgentType,
 } from "../../agents/agentLaunch";
-import { selectedAgentRuntimeProfiles } from "../../agents/agentProfiles";
-import { projectPermissionMode, projectProfile } from "../../agents/projectDefaults";
+import { selectedAgentRuntimeProfiles, selectedProviderProfile } from "../../agents/agentProfiles";
 import { emit } from "../bus";
 import { agentHasBackgroundWork, isAgentBusy, type AgentShown } from "../agentStatus";
 import { confirmDialog } from "../dialog";
@@ -141,8 +140,8 @@ export function addAgent(type: AgentType, resumeId?: string, title?: string, opt
             if (winId && !options.background) sess.activeWindowId = winId;
             return;
         }
-        const permissionMode = normalizePermissionMode(type, options.permissionMode ?? projectPermissionMode(d, session.cwd));
-        const requestedProfileId = options.profileId === undefined ? projectProfile(d, session.cwd, type)?.id : options.profileId;
+        const permissionMode = normalizePermissionMode(type, options.permissionMode ?? d.defaultAgentPermissionMode);
+        const requestedProfileId = options.profileId === undefined ? d.selectedProviderProfileIds[type] : options.profileId;
         const profile = requestedProfileId ? profileOf(d, { profileId: requestedProfileId, type }) : undefined;
         const profileId = profile?.id;
         const cwd = options.cwd || session.cwd;
@@ -209,7 +208,7 @@ function resumeSavedChat(chat: SavedChat, options: SavedChatOptions, cwd?: strin
         sessionId: project,
         cwd,
         worktree,
-        profileId: projectProfile(state, chat.project, chat.agent)?.id,
+        profileId: selectedProviderProfile(chat.agent, state.providerProfiles, state.selectedProviderProfileIds)?.id,
         detectedExecutablePath: options.detectedExecutablePath,
         background: options.background,
     });

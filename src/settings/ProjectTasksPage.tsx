@@ -20,11 +20,13 @@ const PLACEMENT_NAMES: Record<string, string> = {
     replace: "in this pane",
 };
 
-/** What the project's sikemux.json adds, whether this host trusts it, and what is wrong with it. */
-export function ProjectFilePage({ project }: { project: string }) {
+/** Everything the project can run, and what its sikemux.json adds, whether this host trusts it, and what is wrong with it. */
+export function ProjectTasksPage({ project }: { project: string }) {
     const snapshot = useSyncExternalStore(projectControllerBridge.subscribe, projectControllerBridge.getActiveSnapshot);
     const config = snapshot?.cwd === project ? snapshot.config : null;
-    const tasks = useProjectTasks(project);
+    const found = useProjectTasks(project);
+    const tasks = found?.tasks ?? [];
+    const trusted = found?.trusted;
     const sessionId = useStore((s) => s.activeSessionId);
     const [adding, setAdding] = useState(false);
     const [asking, setAsking] = useState<{ x: number; y: number; text: string } | null>(null);
@@ -33,29 +35,44 @@ export function ProjectFilePage({ project }: { project: string }) {
         setAsking({ x: rect.right, y: rect.bottom + 4, text });
     };
     const open = () => cmd.requestOpenFile(config?.path ?? `${project}/sikemux.json`);
-    const ours = (tasks?.tasks ?? []).filter((task) => task.source === "project" || task.source === "personal");
+    const listed = tasks.filter((task) => task.source !== "rerun" && task.source !== "command");
 
     return (
         <SettingsPage>
             <SettingsSection
-                title="sikemux.json"
-                meta={config?.status === "valid" ? commandCount(ours.length + config.config.actions.length) : undefined}
-                sub="The actions, tasks and preview this project adds for everyone who opens it. Commit it to share them with your team.">
+                title="Tasks"
+                meta={listed.length ? `${listed.length} ${listed.length === 1 ? "task" : "tasks"}` : undefined}
+                sub="What the run menu offers and agents can start. Tasks for the team go in sikemux.json; tasks only you get stay in .sikemux/, which Git ignores.">
+                <div className="project-file">
+                    {listed.length ? (
+                        listed.map((task) => <Item key={task.id} name={task.label} command={task.command} note={whereFrom(task)} />)
+                    ) : (
+                        <div className="project-file-empty">
+                            <p>Nothing to run yet: no task in sikemux.json, and none found in the build files.</p>
+                        </div>
+                    )}
+                    <div className="project-file-foot">
+                        <span />
+                        <button type="button" className="settings-btn" onClick={(event) => ask(event.currentTarget, findTasksRequest(project))}>
+                            Find tasks with an agent
+                        </button>
+                        <button type="button" className="settings-btn primary" onClick={() => setAdding(true)}>
+                            Add a task
+                        </button>
+                    </div>
+                </div>
+                {adding && (
+                    <div className="project-file-add">
+                        <AddTaskForm project={project} onDone={() => setAdding(false)} />
+                    </div>
+                )}
+            </SettingsSection>
+
+            <SettingsSection title="sikemux.json" sub="The actions, preview and worktree commands this project adds for everyone who opens it.">
                 <div className="project-file">
                     {!config || config.status === "absent" ? (
                         <div className="project-file-empty">
-                            <p>This project has no sikemux.json yet. Commands added to it show up in the run menu and the command deck.</p>
-                            <div className="settings-actions">
-                                <button type="button" className="settings-btn" onClick={() => setAdding(true)}>
-                                    Add a task
-                                </button>
-                                <button
-                                    type="button"
-                                    className="settings-btn primary"
-                                    onClick={(event) => ask(event.currentTarget, findTasksRequest(project))}>
-                                    Find tasks with an agent
-                                </button>
-                            </div>
+                            <p>This project has no sikemux.json. Adding a task for the team makes one.</p>
                         </div>
                     ) : config.status === "invalid" ? (
                         <>
@@ -88,17 +105,14 @@ export function ProjectFilePage({ project }: { project: string }) {
                         </>
                     ) : (
                         <>
-                            <TrustStatus project={project} trusted={tasks?.trusted ?? config.trusted} runsNothing={!config.trust.requiresApproval} />
-                            <Group title="Tasks" count={ours.length} add={() => setAdding(true)}>
-                                {ours.map((task) => (
-                                    <Item key={task.id} name={task.label} command={task.command} note={whoGets(task)} />
-                                ))}
-                            </Group>
-                            <Group title="Actions" count={config.config.actions.length}>
-                                {config.config.actions.map((action) => (
-                                    <Item key={action.id} name={action.label} command={action.command} note={PLACEMENT_NAMES[action.placement]} />
-                                ))}
-                            </Group>
+                            <TrustStatus project={project} trusted={trusted ?? config.trusted} runsNothing={!config.trust.requiresApproval} />
+                            {config.config.actions.length > 0 && (
+                                <Group title="Actions" count={config.config.actions.length}>
+                                    {config.config.actions.map((action) => (
+                                        <Item key={action.id} name={action.label} command={action.command} note={PLACEMENT_NAMES[action.placement]} />
+                                    ))}
+                                </Group>
+                            )}
                             {config.config.preview?.url && (
                                 <Group title="Preview">
                                     <Item name={config.config.preview.url} command={config.config.preview.command ?? ""} />
@@ -117,9 +131,7 @@ export function ProjectFilePage({ project }: { project: string }) {
                                 </Group>
                             )}
                             <div className="project-file-foot">
-                                <span className="settings-hint">
-                                    Tasks marked only me are kept in <code>.sikemux/</code>, which Git ignores.
-                                </span>
+                                <span />
                                 <button type="button" className="settings-btn" onClick={open}>
                                     Open sikemux.json
                                 </button>
@@ -127,11 +139,6 @@ export function ProjectFilePage({ project }: { project: string }) {
                         </>
                     )}
                 </div>
-                {adding && (
-                    <div className="project-file-add">
-                        <AddTaskForm project={project} onDone={() => setAdding(false)} />
-                    </div>
-                )}
             </SettingsSection>
             {asking && (
                 <SendToAgentMenu
@@ -188,17 +195,12 @@ function TrustStatus({ project, trusted, runsNothing }: { project: string; trust
     );
 }
 
-function Group({ title, count, add, children }: { title: string; count?: number; add?: () => void; children: ReactNode }) {
+function Group({ title, count, children }: { title: string; count?: number; children: ReactNode }) {
     return (
         <div className="project-file-group">
             <div className="project-file-group-head">
                 <span>{title}</span>
                 {count !== undefined && <span className="project-file-count">{count}</span>}
-                {add && (
-                    <button type="button" className="project-file-add-btn" onClick={add}>
-                        + Add a task
-                    </button>
-                )}
             </div>
             {children}
         </div>
@@ -215,8 +217,10 @@ function Item({ name, command, note }: { name: string; command: string; note?: s
     );
 }
 
-function whoGets(task: ProjectTask): string {
-    return task.source === "personal" ? "only me" : "team";
+function whereFrom(task: ProjectTask): string {
+    if (task.source === "personal") return "only me";
+    if (task.source === "project") return "sikemux.json";
+    return task.cwd === "." ? "found in the build files" : `found in ${task.cwd}/`;
 }
 
 function fixRequest(path: string, errors: readonly { path: string; message: string }[]): string {
@@ -225,8 +229,4 @@ function fixRequest(path: string, errors: readonly { path: string; message: stri
         ...errors.map((error) => `- ${error.path}: ${error.message}`),
         "Fix them and keep everything else in the file. Call guide with the config topic first for the format.",
     ].join("\n");
-}
-
-function commandCount(count: number): string {
-    return `${count} ${count === 1 ? "command" : "commands"}`;
 }

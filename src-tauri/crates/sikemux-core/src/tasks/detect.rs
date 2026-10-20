@@ -159,6 +159,22 @@ fn spring_boot_minimum(build: &str) -> Option<u32> {
         .map(|_| 17)
 }
 
+/// The Java major version the build files in `dir` ask for.
+pub fn required_java(dir: &Path) -> Option<u32> {
+    let files: HashSet<String> = list(dir).into_iter().map(|entry| entry.name).collect();
+    let pom = files
+        .contains("pom.xml")
+        .then(|| java_from_pom(&read_or_empty(&dir.join("pom.xml"))))
+        .flatten();
+    pom.or_else(|| {
+        ["build.gradle.kts", "build.gradle"]
+            .iter()
+            .filter(|build| files.contains(**build))
+            .find_map(|build| java_from_gradle(&read_or_empty(&dir.join(build))))
+    })
+    .or_else(|| java_from_version_files(dir, &files))
+}
+
 fn java_from_pom(pom: &str) -> Option<u32> {
     first_number(pom, &POM_JAVA).or_else(|| spring_boot_minimum(pom))
 }

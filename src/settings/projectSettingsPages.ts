@@ -1,13 +1,11 @@
-export type ProjectSettingsPageId = "general" | "agents" | "file" | `folder:${string}`;
+/** `start` opens the first page the project has. */
+export type ProjectSettingsPageId = "start" | "environment" | "tasks" | `stack:${string}`;
 
-export const PROJECT_SETTINGS_PAGES: readonly { id: ProjectSettingsPageId; name: string }[] = [
-    { id: "general", name: "General" },
-    { id: "agents", name: "Agents" },
-    { id: "file", name: "Project file" },
-];
+/** A language's page in one folder of the project. */
+export const stackPage = (folder: string, language: string): ProjectSettingsPageId => `stack:${language}:${folder}`;
 
-export const folderPage = (folder: string): ProjectSettingsPageId => `folder:${folder}`;
-
-export function folderOfPage(page: ProjectSettingsPageId): string | null {
-    return page.startsWith("folder:") ? page.slice("folder:".length) : null;
+export function stackOfPage(page: ProjectSettingsPageId): { language: string; folder: string } | null {
+    if (!page.startsWith("stack:")) return null;
+    const [language, ...folder] = page.slice("stack:".length).split(":");
+    return { language, folder: folder.join(":") };
 }

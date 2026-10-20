@@ -1,15 +1,14 @@
 import { useModalFocus } from "../hooks/useModalFocus";
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { type AgentInfo, type AgentSession } from "../api/agents";
-import { selectedAgentRuntimeProfiles } from "./agentProfiles";
-import { projectPermissionMode, projectProfile } from "./projectDefaults";
+import { selectedAgentRuntimeProfiles, selectedProviderProfile } from "./agentProfiles";
 import { useMouseActive } from "../hooks/useMouseActive";
 import { rankBy } from "../lib/fuzzy";
 import * as cmd from "../state/commands";
 import { fetchResource, peekResource, useResource } from "../state/resources";
 import { agentCatalogR, agentSessionsR } from "../state/resources.defs";
 import { agentDisplayOf, agentIdsOf } from "../state/selectors";
-import { getState, useStore } from "../state/store";
+import { useStore } from "../state/store";
 import type { Agent, AgentPermissionMode, AgentType, PinnedChat } from "../state/types";
 import { AgentFace } from "../buddies/Buddy";
 import { agentHandle } from "./AgentLabel";
@@ -82,7 +81,7 @@ export function AgentPalette() {
     const { inbox } = useInbox();
     const profiles = useStore((state) => state.providerProfiles);
     const profileSelections = useStore((state) => state.selectedProviderProfileIds);
-    const defaultMode = useStore((state) => projectPermissionMode(state, session?.cwd ?? ""));
+    const defaultMode = useStore((state) => state.defaultAgentPermissionMode);
     const runtimeProfiles = useMemo(() => selectedAgentRuntimeProfiles(profiles, profileSelections), [profiles, profileSelections]);
     const catalog = useResource(agentCatalogR, runtimeProfiles);
     const found = useMemo(() => catalog.data ?? [], [catalog.data]);
@@ -247,7 +246,7 @@ export function AgentPalette() {
             return;
         }
         if (!provider || provider.available === false) return;
-        const selectedProfile = projectProfile(getState(), origin.current.cwd, type);
+        const selectedProfile = selectedProviderProfile(type, profiles, profileSelections);
         const resume = item.kind === "resume" ? item.row : undefined;
         cmd.addAgent(type, resume?.id, resume?.title, {
             permissionMode: launchMode(type),

@@ -1,13 +1,6 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { SendToAgentMenu } from "../agents/SendToAgentMenu";
-import {
-    LANGUAGE_NAMES,
-    looksSecret,
-    saveFolderSettings,
-    type FolderEnvFile,
-    type FolderSettings,
-    type ProjectFolder,
-} from "../projects/projectFolders";
+import { folderName, looksSecret, saveFolderSettings, type FolderEnvFile, type FolderSettings, type ProjectFolder } from "../projects/projectFolders";
 import { confirmDialog } from "../state/dialog";
 import { useStore } from "../state/store";
 import { reportError } from "../state/toast";
@@ -44,19 +37,65 @@ function shownVariables(read: FolderEnvFile[], own: Readonly<Record<string, stri
     return rows.map((row, index) => ({ ...row, replaced: last.get(row.key) !== index }));
 }
 
-/** One folder of a project: what it is written in, and the environment processes started in it get. */
-export function ProjectFolderPage({
+/** The environment processes started in each folder of a project get, one folder at a time. */
+export function ProjectEnvironmentPage({
+    project,
+    name,
+    folders,
+    settings,
+    onChanged,
+}: {
+    project: string;
+    name: string;
+    folders: readonly ProjectFolder[];
+    settings: Readonly<Record<string, FolderSettings>>;
+    onChanged: () => void;
+}) {
+    const [picked, setPicked] = useState<string | null>(null);
+    const folder = folders.find((entry) => entry.path === picked) ?? folders.find((entry) => entry.envFiles.length) ?? folders[0];
+    if (!folder) return null;
+    const tabs = folders.length > 1 && (
+        <div className="project-folder-tabs" role="tablist" aria-label="Folder">
+            {folders.map((entry) => (
+                <button
+                    key={entry.path}
+                    type="button"
+                    role="tab"
+                    aria-selected={entry === folder}
+                    className={entry === folder ? "on" : ""}
+                    onClick={() => setPicked(entry.path)}>
+                    {folderName(entry.path, name)}
+                </button>
+            ))}
+        </div>
+    );
+    return (
+        <FolderEnvironment
+            key={folder.path}
+            project={project}
+            name={name}
+            folder={folder}
+            settings={settings[folder.path]}
+            onChanged={onChanged}
+            above={tabs}
+        />
+    );
+}
+
+function FolderEnvironment({
     project,
     name,
     folder,
     settings,
     onChanged,
+    above,
 }: {
     project: string;
     name: string;
     folder: ProjectFolder;
     settings: FolderSettings | undefined;
     onChanged: () => void;
+    above: ReactNode;
 }) {
     const sessionId = useStore((s) => s.activeSessionId);
     const [revealed, setRevealed] = useState(false);
@@ -104,16 +143,7 @@ export function ProjectFolderPage({
 
     return (
         <SettingsPage>
-            {folder.languages.length > 0 && (
-                <p className="project-folder-found">
-                    {folder.languages.map((language) => (
-                        <span key={language.id} className="project-folder-language">
-                            {LANGUAGE_NAMES[language.id]}
-                            <code>{language.markers.join(", ")}</code>
-                        </span>
-                    ))}
-                </p>
-            )}
+            {above}
             <SettingsSection
                 title="Environment"
                 meta={folder.envFiles.length ? `${folder.envFiles.length} ${folder.envFiles.length === 1 ? "file" : "files"}` : undefined}

@@ -76,11 +76,6 @@ export function setProjectAccount(provider: string, cwd: string, account: string
     pickCodeHost(provider, cwd, { account: account ?? undefined });
 }
 
-/** Drops the repository and account picked by hand, so the host goes back to the project's remote and accounts. */
-export function forgetProjectCodeHost(provider: string, cwd: string): void {
-    pickCodeHost(provider, cwd, { repo: undefined, account: undefined });
-}
-
 /** Every project that picked an account forgets it once it signs out, and goes back to finding one. */
 export function forgetAccount(provider: string, account: string): void {
     for (const [cwd, hosts] of Object.entries(getState().codeHosts)) if (hosts[provider]?.account === account) setProjectAccount(provider, cwd, null);

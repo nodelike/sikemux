@@ -31,10 +31,9 @@ pub(crate) fn needs(method: &str) -> Needs {
         "pairing" | "answerPairing" | "changeDevice" | "linkHost" | "shareChat" | "stopShare"
         | "commitStaged" | "setAgentAccounts" | "addAgentAccount" | "forgetAgentStatus"
         | "markAgentSignedOut" | "addProject" | "removeProject" | "updateProject"
-        | "moveProject" | "setSpaces" | "setPinnedChats" | "setAgentDefaults"
-        | "setProjectSettings" | "createAgent" | "updateAgent" | "closeAgents" | "plugin"
-        | "pluginManifests" | "pluginSetDisabled" | "pluginStream" | "pluginSignIn"
-        | "signInCallback" => Needs::Person,
+        | "moveProject" | "setSpaces" | "setPinnedChats" | "setAgentDefaults" | "createAgent"
+        | "updateAgent" | "closeAgents" | "plugin" | "pluginManifests" | "pluginSetDisabled"
+        | "pluginStream" | "pluginSignIn" | "signInCallback" => Needs::Person,
         "changeOwners" | "commitOwners" | "activitySummary" | "showCi" => Needs::Watch,
         "setActivityPrice" | "setLinkSignIns" => Needs::Person,
         "createAgentWorktree" => Needs::Person,
@@ -156,7 +155,6 @@ pub(crate) async fn call(
         "setSpaces" => answer(workspace::set_spaces(&core, parse(params)?)?),
         "setPinnedChats" => answer(workspace::set_pinned_chats(&core, parse(params)?)?),
         "setAgentDefaults" => answer(workspace::set_defaults(&core, parse(params)?).await?),
-        "setProjectSettings" => answer(workspace::set_project_settings(&core, parse(params)?)?),
         "createAgent" => answer(workspace::create_agent(&core, parse(params)?)?),
         "updateAgent" => answer(workspace::update_agent(&core, parse(params)?)?),
         "closeAgents" => answer(workspace::close_agents(&core, parse(params)?)?),
@@ -254,6 +252,7 @@ pub(crate) async fn call(
                     .await?;
             answer(json!({ "folders": folders, "settings": settings }))
         }
+        "javaRuntimes" => answer(blocking(|| Ok(crate::tasks::java::runtimes())).await?),
         "setFolderSettings" => answer(workspace::set_folder_settings(&core, parse(params)?)?),
         "untrustProject" => {
             let params: ProjectParams = parse(params)?;

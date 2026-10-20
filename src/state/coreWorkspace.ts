@@ -220,7 +220,6 @@ export function applyCoreWorkspace(workspace: Workspace): void {
         d.spaces = workspace.spaces.map(localSpace);
         d.projectSpaces = Object.fromEntries(workspace.projects.flatMap((project) => (project.space ? [[project.path, project.space]] : [])));
         d.codeHosts = Object.fromEntries(workspace.projects.map((project) => [project.path, project.codeHosts ?? {}]));
-        d.projectSettings = workspace.projectSettings ?? {};
         d.pinnedChats = workspace.pinned.flatMap((chat) => localPinned(chat) ?? []);
         d.defaultAgentPermissionMode = workspace.permissionMode === "bypass" ? "bypass" : "workspace-write";
         if (!same([...d.disabledPlugins].sort(), workspace.disabledPlugins)) d.disabledPlugins = workspace.disabledPlugins.filter(isPluginId);

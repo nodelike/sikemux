@@ -4,6 +4,9 @@ import { coreCall } from "../api/core";
 export interface FolderLanguage {
     readonly id: "java" | "node" | "go" | "rust" | "python";
     readonly markers: readonly string[];
+    /** The version the folder's files ask for, such as `17`. */
+    readonly version?: string;
+    readonly framework?: "spring-boot";
 }
 
 export interface FolderEnvFile {

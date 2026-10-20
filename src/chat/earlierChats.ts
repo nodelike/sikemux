@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { selectedAgentRuntimeProfiles } from "../agents/agentProfiles";
-import { projectProfile } from "../agents/projectDefaults";
+import { selectedAgentRuntimeProfiles, selectedProviderProfile } from "../agents/agentProfiles";
 import type { PromptContext } from "../api/acp";
 import { agentNamesApi } from "../api/agentNames";
 import { wearBuddy } from "../buddies/commands";
@@ -145,7 +144,7 @@ export const WOKEN_URI = "sikemux://woken/";
 export async function wakeEarlier(earlier: EarlierChat): Promise<PromptContext> {
     const { chat, sessionId } = earlier;
     const state = getState();
-    const profileId = projectProfile(state, chat.project, chat.agent)?.id;
+    const profileId = selectedProviderProfile(chat.agent, state.providerProfiles, state.selectedProviderProfileIds)?.id;
     if (!cmd.addAgent(chat.agent, chat.id, chat.title, { sessionId, profileId, background: true })) {
         throw new Error(`"${chat.title}" could not be opened again`);
     }

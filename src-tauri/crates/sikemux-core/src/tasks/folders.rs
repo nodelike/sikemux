@@ -107,6 +107,10 @@ static ENVIRONMENT_NAME: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"^(dev|development|local|test|testing|stage|staging|qa|uat|preview|demo|sandbox|ci|prod|production|prd|live)$")
         .expect("valid pattern")
 });
+static GO_VERSION: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?m)^go\s+(\S+)").expect("valid pattern"));
+static RUST_CHANNEL: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r#"(?m)^\s*channel\s*=\s*"([^"]+)""#).expect("valid pattern"));
 static PRODUCTION: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?i)prod|^prd$|^live$").expect("valid pattern"));
 
@@ -126,6 +130,12 @@ pub struct Language {
     pub id: &'static str,
     /// The files that show it, such as `pom.xml`.
     pub markers: Vec<String>,
+    /// The version the folder's files ask for, such as `17` or `1.23`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
+    /// The framework its build uses, such as `spring-boot`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub framework: Option<&'static str>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -218,7 +228,12 @@ pub fn folder_at(project: &Path, folder: &str) -> Folder {
                 .filter(|marker| names.contains(**marker))
                 .map(|marker| (*marker).to_owned())
                 .collect();
-            (!markers.is_empty()).then_some(Language { id, markers })
+            (!markers.is_empty()).then(|| Language {
+                id,
+                markers,
+                version: version_asked(id, &dir),
+                framework: framework_of(id, &dir),
+            })
         })
         .collect();
     let env_files = env_files(&dir, &names);
@@ -238,6 +253,50 @@ pub fn folder_at(project: &Path, folder: &str) -> Folder {
         languages,
         env_files,
         environments,
+    }
+}
+
+fn framework_of(language: &str, dir: &Path) -> Option<&'static str> {
+    let built_with = |files: &[&str], needle: &str| {
+        files
+            .iter()
+            .filter_map(|file| read_text(&dir.join(file)))
+            .any(|text| text.contains(needle))
+    };
+    match language {
+        "java"
+            if built_with(
+                &["pom.xml", "build.gradle", "build.gradle.kts"],
+                "spring-boot",
+            ) || built_with(
+                &["build.gradle", "build.gradle.kts"],
+                "org.springframework.boot",
+            ) =>
+        {
+            Some("spring-boot")
+        }
+        _ => None,
+    }
+}
+
+/// What the folder's own files say a language's version should be.
+fn version_asked(language: &str, dir: &Path) -> Option<String> {
+    let first = |file: &str, pattern: &Regex| {
+        let text = read_text(&dir.join(file))?;
+        pattern.captures(&text).map(|found| found[1].to_owned())
+    };
+    let whole = |file: &str| {
+        read_text(&dir.join(file))
+            .map(|text| text.trim().trim_start_matches('v').to_owned())
+            .filter(|text| !text.is_empty() && !text.contains('\n'))
+    };
+    match language {
+        "java" => super::detect::required_java(dir).map(|major| major.to_string()),
+        "go" => first("go.mod", &GO_VERSION),
+        "rust" => first("rust-toolchain.toml", &RUST_CHANNEL).or_else(|| whole("rust-toolchain")),
+        "node" => whole(".nvmrc").or_else(|| whole(".node-version")),
+        "python" => whole(".python-version"),
+        _ => None,
     }
 }
 

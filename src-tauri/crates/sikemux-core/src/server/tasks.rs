@@ -3,7 +3,7 @@
 //! person's own list hold, whether the person trusts commands someone else
 //! wrote, and what stops a task from starting.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
@@ -244,6 +244,16 @@ fn offered(core: &Core, project: &Path) -> Offered {
         .iter()
         .any(|task| task.java.is_some())
         .then(java::runtimes);
+    let own_java: HashSet<PathBuf> = found
+        .iter()
+        .filter(|task| task.java.is_some())
+        .map(|task| task.cwd.clone())
+        .filter(|cwd| {
+            core.workspaces
+                .folder_environment(cwd)
+                .contains_key("JAVA_HOME")
+        })
+        .collect();
     let project_key = project.to_string_lossy().into_owned();
     let state = core.tasks.lock();
     let mut found: Vec<Definition> = found
@@ -256,6 +266,7 @@ fn offered(core: &Core, project: &Path) -> Offered {
             };
             let java = task
                 .java
+                .filter(|_| !own_java.contains(&task.cwd))
                 .zip(runtimes.as_ref())
                 .map(|(required, runtimes)| java::choose(required, runtimes));
             let mut env = Vec::new();
