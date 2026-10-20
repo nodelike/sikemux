@@ -1,5 +1,5 @@
 /** `start` opens the first page the project has. */
-export type ProjectSettingsPageId = "start" | "environment" | "tasks" | "done" | "brief" | `stack:${string}`;
+export type ProjectSettingsPageId = "start" | "environment" | "tasks" | "done" | "brief" | "suggestions" | `stack:${string}`;
 
 /** A language's page in one folder of the project. */
 export const stackPage = (folder: string, language: string): ProjectSettingsPageId => `stack:${language}:${folder}`;

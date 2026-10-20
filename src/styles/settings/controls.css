@@ -576,3 +576,38 @@
     font-size: var(--text-xs);
     line-height: 1.5;
 }
+.project-suggestion {
+    display: grid;
+    grid-template-columns: 18px minmax(0, 1fr) auto;
+    align-items: center;
+    gap: var(--space-3);
+    padding: var(--space-2) var(--space-3);
+}
+.project-suggestion + .project-suggestion {
+    border-top: 1px solid var(--border);
+}
+.project-suggestion-text {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+.project-suggestion-change {
+    overflow: hidden;
+    color: var(--text-primary);
+    font-family: var(--mono);
+    font-size: var(--text-2xs);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.project-suggestion-evidence {
+    color: var(--live);
+    font-family: var(--mono);
+    font-size: var(--text-3xs);
+}
+.project-settings-badge {
+    margin-left: auto;
+    color: var(--acc);
+    font-family: var(--mono);
+    font-size: var(--text-3xs);
+}

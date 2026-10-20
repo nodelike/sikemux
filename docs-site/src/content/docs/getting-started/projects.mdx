@@ -48,6 +48,8 @@ Each project has settings for how its code is built and run, apart from the app'
 
 **What agents know** shows the brief every agent working in the project reads in `workspace_inspect` before it builds, runs or tests anything: each folder's language and version, the settings above, the environment loaded (secret values never), the tasks, and Done means. Your own notes for agents go at the end.
 
+**Suggestions** holds what agents suggest for these settings. An agent never changes them itself: when it finds one missing or wrong, such as a Spring profile the tests need, it sends a suggestion with why, and what it ran to check. You tick the changes you want and apply them, or discard the rest. **Set up this project** asks an agent to read the repository, run the build and the tests, and suggest a full setup at once.
+
 These settings stay on your Mac and are not written into the project.
 
 ## Project config

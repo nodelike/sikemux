@@ -55,6 +55,9 @@ const MAX_COLOURS: usize = 64;
 const MAX_FOLDER_VARIABLES: usize = 256;
 const MAX_DONE_TASKS: usize = 32;
 const MAX_NOTES_CHARS: usize = 4000;
+const MAX_GUARDRAILS: usize = 64;
+const MAX_SUGGESTIONS: usize = 30;
+const MAX_PENDING_SUGGESTIONS: usize = 10;
 const MAX_VARIABLE_CHARS: usize = 8192;
 /// A phone-sized JPEG is a few hundred kilobytes; this leaves room without letting one fill a frame.
 const MAX_IMAGE_BYTES: usize = 3 * 1024 * 1024;
@@ -117,6 +120,9 @@ struct Saved {
     /// What every agent in a project is told, by the project's folder.
     #[serde(default)]
     project_rules: BTreeMap<String, ProjectRules>,
+    /// What agents suggested for a project's settings, newest last, by the project's real path.
+    #[serde(default)]
+    suggestions: BTreeMap<String, Vec<super::suggestions::Suggestion>>,
 }
 
 /// The environment processes started in one folder of a project get.
@@ -133,6 +139,13 @@ pub(crate) struct FolderSettings {
     /// The tasks an agent's work in the folder must pass before it is done, by id.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub done: Vec<String>,
+    /// Whose environment files agents get, when not the same as the person's. A
+    /// production-looking environment never reaches an agent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_environment: Option<String>,
+    /// docker-compose services the folder's tasks need running first.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub services: Vec<String>,
 }
 
 /// What the person tells every agent working in a project.
@@ -147,6 +160,15 @@ pub(crate) struct ProjectRules {
     /// An agent whose check fails stops and says so, instead of fixing it first.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub stop_on_failure: bool,
+    /// Paths, as globs, agents must not change without asking.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub never_edit: Vec<String>,
+    /// Commands, as patterns, an agent asks the person before running.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub ask_before: Vec<String>,
+    /// Commands, as patterns, agents never run.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub never_run: Vec<String>,
 }
 
 impl Saved {
@@ -599,7 +621,7 @@ impl Workspaces {
             .unwrap_or_default()
     }
 
-    fn set_folder_settings(
+    pub(crate) fn set_folder_settings(
         &self,
         project: String,
         folder: String,
@@ -621,7 +643,16 @@ impl Workspaces {
             || settings
                 .done
                 .iter()
-                .any(|task| too_long(task, MAX_FIELD_CHARS));
+                .any(|task| too_long(task, MAX_FIELD_CHARS))
+            || settings
+                .agent_environment
+                .as_ref()
+                .is_some_and(|name| too_long(name, 64))
+            || settings.services.len() > MAX_DONE_TASKS
+            || settings
+                .services
+                .iter()
+                .any(|service| too_long(service, MAX_TITLE_CHARS));
         if !one_folder || oversized {
             return Err("those folder settings are more than the core keeps".into());
         }
@@ -653,7 +684,81 @@ impl Workspaces {
             .unwrap_or_default()
     }
 
-    fn set_project_rules(&self, project: String, rules: ProjectRules) -> CoreResult<()> {
+    pub(crate) fn suggestions(&self, project: &str) -> Vec<super::suggestions::Suggestion> {
+        self.lock()
+            .saved
+            .suggestions
+            .get(project)
+            .cloned()
+            .unwrap_or_default()
+    }
+
+    /// Keeps a new suggestion, forgetting the oldest settled ones past the limit.
+    pub(crate) fn keep_suggestion(
+        &self,
+        project: &str,
+        suggestion: super::suggestions::Suggestion,
+    ) -> CoreResult<()> {
+        self.change(|saved| {
+            let kept = saved.suggestions.entry(project.to_owned()).or_default();
+            if kept.iter().filter(|known| known.pending()).count() >= MAX_PENDING_SUGGESTIONS {
+                return Err(
+                    "this project already has as many suggestions waiting as it keeps".into(),
+                );
+            }
+            kept.push(suggestion);
+            while kept.len() > MAX_SUGGESTIONS {
+                match kept.iter().position(|known| !known.pending()) {
+                    Some(oldest) => kept.remove(oldest),
+                    None => break,
+                };
+            }
+            Ok(())
+        })
+    }
+
+    /// Marks the changes in `applied` applied and the rest of the suggestion discarded.
+    pub(crate) fn settle_suggestion(
+        &self,
+        project: &str,
+        id: &str,
+        applied: &[String],
+    ) -> CoreResult<()> {
+        use super::suggestions::Status;
+        self.change(|saved| {
+            let suggestion = saved
+                .suggestions
+                .get_mut(project)
+                .and_then(|kept| kept.iter_mut().find(|known| known.id == id))
+                .ok_or_else(|| CoreError::from("that suggestion is gone"))?;
+            for change in &mut suggestion.changes {
+                if change.status == Status::Pending {
+                    change.status = if applied.contains(&change.id) {
+                        Status::Applied
+                    } else {
+                        Status::Discarded
+                    };
+                }
+            }
+            Ok(())
+        })
+    }
+
+    pub(crate) fn set_project_rules(&self, project: String, rules: ProjectRules) -> CoreResult<()> {
+        let patterns = rules
+            .never_edit
+            .iter()
+            .chain(&rules.ask_before)
+            .chain(&rules.never_run);
+        let too_many = rules.never_edit.len() + rules.ask_before.len() + rules.never_run.len()
+            > MAX_GUARDRAILS;
+        if too_many
+            || patterns
+                .into_iter()
+                .any(|pattern| too_long(pattern, MAX_FIELD_CHARS))
+        {
+            return Err("those guardrails are more than the core keeps".into());
+        }
         if too_long(&project, MAX_FIELD_CHARS) || too_long(&rules.notes, MAX_NOTES_CHARS) {
             return Err("those notes are longer than the core keeps".into());
         }

@@ -613,6 +613,7 @@ async fn dispatch(
         "task.start" => task_start(core, &request, false).await,
         "task.restart" => task_start(core, &request, true).await,
         "workspace.inspect" => inspect(core, request).await,
+        "project.suggest" => super::suggestions::suggest(core, &request),
         "page.show" => show_page(core, request).await,
         "ui.open" => {
             let kind = text(&request.params, "kind")?.map(str::to_owned);

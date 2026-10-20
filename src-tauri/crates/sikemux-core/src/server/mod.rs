@@ -50,6 +50,7 @@ mod session_watch;
 mod share;
 mod skill_library;
 mod spawn;
+mod suggestions;
 mod tasks;
 mod tools;
 mod transcript;

@@ -1,13 +1,14 @@
 import { useEffect, type ReactNode } from "react";
 import { prettyPath } from "../lib/paths";
 import { LANGUAGE_NAMES, saveFolderSettings, useProjectFolders, type ProjectFolder } from "../projects/projectFolders";
+import { isPending, useProjectSuggestions } from "../projects/projectSuggestions";
 import * as cmd from "../state/commands";
 import { useStore, type StoreState } from "../state/store";
 import { reportError } from "../state/toast";
-import { IconAgent, IconCheck, IconClose, IconCode, IconFolder, IconRun, IconTerminal } from "../ui/Icons";
+import { IconAgent, IconCheck, IconClose, IconCode, IconFolder, IconRun, IconSparkle, IconTerminal } from "../ui/Icons";
 import { PaneField } from "../ui/ShaderField";
 import { useLeaveOnNavigation } from "./leaveSettings";
-import { ProjectBriefPage, ProjectDonePage } from "./ProjectAgentPages";
+import { ProjectBriefPage, ProjectDonePage, ProjectSuggestionsPage } from "./ProjectAgentPages";
 import { ProjectEnvironmentPage } from "./ProjectEnvironmentPage";
 import { ProjectStackPage } from "./ProjectStackPage";
 import { ProjectTasksPage } from "./ProjectTasksPage";
@@ -21,6 +22,7 @@ const PAGE_TITLES: Partial<Record<ProjectSettingsPageId, string>> = {
     tasks: "Tasks",
     done: "Done means",
     brief: "What agents know",
+    suggestions: "Suggestions",
 };
 
 /** The project in front's own settings: how its code is built and run, standing in for its workspace. */
@@ -66,7 +68,13 @@ function ProjectSettings({ project, name }: { project: string; name: string }) {
     const asked = useStore((s) => s.projectSettingsPage) ?? "start";
     const home = useStore((s) => s.home);
     const paneShader = useStore((s) => s.paneShader);
-    const { folders, refresh } = useProjectFolders(project);
+    const { folders, refresh: refreshFolders } = useProjectFolders(project);
+    const { suggestions, refresh: refreshSuggestions } = useProjectSuggestions(project);
+    const waiting = suggestions.filter(isPending).length;
+    const refresh = () => {
+        refreshFolders();
+        refreshSuggestions();
+    };
     const stacks = folders ? stacksOf(folders.folders) : [];
     const page: ProjectSettingsPageId = asked === "start" ? (stacks[0]?.page ?? "environment") : asked;
     const stackAt = stackOfPage(page);
@@ -82,7 +90,7 @@ function ProjectSettings({ project, name }: { project: string; name: string }) {
             .catch(reportError("Save the project's settings"));
     };
 
-    const item = (id: ProjectSettingsPageId, label: string, icon: ReactNode) => (
+    const item = (id: ProjectSettingsPageId, label: string, icon: ReactNode, badge?: string) => (
         <button
             key={id}
             type="button"
@@ -93,6 +101,7 @@ function ProjectSettings({ project, name }: { project: string; name: string }) {
                 {icon}
             </span>
             <span className="settings-rail-name">{label}</span>
+            {badge && <span className="project-settings-badge">{badge}</span>}
         </button>
     );
 
@@ -121,6 +130,7 @@ function ProjectSettings({ project, name }: { project: string; name: string }) {
                         <div className="settings-nav-group">
                             <span className="settings-nav-label">Agents</span>
                             {item("brief", "What agents know", <IconAgent size={13} />)}
+                            {item("suggestions", "Suggestions", <IconSparkle size={13} />, waiting ? String(waiting) : undefined)}
                         </div>
                     </nav>
                     <div className="settings-rail-foot">Changes save automatically</div>
@@ -161,6 +171,9 @@ function ProjectSettings({ project, name }: { project: string; name: string }) {
                         {page === "tasks" && <ProjectTasksPage project={project} />}
                         {page === "done" && folders && (
                             <ProjectDonePage project={project} name={name} settings={folders.settings} rules={folders.rules} onChanged={refresh} />
+                        )}
+                        {page === "suggestions" && (
+                            <ProjectSuggestionsPage project={project} name={name} suggestions={suggestions} onChanged={refresh} />
                         )}
                         {page === "brief" && folders && (
                             <ProjectBriefPage

@@ -254,6 +254,8 @@ pub(crate) async fn call(
             answer(json!({ "folders": folders, "settings": settings, "rules": rules }))
         }
         "javaRuntimes" => answer(blocking(|| Ok(crate::tasks::java::runtimes())).await?),
+        "projectSuggestions" => answer(super::suggestions::list(&core, parse(params)?).await?),
+        "answerSuggestion" => answer(super::suggestions::answer(&core, parse(params)?).await?),
         "setProjectRules" => answer(workspace::set_project_rules(&core, parse(params)?)?),
         "projectBrief" => {
             let params: ProjectParams = parse(params)?;
