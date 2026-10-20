@@ -142,7 +142,7 @@ function NodeSections({ language, env, setVariable }: Sections) {
             <SettingsRows>
                 {language.version && (
                     <SettingsRow label="Node" desc="The version the project's .nvmrc or .node-version asks for.">
-                        <code className="project-file-command">{language.version}</code>
+                        <code className="project-row-command">{language.version}</code>
                     </SettingsRow>
                 )}
                 <SettingsRow label="NODE_ENV" desc="Which mode tools and frameworks run in." wide>
@@ -176,7 +176,7 @@ function GoSections({ language, env, setVariable }: Sections) {
             <SettingsRows>
                 {language.version && (
                     <SettingsRow label="Go" desc="The version go.mod asks for.">
-                        <code className="project-file-command">{language.version}</code>
+                        <code className="project-row-command">{language.version}</code>
                     </SettingsRow>
                 )}
                 <TextVariable
@@ -237,7 +237,7 @@ function PythonSections({ language, env, setVariable }: Sections) {
             <SettingsRows>
                 {language.version && (
                     <SettingsRow label="Python" desc="The version the project's .python-version asks for.">
-                        <code className="project-file-command">{language.version}</code>
+                        <code className="project-row-command">{language.version}</code>
                     </SettingsRow>
                 )}
                 <TextVariable

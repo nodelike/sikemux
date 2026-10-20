@@ -47,7 +47,7 @@ export function ProjectOverviewPage({
                         <div className="project-banner-title">
                             {suggestion.by} suggests {changes(suggestion.changes.filter((change) => change.status === "pending").length)}
                         </div>
-                        <div className="project-file-note">{suggestion.title}</div>
+                        <div className="project-row-note">{suggestion.title}</div>
                     </div>
                     <button type="button" className="settings-btn primary" onClick={() => cmd.openProjectSettings("suggestions")}>
                         Review
@@ -61,7 +61,7 @@ export function ProjectOverviewPage({
                 <div className="project-banner">
                     <div>
                         <div className="project-banner-title">Nothing is set up yet</div>
-                        <div className="project-file-note">An agent can read the repository, run the build and tests, and suggest a full setup.</div>
+                        <div className="project-row-note">An agent can read the repository, run the build and tests, and suggest a full setup.</div>
                     </div>
                     <button type="button" className="settings-btn primary" onClick={() => cmd.openProjectSettings("suggestions")}>
                         Set up with an agent
@@ -93,8 +93,8 @@ export function ProjectOverviewPage({
                                         const task = tasks.find((candidate) => candidate.id === id);
                                         return (
                                             <div key={id} className="project-health-line">
-                                                <span className={`project-file-pill ${pillOf(result)}`}>{label(id)}</span>
-                                                <span className="project-file-note">{result?.detail}</span>
+                                                <span className={`project-pill ${pillOf(result)}`}>{label(id)}</span>
+                                                <span className="project-row-note">{result?.detail}</span>
                                                 {result?.state === "failed" && task && (
                                                     <button
                                                         type="button"
@@ -138,7 +138,7 @@ export function DriftBanner({ drift, onFix }: { drift: Drift; onFix: () => void 
         <div className="project-banner warn">
             <div>
                 <div className="project-banner-title">{drift.title}</div>
-                <div className="project-file-note">{drift.detail}</div>
+                <div className="project-row-note">{drift.detail}</div>
             </div>
             <button type="button" className="settings-btn" onClick={onFix}>
                 {drift.fix.label}
@@ -163,7 +163,7 @@ function StatePill({ results }: { results: readonly (CheckResult | undefined)[] 
           : states.every((state) => state === "passed")
             ? ["passing", "ok"]
             : ["not checked", ""];
-    return <span className={`project-file-pill ${tone}`}>{label}</span>;
+    return <span className={`project-pill ${tone}`}>{label}</span>;
 }
 
 const changes = (count: number) => `${count} ${count === 1 ? "change" : "changes"}`;

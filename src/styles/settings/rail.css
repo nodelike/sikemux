@@ -87,32 +87,6 @@
     text-overflow: ellipsis;
     white-space: nowrap;
 }
-/* Which project a project's own settings belong to, at the top of their rail. */
-.project-settings-head {
-    display: grid;
-    grid-template-columns: auto minmax(0, 1fr);
-    align-items: center;
-    gap: 2px var(--space-2);
-    padding: var(--space-1) var(--space-2) var(--space-3);
-    color: var(--text-tertiary);
-}
-.project-settings-name {
-    overflow: hidden;
-    color: var(--text-primary);
-    font-size: var(--text-sm);
-    font-weight: var(--weight-semibold);
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-.project-settings-path {
-    grid-column: 2;
-    overflow: hidden;
-    font-family: var(--mono);
-    font-size: var(--text-3xs);
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
 .settings-rail-foot {
     margin-top: auto;
     padding: var(--space-3) var(--space-2) var(--space-1);

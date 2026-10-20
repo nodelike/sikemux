@@ -43,15 +43,15 @@ export function ProjectTasksPage({ project }: { project: string }) {
                 title="Tasks"
                 meta={listed.length ? `${listed.length} ${listed.length === 1 ? "task" : "tasks"}` : undefined}
                 sub="What the run menu offers and agents can start. Tasks for the team go in sikemux.json; tasks only you get stay in .sikemux/, which Git ignores.">
-                <div className="project-file">
+                <div className="project-card">
                     {listed.length ? (
                         listed.map((task) => <Item key={task.id} name={task.label} command={task.command} note={whereFrom(task)} />)
                     ) : (
-                        <div className="project-file-empty">
+                        <div className="project-card-empty">
                             <p>Nothing to run yet: no task in sikemux.json, and none found in the build files.</p>
                         </div>
                     )}
-                    <div className="project-file-foot">
+                    <div className="project-card-foot">
                         <span />
                         <button type="button" className="settings-btn" onClick={(event) => ask(event.currentTarget, findTasksRequest(project))}>
                             Find tasks with an agent
@@ -62,27 +62,27 @@ export function ProjectTasksPage({ project }: { project: string }) {
                     </div>
                 </div>
                 {adding && (
-                    <div className="project-file-add">
+                    <div className="project-card-form">
                         <AddTaskForm project={project} onDone={() => setAdding(false)} />
                     </div>
                 )}
             </SettingsSection>
 
             <SettingsSection title="sikemux.json" sub="The actions, preview and worktree commands this project adds for everyone who opens it.">
-                <div className="project-file">
+                <div className="project-card">
                     {!config || config.status === "absent" ? (
-                        <div className="project-file-empty">
+                        <div className="project-card-empty">
                             <p>This project has no sikemux.json. Adding a task for the team makes one.</p>
                         </div>
                     ) : config.status === "invalid" ? (
                         <>
-                            <div className="project-file-status">
-                                <span className="project-file-pill failed">
+                            <div className="project-card-status">
+                                <span className="project-pill failed">
                                     {config.errors.length} {config.errors.length === 1 ? "problem" : "problems"}
                                 </span>
                                 <span>Nothing in the file is used until they are fixed.</span>
                             </div>
-                            <ul className="project-file-errors">
+                            <ul className="project-card-errors">
                                 {config.errors.map((error) => (
                                     <li key={`${error.path}:${error.code}`}>
                                         <code>{error.path}</code>
@@ -90,7 +90,7 @@ export function ProjectTasksPage({ project }: { project: string }) {
                                     </li>
                                 ))}
                             </ul>
-                            <div className="project-file-foot">
+                            <div className="project-card-foot">
                                 <span />
                                 <button
                                     type="button"
@@ -130,7 +130,7 @@ export function ProjectTasksPage({ project }: { project: string }) {
                                     <Item name={config.config.generate.command} command={config.config.generate.outputs.join(", ")} />
                                 </Group>
                             )}
-                            <div className="project-file-foot">
+                            <div className="project-card-foot">
                                 <span />
                                 <button type="button" className="settings-btn" onClick={open}>
                                     Open sikemux.json
@@ -157,16 +157,16 @@ export function ProjectTasksPage({ project }: { project: string }) {
 function TrustStatus({ project, trusted, runsNothing }: { project: string; trusted: boolean; runsNothing: boolean }) {
     if (runsNothing) {
         return (
-            <div className="project-file-status">
-                <span className="project-file-pill">Runs nothing</span>
+            <div className="project-card-status">
+                <span className="project-pill">Runs nothing</span>
                 <span>It names no commands, so there is nothing to trust.</span>
             </div>
         );
     }
     if (trusted) {
         return (
-            <div className="project-file-status">
-                <span className="project-file-pill ok">Trusted on this host</span>
+            <div className="project-card-status">
+                <span className="project-pill ok">Trusted on this host</span>
                 <span>Its commands run without asking until the file changes.</span>
                 <button
                     type="button"
@@ -178,8 +178,8 @@ function TrustStatus({ project, trusted, runsNothing }: { project: string; trust
         );
     }
     return (
-        <div className="project-file-status">
-            <span className="project-file-pill waiting">Not trusted yet</span>
+        <div className="project-card-status">
+            <span className="project-pill waiting">Not trusted yet</span>
             <span>Nothing below runs until you look at its commands and trust them.</span>
             <button
                 type="button"
@@ -197,10 +197,10 @@ function TrustStatus({ project, trusted, runsNothing }: { project: string; trust
 
 function Group({ title, count, children }: { title: string; count?: number; children: ReactNode }) {
     return (
-        <div className="project-file-group">
-            <div className="project-file-group-head">
+        <div className="project-card-group">
+            <div className="project-card-head">
                 <span>{title}</span>
-                {count !== undefined && <span className="project-file-count">{count}</span>}
+                {count !== undefined && <span className="project-card-count">{count}</span>}
             </div>
             {children}
         </div>
@@ -209,10 +209,10 @@ function Group({ title, count, children }: { title: string; count?: number; chil
 
 function Item({ name, command, note }: { name: string; command: string; note?: string }) {
     return (
-        <div className="project-file-item">
-            <span className="project-file-name">{name}</span>
-            <code className="project-file-command">{command}</code>
-            <span className="project-file-note">{note}</span>
+        <div className="project-row">
+            <span className="project-row-name">{name}</span>
+            <code className="project-row-command">{command}</code>
+            <span className="project-row-note">{note}</span>
         </div>
     );
 }

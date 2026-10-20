@@ -180,18 +180,18 @@ function FolderEnvironment({
                 </SettingsRows>
 
                 {folder.envFiles.length > 0 && (
-                    <div className="project-file">
-                        <div className="project-file-group-head">
+                    <div className="project-card">
+                        <div className="project-card-head">
                             <span>Files found</span>
                         </div>
                         {folder.envFiles.map((file) => (
-                            <div key={file.path} className={`project-file-item${read.includes(file) ? "" : " unused"}`}>
-                                <code className="project-file-command">{file.path}</code>
-                                <span className="project-file-name">
+                            <div key={file.path} className={`project-row${read.includes(file) ? "" : " unused"}`}>
+                                <code className="project-row-command">{file.path}</code>
+                                <span className="project-row-name">
                                     {file.template ? "example, never read" : (file.environment ?? "every environment")}
                                     {file.local && !file.template ? " · this machine's" : ""}
                                 </span>
-                                <span className="project-file-note">
+                                <span className="project-row-note">
                                     {file.loadedBy.length
                                         ? `loaded by ${file.loadedBy.join(", ")}`
                                         : `${file.variables.length} ${file.variables.length === 1 ? "variable" : "variables"}`}
@@ -201,12 +201,12 @@ function FolderEnvironment({
                     </div>
                 )}
 
-                <div className="project-file">
-                    <div className="project-file-group-head">
+                <div className="project-card">
+                    <div className="project-card-head">
                         <span>Variables</span>
-                        <span className="project-file-count">{rows.filter((row) => !row.replaced).length}</span>
+                        <span className="project-card-count">{rows.filter((row) => !row.replaced).length}</span>
                         {rows.some((row) => looksSecret(row.key)) && (
-                            <button type="button" className="project-file-add-btn" onClick={() => setRevealed((shown) => !shown)}>
+                            <button type="button" className="project-card-action" onClick={() => setRevealed((shown) => !shown)}>
                                 {revealed ? "Hide secrets" : "Show secrets"}
                             </button>
                         )}
@@ -214,8 +214,8 @@ function FolderEnvironment({
                     {rows.map((row, index) => (
                         <div key={`${row.from}:${row.key}:${index}`} className={`project-folder-variable${row.replaced ? " replaced" : ""}`}>
                             <code className="project-folder-key">{row.key}</code>
-                            <code className="project-file-command">{looksSecret(row.key) && !revealed && row.value ? HIDDEN : row.value}</code>
-                            <span className={`project-file-note${row.own ? " own" : ""}`}>{row.from}</span>
+                            <code className="project-row-command">{looksSecret(row.key) && !revealed && row.value ? HIDDEN : row.value}</code>
+                            <span className={`project-row-note${row.own ? " own" : ""}`}>{row.from}</span>
                             {row.own ? (
                                 <button
                                     type="button"
@@ -255,7 +255,7 @@ function FolderEnvironment({
                             Add
                         </button>
                     </form>
-                    <div className="project-file-foot">
+                    <div className="project-card-foot">
                         <span className="settings-hint">Kept on this host. Sikemux never writes to the project's files.</span>
                         <button
                             type="button"

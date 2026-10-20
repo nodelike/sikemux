@@ -49,16 +49,16 @@ export function ProjectServicesPage({
                     <p className="settings-hint">This project has no docker-compose file at its root or in the folders just inside it.</p>
                 ) : (
                     compose.map((entry) => (
-                        <div key={entry.folder} className="project-file">
-                            <div className="project-file-group-head">
+                        <div key={entry.folder} className="project-card">
+                            <div className="project-card-head">
                                 <span>{folderName(entry.folder, name)}</span>
-                                <span className="project-file-count">{entry.file}</span>
-                                <button type="button" className="project-file-add-btn" onClick={refresh}>
+                                <span className="project-card-count">{entry.file}</span>
+                                <button type="button" className="project-card-action" onClick={refresh}>
                                     Refresh
                                 </button>
                             </div>
                             {!entry.docker && (
-                                <div className="project-file-status">
+                                <div className="project-card-status">
                                     Docker did not answer, so whether each one runs is unknown. Start Docker and refresh.
                                 </div>
                             )}
@@ -68,12 +68,12 @@ export function ProjectServicesPage({
                                 return (
                                     <div key={service.name} className="project-service">
                                         <div className="project-suggestion-text">
-                                            <span className="project-file-name">{service.name}</span>
-                                            <code className="project-file-command">
+                                            <span className="project-row-name">{service.name}</span>
+                                            <code className="project-row-command">
                                                 {[service.image, ...service.ports].filter(Boolean).join(" · ")}
                                             </code>
                                         </div>
-                                        <span className={`project-file-pill ${running ? "ok" : ""}`}>{service.state ?? "not created"}</span>
+                                        <span className={`project-pill ${running ? "ok" : ""}`}>{service.state ?? "not created"}</span>
                                         <button
                                             type="button"
                                             className="settings-btn"
@@ -93,8 +93,8 @@ export function ProjectServicesPage({
                     title="Started before tasks"
                     sub="Before a task in the folder runs, Sikemux starts what it needs and waits until it is up. Agents read this in the brief.">
                     {codeFolders.map((folder) => (
-                        <div key={folder.path} className="project-file">
-                            <div className="project-file-group-head">
+                        <div key={folder.path} className="project-card">
+                            <div className="project-card-head">
                                 <span>{folderName(folder.path, name)}</span>
                             </div>
                             <div className="project-service-picks">

@@ -38,14 +38,14 @@ export function ProjectSuggestionsPage({ project, name, suggestions }: { project
             </SettingsSection>
             {settled.length > 0 && (
                 <SettingsSection title="Earlier">
-                    <div className="project-file">
+                    <div className="project-card">
                         {settled.map((suggestion) => {
                             const applied = suggestion.changes.filter((change) => change.status === "applied").length;
                             return (
-                                <div key={suggestion.id} className="project-file-item">
-                                    <span className="project-file-name">{suggestion.by}</span>
-                                    <span className="project-file-command">{suggestion.title}</span>
-                                    <span className="project-file-note">
+                                <div key={suggestion.id} className="project-row">
+                                    <span className="project-row-name">{suggestion.by}</span>
+                                    <span className="project-row-command">{suggestion.title}</span>
+                                    <span className="project-row-note">
                                         {applied ? `applied ${applied} of ${suggestion.changes.length}` : "discarded"} · {ago(suggestion.at)}
                                     </span>
                                 </div>
@@ -83,7 +83,7 @@ function PendingSuggestion({ project, suggestion }: { project: string; suggestio
             title={`${suggestion.by} suggests ${open.length} ${open.length === 1 ? "change" : "changes"}`}
             meta={ago(suggestion.at)}
             sub={suggestion.title}>
-            <div className="project-file">
+            <div className="project-card">
                 {open.map((change) => (
                     <div key={change.id} className="project-suggestion">
                         <Checkbox
@@ -100,12 +100,12 @@ function PendingSuggestion({ project, suggestion }: { project: string; suggestio
                         />
                         <div className="project-suggestion-text">
                             <code className="project-suggestion-change">{describeChange(change)}</code>
-                            <span className="project-file-note">{change.why}</span>
+                            <span className="project-row-note">{change.why}</span>
                         </div>
                         <span className="project-suggestion-evidence">{change.evidence}</span>
                     </div>
                 ))}
-                <div className="project-file-foot">
+                <div className="project-card-foot">
                     <span className="settings-hint">Nothing changes until you apply. Tasks are added for you only.</span>
                     <button type="button" className="settings-btn" disabled={saving} onClick={() => answer([])}>
                         Discard
