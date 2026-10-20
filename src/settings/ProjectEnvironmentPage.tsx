@@ -108,7 +108,9 @@ function FolderEnvironment({
     const where = folder.path === "." ? "the project root" : `${folder.path}/`;
 
     const save = (next: FolderSettings) =>
-        void saveFolderSettings(project, folder.path, next).then(onChanged).catch(reportError("Save the folder's environment"));
+        void saveFolderSettings(project, folder.path, { done: settings?.done, ...next })
+            .then(onChanged)
+            .catch(reportError("Save the folder's environment"));
 
     const choose = async (value: string) => {
         if (value === NOT_LOADED) {

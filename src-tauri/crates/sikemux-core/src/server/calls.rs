@@ -247,12 +247,22 @@ pub(crate) async fn call(
         "projectFolders" => {
             let params: ProjectParams = parse(params)?;
             let settings = core.workspaces.folder_settings(&params.project);
+            let rules = core.workspaces.project_rules(&params.project);
             let folders =
                 blocking(move || Ok(crate::tasks::folders::folders(Path::new(&params.project))))
                     .await?;
-            answer(json!({ "folders": folders, "settings": settings }))
+            answer(json!({ "folders": folders, "settings": settings, "rules": rules }))
         }
         "javaRuntimes" => answer(blocking(|| Ok(crate::tasks::java::runtimes())).await?),
+        "setProjectRules" => answer(workspace::set_project_rules(&core, parse(params)?)?),
+        "projectBrief" => {
+            let params: ProjectParams = parse(params)?;
+            let core = core.clone();
+            answer(
+                blocking(move || Ok(super::brief::write(&core, Path::new(&params.project))))
+                    .await?,
+            )
+        }
         "setFolderSettings" => answer(workspace::set_folder_settings(&core, parse(params)?)?),
         "untrustProject" => {
             let params: ProjectParams = parse(params)?;

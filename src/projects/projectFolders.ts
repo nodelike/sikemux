@@ -32,11 +32,21 @@ export interface FolderSettings {
     /** Absent loads no files; empty loads only those every environment shares. */
     readonly environment?: string;
     readonly env?: Readonly<Record<string, string>>;
+    /** The tasks an agent's work in the folder must pass before it is done, by id. */
+    readonly done?: readonly string[];
+}
+
+/** What the person tells every agent working in the project. */
+export interface ProjectRules {
+    readonly notes?: string;
+    readonly checkEveryFolder?: boolean;
+    readonly stopOnFailure?: boolean;
 }
 
 export interface ProjectFolders {
     readonly folders: readonly ProjectFolder[];
     readonly settings: Readonly<Record<string, FolderSettings>>;
+    readonly rules: ProjectRules;
 }
 
 /** The project's folders as the core finds them, and the environment the person chose for each. */
@@ -60,6 +70,15 @@ export function useProjectFolders(project: string): { folders: ProjectFolders | 
         return () => window.removeEventListener("focus", refresh);
     }, [refresh]);
     return { folders: found?.project === project ? found.folders : null, refresh };
+}
+
+export function saveProjectRules(project: string, rules: ProjectRules): Promise<void> {
+    return coreCall<void>("setProjectRules", { project, rules });
+}
+
+/** What an agent working in the project is told about it, as `workspace_inspect` gives it. */
+export function loadProjectBrief(project: string): Promise<string> {
+    return coreCall<string>("projectBrief", { project });
 }
 
 export function saveFolderSettings(project: string, folder: string, settings: FolderSettings): Promise<void> {

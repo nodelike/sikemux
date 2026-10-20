@@ -691,9 +691,21 @@ async fn inspect(core: &Arc<Core>, request: HarnessRequest) -> Result<Value, Str
     };
     let mut value = {
         let (core, project) = (core.clone(), project.clone());
-        blocking(move || Ok(super::tasks::inspect(&core, Path::new(&project))))
-            .await
-            .map_err(|error| error.to_string())?
+        blocking(move || {
+            let mut inspected = super::tasks::inspect(&core, Path::new(&project));
+            let tasks = inspected
+                .get("tasks")
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default();
+            let brief = super::brief::of(&core, Path::new(&project), &tasks);
+            if let Some(object) = inspected.as_object_mut() {
+                object.insert("projectBrief".into(), brief.into());
+            }
+            Ok(inspected)
+        })
+        .await
+        .map_err(|error| error.to_string())?
     };
     if let Some(object) = value.as_object_mut() {
         object.insert("project".into(), project.clone().into());

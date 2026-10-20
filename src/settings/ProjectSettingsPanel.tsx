@@ -4,9 +4,10 @@ import { LANGUAGE_NAMES, saveFolderSettings, useProjectFolders, type ProjectFold
 import * as cmd from "../state/commands";
 import { useStore, type StoreState } from "../state/store";
 import { reportError } from "../state/toast";
-import { IconClose, IconCode, IconFolder, IconRun, IconTerminal } from "../ui/Icons";
+import { IconAgent, IconCheck, IconClose, IconCode, IconFolder, IconRun, IconTerminal } from "../ui/Icons";
 import { PaneField } from "../ui/ShaderField";
 import { useLeaveOnNavigation } from "./leaveSettings";
+import { ProjectBriefPage, ProjectDonePage } from "./ProjectAgentPages";
 import { ProjectEnvironmentPage } from "./ProjectEnvironmentPage";
 import { ProjectStackPage } from "./ProjectStackPage";
 import { ProjectTasksPage } from "./ProjectTasksPage";
@@ -14,6 +15,13 @@ import { stackOfPage, stackPage, type ProjectSettingsPageId } from "./projectSet
 import "../styles/settings.css";
 
 const isOpen = (state: StoreState) => state.projectSettingsPage !== null;
+
+const PAGE_TITLES: Partial<Record<ProjectSettingsPageId, string>> = {
+    environment: "Environment",
+    tasks: "Tasks",
+    done: "Done means",
+    brief: "What agents know",
+};
 
 /** The project in front's own settings: how its code is built and run, standing in for its workspace. */
 export function ProjectSettingsPanel() {
@@ -63,13 +71,13 @@ function ProjectSettings({ project, name }: { project: string; name: string }) {
     const page: ProjectSettingsPageId = asked === "start" ? (stacks[0]?.page ?? "environment") : asked;
     const stackAt = stackOfPage(page);
     const stack = stackAt && stacks.find((entry) => entry.folder.path === stackAt.folder && entry.language.id === stackAt.language);
-    const title = stack ? stack.label : page === "tasks" ? "Tasks" : "Environment";
+    const title = stack ? stack.label : (PAGE_TITLES[page] ?? "Environment");
 
     const setVariable = (folder: string, key: string, value: string | null) => {
         const current = folders?.settings[folder] ?? {};
         const { [key]: _replaced, ...rest } = current.env ?? {};
         const env = value === null ? rest : { ...rest, [key]: value };
-        void saveFolderSettings(project, folder, { environment: current.environment, env })
+        void saveFolderSettings(project, folder, { ...current, env })
             .then(refresh)
             .catch(reportError("Save the project's settings"));
     };
@@ -99,11 +107,20 @@ function ProjectSettings({ project, name }: { project: string; name: string }) {
                     </div>
                     <nav className="settings-nav" aria-label="Project settings sections">
                         {stacks.length > 0 && (
-                            <div className="settings-nav-group">{stacks.map((entry) => item(entry.page, entry.label, <IconCode size={13} />))}</div>
+                            <div className="settings-nav-group">
+                                <span className="settings-nav-label">Code</span>
+                                {stacks.map((entry) => item(entry.page, entry.label, <IconCode size={13} />))}
+                            </div>
                         )}
                         <div className="settings-nav-group">
+                            <span className="settings-nav-label">Run</span>
                             {item("environment", "Environment", <IconTerminal size={13} />)}
                             {item("tasks", "Tasks", <IconRun size={13} />)}
+                            {item("done", "Done means", <IconCheck size={13} />)}
+                        </div>
+                        <div className="settings-nav-group">
+                            <span className="settings-nav-label">Agents</span>
+                            {item("brief", "What agents know", <IconAgent size={13} />)}
                         </div>
                     </nav>
                     <div className="settings-rail-foot">Changes save automatically</div>
@@ -142,6 +159,18 @@ function ProjectSettings({ project, name }: { project: string; name: string }) {
                             />
                         )}
                         {page === "tasks" && <ProjectTasksPage project={project} />}
+                        {page === "done" && folders && (
+                            <ProjectDonePage project={project} name={name} settings={folders.settings} rules={folders.rules} onChanged={refresh} />
+                        )}
+                        {page === "brief" && folders && (
+                            <ProjectBriefPage
+                                project={project}
+                                folders={folders.folders}
+                                settings={folders.settings}
+                                rules={folders.rules}
+                                onChanged={refresh}
+                            />
+                        )}
                     </div>
                 </div>
             </div>

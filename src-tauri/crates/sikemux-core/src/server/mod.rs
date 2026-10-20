@@ -6,6 +6,7 @@ mod agent_accounts;
 mod agent_sign_in;
 mod attachments;
 mod board;
+mod brief;
 mod callers;
 mod calls;
 mod changed;

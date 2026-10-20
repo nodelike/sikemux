@@ -53,6 +53,8 @@ const MAX_FIELD_CHARS: usize = 512;
 const MAX_DETAIL_BYTES: usize = 4096;
 const MAX_COLOURS: usize = 64;
 const MAX_FOLDER_VARIABLES: usize = 256;
+const MAX_DONE_TASKS: usize = 32;
+const MAX_NOTES_CHARS: usize = 4000;
 const MAX_VARIABLE_CHARS: usize = 8192;
 /// A phone-sized JPEG is a few hundred kilobytes; this leaves room without letting one fill a frame.
 const MAX_IMAGE_BYTES: usize = 3 * 1024 * 1024;
@@ -112,6 +114,9 @@ struct Saved {
     /// folder's, `.` for its root. Never sent to devices, since it can hold secrets.
     #[serde(default)]
     folder_settings: BTreeMap<String, BTreeMap<String, FolderSettings>>,
+    /// What every agent in a project is told, by the project's folder.
+    #[serde(default)]
+    project_rules: BTreeMap<String, ProjectRules>,
 }
 
 /// The environment processes started in one folder of a project get.
@@ -125,6 +130,23 @@ pub(crate) struct FolderSettings {
     /// Set by the person, over what the files say.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub env: BTreeMap<String, String>,
+    /// The tasks an agent's work in the folder must pass before it is done, by id.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub done: Vec<String>,
+}
+
+/// What the person tells every agent working in a project.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ProjectRules {
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub notes: String,
+    /// Agents run every folder's checks, not only those of the folders they changed.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub check_every_folder: bool,
+    /// An agent whose check fails stops and says so, instead of fixing it first.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub stop_on_failure: bool,
 }
 
 impl Saved {
@@ -594,7 +616,12 @@ impl Workspaces {
             || settings.env.len() > MAX_FOLDER_VARIABLES
             || settings.env.iter().any(|(key, value)| {
                 too_long(key, MAX_TITLE_CHARS) || too_long(value, MAX_VARIABLE_CHARS)
-            });
+            })
+            || settings.done.len() > MAX_DONE_TASKS
+            || settings
+                .done
+                .iter()
+                .any(|task| too_long(task, MAX_FIELD_CHARS));
         if !one_folder || oversized {
             return Err("those folder settings are more than the core keeps".into());
         }
@@ -612,6 +639,33 @@ impl Workspaces {
                 saved.folder_settings.remove(&project);
             } else if saved.folder_settings.len() > MAX_PROJECTS {
                 return Err("settings for more projects than the core keeps".into());
+            }
+            Ok(())
+        })
+    }
+
+    pub(crate) fn project_rules(&self, project: &str) -> ProjectRules {
+        self.lock()
+            .saved
+            .project_rules
+            .get(project)
+            .cloned()
+            .unwrap_or_default()
+    }
+
+    fn set_project_rules(&self, project: String, rules: ProjectRules) -> CoreResult<()> {
+        if too_long(&project, MAX_FIELD_CHARS) || too_long(&rules.notes, MAX_NOTES_CHARS) {
+            return Err("those notes are longer than the core keeps".into());
+        }
+        self.change(|saved| {
+            if rules == ProjectRules::default() {
+                saved.project_rules.remove(&project);
+            } else if saved.project_rules.len() >= MAX_PROJECTS
+                && !saved.project_rules.contains_key(&project)
+            {
+                return Err("rules for more projects than the core keeps".into());
+            } else {
+                saved.project_rules.insert(project, rules);
             }
             Ok(())
         })
@@ -1740,6 +1794,18 @@ pub(crate) struct FolderSettingsParams {
     project: String,
     folder: String,
     settings: FolderSettings,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ProjectRulesParams {
+    project: String,
+    rules: ProjectRules,
+}
+
+pub(crate) fn set_project_rules(core: &Core, params: ProjectRulesParams) -> CoreResult<()> {
+    core.workspaces
+        .set_project_rules(params.project, params.rules)
 }
 
 pub(crate) fn set_folder_settings(core: &Core, params: FolderSettingsParams) -> CoreResult<()> {

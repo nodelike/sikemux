@@ -44,6 +44,10 @@ Each project has settings for how its code is built and run, apart from the app'
 
 **Tasks** lists what the project can run: the tasks in its `sikemux.json`, the ones only you have, and the ones found in its build files, with **Add a task** and **Find tasks with an agent**. Below them is what `sikemux.json` adds besides tasks, whether this Mac trusts it, with **Stop trusting** to have its commands ask again, and what is wrong with it when it is not valid.
 
+**Done means** picks, for each folder, the tasks an agent's work must pass before it says it is finished, such as the tests. Agents start them themselves; by default only the folders an agent changed are checked, and an agent whose check fails fixes it and runs it again before telling you. You can have it stop and tell you instead.
+
+**What agents know** shows the brief every agent working in the project reads in `workspace_inspect` before it builds, runs or tests anything: each folder's language and version, the settings above, the environment loaded (secret values never), the tasks, and Done means. Your own notes for agents go at the end.
+
 These settings stay on your Mac and are not written into the project.
 
 ## Project config
