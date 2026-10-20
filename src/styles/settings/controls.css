@@ -330,6 +330,10 @@
     font-size: var(--text-2xs);
     color: var(--warn);
 }
+.settings-code-host-pick {
+    font-family: var(--mono);
+    font-size: var(--text-2xs);
+}
 .settings-repo-note {
     margin: var(--space-1) 0 0;
     font-size: var(--text-xs);

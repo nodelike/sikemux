@@ -1,7 +1,14 @@
+import { lsp } from "../api/lsp";
 import { basename } from "../lib/paths";
 import { setLanguageServerTrust } from "../state/commands";
 import { confirmDialog, type ConfirmRequest } from "../state/dialog";
 import { getState } from "../state/store";
+import { reportError } from "../state/toast";
+
+export function allowLanguageServers(project: string, allowed: boolean): void {
+    setLanguageServerTrust(project, allowed);
+    if (!allowed) void lsp.stop(project).catch(reportError("stop language servers"));
+}
 
 const asking = new Map<string, Promise<boolean>>();
 

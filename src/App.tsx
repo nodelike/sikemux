@@ -91,7 +91,7 @@ import { applyEditorTextScale } from "./editor/textScale";
 import { dirname } from "./lib/paths";
 import type { StandaloneCommand } from "./commands/registry";
 import { agentDetectionApi } from "./api/agentDetection";
-import { lsp } from "./api/lsp";
+import { allowLanguageServers } from "./editor/languageServerTrust";
 import { projectActionCommand, trustProjectConfig } from "./projects/projectConfigRuntime";
 import { worktreeHasLiveOwners } from "./git/worktreeLifecycle";
 import { performanceTelemetry } from "./lib/performance";
@@ -512,17 +512,14 @@ function ApplicationCommandPalette() {
                             title: "Stop language servers for this project",
                             detail: "Stop them now and do not start them again",
                             category: "Project · Language servers",
-                            execute: runStandalone("project.language-servers.stop", () => {
-                                cmd.setLanguageServerTrust(activeProjectCwd, false);
-                                void lsp.stop(activeProjectCwd).catch(reportError("stop language servers"));
-                            }),
+                            execute: runStandalone("project.language-servers.stop", () => allowLanguageServers(activeProjectCwd, false)),
                         } satisfies StandaloneCommand)
                       : ({
                             id: "project.language-servers.allow",
                             title: "Allow language servers for this project",
                             detail: "Start them when you open a file here",
                             category: "Project · Language servers",
-                            execute: runStandalone("project.language-servers.allow", () => cmd.setLanguageServerTrust(activeProjectCwd, true)),
+                            execute: runStandalone("project.language-servers.allow", () => allowLanguageServers(activeProjectCwd, true)),
                         } satisfies StandaloneCommand),
               ]
             : []),

@@ -50,6 +50,7 @@ export const openSettings = (page?: SettingsPageId, target?: string): void =>
     setState(page ? { settingsOpen: true, settingsPage: page, settingsTarget: target ?? null } : { settingsOpen: true });
 export const clearSettingsTarget = (): void => setState({ settingsTarget: null });
 export const setSettingsPage = (page: SettingsPageId): void => setState({ settingsPage: page });
+export const setSettingsProject = (cwd: string | null): void => setState({ settingsProject: cwd });
 export const closeSettings = (): void => setState({ settingsOpen: false });
 export const toggleSettings = (): void => setState((s) => ({ settingsOpen: !s.settingsOpen }));
 

@@ -64,6 +64,11 @@ export const SETTINGS_INDEX: SettingsEntry[] = [
     section("general", "Session transfer", "export import clipboard move machine bundle copy"),
 
     section("project", "Default git repository", "git repos repositories several multiple monorepo folder branch worktree diff"),
+    section("project", "Language servers", "lsp intellisense completion jdtls gopls rust-analyzer pyright typescript trust allow stop"),
+    row("project", "Language servers", "Let this project start language servers", "lsp intellisense completion trust allow stop"),
+    section("project", "Code hosts", "github gitlab bitbucket repository account forget remote"),
+    section("project", "Space", "spaces group rail folder"),
+    row("project", "Space", "Listed under", "spaces group rail folder"),
 
     section("appearance", "Theme", "colours colors palette dark light custom fork editor"),
     section("appearance", "Interface"),
