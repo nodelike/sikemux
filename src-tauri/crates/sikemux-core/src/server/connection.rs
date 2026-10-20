@@ -1119,7 +1119,12 @@ fn give_agent_environment(
     agent_id: Option<&str>,
     env: &mut HashMap<String, String>,
 ) {
-    let given = super::plugins::agent_environment(core, std::path::Path::new(folder), agent_id);
+    let folder = std::path::Path::new(folder);
+    let given = core
+        .workspaces
+        .folder_environment(folder)
+        .into_iter()
+        .chain(super::plugins::agent_environment(core, folder, agent_id));
     for (key, value) in given {
         env.entry(key).or_insert(value);
     }

@@ -572,6 +572,19 @@ fn tasks_in(dir: &Path) -> Vec<Task> {
     tasks
 }
 
+/// The folders just inside a project that its build files may live in, by name.
+pub fn inner_folders(project: &Path) -> Vec<String> {
+    list(project)
+        .into_iter()
+        .filter(|entry| {
+            entry.is_dir
+                && FOLDER_NAME.is_match(&entry.name)
+                && !SKIPPED_FOLDERS.contains(&entry.name.as_str())
+        })
+        .map(|entry| entry.name)
+        .collect()
+}
+
 /// Run, test and build tasks suggested by the build files at the project root and in the folders just inside it.
 pub fn detected(project: &Path) -> Vec<Found> {
     let mut found: Vec<Found> = tasks_in(project)
@@ -584,16 +597,11 @@ pub fn detected(project: &Path) -> Vec<Found> {
             java: task.java,
         })
         .collect();
-    let folders = list(project).into_iter().filter(|entry| {
-        entry.is_dir
-            && FOLDER_NAME.is_match(&entry.name)
-            && !SKIPPED_FOLDERS.contains(&entry.name.as_str())
-    });
-    for folder in folders {
-        let cwd = project.join(&folder.name);
+    for folder in inner_folders(project) {
+        let cwd = project.join(&folder);
         found.extend(tasks_in(&cwd).into_iter().map(|task| Found {
-            id: format!("{}:{}", task.id, folder.name),
-            label: format!("{} ({})", task.label, folder.name),
+            id: format!("{}:{}", task.id, folder),
+            label: format!("{} ({})", task.label, folder),
             command: task.command,
             cwd: cwd.clone(),
             java: task.java,

@@ -246,6 +246,15 @@ pub(crate) async fn call(
             let params: TrustProjectParams = parse(params)?;
             answer(super::tasks::trust_project(&core, params.project, params.fingerprint).await?)
         }
+        "projectFolders" => {
+            let params: ProjectParams = parse(params)?;
+            let settings = core.workspaces.folder_settings(&params.project);
+            let folders =
+                blocking(move || Ok(crate::tasks::folders::folders(Path::new(&params.project))))
+                    .await?;
+            answer(json!({ "folders": folders, "settings": settings }))
+        }
+        "setFolderSettings" => answer(workspace::set_folder_settings(&core, parse(params)?)?),
         "untrustProject" => {
             let params: ProjectParams = parse(params)?;
             answer(super::tasks::untrust_project(&core, params.project).await?)

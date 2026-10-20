@@ -52,6 +52,8 @@ const MAX_FIELD_CHARS: usize = 512;
 /// Room for a worktree or a buddy, which are a handful of short fields.
 const MAX_DETAIL_BYTES: usize = 4096;
 const MAX_COLOURS: usize = 64;
+const MAX_FOLDER_VARIABLES: usize = 256;
+const MAX_VARIABLE_CHARS: usize = 8192;
 /// A phone-sized JPEG is a few hundred kilobytes; this leaves room without letting one fill a frame.
 const MAX_IMAGE_BYTES: usize = 3 * 1024 * 1024;
 const MAX_COLOUR_CHARS: usize = 64;
@@ -109,6 +111,23 @@ struct Saved {
     /// What new chats start with in a project, by the project's folder.
     #[serde(default)]
     project_settings: BTreeMap<String, ProjectSettings>,
+    /// The environment of each folder of a project, by the project's folder and then the
+    /// folder's, `.` for its root. Never sent to devices, since it can hold secrets.
+    #[serde(default)]
+    folder_settings: BTreeMap<String, BTreeMap<String, FolderSettings>>,
+}
+
+/// The environment processes started in one folder of a project get.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct FolderSettings {
+    /// Whose environment files are read: absent reads none, empty only the ones every
+    /// environment shares.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub environment: Option<String>,
+    /// Set by the person, over what the files say.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub env: BTreeMap<String, String>,
 }
 
 impl Saved {
@@ -585,6 +604,96 @@ impl Workspaces {
             saved.project_settings.insert(path, settings);
             Ok(())
         })
+    }
+
+    pub(crate) fn folder_settings(&self, project: &str) -> BTreeMap<String, FolderSettings> {
+        self.lock()
+            .saved
+            .folder_settings
+            .get(project)
+            .cloned()
+            .unwrap_or_default()
+    }
+
+    fn set_folder_settings(
+        &self,
+        project: String,
+        folder: String,
+        settings: FolderSettings,
+    ) -> CoreResult<()> {
+        let one_folder = folder == "."
+            || (!folder.is_empty() && !folder.contains('/') && !folder.starts_with('.'));
+        let oversized = too_long(&project, MAX_FIELD_CHARS)
+            || too_long(&folder, MAX_FIELD_CHARS)
+            || settings
+                .environment
+                .as_ref()
+                .is_some_and(|name| too_long(name, 64))
+            || settings.env.len() > MAX_FOLDER_VARIABLES
+            || settings.env.iter().any(|(key, value)| {
+                too_long(key, MAX_TITLE_CHARS) || too_long(value, MAX_VARIABLE_CHARS)
+            });
+        if !one_folder || oversized {
+            return Err("those folder settings are more than the core keeps".into());
+        }
+        if let Some(key) = settings.env.keys().find(|key| !is_variable_name(key)) {
+            return Err(format!("{key} cannot name an environment variable").into());
+        }
+        self.change(|saved| {
+            let folders = saved.folder_settings.entry(project.clone()).or_default();
+            if settings == FolderSettings::default() {
+                folders.remove(&folder);
+            } else {
+                folders.insert(folder, settings);
+            }
+            if folders.is_empty() {
+                saved.folder_settings.remove(&project);
+            } else if saved.folder_settings.len() > MAX_PROJECTS {
+                return Err("settings for more projects than the core keeps".into());
+            }
+            Ok(())
+        })
+    }
+
+    /// What a process started in `cwd` gets from its project's folder settings: the root's,
+    /// then those of the folder it is in. A worktree counts as its main checkout.
+    pub(crate) fn folder_environment(&self, cwd: &Path) -> BTreeMap<String, String> {
+        let projects = self.lock().saved.folder_settings.clone();
+        if projects.is_empty() {
+            return BTreeMap::new();
+        }
+        let path = super::names::in_main_checkout_or_self(cwd);
+        let canonical = |project: &str| {
+            std::fs::canonicalize(project).unwrap_or_else(|_| PathBuf::from(project))
+        };
+        let Some((project, folders)) = projects
+            .iter()
+            .map(|(project, folders)| (canonical(project), folders))
+            .filter(|(project, _)| path.starts_with(project))
+            .max_by_key(|(project, _)| project.as_os_str().len())
+        else {
+            return BTreeMap::new();
+        };
+        let inner = path
+            .strip_prefix(&project)
+            .ok()
+            .and_then(|rest| rest.components().next())
+            .map(|first| first.as_os_str().to_string_lossy().into_owned());
+        let mut env = BTreeMap::new();
+        for folder in std::iter::once(".".to_owned()).chain(inner) {
+            let Some(settings) = folders.get(&folder) else {
+                continue;
+            };
+            if let Some(environment) = &settings.environment {
+                env.extend(crate::tasks::folders::variables(
+                    &project,
+                    &folder,
+                    environment,
+                ));
+            }
+            env.extend(settings.env.clone());
+        }
+        env
     }
 
     /// The mode a chat of `provider` starts in when the project at `cwd` sets
@@ -1672,6 +1781,27 @@ pub(crate) fn set_pinned_chats(core: &Core, params: PinnedParams) -> CoreResult<
     core.workspaces.set_pinned(params.chats)?;
     core.publish_device_view();
     Ok(())
+}
+
+fn is_variable_name(key: &str) -> bool {
+    let mut chars = key.chars();
+    chars
+        .next()
+        .is_some_and(|first| first.is_ascii_alphabetic() || first == '_')
+        && chars.all(|rest| rest.is_ascii_alphanumeric() || rest == '_')
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct FolderSettingsParams {
+    project: String,
+    folder: String,
+    settings: FolderSettings,
+}
+
+pub(crate) fn set_folder_settings(core: &Core, params: FolderSettingsParams) -> CoreResult<()> {
+    core.workspaces
+        .set_folder_settings(params.project, params.folder, params.settings)
 }
 
 #[derive(Deserialize)]
