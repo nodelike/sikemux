@@ -251,7 +251,13 @@ pub(crate) async fn call(
             let folders =
                 blocking(move || Ok(crate::tasks::folders::folders(Path::new(&params.project))))
                     .await?;
-            answer(json!({ "folders": folders, "settings": settings, "rules": rules }))
+            let fields: serde_json::Map<String, Value> = crate::tasks::languages::catalog()
+                .into_iter()
+                .map(|(language, fields)| (language.to_owned(), json!(fields)))
+                .collect();
+            answer(
+                json!({ "folders": folders, "settings": settings, "rules": rules, "fields": fields }),
+            )
         }
         "projectServices" => {
             let params: ProjectParams = parse(params)?;

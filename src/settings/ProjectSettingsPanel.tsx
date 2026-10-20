@@ -185,6 +185,7 @@ function ProjectSettings({ project, name }: { project: string; name: string }) {
                                 key={stack.page}
                                 where={stack.folder.path === "." ? "the project" : `${stack.folder.path}/`}
                                 language={stack.language}
+                                fields={folders.fields[stack.language.id] ?? []}
                                 settings={folders.settings[stack.folder.path]}
                                 setVariable={(key, value) => setVariable(stack.folder.path, key, value)}
                             />

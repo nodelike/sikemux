@@ -7,6 +7,7 @@ pub mod config;
 pub mod detect;
 pub mod folders;
 pub mod java;
+pub mod languages;
 pub mod results;
 pub mod tools;
 

@@ -50,8 +50,25 @@ export interface ProjectRules {
     readonly neverRun?: readonly string[];
 }
 
+/** One setting a language's page offers, as the core lists them; each sets one variable. */
+export interface LanguageField {
+    readonly section: string;
+    readonly label: string;
+    readonly desc: string;
+    readonly kind: "jdk" | "text" | "toggle" | "choice" | "version";
+    /** Empty for a `version` field, which only shows what the files ask for. */
+    readonly variable: string;
+    readonly placeholder?: string;
+    /** Written before what the person types, such as `-P`. */
+    readonly prefix?: string;
+    readonly options?: readonly string[];
+    readonly when?: "maven" | "springBoot";
+}
+
 export interface ProjectFolders {
     readonly folders: readonly ProjectFolder[];
+    /** Each language's fields, by language id. */
+    readonly fields: Readonly<Record<string, readonly LanguageField[]>>;
     readonly settings: Readonly<Record<string, FolderSettings>>;
     readonly rules: ProjectRules;
 }

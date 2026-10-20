@@ -12,22 +12,15 @@ use std::collections::BTreeMap;
 use super::workspace::{FolderSettings, ProjectRules};
 use super::Core;
 use crate::tasks::folders::{self, Folder};
+use crate::tasks::languages::{self, Kind};
 
-/// Variables whose values say how the code is built and run, shown as they are.
-const SHOWN: [(&str, &str); 12] = [
-    ("MAVEN_ARGS", "Maven"),
-    ("SPRING_PROFILES_ACTIVE", "Spring profiles"),
-    ("JDK_JAVA_OPTIONS", "JVM options"),
-    ("NODE_ENV", "NODE_ENV"),
-    ("NODE_OPTIONS", "NODE_OPTIONS"),
-    ("GOFLAGS", "GOFLAGS"),
-    ("GOPRIVATE", "GOPRIVATE"),
-    ("RUSTUP_TOOLCHAIN", "toolchain"),
-    ("RUST_LOG", "RUST_LOG"),
-    ("RUST_BACKTRACE", "RUST_BACKTRACE"),
-    ("PYTHONPATH", "PYTHONPATH"),
-    ("PYTHONUNBUFFERED", "PYTHONUNBUFFERED"),
-];
+/// Whether a language page sets `variable`, so the brief shows it there rather than among the rest.
+fn on_a_page(variable: &str) -> bool {
+    languages::catalog()
+        .into_iter()
+        .flat_map(|(_, fields)| fields.iter())
+        .any(|field| field.variable == variable)
+}
 
 pub(crate) fn write(core: &Core, project: &Path) -> String {
     let inspected = super::tasks::inspect(core, project);
@@ -93,9 +86,7 @@ fn compose(
                     .env
                     .keys()
                     .map(String::as_str)
-                    .filter(|key| {
-                        *key != "JAVA_HOME" && !SHOWN.iter().any(|(shown, _)| shown == key)
-                    })
+                    .filter(|key| !on_a_page(key))
                     .collect()
             })
             .unwrap_or_default();
@@ -215,9 +206,18 @@ fn folder_line(
         parts.push(part);
     }
     if let Some(env) = env {
-        for (variable, name) in SHOWN {
-            if let Some(value) = env.get(variable) {
-                parts.push(format!("{name} {value}"));
+        let fields = folder
+            .languages
+            .iter()
+            .flat_map(|language| languages::fields(language.id));
+        for field in fields {
+            let Some(value) = env.get(field.variable) else {
+                continue;
+            };
+            match field.kind {
+                Kind::Text | Kind::Choice => parts.push(format!("{} {value}", field.label)),
+                Kind::Toggle => parts.push(format!("{} on", field.label)),
+                Kind::Jdk | Kind::Version => {}
             }
         }
     }
