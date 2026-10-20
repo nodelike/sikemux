@@ -2,9 +2,10 @@ import { useEffect, type ReactNode } from "react";
 import { prettyPath } from "../lib/paths";
 import * as cmd from "../state/commands";
 import { useStore, type StoreState } from "../state/store";
-import { IconAgent, IconClose, IconFolder } from "../ui/Icons";
+import { IconAgent, IconClose, IconFile, IconFolder } from "../ui/Icons";
 import { PaneField } from "../ui/ShaderField";
 import { useLeaveOnNavigation } from "./leaveSettings";
+import { ProjectFilePage } from "./ProjectFilePage";
 import { ProjectAgentsPage, ProjectGeneralPage } from "./ProjectPage";
 import { PROJECT_SETTINGS_PAGES, type ProjectSettingsPageId } from "./projectSettingsPages";
 import "../styles/settings.css";
@@ -12,6 +13,7 @@ import "../styles/settings.css";
 const PAGE_ICONS: Record<ProjectSettingsPageId, ReactNode> = {
     general: <IconFolder size={13} />,
     agents: <IconAgent size={13} />,
+    file: <IconFile size={13} />,
 };
 
 const isOpen = (state: StoreState) => state.projectSettingsPage !== null;
@@ -65,7 +67,7 @@ export function ProjectSettingsPanel() {
                             ))}
                         </div>
                     </nav>
-                    <div className="settings-rail-foot">Kept on this host, not in the project</div>
+                    <div className="settings-rail-foot">Changes save automatically</div>
                 </aside>
 
                 <div className="settings-main">
@@ -84,6 +86,7 @@ export function ProjectSettingsPanel() {
                     <div className="settings-scroll">
                         {page === "general" && <ProjectGeneralPage project={project} />}
                         {page === "agents" && <ProjectAgentsPage project={project} />}
+                        {page === "file" && <ProjectFilePage project={project} />}
                     </div>
                 </div>
             </div>

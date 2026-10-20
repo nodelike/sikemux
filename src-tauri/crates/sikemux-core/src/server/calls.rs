@@ -246,6 +246,10 @@ pub(crate) async fn call(
             let params: TrustProjectParams = parse(params)?;
             answer(super::tasks::trust_project(&core, params.project, params.fingerprint).await?)
         }
+        "untrustProject" => {
+            let params: ProjectParams = parse(params)?;
+            answer(super::tasks::untrust_project(&core, params.project).await?)
+        }
         "tasks" => {
             let params: ProjectParams = parse(params)?;
             answer(super::tasks::list(&core, params.project).await?)

@@ -339,3 +339,166 @@
     font-size: var(--text-xs);
     color: var(--text-tertiary);
 }
+
+/* ── a project's sikemux.json ───────────────────────── */
+.project-file {
+    overflow: hidden;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-3);
+    background: var(--s-raised);
+}
+.project-file-status {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    min-height: 44px;
+    padding: var(--space-2) var(--space-3);
+    color: var(--text-tertiary);
+    font-size: var(--text-xs);
+}
+.project-file-status > .settings-btn {
+    margin-left: auto;
+}
+.project-file-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-1);
+    flex: 0 0 auto;
+    height: 20px;
+    padding: 0 var(--space-1h);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-1);
+    color: var(--text-secondary);
+    font-size: var(--text-2xs);
+    font-weight: var(--weight-medium);
+    white-space: nowrap;
+}
+.project-file-pill::before {
+    content: "";
+    width: 6px;
+    height: 6px;
+    border-radius: var(--radius-full);
+    background: var(--gray-500);
+}
+.project-file-pill.ok::before {
+    background: var(--live);
+}
+.project-file-pill.waiting::before {
+    background: var(--warn);
+}
+.project-file-pill.failed::before {
+    background: var(--danger);
+}
+.project-file-group {
+    padding-bottom: var(--space-1);
+    border-top: 1px solid var(--border);
+}
+.project-file-group-head {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: var(--space-2) var(--space-3) var(--space-1);
+    color: var(--text-tertiary);
+    font-size: var(--text-3xs);
+    font-weight: var(--weight-semibold);
+    letter-spacing: var(--tracking-label);
+    text-transform: uppercase;
+}
+.project-file-count {
+    font-family: var(--mono);
+    letter-spacing: 0;
+}
+.project-file-add-btn {
+    margin-left: auto;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--text-tertiary);
+    font-family: var(--ui);
+    font-size: var(--text-2xs);
+    font-weight: var(--weight-medium);
+    letter-spacing: 0;
+    text-transform: none;
+    cursor: pointer;
+}
+.project-file-add-btn:hover {
+    color: var(--text-primary);
+}
+.project-file-item {
+    display: grid;
+    grid-template-columns: minmax(0, 160px) minmax(0, 1fr) auto;
+    align-items: center;
+    gap: var(--space-3);
+    min-height: 28px;
+    padding: var(--space-1) var(--space-3);
+}
+.project-file-item:hover {
+    background: var(--surface-hover);
+}
+.project-file-name {
+    overflow: hidden;
+    color: var(--text-primary);
+    font-size: var(--text-sm);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.project-file-command {
+    overflow: hidden;
+    color: var(--text-secondary);
+    font-family: var(--mono);
+    font-size: var(--text-2xs);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.project-file-note {
+    color: var(--text-tertiary);
+    font-size: var(--text-2xs);
+}
+.project-file-errors {
+    margin: 0;
+    padding: var(--space-1) 0 var(--space-2);
+    border-top: 1px solid var(--border);
+    list-style: none;
+}
+.project-file-errors li {
+    display: grid;
+    grid-template-columns: minmax(0, 200px) minmax(0, 1fr);
+    gap: var(--space-3);
+    padding: var(--space-1) var(--space-3);
+    color: var(--text-secondary);
+    font-size: var(--text-xs);
+}
+.project-file-errors code {
+    overflow: hidden;
+    color: var(--danger);
+    font-family: var(--mono);
+    font-size: var(--text-2xs);
+    text-overflow: ellipsis;
+}
+.project-file-foot {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: var(--space-2) var(--space-3);
+    border-top: 1px solid var(--border);
+}
+.project-file-foot > :first-child {
+    margin-right: auto;
+}
+.project-file-empty {
+    display: grid;
+    gap: var(--space-3);
+    padding: var(--space-4);
+    color: var(--text-tertiary);
+    font-size: var(--text-xs);
+    line-height: 1.5;
+}
+.project-file-empty p {
+    margin: 0;
+}
+.project-file-add {
+    padding: var(--space-3);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-3);
+    background: var(--s-raised);
+}

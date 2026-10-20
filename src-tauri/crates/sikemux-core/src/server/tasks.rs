@@ -153,6 +153,13 @@ impl Tasks {
         self.kept.save(&state.trust);
     }
 
+    /// Forgets the person trusted the project file at `path`, so its commands ask again.
+    fn revoke(&self, path: &str) {
+        let mut state = self.lock();
+        state.trust.configs.retain(|known| known.path != path);
+        self.kept.save(&state.trust);
+    }
+
     /// A run of a test task ended; what it left is read once.
     pub(crate) fn tests_of(&self, execution_id: &str) -> Option<TestResults> {
         self.lock().tests.get(execution_id).cloned()
@@ -425,6 +432,21 @@ pub(crate) async fn trust_project(
         }
         core.tasks
             .grant(Grant::Config(TrustedConfig { path, fingerprint }));
+        core.harness.changed();
+        core.changes.changed("tasks", Some(&project), None);
+        Ok(())
+    })
+    .await
+}
+
+/// The person no longer trusts the project's `sikemux.json`; its commands ask before they run again.
+pub(crate) async fn untrust_project(core: &Arc<Core>, project: String) -> CoreResult<()> {
+    let core = core.clone();
+    blocking(move || {
+        let (ConfigLoad::Absent { path }
+        | ConfigLoad::Invalid { path, .. }
+        | ConfigLoad::Valid { path, .. }) = config::load(Path::new(&project));
+        core.tasks.revoke(&path);
         core.harness.changed();
         core.changes.changed("tasks", Some(&project), None);
         Ok(())
