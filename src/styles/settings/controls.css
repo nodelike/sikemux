@@ -611,3 +611,60 @@
     font-family: var(--mono);
     font-size: var(--text-3xs);
 }
+.project-banner {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    padding: var(--space-2) var(--space-3);
+    border: 1px solid color-mix(in oklab, var(--acc) 40%, transparent);
+    border-radius: var(--radius-3);
+    background: color-mix(in oklab, var(--acc) 7%, transparent);
+}
+.project-banner.warn {
+    border-color: color-mix(in oklab, var(--warn) 40%, transparent);
+    background: color-mix(in oklab, var(--warn) 6%, transparent);
+}
+.project-banner > :first-child {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+.project-banner-title {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    color: var(--text-primary);
+    font-size: var(--text-sm);
+    font-weight: var(--weight-medium);
+}
+.project-health {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+    gap: var(--space-2);
+}
+.project-health-card {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1h);
+    padding: var(--space-2) var(--space-3);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-3);
+    background: var(--s-raised);
+}
+.project-health-line {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    min-width: 0;
+}
+.project-link {
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--acc);
+    font-family: var(--ui);
+    font-size: var(--text-xs);
+    cursor: pointer;
+}
+.project-link:hover {
+    text-decoration: underline;
+}

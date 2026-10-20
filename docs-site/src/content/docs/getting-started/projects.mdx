@@ -32,6 +32,8 @@ When the project folder is not a repository itself but holds several, such as `b
 
 Each project has settings for how its code is built and run, apart from the app's. Open them with **Settings** at the foot of the project's tree in the sidebar; `Esc` or going anywhere else in the project closes them.
 
+**Overview** opens first. It shows suggestions waiting for you, settings the project has moved past, such as a JDK chosen here after `pom.xml` started asking for a newer Java, with the change that fixes it, and **Health**: each folder's Done means and whether it last passed. **Check setup** runs them all; a failing one can go to an agent to fix.
+
 **A page for each language** the project is written in: Java, Node, Go, Rust or Python, found from its build files. A project with several folders, such as `api/` and `web/`, gets one for each, like **Java · api**. Each setting reaches the tasks, terminals and agents started in that folder as the environment variable its tools already read, so an agent running `mvn` or `cargo` itself gets the same setup:
 
 - **Java**: the JDK (`JAVA_HOME`), over the closest one to what the build asks for; Maven profiles (`MAVEN_ARGS`, Maven 3.9 or newer); Spring profiles (`SPRING_PROFILES_ACTIVE`) for a Spring Boot build; JVM options (`JDK_JAVA_OPTIONS`).

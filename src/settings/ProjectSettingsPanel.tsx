@@ -1,6 +1,7 @@
 import { useEffect, type ReactNode } from "react";
 import { prettyPath } from "../lib/paths";
 import { LANGUAGE_NAMES, saveFolderSettings, useProjectFolders, type ProjectFolder } from "../projects/projectFolders";
+import { driftsOf, useJavaRuntimes } from "../projects/projectHealth";
 import { isPending, useProjectSuggestions } from "../projects/projectSuggestions";
 import * as cmd from "../state/commands";
 import { useStore, type StoreState } from "../state/store";
@@ -10,6 +11,7 @@ import { PaneField } from "../ui/ShaderField";
 import { useLeaveOnNavigation } from "./leaveSettings";
 import { ProjectBriefPage, ProjectDonePage, ProjectSuggestionsPage } from "./ProjectAgentPages";
 import { ProjectEnvironmentPage } from "./ProjectEnvironmentPage";
+import { ProjectOverviewPage } from "./ProjectOverviewPage";
 import { ProjectStackPage } from "./ProjectStackPage";
 import { ProjectTasksPage } from "./ProjectTasksPage";
 import { stackOfPage, stackPage, type ProjectSettingsPageId } from "./projectSettingsPages";
@@ -18,6 +20,7 @@ import "../styles/settings.css";
 const isOpen = (state: StoreState) => state.projectSettingsPage !== null;
 
 const PAGE_TITLES: Partial<Record<ProjectSettingsPageId, string>> = {
+    overview: "Overview",
     environment: "Environment",
     tasks: "Tasks",
     done: "Done means",
@@ -76,7 +79,9 @@ function ProjectSettings({ project, name }: { project: string; name: string }) {
         refreshSuggestions();
     };
     const stacks = folders ? stacksOf(folders.folders) : [];
-    const page: ProjectSettingsPageId = asked === "start" ? (stacks[0]?.page ?? "environment") : asked;
+    const page: ProjectSettingsPageId = asked === "start" ? "overview" : asked;
+    const runtimes = useJavaRuntimes(Object.values(folders?.settings ?? {}).some((chosen) => chosen.env?.JAVA_HOME));
+    const drifts = folders ? driftsOf(folders.folders, folders.settings, runtimes) : [];
     const stackAt = stackOfPage(page);
     const stack = stackAt && stacks.find((entry) => entry.folder.path === stackAt.folder && entry.language.id === stackAt.language);
     const title = stack ? stack.label : (PAGE_TITLES[page] ?? "Environment");
@@ -115,6 +120,14 @@ function ProjectSettings({ project, name }: { project: string; name: string }) {
                         <span className="project-settings-path">{prettyPath(project, home)}</span>
                     </div>
                     <nav className="settings-nav" aria-label="Project settings sections">
+                        <div className="settings-nav-group">
+                            {item(
+                                "overview",
+                                "Overview",
+                                <IconFolder size={13} />,
+                                waiting + drifts.length ? String(waiting + drifts.length) : undefined,
+                            )}
+                        </div>
                         {stacks.length > 0 && (
                             <div className="settings-nav-group">
                                 <span className="settings-nav-label">Code</span>
@@ -150,8 +163,20 @@ function ProjectSettings({ project, name }: { project: string; name: string }) {
                         </button>
                     </header>
                     <div className="settings-scroll">
+                        {page === "overview" && folders && (
+                            <ProjectOverviewPage
+                                project={project}
+                                name={name}
+                                settings={folders.settings}
+                                waiting={suggestions.filter(isPending)}
+                                drifts={drifts}
+                                fixDrift={(drift) => setVariable(drift.folder, drift.fix.key, drift.fix.value)}
+                            />
+                        )}
                         {stack && folders && (
                             <ProjectStackPage
+                                drifts={drifts.filter((drift) => drift.folder === stack.folder.path && drift.language === stack.language.id)}
+                                onFixDrift={(drift) => setVariable(drift.folder, drift.fix.key, drift.fix.value)}
                                 key={stack.page}
                                 where={stack.folder.path === "." ? "the project" : `${stack.folder.path}/`}
                                 language={stack.language}

@@ -2,6 +2,8 @@ import { useEffect, useState, type ReactNode } from "react";
 import { coreCall } from "../api/core";
 import { prettyPath } from "../lib/paths";
 import { LANGUAGE_NAMES, type FolderLanguage, type FolderSettings } from "../projects/projectFolders";
+import type { Drift } from "../projects/projectHealth";
+import { DriftBanner } from "./ProjectOverviewPage";
 import { useStore } from "../state/store";
 import { Switch } from "../ui/Controls";
 import { Dropdown } from "../ui/Dropdown";
@@ -20,16 +22,23 @@ export function ProjectStackPage({
     language,
     settings,
     setVariable,
+    drifts,
+    onFixDrift,
 }: {
     where: string;
     language: FolderLanguage;
     settings: FolderSettings | undefined;
     setVariable: SetVariable;
+    drifts: readonly Drift[];
+    onFixDrift: (drift: Drift) => void;
 }) {
     const env = settings?.env ?? {};
     const field = { env, setVariable };
     return (
         <SettingsPage>
+            {drifts.map((drift) => (
+                <DriftBanner key={drift.fix.key} drift={drift} onFix={() => onFixDrift(drift)} />
+            ))}
             <p className="project-folder-found">
                 <span className="project-folder-language">
                     {LANGUAGE_NAMES[language.id]}
