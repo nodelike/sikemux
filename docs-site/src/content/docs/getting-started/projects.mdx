@@ -48,6 +48,8 @@ Each project has settings of its own, apart from the app's. Open them with **Set
 
 Anything left on **App default** follows the app's setting. These settings stay on your Mac and are not written into the project.
 
+**Folders** lists the project root and each folder inside it that holds a language's build files or environment files. Sikemux finds environment files by what is in them and by what loads them (`dotenv` and `env-cmd` in package.json scripts, `--env-file`, docker-compose `env_file`, `.envrc`, a Makefile `include`), so `.env.stage`, `.environment.prod` and `config/dev.env` all count, and `.env.example` is shown but never read. Under **Load**, pick which environment's files tasks, terminals and agents started in that folder get, or the files every environment shares; nothing is loaded until you pick. A production-looking environment asks before it is loaded. Variables you add there win over the files', values that look like secrets stay hidden, and Sikemux never writes to the files themselves.
+
 **Project file** shows what the project's `sikemux.json` adds: its tasks, with the ones only you have, its actions, preview, worktree commands and generated files. It says whether this Mac trusts the file, with **Stop trusting** to have its commands ask again, and lists what is wrong with it when it is not valid, with a button to have an agent fix it. A project without one can add a task or have an agent find its tasks from here.
 
 ## Project config
