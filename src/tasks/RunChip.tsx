@@ -3,9 +3,25 @@ import { openPortExternally, revealPortOwner } from "../ports/portActions";
 import { taskTerminalReveal } from "../ports/projectPorts";
 import { useProjectPorts } from "../ports/useProjectPorts";
 import { SendToAgentMenu } from "../agents/SendToAgentMenu";
+import { environmentsFor, folderEnvironment, looksLikeProduction } from "../projects/projectFolders";
+import { projectFoldersR, useProjectSettingsSync } from "../projects/projectResources";
+import { confirmDialog } from "../state/dialog";
+import { invalidate, useResourceEnabled } from "../state/resources";
 import { getState } from "../state/store";
 import { reportError } from "../state/toast";
-import { IconAgent, IconCheck, IconChevron, IconClose, IconExternal, IconPlus, IconRefresh, IconRun, IconStop, IconTerminal } from "../ui/Icons";
+import {
+    IconAgent,
+    IconCheck,
+    IconChevron,
+    IconClose,
+    IconExternal,
+    IconGlobe,
+    IconPlus,
+    IconRefresh,
+    IconRun,
+    IconStop,
+    IconTerminal,
+} from "../ui/Icons";
 import { Tooltip } from "../ui/Tooltip";
 import { tasksApi, useProjectTasks, useTaskRuns, type ProjectTask, type TaskRun } from "./coreTasks";
 import { dismissPendingCheck, personRuns, runProjectTask, stopTaskRun, usePendingCheck, type PendingCheck } from "./projectTaskActions";
@@ -72,7 +88,7 @@ function CheckCard({ check }: { check: PendingCheck }) {
     const fixable = installs || check.checks.some((item) => !item.ok && item.kind === "port" && item.freePort !== null);
     const fix = () => {
         setFixing(true);
-        void runProjectTask(check.project, check.task, { fix: true }).finally(() => setFixing(false));
+        void runProjectTask(check.project, check.task, { fix: true, environment: check.environment }).finally(() => setFixing(false));
     };
     return (
         <>
@@ -96,7 +112,7 @@ function CheckCard({ check }: { check: PendingCheck }) {
                 <div className="tb-run-check-actions">
                     <button
                         className="tb-run-check-btn"
-                        onClick={() => void runProjectTask(check.project, check.task, { force: true })}
+                        onClick={() => void runProjectTask(check.project, check.task, { force: true, environment: check.environment })}
                         disabled={fixing}>
                         Run anyway
                     </button>
@@ -123,6 +139,10 @@ export function RunChip({ sessionId, project }: { sessionId: string; project: st
     const [failureShown, setFailureShown] = useState<string | null>(null);
     const [adding, setAdding] = useState(false);
     const [agentPicker, setAgentPicker] = useState<{ x: number; y: number; text: string } | null>(null);
+    const [environmentPicked, setEnvironmentPicked] = useState<Readonly<Record<string, string | null>>>({});
+    const [environmentOpen, setEnvironmentOpen] = useState(false);
+    useProjectSettingsSync();
+    const folders = useResourceEnabled(true, projectFoldersR, project).data;
     const { running: runningRun, last } = personRuns(allRuns, project);
     const elapsed = useSecondsSince(runningRun?.startedAt ?? null);
 
@@ -144,6 +164,28 @@ export function RunChip({ sessionId, project }: { sessionId: string; project: st
     const testsCardOpen =
         testRun !== null && tests !== null && tests.failed > 0 && dismissedTests !== testRun.key && !open && pendingCheck?.project !== project;
 
+    const environment = environmentPicked[project] ?? null;
+    const shownEnvironment = runningRun ? (runningRun.environment ?? null) : environment;
+    const environments = folders ? environmentsFor(folders.folders, selected.cwd) : [];
+    const ownEnvironment = folders ? folderEnvironment(folders.settings, selected.cwd) : undefined;
+    const run = (task: typeof selected, on: string | null = environment) => {
+        if (!on || !looksLikeProduction(on)) return void runProjectTask(project, task, { environment: on });
+        void confirmDialog({
+            title: `Run ${task.label} on ${on}?`,
+            body: `It starts with ${on}'s environment variables, so it may change live data. The folder keeps its own environment for other runs.`,
+            confirmLabel: `Run on ${on}`,
+            destructive: true,
+        }).then((ok) => {
+            if (ok) void runProjectTask(project, task, { environment: on });
+        });
+    };
+    /* Picking another environment while the task runs restarts it there. */
+    const pickEnvironment = (name: string | null) => {
+        setEnvironmentOpen(false);
+        setEnvironmentPicked((current) => ({ ...current, [project]: name }));
+        if (running && name !== shownEnvironment) run(running, name);
+    };
+    const environmentLabel = shownEnvironment ?? (ownEnvironment || "default");
     const close = () => setOpen(false);
     const showOutput = () => {
         const reveal = key ? taskTerminalReveal(getState(), sessionId, key) : null;
@@ -189,7 +231,7 @@ export function RunChip({ sessionId, project }: { sessionId: string; project: st
                     <Tooltip label={primaryLabel}>
                         <button
                             className={`tb-run-btn${running ? " running" : ""}`}
-                            onClick={() => (runningRun ? stopTaskRun(runningRun) : void runProjectTask(project, selected))}
+                            onClick={() => (runningRun ? stopTaskRun(runningRun) : run(selected))}
                             aria-label={primaryLabel}>
                             {running ? <IconStop size={11} /> : <IconRun size={11} />}
                             {running ? "Stop" : "Run"}
@@ -209,6 +251,23 @@ export function RunChip({ sessionId, project }: { sessionId: string; project: st
                         {status && <span className={`tb-run-meta ${status.tone}`}>· {status.text}</span>}
                         <IconChevron size={10} className="env-dd-chev" />
                     </button>
+                    {environments.length > 0 && (
+                        <Tooltip label={running ? "Environment it runs on; pick another to restart it there" : "Environment to run on"}>
+                            <button
+                                className={`tb-run-env${shownEnvironment && looksLikeProduction(shownEnvironment) ? " prod" : ""}`}
+                                onClick={() => {
+                                    if (!environmentOpen) invalidate((kind, args) => kind === "project.folders" && args[0] === project);
+                                    setEnvironmentOpen((value) => !value);
+                                }}
+                                aria-haspopup="menu"
+                                aria-expanded={environmentOpen}
+                                aria-label={`Environment: ${environmentLabel}`}>
+                                <IconGlobe size={10} />
+                                <span>{environmentLabel}</span>
+                                <IconChevron size={10} className="env-dd-chev" />
+                            </button>
+                        </Tooltip>
+                    )}
                 </span>
                 {whyShown && (
                     <Tooltip label={tests?.failed ? "Show the failed tests" : "Show why it stopped"}>
@@ -220,6 +279,40 @@ export function RunChip({ sessionId, project }: { sessionId: string; project: st
                     </Tooltip>
                 )}
                 {pendingCheck?.project === project && !open && <CheckCard check={pendingCheck} />}
+                {environmentOpen && (
+                    <>
+                        <div className="env-dd-scrim" onClick={() => setEnvironmentOpen(false)} />
+                        <div
+                            className="env-dd-menu tb-run-menu tb-run-env-menu"
+                            role="menu"
+                            aria-label="Run on"
+                            data-overlay
+                            onKeyDown={(event) => {
+                                if (event.key === "Escape") setEnvironmentOpen(false);
+                            }}>
+                            <div className="tb-run-menu-head">
+                                <span>Run on</span>
+                                <span className="tb-run-menu-head-meta">this run only</span>
+                            </div>
+                            {[null, ...environments.map((entry) => entry.name)].map((name) => (
+                                <button
+                                    key={name ?? ""}
+                                    className={`env-dd-item${name === shownEnvironment ? " active" : ""}`}
+                                    role="menuitemradio"
+                                    aria-checked={name === shownEnvironment}
+                                    onClick={() => pickEnvironment(name)}>
+                                    <IconGlobe size={11} />
+                                    <span className="tb-run-label">{name ?? "Folder's environment"}</span>
+                                    {name === null ? (
+                                        <span className="tb-run-menu-meta">{ownEnvironment || "none loaded"}</span>
+                                    ) : (
+                                        looksLikeProduction(name) && <span className="tb-run-menu-meta prod">asks first</span>
+                                    )}
+                                </button>
+                            ))}
+                        </div>
+                    </>
+                )}
                 {testsCardOpen && (
                     <TestResultsCard
                         run={testRun}
@@ -275,7 +368,11 @@ export function RunChip({ sessionId, project }: { sessionId: string; project: st
                                 <>
                                     <div className="tb-run-menu-head">
                                         <span>{running.label}</span>
-                                        <span className="tb-run-menu-head-meta">{port ? `up · :${port.port}` : `running · ${elapsed}s`}</span>
+                                        <span className="tb-run-menu-head-meta">
+                                            {[runningRun?.environment, port ? `up · :${port.port}` : `running · ${elapsed}s`]
+                                                .filter(Boolean)
+                                                .join(" · ")}
+                                        </span>
                                     </div>
                                     {url && (
                                         <button
@@ -294,7 +391,7 @@ export function RunChip({ sessionId, project }: { sessionId: string; project: st
                                         role="menuitem"
                                         onClick={() => {
                                             close();
-                                            void runProjectTask(project, running);
+                                            void runProjectTask(project, running, { environment: runningRun?.environment ?? null });
                                         }}>
                                         <IconRefresh size={12} />
                                         <span>Restart</span>

@@ -1227,6 +1227,11 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 4096
+        },
+        "environment": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
         }
       },
       "required": [
@@ -1241,6 +1246,11 @@
       "properties": {
         "taskId": {
           "type": "string"
+        },
+        "environment": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
         }
       },
       "required": [

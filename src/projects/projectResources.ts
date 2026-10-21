@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { coreCall } from "../api/core";
 import { onCoreChanged } from "../api/coreChanged";
 import type { CoreChangeTopic } from "../api/generated/wire";
+import { subscribe } from "../state/bus";
 import { invalidate, resource } from "../state/resources";
 import type { ProjectFolders } from "./projectFolders";
 import type { Suggestion } from "./projectSuggestions";
@@ -63,11 +64,27 @@ const READ_AGAIN = {
     tasks: ["project.brief"],
 } satisfies Partial<Record<CoreChangeTopic, readonly string[]>>;
 
-/** Reads project settings again whenever the core says they changed, from any window or agent. */
+/** Files that make a folder's environments, so a new `.env.prod` shows without reopening the project. */
+const ENVIRONMENT_FILE = /(^|\/)(\.env[^/]*|[^/]*\.env|\.envrc|package\.json|Makefile|[^/]*compose[^/]*\.ya?ml)$/i;
+
+/** Reads project settings again whenever the core says they changed, from any window or agent, or an environment file changes. */
 export function useProjectSettingsSync(): void {
     useEffect(() => {
         const stops = (Object.entries(READ_AGAIN) as [CoreChangeTopic, readonly string[]][]).map(([topic, kinds]) =>
             onCoreChanged(topic, () => invalidate((kind) => kinds.includes(kind))),
+        );
+        stops.push(
+            subscribe("fs-changed", (event) => {
+                if (event.paths?.length && !event.paths.some((path) => ENVIRONMENT_FILE.test(path))) return;
+                invalidate((kind, args) => {
+                    const project = args[0];
+                    return (
+                        (kind === "project.folders" || kind === "project.brief") &&
+                        typeof project === "string" &&
+                        (project.startsWith(event.repo) || event.repo.startsWith(project))
+                    );
+                });
+            }),
         );
         return () => stops.forEach((stop) => stop());
     }, []);

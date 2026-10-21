@@ -44,7 +44,7 @@ Each project has settings for how its code is built and run, apart from the app'
 
 **Environment** sets the variables of each folder. Sikemux finds environment files by what is in them and by what loads them (`dotenv` and `env-cmd` in package.json scripts, `--env-file`, docker-compose `env_file`, `.envrc`, a Makefile `include`), so `.env.stage`, `.environment.prod` and `config/dev.env` all count, and `.env.example` is shown but never read. Under **Load**, pick which environment's files the folder gets, or the files every environment shares; nothing is loaded until you pick, and a production-looking environment asks first. Variables you add win over the files', values that look like secrets stay hidden, and Sikemux never writes to the files.
 
-**Load for agents**, on the same page, gives agents a different environment from yours, such as `local` while you use `stage`. An environment that looks like production (`prod`, `production`, `live`) never reaches an agent.
+**Load for agents**, on the same page, gives agents a different environment from yours, such as `local` while you use `stage`. An environment that looks like production (`prod`, `production`, `live`) never reaches an agent this way. To run one task on another environment instead, without changing **Load**, pick it in the [environment picker beside the run button](/getting-started/run/#run-on-another-environment); agents can ask for one too, and production waits for your approval.
 
 **Services** lists the services in the project's `docker-compose` files, whether each is running, with Start and Stop. Tick the ones a folder needs under **Started before tasks**, and Sikemux starts them, and waits until they are up, before any task in that folder runs.
 

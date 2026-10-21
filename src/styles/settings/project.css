@@ -228,10 +228,6 @@
 .project-folder-variable:hover {
     background: var(--surface-hover);
 }
-.project-folder-variable.replaced code {
-    color: var(--text-disabled);
-    text-decoration: line-through;
-}
 .project-folder-key {
     overflow: hidden;
     color: var(--text-primary);

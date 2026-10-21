@@ -17,7 +17,6 @@ interface Shown {
     key: string;
     value: string;
     from: string;
-    replaced: boolean;
     own: boolean;
 }
 
@@ -30,13 +29,14 @@ function filesRead(folder: ProjectFolder, environment: string | undefined): Fold
         .sort((a, b) => rank(a) - rank(b));
 }
 
+/** Each variable once, with the value and file that win, a later file or one set here overriding earlier ones. */
 function shownVariables(read: FolderEnvFile[], own: Readonly<Record<string, string>>): Shown[] {
     const rows: Shown[] = [
-        ...read.flatMap((file) => file.variables.map((variable) => ({ ...variable, from: file.path, replaced: false, own: false }))),
-        ...Object.entries(own).map(([key, value]) => ({ key, value, from: "set here", replaced: false, own: true })),
+        ...read.flatMap((file) => file.variables.map((variable) => ({ ...variable, from: file.path, own: false }))),
+        ...Object.entries(own).map(([key, value]) => ({ key, value, from: "set here", own: true })),
     ];
     const last = new Map(rows.map((row, index) => [row.key, index]));
-    return rows.map((row, index) => ({ ...row, replaced: last.get(row.key) !== index }));
+    return rows.filter((row, index) => last.get(row.key) === index);
 }
 
 /** The environment processes started in each folder of a project get, one folder at a time. */
@@ -204,15 +204,15 @@ function FolderEnvironment({
                 <div className="project-card">
                     <div className="project-card-head">
                         <span>Variables</span>
-                        <span className="project-card-count">{rows.filter((row) => !row.replaced).length}</span>
+                        <span className="project-card-count">{rows.length}</span>
                         {rows.some((row) => looksSecret(row.key)) && (
                             <button type="button" className="project-card-action" onClick={() => setRevealed((shown) => !shown)}>
                                 {revealed ? "Hide secrets" : "Show secrets"}
                             </button>
                         )}
                     </div>
-                    {rows.map((row, index) => (
-                        <div key={`${row.from}:${row.key}:${index}`} className={`project-folder-variable${row.replaced ? " replaced" : ""}`}>
+                    {rows.map((row) => (
+                        <div key={row.key} className="project-folder-variable">
                             <code className="project-folder-key">{row.key}</code>
                             <code className="project-row-command">{looksSecret(row.key) && !revealed && row.value ? HIDDEN : row.value}</code>
                             <span className={`project-row-note${row.own ? " own" : ""}`}>{row.from}</span>

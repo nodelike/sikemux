@@ -1059,6 +1059,7 @@ fn begin_start(
     key: &str,
     restart: bool,
 ) -> Result<Begun, String> {
+    let asked = asked_environment(params)?;
     core.harness.change(|state| {
         let (task_id, mut spec) = launch_target(state, project, params, restart)?;
         if !restart {
@@ -1069,6 +1070,14 @@ fn begin_start(
                 spec = Some(state.earlier_command(project, &task_id)?);
             }
             if let Some(active) = state.runs.active(project, &task_id) {
+                if let Some(Some(environment)) = &asked {
+                    if active.environment.as_ref() != Some(environment) {
+                        return Err(format!(
+                            "{task_id} is already running on {}; call task_restart with environment {environment} to switch",
+                            active.environment.as_deref().unwrap_or("its folder's environment")
+                        ));
+                    }
+                }
                 let execution_id = active.execution_id.clone();
                 state
                     .runs
@@ -1076,13 +1085,18 @@ fn begin_start(
                 return Ok(Begun::Existing(execution_id));
             }
         }
-        let previous = restart
+        let latest = restart
             .then(|| state.runs.latest(project, &task_id))
-            .flatten()
-            .map(|run| run.execution_id.clone());
+            .flatten();
+        let previous = latest.map(|run| run.execution_id.clone());
+        let environment = match &asked {
+            Some(environment) => environment.clone(),
+            None => latest.and_then(|run| run.environment.clone()),
+        };
         let execution_id = uuid::Uuid::new_v4().to_string();
         let mut run = Run::new(execution_id.clone(), task_id.clone(), project.to_owned());
         run.agent_id = agent_id.map(str::to_owned);
+        run.environment = environment;
         if let Some(spec) = &spec {
             run.label = Some(spec.label.clone());
             run.command = Some(spec.command.clone());
@@ -1107,6 +1121,23 @@ fn begin_start(
             previous,
         })
     })
+}
+
+/// The environment a start names: none when it names none, so a restart keeps
+/// the last run's, and `Some(None)` when it asks for the folder's own.
+fn asked_environment(params: &Value) -> Result<Option<Option<String>>, String> {
+    match params.get("environment") {
+        None => Ok(None),
+        Some(Value::Null) => Ok(Some(None)),
+        Some(Value::String(name))
+            if !name.trim().is_empty()
+                && name.chars().count() <= 64
+                && !name.contains(['/', '\\']) =>
+        {
+            Ok(Some(Some(name.trim().to_owned())))
+        }
+        Some(_) => Err("environment must be the name of one of the folder's environments, such as staging, or null for the folder's own".into()),
+    }
 }
 
 /// Records how a launch ended.
@@ -1147,8 +1178,9 @@ pub(crate) fn start_for_person(
     core: &Arc<Core>,
     project: &str,
     task_id: &str,
+    environment: Option<&str>,
 ) -> Result<String, String> {
-    let params = json!({ "taskId": task_id });
+    let params = json!({ "taskId": task_id, "environment": environment });
     let key = uuid::Uuid::new_v4().to_string();
     let Begun::New {
         execution_id,

@@ -88,11 +88,20 @@ export interface TaskRun {
     readonly previewUrl?: string;
     readonly cwd?: string;
     readonly startedAt?: number;
+    /** The environment it loads in place of its folder's, such as `staging`. */
+    readonly environment?: string;
     /** The agent that started it; none when the person did. */
     readonly agentId: string | null;
     /** Shared by every run of the task, so a rerun shows in the same terminal. */
     readonly terminalKey: string;
     readonly tests?: TestResults;
+}
+
+/** `force` starts it anyway; `fix` installs what is missing first; `environment` loads that one in place of the folder's. */
+export interface RunHow {
+    readonly force?: boolean;
+    readonly fix?: boolean;
+    readonly environment?: string | null;
 }
 
 export const ACTIVE_STATUSES: readonly RunStatus[] = ["awaiting-trust", "starting", "running", "stopping"];
@@ -103,8 +112,8 @@ export function isActive(run: TaskRun): boolean {
 
 export const tasksApi = {
     list: (project: string) => coreCall<ProjectTasks>("tasks", { project }),
-    /** Answers the checks that stopped the task, or the run it started. */
-    start: (project: string, taskId: string, how: { force?: boolean; fix?: boolean } = {}) =>
+    /** Answers the checks that stopped the task, or the run it started. A null `environment` runs on the folder's own. */
+    start: (project: string, taskId: string, how: RunHow = {}) =>
         coreCall<{ executionId: string } | { checks: Check[] }>("taskStart", { project, taskId, ...how }),
     stop: (executionId: string) => coreCall<void>("taskStop", { executionId }),
     /** Stops every run of a project or an agent that closed. */

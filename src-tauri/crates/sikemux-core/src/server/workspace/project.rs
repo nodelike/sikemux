@@ -4,7 +4,7 @@
 //! at a time, so two changes made together never undo each other, and none of
 //! them is ever sent to a device, since they can hold secrets.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
@@ -428,6 +428,52 @@ impl Workspaces {
             env.extend(settings.env.clone());
         }
         env
+    }
+
+    /// What a run in `cwd` gets when it asks for `environment` in place of its folder's:
+    /// that environment's files in the project root and in the folder, each followed by the
+    /// person's own variables there. Fails when neither has the environment.
+    pub(crate) fn run_environment(
+        &self,
+        project: &Path,
+        cwd: &Path,
+        environment: &str,
+    ) -> Result<BTreeMap<String, String>, String> {
+        let inner = cwd
+            .strip_prefix(project)
+            .ok()
+            .and_then(|rest| rest.components().next())
+            .map(|first| first.as_os_str().to_string_lossy().into_owned());
+        let chain: Vec<String> = std::iter::once(".".to_owned()).chain(inner).collect();
+        let known: BTreeSet<String> = chain
+            .iter()
+            .flat_map(|folder| crate::tasks::folders::folder_at(project, folder).environments)
+            .map(|found| found.name)
+            .collect();
+        if !known.contains(environment) {
+            let place = chain.last().map_or(".", String::as_str);
+            return Err(if known.is_empty() {
+                format!("{place} has no environment files, so it cannot run on {environment}")
+            } else {
+                format!(
+                    "{place} has no {environment} environment; it has {}",
+                    known.into_iter().collect::<Vec<_>>().join(", ")
+                )
+            });
+        }
+        let settings = self.folder_settings(&project.to_string_lossy());
+        let mut env = BTreeMap::new();
+        for folder in &chain {
+            env.extend(crate::tasks::folders::variables(
+                project,
+                folder,
+                environment,
+            ));
+            if let Some(chosen) = settings.get(folder) {
+                env.extend(chosen.env.clone());
+            }
+        }
+        Ok(env)
     }
 
     /// The guardrails of the project holding `cwd`.

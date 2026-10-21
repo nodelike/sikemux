@@ -166,6 +166,26 @@ with a `note` when it is still running; keep waiting with `events_wait`, or
 new one, and returns it. Use it instead of a stop followed by a start with a
 new key.
 
+### Running on another environment
+
+A task runs with the environment the person loads for its folder, which the
+project brief in `workspace_inspect` names, with the folder's other
+environments beside it, such as `local, staging, prod`. To run on one of
+them instead, such as reproducing a bug on staging, pass `environment` to
+`task_start`: that run gets that environment's env files in place of the
+folder's, and the person's own variables still apply. Nothing else changes,
+and the next run goes back to the folder's environment unless you pass it
+again. `task_restart` keeps the environment of the run it replaces unless you
+pass another. A name the folder has no files for fails and lists the ones it
+has. If the task is already running on another environment, `task_start`
+fails; switch it with `task_restart` and `environment`.
+
+An environment that looks like production, such as `prod` or `live`, asks
+the person every time, even in YOLO mode: `task_start` returns
+`status: "awaiting-trust"` until they answer, as it does for trust, and the
+run fails if they refuse. Only run on production when the person asked for
+it.
+
 A task you start opens its terminal as a tab on your desk, without taking the
 person's focus. To bring the person to it, call `ui_open` with
 `kind: "terminal"`, the `executionId`, and `focus: true`.

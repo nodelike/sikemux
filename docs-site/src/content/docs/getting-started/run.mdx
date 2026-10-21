@@ -46,6 +46,12 @@ The run button shows how the task is doing:
 - a green dot and the port once it is listening, with **Open localhost** in its menu,
 - a red dot and its exit code if it stops with an error, with **Why?** to open its output.
 
+## Run on another environment
+
+When a folder has environment files such as `.env`, `.env.staging` and `.env.prod`, the run button gets an environment picker beside the task's name: pick **staging** and the next run starts with `.env.staging`'s variables instead of those the folder loads in [project settings](/getting-started/projects/#project-settings), with your own variables still on top. Picking another one while the task runs restarts it there. It applies to runs from the run button only and stays picked until you change it; the folder's own choice, and every terminal and agent, are untouched. The picker shows the environment a run is on, in red for one that looks like production, such as `prod` or `live`, and running on one asks you first. **Restart** keeps the environment the run is on.
+
+Agents can do the same: the brief in `workspace_inspect` lists each folder's environments, and an agent asked to reproduce a bug on staging runs the task there. An agent's run on production waits for you to approve it, every time, and fails if you refuse.
+
 ## Test results
 
 When a Maven, Gradle, Vitest, Jest, pytest, Go or Cargo test task finishes, the run button shows how many tests failed or passed, read from the reports the test runner writes; Go and Cargo write none, so their test tasks keep a copy of the output, in a `.sikemux` folder that Git ignores or in Cargo's `target`. If any failed, a card lists them with the message and a link to the line that failed; **Rerun failed** runs only those tests again, and **Fix with an agent** hands just those failures to an agent you pick. When a task stops with an error, **Why?** shows the same choice. Agents read the same results from `workspace_inspect`.

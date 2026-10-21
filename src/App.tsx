@@ -381,7 +381,10 @@ function ApplicationCommandPalette() {
             title: "Restart active task",
             detail: "Stop the current project task and start its current trusted definition",
             category: "Tasks",
-            execute: runStandalone("task.restart-active", () => void runProjectTask(activeProjectCwd, restartTask)),
+            execute: runStandalone(
+                "task.restart-active",
+                () => void runProjectTask(activeProjectCwd, restartTask, { environment: runningTask?.environment ?? null }),
+            ),
         });
     }
     if (activeProjectCwd && runningTask && taskControls.canStop) {

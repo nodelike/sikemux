@@ -58,7 +58,7 @@ fn compose(
                     .or(chosen.environment.as_deref())
             })
             .filter(|name| !folders::is_production(name));
-        if line.is_empty() && loaded.is_none() {
+        if line.is_empty() && loaded.is_none() && folder.environments.is_empty() {
             continue;
         }
         let _ = writeln!(brief, "{}: {line}", where_(&folder.path));
@@ -69,6 +69,24 @@ fn compose(
                 environment
             };
             let _ = writeln!(brief, "  environment: {name} loaded for you");
+        }
+        if !folder.environments.is_empty() {
+            let names: Vec<String> = folder
+                .environments
+                .iter()
+                .map(|found| {
+                    if found.production {
+                        format!("{} (the person approves each run)", found.name)
+                    } else {
+                        found.name.clone()
+                    }
+                })
+                .collect();
+            let _ = writeln!(
+                brief,
+                "  environments: {}; pass environment to task_start to run a task on one instead",
+                names.join(", ")
+            );
         }
         if let Some(services) = chosen
             .map(|chosen| &chosen.services)
