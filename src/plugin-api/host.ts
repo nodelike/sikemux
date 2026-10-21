@@ -90,6 +90,13 @@ export function useActiveProjectCwd(): string | null {
     });
 }
 
+/** Opens a file in the editor of the nearest project at a line counted from 1, bringing that project forward. */
+export function openProjectFile(path: string, line?: number): void {
+    const id = nearestProjectSessionId(getState());
+    if (id && getState().activeSessionId !== id) cmd.selectSession(id);
+    cmd.requestOpenFile(path, line === undefined ? undefined : Math.max(0, line - 1));
+}
+
 /** The project in front, or else the one the person last had in front, or else the first one open. */
 export function useNearestProject(): { name: string; cwd: string } | null {
     const session = useStore((s) => s.sessions[nearestProjectSessionId(s) ?? ""]);

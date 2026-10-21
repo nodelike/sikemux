@@ -7,6 +7,7 @@ import "./gitlab";
 import "./jira";
 import "./linear";
 import "./rundeck";
+import "./sentry";
 import "./signoz";
 import "./slack";
 import "./vercel";

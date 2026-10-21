@@ -18,6 +18,7 @@ import { BRANCHES, FILE_DIFFS, GIT_STATUS } from "./world/git";
 import { RUNDECK, rundeckStream } from "./world/rundeck";
 import { GITHUB } from "./world/github";
 import { JIRA } from "./world/jira";
+import { SENTRY } from "./world/sentry";
 import { VERCEL } from "./world/vercel";
 import { SIGNOZ, signozTail } from "./world/signoz";
 import { AWS, awsLogLines } from "./world/aws";
@@ -293,6 +294,7 @@ export class ShowcaseBackend implements IpcTransport {
           ["jira", "Jira"],
           ["linear", "Linear"],
           ["rundeck", "Rundeck"],
+          ["sentry", "Sentry"],
           ["signoz", "SigNoz"],
           ["slack", "Slack"],
           ["vercel", "Vercel"],
@@ -708,6 +710,7 @@ export class ShowcaseBackend implements IpcTransport {
       "sikemux.database": DATABASE,
       "sikemux.jira": JIRA,
       "sikemux.vercel": VERCEL,
+      "sikemux.sentry": SENTRY,
       "sikemux.slack": {
         status: () => ({ configured: true, ok: true, authFailed: false, message: null, workspaces: [] }),
       },

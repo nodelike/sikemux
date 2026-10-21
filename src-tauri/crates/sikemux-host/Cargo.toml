@@ -12,7 +12,7 @@ name = "sikemux-host"
 path = "src/main.rs"
 
 [features]
-default = ["aws", "bitbucket", "bruno", "database", "github", "gitlab", "jira", "linear", "rundeck", "signoz", "slack", "vercel"]
+default = ["aws", "bitbucket", "bruno", "database", "github", "gitlab", "jira", "linear", "rundeck", "sentry", "signoz", "slack", "vercel"]
 aws = ["dep:sikemux-plugin-aws"]
 bitbucket = ["dep:sikemux-plugin-bitbucket"]
 gitlab = ["dep:sikemux-plugin-gitlab"]
@@ -22,6 +22,7 @@ github = ["dep:sikemux-plugin-github"]
 jira = ["dep:sikemux-plugin-jira"]
 linear = ["dep:sikemux-plugin-linear"]
 rundeck = ["dep:sikemux-plugin-rundeck"]
+sentry = ["dep:sikemux-plugin-sentry"]
 signoz = ["dep:sikemux-plugin-signoz"]
 slack = ["dep:sikemux-plugin-slack"]
 vercel = ["dep:sikemux-plugin-vercel"]
@@ -53,6 +54,7 @@ sikemux-plugin-github = { path = "../../plugins/github", optional = true }
 sikemux-plugin-jira = { path = "../../plugins/jira", optional = true }
 sikemux-plugin-linear = { path = "../../plugins/linear", optional = true }
 sikemux-plugin-rundeck = { path = "../../plugins/rundeck", optional = true }
+sikemux-plugin-sentry = { path = "../../plugins/sentry", optional = true }
 sikemux-plugin-signoz = { path = "../../plugins/signoz", optional = true }
 sikemux-plugin-slack = { path = "../../plugins/slack", optional = true }
 sikemux-plugin-vercel = { path = "../../plugins/vercel", optional = true }

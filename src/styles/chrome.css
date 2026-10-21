@@ -353,6 +353,7 @@
 }
 .icon-github,
 .icon-linear,
+.icon-sentry,
 .icon-vercel {
     color: var(--text-primary);
 }

@@ -22,6 +22,8 @@ pub fn plugins() -> Vec<Arc<dyn Plugin>> {
         sikemux_plugin_linear::plugin(),
         #[cfg(feature = "rundeck")]
         sikemux_plugin_rundeck::plugin(),
+        #[cfg(feature = "sentry")]
+        sikemux_plugin_sentry::plugin(),
         #[cfg(feature = "signoz")]
         sikemux_plugin_signoz::plugin(),
         #[cfg(feature = "slack")]

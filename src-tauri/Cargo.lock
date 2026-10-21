@@ -5829,6 +5829,7 @@ dependencies = [
  "sikemux-plugin-jira",
  "sikemux-plugin-linear",
  "sikemux-plugin-rundeck",
+ "sikemux-plugin-sentry",
  "sikemux-plugin-signoz",
  "sikemux-plugin-slack",
  "sikemux-plugin-vercel",
@@ -6071,6 +6072,22 @@ dependencies = [
  "sikemux-keychain",
  "sikemux-plugin-api",
  "sikemux-process",
+ "tokio",
+ "url",
+ "workspace-hack",
+]
+
+[[package]]
+name = "sikemux-plugin-sentry"
+version = "0.1.0"
+dependencies = [
+ "futures",
+ "reqwest",
+ "rustls",
+ "serde",
+ "serde_json",
+ "sikemux-keychain",
+ "sikemux-plugin-api",
  "tokio",
  "url",
  "workspace-hack",

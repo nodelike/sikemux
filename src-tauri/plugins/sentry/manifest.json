@@ -1,0 +1,67 @@
+{
+  "id": "sikemux.sentry",
+  "name": "Sentry",
+  "version": "0.1.0",
+  "sikemux": ">=0.4",
+  "callTimeoutSecs": 60,
+  "tools": [
+    {
+      "name": "sentry_issues",
+      "row": {"verb": "list", "kind": "search", "icon": "issue", "target": ["{project}: {query}", "{project}", "{query}", "unresolved issues"]},
+      "method": "issues",
+      "description": "Sentry issues, last seen first by default. Each has its short id, title, culprit, events, users, first and last seen, and link.",
+      "properties": {
+        "project": { "type": "string", "description": "Project slug. Default: every project." },
+        "query": { "type": "string", "description": "Sentry search, such as release:4.2.0 or checkout." },
+        "status": { "type": "string", "enum": ["unresolved", "resolved", "ignored", "assigned", "all"] },
+        "sort": { "type": "string", "enum": ["date", "new", "freq", "user"] },
+        "environment": { "type": "string" },
+        "limit": { "type": "integer", "description": "Default 25, at most 100." }
+      }
+    },
+    {
+      "name": "sentry_issue",
+      "row": {"verb": "read", "kind": "read", "icon": "issue", "target": ["{id}"]},
+      "method": "brief",
+      "description": "One Sentry issue as text: its latest stack trace, app frames first with the line that ran, the request, breadcrumbs and tags.",
+      "properties": {
+        "id": { "type": "string", "description": "A short id such as WEB-3F, or the numeric id." }
+      },
+      "required": ["id"]
+    },
+    {
+      "name": "sentry_update",
+      "row": {"verb": "update", "kind": "edit", "icon": "status", "target": ["{id} {action}", "{id}"]},
+      "method": "change",
+      "description": "Resolve, ignore or reopen a Sentry issue, or assign it. Only when the person asked for it.",
+      "properties": {
+        "id": { "type": "string" },
+        "action": { "type": "string", "enum": ["resolve", "resolveInNextRelease", "unresolve", "ignore"] },
+        "assign": { "type": "string", "description": "me, user:<id>, team:<id>, or empty to unassign." }
+      },
+      "required": ["id"]
+    },
+    {
+      "name": "sentry_comment",
+      "row": {"verb": "comment", "kind": "edit", "icon": "message", "target": ["{id}"]},
+      "method": "comment",
+      "description": "Comment on a Sentry issue as the person, in markdown. Only when they asked for it.",
+      "properties": {
+        "id": { "type": "string" },
+        "text": { "type": "string" }
+      },
+      "required": ["id", "text"]
+    },
+    {
+      "name": "sentry_releases",
+      "row": {"verb": "list", "kind": "read", "icon": "rocket", "target": ["{project}", "releases"]},
+      "method": "releases",
+      "description": "A project's recent releases, newest first: new issues each brought, last deploy, and crash-free sessions and users.",
+      "properties": {
+        "project": { "type": "string", "description": "Project slug." },
+        "limit": { "type": "integer", "description": "Default 20." }
+      },
+      "required": ["project"]
+    }
+  ]
+}

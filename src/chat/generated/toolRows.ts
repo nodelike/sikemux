@@ -280,6 +280,17 @@ export const TOOL_ROWS = {
     rundeck_logs: { verb: "logs", kind: "read", icon: "log-lines", target: ["run {executionId}"], detail: ["“{grep}”"], plugin: "sikemux.rundeck" },
     rundeck_abort: { verb: "abort", kind: "execute", icon: "stop", target: ["run {executionId}"], plugin: "sikemux.rundeck" },
     rundeck_plan: { verb: "plan", kind: "read", icon: "steps", target: ["{job}"], detail: ["{branch}"], plugin: "sikemux.rundeck" },
+    sentry_issues: {
+        verb: "list",
+        kind: "search",
+        icon: "issue",
+        target: ["{project}: {query}", "{project}", "{query}", "unresolved issues"],
+        plugin: "sikemux.sentry",
+    },
+    sentry_issue: { verb: "read", kind: "read", icon: "issue", target: ["{id}"], plugin: "sikemux.sentry" },
+    sentry_update: { verb: "update", kind: "edit", icon: "status", target: ["{id} {action}", "{id}"], plugin: "sikemux.sentry" },
+    sentry_comment: { verb: "comment", kind: "edit", icon: "message", target: ["{id}"], plugin: "sikemux.sentry" },
+    sentry_releases: { verb: "list", kind: "read", icon: "rocket", target: ["{project}", "releases"], plugin: "sikemux.sentry" },
     signoz_services: {
         verb: "service",
         kind: "read",

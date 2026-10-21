@@ -153,6 +153,8 @@ opt-level = "z"
 opt-level = "z"
 [profile.release.package.sikemux-plugin-rundeck]
 opt-level = "z"
+[profile.release.package.sikemux-plugin-sentry]
+opt-level = "z"
 [profile.release.package.sikemux-plugin-signoz]
 opt-level = "z"
 [profile.release.package.sikemux-plugin-slack]
