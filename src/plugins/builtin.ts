@@ -5,6 +5,7 @@ import "./database";
 import "./github";
 import "./gitlab";
 import "./jira";
+import "./kubernetes";
 import "./linear";
 import "./rundeck";
 import "./signoz";

@@ -5827,6 +5827,7 @@ dependencies = [
  "sikemux-plugin-github",
  "sikemux-plugin-gitlab",
  "sikemux-plugin-jira",
+ "sikemux-plugin-kubernetes",
  "sikemux-plugin-linear",
  "sikemux-plugin-rundeck",
  "sikemux-plugin-signoz",
@@ -6040,6 +6041,18 @@ dependencies = [
  "sikemux-process",
  "tokio",
  "url",
+ "workspace-hack",
+]
+
+[[package]]
+name = "sikemux-plugin-kubernetes"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "sikemux-plugin-api",
+ "sikemux-process",
+ "tokio",
  "workspace-hack",
 ]
 

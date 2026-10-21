@@ -1,0 +1,150 @@
+{
+  "id": "sikemux.kubernetes",
+  "name": "Kubernetes",
+  "version": "0.1.0",
+  "sikemux": ">=0.4",
+  "callTimeoutSecs": 60,
+  "tools": [
+    {
+      "name": "k8s_contexts",
+      "row": {"verb": "list", "kind": "read", "icon": "network", "target": ["Kubernetes clusters"]},
+      "method": "contexts",
+      "description": "The clusters in the person's kubeconfig, each context's cluster address and default namespace, and which one kubectl uses now.",
+      "properties": {}
+    },
+    {
+      "name": "k8s_pods",
+      "row": {"verb": "list", "kind": "read", "icon": "panel", "target": ["{namespace} pods", "Kubernetes pods"], "detail": ["{selector}"]},
+      "method": "pods",
+      "description": "Pods with their status as kubectl shows it, ready count, restarts, node and owning workload; ones in trouble first.",
+      "properties": {
+        "context": { "type": "string", "description": "Default: kubectl's current one." },
+        "namespace": { "type": "string", "description": "Default: the context's." },
+        "allNamespaces": { "type": "boolean" },
+        "selector": { "type": "string", "description": "Labels, such as app=web." }
+      }
+    },
+    {
+      "name": "k8s_pod",
+      "row": {"verb": "describe", "kind": "read", "icon": "eye", "target": ["{name}"]},
+      "method": "pod",
+      "description": "One pod as kubectl describe tells it: each container's state and last crash, probes, limits, volumes and recent events.",
+      "properties": {
+        "context": { "type": "string" },
+        "namespace": { "type": "string" },
+        "name": { "type": "string" }
+      },
+      "required": ["name"]
+    },
+    {
+      "name": "k8s_logs",
+      "row": {"verb": "read", "kind": "read", "icon": "log-lines", "target": ["{pod} logs"], "detail": ["{grep}"]},
+      "method": "logs",
+      "description": "A container's latest log lines. For a crash loop set previous, which reads the container that crashed.",
+      "properties": {
+        "context": { "type": "string" },
+        "namespace": { "type": "string" },
+        "pod": { "type": "string" },
+        "container": { "type": "string" },
+        "previous": { "type": "boolean" },
+        "tail": { "type": "integer", "description": "Default 200." },
+        "sinceSecs": { "type": "integer" },
+        "grep": { "type": "string" }
+      },
+      "required": ["pod"]
+    },
+    {
+      "name": "k8s_workloads",
+      "row": {"verb": "list", "kind": "read", "icon": "steps", "target": ["{namespace} workloads", "Kubernetes workloads"]},
+      "method": "workloads",
+      "description": "Deployments, StatefulSets, DaemonSets, Jobs and CronJobs with ready of wanted, images, selector and what is wrong.",
+      "properties": {
+        "context": { "type": "string" },
+        "namespace": { "type": "string" },
+        "allNamespaces": { "type": "boolean" }
+      }
+    },
+    {
+      "name": "k8s_events",
+      "row": {"verb": "list", "kind": "read", "icon": "activity", "target": ["{namespace} events", "Kubernetes events"]},
+      "method": "events",
+      "description": "Recent events, newest first: failed pulls, scheduling, kills and restarts.",
+      "properties": {
+        "context": { "type": "string" },
+        "namespace": { "type": "string" },
+        "allNamespaces": { "type": "boolean" },
+        "warningsOnly": { "type": "boolean" }
+      }
+    },
+    {
+      "name": "k8s_network",
+      "row": {"verb": "list", "kind": "read", "icon": "globe", "target": ["{namespace} services"]},
+      "method": "network",
+      "description": "Services with their type, ports and pod selector, and Ingresses with the host and path routed to each Service.",
+      "properties": {
+        "context": { "type": "string" },
+        "namespace": { "type": "string" },
+        "allNamespaces": { "type": "boolean" }
+      }
+    },
+    {
+      "name": "k8s_config",
+      "row": {"verb": "list", "kind": "read", "icon": "code", "target": ["{namespace} config"]},
+      "method": "config",
+      "description": "ConfigMaps and Secrets by key name and size. No value is ever read; ask the person.",
+      "properties": {
+        "context": { "type": "string" },
+        "namespace": { "type": "string" }
+      }
+    },
+    {
+      "name": "k8s_nodes",
+      "row": {"verb": "list", "kind": "read", "icon": "dashboard", "target": ["Kubernetes nodes"]},
+      "method": "nodes",
+      "description": "Nodes with their roles, readiness, memory/disk/PID pressure, kubelet version, CPU and memory, taints, and whether each is cordoned.",
+      "properties": {
+        "context": { "type": "string" }
+      }
+    },
+    {
+      "name": "k8s_history",
+      "row": {"verb": "read", "kind": "read", "icon": "clock", "target": ["{kind} {name} history", "{name} history"]},
+      "method": "history",
+      "description": "A Deployment's, StatefulSet's or DaemonSet's revisions, newest first: images, change cause, which is live, and which were restarts.",
+      "properties": {
+        "context": { "type": "string" },
+        "namespace": { "type": "string" },
+        "kind": { "type": "string" },
+        "name": { "type": "string" }
+      },
+      "required": ["kind", "name"]
+    },
+    {
+      "name": "k8s_helm",
+      "row": {"verb": "read", "kind": "read", "icon": "steps", "target": ["Helm release {release}", "Helm releases"]},
+      "method": "helmForAgent",
+      "description": "Helm releases with chart, revision and status; or with release named, its history with why each failed and the objects it made.",
+      "properties": {
+        "context": { "type": "string" },
+        "namespace": { "type": "string", "description": "Default: every namespace." },
+        "release": { "type": "string" }
+      }
+    },
+    {
+      "name": "k8s_act",
+      "row": {"verb": "change", "kind": "execute", "icon": "refresh", "target": ["{kind} {name}", "{name}"], "detail": ["{action}"]},
+      "method": "act",
+      "description": "Restart, scale, undo or pause a workload's rollout, delete a pod, run or suspend a CronJob, cordon a node, or roll back a Helm release. Only when asked.",
+      "properties": {
+        "context": { "type": "string" },
+        "namespace": { "type": "string" },
+        "action": { "type": "string", "enum": ["restart", "scale", "undo", "pauseRollout", "resumeRollout", "deletePod", "runNow", "suspend", "resume", "cordon", "uncordon", "helmRollback"] },
+        "kind": { "type": "string", "description": "Deployment, StatefulSet, DaemonSet or CronJob." },
+        "name": { "type": "string", "description": "The workload, pod, node or Helm release." },
+        "replicas": { "type": "integer" },
+        "revision": { "type": "integer", "description": "For undo and helmRollback." }
+      },
+      "required": ["action", "name"]
+    }
+  ]
+}

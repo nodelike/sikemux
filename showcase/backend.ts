@@ -18,6 +18,7 @@ import { BRANCHES, FILE_DIFFS, GIT_STATUS } from "./world/git";
 import { RUNDECK, rundeckStream } from "./world/rundeck";
 import { GITHUB } from "./world/github";
 import { JIRA } from "./world/jira";
+import { KUBERNETES, kubernetesFollow } from "./world/kubernetes";
 import { VERCEL } from "./world/vercel";
 import { SIGNOZ, signozTail } from "./world/signoz";
 import { AWS, awsLogLines } from "./world/aws";
@@ -291,6 +292,7 @@ export class ShowcaseBackend implements IpcTransport {
           ["database", "Database"],
           ["github", "GitHub"],
           ["jira", "Jira"],
+          ["kubernetes", "Kubernetes"],
           ["linear", "Linear"],
           ["rundeck", "Rundeck"],
           ["signoz", "SigNoz"],
@@ -708,6 +710,7 @@ export class ShowcaseBackend implements IpcTransport {
       "sikemux.database": DATABASE,
       "sikemux.jira": JIRA,
       "sikemux.vercel": VERCEL,
+      "sikemux.kubernetes": KUBERNETES,
       "sikemux.slack": {
         status: () => ({ configured: true, ok: true, authFailed: false, message: null, workspaces: [] }),
       },
@@ -725,7 +728,7 @@ export class ShowcaseBackend implements IpcTransport {
       return answer((params ?? {}) as Args);
     });
     let nextStream = 1;
-    this.on("plugin_stream_start", ({ plugin, method, onEvent }) => {
+    this.on("plugin_stream_start", ({ plugin, method, params, onEvent }) => {
       const channel = onEvent as { onmessage: (event: unknown) => void };
       const emit = (value: unknown) =>
         setTimeout(() => channel.onmessage({ kind: "item", value }), 30);
@@ -734,6 +737,8 @@ export class ShowcaseBackend implements IpcTransport {
         for (const line of awsLogLines()) emit(line);
       if (plugin === "sikemux.signoz" && method === "tailLogs")
         emit(signozTail());
+      if (plugin === "sikemux.kubernetes" && method === "followLogs")
+        emit(kubernetesFollow((params ?? {}) as Args));
       return nextStream++;
     });
 
