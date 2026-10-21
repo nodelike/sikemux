@@ -1,0 +1,404 @@
+{
+  "id": "sikemux.gcp",
+  "name": "Google Cloud",
+  "version": "0.1.0",
+  "sikemux": ">=0.4",
+  "callTimeoutSecs": 120,
+  "environment": [
+    "CLOUDSDK_CONFIG",
+    "CLOUDSDK_ROOT_DIR",
+    "CLOUDSDK_CORE_PROJECT",
+    "CLOUDSDK_CORE_ACCOUNT",
+    "CLOUDSDK_ACTIVE_CONFIG_NAME",
+    "GCLOUD"
+  ],
+  "tools": [
+    {
+      "name": "gcp_projects",
+      "row": {
+        "verb": "list",
+        "kind": "read",
+        "icon": "folder",
+        "target": [
+          "{query}",
+          "GCP projects"
+        ]
+      },
+      "method": "agentProjects",
+      "description": "Google Cloud projects the signed-in gcloud account can see, by id and name, and the project used when a call names none.",
+      "properties": {
+        "query": {
+          "type": "string"
+        }
+      }
+    },
+    {
+      "name": "gcp_list",
+      "row": {
+        "verb": "list",
+        "kind": "read",
+        "icon": "dashboard",
+        "target": [
+          "{kind}"
+        ],
+        "detail": [
+          "{project}"
+        ]
+      },
+      "method": "agentList",
+      "description": "List one kind of resource in a project: Run, functions, VMs, GKE, buckets, SQL, Pub/Sub, builds, errors, images, cron jobs, IAM or BigQuery.",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "run_services",
+            "run_jobs",
+            "functions",
+            "instances",
+            "clusters",
+            "buckets",
+            "sql",
+            "pubsub",
+            "builds",
+            "triggers",
+            "secrets",
+            "errors",
+            "repositories",
+            "scheduler",
+            "iam",
+            "service_accounts",
+            "datasets",
+            "network",
+            "dns",
+            "alerting",
+            "snapshots"
+          ]
+        },
+        "project": {
+          "type": "string"
+        },
+        "query": {
+          "type": "string",
+          "description": "Words in the name."
+        },
+        "region": {
+          "type": "string",
+          "description": "Builds and triggers only."
+        }
+      },
+      "required": [
+        "kind"
+      ]
+    },
+    {
+      "name": "gcp_get",
+      "row": {
+        "verb": "read",
+        "kind": "read",
+        "icon": "eye",
+        "target": [
+          "{kind} {name}"
+        ],
+        "detail": [
+          "{path}"
+        ]
+      },
+      "method": "agentGet",
+      "description": "One resource in detail. serial: a VM's console; objects: a bucket folder (path); messages: peek a subscription; table: dataset name, table path.",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "run_service",
+            "run_job",
+            "function",
+            "instance",
+            "serial",
+            "cluster",
+            "objects",
+            "object",
+            "sql",
+            "build",
+            "secret",
+            "messages",
+            "error_group",
+            "repository",
+            "tables",
+            "table",
+            "dns_zone"
+          ]
+        },
+        "project": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "location": {
+          "type": "string",
+          "description": "Region or zone."
+        },
+        "path": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "name"
+      ]
+    },
+    {
+      "name": "gcp_logs",
+      "row": {
+        "verb": "search",
+        "kind": "search",
+        "icon": "log-lines",
+        "target": [
+          "{name} logs",
+          "{resource} logs",
+          "logs"
+        ],
+        "detail": [
+          "{severity}",
+          "{since}"
+        ]
+      },
+      "method": "agentLogs",
+      "description": "Search Cloud Logging, newest first, by resource and name, lowest severity, how far back (15m, 6h, 2d), words, or a raw Logging filter.",
+      "properties": {
+        "project": {
+          "type": "string"
+        },
+        "resource": {
+          "type": "string",
+          "enum": [
+            "runService",
+            "runJob",
+            "instance",
+            "gkeCluster",
+            "function",
+            "build",
+            "sql"
+          ]
+        },
+        "name": {
+          "type": "string"
+        },
+        "severity": {
+          "type": "string"
+        },
+        "since": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        },
+        "filter": {
+          "type": "string"
+        },
+        "limit": {
+          "type": "integer"
+        }
+      }
+    },
+    {
+      "name": "gcp_metrics",
+      "row": {
+        "verb": "chart",
+        "kind": "read",
+        "icon": "activity",
+        "target": [
+          "{name} {chart}"
+        ],
+        "detail": [
+          "{since}"
+        ]
+      },
+      "method": "agentMetrics",
+      "description": "A Cloud Monitoring series for a service, VM (instance id), SQL instance, subscription or function, in even steps over a span such as 6h.",
+      "properties": {
+        "project": {
+          "type": "string"
+        },
+        "chart": {
+          "type": "string",
+          "enum": [
+            "runRequests",
+            "runErrors",
+            "runLatency",
+            "runInstances",
+            "instanceCpu",
+            "sqlCpu",
+            "sqlMemory",
+            "sqlConnections",
+            "subscriptionBacklog",
+            "subscriptionOldest",
+            "functionExecutions"
+          ]
+        },
+        "name": {
+          "type": "string"
+        },
+        "since": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "chart",
+        "name"
+      ]
+    },
+    {
+      "name": "gcp_kube",
+      "row": {
+        "verb": "read",
+        "kind": "read",
+        "icon": "waterfall",
+        "target": [
+          "{cluster} {what}"
+        ],
+        "detail": [
+          "{pod}",
+          "{namespace}"
+        ]
+      },
+      "method": "agentKube",
+      "description": "Inside a GKE cluster: workloads, pods (by label selector), services, nodes, a pod's events, or its logs, the previous run's after a crash.",
+      "properties": {
+        "project": {
+          "type": "string"
+        },
+        "cluster": {
+          "type": "string"
+        },
+        "location": {
+          "type": "string"
+        },
+        "what": {
+          "type": "string",
+          "enum": [
+            "workloads",
+            "pods",
+            "services",
+            "nodes",
+            "events",
+            "logs"
+          ]
+        },
+        "namespace": {
+          "type": "string"
+        },
+        "selector": {
+          "type": "string"
+        },
+        "pod": {
+          "type": "string"
+        },
+        "container": {
+          "type": "string"
+        },
+        "tail": {
+          "type": "integer"
+        },
+        "previous": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "cluster",
+        "location",
+        "what"
+      ]
+    },
+    {
+      "name": "gcp_act",
+      "row": {
+        "verb": "run",
+        "kind": "execute",
+        "icon": "run",
+        "target": [
+          "{action} {name}"
+        ],
+        "detail": [
+          "{project}"
+        ]
+      },
+      "method": "agentAct",
+      "description": "Change something, only when asked. revision: Run revision or secret version; count: scale or resize; data: an image to deploy, a message or SQL.",
+      "properties": {
+        "action": {
+          "type": "string",
+          "enum": [
+            "run_traffic",
+            "run_deploy",
+            "run_scale",
+            "run_job",
+            "vm_start",
+            "vm_stop",
+            "vm_reset",
+            "vm_suspend",
+            "vm_resume",
+            "sql_start",
+            "sql_stop",
+            "sql_restart",
+            "sql_backup",
+            "build_retry",
+            "build_cancel",
+            "trigger_run",
+            "deployment_restart",
+            "deployment_scale",
+            "node_pool_resize",
+            "publish",
+            "secret_enable",
+            "secret_disable",
+            "error_resolve",
+            "error_ack",
+            "error_mute",
+            "error_open",
+            "schedule_run",
+            "schedule_pause",
+            "schedule_resume",
+            "bq_estimate",
+            "bq_query",
+            "vm_snapshot",
+            "firewall_disable",
+            "firewall_enable",
+            "alert_disable",
+            "alert_enable",
+            "api_enable"
+          ]
+        },
+        "project": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "location": {
+          "type": "string"
+        },
+        "cluster": {
+          "type": "string"
+        },
+        "namespace": {
+          "type": "string"
+        },
+        "revision": {
+          "type": "string"
+        },
+        "count": {
+          "type": "integer"
+        },
+        "branch": {
+          "type": "string"
+        },
+        "data": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "action"
+      ]
+    }
+  ]
+}

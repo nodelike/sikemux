@@ -2,6 +2,7 @@ import "./aws";
 import "./bitbucket";
 import "./bruno";
 import "./database";
+import "./gcp";
 import "./github";
 import "./gitlab";
 import "./jira";

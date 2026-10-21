@@ -19,6 +19,7 @@ import { RUNDECK, rundeckStream } from "./world/rundeck";
 import { GITHUB } from "./world/github";
 import { JIRA } from "./world/jira";
 import { VERCEL } from "./world/vercel";
+import { GCP, GCP_LOG_LINES } from "./world/gcp";
 import { SIGNOZ, signozTail } from "./world/signoz";
 import { AWS, awsLogLines } from "./world/aws";
 import { demoActivity } from "./world/activity";
@@ -296,6 +297,7 @@ export class ShowcaseBackend implements IpcTransport {
           ["signoz", "SigNoz"],
           ["slack", "Slack"],
           ["vercel", "Vercel"],
+          ["gcp", "Google Cloud"],
         ].map(([id, name]) => ({
           id: `sikemux.${id}`,
           name,
@@ -714,6 +716,7 @@ export class ShowcaseBackend implements IpcTransport {
       "sikemux.linear": {
         status: () => ({ configured: false, ok: false, authFailed: false, message: null, workspaces: [] }),
       },
+      "sikemux.gcp": GCP,
     };
     this.on("plugin_call", ({ plugin, method, params }) => {
       const answer = plugins[plugin as string]?.[method as string];
@@ -734,6 +737,8 @@ export class ShowcaseBackend implements IpcTransport {
         for (const line of awsLogLines()) emit(line);
       if (plugin === "sikemux.signoz" && method === "tailLogs")
         emit(signozTail());
+      if (plugin === "sikemux.gcp" && method === "tailLogs")
+        emit(GCP_LOG_LINES.slice(0, 3));
       return nextStream++;
     });
 
