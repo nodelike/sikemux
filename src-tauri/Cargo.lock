@@ -5824,6 +5824,7 @@ dependencies = [
  "sikemux-plugin-bitbucket",
  "sikemux-plugin-bruno",
  "sikemux-plugin-database",
+ "sikemux-plugin-docker",
  "sikemux-plugin-github",
  "sikemux-plugin-gitlab",
  "sikemux-plugin-jira",
@@ -5992,6 +5993,21 @@ dependencies = [
  "tokio-postgres",
  "tokio-rustls",
  "uuid",
+ "workspace-hack",
+]
+
+[[package]]
+name = "sikemux-plugin-docker"
+version = "0.1.0"
+dependencies = [
+ "bytes",
+ "http-body-util",
+ "hyper",
+ "hyper-util",
+ "serde",
+ "serde_json",
+ "sikemux-plugin-api",
+ "tokio",
  "workspace-hack",
 ]
 

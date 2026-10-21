@@ -12,6 +12,8 @@ pub fn plugins() -> Vec<Arc<dyn Plugin>> {
         sikemux_plugin_bruno::plugin(),
         #[cfg(feature = "database")]
         sikemux_plugin_database::plugin(),
+        #[cfg(feature = "docker")]
+        sikemux_plugin_docker::plugin(),
         #[cfg(feature = "github")]
         sikemux_plugin_github::plugin(),
         #[cfg(feature = "gitlab")]

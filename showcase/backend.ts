@@ -19,6 +19,7 @@ import { RUNDECK, rundeckStream } from "./world/rundeck";
 import { GITHUB } from "./world/github";
 import { JIRA } from "./world/jira";
 import { VERCEL } from "./world/vercel";
+import { DOCKER, dockerLogLines } from "./world/docker";
 import { SIGNOZ, signozTail } from "./world/signoz";
 import { AWS, awsLogLines } from "./world/aws";
 import { demoActivity } from "./world/activity";
@@ -296,6 +297,7 @@ export class ShowcaseBackend implements IpcTransport {
           ["signoz", "SigNoz"],
           ["slack", "Slack"],
           ["vercel", "Vercel"],
+          ["docker", "Docker"],
         ].map(([id, name]) => ({
           id: `sikemux.${id}`,
           name,
@@ -714,6 +716,7 @@ export class ShowcaseBackend implements IpcTransport {
       "sikemux.linear": {
         status: () => ({ configured: false, ok: false, authFailed: false, message: null, workspaces: [] }),
       },
+      "sikemux.docker": DOCKER,
     };
     this.on("plugin_call", ({ plugin, method, params }) => {
       const answer = plugins[plugin as string]?.[method as string];
@@ -725,7 +728,7 @@ export class ShowcaseBackend implements IpcTransport {
       return answer((params ?? {}) as Args);
     });
     let nextStream = 1;
-    this.on("plugin_stream_start", ({ plugin, method, onEvent }) => {
+    this.on("plugin_stream_start", ({ plugin, method, params, onEvent }) => {
       const channel = onEvent as { onmessage: (event: unknown) => void };
       const emit = (value: unknown) =>
         setTimeout(() => channel.onmessage({ kind: "item", value }), 30);
@@ -734,6 +737,8 @@ export class ShowcaseBackend implements IpcTransport {
         for (const line of awsLogLines()) emit(line);
       if (plugin === "sikemux.signoz" && method === "tailLogs")
         emit(signozTail());
+      if (plugin === "sikemux.docker" && method === "followLogs")
+        emit(dockerLogLines(String((params as Args | undefined)?.id ?? "")));
       return nextStream++;
     });
 

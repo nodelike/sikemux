@@ -1,0 +1,99 @@
+{
+  "id": "sikemux.docker",
+  "name": "Docker",
+  "version": "0.1.0",
+  "sikemux": ">=0.4",
+  "callTimeoutSecs": 60,
+  "tools": [
+    {
+      "name": "docker_containers",
+      "row": {"verb": "list", "kind": "read", "icon": "panel", "target": ["{project} containers", "{query} containers", "Docker containers"], "detail": ["{state}"]},
+      "method": "containers",
+      "description": "Containers on this Mac's Docker engine, running first, each with its image, state, status, ports and Compose project and service.",
+      "properties": {
+        "query": { "type": "string", "description": "Words in the name or image." },
+        "project": { "type": "string", "description": "Only this Compose project's." },
+        "state": { "type": "string", "description": "running, exited, paused, restarting, created or dead; several joined by commas." },
+        "all": { "type": "boolean", "description": "Stopped ones too. Default true." }
+      }
+    },
+    {
+      "name": "docker_container",
+      "row": {"verb": "inspect", "kind": "read", "icon": "eye", "target": ["{id}"]},
+      "method": "container",
+      "description": "One container: its exit code and error, health checks, restarts, command, mounts, networks, ports and env variable names, never their values.",
+      "properties": {
+        "id": { "type": "string", "description": "The container's name or id." }
+      },
+      "required": ["id"]
+    },
+    {
+      "name": "docker_logs",
+      "row": {"verb": "read", "kind": "read", "icon": "log-lines", "target": ["{id} logs"], "detail": ["{grep}"]},
+      "method": "logs",
+      "description": "A container's latest log lines with their time and stream. Read it to find why a container crashed or what a request did.",
+      "properties": {
+        "id": { "type": "string", "description": "The container's name or id." },
+        "tail": { "type": "integer", "description": "The last this many lines. Default 200, at most 5000." },
+        "sinceSecs": { "type": "integer", "description": "Only lines from the last this many seconds." },
+        "grep": { "type": "string", "description": "Only lines with these words, ignoring case." },
+        "errorsOnly": { "type": "boolean", "description": "Only stderr." }
+      },
+      "required": ["id"]
+    },
+    {
+      "name": "docker_stats",
+      "row": {"verb": "measure", "kind": "read", "icon": "activity", "target": ["Docker containers' load"]},
+      "method": "stats",
+      "description": "CPU, memory against its limit, network and disk I/O and process count of each running container, measured now.",
+      "properties": {
+        "ids": { "type": "array", "items": { "type": "string" }, "description": "Only these containers, by name or id." }
+      }
+    },
+    {
+      "name": "docker_act",
+      "row": {"verb": "control", "kind": "execute", "icon": "run", "target": ["{id}"], "detail": ["{action}"]},
+      "method": "act",
+      "description": "Start, stop, restart, pause, unpause or kill a container, and read it after. Only when the person asked for it.",
+      "properties": {
+        "id": { "type": "string", "description": "The container's name or id." },
+        "action": { "type": "string", "enum": ["start", "stop", "restart", "pause", "unpause", "kill"] }
+      },
+      "required": ["id", "action"]
+    },
+    {
+      "name": "docker_stacks",
+      "row": {"verb": "list", "kind": "read", "icon": "folder", "target": ["Compose stacks"]},
+      "method": "stacks",
+      "description": "Compose stacks on this engine with the folder and files each came from, and each service's containers and state.",
+      "properties": {}
+    },
+    {
+      "name": "docker_stack_act",
+      "row": {"verb": "control", "kind": "execute", "icon": "steps", "target": ["{project} stack"], "detail": ["{action}"]},
+      "method": "actOnStack",
+      "description": "Start, stop or restart every container of a Compose stack, or take it down, keeping its volumes. Only when the person asked for it.",
+      "properties": {
+        "project": { "type": "string", "description": "The Compose project's name." },
+        "action": { "type": "string", "enum": ["start", "stop", "restart", "down"] }
+      },
+      "required": ["project", "action"]
+    },
+    {
+      "name": "docker_images",
+      "row": {"verb": "list", "kind": "read", "icon": "square-plus", "target": ["{query} images", "Docker images"]},
+      "method": "images",
+      "description": "Images on this engine, newest first, with their tags, size, age and how many containers were made from each.",
+      "properties": {
+        "query": { "type": "string", "description": "Words in a tag." }
+      }
+    },
+    {
+      "name": "docker_disk",
+      "row": {"verb": "measure", "kind": "read", "icon": "dashboard", "target": ["Docker disk use"]},
+      "method": "disk",
+      "description": "How much disk images, containers, volumes and the build cache use, and how much removing the unused ones would free.",
+      "properties": {}
+    }
+  ]
+}
