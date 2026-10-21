@@ -69,6 +69,7 @@ export const TOOL_ROWS = {
     sim_logs: { verb: "read", kind: "read", icon: "log-lines", target: ["{process} logs", "the simulator log"] },
     sim_detach: { verb: "detach", kind: "move", icon: "unlink", target: ["the simulator"] },
     workspace_inspect: { verb: "inspect", kind: "read", icon: "folder", target: ["the workspace"] },
+    project_suggest: { verb: "suggest", kind: "edit", icon: "status", target: ["{title}"] },
     task_start: { verb: "start", kind: "execute", icon: "run", target: ["{taskId}", "{label}", "{command}"], detail: ["{command}"] },
     task_restart: { verb: "restart", kind: "execute", icon: "refresh", target: ["{taskId}"] },
     task_read: { verb: "read", kind: "read", icon: "log-lines", target: ["{taskId}", "{executionId}"], detail: ["“{search}”"] },

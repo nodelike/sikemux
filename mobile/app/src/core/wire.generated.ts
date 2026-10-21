@@ -483,7 +483,20 @@ export interface BuddyLook {
 
 /** What a client reads again, as `Event::Changed` names it. */
 export type CoreChangeTopic =
-  'activity' | 'agentAccounts' | 'agentSignIn' | 'boards' | 'ci' | 'git' | 'ports' | 'runs' | 'shares' | 'skills' | 'tasks' | 'trust';
+  | 'activity'
+  | 'agentAccounts'
+  | 'agentSignIn'
+  | 'boards'
+  | 'ci'
+  | 'git'
+  | 'ports'
+  | 'projectSettings'
+  | 'runs'
+  | 'shares'
+  | 'skills'
+  | 'suggestions'
+  | 'tasks'
+  | 'trust';
 
 /** A board as the app and devices read it. */
 export interface ProjectBoard {

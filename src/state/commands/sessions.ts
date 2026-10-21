@@ -9,6 +9,8 @@ import { sshApi } from "../../api/ssh";
 import { dirname } from "../../lib/paths";
 import { sshStartup } from "../../terminal/sshStartup";
 import { getState, mutate, setState } from "../store";
+import { setProjectSettingsPage } from "./ui";
+import type { ProjectSettingsPageId } from "../../settings/projectSettingsPages";
 import { reportError, swallow } from "../toast";
 import { agentIdsOf } from "../selectors";
 import { collectPanes, newId } from "../layout";
@@ -131,9 +133,11 @@ export function selectSession(id: string): void {
     });
 }
 
-/** Opens `sessionId`'s project with its settings tab in front, or the active project's. */
-export function openProjectSettings(sessionId?: string): void {
+/** Opens `sessionId`'s project with its settings tab in front, or the active project's, at `page` when one is given. */
+export function openProjectSettings(sessionId?: string, page?: ProjectSettingsPageId): void {
     if (sessionId) selectSession(sessionId);
+    const project = getState().sessions[getState().activeSessionId];
+    if (page && project?.kind === "project") setProjectSettingsPage(project.cwd, page);
     ensureRoleWindow("project-settings");
 }
 

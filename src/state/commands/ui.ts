@@ -3,6 +3,7 @@ import { invalidate } from "../resources";
 import { selectFocusMode } from "../selectors";
 import { getState, mutate, setState } from "../store";
 import type { SettingsPageId } from "../../settings/settingsIndex";
+import type { ProjectSettingsPageId } from "../../settings/projectSettingsPages";
 import type { PickerMode } from "../types";
 
 export const setHome = (home: string): void => setState({ home });
@@ -50,6 +51,10 @@ export const openSettings = (page?: SettingsPageId, target?: string): void =>
     setState(page ? { settingsOpen: true, settingsPage: page, settingsTarget: target ?? null } : { settingsOpen: true });
 export const clearSettingsTarget = (): void => setState({ settingsTarget: null });
 export const setSettingsPage = (page: SettingsPageId): void => setState({ settingsPage: page });
+export const dismissSignInCard = (): void => setState({ signInCardDismissed: true });
+/** Turns `project`'s settings tab to `page`. */
+export const setProjectSettingsPage = (project: string, page: ProjectSettingsPageId): void =>
+    setState((s) => ({ projectSettingsPages: { ...s.projectSettingsPages, [project]: page } }));
 export const closeSettings = (): void => setState({ settingsOpen: false });
 export const toggleSettings = (): void => setState((s) => ({ settingsOpen: !s.settingsOpen }));
 

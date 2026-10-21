@@ -4,7 +4,7 @@
     "file": "SIKEMUX_GUIDE.md",
     "name": "guide",
     "row": {"verb": "read", "kind": "read", "icon": "book", "target": ["the guide: {topic}", "the guide"]},
-    "description": "Read before your first task launch or browser click. Pass a topic for one area in depth.",
+    "description": "Read before your first task launch or browser click. Topics go deeper.",
     "comment": "The sidecar answers it from the guide the core serves with this manifest, so it has no harness method."
   },
   "tools": [
@@ -1164,6 +1164,38 @@
       "required": []
     },
     {
+      "name": "project_suggest",
+      "row": {"verb": "suggest", "kind": "edit", "icon": "status", "target": ["{title}"]},
+      "method": "project.suggest",
+      "description": "Suggest settings.",
+      "properties": {
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "changes": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 40,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "kind": {"enum": ["variable", "environment", "agentEnvironment", "done", "task", "note", "guardrail", "service"]},
+              "folder": {"type": "string", "maxLength": 512},
+              "key": {"type": "string", "maxLength": 512},
+              "value": {"type": "string", "maxLength": 8192},
+              "why": {"type": "string", "minLength": 1, "maxLength": 1000},
+              "evidence": {"type": "string", "maxLength": 1000}
+            },
+            "required": ["kind", "why"]
+          }
+        }
+      },
+      "required": ["title", "changes"]
+    },
+    {
       "name": "task_start",
       "row": {"verb": "start", "kind": "execute", "icon": "run", "target": ["{taskId}", "{label}", "{command}"], "detail": ["{command}"]},
       "method": "task.start",
@@ -1195,6 +1227,11 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 4096
+        },
+        "environment": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
         }
       },
       "required": [
@@ -1209,6 +1246,11 @@
       "properties": {
         "taskId": {
           "type": "string"
+        },
+        "environment": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
         }
       },
       "required": [

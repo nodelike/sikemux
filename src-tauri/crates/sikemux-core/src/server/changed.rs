@@ -30,9 +30,11 @@ pub(crate) enum Topic {
     Ci,
     Git,
     Ports,
+    ProjectSettings,
     Runs,
     Shares,
     Skills,
+    Suggestions,
     Tasks,
     Trust,
 }

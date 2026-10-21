@@ -144,6 +144,7 @@ const PREFS = {
     simulatorFrame: flag,
     notificationsIntroduced: flag,
     keptRunningNoticeShown: flag,
+    signInCardDismissed: flag,
     railDensity: oneOf("comfortable", "compact"),
     midTurnSend: oneOf("steer", "queue"),
     tabRailAllAgents: flag,

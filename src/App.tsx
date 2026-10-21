@@ -91,7 +91,7 @@ import { applyEditorTextScale } from "./editor/textScale";
 import { dirname } from "./lib/paths";
 import type { StandaloneCommand } from "./commands/registry";
 import { agentDetectionApi } from "./api/agentDetection";
-import { lsp } from "./api/lsp";
+import { allowLanguageServers } from "./editor/languageServerTrust";
 import { trustProjectConfig } from "./projects/projectConfigRuntime";
 import { projectActionCommands } from "./projects/projectActions";
 import { worktreeHasLiveOwners } from "./git/worktreeLifecycle";
@@ -381,7 +381,10 @@ function ApplicationCommandPalette() {
             title: "Restart active task",
             detail: "Stop the current project task and start its current trusted definition",
             category: "Tasks",
-            execute: runStandalone("task.restart-active", () => void runProjectTask(activeProjectCwd, restartTask)),
+            execute: runStandalone(
+                "task.restart-active",
+                () => void runProjectTask(activeProjectCwd, restartTask, { environment: runningTask?.environment ?? null }),
+            ),
         });
     }
     if (activeProjectCwd && runningTask && taskControls.canStop) {
@@ -441,7 +444,7 @@ function ApplicationCommandPalette() {
                   {
                       id: "project.settings",
                       title: "Project settings",
-                      detail: "Tasks, the default git repository, worktrees and language servers",
+                      detail: "How its code is built and run, what agents know and may do, and its Git and worktrees",
                       category: "Project",
                       execute: runStandalone("project.settings", () => cmd.openProjectSettings()),
                   } satisfies StandaloneCommand,
@@ -451,17 +454,14 @@ function ApplicationCommandPalette() {
                             title: "Stop language servers for this project",
                             detail: "Stop them now and do not start them again",
                             category: "Project · Language servers",
-                            execute: runStandalone("project.language-servers.stop", () => {
-                                cmd.setLanguageServerTrust(activeProjectCwd, false);
-                                void lsp.stop(activeProjectCwd).catch(reportError("stop language servers"));
-                            }),
+                            execute: runStandalone("project.language-servers.stop", () => allowLanguageServers(activeProjectCwd, false)),
                         } satisfies StandaloneCommand)
                       : ({
                             id: "project.language-servers.allow",
                             title: "Allow language servers for this project",
                             detail: "Start them when you open a file here",
                             category: "Project · Language servers",
-                            execute: runStandalone("project.language-servers.allow", () => cmd.setLanguageServerTrust(activeProjectCwd, true)),
+                            execute: runStandalone("project.language-servers.allow", () => allowLanguageServers(activeProjectCwd, true)),
                         } satisfies StandaloneCommand),
               ]
             : []),

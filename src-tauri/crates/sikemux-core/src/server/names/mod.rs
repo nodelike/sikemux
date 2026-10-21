@@ -921,6 +921,12 @@ pub(crate) fn project_of(cwd: &Path, projects: &[PathBuf]) -> String {
         .into_owned()
 }
 
+/// `cwd`, or the same folder in the main checkout when it is inside a linked git worktree.
+pub(crate) fn in_main_checkout_or_self(cwd: &Path) -> PathBuf {
+    let cwd = std::fs::canonicalize(cwd).unwrap_or_else(|_| cwd.to_owned());
+    in_main_checkout(&cwd).unwrap_or(cwd)
+}
+
 /// The folder in the main checkout matching `cwd` in a linked git worktree.
 fn in_main_checkout(cwd: &Path) -> Option<PathBuf> {
     let root = cwd.ancestors().find(|dir| dir.join(".git").exists())?;

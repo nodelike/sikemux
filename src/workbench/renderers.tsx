@@ -23,7 +23,7 @@ const GitPane = lazy(() => import("../git/GitPane").then((module) => ({ default:
 const DiffPane = lazy(() => import("../git/DiffPane").then((module) => ({ default: module.DiffPane })));
 const SearchPane = lazy(() => import("../workspace/SearchPane").then((module) => ({ default: module.SearchPane })));
 const SharedChatPane = lazy(() => import("../share/SharedChatPane").then((module) => ({ default: module.SharedChatPane })));
-const ProjectSettingsPane = lazy(() => import("../projects/ProjectSettingsPane").then((module) => ({ default: module.ProjectSettingsPane })));
+const ProjectSettingsPane = lazy(() => import("../settings/ProjectSettingsPane").then((module) => ({ default: module.ProjectSettingsPane })));
 const BoardPane = lazy(() => import("../board/BoardPane").then((module) => ({ default: module.BoardPane })));
 
 const paneCwd = (pane: PaneNode, session: Session) => pane.cwd || session.cwd;
@@ -75,7 +75,7 @@ export const BUILTIN_ITEM_RENDERERS: Readonly<Record<CorePaneKind, (props: Workb
     ),
     "project-settings": ({ pane, session, visible }) => (
         <Suspense fallback={<ItemFallback />}>
-            <ProjectSettingsPane project={paneCwd(pane, session)} visible={visible} />
+            <ProjectSettingsPane project={paneCwd(pane, session)} name={session.name} visible={visible} />
         </Suspense>
     ),
     desk: ({ pane, session, win, active, visible, painted }) => (

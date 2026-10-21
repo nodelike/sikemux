@@ -44,6 +44,7 @@ import { terminalReplay } from "./world/terminals";
 import { PtyOutput, type PtyChannel } from "./ptyOutput";
 import { AGENTS, demoSnapshot, demoWorkspace } from "./world/workspace";
 import { DEMO_BOARD, DEMO_MESSAGES } from "./world/board";
+import { PROJECT_SETTINGS } from "./world/projectSettings";
 import type { BoardCard } from "../src/agents/agentBoard";
 
 type Args = Record<string, unknown>;
@@ -618,7 +619,10 @@ export class ShowcaseBackend implements IpcTransport {
     const spareNames = ["Lark", "Fern", "Quartz", "Dune", "Pika", "Aster"];
     this.on("agent_name_call", constant(null));
     this.onCore(["chatStates", "questions", "shares"], constant([]));
-    this.onCore(["answerQuestion", "answerQuestions"], constant({ answered: true }));
+    this.onCore(
+      ["answerQuestion", "answerQuestions"],
+      constant({ answered: true }),
+    );
     this.onCore(["stopChatIfIdle"], constant({ stopped: false }));
     this.onCore(["agentSessions"], ({ params }) =>
       sessionSearch(params as { query: string; limit?: number }),
@@ -656,7 +660,15 @@ export class ShowcaseBackend implements IpcTransport {
       };
     });
     this.onCore(
-      ["boards", "board", "boardAdd", "boardUpdate", "boardRemove", "boardSettings", "boardRetry"],
+      [
+        "boards",
+        "board",
+        "boardAdd",
+        "boardUpdate",
+        "boardRemove",
+        "boardSettings",
+        "boardRetry",
+      ],
       ({ method, params }) => {
         const { id, status } = (params ?? {}) as {
           id?: number;
@@ -681,19 +693,32 @@ export class ShowcaseBackend implements IpcTransport {
     this.onCore(["workspace"], constant(demoWorkspace()));
     this.onCore(["startChat"], ({ params }) => {
       const { agentId } = params as { agentId: string };
-      const agent = Object.values(AGENTS).find((candidate) => candidate.id === agentId);
+      const agent = Object.values(AGENTS).find(
+        (candidate) => candidate.id === agentId,
+      );
       this.startAgent(agentId, agent?.type ?? "claude");
       return null;
     });
-    this.onCore(["ports", "taskRuns", "trustAsks", "closedAgents", "agentSignIns"], constant([]));
+    this.onCore(
+      ["ports", "taskRuns", "trustAsks", "closedAgents", "agentSignIns"],
+      constant([]),
+    );
+    for (const [method, answer] of Object.entries(PROJECT_SETTINGS)) {
+      this.onCore([method], ({ params }) => answer(params as Args));
+    }
     this.onCore(["tasks"], ({ params }) => ({
       project: (params as { project: string }).project,
       configStatus: "absent",
       trusted: true,
       tasks: [],
     }));
-    this.on("core_call", ({ method, params }) =>
-      this.coreMethods.get(method as string)?.({ method, params: params as Args }) ?? null,
+    this.on(
+      "core_call",
+      ({ method, params }) =>
+        this.coreMethods.get(method as string)?.({
+          method,
+          params: params as Args,
+        }) ?? null,
     );
     this.on("acp_start", ({ agentId, provider }) =>
       this.startAgent(agentId as string, provider as string),
@@ -709,10 +734,22 @@ export class ShowcaseBackend implements IpcTransport {
       "sikemux.jira": JIRA,
       "sikemux.vercel": VERCEL,
       "sikemux.slack": {
-        status: () => ({ configured: true, ok: true, authFailed: false, message: null, workspaces: [] }),
+        status: () => ({
+          configured: true,
+          ok: true,
+          authFailed: false,
+          message: null,
+          workspaces: [],
+        }),
       },
       "sikemux.linear": {
-        status: () => ({ configured: false, ok: false, authFailed: false, message: null, workspaces: [] }),
+        status: () => ({
+          configured: false,
+          ok: false,
+          authFailed: false,
+          message: null,
+          workspaces: [],
+        }),
       },
     };
     this.on("plugin_call", ({ plugin, method, params }) => {
@@ -804,7 +841,9 @@ export class ShowcaseBackend implements IpcTransport {
 
   async showSimulator(screen: string): Promise<void> {
     this.simulatorScreen = screen;
-    const frame = await (await fetch(`/__showcase/simulator/frame/${screen}`)).arrayBuffer();
+    const frame = await (
+      await fetch(`/__showcase/simulator/frame/${screen}`)
+    ).arrayBuffer();
     this.simulator?.onmessage(frame);
   }
 
@@ -818,17 +857,33 @@ export class ShowcaseBackend implements IpcTransport {
         card.id === id ? { ...card, ...changes, updatedAt: Date.now() } : card,
       ),
     };
-    this.emit("core_changed", { topic: "boards", project: this.board.project, paths: null });
+    this.emit("core_changed", {
+      topic: "boards",
+      project: this.board.project,
+      paths: null,
+    });
   }
 
-  private readonly liveSteps: { agentId: string; run: () => void; holdMs: number }[] = [];
+  private readonly liveSteps: {
+    agentId: string;
+    run: () => void;
+    holdMs: number;
+  }[] = [];
 
   /** Plays every queued step, or only `agentId`'s, at once and ends each turn, so the chats are idle. */
   settleLive(agentId?: string): void {
-    const agents = new Set(this.liveSteps.map((step) => step.agentId).filter((id) => !agentId || id === agentId));
+    const agents = new Set(
+      this.liveSteps
+        .map((step) => step.agentId)
+        .filter((id) => !agentId || id === agentId),
+    );
     while (this.stepLive(agentId) >= 0);
     for (const agentId of agents)
-      this.emit("acp_event", { agentId, kind: "turn_completed", payload: { stopReason: "end_turn", at: Date.now() } });
+      this.emit("acp_event", {
+        agentId,
+        kind: "turn_completed",
+        payload: { stopReason: "end_turn", at: Date.now() },
+      });
   }
 
   /**
@@ -837,23 +892,42 @@ export class ShowcaseBackend implements IpcTransport {
    */
   async cue(name: string): Promise<void> {
     const { agentId, updates } = CUED_TURNS[name];
-    const read = await Promise.all(updates.map((update) => this.withPicture(update)));
+    const read = await Promise.all(
+      updates.map((update) => this.withPicture(update)),
+    );
     this.queueLiveTurn(agentId, read, this.batchFor(agentId), true);
   }
 
   // A picture is shrunk to a screenshot's size first, or the chat keeps it only by name.
-  private async withPicture(update: Record<string, unknown>): Promise<Record<string, unknown>> {
-    const content = update.content as { type?: string; uri?: string } | undefined;
+  private async withPicture(
+    update: Record<string, unknown>,
+  ): Promise<Record<string, unknown>> {
+    const content = update.content as
+      { type?: string; uri?: string } | undefined;
     if (content?.type !== "image" || !content.uri) return update;
-    const picture = await createImageBitmap(await (await fetch(content.uri)).blob());
+    const picture = await createImageBitmap(
+      await (await fetch(content.uri)).blob(),
+    );
     const scale = Math.min(1, 1280 / picture.width);
-    const canvas = new OffscreenCanvas(Math.round(picture.width * scale), Math.round(picture.height * scale));
-    canvas.getContext("2d")!.drawImage(picture, 0, 0, canvas.width, canvas.height);
-    const bytes = new Uint8Array(await (await canvas.convertToBlob({ type: "image/jpeg", quality: 0.9 })).arrayBuffer());
+    const canvas = new OffscreenCanvas(
+      Math.round(picture.width * scale),
+      Math.round(picture.height * scale),
+    );
+    canvas
+      .getContext("2d")!
+      .drawImage(picture, 0, 0, canvas.width, canvas.height);
+    const bytes = new Uint8Array(
+      await (
+        await canvas.convertToBlob({ type: "image/jpeg", quality: 0.9 })
+      ).arrayBuffer(),
+    );
     let binary = "";
     for (let at = 0; at < bytes.length; at += 0x8000)
       binary += String.fromCharCode(...bytes.subarray(at, at + 0x8000));
-    return { ...update, content: { type: "image", mimeType: "image/jpeg", data: btoa(binary) } };
+    return {
+      ...update,
+      content: { type: "image", mimeType: "image/jpeg", data: btoa(binary) },
+    };
   }
 
   private batchFor(agentId: string) {
@@ -868,7 +942,10 @@ export class ShowcaseBackend implements IpcTransport {
    * Given an agent, only that agent's turn moves on, so several can work at once.
    */
   stepLive(agentId?: string): number {
-    const index = agentId === undefined ? 0 : this.liveSteps.findIndex((step) => step.agentId === agentId);
+    const index =
+      agentId === undefined
+        ? 0
+        : this.liveSteps.findIndex((step) => step.agentId === agentId);
     const [step] = index < 0 ? [] : this.liveSteps.splice(index, 1);
     if (!step) return -1;
     step.run();
@@ -898,7 +975,11 @@ export class ShowcaseBackend implements IpcTransport {
     this.liveSteps.push({
       agentId,
       run: () =>
-        this.emit("acp_event", { agentId, kind: "turn_started", payload: { at: Date.now() } }),
+        this.emit("acp_event", {
+          agentId,
+          kind: "turn_started",
+          payload: { at: Date.now() },
+        }),
       holdMs: 400,
     });
     let finishing: Record<string, unknown> | null = null;
@@ -909,7 +990,8 @@ export class ShowcaseBackend implements IpcTransport {
       const shown = isTool
         ? { ...strip(update), status: update.asks ? "pending" : "in_progress" }
         : strip(update);
-      const card = update.board as (Partial<BoardCard> & { id: number }) | undefined;
+      const card = update.board as
+        (Partial<BoardCard> & { id: number }) | undefined;
       const page = update.browser as BrowserPage | undefined;
       this.liveSteps.push({
         agentId,
@@ -927,7 +1009,8 @@ export class ShowcaseBackend implements IpcTransport {
             shown,
           ]);
           if (card) this.changeCard(card);
-          if (typeof update.simulator === "string") void this.showSimulator(update.simulator);
+          if (typeof update.simulator === "string")
+            void this.showSimulator(update.simulator);
           if (page) {
             showBrowserPage(agentId, page);
             this.emit("browser-tabs-changed", null);
@@ -943,7 +1026,11 @@ export class ShowcaseBackend implements IpcTransport {
                 toolCall: strip(update),
                 options: [
                   { optionId: "allow", name: "Allow", kind: "allow_once" },
-                  { optionId: "always", name: "Always allow", kind: "allow_always" },
+                  {
+                    optionId: "always",
+                    name: "Always allow",
+                    kind: "allow_always",
+                  },
                   { optionId: "deny", name: "Deny", kind: "reject_once" },
                 ],
               },
@@ -958,8 +1045,18 @@ export class ShowcaseBackend implements IpcTransport {
       agentId,
       run: () => {
         if (last)
-          send([{ sessionUpdate: "tool_call_update", toolCallId: last.toolCallId, status: "completed" }]);
-        this.emit("acp_event", { agentId, kind: "turn_completed", payload: { stopReason: "end_turn", at: Date.now() } });
+          send([
+            {
+              sessionUpdate: "tool_call_update",
+              toolCallId: last.toolCallId,
+              status: "completed",
+            },
+          ]);
+        this.emit("acp_event", {
+          agentId,
+          kind: "turn_completed",
+          payload: { stopReason: "end_turn", at: Date.now() },
+        });
       },
       holdMs: 400,
     });
@@ -973,14 +1070,25 @@ export class ShowcaseBackend implements IpcTransport {
     new URLSearchParams(location.search).has("video") ? [AGENTS.hero.id] : [],
   );
 
-  private readonly justStarted = new Map<string, { sessionId: string; capabilities: object; setup: object }>();
+  private readonly justStarted = new Map<
+    string,
+    { sessionId: string; capabilities: object; setup: object }
+  >();
 
   private startAgent(agentId: string, provider: string) {
     const full = AGENT_SCRIPTS[agentId];
-    const lastAnswer = full ? full.history.findLastIndex((update) => update.sessionUpdate !== "user_message_chunk") : -1;
+    const lastAnswer = full
+      ? full.history.findLastIndex(
+          (update) => update.sessionUpdate !== "user_message_chunk",
+        )
+      : -1;
     const script =
       full && this.settledScripts.has(agentId)
-        ? { ...full, history: full.history.slice(0, lastAnswer + 1), live: undefined }
+        ? {
+            ...full,
+            history: full.history.slice(0, lastAnswer + 1),
+            live: undefined,
+          }
         : full;
     const setup = { configOptions: MODEL_OPTIONS[provider] ?? [] };
     const sessionId = `session-${agentId}`;

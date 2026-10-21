@@ -73,6 +73,7 @@ Pass one of these as `topic`:
 - `skills` — skills every agent gets
 - `agents` — names, `@`, messages, committing, who broke CI
 - `board` — the project's cards: adding, claiming, finishing
+- `setup` — `project_suggest`, `projectBrief` and Done means
 - `shell` — the `sikemux tool` CLI
 
 ## config: Writing sikemux.json
@@ -164,6 +165,26 @@ with a `note` when it is still running; keep waiting with `events_wait`, or
 `task_restart` takes a `taskId`, stops that task's latest execution, starts a
 new one, and returns it. Use it instead of a stop followed by a start with a
 new key.
+
+### Running on another environment
+
+A task runs with the environment the person loads for its folder, which the
+project brief in `workspace_inspect` names, with the folder's other
+environments beside it, such as `local, staging, prod`. To run on one of
+them instead, such as reproducing a bug on staging, pass `environment` to
+`task_start`: that run gets that environment's env files in place of the
+folder's, and the person's own variables still apply. Nothing else changes,
+and the next run goes back to the folder's environment unless you pass it
+again. `task_restart` keeps the environment of the run it replaces unless you
+pass another. A name the folder has no files for fails and lists the ones it
+has. If the task is already running on another environment, `task_start`
+fails; switch it with `task_restart` and `environment`.
+
+An environment that looks like production, such as `prod` or `live`, asks
+the person every time, even in YOLO mode: `task_start` returns
+`status: "awaiting-trust"` until they answer, as it does for trust, and the
+run fails if they refuse. Only run on production when the person asked for
+it.
 
 A task you start opens its terminal as a tab on your desk, without taking the
 person's focus. To bring the person to it, call `ui_open` with
@@ -1283,6 +1304,43 @@ goes to the person. Give your verdict once with `review_verdict`: `approve:
 true` to let it merge, or `approve: false` with `findings`, each a `text` and,
 where it applies, a `file` and `line`. Then end your turn. A turn that ends
 without a verdict, and waits on no answer, sends the card back to the person.
+
+## setup: The project's setup
+
+`workspace_inspect` returns `projectBrief`: how the person set each folder of the
+project up (language and version, build settings such as the JDK or Maven
+profiles, the environment loaded), its tasks, Done means and their notes. Read it
+before you build, run or test anything, and follow it rather than what you would
+guess from the build files. Secret values are never in it.
+
+Done means names, per folder, the tasks your work must pass before you say it is
+finished. Start them with `task_start`, wait with `events_wait`, and read
+`testResults` in `workspace_inspect`. The brief says whether only the folders you
+changed count and whether to fix a failure first or stop and tell the person.
+
+You never change the project's settings yourself. When you find one that is
+missing or wrong, call `project_suggest` with a `title` and the `changes`; the
+person sees them in the project's settings and applies the ones they want. Give
+each change a `why` the person can check, and `evidence` when you ran something
+that shows it works, such as "./mvnw test: 142 passed". Each change has a `kind`,
+a `folder` (`.` for the project root, else a folder directly inside it) and:
+
+- `variable`: `key` names an environment variable and `value` its value, such as
+  `JAVA_HOME`, `MAVEN_ARGS`, `SPRING_PROFILES_ACTIVE`, `NODE_ENV`, `GOFLAGS` or
+  `RUSTUP_TOOLCHAIN`. An empty `value` removes it. Never put a secret in one.
+- `environment`: `value` names the environment whose env files the folder loads
+  for the person; `agentEnvironment` the one agents get. Never suggest a
+  production environment for agents.
+- `done`: `value` is a task id the folder's work must pass.
+- `task`: `key` is its label and `value` the command, run in `folder`.
+- `note`: `value` is a line for every agent's brief.
+- `guardrail`: `key` is `neverEdit` (a path glob), `askBefore` or `neverRun` (a
+  command pattern), and `value` the glob or pattern.
+- `service`: `value` names a docker-compose service the folder's tasks need.
+
+When the person asks you to set the project up, read the README, AGENTS.md, the
+build files, scripts, env loaders and CI workflows; run the build and the tests to
+check what you found; then send everything in one `project_suggest`.
 
 ## shell: The same operations from a shell
 

@@ -1560,7 +1560,12 @@ fn start(
 ) -> CoreResult<Arc<Chat>> {
     super::launching::own_tools(core, &mut launch_spec);
     rebind::name_accounts(core, &mut launch_spec);
-    for (key, value) in super::plugins::agent_environment(core, &launch_spec.cwd) {
+    let given = core
+        .workspaces
+        .folder_environment(&launch_spec.cwd, true)
+        .into_iter()
+        .chain(super::plugins::agent_environment(core, &launch_spec.cwd));
+    for (key, value) in given {
         launch_spec.env.entry(key).or_insert(value);
     }
     validate(&launch_spec)?;

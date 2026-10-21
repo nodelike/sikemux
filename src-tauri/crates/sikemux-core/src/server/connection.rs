@@ -1086,7 +1086,11 @@ pub(crate) async fn spawn(
                         .filter(|project| !project.is_empty())
                 });
                 if let Some(folder) = &folder {
-                    give_agent_environment(&core, folder, &mut spawn.env);
+                    let agent_id = spawn
+                        .context
+                        .as_ref()
+                        .and_then(|context| context.agent_id.clone());
+                    give_agent_environment(&core, folder, agent_id.as_deref(), &mut spawn.env);
                 }
                 let resumed = super::activity_log::resumed_by(&spawn);
                 let prepared = prepare_terminal(&launch, spawn)?;
@@ -1105,7 +1109,21 @@ pub(crate) async fn spawn(
                 prepared
             }
             SpawnTarget::Task { mut request } => {
-                give_agent_environment(&core, &request.cwd, &mut request.env);
+                let own_environment = core
+                    .harness
+                    .run_of(&request.execution_id)
+                    .is_some_and(|run| run.environment.is_some());
+                if own_environment {
+                    give_plugin_environment(&core, &request.cwd, &mut request.env);
+                } else {
+                    let agent_id = request.agent_id.clone();
+                    give_agent_environment(
+                        &core,
+                        &request.cwd,
+                        agent_id.as_deref(),
+                        &mut request.env,
+                    );
+                }
                 prepare_task(&launch, request)?
             }
         };
@@ -1115,9 +1133,26 @@ pub(crate) async fn spawn(
     .await
 }
 
-fn give_agent_environment(core: &Core, folder: &str, env: &mut HashMap<String, String>) {
-    let given = super::plugins::agent_environment(core, std::path::Path::new(folder));
+fn give_agent_environment(
+    core: &Core,
+    folder: &str,
+    agent_id: Option<&str>,
+    env: &mut HashMap<String, String>,
+) {
+    let folder = std::path::Path::new(folder);
+    let given = core
+        .workspaces
+        .folder_environment(folder, agent_id.is_some())
+        .into_iter()
+        .chain(super::plugins::agent_environment(core, folder));
     for (key, value) in given {
+        env.entry(key).or_insert(value);
+    }
+}
+
+/// Only what plugins give, for a run whose own environment already replaced its folder's.
+fn give_plugin_environment(core: &Core, folder: &str, env: &mut HashMap<String, String>) {
+    for (key, value) in super::plugins::agent_environment(core, std::path::Path::new(folder)) {
         env.entry(key).or_insert(value);
     }
 }

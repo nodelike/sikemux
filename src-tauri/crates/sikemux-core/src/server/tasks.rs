@@ -3,7 +3,7 @@
 //! person's own list hold, whether the person trusts commands someone else
 //! wrote, and what stops a task from starting.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -91,6 +91,8 @@ struct Asked {
 enum Grant {
     Config(TrustedConfig),
     Personal(TrustedTask),
+    /// One run, by execution id, an agent asked to start on a production environment.
+    Production(String),
 }
 
 #[derive(Default)]
@@ -104,6 +106,8 @@ struct State {
     moved: HashMap<(String, String), (String, u16)>,
     /// One-off reruns of failed tests, by project.
     reruns: HashMap<String, Vec<Definition>>,
+    /// Agents' runs the person let start on production, by execution id.
+    production: HashSet<String>,
 }
 
 pub(crate) struct Tasks {
@@ -128,11 +132,16 @@ impl Tasks {
         match grant {
             Grant::Config(config) => state.trust.configs.contains(config),
             Grant::Personal(task) => state.trust.personal.contains(task),
+            Grant::Production(execution_id) => state.production.contains(execution_id),
         }
     }
 
     fn grant(&self, grant: Grant) {
         let mut state = self.state.locked();
+        if let Grant::Production(execution_id) = grant {
+            state.production.insert(execution_id);
+            return;
+        }
         let trust = &mut state.trust;
         match grant {
             Grant::Config(config) => {
@@ -147,7 +156,15 @@ impl Tasks {
                 let over = trust.personal.len().saturating_sub(MAX_TRUSTED);
                 trust.personal.drain(..over);
             }
+            Grant::Production(_) => {}
         }
+        self.kept.save(&state.trust);
+    }
+
+    /// Forgets the person trusted the project file at `path`, so its commands ask again.
+    fn revoke(&self, path: &str) {
+        let mut state = self.state.locked();
+        state.trust.configs.retain(|known| known.path != path);
         self.kept.save(&state.trust);
     }
 
@@ -235,6 +252,16 @@ fn offered(core: &Core, project: &Path) -> Offered {
         .iter()
         .any(|task| task.java.is_some())
         .then(java::runtimes);
+    let own_java: HashSet<PathBuf> = found
+        .iter()
+        .filter(|task| task.java.is_some())
+        .map(|task| task.cwd.clone())
+        .filter(|cwd| {
+            core.workspaces
+                .folder_environment(cwd, false)
+                .contains_key("JAVA_HOME")
+        })
+        .collect();
     let project_key = project.to_string_lossy().into_owned();
     let state = core.tasks.state.locked();
     let mut found: Vec<Definition> = found
@@ -247,6 +274,7 @@ fn offered(core: &Core, project: &Path) -> Offered {
             };
             let java = task
                 .java
+                .filter(|_| !own_java.contains(&task.cwd))
                 .zip(runtimes.as_ref())
                 .map(|(required, runtimes)| java::choose(required, runtimes));
             let mut env = Vec::new();
@@ -383,6 +411,22 @@ fn personal_ask(project: &Path, task: &Definition) -> TrustAsk {
     }
 }
 
+/// What the person is asked before an agent's run starts with production's variables.
+fn production_ask(task: &Definition, environment: &str, execution_id: &str) -> TrustAsk {
+    TrustAsk {
+        title: format!("Run {} on {environment}?", task.label),
+        body: format!(
+            "An agent wants to start this with {environment}'s environment variables. Only this run gets them; the agent asks again next time."
+        ),
+        commands: vec![TrustCommand {
+            label: task.label.clone(),
+            command: task.command.clone(),
+        }],
+        confirm_label: format!("Run on {environment}"),
+        grant: Grant::Production(execution_id.to_owned()),
+    }
+}
+
 /// `sikemux.json` as read now, and whether the person trusts it on this host.
 pub(crate) async fn project_config(core: &Arc<Core>, project: String) -> CoreResult<Value> {
     let core = core.clone();
@@ -423,6 +467,21 @@ pub(crate) async fn trust_project(
         }
         core.tasks
             .grant(Grant::Config(TrustedConfig { path, fingerprint }));
+        core.harness.changed();
+        core.changes.changed(Topic::Tasks, Some(&project), None);
+        Ok(())
+    })
+    .await
+}
+
+/// The person no longer trusts the project's `sikemux.json`; its commands ask before they run again.
+pub(crate) async fn untrust_project(core: &Arc<Core>, project: String) -> CoreResult<()> {
+    let core = core.clone();
+    blocking(move || {
+        let (ConfigLoad::Absent { path }
+        | ConfigLoad::Invalid { path, .. }
+        | ConfigLoad::Valid { path, .. }) = config::load(Path::new(&project));
+        core.tasks.revoke(&path);
         core.harness.changed();
         core.changes.changed(Topic::Tasks, Some(&project), None);
         Ok(())
@@ -790,8 +849,11 @@ pub(crate) fn answer_trust(core: &Core, id: &str, trust: bool) -> CoreResult<()>
         core.changes
             .changed(Topic::Tasks, Some(&asked.project), None);
     } else if let Some(execution_id) = &asked.execution_id {
-        core.harness
-            .launch_failed(execution_id, "Project configuration was not approved");
+        let refused = match asked.ask.grant {
+            Grant::Production(_) => "The person did not let this run start on production",
+            _ => "Project configuration was not approved",
+        };
+        core.harness.launch_failed(execution_id, refused);
     }
     core.harness.changed();
     Ok(())
@@ -862,6 +924,39 @@ pub(crate) async fn launch(
             }
         }
     }
+    if let Some(environment) = &run.environment {
+        let found = {
+            let (core, project, cwd, environment) = (
+                core.clone(),
+                project.clone(),
+                task.cwd.clone(),
+                environment.clone(),
+            );
+            blocking(move || {
+                Ok(core
+                    .workspaces
+                    .run_environment(&project, &cwd, &environment))
+            })
+            .await
+            .map_err(|error| error.to_string())??
+        };
+        if run.agent_id.is_some() && crate::tasks::folders::is_production(environment) {
+            let ask = production_ask(&task, environment, execution_id);
+            let allowed = ask_person(core, &run.project, ask, Some(execution_id)).await;
+            core.tasks.state.locked().production.remove(execution_id);
+            if !allowed {
+                return Err(format!(
+                    "The person did not let {} start on {environment}",
+                    task.label
+                ));
+            }
+        }
+        for (key, value) in found {
+            if !task.env.iter().any(|(name, _)| *name == key) {
+                task.env.push((key, value));
+            }
+        }
+    }
     let mut preview_url = match &config {
         ConfigLoad::Valid { config, .. } if task.source == Source::Project => config
             .preview
@@ -915,6 +1010,9 @@ pub(crate) async fn launch(
         Source::Project | Source::Command => TaskSource::Project,
         Source::Personal | Source::Detected | Source::Rerun => TaskSource::BuiltIn,
     };
+    super::services::before_task(core, &task.cwd)
+        .await
+        .map_err(|error| error.to_string())?;
     let mut env: std::collections::HashMap<String, String> = task.env.into_iter().collect();
     if let Some(path) = sikemux_process::user_environment::var_os("PATH") {
         env.entry("PATH".into())
@@ -953,6 +1051,9 @@ pub(crate) struct StartParams {
     /// port first.
     #[serde(default)]
     fix: bool,
+    /// The environment this run loads in place of its folder's; none for the folder's.
+    #[serde(default)]
+    environment: Option<String>,
 }
 
 /// Puts right what the checks found, so the task can start.
@@ -1027,7 +1128,12 @@ pub(crate) async fn start(core: &Arc<Core>, params: StartParams) -> CoreResult<V
             return Ok(json!({ "checks": found }));
         }
     }
-    let execution_id = super::harness::start_for_person(core, &params.project, &params.task_id)?;
+    let execution_id = super::harness::start_for_person(
+        core,
+        &params.project,
+        &params.task_id,
+        params.environment.as_deref(),
+    )?;
     Ok(json!({ "executionId": execution_id }))
 }
 
@@ -1201,7 +1307,8 @@ pub(crate) async fn rerun_failed(core: &Arc<Core>, params: RerunParams) -> CoreR
         reruns.drain(..over);
     }
     core.changes.changed(Topic::Tasks, Some(&run.project), None);
-    let execution_id = super::harness::start_for_person(core, &run.project, &task_id)?;
+    let execution_id =
+        super::harness::start_for_person(core, &run.project, &task_id, run.environment.as_deref())?;
     Ok(json!({ "taskId": task_id, "executionId": execution_id }))
 }
 

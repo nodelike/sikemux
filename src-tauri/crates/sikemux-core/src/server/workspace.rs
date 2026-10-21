@@ -29,6 +29,7 @@ use crate::protocol::{
 };
 use crate::sessions::recent::{self as saved_chats, RecentProvider, RecentRef, RecentRequest};
 
+use super::changed::Topic;
 use super::chat;
 use super::connection::blocking;
 use super::kept;
@@ -39,6 +40,9 @@ use super::{Core, CoreError, CoreResult};
 use crate::acp::pickers;
 
 mod migrate;
+pub(crate) mod project;
+
+pub(crate) use project::{Change, FolderSettings, ProjectRules};
 
 /// Bumped by a change to what [`Saved`] holds that an earlier file needs
 /// carried over to.
@@ -120,6 +124,16 @@ struct Saved {
     accounts: Option<Book>,
     /// The mode the person starts agents in, absent until they first choose.
     permission_mode: Option<String>,
+    /// The environment of each folder of a project, by the project's folder and then the
+    /// folder's, `.` for its root. Never sent to devices, since it can hold secrets.
+    #[serde(default)]
+    folder_settings: BTreeMap<String, BTreeMap<String, FolderSettings>>,
+    /// What every agent in a project is told, by the project's folder.
+    #[serde(default)]
+    project_rules: BTreeMap<String, ProjectRules>,
+    /// What agents suggested for a project's settings, newest last, by the project's real path.
+    #[serde(default)]
+    suggestions: BTreeMap<String, Vec<super::suggestions::Suggestion>>,
 }
 
 impl Saved {
@@ -1700,6 +1714,28 @@ pub(crate) struct PinnedParams {
 pub(crate) fn set_pinned_chats(core: &Core, params: PinnedParams) -> CoreResult<()> {
     core.workspaces.set_pinned(params.chats)?;
     core.view_changed();
+    Ok(())
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ChangeProjectParams {
+    project: String,
+    #[serde(default = "root")]
+    folder: String,
+    change: Change,
+}
+
+fn root() -> String {
+    ".".to_owned()
+}
+
+/// One change to a project's settings, from the window.
+pub(crate) fn change_project(core: &Core, params: ChangeProjectParams) -> CoreResult<()> {
+    core.workspaces
+        .change_project(&params.project, &params.folder, params.change)?;
+    core.changes
+        .changed(Topic::ProjectSettings, Some(&params.project), None);
     Ok(())
 }
 

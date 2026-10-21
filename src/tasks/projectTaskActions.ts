@@ -1,6 +1,6 @@
 import { externalValue, useExternalValue } from "../lib/externalValue";
 import { notify, reportError } from "../state/toast";
-import { isActive, tasksApi, type Check, type ProjectTask, type TaskRun } from "./coreTasks";
+import { isActive, tasksApi, type Check, type ProjectTask, type RunHow, type TaskRun } from "./coreTasks";
 import { focusWhenShown } from "./taskTerminals";
 
 /** A run held back by a failed check, waiting for the person to fix it or run anyway. */
@@ -8,6 +8,7 @@ export interface PendingCheck {
     readonly project: string;
     readonly task: ProjectTask;
     readonly checks: readonly Check[];
+    readonly environment: string | null;
 }
 
 const pendingCheck = externalValue<PendingCheck | null>(null);
@@ -18,22 +19,19 @@ export function dismissPendingCheck(): void {
     pendingCheck.set(null);
 }
 
-/**
- * Starts the task in place of whatever the person runs in the project, or of
- * its own run, once the core's checks pass. `force` starts it anyway; `fix`
- * has the core install what is missing first.
- */
-export function runProjectTask(project: string, task: ProjectTask, how: { force?: boolean; fix?: boolean } = {}): Promise<void> {
+/** Starts the task in place of whatever the person runs in the project, or of its own run, once the core's checks pass. */
+export function runProjectTask(project: string, task: ProjectTask, how: RunHow = {}): Promise<void> {
+    const environment = how.environment ?? null;
     return tasksApi
-        .start(project, task.id, how)
+        .start(project, task.id, { ...how, environment })
         .then((answer) => {
             if ("checks" in answer) {
-                pendingCheck.set({ project, task, checks: answer.checks });
+                pendingCheck.set({ project, task, checks: answer.checks, environment });
                 return;
             }
             pendingCheck.set(null);
             focusWhenShown(answer.executionId);
-            notify("success", `Started task: ${task.label}`);
+            notify("success", environment ? `Started task: ${task.label} on ${environment}` : `Started task: ${task.label}`);
         })
         .catch(reportError(`start task ${task.label}`));
 }

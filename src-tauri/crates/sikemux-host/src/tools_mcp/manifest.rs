@@ -143,6 +143,7 @@ impl Manifest {
     pub fn instructions(&self) -> String {
         let mut instructions = format!(
             "Sikemux drives the person's open project and this agent's browser tabs. Call {} before the first task launch or browser click. \
+             Before building, running or testing the project, read projectBrief in workspace_inspect: it says how the person set each folder up, and under Done means which tasks your work must pass before you say it is finished. \
              When the person asks you to open, show or preview a web page, use browser_navigate: it opens on your desk beside them, not in their own browser. \
              Desk tabs run the same WebKit as Sikemux and Safari, so check web pages there rather than in headless Chromium. \
              The browser tools used most are browser_navigate, browser_state, browser_find, browser_click, browser_type, browser_wait and browser_screenshot; load them together. \

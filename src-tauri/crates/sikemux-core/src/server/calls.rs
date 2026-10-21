@@ -271,6 +271,37 @@ calls! { core, client, params;
         let params: TrustProjectParams = parse(params)?;
         answer(super::tasks::trust_project(&core, params.project, params.fingerprint).await?)
     },
+    "projectFolders": Local => {
+        let params: ProjectParams = parse(params)?;
+        let settings = core.workspaces.folder_settings(&params.project);
+        let rules = core.workspaces.project_rules(&params.project);
+        let folders =
+            blocking(move || Ok(crate::tasks::folders::folders(Path::new(&params.project))))
+                .await?;
+        let fields: serde_json::Map<String, Value> = crate::tasks::languages::catalog()
+            .into_iter()
+            .map(|(language, fields)| (language.to_owned(), json!(fields)))
+            .collect();
+        answer(json!({ "folders": folders, "settings": settings, "rules": rules, "fields": fields }))
+    },
+    "projectServices": Local => {
+        let params: ProjectParams = parse(params)?;
+        answer(blocking(move || Ok(super::services::list(Path::new(&params.project)))).await?)
+    },
+    "serviceAction": Local => answer(super::services::action(parse(params)?).await?),
+    "javaRuntimes": Local => answer(blocking(|| Ok(crate::tasks::java::runtimes())).await?),
+    "projectSuggestions": Local => answer(super::suggestions::list(&core, parse(params)?).await?),
+    "answerSuggestion": Person => answer(super::suggestions::answer(&core, parse(params)?).await?),
+    "projectBrief": Local => {
+        let params: ProjectParams = parse(params)?;
+        let core = core.clone();
+        answer(blocking(move || Ok(super::brief::write(&core, Path::new(&params.project)))).await?)
+    },
+    "changeProjectSettings": Person => answer(workspace::change_project(&core, parse(params)?)?),
+    "untrustProject": Local => {
+        let params: ProjectParams = parse(params)?;
+        answer(super::tasks::untrust_project(&core, params.project).await?)
+    },
     "tasks": Local => {
         let params: ProjectParams = parse(params)?;
         answer(super::tasks::list(&core, params.project).await?)

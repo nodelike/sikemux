@@ -242,6 +242,7 @@ textarea:focus,
 }
 
 .rail-sign-in {
+    position: relative;
     display: grid;
     gap: var(--space-2);
     flex: 0 0 auto;
@@ -253,9 +254,30 @@ textarea:focus,
 
 .rail-sign-in > p {
     margin: 0;
+    padding-right: var(--space-5);
     color: var(--text-secondary);
     font-size: var(--text-xs);
     line-height: 1.4;
+}
+
+.rail-sign-in-close {
+    position: absolute;
+    top: var(--space-1h);
+    right: var(--space-1h);
+    display: grid;
+    place-items: center;
+    width: 20px;
+    height: 20px;
+    padding: 0;
+    border: 0;
+    border-radius: var(--radius-1);
+    background: transparent;
+    color: var(--text-tertiary);
+}
+
+.rail-sign-in-close:hover {
+    background: var(--surface-hover);
+    color: var(--text-primary);
 }
 
 .rail-sign-in-btn {
