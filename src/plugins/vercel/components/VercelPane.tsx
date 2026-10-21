@@ -1,4 +1,4 @@
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import { errorText } from "../../../plugin-api/format";
 import { notify, openSignInUrl, swallow } from "../../../plugin-api/host";
 import { useResourceEnabled } from "../../../plugin-api/resources";
@@ -8,7 +8,12 @@ import { vercel, vercelProjectsR } from "../resources";
 import { updateVercelView, useVercelView, type VercelSection } from "../state";
 import { Deployment } from "./Deployment";
 import { Deployments } from "./Deployments";
-import { Domains, Environment } from "./Settings";
+import { BuildSettings } from "./BuildSettings";
+import { Crons } from "./Crons";
+import { DeployFolder } from "./DeployFolder";
+import { Firewall } from "./Firewall";
+import { Domains } from "./Domains";
+import { Environment } from "./Settings";
 import { Overview } from "./Overview";
 import { Projects } from "./Projects";
 import { StateDot } from "./parts";
@@ -33,12 +38,16 @@ const SECTIONS: { value: VercelSection; label: string }[] = [
     { value: "deployments", label: "Deployments" },
     { value: "env", label: "Environment Variables" },
     { value: "domains", label: "Domains" },
+    { value: "firewall", label: "Firewall" },
+    { value: "crons", label: "Cron Jobs" },
+    { value: "settings", label: "Settings" },
 ];
 
 /** The account's dashboard laid out as Vercel's: a sidebar of the team and the project's pages, and the page beside it. */
 function Dashboard({ paneId, active, status }: { paneId: string; active: boolean; status: VercelStatus }) {
     const view = useVercelView(paneId);
     const sideRef = useRef<HTMLDivElement>(null);
+    const [deploying, setDeploying] = useState(false);
     const team = status.team ?? "";
     const scopeSlug = status.teams.find((each) => each.id === team)?.slug ?? status.account?.username ?? "";
     const projects = useResourceEnabled(active, vercelProjectsR, team);
@@ -180,12 +189,30 @@ function Dashboard({ paneId, active, status }: { paneId: string; active: boolean
                     <span className="vercel-topbar-section">
                         {project ? (view.deployment ? "Deployment Details" : SECTIONS.find((each) => each.value === view.section)?.label) : ""}
                     </span>
-                    <button type="button" className="vercel-button" onClick={() => vercel.refresh()}>
-                        Refresh
-                    </button>
+                    <span className="vercel-actions">
+                        {project ? (
+                            <button type="button" className="vercel-button" onClick={() => setDeploying((was) => !was)}>
+                                Deploy
+                            </button>
+                        ) : null}
+                        <button type="button" className="vercel-button" onClick={() => vercel.refresh()}>
+                            Refresh
+                        </button>
+                    </span>
                 </header>
                 <div className="vercel-page">
                     <StaleNotice handle={projects} />
+                    {deploying && project ? (
+                        <DeployFolder
+                            team={team}
+                            project={project}
+                            onDeployed={(id) => {
+                                setDeploying(false);
+                                updateVercelView(paneId, { deployment: id });
+                            }}
+                            onClose={() => setDeploying(false)}
+                        />
+                    ) : null}
                     {!projects.data ? (
                         <Pending handle={projects} loading="Loading projects" />
                     ) : !project ? (
@@ -218,6 +245,12 @@ function Dashboard({ paneId, active, status }: { paneId: string; active: boolean
                             onFilter={(patch) => updateVercelView(paneId, patch)}
                             onOpen={(id) => updateVercelView(paneId, { deployment: id })}
                         />
+                    ) : view.section === "firewall" ? (
+                        <Firewall active={active} team={team} project={project.name} />
+                    ) : view.section === "crons" ? (
+                        <Crons active={active} team={team} project={project} />
+                    ) : view.section === "settings" ? (
+                        <BuildSettings active={active} team={team} project={project.name} />
                     ) : view.section === "env" ? (
                         <Environment active={active} team={team} project={project.name} find={view.find} />
                     ) : (

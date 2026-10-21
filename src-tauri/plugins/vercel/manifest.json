@@ -107,6 +107,54 @@
         "team": { "type": "string" }
       },
       "required": ["project"]
+    },
+    {
+      "name": "vercel_env_change",
+      "row": {"verb": "change", "kind": "edit", "icon": "code", "target": ["{key} in {project}"], "detail": ["{action}"]},
+      "method": "changeEnv",
+      "description": "Set or remove a project's environment variable. A value is only sent, never read back. Only when the person asked for it.",
+      "properties": {
+        "project": { "type": "string" },
+        "action": { "type": "string", "enum": ["set", "remove"] },
+        "key": { "type": "string" },
+        "value": { "type": "string", "description": "For set; left out, it stays." },
+        "id": { "type": "string", "description": "One of several with this key." },
+        "targets": { "type": "array", "items": { "type": "string", "enum": ["production", "preview", "development"] } },
+        "branch": { "type": "string", "description": "Preview branch only." },
+        "team": { "type": "string" }
+      },
+      "required": ["project", "action", "key"]
+    },
+    {
+      "name": "vercel_domain_change",
+      "row": {"verb": "change", "kind": "edit", "icon": "globe", "target": ["{domain}"], "detail": ["{action}"]},
+      "method": "changeDomain",
+      "description": "Add, route, verify or remove a project's domain; answers with the DNS records it still needs. Only when the person asked for it.",
+      "properties": {
+        "project": { "type": "string" },
+        "action": { "type": "string", "enum": ["add", "update", "verify", "remove"] },
+        "domain": { "type": "string" },
+        "branch": { "type": "string", "description": "\"\" for production." },
+        "redirect": { "type": "string", "description": "\"\" to stop." },
+        "team": { "type": "string" }
+      },
+      "required": ["project", "action", "domain"]
+    },
+    {
+      "name": "vercel_runtime_logs",
+      "row": {"verb": "read", "kind": "read", "icon": "log-lines", "target": ["{project} runtime logs"], "detail": ["{path}"]},
+      "method": "runtimeLogs",
+      "description": "A project's requests with their status, and what its functions logged, newest first, from the last `minutes` (default 15, at most 30).",
+      "properties": {
+        "project": { "type": "string" },
+        "id": { "type": "string", "description": "Only this deployment's." },
+        "minutes": { "type": "integer" },
+        "minStatus": { "type": "integer" },
+        "path": { "type": "string" },
+        "levels": { "type": "array", "items": { "type": "string", "enum": ["info", "warning", "error"] } },
+        "team": { "type": "string" }
+      },
+      "required": ["project"]
     }
   ]
 }

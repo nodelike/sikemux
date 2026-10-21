@@ -12,6 +12,8 @@ const api = vi.hoisted(() => ({
     deployment: vi.fn(),
     logs: vi.fn(),
     domains: vi.fn(),
+    domain: vi.fn(),
+    protection: vi.fn(),
     env: vi.fn(),
     redeploy: vi.fn(),
     promote: vi.fn(),
@@ -112,6 +114,10 @@ beforeEach(() => {
         Promise.resolve({ ...log, deployment: [failed, redeploy, live, before].find((each) => each.id === id) }),
     );
     api.domains.mockResolvedValue([{ name: "web.acme.dev", verified: true, redirect: null, gitBranch: null }]);
+    api.protection.mockResolvedValue({ vercelAuthentication: null, password: null, canShare: false });
+    api.domain.mockImplementation((_team: string, _project: string, name: string) =>
+        Promise.resolve({ name, verified: true, misconfigured: false, redirect: null, redirectStatusCode: null, gitBranch: null, records: [] }),
+    );
     api.env.mockResolvedValue([
         { id: "e1", key: "DATABASE_URL", target: ["production", "preview", "development"], type: "encrypted", gitBranch: null, updatedAt: 1 },
     ]);

@@ -6117,8 +6117,10 @@ dependencies = [
  "reqwest",
  "serde",
  "serde_json",
+ "sha1_smol",
  "sikemux-keychain",
  "sikemux-plugin-api",
+ "sikemux-process",
  "tokio",
  "workspace-hack",
 ]

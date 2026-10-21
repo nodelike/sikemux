@@ -192,6 +192,122 @@ const find = (id: unknown) =>
   DEPLOYMENTS.find((each) => each.id === id) ?? DEPLOYMENTS[2];
 
 export const VERCEL: Record<string, (params: Params) => unknown> = {
+  runtimeLogs: () => vercelRuntimeLogs(),
+  protection: () => ({
+    vercelAuthentication: "Preview deployments",
+    password: null,
+    canShare: true,
+  }),
+  shareLink: () => ({
+    link: "https://storefront-git-checkout-acme.vercel.app/?x-vercel-protection-bypass=showcase&x-vercel-set-bypass-cookie=samesitenone",
+  }),
+  firewall: () => ({
+    enabled: true,
+    rules: [
+      {
+        id: "rule_wp",
+        name: "Block WordPress probes",
+        description: "Paths under /wp-admin and /wp-login.php",
+        active: true,
+        action: "Deny",
+      },
+      {
+        id: "rule_api",
+        name: "Rate limit checkout",
+        description: "60 requests a minute per IP on /api/checkout",
+        active: true,
+        action: "Rate limit",
+      },
+      {
+        id: "rule_geo",
+        name: "Challenge new regions",
+        description: null,
+        active: false,
+        action: "Challenge",
+      },
+    ],
+    blocks: [
+      { ip: "203.0.113.7", hostname: null, note: "Card-testing bot", action: "deny" },
+    ],
+    attackMode: false,
+    attackModeUntil: null,
+  }),
+  setAttackMode: ({ enabled }) => ({
+    ...(VERCEL.firewall!({}) as object),
+    attackMode: enabled,
+  }),
+  crons: () => ({
+    enabled: true,
+    deploymentId: "dpl_live",
+    updatedAt: Date.now() - 95 * 60_000,
+    jobs: [
+      { path: "/api/cron/sync-inventory", schedule: "*/15 * * * *", host: null },
+      { path: "/api/cron/abandoned-carts", schedule: "0 9 * * *", host: null },
+      { path: "/api/cron/weekly-report", schedule: "0 6 * * 1", host: null },
+    ],
+  }),
+  domain: ({ domain }) =>
+    String(domain).startsWith("staging.")
+      ? {
+          name: domain,
+          verified: false,
+          misconfigured: true,
+          redirect: null,
+          redirectStatusCode: null,
+          gitBranch: "staging",
+          records: [
+            {
+              type: "TXT",
+              name: "_vercel.shop.acme.dev",
+              value: "vc-domain-verify=staging.shop.acme.dev,8f2c41d9e0",
+              why: "Proves the domain is yours",
+            },
+            {
+              type: "CNAME",
+              name: "staging.shop",
+              value: "cname.vercel-dns.com",
+              why: "Points the domain at Vercel",
+            },
+          ],
+        }
+      : {
+          name: domain,
+          verified: true,
+          misconfigured: false,
+          redirect: null,
+          redirectStatusCode: null,
+          gitBranch: null,
+          records: [],
+        },
+  addDomain: ({ domain }) => VERCEL.domain!({ domain }),
+  updateDomain: ({ domain }) => VERCEL.domain!({ domain }),
+  verifyDomain: ({ domain }) => VERCEL.domain!({ domain }),
+  removeDomain: () => null,
+  setEnv: ({ key, targets, branch }) => ({
+    id: `env_${String(key)}`,
+    key,
+    target: targets,
+    type: "encrypted",
+    gitBranch: branch ?? null,
+    updatedAt: Date.now(),
+  }),
+  removeEnv: () => null,
+  settings: ({ project }) => ({
+    id: `prj_${String(project)}`,
+    name: project,
+    framework: "nextjs",
+    buildCommand: null,
+    outputDirectory: null,
+    installCommand: "pnpm install --frozen-lockfile",
+    devCommand: null,
+    rootDirectory: "apps/storefront",
+    nodeVersion: "22.x",
+    nodeVersions: ["24.x", "22.x", "20.x"],
+  }),
+  updateSettings: ({ project, settings }) => ({
+    ...(VERCEL.settings!({ project }) as object),
+    ...(settings as object),
+  }),
   status: () => ({
     configured: true,
     ok: true,
@@ -282,3 +398,54 @@ export const VERCEL: Record<string, (params: Params) => unknown> = {
   promote: ({ id }) => find(id),
   cancel: ({ id }) => find(id),
 };
+
+export function vercelRuntimeLogs() {
+  const now = Date.now();
+  const line = (
+    ago: number,
+    kind: "request" | "log",
+    level: string,
+    method: string,
+    path: string,
+    status: number | null,
+    message: string,
+    requestId: string,
+  ) => ({
+    at: new Date(now - ago).toISOString(),
+    kind,
+    level,
+    message,
+    method,
+    path,
+    status,
+    requestId,
+    deploymentId: "dpl_live",
+  });
+  return {
+    lines: [
+      line(1_200, "log", "error", "POST", "/api/checkout", null, "TypeError: Cannot read properties of undefined (reading 'items')\n    at checkout (/var/task/app/api/checkout/route.js:18:27)", "r5"),
+      line(1_300, "request", "error", "POST", "/api/checkout", 500, "/api/checkout · streaming_func · MISS", "r5"),
+      line(3_000, "request", "info", "POST", "/api/cart", 200, "/api/cart · streaming_func · MISS", "r4"),
+      line(5_100, "request", "warning", "GET", "/favicon.png", 404, "/[slug] · prerender · MISS", "r3"),
+      line(7_400, "request", "info", "GET", "/api/products", 200, "/api/products · streaming_func · HIT", "r2"),
+      line(9_000, "request", "info", "GET", "/", 200, "/ · prerender · HIT", "r1"),
+    ],
+    minutes: 15,
+    filtered: 0,
+    note: null,
+  };
+}
+
+export function vercelDeploySteps() {
+  return [
+    { step: "Reading files", done: 0, total: 0, deployment: null },
+    { step: "Uploading", done: 0, total: 3, deployment: null },
+    { step: "Uploading", done: 3, total: 3, deployment: null },
+    {
+      step: "Building",
+      done: 214,
+      total: 214,
+      deployment: DEPLOYMENTS[0],
+    },
+  ];
+}

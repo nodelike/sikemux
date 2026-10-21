@@ -645,7 +645,7 @@
 
 .vercel-table-row.env {
     display: grid;
-    grid-template-columns: minmax(160px, 1.4fr) minmax(120px, 1fr) auto minmax(110px, auto);
+    grid-template-columns: minmax(160px, 1.4fr) minmax(120px, 1fr) auto minmax(110px, auto) auto;
     gap: 12px;
     padding: 12px 14px;
 }
@@ -752,4 +752,236 @@
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
+}
+
+.vercel-form-box {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding: 16px;
+}
+
+.vercel-form-box h3 {
+    margin: 0 0 4px;
+    font-size: var(--text-md);
+    font-weight: var(--weight-medium);
+}
+
+.vercel-form-row {
+    display: grid;
+    grid-template-columns: minmax(140px, 220px) minmax(0, 1fr);
+    align-items: center;
+    gap: 12px;
+    font-size: var(--text-xs);
+    color: var(--text-secondary);
+}
+
+.vercel-form-foot {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 8px;
+}
+
+.vercel-form-foot .vercel-muted {
+    margin-right: auto;
+}
+
+.vercel-row-actions {
+    display: flex;
+    gap: 10px;
+    justify-content: flex-end;
+}
+
+.vercel-link.danger {
+    color: var(--danger);
+}
+
+.vercel-variable-fields {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+}
+
+.vercel-form-stack {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    font-size: var(--text-xs);
+    color: var(--text-secondary);
+}
+
+.vercel-variable-targets {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 14px;
+    font-size: var(--text-xs);
+}
+
+.vercel-domain-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+}
+
+.vercel-records {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-top: 6px;
+}
+
+.vercel-records > p {
+    margin: 0;
+    font-size: var(--text-xs);
+}
+
+.vercel-table-row.record {
+    display: grid;
+    grid-template-columns: 70px minmax(120px, 1fr) minmax(0, 2fr);
+    gap: 12px;
+    padding: 8px 12px;
+    font-size: var(--text-xs);
+}
+
+.vercel-table-row.record.head {
+    color: var(--text-tertiary);
+}
+
+.vercel-record-value {
+    overflow-wrap: anywhere;
+    text-align: left;
+}
+
+.vercel-domain > .vercel-domain-head,
+.vercel-domain > .vercel-records,
+.vercel-domain > form {
+    flex-basis: 100%;
+}
+
+.vercel-runtime-filters {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 14px;
+    border-bottom: 1px solid var(--border);
+}
+
+.vercel-runtime-filters .vercel-find {
+    min-width: 160px;
+}
+
+.vercel-runtime-empty {
+    margin: 0;
+    padding: 12px 14px;
+    font-size: var(--text-xs);
+}
+
+.vercel-log-line.runtime {
+    display: flex;
+    gap: 10px;
+}
+
+.vercel-log-line.runtime.error {
+    box-shadow: inset 2px 0 var(--danger);
+}
+
+.vercel-log-line.runtime.warning {
+    box-shadow: inset 2px 0 var(--warn);
+}
+
+.vercel-log-status {
+    flex: none;
+    font-variant-numeric: tabular-nums;
+    color: var(--text-secondary);
+}
+
+.vercel-log-status.s4 {
+    color: var(--warn);
+}
+
+.vercel-log-status.s5 {
+    color: var(--danger);
+}
+
+.vercel-log-path {
+    flex: none;
+    max-width: 40%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    color: var(--text-secondary);
+    white-space: nowrap;
+}
+
+.vercel-table-row.cron {
+    display: grid;
+    grid-template-columns: 10px minmax(160px, 1.3fr) minmax(140px, 1fr) minmax(90px, auto) auto;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 14px;
+    font-size: var(--text-xs);
+}
+
+.vercel-attack {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 14px;
+}
+
+.vercel-attack.on {
+    box-shadow: inset 3px 0 var(--warn);
+}
+
+.vercel-attack .vercel-domain-head .plugin-seg {
+    margin-left: auto;
+}
+
+.vercel-table-row.rule {
+    display: grid;
+    grid-template-columns: 10px minmax(0, 1fr) auto minmax(60px, auto);
+    align-items: center;
+    gap: 12px;
+    padding: 10px 14px;
+    font-size: var(--text-xs);
+}
+
+.vercel-button.danger {
+    color: var(--danger);
+}
+
+.vercel-protection {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 6px 12px;
+    padding: 12px 14px;
+    border-top: 1px solid var(--border);
+    font-size: var(--text-xs);
+}
+
+.vercel-deploy {
+    margin-bottom: 14px;
+}
+
+.vercel-deploy-folder {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+}
+
+.vercel-deploy-folder .vercel-mono {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--text-primary);
+}
+
+.vercel-log-line.runtime.log .vercel-log-text {
+    padding-left: 12px;
+    border-left: 1px solid var(--border);
 }

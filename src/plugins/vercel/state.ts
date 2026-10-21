@@ -3,7 +3,7 @@ import { definePaneViews } from "../../plugin-api/paneViews";
 import type { VercelDeployment, VercelLog } from "./api";
 import { VERCEL_PROJECTS } from "./kinds";
 
-export type VercelSection = "overview" | "deployments" | "env" | "domains";
+export type VercelSection = "overview" | "deployments" | "env" | "domains" | "firewall" | "crons" | "settings";
 export type EnvironmentFilter = "all" | "production" | "preview";
 export type StatusFilter = "all" | "READY" | "ERROR" | "BUILDING" | "CANCELED";
 

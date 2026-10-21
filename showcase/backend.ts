@@ -18,7 +18,7 @@ import { BRANCHES, FILE_DIFFS, GIT_STATUS } from "./world/git";
 import { RUNDECK, rundeckStream } from "./world/rundeck";
 import { GITHUB } from "./world/github";
 import { JIRA } from "./world/jira";
-import { VERCEL } from "./world/vercel";
+import { VERCEL, vercelDeploySteps } from "./world/vercel";
 import { SIGNOZ, signozTail } from "./world/signoz";
 import { AWS, awsLogLines } from "./world/aws";
 import { demoActivity } from "./world/activity";
@@ -732,6 +732,8 @@ export class ShowcaseBackend implements IpcTransport {
       if (plugin === "sikemux.rundeck") rundeckStream(method as string, emit);
       if (plugin === "sikemux.aws" && method === "tailLogs")
         for (const line of awsLogLines()) emit(line);
+      if (plugin === "sikemux.vercel" && method === "deployFolder")
+        for (const step of vercelDeploySteps()) emit(step);
       if (plugin === "sikemux.signoz" && method === "tailLogs")
         emit(signozTail());
       return nextStream++;

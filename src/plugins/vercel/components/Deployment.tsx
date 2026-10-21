@@ -8,6 +8,8 @@ import { vercelLogR } from "../resources";
 import { useRefreshEvery } from "../../../plugin-api/hooks";
 import { deploymentForAgent, isUnderway, UNDERWAY_REFRESH_MS } from "../state";
 import { Avatar, EnvBadge, hostOf, IconMore, IconPromote, IconRollback, Source, Status, useDeploymentActions, visit } from "./parts";
+import { Protection } from "./Protection";
+import { RuntimeLogs } from "./RuntimeLogs";
 
 /** Builds print plenty to stderr that is not a failure, so only lines that say so are marked. */
 const looksLikeError = (line: VercelLogLine) => line.kind === "fatal" || /\b(error|failed)\b|ERR!/i.test(line.text);
@@ -145,6 +147,7 @@ export function Deployment({
                         </dd>
                     </div>
                 </dl>
+                <Protection active={active} team={team} deployment={deployment} />
                 {deployment.error && <p className="vercel-error">{deployment.error}</p>}
             </section>
 
@@ -170,6 +173,7 @@ export function Deployment({
                     )}
                 </div>
             </section>
+            {ready ? <RuntimeLogs team={team} deployment={deployment} /> : null}
             {menu && <ContextMenu x={menu.x} y={menu.y} items={actions.menu(deployment, current)} onClose={() => setMenu(null)} />}
             {agentMenu && (
                 <SendToAgentMenu
