@@ -12,8 +12,9 @@ name = "sikemux-host"
 path = "src/main.rs"
 
 [features]
-default = ["aws", "bitbucket", "bruno", "database", "github", "gitlab", "jira", "linear", "rundeck", "signoz", "slack", "vercel"]
+default = ["aws", "azure", "bitbucket", "bruno", "database", "github", "gitlab", "jira", "linear", "rundeck", "signoz", "slack", "vercel"]
 aws = ["dep:sikemux-plugin-aws"]
+azure = ["dep:sikemux-plugin-azure"]
 bitbucket = ["dep:sikemux-plugin-bitbucket"]
 gitlab = ["dep:sikemux-plugin-gitlab"]
 bruno = ["dep:sikemux-plugin-bruno"]
@@ -45,6 +46,7 @@ sikemux-process = { path = "../sikemux-process" }
 sikemux-pty = { path = "../sikemux-pty" }
 sikemux-plugin-api = { path = "../sikemux-plugin-api" }
 sikemux-plugin-aws = { path = "../../plugins/aws", optional = true }
+sikemux-plugin-azure = { path = "../../plugins/azure", optional = true }
 sikemux-plugin-bitbucket = { path = "../../plugins/bitbucket", optional = true }
 sikemux-plugin-gitlab = { path = "../../plugins/gitlab", optional = true }
 sikemux-plugin-bruno = { path = "../../plugins/bruno", optional = true }

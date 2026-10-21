@@ -1,0 +1,545 @@
+.az-pane {
+    display: flex;
+    height: 100%;
+    min-height: 0;
+    color: var(--text-primary);
+    font-size: var(--text-sm);
+}
+
+.az-pane-empty {
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+}
+
+.az-side {
+    display: flex;
+    flex: none;
+    flex-direction: column;
+    gap: 8px;
+    width: 230px;
+    min-width: 180px;
+    max-width: 360px;
+    padding: 12px 8px;
+    background: var(--surface-sunken);
+    overflow-y: auto;
+}
+
+.az-resize {
+    flex: none;
+    width: 5px;
+    margin: 0 -2px;
+    border-left: 1px solid var(--border);
+    cursor: col-resize;
+    z-index: 1;
+}
+
+.az-resize:hover,
+.az-resize:focus-visible {
+    border-left-color: var(--acc);
+    outline: none;
+}
+
+.az-pick {
+    width: 100%;
+}
+
+.az-pick-mark {
+    display: inline-grid;
+    place-items: center;
+    width: 20px;
+    height: 20px;
+    border-radius: var(--radius-control);
+    background: var(--surface-selected);
+}
+
+.az-find {
+    padding: 6px 10px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-control);
+    background: var(--surface);
+    color: var(--text-primary);
+    font-size: var(--text-xs);
+}
+
+.az-find-inline {
+    width: 220px;
+}
+
+.az-nav {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+}
+
+.az-nav-item {
+    padding: 6px 10px;
+    border-radius: var(--radius-control);
+    color: var(--text-secondary);
+    font-size: var(--text-xs);
+    text-align: left;
+}
+
+.az-nav-item:hover {
+    background: var(--surface-hover);
+    color: var(--text-primary);
+}
+
+.az-nav-item.active {
+    background: var(--surface-chosen);
+    color: var(--text-primary);
+    font-weight: var(--weight-medium);
+}
+
+.az-side-foot {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    margin-top: auto;
+    padding: 8px 6px 0;
+    border-top: 1px solid var(--border);
+    font-size: var(--text-xs);
+}
+
+.az-side-user {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.az-main {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    min-width: 0;
+    min-height: 0;
+}
+
+.az-topbar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-height: 40px;
+    padding: 6px 14px;
+    border-bottom: 1px solid var(--border);
+}
+
+.az-topbar-title {
+    font-weight: var(--weight-medium);
+}
+
+.az-topbar .az-button {
+    margin-left: auto;
+}
+
+.az-page {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    min-height: 0;
+    padding: 12px 14px;
+    overflow: auto;
+}
+
+.az-section {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.az-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px;
+}
+
+.az-button {
+    padding: 4px 10px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-control);
+    background: var(--surface-raised);
+    color: var(--text-primary);
+    font-size: var(--text-xs);
+    white-space: nowrap;
+}
+
+.az-button:hover:not(:disabled) {
+    background: var(--surface-hover);
+}
+
+.az-button:disabled {
+    opacity: 0.5;
+}
+
+.az-button.danger {
+    color: var(--danger);
+}
+
+.az-button.small {
+    padding: 2px 8px;
+    font-size: var(--text-2xs);
+}
+
+.az-link {
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--acc);
+    font-size: inherit;
+    cursor: pointer;
+}
+
+.az-link:hover {
+    text-decoration: underline;
+}
+
+.az-note {
+    margin: 0;
+    color: var(--text-secondary);
+}
+
+.az-error {
+    color: var(--danger);
+}
+
+.az-muted {
+    color: var(--text-tertiary);
+}
+
+.az-mono {
+    font-family: var(--mono);
+    font-size: var(--text-xs);
+}
+
+.az-name {
+    font-weight: var(--weight-medium);
+}
+
+.az-heading {
+    margin: 12px 0 2px;
+    color: var(--text-secondary);
+    font-size: var(--text-xs);
+    font-weight: var(--weight-medium);
+}
+
+.az-dot {
+    display: inline-block;
+    width: 7px;
+    height: 7px;
+    border-radius: var(--radius-full);
+    background: var(--text-tertiary);
+}
+
+.az-dot.live {
+    background: var(--live);
+}
+
+.az-dot.warn {
+    background: var(--warn);
+}
+
+.az-dot.danger {
+    background: var(--danger);
+}
+
+.az-state.live {
+    color: var(--live);
+}
+
+.az-state.warn {
+    color: var(--warn);
+}
+
+.az-state.danger {
+    color: var(--danger);
+}
+
+.az-state.idle {
+    color: var(--text-tertiary);
+}
+
+.az-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: var(--text-xs);
+}
+
+.az-table th {
+    padding: 6px 8px;
+    border-bottom: 1px solid var(--border);
+    color: var(--text-tertiary);
+    font-weight: var(--weight-medium);
+    text-align: left;
+    white-space: nowrap;
+}
+
+.az-table td {
+    padding: 7px 8px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: middle;
+}
+
+.az-row {
+    cursor: pointer;
+}
+
+.az-row:hover,
+.az-row:focus-visible {
+    background: var(--surface-hover);
+    outline: none;
+}
+
+.az-cell-dot {
+    width: 14px;
+}
+
+.az-cell-actions {
+    width: 1%;
+    white-space: nowrap;
+}
+
+.az-row-actions {
+    display: inline-flex;
+    gap: 4px;
+}
+
+.az-table .az-row-actions {
+    opacity: 0;
+}
+
+.az-row:hover .az-row-actions,
+.az-row:focus-within .az-row-actions {
+    opacity: 1;
+}
+
+.az-chip {
+    display: inline-block;
+    padding: 0 6px;
+    border-radius: var(--radius-full);
+    background: var(--surface-sunken);
+    color: var(--text-secondary);
+    font-size: var(--text-2xs);
+    line-height: 18px;
+    white-space: nowrap;
+}
+
+.az-chip.warn {
+    color: var(--warn);
+}
+
+.az-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+}
+
+.az-note-inline {
+    display: block;
+    margin-top: 2px;
+    font-size: var(--text-2xs);
+}
+
+.az-detail {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    min-height: 0;
+    flex: 1;
+}
+
+.az-detail-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 12px;
+}
+
+.az-back {
+    padding: 2px 6px;
+    border: 0;
+    border-radius: var(--radius-control);
+    background: none;
+    color: var(--text-secondary);
+    font-size: var(--text-xs);
+}
+
+.az-back:hover {
+    background: var(--surface-hover);
+    color: var(--text-primary);
+}
+
+.az-detail-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+    flex: 1;
+}
+
+.az-detail-title h2 {
+    margin: 0;
+    overflow: hidden;
+    font-size: var(--text-md);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.az-detail-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.az-facts {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+    gap: 10px 16px;
+    margin: 0;
+}
+
+.az-facts dt {
+    color: var(--text-tertiary);
+    font-size: var(--text-2xs);
+}
+
+.az-facts dd {
+    margin: 2px 0 0;
+    overflow-wrap: anywhere;
+    font-size: var(--text-xs);
+}
+
+.az-pairs {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    font-size: var(--text-xs);
+}
+
+.az-pairs li {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.az-cards {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.az-card {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 6px;
+    padding: 10px 12px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-control);
+    background: var(--surface-raised);
+}
+
+.az-card header {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    font-size: var(--text-xs);
+}
+
+.az-events {
+    display: flex;
+    flex-direction: column;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    font-size: var(--text-xs);
+}
+
+.az-events li {
+    display: grid;
+    grid-template-columns: 8px minmax(0, 1fr) auto auto;
+    align-items: baseline;
+    gap: 12px;
+    padding: 7px 0;
+    border-bottom: 1px solid var(--border);
+}
+
+.az-event-main {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+
+.az-event-operation {
+    font-weight: var(--weight-medium);
+}
+
+.az-event-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    font-size: var(--text-2xs);
+}
+
+.az-event-message {
+    overflow-wrap: anywhere;
+    color: var(--text-secondary);
+}
+
+.az-event-when {
+    white-space: nowrap;
+}
+
+.az-logs {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    min-height: 0;
+    flex: 1;
+}
+
+.az-logs-count {
+    display: inline-flex;
+    gap: 8px;
+    margin-left: auto;
+    font-size: var(--text-xs);
+}
+
+.az-live {
+    color: var(--live);
+}
+
+.az-log-list {
+    flex: 1;
+    min-height: 240px;
+    overflow: auto;
+    padding: 6px 0;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-control);
+    background: var(--surface-sunken);
+    font-family: var(--mono);
+    font-size: var(--text-xs);
+}
+
+.az-log-line {
+    padding: 0 10px;
+    line-height: 18px;
+}
+
+.az-log-text {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+
+.az-detail > .az-link {
+    align-self: flex-start;
+}

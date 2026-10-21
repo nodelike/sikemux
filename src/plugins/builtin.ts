@@ -1,4 +1,5 @@
 import "./aws";
+import "./azure";
 import "./bitbucket";
 import "./bruno";
 import "./database";

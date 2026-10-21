@@ -351,6 +351,7 @@
 .sess-icon.project {
     color: var(--live);
 }
+.icon-azure,
 .icon-github,
 .icon-linear,
 .icon-vercel {

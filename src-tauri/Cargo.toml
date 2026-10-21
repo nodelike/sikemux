@@ -137,6 +137,8 @@ strip = "symbols"
 # smallest size.
 [profile.release.package.sikemux-plugin-aws]
 opt-level = "z"
+[profile.release.package.sikemux-plugin-azure]
+opt-level = "z"
 [profile.release.package.sikemux-plugin-bitbucket]
 opt-level = "z"
 [profile.release.package.sikemux-plugin-bruno]

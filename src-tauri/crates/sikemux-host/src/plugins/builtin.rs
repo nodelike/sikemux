@@ -6,6 +6,8 @@ pub fn plugins() -> Vec<Arc<dyn Plugin>> {
     let compiled_in: Vec<Result<Arc<dyn Plugin>, PluginError>> = vec![
         #[cfg(feature = "aws")]
         sikemux_plugin_aws::plugin(),
+        #[cfg(feature = "azure")]
+        sikemux_plugin_azure::plugin(),
         #[cfg(feature = "bitbucket")]
         sikemux_plugin_bitbucket::plugin(),
         #[cfg(feature = "bruno")]

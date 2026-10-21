@@ -1,0 +1,114 @@
+{
+  "id": "sikemux.azure",
+  "name": "Azure",
+  "version": "0.1.0",
+  "sikemux": ">=0.4",
+  "callTimeoutSecs": 90,
+  "tools": [
+    {
+      "name": "azure_resources",
+      "row": {"verb": "list", "kind": "search", "icon": "dashboard", "target": ["{group}: {kind}", "{group}", "{kind}", "every resource"]},
+      "method": "resources",
+      "description": "Resources in the subscription, with each one's type, group, location, state and tags, and how many there are of each type.",
+      "properties": {
+        "group": { "type": "string", "description": "Only this resource group's." },
+        "kind": { "type": "string", "description": "A type such as microsoft.web/sites." },
+        "find": { "type": "string", "description": "Words the name must contain." },
+        "subscription": { "type": "string", "description": "Default: the one az is set to." }
+      }
+    },
+    {
+      "name": "azure_vms",
+      "row": {"verb": "list", "kind": "read", "icon": "run", "target": ["{group}", "virtual machines"]},
+      "method": "vms",
+      "description": "Virtual machines with whether each is running or deallocated, its size, image, zone and addresses.",
+      "properties": {
+        "group": { "type": "string" },
+        "subscription": { "type": "string" }
+      }
+    },
+    {
+      "name": "azure_vm_act",
+      "row": {"verb": "act", "kind": "execute", "icon": "run", "target": ["{action} {name}"]},
+      "method": "vmAct",
+      "description": "Start, stop or restart a virtual machine. Deallocate stops paying for it; powerOff leaves it allocated. Only when the person asked for it.",
+      "properties": {
+        "group": { "type": "string" },
+        "name": { "type": "string" },
+        "action": { "type": "string", "enum": ["start", "deallocate", "powerOff", "restart"] },
+        "subscription": { "type": "string" }
+      },
+      "required": ["group", "name", "action"]
+    },
+    {
+      "name": "azure_apps",
+      "row": {"verb": "list", "kind": "read", "icon": "globe", "target": ["{group}", "web apps"]},
+      "method": "apps",
+      "description": "App Service and Functions apps with whether each is running, its address, runtime and plan.",
+      "properties": {
+        "group": { "type": "string" },
+        "subscription": { "type": "string" }
+      }
+    },
+    {
+      "name": "azure_app",
+      "row": {"verb": "read", "kind": "read", "icon": "globe", "target": ["{name}"]},
+      "method": "app",
+      "description": "One app with its slots, its setting names (never their values) and the addresses it is reached on and calls out from.",
+      "properties": {
+        "group": { "type": "string" },
+        "name": { "type": "string" },
+        "subscription": { "type": "string" }
+      },
+      "required": ["group", "name"]
+    },
+    {
+      "name": "azure_app_act",
+      "row": {"verb": "act", "kind": "execute", "icon": "refresh", "target": ["{action} {name}"]},
+      "method": "appAct",
+      "description": "Start, stop or restart an App Service or Functions app. Only when the person asked for it.",
+      "properties": {
+        "group": { "type": "string" },
+        "name": { "type": "string" },
+        "action": { "type": "string", "enum": ["start", "stop", "restart"] },
+        "subscription": { "type": "string" }
+      },
+      "required": ["group", "name", "action"]
+    },
+    {
+      "name": "azure_storage",
+      "row": {"verb": "list", "kind": "read", "icon": "folder", "target": ["{group}", "storage"]},
+      "method": "storage",
+      "description": "Storage accounts with their redundancy, access tier and whether anything in them can be read without signing in.",
+      "properties": {
+        "group": { "type": "string" },
+        "subscription": { "type": "string" }
+      }
+    },
+    {
+      "name": "azure_activity",
+      "row": {"verb": "read", "kind": "read", "icon": "clock", "target": ["{group}", "activity"]},
+      "method": "activity",
+      "description": "What has happened to the subscription's resources lately: what was done, by whom, and whether it worked.",
+      "properties": {
+        "group": { "type": "string" },
+        "hours": { "type": "integer", "description": "Default 24." },
+        "failedOnly": { "type": "boolean" },
+        "subscription": { "type": "string" }
+      }
+    },
+    {
+      "name": "azure_metrics",
+      "row": {"verb": "read", "kind": "read", "icon": "activity", "target": ["{names}"]},
+      "method": "metrics",
+      "description": "Azure Monitor numbers for one resource, such as Percentage CPU or Http5xx, over the last few hours.",
+      "properties": {
+        "id": { "type": "string", "description": "The resource id, as the lists give it." },
+        "names": { "type": "array", "items": { "type": "string" }, "description": "Metric names, such as Percentage CPU." },
+        "hours": { "type": "integer", "description": "Default 3." },
+        "interval": { "type": "string", "enum": ["PT1M", "PT5M", "PT15M", "PT30M", "PT1H", "PT6H", "P1D"] }
+      },
+      "required": ["id", "names"]
+    }
+  ]
+}

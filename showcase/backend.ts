@@ -18,6 +18,7 @@ import { BRANCHES, FILE_DIFFS, GIT_STATUS } from "./world/git";
 import { RUNDECK, rundeckStream } from "./world/rundeck";
 import { GITHUB } from "./world/github";
 import { JIRA } from "./world/jira";
+import { AZURE, azureLogLines } from "./world/azure";
 import { VERCEL } from "./world/vercel";
 import { SIGNOZ, signozTail } from "./world/signoz";
 import { AWS, awsLogLines } from "./world/aws";
@@ -287,6 +288,7 @@ export class ShowcaseBackend implements IpcTransport {
       constant(
         [
           ["aws", "AWS"],
+          ["azure", "Azure"],
           ["bruno", "Bruno"],
           ["database", "Database"],
           ["github", "GitHub"],
@@ -708,6 +710,7 @@ export class ShowcaseBackend implements IpcTransport {
       "sikemux.database": DATABASE,
       "sikemux.jira": JIRA,
       "sikemux.vercel": VERCEL,
+      "sikemux.azure": AZURE,
       "sikemux.slack": {
         status: () => ({ configured: true, ok: true, authFailed: false, message: null, workspaces: [] }),
       },
@@ -734,6 +737,8 @@ export class ShowcaseBackend implements IpcTransport {
         for (const line of awsLogLines()) emit(line);
       if (plugin === "sikemux.signoz" && method === "tailLogs")
         emit(signozTail());
+      if (plugin === "sikemux.azure" && method === "tailAppLogs")
+        for (const line of azureLogLines()) emit(line);
       return nextStream++;
     });
 

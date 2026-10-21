@@ -5821,6 +5821,7 @@ dependencies = [
  "sikemux-loopback",
  "sikemux-plugin-api",
  "sikemux-plugin-aws",
+ "sikemux-plugin-azure",
  "sikemux-plugin-bitbucket",
  "sikemux-plugin-bruno",
  "sikemux-plugin-database",
@@ -5935,6 +5936,21 @@ dependencies = [
  "sikemux-plugin-api",
  "sikemux-process",
  "time",
+ "tokio",
+ "workspace-hack",
+]
+
+[[package]]
+name = "sikemux-plugin-azure"
+version = "0.1.0"
+dependencies = [
+ "futures",
+ "reqwest",
+ "rustls",
+ "serde",
+ "serde_json",
+ "sikemux-plugin-api",
+ "sikemux-process",
  "tokio",
  "workspace-hack",
 ]
