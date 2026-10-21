@@ -149,6 +149,8 @@ opt-level = "z"
 opt-level = "z"
 [profile.release.package.sikemux-plugin-jira]
 opt-level = "z"
+[profile.release.package.sikemux-plugin-kubernetes]
+opt-level = "z"
 [profile.release.package.sikemux-plugin-linear]
 opt-level = "z"
 [profile.release.package.sikemux-plugin-rundeck]

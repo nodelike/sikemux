@@ -12,7 +12,7 @@ name = "sikemux-host"
 path = "src/main.rs"
 
 [features]
-default = ["aws", "bitbucket", "bruno", "database", "github", "gitlab", "jira", "linear", "rundeck", "signoz", "slack", "vercel"]
+default = ["aws", "bitbucket", "bruno", "database", "github", "gitlab", "jira", "kubernetes", "linear", "rundeck", "signoz", "slack", "vercel"]
 aws = ["dep:sikemux-plugin-aws"]
 bitbucket = ["dep:sikemux-plugin-bitbucket"]
 gitlab = ["dep:sikemux-plugin-gitlab"]
@@ -25,6 +25,7 @@ rundeck = ["dep:sikemux-plugin-rundeck"]
 signoz = ["dep:sikemux-plugin-signoz"]
 slack = ["dep:sikemux-plugin-slack"]
 vercel = ["dep:sikemux-plugin-vercel"]
+kubernetes = ["dep:sikemux-plugin-kubernetes"]
 
 [build-dependencies]
 sha2 = "0.11"
@@ -56,6 +57,7 @@ sikemux-plugin-rundeck = { path = "../../plugins/rundeck", optional = true }
 sikemux-plugin-signoz = { path = "../../plugins/signoz", optional = true }
 sikemux-plugin-slack = { path = "../../plugins/slack", optional = true }
 sikemux-plugin-vercel = { path = "../../plugins/vercel", optional = true }
+sikemux-plugin-kubernetes = { path = "../../plugins/kubernetes", optional = true }
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
